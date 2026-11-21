@@ -17,7 +17,7 @@ import {
   type RunApiClient,
   type RunAttachTicket,
 } from "../../runApi";
-import { attachFailureState, attachTicketExpired } from "../../RunBoard";
+import { attachFailureState, attachTicketExpired } from "../../runBoardModel";
 import { attachRunTerminal } from "../../runAttach";
 
 export type CompareRunBoardProps = {

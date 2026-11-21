@@ -22,6 +22,8 @@ use std::sync::PoisonError;
 use std::time::Duration;
 
 /// How long one update may take (a large npm package on a slow link).
+// timeout: an explicit updater operation needs a cleanup bound; health refresh
+// and agent wake paths run independently and keep their cached state.
 const UPDATE_LIMIT: Duration = Duration::from_secs(15 * 60);
 
 /// Programs that raise rights; never run on their own.

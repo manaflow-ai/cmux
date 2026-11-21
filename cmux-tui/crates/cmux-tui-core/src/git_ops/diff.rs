@@ -2,7 +2,7 @@
 //! each file's patch cut to a byte budget.
 
 use std::collections::{HashMap, HashSet};
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::Read;
 use std::path::{Component, Path};
 
@@ -11,6 +11,7 @@ use cmux_git::diff::{Comparison, ScopeError, diff_args, untracked_args};
 use cmux_git::run::{GitOutput, GitWindow};
 use serde_json::{Map, Value, json};
 
+use super::work_tree_entry::Tree;
 use super::{Repository, clamp, git_failed, parse};
 use crate::resource::{ResourceError, WireDecimal};
 use cmux_json::JsonSet as _;
@@ -103,7 +104,9 @@ fn capture_key(
         limit(fields, "context_lines", 3).min(MAX_CONTEXT_LINES),
         scope,
         fields.get("from"),
-        fields.get("to")
+        fields.get("to"),
+        fields.get("base"),
+        fields.get("head")
     ])
     .to_string())
 }
@@ -176,8 +179,41 @@ pub(super) fn read(
     if let Some(value) = continuation(repository, fields, OPERATION)? {
         return Ok(value);
     }
-    let comparison = comparison(repository, scope)?;
+    let comparison = match scope {
+        "commits" => commits(repository, fields)?,
+        scope => comparison(repository, scope)?,
+    };
     report(repository, &comparison, OPERATION, fields, json!({"scope":scope}))
+}
+
+/// The commits scope: `head` against its merge base with `base`, both full
+/// commit ids the repository already has (a pull request's head and base, read
+/// with no fetch). A missing one is `commit_missing`, so the caller reads the
+/// diff elsewhere.
+fn commits(
+    repository: &Repository,
+    fields: &Map<String, Value>,
+) -> Result<Comparison, ResourceError> {
+    let field = |name: &'static str| {
+        fields.get(name).and_then(Value::as_str).ok_or_else(|| {
+            ResourceError::validation_invalid(Some(name), "the commits scope needs base and head")
+        })
+    };
+    let (base, head) = (field("base")?, field("head")?);
+    cmux_git::diff::commits(repository, base, head).map_err(|error| match error {
+        ScopeError::MissingCommit { commit } => ResourceError::operation_failed(
+            OPERATION,
+            format!("the repository has no commit {commit}"),
+            json!({"code":"commit_missing","commit":commit}),
+        ),
+        ScopeError::NoMergeBase { .. } => ResourceError::operation_failed(
+            OPERATION,
+            format!("{base} and {head} have no common commit"),
+            json!({"code":"no_merge_base","base":base}),
+        ),
+        ScopeError::Git(failure) => git_failed(OPERATION, &failure),
+        other => ResourceError::validation_invalid(Some("scope"), other.to_string()),
+    })
 }
 
 /// One tree against another.
@@ -242,7 +278,9 @@ fn report(
             // The last name may be cut short.
             names.pop();
         }
-        files.extend(names.into_iter().map(|name| untracked(&repository.root, name)));
+        // One set of open folders for the listing: its names are in order.
+        let mut tree = Tree::open(&repository.root);
+        files.extend(names.into_iter().map(|name| untracked(tree.as_mut(), name)));
     }
     files.sort_by(|left, right| left.path.cmp(&right.path));
     let additions = files.iter().map(|file| file.additions).sum::<u64>();
@@ -422,6 +460,11 @@ fn comparison(repository: &Repository, scope: &str) -> Result<Comparison, Resour
             format!("HEAD and {base} have no common commit"),
             json!({"code":"no_merge_base","base":base}),
         ),
+        ScopeError::MissingCommit { commit } => ResourceError::operation_failed(
+            OPERATION,
+            format!("the repository has no commit {commit}"),
+            json!({"code":"commit_missing","commit":commit}),
+        ),
         ScopeError::Git(failure) => git_failed(OPERATION, &failure),
     })
 }
@@ -543,10 +586,12 @@ fn returned_paths(files: &[ChangedFile]) -> Vec<String> {
 }
 
 /// Count every text line without retaining the file. Binary and special files
-/// count none; the binary probe has the same 8000-byte scope as git.
-fn untracked(root: &Path, path: String) -> ChangedFile {
+/// count none, and so does a file that is not in the work tree `tree` any
+/// more; the binary probe has the same 8000-byte scope as git.
+fn untracked(tree: Option<&mut Tree>, path: String) -> ChangedFile {
     let mut file = ChangedFile::new(path, "untracked");
-    let Some(mut handle) = open_regular(&root.join(&file.path)) else { return file };
+    let opened = tree.and_then(|tree| open_regular(tree, Path::new(&file.path)));
+    let Some(mut handle) = opened else { return file };
     let mut buffer = [0_u8; 32 * 1024];
     let mut probe_remaining = BINARY_PROBE_BYTES;
     let mut newlines = 0_u64;
@@ -572,19 +617,13 @@ fn untracked(root: &Path, path: String) -> ChangedFile {
     file
 }
 
-/// Opens a regular file without following a link or waiting on a FIFO. Read
-/// its initial extent so concurrent appends cannot keep this request running.
-fn open_regular(path: &Path) -> Option<std::io::Take<File>> {
-    let mut options = OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
-    }
-    let handle = options.open(path).ok()?;
-    let metadata = handle.metadata().ok()?;
-    metadata.is_file().then(|| handle.take(metadata.len()))
+/// Opens a regular file of the work tree without following a link, at its
+/// name or at a folder above it, and without waiting on a FIFO. Read its
+/// initial extent so concurrent appends cannot keep this request running.
+fn open_regular(tree: &mut Tree, path: &Path) -> Option<std::io::Take<File>> {
+    let handle = tree.entry(path).ok()?.open_file().ok()?;
+    let length = handle.metadata().ok()?.len();
+    Some(handle.take(length))
 }
 
 /// The request's paths, which must stay inside the repository.

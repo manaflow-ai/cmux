@@ -3,8 +3,9 @@
 //! `acpmux machine join` stored (`cli/cloud_join.rs`), and given to every
 //! agent this machine's daemon spawns.
 //!
-//! - `GET {hub}/v1/vault/machine` (bearer: the machine credential) answers
-//!   `{ env: [{ name, revision, state, valueBase64? }] }`; 403
+//! - `GET {hub}/v1/vault/machine?delivery=proxy.v1` (bearer: the machine
+//!   credential) answers `{ env: [{ name, revision, state, valueBase64?,
+//!   delivery, allowedHosts }] }`; 403
 //!   `vault.not_granted` is a machine the person has not shared the vault
 //!   with (not an error), 401 a revoked credential (`wire.rs`).
 //! - Each value goes into the OS secret store (Keychain service `cmux-vault`,
@@ -23,15 +24,22 @@
 //!   delivered `machine.env`; the vault; the daemon's own environment; the
 //!   login shell's. Remote-origin launches never get them.
 //!
+//! Keys an agent made itself are kept on the machine, with no sign-in or
+//! click, and given out the same way (`acpmux machine vault keep`, `kept.rs`).
+//!
 //! The vault never carries a Claude or ChatGPT/Codex subscription login:
 //! `machine vault status` only says whether each harness is signed in here,
 //! so the person runs that harness's own sign-in on this machine.
 
+pub mod egress;
+pub mod kept;
 pub mod plan;
 pub mod pull;
 pub mod store;
 pub mod wire;
 
+#[cfg(test)]
+mod kept_tests;
 #[cfg(test)]
 mod tests;
 
@@ -46,6 +54,8 @@ use self::store::SecretStore;
 
 /// Advertised by `acpmux capabilities`: `machine vault pull|status|forget`.
 pub const CAPABILITY: &str = "machine.vault.pull.v1";
+/// Advertised too: proxy delivery (placeholders and the egress proxy, `vault::egress`).
+pub const EGRESS_CAPABILITY: &str = "machine.vault.egress.v1";
 /// How often the daemon pulls.
 pub const EVERY: Duration = Duration::from_secs(15 * 60);
 /// The first retry after a failed pull; doubled up to [`EVERY`].
@@ -54,6 +64,46 @@ const FIRST_RETRY: Duration = Duration::from_secs(30);
 /// Env names the vault never sets, whatever the hub sends: a Claude
 /// subscription token is the person's own login, signed in per machine.
 pub const REFUSED_NAMES: &[&str] = &["CLAUDE_CODE_OAUTH_TOKEN"];
+
+/// Env names the vault never sets because they reroute agents: a base URL
+/// would carry every agent's model traffic, placeholders included, wherever
+/// it points. The platform refuses them; one a hub sends anyway is refused
+/// here with its name logged, and a copy stored by an older pull is removed.
+pub const REROUTING_NAMES: &[&str] = &["ANTHROPIC_BASE_URL", "OPENAI_BASE_URL"];
+
+/// Whether `name` is one of [`REROUTING_NAMES`], in any case.
+pub fn rerouting(name: &str) -> bool {
+    REROUTING_NAMES.iter().any(|n| n.eq_ignore_ascii_case(name))
+}
+
+/// Removes, now, a base URL a state saved by an older pull still lists: its
+/// store item and its record. `State::parse` already moved it to
+/// `pending_delete`, so no reader gives it to an agent; this does not wait
+/// for the next pull (a daemon with a saved state skips the first one).
+/// While a pull or `forget` holds the lock, that run deletes it instead.
+fn scrub_rerouting(home: &std::path::Path, store: &dyn SecretStore) {
+    let listed = |state: &State| -> Vec<String> {
+        state.pending_delete.iter().filter(|n| rerouting(n)).cloned().collect()
+    };
+    if listed(&pull::read_state(home)).is_empty() {
+        return;
+    }
+    let Ok(_lock) = pull::lock(home, false) else { return };
+    let mut state = pull::read_state(home);
+    let names = listed(&state);
+    for name in names {
+        match store.delete(&name) {
+            Ok(()) => {
+                state.pending_delete.remove(&name);
+                tracing::warn!(name = %name, "vault entry removed: a base URL would reroute agents");
+            }
+            Err(code) => tracing::warn!(name = %name, code, "vault entry not removed yet"),
+        }
+    }
+    if let Err(code) = pull::write_state(home, &state) {
+        tracing::warn!(code, "vault state not saved");
+    }
+}
 
 /// Set by the daemon's worker: only a daemon gives agents the vault.
 static ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -128,6 +178,9 @@ pub fn load_values_by(
 ) -> (Vec<(String, Zeroizing<String>)>, Vec<(String, &'static str)>) {
     let (mut vars, mut skipped) = (Vec::new(), Vec::new());
     for (name, record) in &state.env {
+        if rerouting(name) {
+            continue;
+        }
         if Instant::now() >= deadline {
             skipped.push((name.clone(), "vault.load_timeout"));
             continue;
@@ -173,6 +226,9 @@ fn refresh_at(path: &std::path::Path, store: &dyn SecretStore, at: std::time::In
         (loaded.seen.is_some(), loaded.incomplete_at.is_none())
     };
     let home = path.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
+    scrub_rerouting(&home, store);
+    // The scrub may have saved the state: what is read now is what was seen.
+    let now = stamp_of(path);
     let state = pull::read_state(&home);
     let signature = state.signature();
     // The same entries as the last load: an unchanged state keeps its
@@ -231,16 +287,39 @@ fn loaded_names() -> Vec<String> {
 
 /// The vault env every local agent of this daemon gets (`login_env`). Empty
 /// outside a daemon. Values are read from the store only when the state
-/// changed; otherwise this is a `stat`.
+/// changed; otherwise this is a `stat`. A proxy entry is its placeholder
+/// (`cmux-secret://NAME`) plus the egress proxy's settings (`egress.rs`);
+/// only an entry the person opted out (`delivery: env`) is its value.
 pub fn env_for_children() -> Vec<(String, String)> {
+    egress::child_env(entries_now())
+}
+
+/// The entries a spawn may get now, with their delivery. Empty outside a
+/// daemon. The egress proxy reads the same (`egress::policy_now`).
+pub(crate) fn entries_now() -> Vec<Given> {
     if !ACTIVE.load(Ordering::SeqCst) {
         return Vec::new();
     }
-    // Before the store check has run (a machine not joined never runs it,
-    // and a launch never waits on it), there is nothing to give.
-    let Some(store) = store::for_daemon_known() else { return Vec::new() };
     let home = crate::config::home();
-    let deliver = || deliver_at(&home, &*store, &pull::current_credential, Instant::now());
+    let deliver = || {
+        // Before the store check has run (a machine not joined never runs
+        // it, and a launch never waits on it), no pulled entry is given.
+        let mut given = match store::for_daemon_known() {
+            Some(store) => deliver_at(&home, &*store, &pull::current_credential, Instant::now()),
+            None => Vec::new(),
+        };
+        // Kept keys live only in the OS store (`kept.rs`), read once the
+        // store check found it usable (started here when nothing else has).
+        // A pulled entry of the same name wins, and so does a value the
+        // launch already inherits: no agent's key replaces another's.
+        if kept::path(&home).exists() && kept_store_usable() {
+            let taken: Vec<String> = given.iter().map(|g| g.name.clone()).collect();
+            let at = Instant::now();
+            let kept = kept::given_at(&home, &store::OsStore, &taken, at, at + LOAD_BUDGET);
+            given.extend(kept.into_iter().filter(|g| egress::inherited(&g.name).is_none()));
+        }
+        given
+    };
     // A reload runs store commands (bounded by `LOAD_BUDGET`): on a Tokio
     // worker, the runtime moves its other tasks off this thread first.
     match tokio::runtime::Handle::try_current() {
@@ -248,6 +327,40 @@ pub fn env_for_children() -> Vec<(String, String)> {
             tokio::task::block_in_place(deliver)
         }
         _ => deliver(),
+    }
+}
+
+/// Whether kept keys can be read: the OS store check said usable. Until it
+/// has run, this starts it once on its own thread (a machine that is not
+/// joined never runs it) and gives no kept key, so no launch waits on it.
+fn kept_store_usable() -> bool {
+    static STARTED: AtomicBool = AtomicBool::new(false);
+    static SCOPE: std::sync::OnceLock<cmux_scope::Scope> = std::sync::OnceLock::new();
+    if let Some(usable) = store::os_usable_known() {
+        return usable;
+    }
+    // Outside a runtime nothing starts it: the next spawn in one does.
+    if tokio::runtime::Handle::try_current().is_ok() && !STARTED.swap(true, Ordering::SeqCst) {
+        let scope = SCOPE.get_or_init(|| cmux_scope::Scope::new("vault kept store check"));
+        scope.spawn_named("vault-kept-store-check", async {
+            let _ = tokio::task::spawn_blocking(store::os_usable).await;
+        });
+    }
+    false
+}
+
+/// One entry a spawn gets: its value, and `Some(allowed hosts)` when agents
+/// get a placeholder the egress proxy fills (`plan::EnvRecord::proxy`).
+pub(crate) struct Given {
+    pub name: String,
+    pub value: Zeroizing<String>,
+    pub proxy: Option<Vec<String>>,
+}
+
+impl std::fmt::Debug for Given {
+    /// Never the value.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Given({} {:?})", self.name, self.proxy)
     }
 }
 
@@ -263,7 +376,7 @@ fn deliver_at(
     store: &dyn SecretStore,
     current: pull::CurrentCredential,
     at: Instant,
-) -> Vec<(String, String)> {
+) -> Vec<Given> {
     if pull::held(home) {
         return Vec::new();
     }
@@ -292,28 +405,49 @@ fn delivered(current: Option<(String, bool)>, held: bool) -> Vec<(String, String
         return Vec::new();
     }
     given(&LOADED.read().unwrap_or_else(|e| e.into_inner()), current)
+        .into_iter()
+        .map(|g| (g.name, g.value.as_str().to_owned()))
+        .collect()
 }
 
-fn given(loaded: &Loaded, current: Option<(String, bool)>) -> Vec<(String, String)> {
+fn given(loaded: &Loaded, current: Option<(String, bool)>) -> Vec<Given> {
     let Some(state) = loaded.state.as_ref() else { return Vec::new() };
     let names = state.delivered_names(current.as_ref().map(|(c, revoked)| (c.as_str(), *revoked)));
     loaded
         .vars
         .iter()
-        .filter(|(k, _)| names.contains(k))
-        .map(|(k, v)| (k.clone(), v.as_str().to_owned()))
+        .filter(|(k, _)| names.contains(k) && !rerouting(k))
+        .map(|(k, v)| Given {
+            name: k.clone(),
+            value: v.clone(),
+            proxy: state.env.get(k).and_then(|r| r.proxy.clone()),
+        })
         .collect()
 }
 
 /// What the vault env a spawn gets depends on, as metadata (never a value):
 /// the state file's identity, the hold, and a digest of the machine
 /// credential and its revoked flag. `None` outside a daemon. The agent pool
-/// keys on it (`login_env::machine_stamp`).
+/// keys on it ([`machine_stamp`]).
 pub fn stamp() -> Option<String> {
     if !ACTIVE.load(Ordering::SeqCst) {
         return None;
     }
     Some(stamp_in(&crate::config::home(), pull::current_credential()))
+}
+
+/// The machine files' metadata stamp (never a value), for keys that must
+/// change when a delivery or revocation does (the agent pool's). It covers
+/// the vault too (`vault::stamp`): a pooled agent started before a vault pull,
+/// a hold or a credential change is discarded at its claim.
+pub fn machine_stamp() -> Option<String> {
+    let vault = stamp();
+    match (crate::login_env::machine_files_stamp(), vault) {
+        (None, None) => None,
+        (files, vault) => {
+            Some(format!("{}|vault:{}", files.unwrap_or_default(), vault.unwrap_or_default()))
+        }
+    }
 }
 
 pub(crate) fn stamp_in(home: &std::path::Path, credential: Option<(String, bool)>) -> String {
@@ -325,7 +459,18 @@ pub(crate) fn stamp_in(home: &std::path::Path, credential: Option<(String, bool)
         h.update([u8::from(*revoked)]);
     }
     let credential: String = h.finalize().iter().take(8).map(|b| format!("{b:02x}")).collect();
-    let file = match file {
+    let file = stamp_text(file);
+    let kept = stamp_text(stamp_of(&kept::path(home)));
+    format!(
+        "{file};held={};cred={credential};kept={kept};egress={}",
+        pull::held(home),
+        egress::stamp()
+    )
+}
+
+/// A file's identity as text: its length, modified time and inode.
+fn stamp_text(file: Option<Stamp>) -> String {
+    match file {
         None => "none".to_owned(),
         Some(s) => {
             #[cfg(unix)]
@@ -338,8 +483,7 @@ pub(crate) fn stamp_in(home: &std::path::Path, credential: Option<(String, bool)
                 .map_or(0, |d| d.as_nanos());
             format!("{}:{at}:{ino}", s.len)
         }
-    };
-    format!("{file};held={};cred={credential}", pull::held(home))
+    }
 }
 
 /// The longest the first agent spawn waits for the first pull of a joined
@@ -373,7 +517,8 @@ pub async fn start_worker() {
     // the async workers, and within `INITIAL_WAIT` with the first pull. Past
     // it, launches give no vault env until the check is done (the loop's
     // first round waits for it).
-    let usable = if joined {
+    // A machine with kept keys checks too, so its first spawn gets them.
+    let usable = if joined || kept::path(&crate::config::home()).exists() {
         match bounded(INITIAL_WAIT, tokio::task::spawn_blocking(store::os_usable)).await {
             Some(Ok(usable)) => Some(usable),
             _ => {

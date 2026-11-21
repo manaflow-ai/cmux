@@ -5,8 +5,9 @@
 import type { PaneLanguage, Translate } from "../../i18n";
 import type { Subagent } from "../../subagents/subagentFold";
 import { subagentProgress } from "../../subagents/subagentProgress";
-import { contextBreakdown, contextParts } from "../ContextSection";
+import { contextBreakdown, contextParts } from "../contextSectionModel";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
+import { intl } from "../../../../ui/intl";
 
 export const CONTEXT_SYMBOL = "gauge.with.dots.needle.33percent";
 
@@ -31,6 +32,8 @@ export type ContextInput = {
   /// Opens or closes one of the breakdown's folds; without it the folds show their counts only.
   onToggleList?: (id: "mcpTools" | "memoryFiles" | "skills") => void;
   onCompact?: () => void;
+  /// Opens the Context screen (ContextSection's View Prompt).
+  onViewPrompt?: () => void;
 };
 
 export function contextSection(
@@ -59,11 +62,11 @@ export function contextSection(
   // As the composer's context ring reads it (ComposerPickers ContextRing).
   const fraction = Math.min(1, Math.max(0, usage.used / usage.size));
   const percent = Math.round(fraction * 100);
-  const tokens = new Intl.NumberFormat(undefined, {
+  const tokens = intl.NumberFormat(undefined, {
     notation: "compact",
     maximumFractionDigits: 1,
   });
-  const share = new Intl.NumberFormat(undefined, {
+  const share = intl.NumberFormat(undefined, {
     style: "percent",
     maximumFractionDigits: 1,
   });
@@ -72,13 +75,25 @@ export function contextSection(
       id: "total",
       title: t("context.percent", { percent }),
       trailing: `${tokens.format(usage.used)} / ${tokens.format(usage.size)}`,
-      ...(input.onCompact
+      ...(input.onCompact || input.onViewPrompt
         ? {
             buttons: [
-              {
-                label: t("sessionInfo.context.compactSession"),
-                action: actions.add("context.compact", input.onCompact),
-              },
+              ...(input.onViewPrompt
+                ? [
+                    {
+                      label: t("contextScreen.viewPrompt"),
+                      action: actions.add("context.viewPrompt", input.onViewPrompt),
+                    },
+                  ]
+                : []),
+              ...(input.onCompact
+                ? [
+                    {
+                      label: t("sessionInfo.context.compactSession"),
+                      action: actions.add("context.compact", input.onCompact),
+                    },
+                  ]
+                : []),
             ],
           }
         : {}),

@@ -13,7 +13,7 @@ import {
   acpmuxSendCallsParseCountForTests,
   resetAcpmuxSendCallsCacheForTests,
 } from "./acpmuxSends";
-import { toolGroups } from "./toolGroups";
+import { sendEntries, toolGroups } from "./toolGroups";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -28,7 +28,7 @@ const bash = (command: string, fields: Partial<Tool> = {}): Tool => ({
 
 /// The coordinator's shape from Leo's screenshot (2026-10-30), names made up.
 const FUNCTION_BATCH =
-  'cd /tmp/coord; s(){ acpmux send --no-wait --from coord "$1" "$(cat "$2")" 2>&1 | tail -1; }; s build-box/nightly escalate-nightly.md; s gcp-lane/acpmux-owner relay-owner.md';
+  'cd /tmp/coord; s(){ acpmux send --no-wait --from coord "$1" "$(cat "$2")" 2>&1 | tail -1; }; s build-box/nightly escalate-nightly.md; s ci-box/acpmux-owner relay-owner.md';
 
 beforeEach(() => resetAcpmuxSendCallsCacheForTests());
 
@@ -51,7 +51,7 @@ describe("acpmuxSendBatch", () => {
     expect(acpmuxSendBatch(FUNCTION_BATCH)).toEqual({
       sends: [
         { target: "build-box/nightly", file: "escalate-nightly.md", noWait: true },
-        { target: "gcp-lane/acpmux-owner", file: "relay-owner.md", noWait: true },
+        { target: "ci-box/acpmux-owner", file: "relay-owner.md", noWait: true },
       ],
     });
     // `function name { … }` and literal prompt arguments.
@@ -66,7 +66,7 @@ describe("acpmuxSendBatch", () => {
   test("each message takes its own line of the output: queued, steered, or acpmux's error", () => {
     const calls = acpmuxSendCalls(
       bash(FUNCTION_BATCH, {
-        output: 'queued\nacpmux: no_session: no session matches "gcp-lane/acpmux-owner"',
+        output: 'queued\nacpmux: no_session: no session matches "ci-box/acpmux-owner"',
         exitCode: 0,
       }),
     );
@@ -74,7 +74,7 @@ describe("acpmuxSendBatch", () => {
       calls?.map(({ target, state, delivery, index, count }) => ({ target, state, delivery, index, count })),
     ).toEqual([
       { target: "build-box/nightly", state: "sent", delivery: "queued", index: 0, count: 2 },
-      { target: "gcp-lane/acpmux-owner", state: "failed", delivery: undefined, index: 1, count: 2 },
+      { target: "ci-box/acpmux-owner", state: "failed", delivery: undefined, index: 1, count: 2 },
     ]);
     // While the call runs, every message is going out.
     expect(
@@ -140,14 +140,12 @@ describe("acpmuxSendBatch", () => {
     expect(acpmuxSendCalls(bash('for f in *.md; do wc -l "$f"; done'))).toBeUndefined();
   });
 
-  test("a batch draws one sent-message row per recipient, each on its own", () => {
+  test("a batch draws one group of sent messages that opens to a row per recipient", () => {
     const call = bash(FUNCTION_BATCH, { output: "queued\nsteered" });
     const groups = toolGroups([{ kind: "tool", text: call.title, tool: call }]);
-    expect(groups.map((group) => group.type)).toEqual(["send", "send"]);
-    expect(groups.map((group) => (group.type === "send" ? group.send.target : ""))).toEqual([
-      "build-box/nightly",
-      "gcp-lane/acpmux-owner",
-    ]);
+    // Leo, 2026-11-04: "why arent these collapsed/collapsible".
+    expect(groups.map((group) => group.type)).toEqual(["sendGroup"]);
+    expect(sendEntries(groups).map((group) => group.send.target)).toEqual(["build-box/nightly", "ci-box/acpmux-owner"]);
   });
 });
 
@@ -292,11 +290,75 @@ describe("acpmuxMcpSends", () => {
       delivery: "queued",
       state: "sent",
     });
-    // More than the tool takes (32 items): it sent nothing, so no rows are drawn for it.
-    const many = Array.from({ length: 33 }, (_, at) => ({ to: `lane-${at}`, text: "hi" }));
-    expect(acpmuxMcpSends(mcp({ messages: many }))).toBeUndefined();
     // The tool's bare name is read too.
     expect(acpmuxMcpSends({ ...mcp({ to: "a", file: "/tmp/a.md" }), title: "acpmux_send" })?.[0]?.target).toBe("a");
+  });
+
+  test("1024 messages retain every body and result beyond the former item cap", () => {
+    const messages = Array.from({ length: 1024 }, (_, index) => ({
+      to: `recipient-${index}`,
+      text: `body-${index}\n${"x".repeat(4096)}`,
+    }));
+    const output = JSON.stringify({
+      results: messages.map(({ to }, index) => ({ index, to, ok: index !== 1023, delivery: "queued" })),
+    });
+    const parts = acpmuxMcpSends(mcp({ messages }, { output }));
+    expect(parts).toHaveLength(messages.length);
+    for (const [index, message] of messages.entries()) {
+      expect(parts![index]).toMatchObject({
+        target: message.to,
+        text: message.text,
+        index,
+        count: messages.length,
+        state: index === 1023 ? "failed" : "sent",
+      });
+    }
+  });
+
+  test("1025 tag recipients retain structured and text receipts beyond the former row cap", () => {
+    const targets = Array.from({ length: 1025 }, (_, index) => `recipient-${index}`);
+    const outputs = [
+      JSON.stringify({ results: targets.map((to) => ({ index: 0, to, ok: true })) }),
+      targets.map((to) => `Sent to ${to}: steered into its running turn.`).join("\n"),
+    ];
+    for (const output of outputs) {
+      const parts = acpmuxMcpSends(mcp({ tag: "area=docs", text: "hello" }, { output }));
+      expect(parts?.map((part) => part.target)).toEqual(targets);
+      expect(parts?.at(-1)).toMatchObject({ text: "hello", index: 1024, count: targets.length });
+    }
+  });
+
+  test("an MCP error result with no per-recipient rows marks every message failed", () => {
+    const messages = Array.from({ length: 65 }, (_, index) => ({ to: `recipient-${index}`, text: "hi" }));
+    const output = JSON.stringify({
+      isError: true,
+      content: [{ type: "text", text: "acpmux_send reaches at most 64 sessions; nothing was sent." }],
+    });
+    const parts = acpmuxMcpSends(mcp({ messages }, { output }));
+    expect(parts).toHaveLength(65);
+    expect(parts!.every((part) => part.state === "failed")).toBe(true);
+  });
+
+  test("an unchanged large MCP send is parsed once; changed receipts invalidate the memo", () => {
+    const tool = mcp({
+      messages: Array.from({ length: 1024 }, (_, index) => ({ to: `recipient-${index}`, text: "hi" })),
+    });
+    const parse = JSON.parse;
+    let reads = 0;
+    JSON.parse = (source, reviver) => {
+      if (source === tool.inputSummary) reads += 1;
+      return parse(source, reviver);
+    };
+    try {
+      for (let token = 0; token < 50; token += 1) acpmuxMcpSends(tool);
+      expect(reads).toBe(1);
+      tool.status = "failed";
+      expect(acpmuxMcpSends(tool)?.at(-1)?.state).toBe("failed");
+      tool.output = JSON.stringify({ results: [{ index: 1023, to: "recipient-1023", ok: true, delivery: "queued" }] });
+      expect(acpmuxMcpSends(tool)?.[0]).toMatchObject({ target: "recipient-1023", state: "sent", delivery: "queued" });
+    } finally {
+      JSON.parse = parse;
+    }
   });
 
   test("the first shape with a file: its result line, sent or not", () => {

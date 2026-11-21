@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { footnoteOrder, parseMarkdown } from "../src/agent-session/acpmux/conversation/Markdown";
+import { footnoteOrder, parseMarkdown } from "../src/agent-session/acpmux/conversation/markdownModel";
 import { IncrementalMarkdown } from "../src/agent-session/acpmux/conversation/incrementalMarkdown";
 import { safeTail } from "../src/agent-session/acpmux/conversation/safeTail";
 

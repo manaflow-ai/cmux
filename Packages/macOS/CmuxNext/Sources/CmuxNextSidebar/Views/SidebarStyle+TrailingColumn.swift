@@ -2,36 +2,50 @@ import AppKit
 import CmuxNextDesign
 
 /// AppKit adapters for the pure grid, measured from the highlight's left edge. The trailing column's
-/// line is the grid's, and it never comes nearer the fill edge than the largest trailing hit target at
+/// line is `trailingCenterInset` inside the fill, and it never comes nearer the fill edge than the largest trailing hit target at
 /// the current density (footer Search included) allows, so every row state stays clear of the
 /// sidebar resize band.
 extension SidebarStyle {
     /// The one column source every sidebar row kind reads, in its highlight's coordinates.
-    /// `lead` sits `horizontalInset` inside the highlight: the highlight keeps the base list inset
-    /// (6 compact, 8 comfortable), and an iconless title starts as far left as the row allows
-    /// (Lawrence 2026-10-23), so lead lands 12 / 16 from the sidebar edge. The trailing line is
-    /// grid.md's: 24 from the sidebar edge, the row ending `rowEdgeGap` short of it.
+    /// `lead` sits `contentInset` inside the highlight, the padding the row's text has above and below it (Lawrence
+    /// 2026-11-09: even on all four sides), and an iconless title starts there (Lawrence 2026-10-23: as far left as the
+    /// row allows). The trailing line is `trailingCenterInset` inside the fill, mirroring that inset.
     static func columns(rowWidth: CGFloat, depth: Int = 0, leadingOffset: CGFloat = 0) -> SidebarColumns {
         SidebarColumns(rowWidth: rowWidth, comfortable: SidebarDensityTokens.isComfortable,
                        depth: depth, leadingOffset: leadingOffset,
-                       leadingInset: LayoutGrid.sidebarLead - horizontalInset,
-                       trailingInset: rowEdgeGap, minIconBox: iconBox,
-                       minTrailingCenterInset: trailingColumnInset + trailingSlotSide / 2)
+                       leadingInset: LayoutGrid.sidebarLead - contentInset,
+                       trailingCenterInset: trailingCenterInset, minIconBox: iconBox,
+                       minTrailingCenterInset: minTrailingCenterInset,
+                       iconBoxOverride: SidebarRowTuning.iconColumn.tunable.override ?? Metrics.densityToken("sidebarIconColumn").map { _ in iconBox },
+                       gap: SidebarRowTuning.glyphGap.value, trailingPitch: trailingSlotPitch)
     }
 
     static var trailingSlotSide: CGFloat { controlSize }
 
-    /// Inset from the fill edge to the control slot's end that the column never comes nearer than: the
-    /// larger of the row's own inset and the resize clearance. The slot never ends outside the row's
-    /// inset (Lawrence: the hover close is the row's × at the end of the title's line, inside the
-    /// row's inset), and never nearer the edge than the resize band's reach plus Search's overhang
-    /// (#27954: Search can be wider than the slot, and a trailing click must not grab the resize edge).
-    /// The grid's 24 pt line clears it at the default text size. Both are measured from the place the fill
-    /// ended before rows kept a gap from the edge (`trailingClearanceEdge`), so the gap moves the fill, never the
-    /// column: the marks stay on the grid's line at every density and text size, as before 2026-11-02.
+    /// The room right of the titlebar row's + when it centers on the trailing column (`SidebarView.layout`): the
+    /// column's distance from the sidebar's edge less half the button, never under the row's old `space3` inset.
+    static var titlebarPlusTrailingInset: CGFloat { max(Metrics.space3, trailingCenterFromEdge - toolbarButtonSize / 2) }
+
+    /// The Default control's 3 pt trailing inset on its 20 pt square, scaled with the control.
+    static var trailingControlInset: CGFloat { trailingSlotSide * 3 / 20 }
+
+    /// Every trailing mark and control shares the same center line.
+    static var trailingCenterInset: CGFloat { trailingControlInset + trailingSlotSide / 2 }
+
+    /// The trailing column center's distance from the sidebar's edge, past the row's gap; the resize clearance
+    /// below still wins if a larger control needs more room.
+    static var trailingCenterFromEdge: CGFloat {
+        rowEdgeGap + max(trailingCenterInset, minTrailingCenterInset)
+    }
+
+    /// Footer Search and row controls must also clear the sidebar resize band.
+    static var minTrailingCenterInset: CGFloat {
+        trailingColumnInset + max(trailingSlotSide, searchHeight) / 2
+    }
+
+    /// The resize band's minimum clearance from the row fill's trailing edge.
     static var trailingColumnInset: CGFloat {
-        max(0, trailingClearanceEdge - rowEdgeGap + max(horizontalInset, Metrics.space1 + SidebarResizeBand.contentInset +
-            max(0, (searchHeight - trailingSlotSide) / 2)))
+        trailingClearanceEdge + SidebarResizeBand.contentInset - rowEdgeGap
     }
 
     /// How far in from the sidebar's edge the trailing clearance above is measured: where a row's fill ended
@@ -74,16 +88,34 @@ extension SidebarStyle {
 
     /// ChromeLabel's alignment rectangle excludes its cell padding; its reported baseline
     /// measures the actual font. Center the capitals, rather than the line box.
+    /// A browser density (`sidebarLineBoxBaseline`, Default, Comfortable and Spacious) places the baseline as its tab does
+    /// (``capCenteredBaseline(_:centerY:scale:)``), so a row's title sits on its tab's baseline.
     static func textY(_ label: ChromeLabel, centerY: CGFloat) -> CGFloat {
-        columns(rowWidth: 0).textOriginY(centerY: centerY, baseline: label.firstBaselineOffsetFromTop,
-                                       capHeight: (label.font ?? titleFont).capHeight)
+        let font = label.font ?? titleFont
+        // On the label's own pixel grid (a 1x display snaps to whole points).
+        if let baseline = capCenteredBaseline(font, centerY: centerY, scale: label.window?.backingScaleFactor ?? 2) {
+            return baseline - label.firstBaselineOffsetFromTop
+        }
+        return columns(rowWidth: 0).textOriginY(centerY: centerY, baseline: label.firstBaselineOffsetFromTop, capHeight: font.capHeight)
+    }
+    /// The baseline a tab gives its title, for `font`'s capitals centered on `centerY` (flipped), at a browser density
+    /// (`sidebarLineBoxBaseline`); nil at the others, which center the capitals their own way. A tab puts the baseline half
+    /// a cap height under its middle, the icon's center, on the pixel grid (`TabCell`), so a row's title sits on its tab's
+    /// baseline and centers on its icon at every height (Lucas 2026-11-15: "vertically aligned with the icon always").
+    static func capCenteredBaseline(_ font: NSFont, centerY: CGFloat, scale: CGFloat = 2) -> CGFloat? {
+        guard Metrics.densityToken("sidebarLineBoxBaseline") != nil else { return nil }
+        let s = max(scale, 1)
+        return ((centerY + font.capHeight / 2) * s).rounded() / s
     }
 
     /// The step between neighbouring trailing slots' centers: a control and the controls' gap. Slot 0 is the column;
     /// slot 1 (a hovered row's more, a header's more) and slot 2 (a header's +) step left by
     /// this one pitch, so ⋮ ✕ on a hovered row and + ⋮ ⌄ on a group header fall on the same lines (Leo 2026-10-29:
     /// "I SAID THE SHIT WAS MISALIGNED LAST FUCCKING NIGHT"; a hovered row stepped 22 pt then 20 pt).
-    static var trailingSlotPitch: CGFloat { LayoutGrid.sidebarSecondMarkPitch }
+    static var trailingSlotPitch: CGFloat { trailingSlotSide + trailingControlGap }
+
+    /// One tenth of a button between adjacent hover squares.
+    static var trailingControlGap: CGFloat { trailingSlotSide / 10 }
 
     /// The center x of trailing slot `slot` (0 is the column) in a row of `rowWidth`.
     static func trailingSlotCenterX(rowWidth: CGFloat, slot: Int) -> CGFloat {

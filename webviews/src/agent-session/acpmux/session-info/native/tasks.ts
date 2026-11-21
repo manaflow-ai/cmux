@@ -1,26 +1,31 @@
 // Session Info's Background tasks as the App draws it (model.ts): what Session Info's `tasks`,
 // WorkflowTasks.tsx, ServersSection.tsx and TasksSection.tsx show, as plain rows. The chat's Claude
 // workflows first (running, then finished; each with its phases and, in an open phase, its agents),
-// then the dev servers, then the running commands and the scheduled wakeups, then "N finished",
-// which opens into the ended commands. The lists, their order and their words come from the page's
+// then the dev servers, then the running commands and the wakeups and cron jobs still ahead, then
+// "N finished", which opens into the ended commands and the scheduled items whose time has passed
+// (session-info/scheduled.ts), latest first. The lists, their order and their words come from the page's
 // own helpers, so both panels say the same thing.
 import { useState } from "react";
-import { formatDuration } from "../../conversation/turns";
+import { formatDuration, spanDuration } from "../../conversation/turns";
 import type { StringKey, Translate } from "../../i18n";
 import { openCommand } from "../../processTerminal";
 import { modelName, phaseAgents, phaseState, tally, workflowDetailRequest } from "../../summary/foldWorkflows";
 import type { SummaryBackgroundTask, SummaryWakeup } from "../../summary/sessionSummary";
 import type { WorkflowAgent, WorkflowSummary } from "../../summary/workflow";
+import { agentLine, agentModelLabel, outputLine, sharedModel } from "../../summary/workflowView";
 import {
   arrivalKey,
   sessionInfoLists,
   sendLabel,
+  serverUrl,
   splitCommands,
   type BackgroundCommand,
   type SessionInfoProcess,
 } from "../processes";
-import { COMMAND_STATE } from "../TasksSection";
-import { compactTokens } from "../../conversation/CompactionNote";
+import { COMMAND_STATE } from "../tasksSectionModel";
+import { scheduledTrailing, splitScheduled, type ScheduledEntry } from "../scheduled";
+import { TASK_ICONS } from "../taskIcons";
+import { compactTokens } from "../../conversation/compactionNoteModel";
 import type { NativeInfoActions, NativeInfoButton, NativeInfoRow, NativeInfoSection, NativeInfoTone } from "./model";
 import { nativeExternalUrl } from "./links";
 
@@ -46,8 +51,11 @@ export type TasksSectionInput = {
   onStopWorkflow?: (id: string) => Promise<unknown>;
   onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
   onOpenUrl?: (url: string) => void;
-  /// The clock the elapsed times read (the page's `useNow`).
+  /// The clock the elapsed times read (the page's `useNow`, and `useScheduledClock` for when a
+  /// wakeup or cron job ends).
   now: number;
+  /// The pane's language, for a cron schedule's words and a wakeup's time of day.
+  language?: string;
   /// The finished commands show under "N finished"; `onFinishedOpen` flips it.
   finishedOpen?: boolean;
   onFinishedOpen?: (open: boolean) => void;
@@ -64,6 +72,14 @@ const COMMAND_TONE: Record<BackgroundCommand["state"], NativeInfoTone> = {
   failed: "failed",
   stopped: "muted",
   lost: "muted",
+};
+
+const SCHEDULED_TONE: Record<ScheduledEntry["status"]["state"], NativeInfoTone> = {
+  scheduled: "waiting",
+  done: "done",
+  expired: "muted",
+  cancelled: "muted",
+  failed: "failed",
 };
 
 const WORKFLOW_TONE: Record<WorkflowAgent["state"], NativeInfoTone> = {
@@ -103,7 +119,7 @@ export function tasksSection(
   // Servers, newest first: the command, the ports it names (each explicit port is its own button)
   // and how long it has run. The row itself stays plain, like ServersSection.tsx.
   for (const server of [...servers].sort((a, b) => b.startedAt - a.startedAt)) {
-    const urls = server.ports.map((port) => `http://localhost:${port}`);
+    const urls = server.ports.map((port) => serverUrl(server, port));
     const buttons: NativeInfoButton[] = [];
     if (urls.length > 0)
       for (const url of urls)
@@ -136,7 +152,7 @@ export function tasksSection(
     const onStop = input.onStopProcess;
     return {
       id: `command:${key}`,
-      symbol: "terminal.prompt",
+      symbol: TASK_ICONS.command.native,
       title: sendLabel(t, item) ?? item.command,
       ...(trailing ? { trailing } : {}),
       tone: COMMAND_TONE[item.state],
@@ -161,31 +177,51 @@ export function tasksSection(
         item.startedAt !== undefined ? formatDuration(Math.max(0, now - item.startedAt)) : t(COMMAND_STATE.running),
       ),
     );
-  for (const wakeup of scheduled)
-    rows.push({
-      id: `scheduled:${wakeup.id}`,
-      symbol: "clock",
-      title: wakeup.text,
-      ...(wakeup.cron ? { trailing: wakeup.cron } : {}),
-    });
-  if (finished.length > 0) {
+  const { active, finished: ended } = splitScheduled(scheduled, now);
+  const showCall = input.onShowCall;
+  const scheduledRow = (entry: ScheduledEntry): NativeInfoRow => {
+    const trailing = scheduledTrailing(t, input.language ?? "en", entry);
+    const ended = entry.status.state !== "scheduled";
+    return {
+      id: `scheduled:${entry.item.id}`,
+      symbol: TASK_ICONS[entry.item.kind].native,
+      title: entry.item.text,
+      ...(trailing ? { trailing } : {}),
+      ...(ended ? { tone: SCHEDULED_TONE[entry.status.state] } : {}),
+      // The call that made it (sessionSummary `scheduled`, keyed by the call): while the loaded
+      // transcript holds it, a click shows it, and with an action the App lights the row on hover as
+      // it does a command's (Leo, 2026-11-06: the "Fallback heartbeat ... doesn't get highlighted in
+      // the same way that the other ones do").
+      ...(showCall && input.calls?.has(entry.item.id)
+        ? { action: actions.add(`tasks.showCall:${entry.item.id}`, () => void showCall(entry.item.id)) }
+        : {}),
+      help: entry.item.cron && !ended ? `${entry.item.text} (${entry.item.cron})` : entry.item.text,
+    };
+  };
+  for (const entry of active) rows.push(scheduledRow(entry));
+  const finishedCommand = (item: BackgroundCommand): NativeInfoRow => {
+    const time =
+      item.endedAt !== undefined && item.startedAt !== undefined
+        ? spanDuration(t, item.endedAt - item.startedAt)
+        : undefined;
+    return command(item, [time, t(COMMAND_STATE[item.state])].filter(Boolean).join(" · "));
+  };
+  // The ended commands and scheduled items as one list, latest first.
+  const finishedRows = [
+    ...finished.map((item) => ({ at: item.endedAt ?? item.startedAt, row: () => finishedCommand(item) })),
+    ...ended.map((entry) => ({ at: entry.status.endedAt, row: () => scheduledRow(entry) })),
+  ].sort((a, b) => (b.at ?? -Infinity) - (a.at ?? -Infinity));
+  if (finishedRows.length > 0) {
     const finishedOpen = input.finishedOpen ?? false;
     const onFinishedOpen = input.onFinishedOpen;
     rows.push({
       id: "finished",
       symbol: finishedOpen ? "chevron.down" : "chevron.right",
-      title: t("rail.finished", { count: finished.length }),
+      title: t("rail.finished", { count: finishedRows.length }),
       tone: "muted",
       ...(onFinishedOpen ? { action: actions.add("tasks.finished", () => onFinishedOpen(!finishedOpen)) } : {}),
     });
-    if (finishedOpen)
-      for (const item of finished) {
-        const time =
-          item.endedAt !== undefined && item.startedAt !== undefined
-            ? formatDuration(Math.max(0, item.endedAt - item.startedAt))
-            : undefined;
-        rows.push(command(item, [time, t(COMMAND_STATE[item.state])].filter(Boolean).join(" · ")));
-      }
+    if (finishedOpen) for (const entry of finishedRows) rows.push(entry.row());
   }
 
   const runningCount =
@@ -300,9 +336,14 @@ function workflowRows(
       item.tokens !== undefined ? [t("subagents.tokens", { n: item.tokens, tokens: compactTokens(item.tokens) })] : [];
     const status =
       item.state === "completed" ? (both ? undefined : t("bgTask.state.completed")) : workflowStateWord(t, item.state);
+    // The workflow's model and effort, named once here: an agent row names its own only where it differs.
+    const sharedRun = sharedModel(item.agents);
+    const model = sharedRun.model
+      ? [[modelName(sharedRun.model), sharedRun.effort].filter((value): value is string => Boolean(value)).join(" · ")]
+      : [];
     const meta = live
-      ? [...workflowCounts(t, item.agents), ...tokens]
-      : [...(status ? [status] : []), t("subagents.pill", { n: counts.total }), ...tokens];
+      ? [...workflowCounts(t, item.agents), ...tokens, ...model]
+      : [...(status ? [status] : []), t("subagents.pill", { n: counts.total }), ...tokens, ...model];
     const onStop = input.onStopWorkflow;
     rows.push({
       id: `workflow:${item.id}`,
@@ -344,12 +385,18 @@ function workflowRows(
           : {}),
       });
       if (!open) continue;
+      const shared = sharedModel(item.agents);
       for (const agent of agents) {
-        const modelEffort = [agent.model ? modelName(agent.model) : undefined, agent.effort]
-          .filter((value): value is string => Boolean(value))
-          .join(" · ");
-        const model = modelEffort ? t("workflow.model", { model: modelEffort }) : undefined;
-        const message = (agent.state === "failed" ? agent.error : undefined) ?? agent.lastMessage ?? agent.doing;
+        // The web row's rule (summary/workflowView.ts `agentModelLabel`).
+        const own = agentModelLabel(agent, shared);
+        const model = own?.model
+          ? t("workflow.model", {
+              model: [modelName(own.model), own.effort].filter((value): value is string => Boolean(value)).join(" · "),
+            })
+          : own?.effort;
+        // In words, never its last shell command or a JSON result (summary/workflowView.ts). This row
+        // has no output to open, so one that finished well says its output's first line.
+        const message = agentLine(agent) ?? (agent.state === "completed" ? outputLine(agent) : undefined);
         const elapsed =
           agent.elapsedMs ??
           (agent.state === "running" && agent.startedAt !== undefined

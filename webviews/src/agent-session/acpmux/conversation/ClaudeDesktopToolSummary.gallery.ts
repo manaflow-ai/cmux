@@ -1,8 +1,8 @@
 // l10n-allow-file: gallery fixtures (sample prompts, commands and outputs), not shipped UI.
 // A run of shell calls summarized as Claude Code desktop summarizes one (Leo, 2026-11-03: "hmm claude
 // code desktop's summarization of tool calls/parsing of them seem kinda good?"): a header that counts
-// what happened, "Finished 2 background tasks, ran 5 commands (2 failed)", with its chevron; one row
-// per call titled by its description, a failed one tagged "Failed" in red before its chevron; opened,
+// what happened, "Finished 2 background tasks and ran 5 commands", with its chevron; one row per call
+// titled by what its command did (commandActions.ts), and a failure draws no word (Codex parity); opened,
 // the command in its code colours, "Exit code N" in red, then the output in mono; a background
 // command's end noted as "Background command completed <command>". Our colours, glass, fonts and row
 // grid stay. Reference: cmux-design-references claude/live/transcript-tool-call-group-summary.
@@ -146,11 +146,11 @@ export default agentPaneEntry({
   keywords: ["claude", "tool", "summary", "background", "failed", "exit code", "commands"],
   variants: {
     collapsed: {
-      note: "Chosen. Mixed background and failed calls as the turn first draws them, under Finished 2 background tasks, ran 5 commands (2 failed).",
+      note: "Chosen. Mixed background and failed calls as the turn first draws them, under Finished 2 background tasks and ran 5 commands.",
       snapshot: finished(mixed()),
     },
     opened: {
-      note: "The run opened (opened here if it is not already): one row per call by its description, the failed ones tagged Failed.",
+      note: "The run opened (opened here if it is not already): one row per call by its command (Codex parity); a failed one draws no word.",
       snapshot: finished(mixed()),
       play: openRun,
     },
@@ -164,7 +164,7 @@ export default agentPaneEntry({
       snapshot: running,
     },
     "no-description": {
-      note: "Calls with no description fall back to Ran <command>.",
+      note: "Calls with no description read as their command too, as every call does.",
       snapshot: finished(mixed(false)),
       play: openRun,
     },

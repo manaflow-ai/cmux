@@ -22,14 +22,14 @@ struct PersonalGroupPin {
         switch intent {
         case let .setGroupPinned(group, pinned):
             guard isServed else { return unserved(intent, DaemonCapability.workspaceGroupPin) }
-            send("update-personal-group", intent, held: true) { try await $0.state.updateWorkspaceGroup(group.rawValue, pinned: pinned) }
+            send("update-personal-group", intent, held: true, (group.rawValue, "pinned")) { try await $0.state.updateWorkspaceGroup(group.rawValue, pinned: pinned) }
             return true
         case let .setGroupIcon(group, icon):
             guard bridge.statePersonal, home.supports(DaemonCapability.workspaceGroupIcon.rawValue) else {
                 return unserved(intent, DaemonCapability.workspaceGroupIcon)
             }
             let update: FieldUpdate<String> = icon.map { .set($0) } ?? .clear
-            send("update-personal-group", intent, held: true) { try await $0.state.updateWorkspaceGroup(group.rawValue, icon: update) }
+            send("update-personal-group", intent, held: true, (group.rawValue, "icon")) { try await $0.state.updateWorkspaceGroup(group.rawValue, icon: update) }
             return true
         case let .closeGroup(group):
             guard isServed, let pinned = bridge.model.group(group)?.isPinned else { return false }
@@ -55,8 +55,9 @@ struct PersonalGroupPin {
     }
 
     /// One home-daemon request for `intent`. `held`: the rows show `intent` now and hold it until the
-    /// home store has it (a pending edit, #26382). A failure re-syncs the sidebar and says why.
-    private func send(_ label: String, _ intent: SidebarIntent, held: Bool, _ body: @escaping DaemonCommandBody) {
-        bridge.rows.send(label, edit: held ? bridge.rows.edits.add(intent) : nil, on: home, failed: bridge.saveFailed(intent), body)
+    /// home store has it (a pending edit, #26382). A failure re-syncs the sidebar and says why; a `field` write is sent again while unanswered.
+    private func send(_ label: String, _ intent: SidebarIntent, held: Bool, _ field: (group: String, name: String)? = nil, _ body: @escaping DaemonCommandBody) {
+        bridge.rows.send(label, edit: held ? bridge.rows.edits.add(intent) : nil, on: home,
+                         until: field.map { home.store.personal.writes.claim(group: $0.group, $0.name) }, failed: bridge.saveFailed(intent), body)
     }
 }

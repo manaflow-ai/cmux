@@ -11,10 +11,15 @@ enum AgentPaneHandshakeReply {
         if request == .ready {
             model.tabRow.pageLoaded()
             model.sessionInfo.pageLoaded()
+            model.setToastAvoidance(nil)
+            model.hostGlass.pageLoaded()
             model.setTabRowTools([])
         }
         model.setCheckpointAvailable(false)
         model.pageCommands = []
+        // The store's start folder is read while acpmux connects, not after (Leo, 2026-11-03: "why does
+        // it even take time to read settings?"): ``AgentPaneStartFolders/apply(to:ready:model:)`` takes it.
+        model.startFolders.prefetch(for: model)
         do {
             var handshake = request == .ready
                 ? try await model.host.handshake(sessionId: model.sessionId)
@@ -31,12 +36,18 @@ enum AgentPaneHandshakeReply {
                 if (seed.prompt?.isEmpty == false || seed.promptAttachments?.isEmpty == false), seed.promptBy.sendsBySelf {
                     let issued = model.transport.gestures.issueSeedTicket()
                     handshake.promptTicket = AgentPaneHandshake.PromptTicket(promptId: issued.promptId, ticket: issued.ticket)
+                } else if seed.prompt?.isEmpty == false || seed.promptAttachments?.isEmpty == false {
+                    // A CLI, MCP or script seed waits in the composer for the person's own Send.
+                    model.transport.gestures.holdAutomationSeed()
                 }
                 handshake.harness = seed.harness
                 handshake.model = seed.model
+                handshake.effort = seed.effort
                 handshake.peer = seed.host
                 if let peer = seed.host { handshake.machineName = peer }
                 if seed.showsHarnesses { handshake.harnesses = true }
+                if seed.picksCloud { handshake.pickCloud = true }
+                handshake.cloudStartHandoff = seed.cloudStartHandoff
                 (handshake.adopt, handshake.pastTurns) = (seed.adopt, await AgentPanePastTurn.turns(of: seed.pastChat))
             }
             // The surface holds after the chat has a session (a reload
@@ -57,6 +68,7 @@ enum AgentPaneHandshakeReply {
             }
             if model.sessionId == nil, let folderNeeded = model.seed?.folderNeeded { handshake.folderNeeded = AgentPaneHandshake.FolderNeeded(reason: folderNeeded.reason) }
             handshake.linkScheme = model.linkScheme
+            handshake.tab = model.tabKey()
             // A chat on another machine names that machine (its host set it), never this Mac.
             let localName = await AgentPaneModel.localMachineName?.value
             if handshake.machineName == nil { handshake.machineName = localName }
@@ -74,7 +86,13 @@ enum AgentPaneHandshakeReply {
             // A peer's folder belongs to that peer. Never resolve it against this Mac's
             // workspace/agent-home or read local Git data at the same path.
             let filled = started || handshake.peer != nil ? false : await model.startFolders.apply(to: &handshake, ready: request == .ready, model: model)
-            if !started, handshake.peer == nil { handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd) }
+            if !started, handshake.peer == nil {
+                handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd)
+                // Its pull requests' diffs are read from this folder before GitHub (GitHubLocalDiff).
+                if let repository = handshake.githubRepository, let cwd = handshake.cwd {
+                    AgentReplyPullRequests.shared.noteFolder(cwd, of: repository)
+                }
+            }
             handshake.revealTurn = model.pendingRevealTurn
             model.pendingRevealTurn = nil
             // Only a fresh page reads it; a reconnect keeps it for the page's own ready.
@@ -84,6 +102,7 @@ enum AgentPaneHandshakeReply {
                 model.wakeSource = nil
                 handshake.wake = model.pendingWake
                 (model.handedWake, model.pendingWake) = (model.pendingWake, nil)
+                model.openWaits.ran(.handshake)
             }
             model.hasHandshake = true
             // A handshake starts a connection: the page says when its client is ready (`pane.clientReady`).
@@ -98,7 +117,10 @@ enum AgentPaneHandshakeReply {
             model.transport.acpmuxSocket = handshake.connection?.remote == nil ? handshake.connection?.socketPath : nil
             model.transport.acpmuxExecutable = handshake.connection?.remote == nil ? handshake.connection?.executable : nil
             handshake.connection = nil
-            return AgentPaneReply.handshake(handshake)
+            // A reconnect's page keeps its screen and reads no New Tab context (webviews App.tsx), so its reply
+            // carries none: a send here would mark its document with a shared text that the page did not keep.
+            if request == .reconnect { handshake.newTab = nil }
+            return AgentPaneReply.handshake(handshake, newTab: handshake.newTab.flatMap { model.newTabReply($0) })
         } catch {
             let message = AgentPaneHostError.userMessage(for: error)
             var reply = AgentPaneReply.failure(code: "host_unavailable", message: message)

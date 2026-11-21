@@ -1,5 +1,5 @@
 public import CmuxNextCloud
-import Foundation
+public import Foundation
 
 /// Move to Cloud's text (the App's `CloudMove`, `CloudStartChat`, `CloudBringBack`). Keys live in
 /// Resources/Cloud.xcstrings with every app locale.
@@ -44,24 +44,22 @@ public struct CloudMoveStrings {
         String(format: String(localized: "cloud.move.relativePath", defaultValue: "Move to Cloud needs a full folder path, not %@.", table: "Cloud", bundle: .module),
                path)
     }
+    /// A move's or bring back's machine is gone from the person's machines: the chat can't reach it again.
+    public static var machineDeleted: String {
+        String(localized: "cloud.move.machineDeleted", defaultValue: "This chat's Cloud machine was deleted.", table: "Cloud", bundle: .module)
+    }
     public static func noSuchMachine(_ id: String) -> String {
         String(format: String(localized: "cloud.move.noSuchMachine", defaultValue: "No Cloud machine has the id %@.", table: "Cloud", bundle: .module), id)
     }
     public static func notConnected(_ machine: String) -> String {
         String(format: String(localized: "cloud.move.notConnected", defaultValue: "%@ didn't connect. Retry once it's online.", table: "Cloud", bundle: .module), machine)
     }
-    /// A legacy link start that stopped at `step` with `reason` (``CloudLinkStartError``).
-    public static func notConnected(_ machine: String, step: CloudLinkStep, reason: String) -> String {
-        String(format: String(localized: "cloud.move.notConnectedAtStep", defaultValue: "%1$@ didn't connect: %2$@ failed (%3$@).", table: "Cloud", bundle: .module),
-               machine, linkStep(step), reason)
-    }
-    public static func linkStep(_ step: CloudLinkStep) -> String {
-        switch step {
-        case .attachEndpoint: String(localized: "cloud.move.linkStep.attachEndpoint", defaultValue: "Asking cmux Cloud for the machine's address", table: "Cloud", bundle: .module)
-        case .hub: String(localized: "cloud.move.linkStep.hub", defaultValue: "Starting this Mac's tunnel to cmux Cloud", table: "Cloud", bundle: .module)
-        case .approve: String(localized: "cloud.move.linkStep.approve", defaultValue: "Approving this Mac on the machine", table: "Cloud", bundle: .module)
-        case .remoteConnect: String(localized: "cloud.move.linkStep.remoteConnect", defaultValue: "Opening the link to the machine", table: "Cloud", bundle: .module)
-        }
+    /// The machine did not connect, and its last connect said why (the link's own words); no reason: ``notConnected(_:)``.
+    /// A bare `relay` (the machine never came to the relay: it did not come online) is a code, not words a person
+    /// can act on ("didn't connect: relay. Retry when that's fixed."), so it reads as no reason.
+    public static func notConnected(_ machine: String, because reason: String?) -> String {
+        guard let reason, reason != "relay" else { return notConnected(machine) }
+        return String(format: String(localized: "cloud.move.notConnectedBecause", defaultValue: "%1$@ didn't connect: %2$@. Retry when that's fixed.", table: "Cloud", bundle: .module), machine, reason)
     }
     public static func syncFailed(_ machine: String, _ detail: String) -> String {
         String(format: String(localized: "cloud.move.syncFailed", defaultValue: "Couldn't copy the folder to %1$@: %2$@", table: "Cloud", bundle: .module),
@@ -102,11 +100,46 @@ public struct CloudMoveStrings {
         String(format: String(localized: "cloud.move.unreachable", defaultValue: "Lost the connection to %@ during the move. Retry to finish it.",
                               table: "Cloud", bundle: .module), machine)
     }
+    /// A `cmux link` answer's value, or its error as the person reads it: a refusal a paid plan lifts is
+    /// ``CloudAPIError/planRequired(message:upgradeURL:plan:)``, one its size needs another plan for ``CloudSizeLocked``,
+    /// any other one a ``CloudMoveFailure``.
+    public static func checked<T>(_ answer: (CloudMoveCLI.Answer, T)) throws -> T {
+        guard answer.0.ok else {
+            if let code = answer.0.errorCode, CloudSizeLocked.isCode(code) { throw CloudSizeLocked(details: answer.0.sizeLocked) }
+            if let tooSmall = CloudSeedRefusal.planRefusal(answer.0) { throw tooSmall } // the folder is more than its machine has room for
+            throw answer.0.errorCode == "cloud.plan.required" ? CloudAPIError.planRequired(message: nil, upgradeURL: nil) as any Error : CloudMoveFailure(message: moveFailed(answer.0.error ?? answer.0.errorCode ?? ""))
+        }
+        return answer.1
+    }
     public static func moveFailed(_ detail: String) -> String {
-        String(format: String(localized: "cloud.move.failed", defaultValue: "Couldn't move the chat. Try again; if it keeps failing, run `cmux cloud diagnostics`. Reason: %@", table: "Cloud", bundle: .module), detail)
+        String(format: String(localized: "cloud.move.failedPlain", defaultValue: "Couldn't move the chat. %@", table: "Cloud", bundle: .module), detail)
     }
     public static func tabFailed(_ machine: String, _ detail: String) -> String {
         String(format: String(localized: "cloud.move.tabFailed", defaultValue: "The chat moved to %1$@, but its tab didn't open: %2$@",
                               table: "Cloud", bundle: .module), machine, detail)
+    }
+    /// The app server's refusal of a create at the team's machine count limit (upstream `cloud.quota.vm_limit`).
+    public nonisolated static let machineLimitCode = "cmux.cloud.vm_limit"
+    public nonisolated static var machineLimit: String {
+        String(localized: "cloud.error.machineLimit", defaultValue: "This team is at its Cloud machine limit, paused machines included. Delete a machine you don't need, then try again.", table: "Cloud", bundle: .module)
+    }
+    /// The app server's refusal of a request sent too often (upstream `cloud.rate_limited`).
+    public nonisolated static let rateLimitedCode = "cmux.cloud.rate_limited"
+    public nonisolated static var rateLimited: String {
+        String(localized: "cloud.error.rateLimited", defaultValue: "Cloud is getting too many requests from this account right now. Wait a minute, then try again.", table: "Cloud", bundle: .module)
+    }
+}
+
+/// An app-server refusal a person can act on reads as its own sentence wherever an error is put in plain words
+/// (`PlainErrorText.personal`): a create at the machine limit or one sent too often says so, not "Something went
+/// wrong" (cmux#45774: a Cloud start refused `cloud.rate_limited` read "Couldn't move the chat. Something went wrong.").
+/// Any other code has no description here and keeps the caller's wording.
+extension CloudAppOpFailure: LocalizedError {
+    public var errorDescription: String? {
+        switch code {
+        case CloudMoveStrings.machineLimitCode: CloudMoveStrings.machineLimit
+        case CloudMoveStrings.rateLimitedCode: CloudMoveStrings.rateLimited
+        default: nil
+        }
     }
 }

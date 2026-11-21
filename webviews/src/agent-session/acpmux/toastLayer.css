@@ -1,0 +1,69 @@
+/* The pane's toast layer (ToastLayer.tsx). A zero-height line at the top of the bottom stack: the
+   deck stands on it, over the transcript, a gap above the first part of the stack (a question, the
+   tray or the composer). Absolutely placed, so the stack's flow, the composer and the transcript
+   never move for it. Its insets are the composer card's (--cv-inset, --cv-inset-end), so the deck
+   is centred on the composer's column, as the jump-to-latest button is. */
+.acpmux-dock > .acpmux-toasts.acpmux-toasts {
+  position: relative;
+  flex: none;
+  height: 0;
+  margin: 0 var(--cv-inset-end, var(--cv-inset, 0px)) 0 var(--cv-inset, 0px);
+  z-index: var(--layer-toast, 900);
+  /* Not one of the stack's parts: no entry of its own, no share of a short pane's shrink, and it
+     takes no pointer; its toasts do. */
+  animation: none;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+/* While the stack floats over the transcript, the line is its top edge. */
+.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-toasts.acpmux-toasts {
+  position: absolute;
+  bottom: 100%;
+  left: var(--cv-inset, 0px);
+  right: var(--cv-inset-end, var(--cv-inset, 0px));
+  margin: 0;
+  pointer-events: none;
+}
+/* The stack is the line itself here; its top row is drawn in .acpmux-toasts-top. */
+.acpmux-toasts > .ui-notice-stack {
+  --ui-notice-stack-bottom: var(--ds-space-2, 8px);
+  /* Jump to latest's band over this same line (conversation.css .acpmux-jump-latest): its 12px foot
+     gap, then its tallest form: the 32px circle, and the Needs your input pill at
+     --ds-control-primary (32px, needsYou.css). */
+  --acpmux-toasts-jump-room: calc(12px + 32px);
+  top: auto;
+  height: 0;
+  padding-inline: 0;
+  translate: 0 0;
+}
+/* Jump to latest shows (App.tsx data-jump-latest, from the transcript): the bottom deck stands above
+   it, so a toast never covers the button or takes its clicks. The deck only moves, as one transform:
+   the composer, the rows and the button stay where they are. The top anchors' decks are drawn in
+   .acpmux-toasts-top and do not move. */
+.acpmux-main[data-jump-latest] > .acpmux-dock > .acpmux-toasts > .ui-notice-stack {
+  translate: 0 calc(-1 * var(--acpmux-toasts-jump-room));
+}
+/* It moves in the frames of the button's fade, on the same tokens (conversation.css), so the two
+   read as one change. Motion off or Reduce Motion: it lands in one frame. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"]) .acpmux-toasts > .ui-notice-stack {
+    transition: translate var(--agent-motion-out) var(--agent-ease-out);
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"])
+    .acpmux-main[data-jump-latest]
+    > .acpmux-dock
+    > .acpmux-toasts
+    > .ui-notice-stack {
+    transition-duration: var(--agent-motion-in);
+  }
+}
+/* The top anchors' line: under the chat's header, on the composer's column. */
+.acpmux-main > .acpmux-toasts-top {
+  position: absolute;
+  top: calc(var(--acpmux-header-height) + var(--ds-space-2));
+  left: var(--cv-inset, 0px);
+  right: var(--cv-inset-end, var(--cv-inset, 0px));
+  height: 0;
+  z-index: var(--layer-toast, 900);
+  pointer-events: none;
+}

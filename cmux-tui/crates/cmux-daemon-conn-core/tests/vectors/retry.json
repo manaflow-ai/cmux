@@ -1,0 +1,918 @@
+{
+ "_doc": "RetryPacer/RetryPolicy (CmuxNextDaemon/Connection/RetryPacer.swift) with Backoff's jitter at a fixed draw `random`; delays in nanoseconds, null: wait for an event only. Each case lists its Swift source.",
+ "busy_retry_cap_ns": 1000000000,
+ "presets": {
+  "reconnect": {
+   "initial_ns": 50000000,
+   "maximum_ns": 30000000000,
+   "timed_retries": 10,
+   "socket_retries": 3,
+   "keeps_trying": false
+  },
+  "first_connect": {
+   "initial_ns": 250000000,
+   "maximum_ns": 30000000000,
+   "timed_retries": 10,
+   "socket_retries": 3,
+   "keeps_trying": false
+  },
+  "local_reconnect": {
+   "initial_ns": 50000000,
+   "maximum_ns": 30000000000,
+   "timed_retries": 10,
+   "socket_retries": 3,
+   "keeps_trying": true
+  },
+  "local_first_connect": {
+   "initial_ns": 250000000,
+   "maximum_ns": 30000000000,
+   "timed_retries": 10,
+   "socket_retries": 3,
+   "keeps_trying": true
+  },
+  "resync": {
+   "initial_ns": 100000000,
+   "maximum_ns": 10000000000,
+   "timed_retries": 8,
+   "socket_retries": 3,
+   "keeps_trying": false
+  }
+ },
+ "corrected": [
+  {
+   "in": [
+    0,
+    0,
+    1,
+    3,
+    false
+   ],
+   "policy": {
+    "initial_ns": 100000000,
+    "maximum_ns": 100000000,
+    "timed_retries": 1,
+    "socket_retries": 3,
+    "keeps_trying": false
+   }
+  },
+  {
+   "in": [
+    2000000000,
+    1000000000,
+    1,
+    3,
+    false
+   ],
+   "policy": {
+    "initial_ns": 2000000000,
+    "maximum_ns": 2000000000,
+    "timed_retries": 1,
+    "socket_retries": 3,
+    "keeps_trying": false
+   }
+  }
+ ],
+ "cases": [
+  {
+   "name": "a replaced socket gets timed retries of its own",
+   "source": "RetryPacerSocketBudgetTests.aReplacedSocketGetsTimedRetriesOfItsOwn",
+   "policy": {
+    "initial_ns": 250000000,
+    "maximum_ns": 30000000000,
+    "timed_retries": 1,
+    "socket_retries": 3,
+    "keeps_trying": false
+   },
+   "random": 0.5,
+   "steps": [
+    {
+     "op": "failed_at",
+     "device": 1,
+     "inode": 1,
+     "expect": 250000000
+    },
+    {
+     "op": "failed_at",
+     "device": 1,
+     "inode": 1,
+     "expect": null
+    },
+    {
+     "op": "failed_at",
+     "device": 1,
+     "inode": 2,
+     "expect": 250000000
+    }
+   ]
+  },
+  {
+   "name": "renewals stop at the crash-loop limit",
+   "source": "RetryPacerSocketBudgetTests.renewalsStopAtTheCrashLoopLimit",
+   "policy": {
+    "initial_ns": 250000000,
+    "maximum_ns": 30000000000,
+    "timed_retries": 1,
+    "socket_retries": 2,
+    "keeps_trying": false
+   },
+   "random": 0.5,
+   "steps": [
+    {
+     "op": "failed_at",
+     "device": 1,
+     "inode": 1,
+     "expect": 250000000
+    },
+    {
+     "op": "failed_at",
+     "device": 1,
+     "inode": 1,
+     "expect": null
+    },
+    {
+     "op": "failed_at",
+     "device": 1,
+     "inode": 2,
+     "expect": 250000000
+    },
+    {
+     "op": "failed_at",
+     "device": 1,
+     "inode": 2,
+     "expect": null
+    },
+    {
+     "op": "failed_at",
+     "device": 1,
+     "inode": 3,
+     "expect": 250000000
+    },
+    {
+     "op": "failed_at",
+     "device": 1,
+     "inode": 3,
+     "expect": null
+    },
+    {
+     "op": "check",
+     "expect": {
+      "exhausted": true,
+      "waits_for_event_only": true,
+      "wakes_on_socket": false
+     }
+    },
+    {
+     "op": "failed_at",
+     "device": 1,
+     "inode": 4,
+     "expect": null
+    }
+   ]
+  },
+  {
+   "name": "a success forgets the socket",
+   "source": "RetryPacerSocketBudgetTests.aSuccessForgetsTheSocket",
+   "policy": {
+    "initial_ns": 250000000,
+    "maximum_ns": 30000000000,
+    "timed_retries": 1,
+    "socket_retries": 1,
+    "keeps_trying": false
+   },
+   "random": 0.5,
+   "steps": [
+    {
+     "op": "failed_at",
+     "device": 1,
+     "inode": 1,
+     "expect": 250000000
+    },
+    {
+     "op": "failed_at",
+     "device": 1,
+     "inode": 2,
+     "expect": 250000000
+    },
+    {
+     "op": "check",
+     "expect": {
+      "exhausted": true,
+      "waits_for_event_only": true,
+      "wakes_on_socket": false
+     }
+    },
+    {
+     "op": "reset"
+    },
+    {
+     "op": "check",
+     "expect": {
+      "exhausted": false,
+      "waits_for_event_only": false,
+      "wakes_on_socket": true
+     }
+    },
+    {
+     "op": "failed_at",
+     "device": 1,
+     "inode": 3,
+     "expect": 250000000
+    },
+    {
+     "op": "failed_at",
+     "device": 1,
+     "inode": 4,
+     "expect": 250000000
+    }
+   ]
+  },
+  {
+   "name": "a busy refusal spends no timed retry and is asked again soon",
+   "source": "BusyRefusalReconnectTests.aBusyRefusalSpendsNoTimedRetryAndIsAskedAgainSoon",
+   "policy": {
+    "initial_ns": 250000000,
+    "maximum_ns": 30000000000,
+    "timed_retries": 2,
+    "socket_retries": 3,
+    "keeps_trying": false
+   },
+   "random": 0.5,
+   "steps": [
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 250000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 500000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "failed",
+     "expect": 1000000000
+    },
+    {
+     "op": "check",
+     "expect": {
+      "exhausted": false,
+      "waits_for_event_only": false,
+      "wakes_on_socket": true
+     }
+    },
+    {
+     "op": "failed",
+     "expect": 30000000000
+    },
+    {
+     "op": "failed",
+     "expect": 30000000000
+    },
+    {
+     "op": "failed",
+     "expect": null
+    }
+   ]
+  },
+  {
+   "name": "a busy refusal past the budget is not event-only",
+   "source": "BusyRefusalReconnectTests.aBusyRefusalPastTheBudgetIsNotEventOnly",
+   "policy": {
+    "initial_ns": 250000000,
+    "maximum_ns": 30000000000,
+    "timed_retries": 1,
+    "socket_retries": 3,
+    "keeps_trying": false
+   },
+   "random": 0.5,
+   "steps": [
+    {
+     "op": "failed",
+     "expect": 250000000
+    },
+    {
+     "op": "check",
+     "expect": {
+      "exhausted": true,
+      "waits_for_event_only": true,
+      "wakes_on_socket": true
+     }
+    },
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "check",
+     "expect": {
+      "exhausted": true,
+      "waits_for_event_only": false,
+      "wakes_on_socket": true
+     }
+    },
+    {
+     "op": "failed",
+     "expect": 500000000
+    },
+    {
+     "op": "check",
+     "expect": {
+      "exhausted": true,
+      "waits_for_event_only": true,
+      "wakes_on_socket": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "a reset forgets an unspent busy refusal",
+   "source": "BusyRefusalReconnectTests.aResetForgetsAnUnspentBusyRefusal",
+   "policy": {
+    "initial_ns": 250000000,
+    "maximum_ns": 30000000000,
+    "timed_retries": 1,
+    "socket_retries": 3,
+    "keeps_trying": false
+   },
+   "random": 0.5,
+   "steps": [
+    {
+     "op": "refused_busy"
+    },
+    {
+     "op": "reset"
+    },
+    {
+     "op": "failed",
+     "expect": 250000000
+    },
+    {
+     "op": "failed",
+     "expect": null
+    }
+   ]
+  },
+  {
+   "name": "a loop that keeps trying stays at the cap and an event starts it over",
+   "source": "RetryPacer.swift keepsTrying, woke(_:)",
+   "policy": {
+    "initial_ns": 50000000,
+    "maximum_ns": 30000000000,
+    "timed_retries": 10,
+    "socket_retries": 3,
+    "keeps_trying": true
+   },
+   "random": 0.5,
+   "steps": [
+    {
+     "op": "failed",
+     "expect": 50000000
+    },
+    {
+     "op": "failed",
+     "expect": 100000000
+    },
+    {
+     "op": "failed",
+     "expect": 200000000
+    },
+    {
+     "op": "failed",
+     "expect": 400000000
+    },
+    {
+     "op": "failed",
+     "expect": 800000000
+    },
+    {
+     "op": "failed",
+     "expect": 1600000000
+    },
+    {
+     "op": "failed",
+     "expect": 3200000000
+    },
+    {
+     "op": "failed",
+     "expect": 6400000000
+    },
+    {
+     "op": "failed",
+     "expect": 12800000000
+    },
+    {
+     "op": "failed",
+     "expect": 25600000000
+    },
+    {
+     "op": "failed",
+     "expect": 30000000000
+    },
+    {
+     "op": "failed",
+     "expect": 30000000000
+    },
+    {
+     "op": "check",
+     "expect": {
+      "exhausted": false,
+      "waits_for_event_only": false,
+      "wakes_on_socket": true
+     }
+    },
+    {
+     "op": "woke",
+     "cause": "event"
+    },
+    {
+     "op": "failed",
+     "expect": 50000000
+    }
+   ]
+  },
+  {
+   "name": "a socket wake counts toward the crash loop",
+   "source": "RetryPacer.swift woke(_:), failedWhileMissing()",
+   "policy": {
+    "initial_ns": 250000000,
+    "maximum_ns": 30000000000,
+    "timed_retries": 10,
+    "socket_retries": 1,
+    "keeps_trying": false
+   },
+   "random": 0.5,
+   "steps": [
+    {
+     "op": "failed",
+     "expect": 250000000
+    },
+    {
+     "op": "woke",
+     "cause": "socket"
+    },
+    {
+     "op": "failed",
+     "expect": 500000000
+    },
+    {
+     "op": "check",
+     "expect": {
+      "exhausted": false,
+      "waits_for_event_only": false,
+      "wakes_on_socket": false
+     }
+    },
+    {
+     "op": "woke",
+     "cause": "socket"
+    },
+    {
+     "op": "failed_while_missing"
+    },
+    {
+     "op": "check",
+     "expect": {
+      "exhausted": false,
+      "waits_for_event_only": false,
+      "wakes_on_socket": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "the jitter floor and cap",
+   "source": "Backoff.next (random 0)",
+   "policy": {
+    "initial_ns": 250000000,
+    "maximum_ns": 30000000000,
+    "timed_retries": 10,
+    "socket_retries": 3,
+    "keeps_trying": false
+   },
+   "random": 0.0,
+   "steps": [
+    {
+     "op": "failed",
+     "expect": 200000000
+    },
+    {
+     "op": "failed",
+     "expect": 400000000
+    },
+    {
+     "op": "failed",
+     "expect": 800000000
+    },
+    {
+     "op": "failed",
+     "expect": 1600000000
+    },
+    {
+     "op": "failed",
+     "expect": 3200000000
+    },
+    {
+     "op": "failed",
+     "expect": 6400000000
+    },
+    {
+     "op": "failed",
+     "expect": 12800000000
+    },
+    {
+     "op": "failed",
+     "expect": 24000000000
+    },
+    {
+     "op": "failed",
+     "expect": 24000000000
+    }
+   ]
+  },
+  {
+   "name": "the jitter top",
+   "source": "Backoff.next (random 1)",
+   "policy": {
+    "initial_ns": 250000000,
+    "maximum_ns": 30000000000,
+    "timed_retries": 10,
+    "socket_retries": 3,
+    "keeps_trying": false
+   },
+   "random": 1.0,
+   "steps": [
+    {
+     "op": "failed",
+     "expect": 300000000
+    },
+    {
+     "op": "failed",
+     "expect": 600000000
+    },
+    {
+     "op": "failed",
+     "expect": 1200000000
+    },
+    {
+     "op": "failed",
+     "expect": 2400000000
+    },
+    {
+     "op": "failed",
+     "expect": 4800000000
+    },
+    {
+     "op": "failed",
+     "expect": 9600000000
+    },
+    {
+     "op": "failed",
+     "expect": 19200000000
+    },
+    {
+     "op": "failed",
+     "expect": 30000000000
+    },
+    {
+     "op": "failed",
+     "expect": 30000000000
+    }
+   ]
+  }
+ ]
+}

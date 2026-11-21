@@ -4,7 +4,8 @@
 //! CURSOR-SHOW, CURSOR-SCREENS, 2026-10-04). The macOS app builds a
 //! [`Snapshot`] from its live models when an agent input event arrives (or
 //! a tracked target's layout changes) and asks [`resolve`] over the app FFI
-//! (`cmux_layout_reducer_json` operation `agent_cursor_visibility`).
+//! (the typed call `cmux_agent_cursor_visibility`; the JSON operation
+//! `agent_cursor_visibility` still answers, and its FFI test replays the vectors).
 //!
 //! Rects are points in one window's content view, flipped (origin top-left,
 //! y down). They follow `CGRect`'s rules: a negative size is standardized,

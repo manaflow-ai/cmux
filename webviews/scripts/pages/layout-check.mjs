@@ -47,6 +47,13 @@ const VIEWS = [
     chips: ".history-chips",
   },
   {
+    name: "stash",
+    path: "/stash/?mock",
+    ready: ".stash-row",
+    fit: ".stash-header *, .stash-row, .stash-row *",
+    title: ".stash-title",
+  },
+  {
     name: "apps-grid",
     path: "/apps/?mock",
     ready: ".apps-card",
@@ -63,13 +70,13 @@ const VIEWS = [
   {
     name: "apps-split",
     path: "/apps/?mock#/discover?layout=split&app=cmux.github-prs",
-    ready: ".apps-detail-name",
+    ready: ".apps-listing-name",
     fit: ".apps-split *",
   },
   {
     name: "apps-detail",
     path: "/apps/?mock#/discover?app=acme.caffeinate",
-    ready: ".apps-detail-name",
+    ready: ".apps-listing-name",
     fit: ".apps-detail-body *",
   },
   {

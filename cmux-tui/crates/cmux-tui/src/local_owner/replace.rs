@@ -30,8 +30,10 @@
 //! the registry that long: every request holds it for one commit.
 //!
 //! The caller decides when an owner is stuck: an owner also holds connections
-//! unanswered while it restores its session (up to `RESTORE_DEADLINE`), and
-//! this probe cannot tell the two apart. Nor can it tell a wedged owner at its
+//! unanswered while it restores its session, and the probe alone cannot tell
+//! the two apart. Where the kernel's work counters can be read (macOS), an
+//! owner that works through the probe is kept and awaited like any restoring
+//! owner: a replace would only start its restore over. Nor can it tell a wedged owner at its
 //! connection limit from a healthy one whose clients all stay connected. A
 //! stopped listener is the exception (`listener_is_stopped`): plain ensure
 //! reports it unavailable at once. The app offers the option only after a
@@ -137,10 +139,34 @@ pub(crate) fn replace_if_unresponsive(spec: &OwnerSpec) -> Result<Option<Replace
     // Read on the probed connection; refuse only once the owner is stuck, so
     // a healthy owner never fails here.
     let key = probe.peer_process_key();
-    if !unresponsive(spec, probe) {
+    let pid = listener_pid(key.as_deref()).and_then(|pid| u32::try_from(pid).ok());
+    let before = pid.and_then(super::restore_bound::process_work);
+    let probe_started = Instant::now();
+    let Some(stuck) = unresponsive(spec, probe) else {
         return replace_if_wedged(spec);
+    };
+    // Silent through the probe, but working (CPU time or disk bytes advanced
+    // over it): an owner restoring a large registry, not a stuck one. A
+    // replace would throw its restore away and the next owner would start it
+    // over (2026-11-08), so it is kept and the normal ensure awaits it. Only
+    // a silent owner gets this: a restoring owner accepts and parks the
+    // probe. One that refused every connection at its limit is saturated,
+    // and its clients' work is no sign of a restore, so it is replaced.
+    if stuck == Stuck::Silent
+        && let (Some(pid), Some(before)) = (pid, before)
+        && super::restore_bound::process_work(pid)
+            .is_some_and(|after| after.advanced_from(before, probe_started.elapsed()))
+    {
+        return Ok(None);
     }
     stop(spec, key)
+}
+
+/// The pid of the process listening on the session socket (`key`, from
+/// `transport::Stream::peer_process_key`), when the kernel names it and it is
+/// not this process.
+pub(super) fn listener_pid(key: Option<&str>) -> Option<u64> {
+    listener_of(key.map(str::to_owned)).ok().map(|listener| u64::from(listener.pid))
 }
 
 /// Stops the session's owner when it answers but its workspace registry lock
@@ -155,6 +181,34 @@ pub(crate) fn replace_if_wedged(spec: &OwnerSpec) -> Result<Option<Replaced>, Re
     };
     let key = probe.peer_process_key();
     if !is_wedged(probe, Some(&spec.session)) {
+        return Ok(None);
+    }
+    stop(spec, key)
+}
+
+/// Replaces a healthy owner that was launched for another NEXT Cloud backend.
+/// The owner process is the only thing stopped; its terminal hosts stay alive
+/// and the replacement adopts them from the durable registry. `Ok(None)` means
+/// the socket disappeared or already reports the requested backend.
+pub(crate) fn replace_if_backend_changed(
+    spec: &OwnerSpec,
+    expected_backend: &str,
+) -> Result<Option<Replaced>, ReplaceError> {
+    let Ok(probe) =
+        cmux_tui_core::server::connect_session_socket(&spec.socket, spec.socket_is_derived)
+    else {
+        return Ok(None);
+    };
+    let key = probe.peer_process_key();
+    let mut connection = BufReader::new(probe);
+    let deadline = Instant::now() + PROBE_DEADLINE;
+    let Some(identity) = request(&mut connection, "identify", deadline) else {
+        return Ok(None);
+    };
+    if identity.get("session").and_then(|value| value.as_str()) != Some(spec.session.as_str()) {
+        return Ok(None);
+    }
+    if identity.get("cloud_backend").and_then(|value| value.as_str()) == Some(expected_backend) {
         return Ok(None);
     }
     stop(spec, key)
@@ -277,7 +331,9 @@ fn request(
     let remaining =
         deadline.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));
     connection.get_ref().set_write_timeout(Some(remaining)).ok()?;
-    let request = serde_json::json!({"id":1,"cmd":command});
+    // `revisions` is opt-in on identify so older strict clients keep their
+    // wire shape. The backend handoff probe needs the optional NEXT identity.
+    let request = request_value(command);
     writeln!(connection.get_mut(), "{request}").and_then(|()| connection.get_mut().flush()).ok()?;
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -309,6 +365,14 @@ fn request(
     }
 }
 
+fn request_value(command: &str) -> serde_json::Value {
+    if command == "identify" {
+        serde_json::json!({"id":1,"cmd":command,"revisions":true})
+    } else {
+        serde_json::json!({"id":1,"cmd":command})
+    }
+}
+
 /// How one `identify` on a fresh connection ended.
 enum Probe {
     /// An answer (also "still starting"), or the connection closed.
@@ -319,15 +383,25 @@ enum Probe {
     Refused,
 }
 
-/// Whether the owner gives no answer for `PROBE_DEADLINE`: one `identify`
-/// stays unanswered, or every connection is refused at the connection limit
-/// (re-asked on a new connection, since a healthy owner frees a slot as soon
-/// as one of its clients leaves). Any answer, also "still starting", or a
-/// closed connection is not a stuck owner.
+/// How an owner gave no answer for `PROBE_DEADLINE`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Stuck {
+    /// One `identify` stayed unanswered: a wedged owner, or one that parks
+    /// connections while it restores.
+    Silent,
+    /// Every connection was refused at the connection limit.
+    Saturated,
+}
+
+/// Whether the owner gives no answer for `PROBE_DEADLINE`, and how: one
+/// `identify` stays unanswered, or every connection is refused at the
+/// connection limit (re-asked on a new connection, since a healthy owner
+/// frees a slot as soon as one of its clients leaves). `None`: any answer,
+/// also "still starting", or a closed connection, is not a stuck owner.
 fn unresponsive(
     spec: &OwnerSpec,
     mut stream: Box<dyn cmux_tui_core::platform::transport::Stream>,
-) -> bool {
+) -> Option<Stuck> {
     let deadline = Instant::now() + PROBE_DEADLINE;
     loop {
         // Refusals consume the busy budget, not the next accepted client's
@@ -335,9 +409,9 @@ fn unresponsive(
         // still gets the full silent-probe bound to answer.
         let read_until = Instant::now() + PROBE_DEADLINE;
         match probe(stream, read_until) {
-            Probe::Answered => return false,
-            Probe::Silent => return true,
-            Probe::Refused if Instant::now() >= deadline => return true,
+            Probe::Answered => return None,
+            Probe::Silent => return Some(Stuck::Silent),
+            Probe::Refused if Instant::now() >= deadline => return Some(Stuck::Saturated),
             Probe::Refused => {}
         }
         std::thread::sleep(super::BUSY_POLL_INTERVAL);
@@ -345,7 +419,7 @@ fn unresponsive(
             cmux_tui_core::server::connect_session_socket(&spec.socket, spec.socket_is_derived)
         else {
             // Nothing listens any more: the normal ensure starts an owner.
-            return false;
+            return None;
         };
         stream = next;
     }
@@ -358,7 +432,7 @@ fn probe(stream: Box<dyn cmux_tui_core::platform::transport::Stream>, deadline: 
     if let Err(error) = connection.get_ref().set_write_timeout(Some(remaining)) {
         return closed(&mut connection, &error);
     }
-    let request = serde_json::json!({"id":1,"cmd":"identify"});
+    let request = serde_json::json!({"id":1,"cmd":"identify","revisions":true});
     match writeln!(connection.get_mut(), "{request}").and_then(|()| connection.get_mut().flush()) {
         Ok(()) => {}
         // A full send buffer for one short line: the owner reads nothing.
@@ -376,17 +450,41 @@ fn probe(stream: Box<dyn cmux_tui_core::platform::transport::Stream>, deadline: 
         if let Err(error) = connection.get_ref().set_read_timeout(Some(remaining)) {
             return closed(&mut connection, &error);
         }
-        // A peer can keep sending bytes without a newline and never hit a
-        // socket timeout. Bound the whole response, including partial data
-        // retained across interrupted reads, just as identify does.
+        // Read in bounded chunks instead of using `read_until`: the latter
+        // can perform an unbounded number of successful socket reads while a
+        // peer trickles one byte just before each per-read timeout. Refresh
+        // the socket timeout before every read so the absolute deadline is
+        // enforced even for an unterminated response.
         let available = (super::identify::RESPONSE_LIMIT + 2).saturating_sub(line.len());
-        match connection.by_ref().take(available as u64).read_until(b'\n', &mut line) {
-            Ok(_) if line.len() > super::identify::RESPONSE_LIMIT || !line.ends_with(b"\n") => {
-                // Malformed input is not evidence authorizing replacement.
-                return Probe::Answered;
+        let mut chunk = [0_u8; 4096];
+        let read_len = available.min(chunk.len());
+        // `read_len` never exceeds the chunk, and `Read` never reports more
+        // bytes than the buffer holds; a reader that breaks that contract
+        // is not evidence authorizing replacement either.
+        let Some(buffer) = chunk.get_mut(..read_len) else {
+            return Probe::Answered;
+        };
+        match connection.read(buffer) {
+            Ok(0) => return Probe::Answered,
+            Ok(count) => {
+                let Some(received) = buffer.get(..count) else {
+                    return Probe::Answered;
+                };
+                let previous_len = line.len();
+                line.extend_from_slice(received);
+                if line.len() > super::identify::RESPONSE_LIMIT {
+                    // Malformed input is not evidence authorizing replacement.
+                    return Probe::Answered;
+                }
+                if let Some(end) = received.iter().position(|byte| *byte == b'\n') {
+                    line.truncate(previous_len + end + 1);
+                    return if super::identify::is_refusal(&line) {
+                        Probe::Refused
+                    } else {
+                        Probe::Answered
+                    };
+                }
             }
-            Ok(_) if super::identify::is_refusal(&line) => return Probe::Refused,
-            Ok(_) => return Probe::Answered,
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(error) if is_timeout(&error) && line.is_empty() => {}
             Err(error) if is_timeout(&error) => {

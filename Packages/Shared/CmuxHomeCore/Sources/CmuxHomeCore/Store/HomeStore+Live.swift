@@ -54,6 +54,12 @@ extension HomeStore {
     func publishLive(_ conversation: ConversationID) {
         let run = liveBook.shown(in: conversation)
         if live[conversation] != run { live[conversation] = run }
+        // The list's rows change only when the run moves between the model and a tool (O(1) per token).
+        let inTool = run?.activity?.isTool == true
+        if toolRuns.contains(conversation) != inTool {
+            if inTool { toolRuns.insert(conversation) } else { toolRuns.remove(conversation) }
+            rebuildRows()
+        }
         if drafts != draftBook.live { drafts = draftBook.live }
         let rows = streamRows(conversation)
         if streams[conversation, default: []] != rows { streams[conversation] = rows.isEmpty ? nil : rows }

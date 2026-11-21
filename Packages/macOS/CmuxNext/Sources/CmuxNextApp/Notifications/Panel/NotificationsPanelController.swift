@@ -212,10 +212,12 @@ final class NotificationsPanelController {
 
     // MARK: Keyboard
 
-    /// Escape closes; Up and Down select; Return opens; Delete dismisses.
+    /// Escape closes; Up and Down select; Return opens; Delete clears the selected row, Cmd-Delete all.
     private func handleKey(_ event: NSEvent) -> Bool {
         // A closing panel that kept the keys (no visible window to hand them to) takes none.
-        guard isShown, event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty else { return false }
+        let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        if isShown, modifiers == .command, [51, 117].contains(event.keyCode), !rows.isEmpty { perform("clearAllNotifications", nil); return true }
+        guard isShown, modifiers.isEmpty else { return false }
         let selected = selection.index(in: rows).map { rows[$0] }
         switch event.keyCode {
         case 53:

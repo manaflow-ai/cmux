@@ -2,19 +2,12 @@
 // backgrounds folder and becomes the background, as a picked or dropped file does. The host
 // judges the bytes, caps the size and words nothing; the refusal codes are worded here.
 import { useState } from "react";
+import { Button } from "../../../ui/Button";
+import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
+import { linkRefusal } from "../backdropRefusal";
 import { t } from "../strings";
-
-const REFUSALS: Record<string, string> = {
-  "cmux.settings.backdrop.not_https": "settingsWindow.backdropPicker.notHttps",
-  "cmux.settings.backdrop.not_media": "settingsWindow.backdropPicker.notMedia",
-  "cmux.settings.backdrop.too_large": "settingsWindow.backdropPicker.tooLarge",
-};
-
-/** Why a link could not be used, in the page's words. */
-export function linkRefusal(code: string): string {
-  return t(REFUSALS[code] ?? "settingsWindow.backdropPicker.downloadFailed");
-}
+import { intl } from "../../../ui/intl";
 
 export function BackdropLink({ onClose }: { onClose: () => void }) {
   const store = useStore();
@@ -40,7 +33,7 @@ export function BackdropLink({ onClose }: { onClose: () => void }) {
           void add();
         }}
       >
-        <input
+        <Input
           className="field"
           type="url"
           aria-label={t("settingsWindow.backdropPicker.linkField")}
@@ -48,12 +41,12 @@ export function BackdropLink({ onClose }: { onClose: () => void }) {
           value={link}
           onChange={(event) => setLink(event.target.value)}
         />
-        <button type="submit" className="button" disabled={busy || !link.trim()}>
+        <Button type="submit" className="button" disabled={busy || !link.trim()}>
           {t("settingsWindow.backdropPicker.add")}
-        </button>
-        <button type="button" className="button" onClick={onClose}>
+        </Button>
+        <Button type="button" className="button" onClick={onClose}>
           {t("settingsWindow.artBrowser.close")}
-        </button>
+        </Button>
       </form>
       <output className="row-help">{busy ? t("settingsWindow.artBrowser.downloading") : refusal}</output>
     </div>
@@ -63,9 +56,11 @@ export function BackdropLink({ onClose }: { onClose: () => void }) {
 /** Bytes as the person reads them: megabytes, or gigabytes past a thousand of them. */
 export function formatBytes(bytes: number, locale?: string): string {
   const giga = bytes >= 1e9;
-  return new Intl.NumberFormat(locale, {
-    style: "unit",
-    unit: giga ? "gigabyte" : "megabyte",
-    maximumFractionDigits: 1,
-  }).format(giga ? bytes / 1e9 : bytes / 1e6);
+  return intl
+    .NumberFormat(locale, {
+      style: "unit",
+      unit: giga ? "gigabyte" : "megabyte",
+      maximumFractionDigits: 1,
+    })
+    .format(giga ? bytes / 1e9 : bytes / 1e6);
 }

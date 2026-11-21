@@ -94,12 +94,8 @@ await requireBrowserLane("agent-pane-transcript-chevron-column.test.ts", async (
         }
         if (width === 760) {
           const toggle = page.locator(".cv-agentmsg__toggle");
-          // Stacked (messageLineLook.ts), the message's first line is under the row and is the
-          // pointer's target; the line's toggle holds no words then and has no box to click.
-          const below = page.locator(".cv-agentmsg__below");
-          const target = (await below.count()) > 0 ? below.first() : toggle;
-          const size = await target.boundingBox();
-          await target.click({ position: { x: size!.width - 2, y: size!.height / 2 } });
+          const size = await toggle.boundingBox();
+          await toggle.click({ position: { x: size!.width - 2, y: size!.height / 2 } });
           expect(await toggle.getAttribute("aria-expanded")).toBe("true");
           await page.locator(".cv-agentmsg__chevron").click();
           expect(await toggle.getAttribute("aria-expanded")).toBe("false");

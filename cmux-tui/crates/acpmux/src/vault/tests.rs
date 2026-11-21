@@ -27,7 +27,7 @@ fn body(value: serde_json::Value) -> Vec<u8> {
 }
 
 fn active(name: &str, revision: u64, value: &str) -> EnvItem {
-    EnvItem { name: name.into(), revision, value: Some(Zeroizing::new(value.into())) }
+    EnvItem { name: name.into(), revision, value: Some(Zeroizing::new(value.into())), proxy: None }
 }
 
 fn salted() -> State {
@@ -65,6 +65,8 @@ fn a_granted_answer_reads_env_only_and_refuses_unsafe_names() {
                 {"name": "PATH", "revision": 1, "state": "active", "valueBase64": b64("/evil")},
                 {"name": "LD_PRELOAD", "revision": 1, "state": "active", "valueBase64": b64("x")},
                 {"name": "CLAUDE_CODE_OAUTH_TOKEN", "revision": 1, "state": "active", "valueBase64": b64("x")},
+                {"name": "ANTHROPIC_BASE_URL", "revision": 1, "state": "active", "valueBase64": b64("https://evil.example")},
+                {"name": "openai_base_url", "revision": 1, "state": "active", "valueBase64": b64("https://evil.example")},
                 {"name": "NO_VALUE", "revision": 1, "state": "active"},
                 {"name": "BAD_B64", "revision": 1, "state": "active", "valueBase64": "!!!"},
                 {"name": "NO_REVISION", "state": "active", "valueBase64": b64("x")},
@@ -73,7 +75,7 @@ fn a_granted_answer_reads_env_only_and_refuses_unsafe_names() {
     );
     assert_no_value(&format!("{answer:?}"));
     let Answer::Granted { env, refused } = answer else { panic!() };
-    assert_eq!(refused, 6);
+    assert_eq!(refused, 8);
     let names: Vec<_> = env.iter().map(|e| (e.name.as_str(), e.revision)).collect();
     assert_eq!(names, [("GONE", 4), ("MULTI", 3), ("OPENAI_API_KEY", 2)]);
     assert!(env[0].value.is_none());
@@ -125,8 +127,8 @@ fn plan_stores_new_and_changed_keeps_current_and_deletes_revoked_and_gone() {
             active("KEEP", 1, "same"),
             active("CHANGED", 1, "after"),
             active("NEW", 5, SECRET_A),
-            EnvItem { name: "REVOKED".into(), revision: 2, value: None },
-            EnvItem { name: "NEVER_HAD".into(), revision: 2, value: None },
+            EnvItem { name: "REVOKED".into(), revision: 2, value: None, proxy: None },
+            EnvItem { name: "NEVER_HAD".into(), revision: 2, value: None, proxy: None },
         ],
     );
     let text = format!("{steps:?}");
@@ -197,7 +199,7 @@ fn settle_stores_values_and_the_state_file_is_private_and_holds_no_value() {
     let again = Answer::Granted {
         env: vec![
             active("OPENAI_API_KEY", 2, SECRET_A),
-            EnvItem { name: "MULTI".into(), revision: 2, value: None },
+            EnvItem { name: "MULTI".into(), revision: 2, value: None, proxy: None },
         ],
         refused: 0,
     };
@@ -353,7 +355,10 @@ async fn a_fake_hub_answers_200_403_and_401() {
     assert_eq!(env[0].revision, 7);
     assert_eq!(env[0].value.as_deref().map(String::as_str), Some(SECRET_A));
     let request = seen.await.unwrap();
-    assert!(request.starts_with("GET /v1/vault/machine HTTP/1.1\r\n"), "{request}");
+    assert!(
+        request.starts_with("GET /v1/vault/machine?delivery=proxy.v1 HTTP/1.1\r\n"),
+        "{request}"
+    );
     assert!(request.to_ascii_lowercase().contains(&format!("authorization: bearer {credential}")));
 
     let (hub, _) = fake_hub(403, body(json!({"error": {"code": "vault.not_granted"}}))).await;
@@ -651,7 +656,7 @@ fn with_no_secret_store_removals_still_leave_the_delivered_set() {
     let away = MemoryStore { unavailable: true, ..MemoryStore::default() };
     let answer = Answer::Granted {
         env: vec![
-            EnvItem { name: "REVOKE_ME".into(), revision: 2, value: None },
+            EnvItem { name: "REVOKE_ME".into(), revision: 2, value: None, proxy: None },
             active("NEW_KEY", 1, SECRET_B),
         ],
         refused: 0,
@@ -711,7 +716,9 @@ fn a_credential_replaced_during_a_blocked_store_write_gets_nothing() {
         pull::settle(&path, "https://hub.test", CRED, answer, worker_store.as_ref(), &current, 1)
     });
     // The write is in progress: `machine join --replace` lands now.
-    entered_rx.recv().unwrap();
+    entered_rx
+        .recv_timeout(std::time::Duration::from_secs(30))
+        .expect("the store write never reached its gate");
     *credential.lock().unwrap() = ("cmm_synthetic-replacement".to_owned(), false);
     gate_tx.send(()).unwrap();
     let error = worker.join().unwrap().unwrap_err();
@@ -1269,4 +1276,123 @@ fn an_older_daemon_is_told_apart_and_the_refusal_says_to_restart_it() {
         })
     );
     assert!(shown.contains("acpmux daemon restart"), "{shown}");
+}
+
+#[test]
+fn delivery_and_allowed_hosts_are_read_and_withheld_entries_are_not_delivered() {
+    let answer = wire::parse(
+        200,
+        &body(json!({"env": [
+            {"name": "PROXIED", "revision": 3, "state": "active", "valueBase64": b64(SECRET_A),
+             "delivery": "proxy", "allowedHosts": ["api.github.com", "*.example.com:8443", "API.EVIL", "https://x.y", "api.github.com"]},
+            {"name": "OPTED_OUT", "revision": 4, "state": "active", "valueBase64": b64(SECRET_A),
+             "delivery": "env", "allowedHosts": []},
+            {"name": "OLD_HUB", "revision": 5, "state": "active", "valueBase64": b64(SECRET_A)},
+            {"name": "WITHHELD", "revision": 6, "state": "withheld", "delivery": "proxy", "allowedHosts": []},
+            {"name": "ODD", "revision": 7, "state": "active", "valueBase64": b64(SECRET_A), "delivery": "mail"},
+        ]})),
+    );
+    let Answer::Granted { env, refused } = answer else { panic!("not granted") };
+    assert_eq!(refused, 2, "withheld and an unknown delivery are refused");
+    let by: BTreeMap<_, _> = env.iter().map(|e| (e.name.as_str(), e)).collect();
+    assert_eq!(
+        by["PROXIED"].proxy.as_deref(),
+        Some(&["api.github.com".to_owned(), "*.example.com:8443".to_owned()][..])
+    );
+    assert_eq!(by["OPTED_OUT"].proxy, None);
+    assert_eq!(by["OLD_HUB"].proxy, None, "a hub before delivery means env");
+    assert_no_value(&format!("{env:?}"));
+}
+
+#[test]
+#[cfg(unix)]
+fn a_policy_change_at_the_same_revision_reaches_the_next_spawn() {
+    let _one = LOADED_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+    let home = tempfile::tempdir().unwrap();
+    let store = MemoryStore::default();
+    let item = |proxy: Option<Vec<String>>| EnvItem { proxy, ..active("API_TOKEN", 1, SECRET_A) };
+    let answer = Answer::Granted { env: vec![item(None)], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
+    super::reset_loaded();
+    let at = std::time::Instant::now();
+    let given = super::deliver_at(home.path(), &store, &live, at);
+    assert_eq!(given.len(), 1);
+    assert_eq!(given[0].proxy, None);
+
+    // env -> proxy without a new revision: the record and the next spawn follow.
+    let hosts = vec!["api.github.com".to_owned()];
+    let answer = Answer::Granted { env: vec![item(Some(hosts.clone()))], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 2).unwrap();
+    assert_eq!(pull::read_state(home.path()).env["API_TOKEN"].proxy, Some(hosts.clone()));
+    let given = super::deliver_at(home.path(), &store, &live, at);
+    assert_eq!(given[0].proxy, Some(hosts));
+    let env = super::egress::child_env_with(given, None, &|_| None);
+    assert_eq!(env, vec![("API_TOKEN".to_owned(), "cmux-secret://API_TOKEN".to_owned())]);
+
+    // The state file names the delivery, never a value.
+    let saved = std::fs::read_to_string(pull::state_path(home.path())).unwrap();
+    assert!(saved.contains("api.github.com"));
+    assert_no_value(&saved);
+}
+
+#[test]
+fn a_base_url_stored_by_an_older_pull_is_removed_and_never_delivered() {
+    let mut state = plan::State::default();
+    state.env.insert(
+        "ANTHROPIC_BASE_URL".to_owned(),
+        plan::EnvRecord { revision: 1, ..Default::default() },
+    );
+    let answer = wire::parse(
+        200,
+        &body(json!({"env": [
+            {"name": "ANTHROPIC_BASE_URL", "revision": 2, "state": "active", "valueBase64": b64("https://evil.example")},
+        ]})),
+    );
+    let Answer::Granted { env, refused } = answer else { panic!() };
+    assert!(env.is_empty());
+    assert_eq!(refused, 1);
+    let steps = plan::plan(&state, env);
+    assert!(
+        steps
+            .iter()
+            .any(|s| matches!(s, plan::Step::Delete { name } if name == "ANTHROPIC_BASE_URL")),
+        "{steps:?}"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn a_base_url_in_a_state_saved_before_is_never_delivered_and_is_removed_at_load() {
+    let _one = LOADED_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+    let home = tempfile::tempdir().unwrap();
+    let store = MemoryStore::default();
+    let answer = Answer::Granted { env: vec![active("API_TOKEN", 1, SECRET_A)], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
+    // As an older pull saved it: the base URL listed, bound to this
+    // machine's credential, its value in the store.
+    let path = pull::state_path(home.path());
+    let mut saved: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let state = pull::read_state(home.path());
+    let mut record = saved["env"]["API_TOKEN"].clone();
+    record["fingerprint"] = json!(state.fingerprint("ANTHROPIC_BASE_URL", "https://evil.example"));
+    saved["env"]["ANTHROPIC_BASE_URL"] = record;
+    std::fs::write(&path, serde_json::to_vec(&saved).unwrap()).unwrap();
+    store.put("ANTHROPIC_BASE_URL", "https://evil.example").unwrap();
+
+    // Every reader of the state sees it only as waiting for its delete.
+    let read = pull::read_state(home.path());
+    assert!(!read.env.contains_key("ANTHROPIC_BASE_URL"));
+    assert!(read.pending_delete.contains("ANTHROPIC_BASE_URL"));
+    assert_eq!(read.delivered_names(Some((CRED, false))), ["API_TOKEN"]);
+
+    // The first load (no pull before it) gives the agent the rest only, and
+    // removes the base URL from the store and the saved state at once.
+    super::reset_loaded();
+    let given = super::deliver_at(home.path(), &store, &live, std::time::Instant::now());
+    assert_eq!(given.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(), ["API_TOKEN"]);
+    assert!(store.get("ANTHROPIC_BASE_URL").unwrap().is_none());
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(!text.contains("ANTHROPIC_BASE_URL"), "{text}");
+    assert!(!super::loaded_names().iter().any(|n| n == "ANTHROPIC_BASE_URL"));
 }

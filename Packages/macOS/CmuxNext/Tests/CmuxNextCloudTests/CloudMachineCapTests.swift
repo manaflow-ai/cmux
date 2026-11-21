@@ -35,7 +35,7 @@ import Testing
         paused.createdBy = "alice"
         let cap = CloudMachineCap.plan(freePlan: false, pauseFrees: true, machines: [mine, theirs, paused], user: "alice")
         #expect(cap.busy.map(\.machine) == ["vm_mine"], "never a teammate's machine, nor one not running")
-        #expect(CloudMachineCap.busy(machines: [mine], user: nil).isEmpty)
+        #expect(CloudMachineCap.plan(freePlan: false, pauseFrees: true, machines: [mine], user: nil).busy.isEmpty)
         #expect(CloudMachineCap.plan(freePlan: true, pauseFrees: true, machines: [mine], user: "alice") == CloudMachineCap(freePlan: true))
     }
 
@@ -64,6 +64,16 @@ import Testing
         #expect(calls.map(\.op) == Array(repeating: "cloud.machine.pause", count: 3))
         #expect(calls.allSatisfy { $0.machine == "vm_a" && $0.origin == .user })
         #expect(Set(calls.compactMap(\.key)).count == 1 && calls.allSatisfy { $0.key != nil }, "a retry made a new key")
+    }
+
+    @Test func passiveMachinePowerPreservesScriptOrigin() async throws {
+        let sent = SentOps()
+        try await CloudMachinePower.run("cloud.machine.start", machine: "vm_a", origin: .script, ops: { op, args, key, origin in
+            _ = await sent.record(op: op, machine: args["machine"]?.stringValue, key: key, origin: origin)
+            return .object([:])
+        })
+        #expect(await sent.calls.count == 1)
+        #expect(await sent.calls.first?.origin == .script)
     }
 
     @Test func theAppServerPauseStopsAfterItsAttemptsAndOnAnyOtherError() async {

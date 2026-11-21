@@ -75,4 +75,69 @@ struct HomeAgentRunMappingTests {
         let failureLabel = try #require(StatusIndicatorState.error.shortLabel)
         #expect(run.messages.first?.text == "check\n[\(failureLabel)]")
     }
+
+    /// Slice 3 (user 2026-11-03, msg 19968): the prompt's `_meta.cmux.sender` says who wrote a tell, the person
+    /// or the Chief, in the direct input and in a Codex envelope.
+    @Test func aTellKeepsItsSenderMeta() throws {
+        let run = try mapped([
+            ["id": "tool:1", "kind": "tool", "status": "done", "at": 1000,
+             "tool": ["name": "tell", "input": ["id": "a1", "message": "from the person",
+                                                "_meta": ["cmux": ["sender": "human:p_lawrence"]]]]],
+            ["id": "tool:2", "kind": "tool", "status": "done", "at": 2000,
+             "tool": ["name": "mcp_tool_call", "input": ["server": "optchat", "tool": "tell",
+                                                          "arguments": ["id": "a1", "message": "from the Chief",
+                                                                        "_meta": ["cmux": ["sender": "chief:agent_mux"]]]]]],
+            ["id": "tool:3", "kind": "tool", "status": "done", "at": 3000,
+             "tool": ["name": "tell", "input": ["id": "a1", "message": "no meta", "_meta": ["cmux": ["sender": 7]]]]],
+        ])
+        #expect(run.messages.map(\.text) == ["from the person", "from the Chief", "no meta"])
+        #expect(run.messages.map(\.sender) == ["human:p_lawrence", "chief:agent_mux", nil])
+    }
+
+    /// A spawn is the Chief's first message to each agent it started (user 2026-11-04, msg 21664: a pill named
+    /// "User (Nov 4)" from a later tell). Each task goes to the id the answer's `Started` line gives it, in order,
+    /// so the pill and the agent's chat take the task's `Title:` line. Each task's `- a<N>:` answer line names its
+    /// agent, a queued or failed one too.
+    @Test(arguments: ["mcp__optchat__spawn", "spawn", "optchat.spawn"])
+    func aSpawnIsTheTaskOfEachAgentItStarted(_ name: String) throws {
+        let tasks = ["Title: Bubble tail last only\n\nOnly the last bubble gets the tail.", "Title: Subagent link opens pane\n\nOpen it on the right."]
+        let output = "Started a988 in /Users/me/fun/cmux.\n- a988: runs hidden.\n- a989: did not start (no PTYs)\nTell the user only what these lines say."
+        let run = try mapped([["id": "tool:7", "kind": "tool", "status": "done", "at": 4000,
+                              "tool": ["name": name, "input": ["tasks": tasks, "cwd": "~/fun/cmux"], "output": output]]])
+        #expect(run.messages.map(\.peer) == ["a988", "a989"])
+        #expect(run.messages.map(\.text) == tasks)
+        #expect(run.messages.map(\.outgoing) == [true, true])
+        #expect(Set(run.messages.map(\.id)).count == 2)
+    }
+
+    /// A Codex envelope (`mcp_tool_call` to optchat's spawn) maps the same; a spawn still running (no answer yet) or
+    /// whose answer names a different count of agents maps nothing rather than a wrong name.
+    @Test func aSpawnEnvelopeMapsAndAnUnmatchedAnswerMapsNothing() throws {
+        let tasks = ["Title: One\n\nGo.", "Title: Two\n\nGo."]
+        let envelope = try mapped([["id": "tool:1", "kind": "tool", "status": "done",
+                                   "tool": ["name": "mcp_tool_call", "input": ["server": "optchat", "tool": "spawn", "arguments": ["tasks": tasks]],
+                                            "output": "Routed: claude.\nStarted a1, a2 on the cloud VM vm-1 (acpmux peer), in /work.\n- a1: on vm-1.\n- a2: queued (cap)"]]])
+        #expect(envelope.messages.map(\.peer) == ["a1", "a2"])
+        let running = try mapped([["id": "tool:2", "kind": "tool", "status": "running", "tool": ["name": "spawn", "input": ["tasks": tasks]]]])
+        #expect(running.messages.isEmpty)
+        let short = try mapped([["id": "tool:3", "kind": "tool", "status": "done",
+                                "tool": ["name": "spawn", "input": ["tasks": tasks], "output": "Started a1 in /work.\n- a1: runs hidden."]]])
+        #expect(short.messages.isEmpty)
+    }
+
+    /// A spawn answer's `- a<N>: queued (…)` line and a tell's `outcome: queued.` mean the agent waits for a free slot
+    /// (user 2026-11-05, msg 23140: a queued a1017 said "Working for 6m 50s"); a started one and a delivered tell do not.
+    @Test func queuedSpawnsAndTellsAreMarkedQueued() throws {
+        let tasks = ["Title: One\n\nGo.", "Title: Two\n\nGo.", "Title: Three\n\nGo."]
+        let output = "Queued a2.\n- a1: started\n- a2: queued (10 subagents are at work; it starts when one finishes)\n- a3: did not start (no PTYs)"
+        let run = try mapped([
+            ["id": "tool:1", "kind": "tool", "status": "done", "tool": ["name": "spawn", "input": ["tasks": tasks], "output": output]],
+            ["id": "tool:2", "kind": "tool", "status": "done",
+             "tool": ["name": "tell", "input": ["id": "a2", "message": "More."], "output": "outcome: queued. Queued for delivery to a2 (1 waiting)"]],
+            ["id": "tool:3", "kind": "tool", "status": "done",
+             "tool": ["name": "tell", "input": ["id": "a1", "message": "More."], "output": "outcome: done. sent to a1"]],
+        ])
+        #expect(run.messages.map(\.peer) == ["a1", "a2", "a3", "a2", "a1"])
+        #expect(run.messages.map(\.queued) == [false, true, false, true, false])
+    }
 }

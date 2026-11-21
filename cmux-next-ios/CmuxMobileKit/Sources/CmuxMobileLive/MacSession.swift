@@ -37,6 +37,10 @@ final class MacSession {
     /// overtake `auth`) wait for it (review m6), and Retry re-runs a refused one (M2).
     var pairingGate: (link: any MacLink, passed: Task<Bool, Never>)?
     var pairingState: LinkPairing.State = .idle
+    /// The phone's own next pairing attempt after a refusal (``LinkPairing/retryDelay(after:attempt:)``),
+    /// and how many ran since this Mac last paired.
+    var pairingRetry: Task<Void, Never>?
+    var pairingRetries = 0
     /// Terminal tabs of this Mac handed out, reattached on every new link.
     var terminals: [WeakTerminal] = []
     /// Whether this Mac's terminal tabs say it is offline (termfix-r13 D4).

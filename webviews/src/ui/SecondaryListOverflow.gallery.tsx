@@ -2,7 +2,8 @@
 import { useState } from "react";
 import { componentEntry } from "../gallery/format";
 import { PullRequestChip } from "../agent-session/acpmux/header/PullRequestChip";
-import { RulesNotice, type ForumRule } from "../agent-session/acpmux/RulesNotice";
+import { RulesNotice } from "../agent-session/acpmux/RulesNotice";
+import type { ForumRule } from "../agent-session/acpmux/rulesNoticeModel";
 import { PeoplePicker } from "../pages/home-channels/PeoplePicker";
 import { createStrings } from "../pages/shared/i18n";
 import table from "../pages/home-channels/generated/strings.json";

@@ -13,6 +13,8 @@ import xml.etree.ElementTree as ET
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import nightly_workflow_text as workflow_text  # noqa: E402
 SPEC = importlib.util.spec_from_file_location(
     "nightly_release_notes", ROOT / "scripts/ci/nightly_release_notes.py"
 )
@@ -490,7 +492,7 @@ class WorkflowTests(unittest.TestCase):
         # A nightly-next run is a push to the nightly-next branch, but its PRs
         # merge into feat-cmux-next: with github.ref_name every publish listed
         # 0 PRs (run 37611677848).
-        workflow = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
+        workflow = workflow_text.write_out_step_aliases((ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8"))
         step = workflow[workflow.index("- name: Prepare nightly release notes and appcast summaries"):]
         step = step[:step.index("\n      - name:", 1)]
         branch = re.search(r"NOTES_BRANCH: (.+)", step).group(1)
@@ -504,10 +506,12 @@ class WorkflowTests(unittest.TestCase):
         # so the job was cancelled mid-upload and left partial release assets.
         # The notes step has its own bound, well inside the job's, so a slow
         # notes run fails before any asset is uploaded.
-        workflow = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
+        workflow = workflow_text.write_out_step_aliases((ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8"))
         job = workflow[workflow.index("\n  publish-nightly:\n"):]
         job = job[:re.search(r"\n  [A-Za-z0-9_-]+:\n", job[1:]).start() + 1]
-        job_timeout = int(re.search(r"^    timeout-minutes: (\d+)$", job, re.M).group(1))
+        # One-mini mode adds room for glaeda's capacity wait (tests/test_nightly_mini_gate_timeouts.py);
+        # the smaller limit, the mode off, is the one that must hold.
+        job_timeout = min(int(n) for n in re.findall(r"\b\d+\b", re.search(r"^    timeout-minutes: (.+)$", job, re.M).group(1)))
         step = job[job.index("- name: Prepare nightly release notes and appcast summaries"):]
         step = step[:step.index("\n      - name:", 1)]
         bound = re.search(r"^        timeout-minutes: (\d+)$", step, re.M)

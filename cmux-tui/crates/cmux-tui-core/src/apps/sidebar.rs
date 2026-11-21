@@ -94,6 +94,12 @@ pub(super) fn sections(package: &Package) -> Vec<Section> {
                 .filter_map(|entry| Some((entry.get("id")?.as_str()?, entry)))
                 .collect()
         };
+    // One section per contribution id, the first entry's: a repeated id
+    // hashes to the same section id, and two adds of one id in a placement
+    // would fail the document transaction for every app placed with it.
+    let mut seen = std::collections::HashSet::new();
+    let entries: Vec<(&str, &Value)> =
+        entries.into_iter().filter(|(id, _)| seen.insert(*id)).collect();
     entries
         .into_iter()
         .map(|(id, options)| {
@@ -156,28 +162,30 @@ pub(super) fn place(
 }
 
 /// Seed receipts once, before startup installs any defaults or customization.
-/// Only metadata is written: an upgrade must not add, move or remove sections.
+/// Only metadata is written: an upgrade must not add, move or remove sections. So it is
+/// written as metadata, not as a sidebar commit: it takes no resource revision and
+/// publishes no change (a fresh daemon's first real change is revision 1).
 pub(super) fn initialize(mux: &crate::Mux, existing: &[Section]) -> anyhow::Result<()> {
     if mux.read_registry_state(|connection| has_receipt(connection, INITIALIZED))? {
         return Ok(());
     }
-    mux.commit_sidebar_ops(
-        &WorkspaceMutation::daemon_local("apps.sidebar.initialize"),
-        "apps.sidebar.initialize",
-        &json!({"existing": existing}),
-        |transaction, _| {
-            if !has_receipt(transaction, INITIALIZED)? {
-                for section in existing {
-                    if let Some(key) = receipt_key(section) {
-                        write_receipt(transaction, &key)?;
-                    }
+    mux.write_registry_meta(|transaction| {
+        // A migration that failed at open leaves no document: no marker, so the next
+        // start initializes again and automatic placement stays off meanwhile.
+        anyhow::ensure!(
+            crate::state::sidebar_doc_store::is_migrated(transaction)?,
+            "sidebar document unavailable: its migration did not complete"
+        );
+        if !has_receipt(transaction, INITIALIZED)? {
+            for section in existing {
+                if let Some(key) = receipt_key(section) {
+                    write_receipt(transaction, &key)?;
                 }
-                write_receipt(transaction, INITIALIZED)?;
             }
-            Ok(Vec::new())
-        },
-    )?;
-    Ok(())
+            write_receipt(transaction, INITIALIZED)?;
+        }
+        Ok(())
+    })
 }
 
 fn receipt_key(section: &Section) -> Option<String> {
@@ -235,110 +243,5 @@ fn placement_ops(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::super::mirror::Tier;
-    use super::*;
-    use cmux_layout_reducer::sidebar_doc::reduce;
-
-    fn package() -> Package {
-        Package {
-            id: "local/customize".into(),
-            version: "1.0.0".into(),
-            tier: Tier::Unverified,
-            source: Source::Local,
-            dir: Default::default(),
-            manifest: json!({"implements": {"cmux.section/1": {
-                "export": "render", "title": "Recent PRs",
-                "options": {"defaultRegion": "bottom", "maxRows": 8}
-            }}}),
-        }
-    }
-
-    fn connection() -> Connection {
-        let connection = Connection::open_in_memory().unwrap();
-        connection
-            .execute_batch("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
-            .unwrap();
-        connection
-    }
-
-    fn apply(doc: &mut Doc, ops: &[Op]) {
-        reduce::apply_in_place(doc, ops, &mut || "unused".into()).unwrap();
-    }
-
-    #[test]
-    fn customize_bottom_is_placed_once_and_removal_survives_reload_and_restart() {
-        let mut connection = connection();
-        let sections = sections(&package());
-        let id = sections[0].id.clone();
-        let mut doc = Doc::from_parts(0, vec![], vec![]);
-        let tx = connection.transaction().unwrap();
-        let ops = placement_ops(&tx, &doc, &sections, true).unwrap();
-        apply(&mut doc, &ops);
-        tx.commit().unwrap();
-        assert_eq!(doc.section(&id).unwrap().region, Region::Bottom);
-        assert_eq!(doc.section(&id).unwrap().max_rows, Some(8));
-        apply(&mut doc, &[Op::SectionRemove { id: id.clone() }]);
-        // Re-read the durable receipt in a new transaction. No process-local
-        // placement set can bring the person's removed section back.
-        for _ in 0..2 {
-            let tx = connection.transaction().unwrap();
-            assert!(placement_ops(&tx, &doc, &sections, true).unwrap().is_empty());
-            tx.commit().unwrap();
-        }
-        assert!(doc.section(&id).is_none());
-        let tx = connection.transaction().unwrap();
-        let restore = placement_ops(&tx, &doc, &sections, false).unwrap();
-        apply(&mut doc, &restore);
-        tx.commit().unwrap();
-        assert!(doc.section(&id).is_some(), "explicit placement restores it");
-    }
-
-    #[test]
-    fn automatic_placement_preserves_a_move_and_adopts_an_existing_contribution() {
-        let mut connection = connection();
-        let sections = sections(&package());
-        let mut existing = sections[0].clone();
-        existing.id = "sec_persons_section".into();
-        existing.region = Region::Top;
-        existing.order = "a0".into();
-        let doc = Doc::from_parts(0, vec![existing.clone()], vec![]);
-        let tx = connection.transaction().unwrap();
-        assert!(placement_ops(&tx, &doc, &sections, true).unwrap().is_empty());
-        tx.commit().unwrap();
-        let tx = connection.transaction().unwrap();
-        assert!(placement_ops(&tx, &doc, &sections, true).unwrap().is_empty());
-        assert_eq!(doc.section(&existing.id).unwrap().region, Region::Top);
-        assert!(matches!(placement_ops(&tx, &doc, &sections, false).unwrap().as_slice(),
-            [Op::SectionMove { id, .. }] if id == &existing.id));
-    }
-
-    #[test]
-    fn a_failed_document_transaction_does_not_record_placement() {
-        let mut connection = connection();
-        let sections = sections(&package());
-        let doc = Doc::from_parts(0, vec![], vec![]);
-        {
-            let tx = connection.transaction().unwrap();
-            assert_eq!(placement_ops(&tx, &doc, &sections, true).unwrap().len(), 1);
-            // Dropping a rejected document transaction rolls back the receipt too.
-        }
-        let tx = connection.transaction().unwrap();
-        assert_eq!(placement_ops(&tx, &doc, &sections, true).unwrap().len(), 1);
-    }
-
-    #[test]
-    fn v1_contribution_ids_and_v2_interface_ids_match_the_scene_provider() {
-        let mut app = package();
-        app.manifest = json!({"contributes": {"sidebarSections": [
-            {"id":"prs", "title":{"en":"PRs"}, "defaultRegion":"bottom", "render":"render"},
-            {"id":"other", "title":"Other", "render":"render"}
-        ]}});
-        let sections = sections(&app);
-        assert!(
-            matches!(&sections[0].kind, SectionKind::App { contribution } if contribution == "local/customize#prs")
-        );
-        assert_eq!(sections[0].region, Region::Bottom);
-        assert_eq!(sections[1].region, Region::Middle);
-    }
-}
+#[path = "sidebar_tests.rs"]
+mod tests;

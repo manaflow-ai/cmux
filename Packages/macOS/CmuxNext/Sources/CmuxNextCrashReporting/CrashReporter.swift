@@ -267,6 +267,22 @@ public final class CrashReporter: Sendable {
         }
     }
 
+    /// Adds a breadcrumb to the trail the next event carries (a crash, a hang, a non-fatal), so a later report
+    /// shows what led to it. `message` and `data` must hold no user content: they are sent as is. Does nothing
+    /// while Sentry is off (consent, debug build).
+    /// - Parameters:
+    ///   - category: The breadcrumb's area, such as `terminal.reveal`.
+    ///   - message: One line, numbers and fixed words only.
+    ///   - warning: True for a problem seen (a warning breadcrumb), false for plain information.
+    ///   - data: Key-value numbers for the breadcrumb.
+    public func addBreadcrumb(category: String, message: String, warning: Bool = false, data: [String: String] = [:]) {
+        guard isStarted else { return }
+        let crumb = Breadcrumb(level: warning ? .warning : .info, category: category)
+        crumb.message = message
+        if !data.isEmpty { crumb.data = data }
+        SentrySDK.addBreadcrumb(crumb)
+    }
+
     /// Sends a handled, non-fatal error event (a guard that caught a
     /// problem before it crashed the app). One issue per `fingerprint`.
     /// Does nothing while Sentry is off (consent, debug build).

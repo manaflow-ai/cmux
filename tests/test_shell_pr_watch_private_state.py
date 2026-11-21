@@ -6,8 +6,11 @@ per-panel cache, force-probe signal and debug log at fixed /tmp names with
 shell redirections, which write through a symlink someone else planted there.
 It must keep those files in a directory only this user can write.
 
-Uses the shipped integration with an isolated TMPDIR. Message delivery and
-`gh` are replaced; no app, network or long-lived watcher is involved.
+Uses the shipped integration with an isolated TMPDIR that stands in for /tmp
+(sticky and world-writable): the planted symlinks sit at the old fixed names in
+it, never in the real /tmp, and every file the watcher writes must land in its
+private folder under that TMPDIR. Message delivery and `gh` are replaced; no
+app, network or long-lived watcher is involved.
 """
 
 from __future__ import annotations
@@ -34,6 +37,8 @@ class PRWatchPrivateStateContract(unittest.TestCase):
         self.addCleanup(self._temp.cleanup)
         self.tmpdir = self.directory / "tmp"
         self.tmpdir.mkdir()
+        self.tmpdir.chmod(0o1777)  # like /tmp: anyone may create a name in it
+        self.state = self.tmpdir / f"cmux-pr-{os.geteuid()}"
         self.repo = self.directory / "repo"
         (self.repo / ".git").mkdir(parents=True)
         (self.repo / ".git/HEAD").write_text("ref: refs/heads/contract-branch\n")
@@ -84,7 +89,7 @@ add-zsh-hook -d zshexit _cmux_zshexit
         self.assertEqual(stat.S_IMODE(info.st_mode), 0o700)
 
     def test_probe_request_writes_no_file_in_shared_tmp(self):
-        self.plant_symlink(Path(f"/tmp/cmux-pr-force-{self.panel}"), self.victim)
+        self.plant_symlink(self.tmpdir / f"cmux-pr-force-{self.panel}", self.victim)
 
         # One function call: the preexec hook clears the signal before the
         # next top-level command.
@@ -99,11 +104,12 @@ _test_probe
         self.assertEqual(self.victim.read_text(), ORIGINAL)
         signal = Path(output.split("SIGNAL=", 1)[1].strip())
         self.assertTrue(signal.is_file(), f"no force signal at {signal}")
+        self.assertTrue(signal.is_relative_to(self.state), f"{signal} is not in the private folder {self.state}")
         self.assert_private_directory(signal.parent)
 
     def test_cache_writes_no_file_in_shared_tmp(self):
         for suffix in CACHE_SUFFIXES:
-            self.plant_symlink(Path(f"/tmp/cmux-pr-cache-{self.panel}.{suffix}"), self.victim)
+            self.plant_symlink(self.tmpdir / f"cmux-pr-cache-{self.panel}.{suffix}", self.victim)
 
         output = self.run_zsh(r'''
 _cmux_report_pr_for_path "$PWD"
@@ -114,6 +120,7 @@ print -r -- "PREFIX=$(_cmux_pr_cache_prefix)"
         prefix = output.split("PREFIX=", 1)[1].strip()
         cached = Path(f"{prefix}.no-pr-branch")
         self.assertEqual(cached.read_text(), "contract-branch\n")
+        self.assertTrue(cached.is_relative_to(self.state), f"{cached} is not in the private folder {self.state}")
         self.assert_private_directory(cached.parent)
 
     def test_pr_probe_does_not_run_directory_change_hooks(self):
@@ -138,7 +145,7 @@ print -r -- "PREFIX=$(_cmux_pr_cache_prefix)"
         )
 
     def test_debug_log_writes_no_file_in_shared_tmp(self):
-        self.plant_symlink(Path("/tmp/cmux-pr-debug.log"), self.victim)
+        self.plant_symlink(self.tmpdir / "cmux-pr-debug.log", self.victim)
 
         self.run_zsh(r'''
 _CMUX_PR_DEBUG=1
@@ -146,6 +153,7 @@ _cmux_pr_debug_log contract-branch cache-miss
 ''')
 
         self.assertEqual(self.victim.read_text(), ORIGINAL)
+        self.assertIn("event=cache-miss", (self.state / "debug.log").read_text())
 
     def test_nonsticky_tmp_ancestor_does_not_host_state(self):
         self.tmpdir.chmod(0o777)

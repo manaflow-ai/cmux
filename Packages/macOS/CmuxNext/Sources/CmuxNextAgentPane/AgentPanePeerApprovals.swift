@@ -6,8 +6,23 @@ import Foundation
 public nonisolated enum AgentPanePeerApprovals: Sendable, Equatable {
     /// The peer, by this Mac's daemon's name for it, has not enrolled this Mac.
     case notEnrolled(peer: String)
-    /// The allow was not a one-time allow: only those count from this Mac.
+    /// The person's answer for a prompt of `peer` waits while this Mac enrolls there; it goes
+    /// once enrolled (``AgentPaneTransport/enrollThenRetry(peer:pageID:frame:)``).
+    case enrolling(peer: String)
+    /// Enrolling this Mac on `peer` for the person's answer failed, in the command's own words.
+    case enrollFailed(peer: String, reason: String)
+    /// The allow was not a one-time allow (an Always allow): only those count from this Mac.
     case onceOnly
+    /// An answer with notes: the peer counts no proof over notes from this Mac.
+    case notes
+    /// The answer did not come from the person's own click (a key, a posted event): this Mac signs
+    /// only a clicked Allow once for another machine.
+    case notClicked
+    /// This Mac's approver key could not be read or could not sign.
+    case noApproverKey
+    /// This Mac had no record of the ask (its nonce and run) when the person answered, or the ask
+    /// changed while it signed: the peer refused the answer it could not prove. The ask stays open.
+    case notRecorded
 }
 
 /// This app's side of peer-route approvals (``AcpmuxMacApprover``): this Mac's approver key, the

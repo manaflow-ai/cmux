@@ -1,5 +1,7 @@
 import AppKit
+import CmuxNextCompat
 @testable import CmuxNextApp
+import CmuxNextAppCore
 import CmuxNextFocusUI
 import Foundation
 import Testing
@@ -40,6 +42,11 @@ import CmuxNextTestSupport
         #expect(a !== b)
         completed = true
         return Harness(services: services, a: a, b: b)
+    }
+
+    /// The app's ``CrossWindowInputGuard`` over `windows` (as `CrossWindowInputGuard.drops(keyTypedInto:keyWindow:router:)` builds it).
+    private static func keyGuard(_ windows: WindowManager) -> CrossWindowInputGuard {
+        CrossWindowInputGuard { [weak windows] in windows?.owner(of: $0)?.state.id }
     }
 
     // MARK: Clicks and keys act in the window they came from
@@ -89,7 +96,7 @@ import CmuxNextTestSupport
         let harness = try Self.harness()
         defer { harness.close() }
         let shellA = try #require(harness.a.window), shellB = try #require(harness.b.window)
-        let keyGuard = CrossWindowInputGuard(windows: harness.services.windows)
+        let keyGuard = Self.keyGuard(harness.services.windows)
         #expect(keyGuard.dropsKey(eventWindow: shellA, keyWindow: shellB), "a key typed in A reached B")
         #expect(keyGuard.dropsKey(eventWindow: shellB, keyWindow: shellA), "a key typed in B reached A")
         #expect(!keyGuard.dropsKey(eventWindow: shellA, keyWindow: shellA))
@@ -103,6 +110,56 @@ import CmuxNextTestSupport
         #expect(!keyGuard.dropsKey(eventWindow: nil, keyWindow: shellB), "a key with no window is not judged here")
     }
 
+    /// A key typed into cmux window A and run again later (a creation hold's held key) never reaches a window no cmux
+    /// window owns that became key since: a floating panel (the Quick Agent Chat, the Chief pet's reply box).
+    /// A creation hold runs its held keys again with `NSApp.sendEvent`, which goes to the key window; a held line typed in
+    /// A went into the panel's field, and its Return sent it to an agent (review of #35275; the dogfood v2.2.3 class). A
+    /// key typed into that panel itself still goes on, and so do A's keys for a panel over A (A's own).
+    @Test func aHeldKeyNeverReachesAPanelNoCmuxWindowOwns() throws {
+        let harness = try Self.harness()
+        defer { harness.close() }
+        let shellA = try #require(harness.a.window)
+        let keyGuard = Self.keyGuard(harness.services.windows)
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 80), styleMask: [.titled, .nonactivatingPanel],
+                            backing: .buffered, defer: true)
+        panel.isReleasedWhenClosed = false
+        defer { panel.close() }
+        #expect(keyGuard.owner(panel) == nil, "the test's panel is owned by a cmux window")
+        let heldSincePanel = CrossWindowInputGuard.HeldRun(keyWindow: panel) // the held keys' run began while the panel was key
+        #expect(keyGuard.dropsKey(eventWindow: shellA, keyWindow: panel, heldRun: heldSincePanel), "a held key typed in A reached a panel no cmux window owns")
+        #expect(!keyGuard.dropsKey(eventWindow: panel, keyWindow: panel), "a key typed into the panel did not reach it")
+        #expect(!keyGuard.dropsKey(eventWindow: nil, keyWindow: panel), "a key with no window is not judged here")
+        // A panel over A (a child window) is A's own: A's keys go on there.
+        shellA.addChildWindow(panel, ordered: .above)
+        defer { shellA.removeChildWindow(panel) }
+        #expect(!keyGuard.dropsKey(eventWindow: shellA, keyWindow: panel, heldRun: heldSincePanel), "A's own panel did not take A's keys")
+    }
+
+    /// A window no cmux window owns takes a key of A only when it became key after the key's moment: a key typed now
+    /// reaches a panel the person opened and typed into at once; a held key reaches one that a key of its own run made key
+    /// (Start Agent's key, then its line: review of #35832), never one that was key when its run began. Neither reaches
+    /// window B, and a held key still reaches its own window and a panel over it.
+    @Test func aPanelTakesAKeyOnlyWhenItBecameKeyAfterTheKeysMoment() throws {
+        let harness = try Self.harness()
+        defer { harness.close() }
+        let shellA = try #require(harness.a.window), shellB = try #require(harness.b.window)
+        let keyGuard = Self.keyGuard(harness.services.windows)
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 80), styleMask: [.titled, .nonactivatingPanel],
+                            backing: .buffered, defer: true)
+        panel.isReleasedWhenClosed = false
+        defer { panel.close() }
+        let heldSincePanel = CrossWindowInputGuard.HeldRun(keyWindow: panel), heldSinceA = CrossWindowInputGuard.HeldRun(keyWindow: shellA)
+        #expect(!keyGuard.dropsKey(eventWindow: shellA, keyWindow: panel), "a key typed now did not reach the panel the person opened")
+        #expect(keyGuard.dropsKey(eventWindow: shellA, keyWindow: panel, heldRun: heldSincePanel), "a held key reached a panel that was key when its run began")
+        #expect(!keyGuard.dropsKey(eventWindow: shellA, keyWindow: panel, heldRun: heldSinceA), "a held key did not follow a panel its own run made key")
+        #expect(keyGuard.dropsKey(eventWindow: shellA, keyWindow: shellB), "a key typed now in A reached B")
+        #expect(keyGuard.dropsKey(eventWindow: shellA, keyWindow: shellB, heldRun: heldSinceA), "a held key typed in A reached B")
+        #expect(!keyGuard.dropsKey(eventWindow: shellA, keyWindow: shellA, heldRun: heldSincePanel), "a held key did not reach its own window")
+        shellA.addChildWindow(panel, ordered: .above)
+        defer { shellA.removeChildWindow(panel) }
+        #expect(!keyGuard.dropsKey(eventWindow: shellA, keyWindow: panel, heldRun: heldSincePanel), "a held key did not reach a panel over its window")
+    }
+
     /// A workspace a person picks in window A's sidebar (a pinned item listing a workspace that
     /// window B shows) shows in window A; window B is left as it was.
     @Test func aSidebarPickInWindowAShowsTheWorkspaceInWindowA() throws {
@@ -114,6 +171,15 @@ import CmuxNextTestSupport
         #expect(windows.registry.value.owner(of: "mw-b2") == harness.a.state.id, "the workspace stayed in window B")
         #expect(harness.a.state.workspaceID == "mw-b2", "window A does not show the workspace picked in it")
         #expect(harness.b.state.workspaceID == bShown, "window B changed its shown workspace for a click in window A")
+    }
+
+    /// cmux#37371: after a sidebar pick's claim the workspace may still be another window's (the claim refused, as
+    /// for an incognito window's workspace). That window, which may be on another macOS Space, does not come forward;
+    /// only a window the claim just opened does. A request from elsewhere still brings its window forward.
+    @Test func aSidebarPickNeverBringsAnotherOpenWindowForward() {
+        #expect(!ShowOrigin.thisWindow.raisesOwner(ownerWasOpen: true), "a click in window A raised window B")
+        #expect(ShowOrigin.thisWindow.raisesOwner(ownerWasOpen: false), "the window the claim opened stayed behind")
+        #expect(ShowOrigin.anywhere.raisesOwner(ownerWasOpen: true))
     }
 
     /// A request from elsewhere (a notification, the CLI) still shows the workspace where it lives.
@@ -139,9 +205,9 @@ import CmuxNextTestSupport
         let a = make(), b = make(), page = make()
         a.addChildWindow(page, ordered: .above)
         defer { a.removeChildWindow(page); for window in [a, b, page] { window.close() } }
-        #expect(!NewTabInputCoordinator.mayTakeKey(a, keyWindow: b), "window A took the keyboard from window B")
-        #expect(NewTabInputCoordinator.mayTakeKey(a, keyWindow: page), "A takes the keys back from its own page window")
-        #expect(NewTabInputCoordinator.mayTakeKey(a, keyWindow: nil))
+        #expect(!a.mayTakeKey(from: b), "window A took the keyboard from window B")
+        #expect(a.mayTakeKey(from: page), "A takes the keys back from its own page window")
+        #expect(a.mayTakeKey(from: nil))
     }
 
     /// Keys the daemon gives back from a creation in window A wait for a terminal of window A; a

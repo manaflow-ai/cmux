@@ -178,7 +178,9 @@ struct SidebarRowsMoveOnRenderServerTests {
         let slot = try #require(list.displayed.row(for: opening.key).map(list.frame(for:)))
         #expect(opening.frame == slot, "the new row is at \(opening.frame), its slot is \(slot)")
         #expect(Self.sizeSprings(opening) >= 1, "the new row did not open its slot on the render server")
-        #expect(opening.alphaValue < 1, "the new row showed whole in one frame")
+        // The fade runs on the render server from the apply (m23 F4): the model opacity is 1 at once, the layer fades in.
+        let fade = opening.layer?.animation(forKey: "opacity") as? CABasicAnimation
+        #expect(((fade?.fromValue as? NSNumber)?.floatValue ?? 1) < 1, "the new row showed whole in one frame")
     }
 
     /// Leo 2026-10-21: "when you create a workspace at the top it's a huge cascade".
@@ -925,7 +927,7 @@ struct SidebarRowsMoveOnRenderServerTests {
         options.chatHistory = state
         let layout = SidebarLayout.make(sections: Self.sections([1, 2, 3]), metrics: .standard, options: options)
         try #require(layout.pinnedChatsY != nil)
-        let history = SidebarChatHistoryViews()
+        let history = SidebarChatHistoryViews(makePage: { _ in nil })
         history.place(layout, state: state, metrics: .standard, in: list, animated: false)
         let block = history.pinned
         let slot = block.frame

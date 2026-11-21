@@ -31,11 +31,11 @@ public final class MouseSideButtons {
         case page(Button)
         /// Go Back or Go Forward.
         case history(Button)
-        /// Not a side button, turned off, or over a view that forwards buttons: the event goes on.
+        /// Not a side button, or over a view that forwards buttons: the event goes on.
         case pass
 
-        static func of(_ button: Button?, enabled: Bool, overForwardingView: Bool, overBrowser: Bool) -> Route {
-            guard let button, enabled, !overForwardingView else { return .pass }
+        static func of(_ button: Button?, overForwardingView: Bool, overBrowser: Bool) -> Route {
+            guard let button, !overForwardingView else { return .pass }
             return overBrowser ? .page(button) : .history(button)
         }
     }
@@ -98,8 +98,7 @@ public final class MouseSideButtons {
             return event
         }
         let target = Target(window: window, screenPoint: window.convertPoint(toScreen: event.locationInWindow))
-        let route = Route.of(button, enabled: NavigationTunables.mouseSideButtons.value,
-                             overForwardingView: target.forwardsButtons, overBrowser: target.browser != nil)
+        let route = Route.of(button, overForwardingView: target.forwardsButtons, overBrowser: target.browser != nil)
         presses.press(button, route: route, browser: target.browser)
         return route == .pass ? event : nil
     }

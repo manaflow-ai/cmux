@@ -303,10 +303,10 @@ async fn a_turn_counts_from_its_prompt_being_written() {
 }
 
 /// A paused machine or a stopped daemon (`hub/resume.rs`): the gap is no stall. A turn in flight
-/// across it goes on, its stalled count starts again from the resume, the chat logs one notice
-/// naming the gap, and subscribers hear of it once.
+/// across twelve gaps goes on quietly, its stalled count starts again from each resume, and
+/// subscribers hear every gap once without adding any resume notice to the chat.
 #[tokio::test]
-async fn a_turn_in_flight_across_a_pause_is_not_stalled_and_the_chat_says_so() {
+async fn twelve_recovered_gaps_add_no_chat_records_and_keep_stall_protection() {
     use acpmux::resume::{Resume, ResumeKind};
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let clock = acpmux::clock::ManualClock::new();
@@ -320,22 +320,20 @@ async fn a_turn_in_flight_across_a_pause_is_not_stalled_and_the_chat_says_so() {
     let mut resumes = hub.subscribe_resumes();
     let settle = || tokio::time::sleep(Duration::from_millis(200));
 
-    // 50 s into the turn the daemon is stopped (SIGSTOP): the hub clock moves on, and the gap is
-    // seen on the continue.
-    clock.advance(Duration::from_secs(50));
-    hub.machine_resumed(Resume { gap: Duration::from_secs(45), kind: ResumeKind::Stopped });
-    assert!(resumes.has_changed().unwrap(), "subscribers were not told");
-    resumes.borrow_and_update();
-    assert_eq!(hub.resume_count(), 1);
-    until_event(&hub, &id, |e| e.kind == "host_notice" && e.msg["source"] == "resume").await;
-    let notice = find(&hub.events(&id, 0, 10_000).unwrap(), "host_notice")[0].msg.clone();
-    assert_eq!(notice["gapMs"], 45_000, "{notice}");
-    assert_eq!(notice["kind"], "stopped", "{notice}");
-    assert!(notice["text"].as_str().unwrap().contains("45s"), "{notice}");
-    // A chat with no running turn gets no notice.
+    // Repeated nine-minute sleeps and process stops must not flood the transcript.
+    for gap in 1..=12 {
+        clock.advance(Duration::from_secs(9 * 60));
+        let kind = if gap % 2 == 0 { ResumeKind::Stopped } else { ResumeKind::Paused };
+        hub.machine_resumed(Resume { gap: Duration::from_secs(9 * 60), kind });
+        assert!(resumes.has_changed().unwrap(), "subscribers missed gap {gap}");
+        resumes.borrow_and_update();
+        assert_eq!(hub.resume_count(), gap);
+    }
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    assert_eq!(find(&events, "host_notice").len(), 0, "recovered gaps added chat records");
     assert!(find(&hub.events(&idle, 0, 10_000).unwrap(), "host_notice").is_empty());
 
-    // 61 s after the turn's start, 11 s after the resume: not stalled.
+    // Eleven seconds after the last resume: not stalled despite all the elapsed gap time.
     clock.advance(Duration::from_secs(11));
     settle().await;
     assert!(results(&hub, &id).is_empty(), "a turn was ended for the time the daemon was stopped");
@@ -345,4 +343,28 @@ async fn a_turn_in_flight_across_a_pause_is_not_stalled_and_the_chat_says_so() {
     clock.advance(Duration::from_secs(50));
     let ended = until_results(&hub, &id, 1).await;
     assert_eq!(ended[0]["detail"], "stalled", "{ended:?}");
+}
+
+/// A sleep while no turn ran (an idle daemon parks its resume tick, `hub/resume.rs`) is no gap of
+/// the next turn: the chat that starts one after the wake gets no "this machine was paused" notice
+/// (review of #35416: every morning's first prompt on a Mac would show one). The gap is still seen.
+#[tokio::test]
+async fn a_sleep_while_idle_is_no_notice_in_the_next_turn() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let clock = acpmux::clock::ManualClock::new();
+    hub.set_clock(clock.clone());
+    hub.set_idle_child(None);
+    hub.config.write().await.stalled_turn_end_ms = Some(60_000);
+    let id = new_session(&mut c, "slept-idle").await;
+    // The Mac slept 9 h while the daemon was idle.
+    hub.park_resume_watch_after_sleep(Duration::from_secs(9 * 3600));
+    start(&mut c, &id, "hang", "working").await;
+    // The stalled timer checks the clocks before it judges the turn (as every turn timer does).
+    clock.advance(Duration::from_secs(61));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    let notices: Vec<_> =
+        find(&events, "host_notice").into_iter().filter(|e| e.msg["source"] == "resume").collect();
+    assert!(notices.is_empty(), "the sleep before the turn was told in the turn: {notices:?}");
+    assert_eq!(hub.resume_count(), 1, "the sleep was not seen at all");
 }

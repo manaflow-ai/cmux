@@ -7,20 +7,21 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { translate } from "./i18n";
 import { AcpmuxRpcError } from "./handoff/protocol";
+import { NativeError } from "./nativeError";
 import { HOST_ERROR_DEADLINE_MS, hostErrorShows, hostIsReconnecting } from "./hostRetry";
 import { PEER_LINK_DEADLINE_MS, hostLineText, isRawDaemonText, peerLinkFailure } from "./hostLine";
 
 // acpmux's refusal for a request on a peer that is down, as the daemon words it (peer_link.rs
 // `unreachable_error`) and as direct.ts hands it on (`reason` copied from `data.reason`).
 const LEOS =
-  "peer_unreachable: <host> (reconnecting, last seen 10s ago: WebSocket protocol error: Handshake not finished); the request was not sent; run `acpmux host ls` and retry after the peer reconnects";
+  "peer_unreachable: <host> (reconnecting, last seen 10s ago: WebSocket protocol error: Handshake not finished); the request was not sent; run `acpmux machine ls` and retry after the peer reconnects";
 const rpc = (message: string, data: Record<string, unknown>) =>
   Object.assign(new AcpmuxRpcError({ code: -32603, message, data }), { code: -32603, reason: data.reason });
 const unreachable = (peerState: string) =>
   rpc(LEOS.replace("(reconnecting", `(${peerState}`), {
     reason: "peer_unreachable",
     retryable: true,
-    try: "acpmux host ls",
+    try: "acpmux machine ls",
     detail: "the request was not sent",
     peer: "<host>",
     peerState,
@@ -30,11 +31,11 @@ const unreachable = (peerState: string) =>
 // refusals in its CLI's words.
 const DAEMON_WORDS = [
   LEOS,
-  "peer_unreachable: the link to box took no new request for 30s; the request was not sent; run `acpmux host ls` and retry",
+  "peer_unreachable: the link to box took no new request for 30s; the request was not sent; run `acpmux machine ls` and retry",
   "peer_unreachable: the request was not sent; retry later",
   "peer disconnected",
   "spawn.failed: the agent exited before it answered",
-  'no peer "box"; run `acpmux host ls` and connect it',
+  'no peer "box"; run `acpmux machine ls` and connect it',
 ];
 
 test("a reconnecting, connecting, slow or restarting peer shows no line, however long it lasts", () => {
@@ -86,14 +87,49 @@ test("the line never carries a daemon code, protocol text or a CLI command; Deta
   ).toBe("Can't reach this chat's machine.");
 });
 
-test("plain host words stay the line, with nothing behind Details", () => {
+test("the app's own localized refusal stays the line, with nothing behind Details", () => {
   for (const words of [
-    "acpmux did not answer in time.",
-    "acpmux belongs to cmux NIGHTLY, and this build may not use it. Quit that app, then try again.",
-    "cmux cannot reach acpmux: it exited before it was ready. Its log is at /Users/someone/Library/Application Support/com.cmuxterm.app.next/acpmux/daemon.log.",
+    "The agent service didn't answer in time.",
+    "cmux NIGHTLY is using the agent service, so this cmux can't. Quit cmux NIGHTLY, then try again.",
+    "cmux couldn't find its agent service. Reinstall cmux to fix this.",
   ]) {
-    expect(isRawDaemonText(words)).toBe(false);
-    expect(hostLineText(new Error(words), words, translate)).toEqual({ line: words });
+    const refusal = new NativeError({ code: "host_unavailable", userMessage: words });
+    expect(hostLineText(refusal, words, translate)).toEqual({ line: words });
+  }
+  // A chat too large to open is the pane's own words.
+  const tooLarge = translate("host.tooLarge");
+  expect(hostLineText(new Error("frame too large"), tooLarge, translate)).toEqual({ line: tooLarge });
+});
+
+// Audit 2026-11-12: a message that was not code-shaped ("Failed to fetch", "Error: …") was the line.
+test("any other failure's text reads as the plain line, its words behind Details", () => {
+  for (const words of [
+    "Failed to fetch",
+    "Error: socket hang up",
+    "acpmux did not answer in time.",
+    "TypeError: Cannot read properties of undefined (reading 'sessionId')",
+  ]) {
+    expect(hostLineText(new Error(words), words, translate)).toEqual({
+      line: translate("host.unavailable"),
+      detail: words,
+    });
+    // A native error with no code (pageHost.ts: a call that never got an answer) is not the app's words.
+    expect(hostLineText(new NativeError(undefined, words), words, translate)).toEqual({
+      line: translate("host.unavailable"),
+      detail: words,
+    });
+  }
+});
+
+// Review of #41975: pageHost.ts turns an unknown operation into a coded NativeError whose message is
+// the protocol's own text; a code is not the app's words unless it is the handshake refusal.
+test("a coded native error other than the app's refusal reads as the plain line, its text behind Details", () => {
+  const words = "unknown operation: agent.session.frobnicate";
+  for (const code of ["native.invalid_request", "native.not_connected", "machine.creator_or_admin"]) {
+    expect(hostLineText(new NativeError({ code, userMessage: words }), words, translate)).toEqual({
+      line: translate("host.unavailable"),
+      detail: words,
+    });
   }
 });
 
@@ -108,4 +144,33 @@ test("every HostUnavailableLine in the pane is worded by hostLineText", () => {
     expect(use).toMatch(/detail=\{hostWords\.detail\}/);
   }
   expect(source).toMatch(/const hostWords = hostLineText\(/);
+});
+
+// Cloud machines pause on their own when idle and between tool calls (cmux-platform
+// docs/agent-turn-sleep.md): a paused or resuming machine is never "Can't reach", however long.
+test("a Cloud machine the account says sleeps is never said to be unreachable", () => {
+  const asleep = (peer: string | undefined) => peer === "<host>";
+  expect(hostErrorShows(unreachable("reconnecting"), 10 * PEER_LINK_DEADLINE_MS, asleep)).toBe(false);
+  expect(hostErrorShows(unreachable("offline"), 10 * PEER_LINK_DEADLINE_MS, asleep)).toBe(false);
+  expect(hostErrorShows(unreachable("offline"), PEER_LINK_DEADLINE_MS, () => false)).toBe(true);
+});
+
+test("cloudMachineAsleep: paused and starting stages sleep, ready and failed do not, twins never", async () => {
+  const { cloudMachineAsleep } = await import("./cloudMachines");
+  const list = [
+    { id: "a", name: "Box", stage: "paused" },
+    { id: "b", name: "boot", stage: "connecting" },
+    { id: "c", name: "up", stage: "ready" },
+    { id: "d", name: "bad", stage: "failed" },
+    { id: "e", name: "twin", stage: "paused" },
+    { id: "f", name: "twin", stage: "paused" },
+  ];
+  expect(["box", "boot", "up", "bad", "twin", undefined].map((name) => cloudMachineAsleep(name, list))).toEqual([
+    true,
+    true,
+    false,
+    false,
+    false,
+    false,
+  ]);
 });

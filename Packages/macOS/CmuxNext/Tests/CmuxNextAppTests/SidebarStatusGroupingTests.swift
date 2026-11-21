@@ -154,7 +154,7 @@ import Testing
                 "\(sidebar.drawn)")
     }
 
-    /// The Done fold (`sidebar.doneFold`, on by default) folds workspaces marked Done in the plain list; inside status
+    /// The Done fold folds workspaces marked Done in the plain list; inside status
     /// sections it does not apply, so a workspace marked Done shows under its Priority state.
     @Test func aWorkspaceMarkedDoneShowsUnderItsStateNotTheDoneFold() {
         defer { Self.toggle(nil) }

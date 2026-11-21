@@ -31,8 +31,8 @@ extension Color {
     /// The user's accent (Settings > Appearance > Accent color, `CmuxMobileAccentTheme`) as a
     /// concrete color (`Color.primary` turns vibrant gray inside glass). Read in a view's body,
     /// the view redraws when the choice changes. Never hard-code a hue in its place.
-    public static var cmuxMobileAccent: Color { CmuxMobileAccentTheme.shared.accent.accent.color }
-    public static var cmuxMobileOnAccent: Color { CmuxMobileAccentTheme.shared.accent.onAccent.color }
+    public static var cmuxMobileAccent: Color { CmuxMobileAccentTheme.shared.accentToken.color }
+    public static var cmuxMobileOnAccent: Color { CmuxMobileAccentTheme.shared.onAccentToken.color }
     public static let cmuxMobileSuccess = dynamic(dark: rgba(0x30D158), light: rgba(0x34C759))
     public static let cmuxMobileDanger = dynamic(dark: rgba(0xFF453A), light: rgba(0xFF3B30))
     public static let cmuxMobileWarning = dynamic(dark: rgba(0xFFD60A), light: rgba(0xFFCC00))
@@ -66,8 +66,8 @@ extension UIColor {
     public static let cmuxMobileFillSelected = UIColor { $0.userInterfaceStyle == .dark ? Color.rgba(0xFFFFFF, 0.16) : Color.rgba(0x000000, 0.09) }
     public static let cmuxMobileFillPressed = UIColor { $0.userInterfaceStyle == .dark ? Color.rgba(0xFFFFFF, 0.22) : Color.rgba(0x000000, 0.13) }
     /// The user's accent: resolved from the current choice each time a trait collection resolves it.
-    public static let cmuxMobileAccent = UIColor { CmuxMobileAccentTheme.shared.accent.accent.uiColor.resolvedColor(with: $0) }
-    public static let cmuxMobileOnAccent = UIColor { CmuxMobileAccentTheme.shared.accent.onAccent.uiColor.resolvedColor(with: $0) }
+    public static let cmuxMobileAccent = UIColor { CmuxMobileAccentTheme.shared.accentToken.uiColor.resolvedColor(with: $0) }
+    public static let cmuxMobileOnAccent = UIColor { CmuxMobileAccentTheme.shared.onAccentToken.uiColor.resolvedColor(with: $0) }
     public static let cmuxMobileSuccess = UIColor { $0.userInterfaceStyle == .dark ? Color.rgba(0x30D158) : Color.rgba(0x34C759) }
     public static let cmuxMobileDanger = UIColor { $0.userInterfaceStyle == .dark ? Color.rgba(0xFF453A) : Color.rgba(0xFF3B30) }
     public static let cmuxMobileWarning = UIColor { $0.userInterfaceStyle == .dark ? Color.rgba(0xFFD60A) : Color.rgba(0xFFCC00) }
@@ -112,7 +112,7 @@ public struct IconAction: View {
         Button(action: action) {
             IconActionLabel(systemImage)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityLabel(label)
     }
 }
@@ -147,6 +147,7 @@ public struct CmuxMobileCapsuleButtonStyle: ButtonStyle {
     var kind: Kind
     var size: Size
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     public init(_ kind: Kind = .primary, size: Size = .inline) {
         self.kind = kind
@@ -163,15 +164,14 @@ public struct CmuxMobileCapsuleButtonStyle: ButtonStyle {
             .font(.headline)
             .lineLimit(1)
             .padding(.horizontal, size == .compact ? 12 : 20)
-            // Bar buttons (permission options) may wrap to a second line.
-            .padding(.vertical, size == .bar ? 6 : 0)
-            .frame(minHeight: height, maxHeight: size == .bar ? nil : height)
+            // Bar buttons (permission options) may wrap to a second line; at
+            // accessibility text sizes every capsule grows with its title instead of clipping it.
+            .padding(.vertical, size == .bar || dynamicTypeSize.isAccessibilitySize ? 6 : 0)
+            .frame(minHeight: height, maxHeight: size == .bar || dynamicTypeSize.isAccessibilitySize ? nil : height)
             .frame(maxWidth: size == .inline ? nil : .infinity)
             .foregroundStyle(foreground)
-            .background(background, in: .capsule)
-            .opacity(configuration.isPressed ? 0.85 : 1)
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
-            .animation(.cmuxMobileSnap, value: configuration.isPressed)
+            // Held: the pressed wash over the fill; the label never dims, shrinks or changes weight.
+            .cmuxMobilePressFill(configuration.isPressed, rest: AnyShapeStyle(background), in: Capsule())
             // 40 pt capsules keep a 44 pt hit target (HIG): 2 pt of invisible margin above and below.
             .padding(.vertical, height < 44 ? (44 - height) / 2 : 0)
             .contentShape(.rect)

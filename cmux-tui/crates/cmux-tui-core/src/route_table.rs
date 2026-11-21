@@ -26,8 +26,9 @@
 //! route nothing and leave the generations alone: every durable mutation clones the state, and moving them there would
 //! send every key back to the session lock (the F4 delay).
 //!
-//! The generations are process-wide: a daemon runs one `Mux`, and the test runner (nextest) runs each test in its own
-//! process, so no other mux moves them under a test.
+//! The generations belong to one session state ([`RouteGenerations`]): its four tables share them, and the clones and
+//! replacements of that state keep them. Another mux in the same process (`cargo test` runs every test of a crate in
+//! one process, each with its own mux and surface ids from 1) never moves them.
 //!
 //! R-DAEMON-STATE stage S1 (`CMUX_TUI_RDS_INPUT`, handoff/rewrites/R-DAEMON-STATE/DESIGN.md section 2.6) replaces the
 //! kept terminal and its generations with a published snapshot of the three tables ([`RouteSnapshot`]): each table
@@ -47,23 +48,33 @@ use crate::{Surface, SurfaceId};
 
 const ROUTE_SLOTS: usize = 1024;
 
-static ROUTE_GENERATIONS: [AtomicU64; ROUTE_SLOTS] = [const { AtomicU64::new(0) }; ROUTE_SLOTS];
+/// The route generations of one session state: a write to any of its routing tables moves the generations of the
+/// ids it routes, and a kept terminal is checked against them. Clones share them.
+#[derive(Clone, Debug)]
+pub struct RouteGenerations(Arc<[AtomicU64; ROUTE_SLOTS]>);
 
-fn slot(id: SurfaceId) -> &'static AtomicU64 {
-    let index = usize::try_from(id % ROUTE_SLOTS as u64).unwrap_or_default();
-    // The remainder is below ROUTE_SLOTS, so `get` always finds a slot; a shared fallback slot keeps it panic-free.
-    ROUTE_GENERATIONS.get(index).unwrap_or(&ROUTE_GENERATIONS_FALLBACK)
+impl Default for RouteGenerations {
+    fn default() -> Self {
+        Self(Arc::new([const { AtomicU64::new(0) }; ROUTE_SLOTS]))
+    }
 }
 
-static ROUTE_GENERATIONS_FALLBACK: AtomicU64 = AtomicU64::new(0);
+impl RouteGenerations {
+    /// `id`'s slot: the remainder is below ROUTE_SLOTS, so `get` always finds one.
+    fn slot(&self, id: SurfaceId) -> Option<&AtomicU64> {
+        self.0.get(usize::try_from(id % ROUTE_SLOTS as u64).unwrap_or_default())
+    }
 
-/// The route generation of `id`: it moves on every write that changes which surface `id` routes to.
-pub fn route_generation(id: SurfaceId) -> u64 {
-    slot(id).load(Ordering::Acquire)
-}
+    /// The route generation of `id`: it moves on every write that changes which surface `id` routes to.
+    pub fn of(&self, id: SurfaceId) -> u64 {
+        self.slot(id).map_or(0, |slot| slot.load(Ordering::Acquire))
+    }
 
-fn route_changed(id: SurfaceId) {
-    slot(id).fetch_add(1, Ordering::AcqRel);
+    fn changed(&self, id: SurfaceId) {
+        if let Some(slot) = self.slot(id) {
+            slot.fetch_add(1, Ordering::AcqRel);
+        }
+    }
 }
 
 /// The surface ids whose route a write of `(self, value)` changes.
@@ -85,6 +96,13 @@ impl RouteKey<TerminalPublicId> for SurfaceId {
     }
 }
 
+/// `State::terminal_catalog_by_host`: the host id names a catalog owner, never a placement or runtime id itself.
+impl RouteKey<TerminalPublicId> for String {
+    fn routed_id(&self, _: &TerminalPublicId) -> Option<SurfaceId> {
+        None
+    }
+}
+
 /// `State::terminal_catalog`: the runtime id the owner is found under (`terminal_catalog_by_runtime`).
 impl RouteKey<Arc<Surface>> for TerminalPublicId {
     fn routed_id(&self, value: &Arc<Surface>) -> Option<SurfaceId> {
@@ -92,15 +110,27 @@ impl RouteKey<Arc<Surface>> for TerminalPublicId {
     }
 }
 
-/// A routing map whose writes move the [`route_generation`] of the ids they route. The map is copy-on-write behind an
+/// A routing map whose writes move the [`RouteGenerations`] of the ids they route. The map is copy-on-write behind an
 /// `Arc`, so the session state's guard can publish it with no copy ([`RouteSnapshot`]); the first write after a
 /// publication copies the map once.
 #[derive(Clone, Debug)]
-pub struct RouteTable<K, V>(Arc<HashMap<K, V>>);
+pub struct RouteTable<K, V>(Arc<HashMap<K, V>>, RouteGenerations);
 
 impl<K, V> Default for RouteTable<K, V> {
     fn default() -> Self {
-        Self(Arc::new(HashMap::new()))
+        Self::with_generations(RouteGenerations::default())
+    }
+}
+
+impl<K, V> RouteTable<K, V> {
+    /// An empty table whose writes move `generations` (the session state's, shared by its four tables).
+    pub fn with_generations(generations: RouteGenerations) -> Self {
+        Self(Arc::new(HashMap::new()), generations)
+    }
+
+    /// The generations this table's writes move.
+    pub fn generations(&self) -> &RouteGenerations {
+        &self.1
     }
 }
 
@@ -114,10 +144,10 @@ impl<K: Eq + Hash + Clone + RouteKey<V>, V: Clone> RouteTable<K, V> {
         let unrouted = self.0.get(&key).and_then(|old| key.routed_id(old));
         let routed = key.routed_id(&value);
         if let Some(id) = routed {
-            route_changed(id);
+            self.1.changed(id);
         }
         if let Some(id) = unrouted.filter(|id| Some(*id) != routed) {
-            route_changed(id);
+            self.1.changed(id);
         }
         Arc::make_mut(&mut self.0).insert(key, value)
     }
@@ -128,20 +158,19 @@ impl<K: Eq + Hash + Clone + RouteKey<V>, V: Clone> RouteTable<K, V> {
         }
         let removed = Arc::make_mut(&mut self.0).remove(key)?;
         if let Some(id) = key.routed_id(&removed) {
-            route_changed(id);
+            self.1.changed(id);
         }
         Some(removed)
     }
 
-    /// Room for `additional` more entries (a mutation plan reserves before it commits); routes nothing. A map with
-    /// room already is not copied out of a published snapshot.
+    /// Room for `additional` more entries; routes nothing. A mutation plan reserves before its durable commit, so
+    /// the insert after the commit allocates nothing (`ResourceMutationPlan::apply`). A map a published snapshot
+    /// shares is copied here, before the commit, never by that insert; the plan reserves and applies under one
+    /// state guard, so no publication shares the map again in between.
     pub fn try_reserve(
         &mut self,
         additional: usize,
     ) -> Result<(), std::collections::TryReserveError> {
-        if self.0.capacity().saturating_sub(self.0.len()) >= additional {
-            return Ok(());
-        }
         Arc::make_mut(&mut self.0).try_reserve(additional)
     }
 }
@@ -165,6 +194,7 @@ pub(crate) struct RouteSnapshot {
     surfaces: Arc<HashMap<SurfaceId, Arc<Surface>>>,
     catalog: Arc<HashMap<TerminalPublicId, Arc<Surface>>>,
     by_runtime: Arc<HashMap<SurfaceId, TerminalPublicId>>,
+    by_host: Arc<HashMap<String, TerminalPublicId>>,
 }
 
 impl RouteSnapshot {
@@ -174,6 +204,7 @@ impl RouteSnapshot {
             surfaces: state.surfaces.shared(),
             catalog: state.terminal_catalog.shared(),
             by_runtime: state.terminal_catalog_by_runtime.shared(),
+            by_host: state.terminal_catalog_by_host.shared(),
         }
     }
 
@@ -182,6 +213,7 @@ impl RouteSnapshot {
         state.surfaces.shares(&self.surfaces)
             && state.terminal_catalog.shares(&self.catalog)
             && state.terminal_catalog_by_runtime.shares(&self.by_runtime)
+            && state.terminal_catalog_by_host.shares(&self.by_host)
     }
 
     /// The surface `id` routes to: its placement, else the catalog owner of the runtime `id` names (the lookup of
@@ -192,6 +224,64 @@ impl RouteSnapshot {
             .or_else(|| self.by_runtime.get(&id).and_then(|terminal| self.catalog.get(terminal)))
             .cloned()
     }
+
+    /// The catalog owner of terminal `id` (the lookup of `State::terminal_catalog`).
+    pub(crate) fn catalog_terminal(&self, id: &TerminalPublicId) -> Option<&Arc<Surface>> {
+        self.catalog.get(id)
+    }
+
+    /// The placed surfaces of each browser content, by the content their resource identity names: the session
+    /// snapshot shows a browser's live values only when exactly one surface shows it, as
+    /// `State::single_placement_of_content` does.
+    pub(crate) fn browser_surfaces_by_content(
+        &self,
+    ) -> HashMap<&crate::resource::ContentPublicId, Vec<&Arc<Surface>>> {
+        let mut shown: HashMap<_, Vec<_>> = HashMap::new();
+        for surface in self.surfaces.values() {
+            if let Some(identity) = surface.resource_identity()
+                && matches!(identity.content_id, crate::resource::ContentPublicId::Browser(_))
+            {
+                shown.entry(&identity.content_id).or_default().push(surface);
+            }
+        }
+        shown
+    }
+
+    /// The live terminal whose host id is `terminal_id` (the lookup of `Mux::live_surface_for_terminal`).
+    pub(crate) fn live_terminal(&self, terminal_id: &str) -> Option<Arc<Surface>> {
+        live_terminal(&self.surfaces, &self.catalog, &self.by_host, terminal_id).cloned()
+    }
+}
+
+/// The catalog owner the host index names for host id `terminal_id`, if it still carries that identity: the index
+/// is a verified cache (mux/terminal_catalog_index.rs).
+pub(crate) fn indexed_owner<'a>(
+    catalog: &'a HashMap<TerminalPublicId, Arc<Surface>>,
+    by_host: &HashMap<String, TerminalPublicId>,
+    terminal_id: &str,
+) -> Option<&'a Arc<Surface>> {
+    let public_id = by_host.get(terminal_id)?;
+    catalog.get(public_id).filter(|surface| {
+        surface.terminal_host_identity().is_some_and(|identity| identity.terminal_id == terminal_id)
+    })
+}
+
+/// The live terminal whose host id is `terminal_id`: the indexed catalog owner while it is placed, else the placement
+/// whose terminal has that identity. The session state and a published snapshot answer with these same tables.
+pub(crate) fn live_terminal<'a>(
+    surfaces: &'a HashMap<SurfaceId, Arc<Surface>>,
+    catalog: &'a HashMap<TerminalPublicId, Arc<Surface>>,
+    by_host: &HashMap<String, TerminalPublicId>,
+    terminal_id: &str,
+) -> Option<&'a Arc<Surface>> {
+    if let Some(owner) = indexed_owner(catalog, by_host, terminal_id)
+        && surfaces.contains_key(&owner.id)
+    {
+        return Some(owner);
+    }
+    surfaces.values().find(|surface| {
+        surface.terminal_host_identity().is_some_and(|identity| identity.terminal_id == terminal_id)
+    })
 }
 
 impl<K, V> Deref for RouteTable<K, V> {
@@ -210,3 +300,7 @@ impl<'a, K, V> IntoIterator for &'a RouteTable<K, V> {
         self.0.iter()
     }
 }
+
+#[cfg(test)]
+#[path = "route_table_tests.rs"]
+mod tests;

@@ -11,6 +11,7 @@ import { ChiefUsagePage } from "./ChiefUsagePage";
 import { MockChiefUsageProvider } from "./mockProvider";
 import { ChiefUsageStore } from "./store";
 import "../shared/pageBase.css";
+import "../../ui/ui.css";
 import "./styles.css";
 
 export function mountChiefUsagePage(root: HTMLElement, client: PageClient | null = defaultClient()): ChiefUsageStore {

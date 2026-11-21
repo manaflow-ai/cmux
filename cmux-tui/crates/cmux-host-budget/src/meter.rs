@@ -90,6 +90,13 @@ impl Meter {
         self.lock().cached.as_ref().map(|(_, v)| v.clone())
     }
 
+    /// The last verdict and how long before `now` its sample was taken.
+    pub fn last_with_age(&self, now: Instant) -> Option<(Duration, Verdict)> {
+        let state = self.lock();
+        let (at, v) = state.cached.as_ref()?;
+        Some((now.saturating_duration_since(*at), v.clone()))
+    }
+
     /// The last verdict while it is from the last `sample_seconds`.
     pub fn fresh_at(&self, now: Instant) -> Option<Verdict> {
         let state = self.lock();

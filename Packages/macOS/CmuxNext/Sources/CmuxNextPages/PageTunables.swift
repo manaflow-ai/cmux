@@ -33,33 +33,16 @@ public nonisolated struct PageTunables {
     public nonisolated init() {}
     public static let section = TunableSection(id: "pages", title: "Pages", symbol: "doc.richtext", order: 46)
 
-    public static let history = Tunable<PageImplementation>.choice(
-        "history.surface", section, "History page", help: "Shows cmux://history as the React page. New tabs use it.",
-        default: .native, code: "PageTunables.history")
-
     /// The CodeRouter app opens as the React CodeRouter page (cmux.coderouter) instead of its
     /// scene pane.
     public static let coderouter = Tunable<PageImplementation>.choice(
         "coderouter.surface", section, "CodeRouter page", help: "Opens the CodeRouter app as the React page. New tabs use it.",
         default: .native, code: "PageTunables.coderouter")
 
-    /// Debug Settings as the React page (cmux-page://cmux.debug-settings/, react-screens.md). The
-    /// Swift view stays one landing as the fallback, then goes with this tunable.
-    public static let debugSettings = Tunable<PageImplementation>.choice(
-        "debugSettings.surface", section, "Debug Settings page", help: "Shows Debug Settings as the React page. Reopen Debug Settings to apply.",
-        default: .web, code: "PageTunables.debugSettings")
-
     /// The Cloud page's machine list layout (the Cloud lead's prototype variants; rows default).
     public static let cloudMachinesLayout = Tunable<CloudMachinesLayout>.choice(
         "cloud.machines.layout", section, "Cloud machines layout", help: "Machine list of the Cloud page: dense rows or cards. New pages use it.",
         default: .rows, code: "PageTunables.cloudMachinesLayout")
 
-    /// The live web loop (``WebDevOverride``, plans/cmux-next/web-live-reload.md): off by default, so
-    /// a `web-dev.json` overlay is opt-in; off ignores the file without editing it.
-    public static let webDevOverride = Tunable<Bool>.toggle(
-        "webDev.override", section, "Live web reload (web-dev.json)",
-        help: "Loads pages and agent panes from the server or overlay web-dev.json names. Reload a page to apply.",
-        default: false, code: "PageTunables.webDevOverride")
-
-    public static var all: [TunableDescriptor] { [history.descriptor, coderouter.descriptor, debugSettings.descriptor, cloudMachinesLayout.descriptor, webDevOverride.descriptor] }
+    public static var all: [TunableDescriptor] { [coderouter.descriptor, cloudMachinesLayout.descriptor] }
 }

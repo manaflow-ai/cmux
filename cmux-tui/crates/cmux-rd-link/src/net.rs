@@ -25,6 +25,7 @@ use crate::{KeyPair, LinkError, Role};
 use cmux_transport::PathKind;
 use cmux_transport::stun::{TransactionId, binding_request, parse_binding_success};
 use std::io;
+use std::mem::size_of_val;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::os::fd::{AsRawFd, RawFd};
 use std::sync::mpsc;
@@ -34,8 +35,15 @@ use std::time::Instant;
 /// STUN requests are retried this often until each server answers or gives up.
 const STUN_RETRY_US: u64 = 300_000;
 const STUN_ATTEMPTS: u32 = 5;
+/// Most STUN servers one link queries, late ones included.
+const MAX_STUN_SERVERS: usize = 8;
+/// How often the driver asks a [`Later`] list while it has not answered.
+const LATER_POLL_US: u64 = 50_000;
 /// Largest UDP payload read.
 const MAX_PACKET: usize = 65_535;
+/// Room for a burst of media datagrams before the driver can drain the socket.
+/// Linux doubles this request when reporting the effective buffer size.
+const UDP_BUFFER_SIZE: i32 = 4 << 20;
 /// How long `CandidatesDone` waits for TURN allocations.
 const RELAY_GATHER_US: u64 = 3_000_000;
 /// Most TURN servers used.
@@ -107,6 +115,11 @@ pub struct NetConfig {
     /// TURN servers (from the hub ticket's relay list), for the relay
     /// candidate and the relayed paths. At most [`MAX_TURN_SERVERS`] are used.
     pub turn: Vec<TurnServer>,
+    /// Reach the peer only through this side's TURN allocations: no host or
+    /// reflexive candidate is gathered or sent, no direct path is opened, and a
+    /// packet from anywhere but a TURN server is dropped, so the peer never
+    /// learns this side's addresses. Without a TURN server nothing connects.
+    pub relay_only: bool,
 }
 
 /// A TURN server with long-term credentials (RFC 8656 over UDP).
@@ -144,8 +157,14 @@ pub enum NetEvent {
     Failed(String),
 }
 
+/// Servers still resolving when the link started: `None` until they are
+/// here. See [`Net::add_stun_later`] and [`Net::add_turn_later`].
+pub type Later<T> = Box<dyn FnMut() -> Option<Vec<T>> + Send>;
+
 enum Command {
     RemoteCandidate(Candidate),
+    StunLater(Later<SocketAddr>),
+    TurnLater(Later<TurnServer>),
     Datagram(Vec<u8>),
     Control(Vec<u8>),
     NetworkChange,
@@ -241,18 +260,85 @@ fn interface_addresses() -> Vec<IpAddr> {
     out
 }
 
+/// A candidate kind's slot in the driver's counts: host, srflx, relay.
+fn kind_index(kind: CandidateKind) -> usize {
+    match kind {
+        CandidateKind::Host => 0,
+        CandidateKind::ServerReflexive => 1,
+        CandidateKind::Relay => 2,
+    }
+}
+
 fn now_us(start: Instant) -> u64 {
     u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX)
+}
+
+/// Grow both queues so a keyframe burst is not dropped before the driver can
+/// read it. The kernel may cap the request; the default is still useful on
+/// platforms that accept the larger value.
+fn grow_udp_buffers(socket: &UdpSocket) {
+    for option in [libc::SO_SNDBUF, libc::SO_RCVBUF] {
+        // SAFETY: the descriptor is open for the borrow of `socket`, and the
+        // option value points at a live integer of the length passed.
+        unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                option,
+                (&UDP_BUFFER_SIZE as *const i32).cast(),
+                size_of_val(&UDP_BUFFER_SIZE) as libc::socklen_t,
+            );
+        }
+    }
+}
+
+/// The keep-awake interval ([`crate::endpoint::KEEP_AWAKE_US`]);
+/// `CMUX_RD_KEEP_AWAKE_MS` overrides it for measurements, 0 turns it off.
+fn keep_awake_us() -> Option<u64> {
+    match std::env::var("CMUX_RD_KEEP_AWAKE_MS").ok().and_then(|v| v.trim().parse::<u64>().ok()) {
+        Some(ms) => Some(ms.saturating_mul(1000)).filter(|us| *us > 0),
+        None => Some(crate::endpoint::KEEP_AWAKE_US),
+    }
+}
+
+/// Apple platforms: the socket's traffic is interactive video
+/// (`SO_NET_SERVICE_TYPE` = `NET_SERVICE_TYPE_VI`, the class video calls use),
+/// so Wi-Fi sends it in the video access category and the system treats the
+/// flow as latency sensitive. Best effort: a refusal changes nothing else.
+fn mark_interactive_video(socket: &UdpSocket) {
+    #[cfg(target_vendor = "apple")]
+    {
+        // <sys/socket.h>; the libc crate does not export them.
+        const SO_NET_SERVICE_TYPE: libc::c_int = 0x1116;
+        const NET_SERVICE_TYPE_VI: libc::c_int = 3;
+        // SAFETY: the descriptor is open for the borrow of `socket`, and the
+        // option value points at a live integer of the length passed.
+        unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                SO_NET_SERVICE_TYPE,
+                (&NET_SERVICE_TYPE_VI as *const libc::c_int).cast(),
+                size_of_val(&NET_SERVICE_TYPE_VI) as libc::socklen_t,
+            );
+        }
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    let _ = socket;
 }
 
 impl Net {
     /// Binds the socket, starts the driver thread and begins gathering candidates.
     pub fn start(config: NetConfig) -> Result<Self, LinkError> {
         let socket = UdpSocket::bind(config.bind).map_err(|e| LinkError::Io(e.to_string()))?;
+        grow_udp_buffers(&socket);
+        mark_interactive_video(&socket);
         socket.set_nonblocking(true).map_err(|e| LinkError::Io(e.to_string()))?;
         let local_addr = socket.local_addr().map_err(|e| LinkError::Io(e.to_string()))?;
-        let endpoint =
+        let mut endpoint =
             Endpoint::new(config.role, &config.session, &config.local, config.expected_remote, 0)?;
+        endpoint.set_local_networks(cmux_transport::local_networks());
+        endpoint.set_keep_awake(keep_awake_us());
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
         let command_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
@@ -264,8 +350,7 @@ impl Net {
             command_fd: command_wake.read,
             events: event_tx,
             event_fd: event_wake.write,
-            stun: config
-                .stun
+            stun: (if config.relay_only { &[][..] } else { &config.stun[..] })
                 .iter()
                 .enumerate()
                 .map(|(i, server)| StunQuery {
@@ -286,12 +371,17 @@ impl Net {
                     settled: false,
                 })
                 .collect(),
+            stun_later: None,
+            turn_later: None,
             remote: Vec::new(),
+            relay_only: config.relay_only,
             candidates_done: false,
             start: Instant::now(),
+            gathered: std::cell::Cell::new([0; 3]),
+            heard: 0,
         };
         // Host candidates are known at once.
-        for ip in interface_addresses() {
+        for ip in interface_addresses().into_iter().filter(|_| !config.relay_only) {
             driver.emit(NetEvent::Candidate(Candidate {
                 kind: CandidateKind::Host,
                 addr: SocketAddr::new(ip, local_addr.port()),
@@ -339,6 +429,21 @@ impl Net {
     /// A candidate the peer offered through signaling.
     pub fn add_remote_candidate(&self, candidate: Candidate) {
         self.command(Command::RemoteCandidate(candidate));
+    }
+
+    /// STUN servers whose names were still resolving at [`Net::start`]. The
+    /// driver asks `later` until it answers, then queries what it found, so a
+    /// slow resolver still yields the reflexive candidate, trickled after the
+    /// others (cmuxterm-hq#7976). Ignored when relay only.
+    pub fn add_stun_later(&self, later: Later<SocketAddr>) {
+        self.command(Command::StunLater(later));
+    }
+
+    /// TURN servers whose names were still resolving at [`Net::start`], as
+    /// [`Net::add_stun_later`]: each allocates once here, and its relayed
+    /// paths go to every peer candidate known by then.
+    pub fn add_turn_later(&self, later: Later<TurnServer>) {
+        self.command(Command::TurnLater(later));
     }
 
     /// One rd datagram, sealed and sent on the current path (best effort).
@@ -410,15 +515,32 @@ struct Driver {
     events: mpsc::Sender<NetEvent>,
     event_fd: RawFd,
     stun: Vec<StunQuery>,
+    /// `Net::add_stun_later`'s servers, until they resolve.
+    stun_later: Option<Later<SocketAddr>>,
+    /// `Net::add_turn_later`'s servers, until they resolve.
+    turn_later: Option<Later<TurnServer>>,
     relays: Vec<Relay>,
     /// The peer's candidates, for the relayed paths of allocations that finish later.
     remote: Vec<Candidate>,
+    /// `NetConfig::relay_only`.
+    relay_only: bool,
     candidates_done: bool,
     start: Instant,
+    /// Local candidates reported, by kind (host, srflx, relay), for a failure's reason.
+    gathered: std::cell::Cell<[u32; 3]>,
+    /// Packets from anywhere but a STUN or TURN server, handed to the link.
+    heard: u64,
 }
 
 impl Driver {
     fn emit(&self, event: NetEvent) {
+        if let NetEvent::Candidate(c) = &event {
+            let mut gathered = self.gathered.get();
+            if let Some(n) = gathered.get_mut(kind_index(c.kind)) {
+                *n += 1;
+            }
+            self.gathered.set(gathered);
+        }
         if self.events.send(event).is_ok() {
             // SAFETY: one byte from a local to the event pipe's write end (owned by `Net`,
             // which joins this thread before closing it).
@@ -448,6 +570,51 @@ impl Driver {
             self.emit(NetEvent::Endpoint(event));
         }
         Ok(())
+    }
+
+    /// Takes the late servers once they resolved; their queries and allocations start now.
+    fn later_tick(&mut self) {
+        if let Some(found) = self.stun_later.as_mut().and_then(|later| later()) {
+            self.stun_later = None;
+            for server in found {
+                self.add_stun(server);
+            }
+        }
+        if let Some(found) = self.turn_later.as_mut().and_then(|later| later()) {
+            self.turn_later = None;
+            for server in found {
+                self.add_turn(server);
+            }
+        }
+    }
+
+    fn add_turn(&mut self, server: TurnServer) {
+        if self.relays.len() >= MAX_TURN_SERVERS
+            || self.relays.iter().any(|r| r.server == server.addr)
+        {
+            return;
+        }
+        self.relays.push(Relay {
+            server: server.addr,
+            client: TurnClient::new(&server.username, &server.password, seed()),
+            settled: false,
+        });
+    }
+
+    fn add_stun(&mut self, server: SocketAddr) {
+        if self.relay_only
+            || self.stun.len() >= MAX_STUN_SERVERS
+            || self.stun.iter().any(|q| q.server == server)
+        {
+            return;
+        }
+        self.stun.push(StunQuery {
+            server,
+            transaction: transaction(self.stun.len()),
+            attempts: 0,
+            next_us: 0,
+            done: false,
+        });
     }
 
     fn stun_tick(&mut self, now: u64) {
@@ -486,8 +653,12 @@ impl Driver {
 
     fn turn_events(&mut self, now: u64) {
         for index in 0..self.relays.len() {
-            for event in self.relays[index].client.take_events() {
-                self.relays[index].settled = true;
+            let Some(relay) = self.relays.get_mut(index) else { continue };
+            let events = relay.client.take_events();
+            if !events.is_empty() {
+                relay.settled = true;
+            }
+            for event in events {
                 match event {
                     TurnEvent::Allocated { relayed, .. } => {
                         self.emit(NetEvent::Candidate(Candidate {
@@ -500,8 +671,9 @@ impl Driver {
                         }
                     }
                     TurnEvent::Failed(error) => {
-                        let server = self.relays[index].server;
-                        self.emit(NetEvent::RelayFailed { server, reason: error.to_string() });
+                        if let Some(server) = self.relays.get(index).map(|r| r.server) {
+                            self.emit(NetEvent::RelayFailed { server, reason: error.to_string() });
+                        }
                     }
                 }
             }
@@ -520,7 +692,9 @@ impl Driver {
     }
 
     fn on_remote_candidate(&mut self, c: Candidate, now: u64) {
-        self.endpoint.add_path(Route::Udp(c.addr), c.path_kind(), now);
+        if !self.relay_only {
+            self.endpoint.add_path(Route::Udp(c.addr), c.path_kind(), now);
+        }
         if self.remote.contains(&c) || self.remote.len() >= MAX_PATHS {
             return;
         }
@@ -561,17 +735,43 @@ impl Driver {
 
     fn deadline_ms(&self, now: u64) -> i32 {
         let stun = self.stun.iter().filter(|q| !q.done).map(|q| q.next_us).min();
+        let later =
+            (self.stun_later.is_some() || self.turn_later.is_some()).then_some(now + LATER_POLL_US);
         let turn = self.relays.iter().filter_map(|r| r.client.next_deadline_us()).min();
         let gather = (!self.candidates_done && now < RELAY_GATHER_US).then_some(RELAY_GATHER_US);
-        match [self.endpoint.next_deadline_us(), stun, turn, gather].into_iter().flatten().min() {
+        match [self.endpoint.next_deadline_us(), stun, later, turn, gather]
+            .into_iter()
+            .flatten()
+            .min()
+        {
             Some(at) => i32::try_from(at.saturating_sub(now).div_ceil(1000)).unwrap_or(i32::MAX),
             None => 1000,
         }
     }
 
+    /// What this side gathered, what the peer sent, and how many packets it
+    /// heard: a failure says whether the handshake ever reached this side
+    /// (`heard 0`: a NAT, firewall or missing route dropped it) and which
+    /// routes each side had. Counts only, never an address.
+    fn routes_seen(&self) -> String {
+        let [host, srflx, relay] = self.gathered.get();
+        let mut peer = [0u32; 3];
+        for c in &self.remote {
+            if let Some(n) = peer.get_mut(kind_index(c.kind)) {
+                *n += 1;
+            }
+        }
+        let [p_host, p_srflx, p_relay] = peer;
+        format!(
+            "local host {host} srflx {srflx} relay {relay}; \
+             peer host {p_host} srflx {p_srflx} relay {p_relay}; heard {}",
+            self.heard
+        )
+    }
+
     fn run(&mut self) {
         if let Err(e) = self.serve() {
-            self.emit(NetEvent::Failed(e.to_string()));
+            self.emit(NetEvent::Failed(format!("{e} ({})", self.routes_seen())));
         }
     }
 
@@ -579,6 +779,7 @@ impl Driver {
         let mut buf = vec![0u8; MAX_PACKET];
         loop {
             let now = now_us(self.start);
+            self.later_tick();
             self.stun_tick(now);
             self.turn_tick(now);
             self.flush(now)?;
@@ -598,6 +799,10 @@ impl Driver {
             while let Ok(command) = self.commands.try_recv() {
                 match command {
                     Command::RemoteCandidate(c) => self.on_remote_candidate(c, now),
+                    Command::StunLater(later) => {
+                        self.stun_later = (!self.relay_only).then_some(later);
+                    }
+                    Command::TurnLater(later) => self.turn_later = Some(later),
                     Command::Datagram(d) => {
                         if self.endpoint.link().is_established() {
                             for t in self.endpoint.send_datagram(&d)? {
@@ -606,7 +811,10 @@ impl Driver {
                         }
                     }
                     Command::Control(r) => self.endpoint.send_control(r, now)?,
-                    Command::NetworkChange => self.endpoint.on_network_change(),
+                    Command::NetworkChange => {
+                        self.endpoint.set_local_networks(cmux_transport::local_networks());
+                        self.endpoint.on_network_change();
+                    }
                     Command::Close => {
                         if self.endpoint.link().is_established() {
                             for t in self.endpoint.close()? {
@@ -625,10 +833,13 @@ impl Driver {
             loop {
                 match self.socket.recv_from(&mut buf) {
                     Ok((n, from)) => {
-                        let packet = &buf[..n];
-                        if let Some(index) = self.relays.iter().position(|r| r.server == from) {
-                            match self.relays[index].client.on_packet(packet, now) {
+                        let packet = buf.get(..n).unwrap_or_default();
+                        if let Some((index, server)) =
+                            self.relays.iter_mut().enumerate().find(|(_, r)| r.server == from)
+                        {
+                            match server.client.on_packet(packet, now) {
                                 TurnReceive::Data { peer, payload } => {
+                                    self.heard += 1;
                                     let relay = u16::try_from(index).unwrap_or(u16::MAX);
                                     if self.deliver(Route::Relay { relay, peer }, payload, now)? {
                                         return Ok(());
@@ -643,10 +854,15 @@ impl Driver {
                                 TurnReceive::Ignored => {}
                             }
                         }
+                        // Relay only: nothing but the TURN servers may reach this side.
+                        if self.relay_only {
+                            continue;
+                        }
                         if packet.first().is_some_and(|b| *b < 4) {
                             self.on_stun(packet);
                             continue;
                         }
+                        self.heard += 1;
                         if self.deliver(Route::Udp(from), packet, now)? {
                             return Ok(());
                         }
@@ -657,5 +873,59 @@ impl Driver {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn set_socket_buffer(socket: &UdpSocket, option: libc::c_int, value: i32) {
+        // SAFETY: the descriptor is open for the borrow of `socket`, and the
+        // option value points at a live integer of the length passed.
+        let result = unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                option,
+                (&value as *const i32).cast(),
+                size_of_val(&value) as libc::socklen_t,
+            )
+        };
+        assert_eq!(result, 0, "setsockopt failed: {}", io::Error::last_os_error());
+    }
+
+    fn socket_buffer(socket: &UdpSocket, option: libc::c_int) -> i32 {
+        let mut value = 0i32;
+        let mut length = size_of_val(&value) as libc::socklen_t;
+        // SAFETY: the descriptor is open, and the kernel writes at most the
+        // size of `value` bytes to the pointer and length supplied.
+        let result = unsafe {
+            libc::getsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                option,
+                (&mut value as *mut i32).cast(),
+                &mut length,
+            )
+        };
+        assert_eq!(result, 0, "getsockopt failed: {}", io::Error::last_os_error());
+        value
+    }
+
+    #[test]
+    fn grow_udp_buffers_expands_both_queues() {
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        // Use a small starting point so the assertion does not depend on the
+        // host's default buffers already being larger than our request.
+        set_socket_buffer(&socket, libc::SO_SNDBUF, 4096);
+        set_socket_buffer(&socket, libc::SO_RCVBUF, 4096);
+        let before =
+            [socket_buffer(&socket, libc::SO_SNDBUF), socket_buffer(&socket, libc::SO_RCVBUF)];
+        grow_udp_buffers(&socket);
+        let after =
+            [socket_buffer(&socket, libc::SO_SNDBUF), socket_buffer(&socket, libc::SO_RCVBUF)];
+        assert!(after[0] > before[0], "send buffer did not grow: {before:?} -> {after:?}");
+        assert!(after[1] > before[1], "receive buffer did not grow: {before:?} -> {after:?}");
     }
 }

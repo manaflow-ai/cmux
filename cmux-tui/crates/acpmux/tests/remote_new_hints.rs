@@ -274,7 +274,9 @@ async fn retry_metadata_stays_local_when_new_is_forwarded() {
     let server = tokio::spawn(async move {
         let (tcp, _) = listener.accept().await.unwrap();
         let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
-        while let Some(Ok(Ws::Text(text))) = ws.next().await {
+        // Non-text frames (the client's pings, #38015) are not requests: skip them.
+        while let Some(Ok(frame)) = ws.next().await {
+            let Ws::Text(text) = frame else { continue };
             let Ok(Message::Request { id, method: m, params }) = Message::parse(&text) else {
                 continue;
             };
@@ -332,30 +334,32 @@ async fn retry_metadata_stays_local_when_new_is_forwarded() {
 }
 
 #[tokio::test]
-async fn approve_all_refused_by_a_peer_that_serves_us_as_web_says_to_run_it_on_that_host() {
+async fn approve_all_refused_by_a_peer_that_serves_us_as_web_says_to_start_it_there_asking() {
     let root = scratch("policy");
-    let (a, b) = pair("policy", false, &root).await;
+    let (a, _b) = pair("policy", false, &root).await;
     let mut ca = C::open(&a, Origin::Local);
     let meta = json!({"peer": "b", "harness": "fake", "name": "lane-1", "policy": "approve-all"});
     let r = ca.call(method::SESSION_NEW, new(meta, Some(&root))).await;
     assert_eq!(reason(&r), "remote.policy_refused", "{r}");
-    assert_eq!(r["error"]["data"]["host"], "b", "{r}");
-    // A `ws://` peer may have no ssh: the command is for B itself (an `ssh://` peer's goes
-    // through `ssh -- DEST`, unit tested in `remote_new_hint.rs`).
-    assert_eq!(r["error"]["data"]["runOn"], "b", "{r}");
+    assert_eq!(r["error"]["data"]["fullAccessRefusedBy"], "b", "{r}");
+    // The way out is the same start from here, asking (`hub/full_access_children.rs`), not
+    // this start on B itself: no `runOn`, and the message names the same command.
+    assert!(r["error"]["data"].get("runOn").is_none(), "{r}");
     let want = format!(
-        "mkdir -p {0} && acpmux new -m fake -n lane-1 --cwd {0} --policy approve-all -d",
+        "acpmux new --machine b -m fake -n lane-1 --cwd {} --policy ask -d",
         root.display()
     );
     assert_eq!(tried(&r), want, "{r}");
-    assert!(r["error"]["message"].as_str().unwrap().contains(&want), "{r}");
-
-    // That command is B's own CLI on B: the unix socket, where approve-all is accepted.
-    let mut cb = C::open(&b, Origin::Local);
-    let on_b = json!({"harness": "fake", "name": "lane-1", "policy": "approve-all"});
-    let r = cb.call(method::SESSION_NEW, new(on_b, Some(&root))).await;
-    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}"));
-    assert_eq!(b.resolve(id).unwrap().meta().permission_policy.as_deref(), Some("approve-all"));
+    let message = r["error"]["message"].as_str().unwrap();
+    // The first line and the last both say it was refused, with the command between them.
+    let lines: Vec<&str> = message.lines().collect();
+    assert!(lines[0].starts_with("refused by b: b does not start chats in full access"), "{r}");
+    assert_eq!(lines[1..lines.len() - 1].join("\n"), want, "{r}");
+    assert_eq!(
+        lines[lines.len() - 1],
+        "refused by b: nothing was started; the command above runs it"
+    );
+    assert!(!message.contains("approve-all") && !message.contains("itself"), "{r}");
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -367,7 +371,7 @@ async fn a_mode_refused_at_a_remote_start_says_to_start_without_it_and_that_star
     let meta = json!({"peer": "b", "harness": "fake", "name": "lane-2", "mode": "yolo"});
     let r = ca.call(method::SESSION_NEW, new(meta, Some(&root))).await;
     assert_eq!(reason(&r), "remote.mode_refused", "{r}");
-    let want = format!("acpmux new --host b -m fake -n lane-2 --cwd {} -d", root.display());
+    let want = format!("acpmux new --machine b -m fake -n lane-2 --cwd {} -d", root.display());
     assert_eq!(tried(&r), want, "{r}");
 
     let meta = json!({"peer": "b", "harness": "fake", "name": "lane-2"});
@@ -386,7 +390,7 @@ async fn a_mode_and_a_folder_outside_the_roots_are_both_fixed_by_one_suggestion(
     let r = ca.call(method::SESSION_NEW, new(meta, Some(&outside.join("w")))).await;
     assert_eq!(reason(&r), "remote.cwd_outside_roots", "{r}");
     let inside = root.join("w");
-    let want = format!("acpmux new --host b -m fake -n lane-4 --cwd {} -d", inside.display());
+    let want = format!("acpmux new --machine b -m fake -n lane-4 --cwd {} -d", inside.display());
     assert_eq!(tried(&r), want, "{r}");
 
     let meta = json!({"peer": "b", "harness": "fake", "name": "lane-4"});

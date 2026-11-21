@@ -16,7 +16,7 @@ struct SidebarRowMenu {
         // for exactly that long, though the pointer leaves the row for the menu (Leo 2026-10-26).
         view.showsMenu = true
         defer { view.showsMenu = false }
-        list.menuPresenter(menu, PopupAnchor(rect: view.moreButton.frame, edge: .trailing), view)
+        list.menuPresenter(menu, PopupAnchor(rect: view.moreFrame, edge: .trailing), view)
     }
 
     /// The menu for row `id`, from the App's provider. A row that is its group's one row (`standsForGroup`, no header

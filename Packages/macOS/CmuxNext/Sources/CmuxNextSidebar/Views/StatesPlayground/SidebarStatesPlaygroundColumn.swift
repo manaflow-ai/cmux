@@ -2,8 +2,8 @@ import CmuxNextDesign
 
 /// DEV and NIGHTLY (Debug menu > Sidebar States Playground): one column of a sheet, a `sidebar.density` at a
 /// `sidebar.textSize`, and for the favicon styles sheet a `sidebar.faviconStyle` (Lawrence msg 19869). ``all`` lists every
-/// density and text size pair, densities outermost, so each density's three text sizes sit together; ``faviconStyles``
-/// lists every favicon style at the default density and text size.
+/// density and text size pair, densities outermost, so each density's three text sizes sit together;
+/// ``favicons(_:)`` lists the same pairs drawn with one favicon style, a favicon styles sheet's columns.
 nonisolated struct SidebarStatesPlaygroundColumn: Hashable, Sendable {
     /// The column's `sidebar.density`.
     var density: SidebarDensity
@@ -28,15 +28,15 @@ nonisolated struct SidebarStatesPlaygroundColumn: Hashable, Sendable {
         SidebarDensity.allCases.flatMap { density in SidebarTextSize.allCases.map { Self(density: density, textSize: $0) } }
     }
 
-    /// Every favicon style at the compact density and the default text size, current first.
-    static var faviconStyles: [SidebarStatesPlaygroundColumn] {
-        SidebarFaviconStyle.allCases.map { Self(density: .compact, textSize: .standard, faviconStyle: $0) }
+    /// Every density at every text size drawn with favicon style `style`: one favicon styles sheet's columns, in
+    /// ``all``'s order.
+    static func favicons(_ style: SidebarFaviconStyle) -> [SidebarStatesPlaygroundColumn] {
+        all.map { Self(density: $0.density, textSize: $0.textSize, faviconStyle: style) }
     }
 
-    /// The column's caption ("Compact · Large"), or its favicon style's name.
+    /// The column's caption ("Compact · Large"); a favicon styles sheet names its style in its title.
     var title: String {
-        if let faviconStyle { return Self.title(faviconStyle) }
-        return String(format: String(localized: "sidebar.statesPlayground.column", defaultValue: "%1$@ · %2$@", bundle: .module),
+        String(format: String(localized: "sidebar.statesPlayground.column", defaultValue: "%1$@ · %2$@", bundle: .module),
                Self.title(density), Self.title(textSize))
     }
 

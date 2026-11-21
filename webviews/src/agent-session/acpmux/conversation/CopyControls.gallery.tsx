@@ -32,7 +32,7 @@ export default componentEntry<Record<string, never>>({
   height: 520,
   pane: true,
   covers: [
-    "agent-session/acpmux/App.tsx#RowFrame",
+    "agent-session/acpmux/VirtualTranscript.tsx",
     "agent-session/acpmux/conversation/ToolRow.tsx",
     "agent-session/acpmux/conversation/CopyButton.tsx",
   ],

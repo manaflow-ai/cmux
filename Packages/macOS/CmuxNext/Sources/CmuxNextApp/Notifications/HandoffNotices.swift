@@ -39,7 +39,7 @@ final class HandoffNotices {
         let owner = CloudOwnerAPIClient(
             baseURL: FeedService.apiBaseURL(auth: auth),
             accessToken: { try await auth.tokens().access },
-            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) }
+            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) }, buildSpace: auth.configuration.buildSpace
         )
         self.follower = follower ?? SandboxRunFollower(source: .handoffs(wait: { id, after in try await owner.handoffWait(id, after: after) }))
         self.list = list ?? { try await owner.handoffs() }
@@ -160,7 +160,7 @@ final class HandoffNotices {
         center.note("handoff \(end.record.id) \(end.outcome.rawValue) \(decision)")
         guard !decision.acknowledge, center.desktopPostingEnabled else { return }
         center.soundGate.admit(&decision, cooldownSeconds: center.preferences.sounds.cooldownSeconds)
-        let chat = tab.flatMap { services?.locateTabOnAnyMachine($0)?.0.title }
+        let chat = tab.flatMap { services?.locateTabOnAnyMachine($0)?.0.titleText }
         let text = Self.text(end, chat: chat)
         if decision.desktop {
             // One banner per hand-off: its end replaces the needs-you banner it posted before.
@@ -226,7 +226,7 @@ final class HandoffNotices {
     /// The agent tab showing chat `session`, on this Mac or any machine the app reaches.
     private func tab(showing session: String) -> String? {
         guard let tabs = services?.agentTabs else { return nil }
-        return tabs.listTabs().first { (tabs.sessions[$0.key] ?? $0.record.session) == session }?.key
+        return tabs.listTabsScoped().first { (tabs.sessions[tabs.tabKey($0.key, machine: $0.machine)] ?? $0.record.session) == session }?.key
             ?? AgentPriorityChats.app.remoteTab(showing: session)
     }
 }

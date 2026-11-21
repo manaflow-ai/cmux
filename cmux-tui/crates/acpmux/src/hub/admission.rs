@@ -84,7 +84,7 @@ impl OverCap {
             "lanes.max_lanes in the fleet registry".into()
         };
         let next = match instead {
-            Some(placed) => format!("Next time try `acpmux new --host auto` ({placed})."),
+            Some(placed) => format!("Next time try `acpmux new --machine auto` ({placed})."),
             None if local && peers => "No connected host has room either.".into(),
             None => "Next time start it on another host.".into(),
         };
@@ -211,7 +211,7 @@ static LAST: StdMutex<Option<(PathBuf, Value)>> = StdMutex::new(None);
 /// Where the registry is read from: `registry_path`, else, with no copy there
 /// (a refresh that renames or rewrites it), where the last good copy came from,
 /// so that copy keeps the cap's warning. Only a host that never read one has no registry.
-fn registry_source() -> (PathBuf, bool) {
+pub(super) fn registry_source() -> (PathBuf, bool) {
     registry_path().unwrap_or_else(|| {
         let last = LAST.lock().unwrap_or_else(|e| e.into_inner());
         (last.as_ref().map(|(p, _)| p.clone()).unwrap_or_default(), false)
@@ -223,7 +223,7 @@ fn registry_source() -> (PathBuf, bool) {
 /// the last copy read from the same path, so a bad read never drops the cap's
 /// warning; with none it is unreadable, which is logged. A `set` path
 /// (`FLEET_REGISTRY`) that is missing is unreadable too.
-fn read_registry(source: &Path, set: bool) -> (Option<Value>, bool) {
+pub(super) fn read_registry(source: &Path, set: bool) -> (Option<Value>, bool) {
     read_registry_in(&mut LAST.lock().unwrap_or_else(|e| e.into_inner()), source, set)
 }
 
@@ -359,9 +359,11 @@ impl Hub {
             // Running agent hosts: after a restart a session reads Idle until a
             // prompt reattaches its host, but the host runs all the same.
             let hosted = Hub::live_host_sessions();
-            (flag, registry, unreadable, source, machine, hosted)
+            // This machine's readings for the shadow verdict: none of them waits.
+            let here = crate::shadow_admission::local_candidate();
+            (flag, registry, unreadable, source, machine, hosted, here)
         });
-        let (flag, registry, unreadable, source, machine, hosted) =
+        let (flag, registry, unreadable, source, machine, hosted, here) =
             read.await.map_err(|e| RpcError::internal(e.to_string()))?;
         // Count and reserve under one lock, then render warnings after releasing it.
         let (verdict, mut admitted) = {
@@ -379,6 +381,8 @@ impl Hub {
             admitting.push(made.clone());
             (verdict, Admitted { admitting: &self.admitting, made, warning: None })
         };
+        // Logged beside the admission it never changes (`shadow_admission.rs`).
+        crate::shadow_admission::record("admit", Some(&here.name), std::slice::from_ref(&here));
         match verdict.uncapped {
             Some(why) if why == NO_REGISTRY => {
                 tracing::debug!("session admitted with no lane cap: {why}")
@@ -424,16 +428,13 @@ impl Hub {
             let peers: Vec<Candidate> = self
                 .peers()
                 .into_iter()
-                .filter(|p| p.get("connected").and_then(Value::as_bool) == Some(true))
-                .filter_map(|p| {
-                    Some(Candidate {
-                        name: p.get("name")?.as_str()?.to_owned(),
-                        local: false,
-                        health: p.get("health").cloned().unwrap_or(Value::Null),
-                    })
-                })
+                // The hosts `_acpmux/place` weighs (`placement::peer_down`): never a machine
+                // only the hub reaches, where the suggested start would fail with `no peer`.
+                .filter(|p| crate::placement::peer_down(p).is_none())
+                .filter_map(|p| Candidate::peer(&p))
                 .collect();
-            crate::placement::place(&peers, registry, Work::Agent)
+            let verdict = crate::placement::place(&peers, registry, Work::Agent);
+            crate::shadow_admission::with_shadow("over-cap", verdict, &peers)
         });
         // A pick that has no room either (`overloaded`) is no better a place: no suggestion.
         let verdict =
@@ -626,7 +627,8 @@ mod tests {
                 && message.contains("cap of 3")
                 && message.contains("lanes.max_lanes of cmux16 in /r/fleet-registry.json")
                 && message.contains("started anyway")
-                && message.contains("`acpmux new --host auto` (placed on big-red: 31 GB RAM free)"),
+                && message
+                    .contains("`acpmux new --machine auto` (placed on big-red: 31 GB RAM free)"),
             "the warning names the count, the cap, where it comes from and a host with room: {message}"
         );
         assert!(cap.warning(true, true, None).contains("No connected host has room"));

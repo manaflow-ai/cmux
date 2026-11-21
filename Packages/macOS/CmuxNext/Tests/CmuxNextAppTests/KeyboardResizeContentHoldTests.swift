@@ -68,15 +68,15 @@ struct KeyboardResizeContentHoldTests {
         }
     }
 
-    /// FRAME OWNER S3 (`motion.frameOwner.contentPolicy`), the app's pane content with a terminal in each pane. On: the
-    /// containers (each terminal host) take their pane's content area in every frame of the spring, and the producer (the
-    /// terminal surface) takes a new size once, its final size in the key's turn, and never again in the press. Off: the
-    /// content area holds each host whole at its start size; host and surface each take a new size at most once.
-    @Test(arguments: [false, true])
-    func theProducerResizesOnceAndTheContainersFollowEveryFrame(policy: Bool) throws {
+    /// The app's pane content with a terminal in each pane (cmux-ad m18: in every frame each terminal's surface has its
+    /// pane's size and its text is re-wrapped at that size; the PTY gets the view's grid coalesced, one per refresh, ending at
+    /// the landing's grid): in every frame of the spring each terminal host (the container) takes its pane's content area,
+    /// and its surface takes the size the host shows it at. No grid goes in the key's turn (m6 sent the final grid there,
+    /// one per press: m18 replaces it), and the last grid each PTY gets is the grid its view rests at. FRAME OWNER S3 held
+    /// the surface at its final size through the press: the text froze, then jumped (Lawrence on dogfood 363e39f2).
+    @Test func theTerminalFollowsItsPaneInEveryFrameAndItsPTYEndsAtTheLandingsGrid() async throws {
         let rig = PaneGroundCoversPaneTests.Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
-        rig.root.context.contentPolicyOverride = policy
         let panes: [PaneID] = ["p1", "p2"]
         var hosts: [PaneID: [CGSize]] = [:], surfaces: [PaneID: [CGSize]] = [:], off: [String] = []
         var last: [PaneID: (host: CGSize, surface: CGSize)] = [:]
@@ -90,14 +90,18 @@ struct KeyboardResizeContentHoldTests {
                     if now.surface != was.surface { surfaces[pane, default: []].append(now.surface) }
                 }
                 last[pane] = now
-                if policy, now.host != area.bounds.size { off.append("\(label): \(pane)'s host \(now.host) in its area \(area.bounds.size)") }
+                if now.host != area.bounds.size { off.append("\(label): \(pane)'s host \(now.host) in its area \(area.bounds.size)") }
+                let shown = session.view.surfaceSize(forHostSize: session.view.bounds.size)
+                if now.surface != shown { off.append("\(label): \(pane)'s surface \(now.surface) in a \(shown) area") }
             }
         }
+        let reports = TerminalSurfaceView.gridReports
         try note("at rest")
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         rig.root.layoutSubtreeIfNeeded()
         try note("the key's turn")
+        #expect(TerminalSurfaceView.gridReports == reports, "the key's turn sent \(TerminalSurfaceView.gridReports - reports) grids before any frame showed a new size")
         var frames = 0
         while frames < 240, rig.frame() {
             frames += 1
@@ -106,17 +110,21 @@ struct KeyboardResizeContentHoldTests {
         rig.commit()
         try note("after the landing")
         #expect(frames > 3, "the press did not spring (\(frames) frames)")
-        #expect(off.isEmpty, "a terminal host (a container) did not follow its pane: \(off.prefix(3))")
+        #expect(off.isEmpty, "\(off.count) frames showed a terminal host or surface off its pane: \(off.prefix(3))")
         for pane in panes {
-            let session = try #require(rig.provider.sessions[pane]?.session)
-            #expect((surfaces[pane] ?? []).count <= 1, "\(pane)'s surface (the producer) took \(surfaces[pane]?.count ?? 0) sizes in one press")
-            if policy {
-                #expect((hosts[pane] ?? []).count > 3, "\(pane)'s terminal host took \(hosts[pane]?.count ?? 0) sizes in a \(frames)-frame spring")
-            } else {
-                #expect((hosts[pane] ?? []).count <= 1, "\(pane)'s terminal host resized \(hosts[pane]?.count ?? 0) times with the policy off")
-            }
-            let host = session.view
-            #expect(session.surfaceView.frame.size == host.surfaceSize(forHostSize: host.bounds.size), "\(pane)'s surface did not land at its host's size")
+            #expect((surfaces[pane] ?? []).count > 3, "\(pane)'s surface took \(surfaces[pane]?.count ?? 0) sizes in a \(frames)-frame spring: its text did not follow its pane")
+            #expect((hosts[pane] ?? []).count > 3, "\(pane)'s terminal host took \(hosts[pane]?.count ?? 0) sizes in a \(frames)-frame spring")
+        }
+        try await Self.expectEachPTYEndsAtItsViewsGrid(panes, rig)
+    }
+
+    /// After a key resize: the last grid each terminal's PTY got is the grid its view fits at rest (m18: the coalesced
+    /// reports end at the landing's grid).
+    static func expectEachPTYEndsAtItsViewsGrid(_ panes: [PaneID], _ rig: PaneGroundCoversPaneTests.Rig) async throws {
+        for pane in panes {
+            let grids = try await PaneContentPolicyTests.grids(pane, rig)
+            let final = try #require(try PaneContentPolicyTests.surface(pane, in: rig).fittedGrid)
+            #expect(grids.last == final, "\(pane)'s PTY got \(grids), not ending at its view's grid \(final)")
         }
     }
 }

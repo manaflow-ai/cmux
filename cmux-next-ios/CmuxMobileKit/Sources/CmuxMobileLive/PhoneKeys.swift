@@ -1,47 +1,33 @@
 import CryptoKit
 import Foundation
-import LocalAuthentication
 import Security
 
 /// The phone's two Secure Enclave P-256 keys (verify/phone-approvals.md).
 ///
 /// - `identity` signs each link's pairing challenge with no prompt: it proves
 ///   this is the phone the Mac allowed, so a Stack token alone reaches nothing.
-/// - `approval` signs an Allow or an answer for an agent, and every signature
-///   needs the user: Face ID, or the device passcode when Face ID fails or is
-///   not set up (`.userPresence`). acpmux on the Mac checks it.
+/// - `approval` signs an Allow or an answer for an agent, with no prompt: the
+///   tap in the unlocked app is the approval (no Face ID; the user's call,
+///   2026-11-04). acpmux on the Mac checks the signature, so only this phone
+///   can approve. Enclave approval keys made before then required user presence
+///   (Face ID on every signature); they are replaced by `approval-np` once,
+///   and each Mac asks to allow the phone again (`takeReplaced`).
 ///
 /// Only the enclave's encrypted key blobs are stored (Keychain, this device
-/// only); a private key never leaves the enclave. The simulator has no
-/// enclave, so simulator builds (any configuration) and DEBUG builds use software
-/// keys and ask for Face ID with an explicit `LAContext` check (`xcrun simctl` can
-/// match it). Device builds of Release, Production and TestFlight without an enclave
-/// have no keys: the phone stays deny-only and unpaired.
+/// only, readable after the first unlock); a private key never leaves the
+/// enclave. The simulator has no enclave, so simulator builds (any configuration)
+/// and DEBUG builds use software keys. Device builds of Release, Production and
+/// TestFlight without an enclave have no keys: the phone stays deny-only and unpaired.
 public final class PhoneKeys: @unchecked Sendable { // crash-allow: immutable after init except the lock-guarded cache
     public enum Failure: Error, Equatable {
         case unavailable
         case keychain(OSStatus)
-        /// The user cancelled Face ID and the passcode.
-        case cancelled
-        /// Face ID or the passcode could not check the owner (`LAError` code).
-        case notVerified(Int)
 
         /// What the phone says (never the raw error).
         public var message: String {
             switch self {
             case .unavailable: "this iPhone can't make approval keys."
             case .keychain: "this iPhone couldn't read its approval key. Try again."
-            case .cancelled: "Face ID was cancelled."
-            case .notVerified(let code):
-                switch LAError.Code(rawValue: code) {
-                case .passcodeNotSet?: "set a passcode on this iPhone to approve from it."
-                case .biometryLockout?: "Face ID is locked. Unlock this iPhone with its passcode, then try again."
-                case .biometryNotAvailable?, .biometryNotEnrolled?:
-                    "Face ID isn't set up. Set up Face ID or a passcode on this iPhone to approve from it."
-                case .authenticationFailed?: "Face ID didn't recognize you. Try again."
-                case .notInteractive?: "open cmux, then try again."
-                default: "Face ID couldn't check it's you. Try again."
-                }
             }
         }
     }
@@ -79,9 +65,15 @@ public final class PhoneKeys: @unchecked Sendable { // crash-allow: immutable af
         self.store = store
         self.enclave = enclave
         if userID != nil {
-            for kind in ["identity", "approval"] { store.adopt(service: service, from: kind, to: account(kind)) }
+            for kind in Self.kinds { store.adopt(service: service, from: kind, to: account(kind)) }
         }
     }
+
+    /// Every stored key kind: `approval` is the enclave approval key of builds
+    /// that asked for Face ID (and the software one of DEBUG and simulator builds).
+    private static let kinds = ["identity", "approval", PhoneKeys.promptFreeApproval]
+    /// The enclave approval key without user presence (no Face ID on use).
+    private static let promptFreeApproval = "approval-np"
 
     private func account(_ kind: String) -> String { userID.map { "\(kind).\($0)" } ?? kind }
 
@@ -93,25 +85,13 @@ public final class PhoneKeys: @unchecked Sendable { // crash-allow: immutable af
 
     /// Raw `r || s` over `message` with the identity key; no prompt.
     public func signIdentity(_ message: Data) throws -> Data {
-        try load().identity.sign(message, context: nil)
+        try load().identity.sign(message)
     }
 
-    /// Asks for Face ID (or the passcode) and returns a signer for the approval
-    /// key that uses the evaluated context, so the user sees one prompt.
-    /// `reason` is the line the system sheet shows. The signer returns raw `r || s`.
-    public func authorizeApproval(reason: String) async throws -> @Sendable (Data) throws -> Data {
+    /// A signer for the approval key (raw `r || s`); no prompt.
+    public func approvalSigner() throws -> @Sendable (Data) throws -> Data {
         let key = try load().approval
-        let context = LAContext()
-        context.localizedFallbackTitle = nil
-        do {
-            _ = try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
-        } catch let error as LAError where [.userCancel, .appCancel, .systemCancel, .userFallback].contains(error.code) {
-            throw Failure.cancelled
-        } catch let error as LAError {
-            throw Failure.notVerified(error.code.rawValue)
-        }
-        let unlocked = UnlockedKey(key: key, context: context)
-        return { message in try unlocked.sign(message) }
+        return { message in try key.sign(message) }
     }
 
     /// Whether a stored key was unreadable and replaced since the last call:
@@ -128,7 +108,7 @@ public final class PhoneKeys: @unchecked Sendable { // crash-allow: immutable af
     /// keeps them (verify/persistence.md).
     public func reset() {
         lock.withLock { cached = nil }
-        for kind in ["identity", "approval"] {
+        for kind in Self.kinds {
             store.delete(service: service, account: account(kind))
         }
     }
@@ -137,7 +117,7 @@ public final class PhoneKeys: @unchecked Sendable { // crash-allow: immutable af
     /// the unkeyed keys of an older build belonged to a session that has ended.
     public static func discardLegacy(service: String = PhoneKeys.defaultService,
                                      store: any DeviceSecretStore = KeychainSecretStore()) {
-        for kind in ["identity", "approval"] { store.delete(service: service, account: kind) }
+        for kind in kinds { store.delete(service: service, account: kind) }
     }
 
     /// Whether this account has keys on this phone (no key is made).
@@ -150,7 +130,7 @@ public final class PhoneKeys: @unchecked Sendable { // crash-allow: immutable af
     private func load() throws -> (identity: AnyKey, approval: AnyKey) {
         try lock.withLock {
             if let cached { return cached }
-            let keys = (identity: try key("identity", presence: false), approval: try key("approval", presence: true))
+            let keys = (identity: try key("identity"), approval: try approvalKey())
             cached = keys
             return keys
         }
@@ -166,7 +146,16 @@ public final class PhoneKeys: @unchecked Sendable { // crash-allow: immutable af
         #endif
     }
 
-    private func key(_ account: String, presence: Bool) throws -> AnyKey {
+    /// The approval key. On an enclave it is `approval-np`; an older `approval`
+    /// enclave key needs Face ID on every use, so it is deleted and the Mac asks
+    /// again for the new key (the caller holds the lock).
+    private func approvalKey() throws -> AnyKey {
+        guard enclave else { return try key("approval") }
+        if try read(Self.promptFreeApproval) == nil, try read("approval") != nil { discard("approval") }
+        return try key(Self.promptFreeApproval)
+    }
+
+    private func key(_ account: String) throws -> AnyKey {
         if enclave {
             if let blob = try read(account) {
                 if let key = try? SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob) { return .enclave(key) }
@@ -174,9 +163,8 @@ public final class PhoneKeys: @unchecked Sendable { // crash-allow: immutable af
                 discard(account)
             }
             var error: Unmanaged<CFError>?
-            let flags: SecAccessControlCreateFlags = presence ? [.privateKeyUsage, .userPresence] : .privateKeyUsage
-            let protection = presence ? kSecAttrAccessibleWhenUnlockedThisDeviceOnly : kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            guard let access = SecAccessControlCreateWithFlags(nil, protection, flags, &error) else {
+            guard let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+                                                               .privateKeyUsage, &error) else {
                 throw Failure.keychain(errSecParam)
             }
             let made = try SecureEnclave.P256.Signing.PrivateKey(accessControl: access)
@@ -185,8 +173,8 @@ public final class PhoneKeys: @unchecked Sendable { // crash-allow: immutable af
         }
         #if DEBUG || targetEnvironment(simulator)
         // DEBUG builds and simulator builds only (the simulator has no Secure Enclave, and a
-        // simulator binary never runs on an iPhone): a software key in the Keychain;
-        // `authorizeApproval` still asks for Face ID first. A device Release build has none.
+        // simulator binary never runs on an iPhone): a software key in the Keychain.
+        // A device Release build has none.
         if let raw = try read(account) {
             if let key = try? P256.Signing.PrivateKey(rawRepresentation: raw) { return .software(key) }
             discard(account)
@@ -230,19 +218,6 @@ public final class PhoneKeys: @unchecked Sendable { // crash-allow: immutable af
     static func hex(_ data: Data) -> String { data.map { String(format: "%02x", $0) }.joined() }
 }
 
-/// The approval key with the context Face ID evaluated (used once per approval).
-private final class UnlockedKey: @unchecked Sendable { // crash-allow: immutable after init
-    let key: AnyKey
-    let context: LAContext
-
-    init(key: AnyKey, context: LAContext) {
-        self.key = key
-        self.context = context
-    }
-
-    func sign(_ message: Data) throws -> Data { try key.sign(message, context: context) }
-}
-
 private enum AnyKey {
     case enclave(SecureEnclave.P256.Signing.PrivateKey)
     case software(P256.Signing.PrivateKey)
@@ -254,16 +229,10 @@ private enum AnyKey {
         }
     }
 
-    /// Raw r||s (64 bytes). An enclave key with user presence uses the already
-    /// evaluated `context`, so the user sees one prompt.
-    func sign(_ message: Data, context: LAContext?) throws -> Data {
+    /// Raw r||s (64 bytes).
+    func sign(_ message: Data) throws -> Data {
         switch self {
         case .enclave(let key):
-            if let context {
-                let bound = try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: key.dataRepresentation,
-                                                                      authenticationContext: context)
-                return try bound.signature(for: message).rawRepresentation
-            }
             return try key.signature(for: message).rawRepresentation
         case .software(let key):
             return try key.signature(for: message).rawRepresentation

@@ -24,6 +24,23 @@ struct SidebarStatesPlaygroundFixture {
     static let open = GroupID("sp-open"), collapsed = GroupID("sp-collapsed"), empty = GroupID("sp-empty")
     static let remoteMachine = MachineID("sp-ssh")
 
+    /// The pinned workspace the pin opens, with the tabs its hover card lists.
+    static var pinnedRow: SidebarWorkspace {
+        var row = SidebarWorkspace(id: pinnedWorkspace, machineID: .local, title: "Pinned workspace", directory: "~/fun/cmux",
+                                   branch: "feat-cmux-next", kind: .terminal)
+        row.lastMessage = "Pushed the fix and the gallery"
+        // Its chat's rolling summary and next action (acpmux `rollingSummary`): the card names them in place of the
+        // last reply.
+        row.detail.summary = "Fixed the parser and pushed it. CI is still running."
+        row.detail.nextAction = "Merge the PR once CI is green"
+        row.tabs = [
+            SidebarTab(id: TabID("sp-pin-chat"), title: "Claude Code", kind: .agentChat, folder: "~/fun/cmux", state: .success),
+            SidebarTab(id: TabID("sp-pin-terminal"), title: "Terminal", kind: .terminal, folder: "~/fun/cmux"),
+            SidebarTab(id: TabID("sp-pin-docs"), title: "Documentation", kind: .browser),
+        ]
+        return row
+    }
+
     /// The row that draws `state`.
     func ref(for state: SidebarStatesPlaygroundState) -> Ref {
         switch state {
@@ -34,7 +51,7 @@ struct SidebarStatesPlaygroundFixture {
         case .error: .list(.workspace(Self.error))
         case .needsInput: .list(.workspace(Self.needsInput))
         case .usageWarning: .list(.workspace(Self.usageWarning))
-        case .pinned: .band(block: SidebarLayoutDocument.pinnedSectionID.rawValue, item: Self.pin)
+        case .pinned, .pinnedHoverCard: .band(block: SidebarLayoutDocument.pinnedSectionID.rawValue, item: Self.pin)
         case .selected: .list(.workspace(Self.selected))
         case .hovered: .list(.workspace(Self.hovered))
         case .renaming: .list(.workspace(Self.renaming))
@@ -63,6 +80,13 @@ struct SidebarStatesPlaygroundFixture {
             row.lastMessage = "Pushed the fix and the gallery"
             return row
         }
+        // The idle row's chat has a rolling summary: the Expanded density's second line reads "summary → next".
+        func summarized(_ workspace: SidebarWorkspace) -> SidebarWorkspace {
+            var workspace = workspace
+            workspace.detail.summary = "Tests pass on the fleet"
+            workspace.detail.nextAction = "Land the branch"
+            return workspace
+        }
         var needsInput = row(Self.needsInput, "Program asks a question", activity: .waiting(kind: .question))
         needsInput.activityFromProgram = true // an OSC 7501 report opts its row in to the detailed marks
         var usage = row(Self.usageWarning, "Runaway agent chat")
@@ -71,7 +95,8 @@ struct SidebarStatesPlaygroundFixture {
         func browser(_ id: WorkspaceID, _ title: String, _ image: CGImage?) -> SidebarWorkspace {
             var row = row(id, title)
             row.kind = .browser
-            row.icon = image.map { .favicon(SidebarFavicon($0)) }
+            // A site with no favicon draws the placeholder globe, as `SidebarMapping.row` maps it.
+            row.icon = image.map { .favicon(SidebarFavicon($0)) } ?? .pagePlaceholder
             return row
         }
         var archived = row(Self.archived, "Archived workspace")
@@ -82,7 +107,7 @@ struct SidebarStatesPlaygroundFixture {
         let local = SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [
             // Colored, so the selected and hovered rows show the leading accent bar in those states (Lawrence msg 19775).
             .workspace(row(Self.selected, "Selected workspace", color: .purple)),
-            .workspace(row(Self.idle, "Idle workspace")),
+            .workspace(summarized(row(Self.idle, "Idle workspace"))),
             .workspace(row(Self.busy, "Agent working", activity: .working)),
             .workspace(row(Self.unread, "Unread reply", unread: .dot)),
             .workspace(row(Self.needsYou, "Agent needs you", activity: .waiting)),
@@ -117,6 +142,7 @@ struct SidebarStatesPlaygroundFixture {
         var pin = SidebarItemInfo(title: "Pinned workspace", symbol: "textformat")
         pin.textOnly = true
         pin.workspace = Self.pinnedWorkspace
+        pin.workspaceRow = Self.pinnedRow
         model.itemInfo = [Self.home: home, Self.pin: pin]
         model.docDrag = SidebarDocDrag(item: { _ in nil }, section: { _ in nil }, begin: { _ in [:] }, drop: { _, _ in }, adoptRef: { _ in nil })
         model.expanded = expanded

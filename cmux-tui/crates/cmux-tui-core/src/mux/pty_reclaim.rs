@@ -81,6 +81,21 @@ pub(crate) fn pick_reclaim(
     eligible.into_iter().take(want).flat_map(|(_, c)| c.surfaces.iter().copied()).collect()
 }
 
+/// `surfaces` without the views of a terminal a client is attached to or that is kept
+/// (`set-terminal-keep`): what `park-tabs` may park. A surface no candidate shows is kept as
+/// given; `park_terminal_tabs` skips it when it shows no live terminal.
+pub(crate) fn drop_watched(
+    candidates: &[ReclaimCandidate],
+    surfaces: &[SurfaceId],
+) -> Vec<SurfaceId> {
+    let watched: HashSet<SurfaceId> = candidates
+        .iter()
+        .filter(|c| c.attached || c.kept)
+        .flat_map(|c| c.surfaces.iter().copied())
+        .collect();
+    surfaces.iter().copied().filter(|surface| !watched.contains(surface)).collect()
+}
+
 /// How many PTYs to free given `used` of `max`: none while at least
 /// [`PTY_RESERVE`] are free, else enough to reach [`PTY_REFILL`] free.
 pub(crate) fn reclaim_need(used: usize, max: usize) -> usize {
@@ -284,6 +299,20 @@ impl Mux {
         ended
     }
 
+    /// `park-tabs`: parks the terminals at `surfaces` except one a client is attached to
+    /// or that is kept ([`drop_watched`]): a shell another Mac or the phone shows keeps running.
+    /// Returns the surfaces parked.
+    pub(crate) fn park_unwatched_terminal_tabs(
+        &self,
+        surfaces: &[SurfaceId],
+    ) -> anyhow::Result<Vec<SurfaceId>> {
+        let surfaces = drop_watched(&self.reclaim_candidates(), surfaces);
+        if surfaces.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.park_terminal_tabs(&surfaces)
+    }
+
     /// Every running terminal of this owner with the facts
     /// [`pick_reclaim`] judges.
     fn reclaim_candidates(&self) -> Vec<ReclaimCandidate> {
@@ -330,72 +359,5 @@ impl Mux {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const HOUR_MS: u64 = 60 * 60 * 1000;
-
-    fn sid(id: u64) -> SurfaceId {
-        id
-    }
-
-    fn idle(surface: u64, since_ms: u64) -> ReclaimCandidate {
-        ReclaimCandidate {
-            surfaces: vec![sid(surface)],
-            prompt_since_ms: Some(since_ms),
-            attached: false,
-            kept: false,
-            last_output_ms: Some(since_ms),
-            program_reported: false,
-        }
-    }
-
-    #[test]
-    fn parks_only_idle_quiet_unwatched_unkept_shells_oldest_first() {
-        let now = 200 * HOUR_MS;
-        let busy = ReclaimCandidate { prompt_since_ms: None, ..idle(2, 0) };
-        let watched = ReclaimCandidate { attached: true, ..idle(3, 0) };
-        let kept = ReclaimCandidate { kept: true, ..idle(4, 0) };
-        let agent = ReclaimCandidate { program_reported: true, ..idle(5, 0) };
-        let printing = ReclaimCandidate { last_output_ms: Some(now - 1000), ..idle(6, 0) };
-        let fresh = idle(7, now - 10 * 60 * 1000);
-        let candidates =
-            [idle(1, 50 * HOUR_MS), busy, watched, kept, agent, printing, fresh, idle(8, HOUR_MS)];
-        assert_eq!(
-            pick_reclaim(&candidates, now, 10),
-            [sid(8), sid(1)],
-            "the oldest prompt first; nothing busy, watched, kept, reporting, printing or fresh"
-        );
-        assert_eq!(pick_reclaim(&candidates, now, 1), [sid(8)]);
-        assert!(pick_reclaim(&candidates, now, 0).is_empty());
-    }
-
-    #[test]
-    fn reclaims_only_under_the_reserve_and_refills_past_it() {
-        assert_eq!(reclaim_need(100, 511), 0);
-        assert_eq!(reclaim_need(511 - PTY_RESERVE, 511), 0);
-        assert_eq!(reclaim_need(511 - PTY_RESERVE + 1, 511), PTY_REFILL - PTY_RESERVE + 1);
-        assert_eq!(reclaim_need(511, 511), PTY_REFILL);
-        assert_eq!(reclaim_need(527, 511), PTY_REFILL, "more nodes than the limit");
-        assert_eq!(reclaim_need(40, 50), 50 - 10, "a limit under the refill frees what it can");
-    }
-
-    #[test]
-    fn counts_only_numbered_pty_nodes() {
-        assert!(is_pty_node("ttys000"));
-        assert!(is_pty_node("ttys510"));
-        assert!(!is_pty_node("ttys0"), "legacy node");
-        assert!(!is_pty_node("ttysf"));
-        assert!(!is_pty_node("ttyp000"));
-    }
-
-    #[test]
-    fn a_failed_launch_forces_the_next_pass() {
-        let mut clock = ReclaimClock::default();
-        let start = Instant::now();
-        assert!(clock.due(start, false));
-        assert!(!clock.due(start + Duration::from_millis(10), false));
-        assert!(clock.due(start + Duration::from_millis(20), true));
-        assert!(clock.due(start + RECLAIM_CHECK_EVERY * 2, false));
-    }
-}
+#[path = "pty_reclaim_tests.rs"]
+mod tests;

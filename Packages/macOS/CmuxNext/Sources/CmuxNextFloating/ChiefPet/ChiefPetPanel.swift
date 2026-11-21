@@ -195,6 +195,10 @@ final class ChiefPetView: NSView, StatusIndicatorConfigClient {
     /// Where the press started, in screen points, the panel's origin then, and whether it was on the character.
     private var press: (start: CGPoint, origin: CGPoint, onCharacter: Bool)?
     private var dragging = false
+    /// Where the pointer was when the drag's lean last turned: the next turn needs `leanSlop` points from here.
+    private var leanSample: CGPoint?
+    /// How far the pointer moves before the lean follows it, so a jitter does not flip it.
+    static let leanSlop: CGFloat = 3
     /// A press is moving the pet now.
     var isDragging: Bool { dragging }
 
@@ -221,6 +225,12 @@ final class ChiefPetView: NSView, StatusIndicatorConfigClient {
         // Reduce Motion, calm mode and the speed setting reach the clip's loop at once, by the
         // indicators' one broadcast (held weakly: it ends with the view).
         StatusIndicatorAppearance.shared.register(self)
+    }
+
+    /// The name VoiceOver and the tooltip give the pet: the Chief, or the chat Show in Mini picked.
+    func name(_ title: String) {
+        character.setAccessibilityLabel(title)
+        themedToolTip = title
     }
 
     /// Loops just turned off (or on): the clip stops on its first frame (or moves again).
@@ -323,6 +333,7 @@ final class ChiefPetView: NSView, StatusIndicatorConfigClient {
         let local = convert(event.locationInWindow, from: nil)
         press = (pointer(), window?.frame.origin ?? .zero, character.frame.contains(local))
         dragging = false
+        leanSample = press?.start
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -332,11 +343,21 @@ final class ChiefPetView: NSView, StatusIndicatorConfigClient {
         dragging = true
         // Whole points, as the saved spot is: the drop then rounds nothing and the notices stay put.
         window.setFrameOrigin(CGPoint(x: (press.origin.x + point.x - press.start.x).rounded(), y: (press.origin.y + point.y - press.start.y).rounded()))
+        lean(toward: point)
         onDragMoved?()
     }
 
+    /// An animated character leans the way the drag pulls it: the dominant way since the last turn.
+    private func lean(toward point: CGPoint) {
+        let from = leanSample ?? point
+        guard let direction = ChiefPetDirection.dominant(dx: point.x - from.x, dy: point.y - from.y, minimum: Self.leanSlop) else { return }
+        leanSample = point
+        sprite.drag(direction)
+    }
+
     override func mouseUp(with event: NSEvent) {
-        defer { press = nil; dragging = false }
+        // The drop: the character draws its state again.
+        defer { press = nil; dragging = false; leanSample = nil; sprite.drag(nil) }
         guard let press else { return }
         if dragging { onDragEnded?() } else if press.onCharacter { onClick?() }
     }

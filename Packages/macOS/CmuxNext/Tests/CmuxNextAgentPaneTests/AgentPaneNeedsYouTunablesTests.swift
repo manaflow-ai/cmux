@@ -11,15 +11,15 @@ struct AgentPaneNeedsYouTunablesTests {
         #expect(AgentPaneTunables.needsYou.defaultValue == .pinned)
         #expect(AgentPaneTunables.needsYouPill.descriptor.key == "agentPane.debug.needsYouPill")
         #expect(AgentPaneTunables.needsYouPill.defaultValue == false)
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default).isEmpty)
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default,
+        #expect(AgentPaneTunables.attributes(topStripStyle: .default).isEmpty)
+        #expect(AgentPaneTunables.attributes(topStripStyle: .default,
                                              needsYouPill: AgentPaneTunables.needsYouPill.defaultValue)
             == ["needs-you-pill": "off"])
     }
 
     @Test(arguments: [AgentPaneNeedsYouStyle.compact, .off])
     func otherStylesSetTheirAttribute(style: AgentPaneNeedsYouStyle) {
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, needsYou: style)
+        #expect(AgentPaneTunables.attributes(topStripStyle: .default, needsYou: style)
             == ["needs-you": style.rawValue])
     }
 
@@ -30,13 +30,13 @@ struct AgentPaneNeedsYouTunablesTests {
     func notInstalledIsOffWhateverTheDebugChoice(debug: AgentPaneNeedsYouStyle) {
         let style = AgentPaneTunables.needsYouStyle(installed: false, debug: debug)
         #expect(style == .off)
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, needsYou: style)
+        #expect(AgentPaneTunables.attributes(topStripStyle: .default, needsYou: style)
             == ["needs-you": "off"])
         #expect(AgentPaneTunables.needsYouStyle(installed: true, debug: debug) == debug)
     }
 
     @Test func pillOffSetsItsAttribute() {
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, needsYouPill: false)
+        #expect(AgentPaneTunables.attributes(topStripStyle: .default, needsYouPill: false)
             == ["needs-you-pill": "off"])
     }
 

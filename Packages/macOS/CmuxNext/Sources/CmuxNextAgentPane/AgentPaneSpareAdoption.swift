@@ -1,3 +1,4 @@
+import CmuxNextDesignTokens
 import CmuxNextWakeups
 public import Foundation
 
@@ -44,11 +45,6 @@ public nonisolated struct AgentPaneSpareReadiness: Sendable, Equatable {
         (self.handshake, self.painted, self.clientReady, self.lowPower, self.thermal) = (handshake, painted, clientReady, lowPower, thermal)
     }
 
-    /// Whether a tab opening an existing chat may take the spare at all. Off until the adopted page
-    /// draws its chat (HQ#5914): with #31033 it showed an empty transcript on a sidebar open and never
-    /// painted on a reopen, so every such tab opens cold, as before #31033.
-    public static let adoptsExistingChats = false
-
     public var servesChat: Bool {
         handshake && painted && clientReady && !lowPower && thermal.rawValue < ProcessInfo.ThermalState.serious.rawValue
     }
@@ -58,8 +54,8 @@ extension AgentPaneModel {
     /// Whether this page, parked as the spare, may serve a tab opening an existing chat now
     /// (``AgentPaneSpareReadiness``, with this Mac's power and thermal state read now).
     public var servesExistingChat: Bool {
-        AgentPaneSpareReadiness.adoptsExistingChats && AgentPaneSpareReadiness(handshake: hasHandshake, painted: hasPainted, clientReady: clientReady,
-                                lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled,
+        AgentPaneSpareReadiness(handshake: hasHandshake, painted: hasPainted, clientReady: clientReady,
+                                lowPower: LowPowerMode.system.isEnabled,
                                 thermal: ProcessInfo.processInfo.thermalState).servesChat
     }
 
@@ -132,8 +128,14 @@ public nonisolated struct AgentPaneSpareSlot<Spare> {
 public nonisolated enum AgentPaneSpareRefill: Sendable {
     /// On the next main-actor turn: a New Tab or new workspace, so the next Cmd-T finds one.
     case now
-    /// Once input is quiet (the pool's idle-input wait): an existing chat took it, and its page is
-    /// still attaching that chat. A new page's load on the main thread would land in that open,
-    /// and in the next clicks of someone going down the sidebar.
-    case whenQuiet
+    /// After the page drew the chat, then the refill's settle, as one background task
+    /// (``AgentPaneSpareRefiller/afterPaint(of:)``): an existing chat took it, and its page is still
+    /// attaching that chat, so a new page's load on the main thread now would land in that open.
+    /// Input does not push it back: the pool's quiet-input wait alone kept the pool empty for
+    /// someone who went on scrolling and clicking down the sidebar (decision 2026-11-16).
+    case afterPaint
+    /// After the frame commit and the settle, with no open to wait for: idle work took it (the next Cmd-N's
+    /// reserved workspace), and its page shows nowhere until that key. Mounted hidden, it draws no frame, so a
+    /// wait for its next frame would hold the refill until the idle-input backstop, which typing pushes back.
+    case idle
 }

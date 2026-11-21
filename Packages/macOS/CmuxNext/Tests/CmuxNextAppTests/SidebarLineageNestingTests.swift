@@ -418,5 +418,9 @@ import Testing
         #expect(off.state.parents.isEmpty)
         let flat = Self.rows(Self.sections([Self.reviewer, Self.coordinator, Self.lane]), tree: off.state)
         #expect(flat.map(\.id) == [Self.reviewer, Self.coordinator, Self.lane])
+        // Nesting with no lineage shows no tree: the list lays out as with nesting off (Recents, Settled, the fast insert).
+        let none = SidebarSessionTreeFeed.Pass(state: SidebarSessionTreeState(parents: [:]), asks: [])
+        #expect(!SidebarSessionTreeFeed.shaped(none, sessionTree: false, nests: true, reads: false).showsTree)
+        #expect(SidebarSessionTreeFeed.shaped(none, sessionTree: true, nests: true, reads: false).showsTree)
     }
 }

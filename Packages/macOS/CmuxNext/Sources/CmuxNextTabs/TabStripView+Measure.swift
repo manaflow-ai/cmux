@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesign
 
 // Pane chrome measurement (`debug.pane_chrome`, tests).
 extension TabStripView {
@@ -19,4 +20,13 @@ extension TabStripView {
 
     /// The width the tabs may fill.
     public var tabAvailableWidth: Double { Double(result.availableWidth) }
+}
+
+// `debug.top_alignment`: the strip and its first pill (the topmost strip is the top row's).
+extension TabStripView: TopAlignmentReporting {
+    public var topAlignmentKind: String { "strip" }
+
+    public func topAlignmentFrames() -> [String: CGRect] {
+        firstTabPillFrame.map { ["pill": $0] } ?? [:]
+    }
 }

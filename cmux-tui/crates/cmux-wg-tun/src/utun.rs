@@ -28,8 +28,7 @@ pub fn find_utun_fd() -> Option<RawFd> {
 pub(crate) fn is_kernel_control(fd: RawFd) -> bool {
     // SAFETY: an all-zero `sockaddr_storage` is a valid value.
     let mut address: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
-    let mut length =
-        libc::socklen_t::try_from(std::mem::size_of::<libc::sockaddr_storage>()).unwrap_or(0);
+    let mut length = libc::socklen_t::try_from(size_of::<libc::sockaddr_storage>()).unwrap_or(0);
     // SAFETY: `address` is writable for `length` bytes; getpeername fails
     // cleanly on a closed, unconnected or non-socket fd.
     let result = unsafe { libc::getpeername(fd, (&raw mut address).cast(), &mut length) };

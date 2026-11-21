@@ -5,6 +5,8 @@
 // or Delete); the page draws it and forwards `team.*` gestures. A typed name lives in the form's
 // own state until it is submitted.
 import { useState, type KeyboardEvent } from "react";
+import { Button } from "../../../ui/Button";
+import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
 import type {
   AccountsButton,
@@ -91,7 +93,8 @@ function ReceivedGroup({ received }: { received: AccountsReceivedInvitations }) 
 
 function TeamButton({ button, onRun }: { button: AccountsButton; onRun: () => void }) {
   return (
-    <button
+    <Button
+      danger={button.destructive}
       type="button"
       className={button.destructive ? "button danger" : "button"}
       disabled={button.disabled}
@@ -100,7 +103,7 @@ function TeamButton({ button, onRun }: { button: AccountsButton; onRun: () => vo
       onClick={onRun}
     >
       {button.title}
-    </button>
+    </Button>
   );
 }
 
@@ -119,7 +122,7 @@ function TeamRow({ row }: { row: AccountsTeamRow }) {
           </div>
         </div>
         <div className="row-control">
-          <button
+          <Button
             type="button"
             className="button"
             aria-expanded={row.open}
@@ -128,7 +131,7 @@ function TeamRow({ row }: { row: AccountsTeamRow }) {
             onClick={() => void store.runAccounts({ action: "team.details", team: row.id })}
           >
             {row.toggle.title}
-          </button>
+          </Button>
         </div>
       </div>
       {row.detail && <TeamDetails team={row.id} detail={row.detail} />}
@@ -201,7 +204,8 @@ function TeamDetails({ team, detail }: { team: string; detail: AccountsTeamDetai
             </div>
           )}
           <div className="accounts-buttons">
-            <button
+            <Button
+              danger
               type="button"
               className="button danger"
               disabled={detail.confirm.busy}
@@ -209,8 +213,8 @@ function TeamDetails({ team, detail }: { team: string; detail: AccountsTeamDetai
               onClick={() => run("team.confirmDelete")}
             >
               {detail.confirm.confirm}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className="button"
               disabled={detail.confirm.busy}
@@ -218,7 +222,7 @@ function TeamDetails({ team, detail }: { team: string; detail: AccountsTeamDetai
               onClick={() => run("team.cancel")}
             >
               {detail.confirm.cancel}
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -255,7 +259,7 @@ function TeamNameForm({ form, team }: { form: AccountsTeamForm; team?: string })
         <div className="row-title">{form.title}</div>
         <div className="row-help">{form.help}</div>
       </div>
-      <input
+      <Input
         className="field"
         type="text"
         aria-label={form.title}
@@ -273,7 +277,7 @@ function TeamNameForm({ form, team }: { form: AccountsTeamForm; team?: string })
         </div>
       )}
       <div className="accounts-buttons">
-        <button
+        <Button
           type="button"
           className="button"
           disabled={blank || form.busy}
@@ -281,10 +285,10 @@ function TeamNameForm({ form, team }: { form: AccountsTeamForm; team?: string })
           onClick={submit}
         >
           {form.submit}
-        </button>
-        <button type="button" className="button" disabled={form.busy} data-team-button="team.cancel" onClick={cancel}>
+        </Button>
+        <Button type="button" className="button" disabled={form.busy} data-team-button="team.cancel" onClick={cancel}>
           {form.cancel}
-        </button>
+        </Button>
       </div>
     </div>
   );

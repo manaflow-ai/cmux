@@ -39,8 +39,8 @@ public struct WorkspaceClose {
     ///
     /// `awaitingReplyOn` (opt-in, a person's close: the sidebar batch, Close Workspace from the keys, menu, CLI and MCP,
     /// the palette, the bulk closes): the close ends when the daemon answers it (its reply or refusal) or the connection
-    /// ends, never on the 2 s client deadline (`DaemonConnection.closeWorkspaceAwaitingReply`). A busy daemon commits a
-    /// close it answers late, and a close that gave up first listed the row again as refused and left it out of Undo.
+    /// ends, never on the client request deadline (2 s then, 30 s since #35075; `DaemonConnection.closeWorkspaceAwaitingReply`).
+    /// A busy daemon commits a close it answers late, and a close that gave up first listed the row again as refused and left it out of Undo.
     /// Its safety net is the daemon's bound (`DaemonService.closeReplyBound`, 60 s) for a daemon that keeps its socket
     /// open and never answers: past it that daemon's store decides (``unanswered(_:on:connection:)``), not the timeout.
     /// Nil keeps the control deadline: an internal close (a repair, a half-made create, a lane's close, quit) that must

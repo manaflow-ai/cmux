@@ -28,8 +28,17 @@
 //! `ACPMUX_OWNER_APP_PID`) follows the same rule on any home, the shared one too, with
 //! [`owner_exit::OWNER_EXIT_GRACE`] instead of the grace, and while something keeps it asks again
 //! every [`owner_exit::OWNER_KEPT_RECHECK`]. While the app runs, nothing changes.
+//!
+//! After the owner app exited, a client that only observes keeps nothing (R-LIFECYCLE ORPHANS):
+//! one that said `_meta.acpmux.observer: true` in its `initialize` ([`Presence::observes`]). The
+//! app's cmux-tui daemon stays after a Keep Sessions quit with live shells (it holds them) and
+//! keeps its chat notices watch open; counted as a client, that watch kept the daemon and its
+//! router running with parent 1 after every such quit (fleet repro on build 3a43a131). What
+//! keeps an observed daemon is still asked ([`crate::hub::Hub::in_use`]): a running agent, a
+//! turn, a pending permission, a background task, an agent host.
 
 use std::future::Future;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Weak};
 use std::time::Duration;
 use tokio::sync::watch;
@@ -39,17 +48,45 @@ use super::owner_exit;
 /// How long a daemon goes unused before it stops.
 pub(crate) const GRACE: Duration = Duration::from_secs(60 * 60);
 
-/// This process's clients: how many are connected, and how many ever arrived.
+/// This process's clients: how many are connected, how many of those only observe, and how many
+/// ever arrived.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Use {
     clients: usize,
+    observers: usize,
     arrivals: u64,
+}
+
+impl Use {
+    /// The clients that keep the daemon: all of them while the owner app runs (`owner_gone`
+    /// false), only those that do not merely observe once it exited.
+    fn keeping(&self, owner_gone: bool) -> usize {
+        if owner_gone { self.clients.saturating_sub(self.observers) } else { self.clients }
+    }
 }
 
 static CLIENTS: LazyLock<watch::Sender<Use>> = LazyLock::new(|| watch::Sender::new(Use::default()));
 
 /// One connected client, counted while it lives.
-pub(crate) struct Client(&'static watch::Sender<Use>);
+pub(crate) struct Client {
+    clients: &'static watch::Sender<Use>,
+    state: std::sync::Arc<ClientState>,
+}
+
+/// Changed only inside `send_modify`, so a client's observer mark and its departure are one
+/// order with the counts.
+#[derive(Default)]
+struct ClientState {
+    observer: AtomicBool,
+    left: AtomicBool,
+}
+
+/// A handle a connection keeps to mark its client an observer, without holding the client.
+#[derive(Clone)]
+pub(crate) struct Presence {
+    clients: &'static watch::Sender<Use>,
+    state: std::sync::Weak<ClientState>,
+}
 
 /// A client arrived; it is counted until the returned guard is dropped.
 pub(crate) fn client() -> Client {
@@ -61,12 +98,46 @@ fn arrive(clients: &'static watch::Sender<Use>) -> Client {
         u.clients = u.clients.saturating_add(1);
         u.arrivals = u.arrivals.saturating_add(1);
     });
-    Client(clients)
+    Client { clients, state: Default::default() }
+}
+
+impl Client {
+    /// The handle a connection marks this client with ([`Presence::observes`]).
+    pub(crate) fn presence(&self) -> Presence {
+        Presence { clients: self.clients, state: std::sync::Arc::downgrade(&self.state) }
+    }
+
+    /// This client only observes: once the owner app exited it keeps nothing.
+    #[cfg(test)]
+    pub(crate) fn observes(&self) {
+        self.presence().observes();
+    }
+}
+
+impl Presence {
+    /// Marks the client an observer (`initialize` with `_meta.acpmux.observer: true`), once; a
+    /// client that already left is not counted again.
+    pub(crate) fn observes(&self) {
+        let Some(state) = self.state.upgrade() else { return };
+        self.clients.send_modify(|u| {
+            if !state.left.load(Ordering::Relaxed) && !state.observer.swap(true, Ordering::Relaxed)
+            {
+                u.observers = u.observers.saturating_add(1);
+            }
+        });
+    }
 }
 
 impl Drop for Client {
     fn drop(&mut self) {
-        self.0.send_modify(|u| u.clients = u.clients.saturating_sub(1));
+        let state = &self.state;
+        self.clients.send_modify(|u| {
+            state.left.store(true, Ordering::Relaxed);
+            u.clients = u.clients.saturating_sub(1);
+            if state.observer.load(Ordering::Relaxed) {
+                u.observers = u.observers.saturating_sub(1);
+            }
+        });
     }
 }
 
@@ -143,10 +214,19 @@ where
 {
     let mut kept_after_owner = false;
     loop {
-        // The guard `wait_for` returns is a lock: read from it and drop it before any await.
-        let seen = clients.wait_for(|u| u.clients == 0).await.map(|u| u.arrivals);
-        let Ok(seen) = seen else { return std::future::pending().await };
         let gone = *owner_gone.borrow_and_update();
+        // The guard `wait_for` returns is a lock: read from it and drop it before any await.
+        // The owner's exit while a client is connected may leave only observers: look again.
+        let owner_exits = async {
+            if gone || owner_gone.changed().await.is_err() {
+                std::future::pending::<()>().await;
+            }
+        };
+        let seen = tokio::select! {
+            seen = clients.wait_for(|u| u.keeping(gone) == 0) => seen.map(|u| u.arrivals),
+            _ = owner_exits => continue,
+        };
+        let Ok(seen) = seen else { return std::future::pending().await };
         let wait = if gone {
             let short = if kept_after_owner {
                 owner_exit::OWNER_KEPT_RECHECK
@@ -184,7 +264,7 @@ where
         let kept = in_use().await;
         // A client that arrived while the census ran (or as the grace ended) keeps it.
         let now = *clients.borrow();
-        if now.clients > 0 || now.arrivals != seen {
+        if now.keeping(gone) > 0 || now.arrivals != seen {
             continue;
         }
         match kept {
@@ -296,6 +376,57 @@ mod tests {
             start.elapsed(),
             owner_exit::OWNER_EXIT_GRACE + owner_exit::OWNER_KEPT_RECHECK * 2
         );
+    }
+
+    /// R-LIFECYCLE ORPHANS: after a Keep Sessions quit with live shells, the app's cmux-tui
+    /// daemon stays (it holds the terminals) and keeps one `_acpmux/watch` open for its chat
+    /// notices. That watch only observes: once the owner app is gone it keeps nothing, so the
+    /// daemon and its router stop when no agent, turn or task keeps them (fleet repro on build
+    /// 3a43a131: acpmux and router ran on with parent 1 after every quit).
+    #[tokio::test(start_paused = true)]
+    async fn quit_helpers_a_watch_only_client_keeps_nothing_after_the_owners_exit() {
+        let (clients, app) = (sender(), owner());
+        let watcher = arrive(clients);
+        watcher.observes();
+        let task =
+            tokio::spawn(unused_for(clients.subscribe(), None, app.subscribe(), nothing_keeps()));
+        tokio::time::sleep(G * 10).await;
+        assert!(!task.is_finished(), "stopped with its app running");
+        app.send_replace(true);
+        let quit = tokio::time::Instant::now();
+        let why = task.await.unwrap();
+        assert!(why.starts_with(OWNER_GONE), "{why}");
+        assert_eq!(quit.elapsed(), owner_exit::OWNER_EXIT_GRACE);
+        drop(watcher);
+    }
+
+    /// While the owner app runs, a watch-only client keeps the daemon as any client does.
+    #[tokio::test(start_paused = true)]
+    async fn a_watch_only_client_keeps_it_while_its_app_runs() {
+        let clients = sender();
+        let watcher = arrive(clients);
+        watcher.observes();
+        let wait = unused_for(clients.subscribe(), Some(G), owner().subscribe(), nothing_keeps());
+        assert!(tokio::time::timeout(G * 10, wait).await.is_err(), "stopped with a client");
+    }
+
+    /// A client that also works (not only a watch) keeps it after the owner's exit.
+    #[tokio::test(start_paused = true)]
+    async fn quit_helpers_a_working_client_beside_a_watcher_keeps_it() {
+        let (clients, app) = (sender(), owner());
+        app.send_replace(true);
+        let watcher = arrive(clients);
+        watcher.observes();
+        let worker = arrive(clients);
+        let task =
+            tokio::spawn(unused_for(clients.subscribe(), None, app.subscribe(), nothing_keeps()));
+        tokio::time::sleep(G * 10).await;
+        assert!(!task.is_finished(), "stopped with a working client");
+        let left = tokio::time::Instant::now();
+        drop(worker);
+        task.await.unwrap();
+        assert_eq!(left.elapsed(), owner_exit::OWNER_EXIT_GRACE);
+        drop(watcher);
     }
 
     #[tokio::test(start_paused = true)]

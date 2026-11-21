@@ -1,0 +1,103 @@
+[
+ {
+  "name": "the stored form parses",
+  "op": "install_key_parse",
+  "request": {
+   "payload": "cmuxik1 inst_abc 0101010101010101010101010101010101010101010101010101010101010101\n"
+  },
+  "expect": {
+   "installId": "inst_abc",
+   "payload": "cmuxik1 inst_abc 0101010101010101010101010101010101010101010101010101010101010101\n"
+  }
+ },
+ {
+  "name": "uppercase hex reads, lowercase is written",
+  "op": "install_key_parse",
+  "request": {
+   "payload": "cmuxik1 inst_abc ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB"
+  },
+  "expect": {
+   "installId": "inst_abc",
+   "payload": "cmuxik1 inst_abc abababababababababababababababababababababababababababababababab\n"
+  }
+ },
+ {
+  "name": "an all-zero key is refused",
+  "op": "install_key_parse",
+  "request": {
+   "payload": "cmuxik1 inst_abc 0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "expect": null
+ },
+ {
+  "name": "another tag is refused",
+  "op": "install_key_parse",
+  "request": {
+   "payload": "cmuxik2 inst_abc 0101010101010101010101010101010101010101010101010101010101010101"
+  },
+  "expect": null
+ },
+ {
+  "name": "a short key is refused",
+  "op": "install_key_parse",
+  "request": {
+   "payload": "cmuxik1 inst_abc 0101"
+  },
+  "expect": null
+ },
+ {
+  "name": "an id with a space is refused",
+  "op": "install_key_parse",
+  "request": {
+   "payload": "cmuxik1 inst abc 0101010101010101010101010101010101010101010101010101010101010101"
+  },
+  "expect": null
+ },
+ {
+  "name": "a fresh key",
+  "op": "install_key_generate",
+  "request": {
+   "keyHex": "0202020202020202020202020202020202020202020202020202020202020202",
+   "idRandomHex": "00112233445566778899aabbccddeeff"
+  },
+  "expect": {
+   "installId": "inst_00112233445566778899",
+   "payload": "cmuxik1 inst_00112233445566778899 0202020202020202020202020202020202020202020202020202020202020202\n"
+  }
+ },
+ {
+  "name": "valid install id",
+  "op": "install_key_valid_id",
+  "request": {
+   "installId": "inst_A-b_9"
+  },
+  "expect": true
+ },
+ {
+  "name": "an empty install id",
+  "op": "install_key_valid_id",
+  "request": {
+   "installId": ""
+  },
+  "expect": false
+ },
+ {
+  "name": "a nonce of another length has no proof",
+  "op": "install_key_proof",
+  "request": {
+   "installId": "inst_abc",
+   "keyHex": "0101010101010101010101010101010101010101010101010101010101010101",
+   "nonceHex": "00"
+  },
+  "expect": null
+ },
+ {
+  "name": "the hello proof is HMAC-SHA256(key, context 0 id 0 nonce)",
+  "op": "install_key_proof",
+  "request": {
+   "payload": "cmuxik1 inst_abc 0101010101010101010101010101010101010101010101010101010101010101",
+   "nonceHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+  },
+  "expect": "1983a61688a8870ffe25e05172b075505d3fc980a38f16cdfa903e32d7910e54"
+ }
+]

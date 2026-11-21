@@ -237,15 +237,10 @@ impl Drop for AttributeList {
     }
 }
 
-/// Starts the daemon and waits up to `budget` for its readiness line
-/// (empty when it exited first). An anonymous pipe has no async read, so a
-/// plain thread reads the line: on a timeout it is left behind and never
-/// holds up runtime teardown (a blocking-pool task would).
-pub(super) async fn start_daemon(
-    home: &Path,
-    prefix: &[OsString],
-    budget: std::time::Duration,
-) -> Result<String> {
+/// Starts the daemon and waits for its readiness line (empty when it exited
+/// first). An anonymous pipe has no async read, so a plain thread reads the
+/// line. The child owns the write end, making EOF the dead-peer signal.
+pub(super) async fn start_daemon(home: &Path, prefix: &[OsString]) -> Result<String> {
     let reader = spawn_detached(home, prefix)?;
     let (tx, rx) = tokio::sync::oneshot::channel();
     std::thread::Builder::new()
@@ -257,30 +252,39 @@ pub(super) async fn start_daemon(
             let _ = tx.send(line);
         })
         .context("wait for acpmux daemon")?;
-    let deadline = tokio::time::Instant::now() + budget;
-    match tokio::time::timeout_at(deadline, rx).await {
-        Ok(line) => {
-            let line = line.unwrap_or_default();
-            if line.trim().is_empty() {
-                wait_for_winner(home, deadline).await;
+    let mut rx = rx;
+    let line = loop {
+        match tokio::time::timeout(crate::daemon::START_BUDGET, &mut rx).await {
+            Ok(line) => break line.unwrap_or_default(),
+            Err(_) => {
+                return Err(anyhow!(
+                    "daemon did not come up at {} within {:?}; see {}",
+                    crate::config::socket_path().display(),
+                    crate::daemon::START_BUDGET,
+                    home.join("daemon.log").display()
+                ));
             }
-            Ok(line)
         }
-        Err(_) => Err(anyhow!(
-            "daemon did not come up at {} within {budget:?}; see {}",
+    };
+    if line.trim().is_empty() && !wait_for_winner(home).await {
+        return Err(anyhow!(
+            "daemon did not come up at {} within {:?}; see {}",
             crate::config::socket_path().display(),
+            crate::daemon::START_BUDGET,
             home.join("daemon.log").display()
-        )),
+        ));
     }
+    Ok(line)
 }
 
 /// The started daemon exited first, usually because another start's daemon
 /// holds `daemon.lock`; that daemon may not have bound its socket yet. While
-/// a daemon holds the lock and the socket file is missing, wait (at most
-/// until `deadline`), so the caller's one connect finds it.
-async fn wait_for_winner(home: &Path, deadline: tokio::time::Instant) {
+/// a daemon holds the lock and the socket file is missing, wait so the
+/// caller's one connect finds it. A released lock is the dead-peer signal.
+async fn wait_for_winner(home: &Path) -> bool {
     let socket = crate::config::socket_path();
     let lock = home.join("daemon.lock");
+    let deadline = tokio::time::Instant::now() + crate::daemon::START_BUDGET;
     while !socket.exists() && tokio::time::Instant::now() < deadline {
         // A 1-byte read at offset 0 tests daemon.lock without taking it, so
         // this wait never makes another start's daemon lose the lock. While
@@ -296,10 +300,11 @@ async fn wait_for_winner(home: &Path, deadline: tokio::time::Instant) {
             read.is_err_and(|e| e.raw_os_error() == Some(ERROR_LOCK_VIOLATION as i32))
         });
         if !held {
-            return;
+            return false;
         }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
+    socket.exists()
 }
 
 /// Standard handles and further inherited handles of a detached child.

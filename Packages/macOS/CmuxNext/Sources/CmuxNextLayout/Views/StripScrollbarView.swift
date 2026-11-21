@@ -178,7 +178,7 @@ final class StripScrollbarView: NSView {
 
     /// The shown thumb's band (full band height, so hover thickening stays inside it) in window
     /// coordinates as this bar's occluder, nothing otherwise. A window it left drops it. Also run
-    /// when an ancestor moved without an `update` (a screen sliding in or out).
+    /// when an ancestor showed or hid without an `update` (a screen switch).
     func syncOccluder() {
         let rect = isShown && !isHiddenOrHasHiddenAncestor ? thumbRect.map { convert($0, to: nil) } : nil
         // A window in deallocation counts as none: a weak reference to it aborts the runtime.

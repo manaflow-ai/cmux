@@ -60,8 +60,8 @@ pub const BYTES_PER_TOKEN: usize = 4;
 
 /// Whether a connection from `origin` may call `_acpmux/complete`: the unix
 /// socket only.
-pub fn allowed(origin: crate::server::Origin) -> bool {
-    use crate::server::Origin;
+pub fn allowed(origin: crate::conn_origin::Origin) -> bool {
+    use crate::conn_origin::Origin;
     match origin {
         Origin::Local => true,
         Origin::Web | Origin::LocalApp | Origin::Peer => false,

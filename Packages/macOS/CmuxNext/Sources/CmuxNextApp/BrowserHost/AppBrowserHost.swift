@@ -18,7 +18,7 @@ final class AppBrowserHost {
     let provider: BrowserHostProvider
     let driver: WebKitDriver
     private let credentials: AppProviderCredentials
-    private let tabs: AppBrowserHostTabs
+    let tabs: AppBrowserHostTabs
     private let relay: AppDevToolsRelay
     private weak var services: AppServices?
     /// Lease frames to every content's agent cursor (agent-cursor.md section 3).
@@ -132,6 +132,7 @@ final class AppBrowserHost {
     /// from the app's mouse-down observer, after dispatch (focus has moved
     /// to the clicked page).
     func start() {
+        tabs.start()
         provider.start()
         // AppServices.settings follows from its didSet; a controller set before the host is followed here.
         if let settings = services?.settings { follow(settings) }

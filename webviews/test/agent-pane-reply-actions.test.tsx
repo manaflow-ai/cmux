@@ -98,9 +98,13 @@ test("the footer copies the whole turn: every reply in order and each tool run's
     new Set(),
     { now: 10_000 },
   );
-  const footer = rows.find((one) => one.kind === "turnSummary")!;
+  // The turn's own footer, not the one over the steer (turns.ts supersededFooters), which copies
+  // only the stretch before it.
+  const footer = rows.find((one) => one.kind === "turnSummary" && !one.superseded)!;
+  const stretch = rows.find((one) => one.superseded)!;
+  expect(turnCopyText(t, stretch.turnCopy!)).toBe([BEFORE_STEER, "Ran 2 commands and read a file"].join("\n\n"));
   expect(turnCopyText(t, footer.turnCopy!)).toBe(
-    [BEFORE_STEER, "Ran 2 commands, read a file", "Read /r/turns.ts", ANSWER].join("\n\n"),
+    [BEFORE_STEER, "Ran 2 commands and read a file", "Read /r/turns.ts", ANSWER].join("\n\n"),
   );
   const html = renderToStaticMarkup(<TurnFooter row={footer} />);
   expect(html).toContain('aria-label="Copy"');
@@ -120,7 +124,8 @@ test("a turn of tool calls alone has no Copy and no Read aloud", () => {
   expect(footer.turnCopy).toBeUndefined();
   const html = renderToStaticMarkup(<TurnFooter row={footer} />);
   expect(html).not.toContain('aria-label="Copy"');
-  expect(html).toContain('class="cv-turn-time"');
+  // No time at the footer's end either (Lawrence and Lucas, 2026-11-11 standup: no time on hover).
+  expect(html).not.toContain("cv-turn-time");
 });
 
 test("a steer that waits for the agent offers Copy beside Send now", () => {

@@ -1,6 +1,9 @@
 // Leo (2026-11-01): "there's a layout shift when i expand it". Opening or folding the running tray
-// over the composer moves no transcript row, on any painted frame; the reader's wheel past the end
-// then brings the rows under what opened into view.
+// over the composer moves no transcript row it need not, on any painted frame; the reader's wheel
+// past the end then brings the rows under what opened into view. The running turn's live line is the
+// one row it never covers (Leo, 2026-11-04: "why does it not display Thinking or anything here???"):
+// this fixture's turn is running, so opening the tray lies over half the line's rest gap and draws
+// the rows up by the rest, once, and the line stays over the tray on every frame.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, type Browser, type Page } from "playwright";
 import path from "node:path";
@@ -60,8 +63,8 @@ await requireBrowserLane("subagent-tray-expand-shift.test.ts", async () => {
    *  moved and where the tray's top was drawn. */
   const toggle = (page: Page) =>
     page.evaluate(async () => {
-      const latest = () =>
-        [...document.querySelectorAll<HTMLElement>(".acpmux-row")].at(-1)!.getBoundingClientRect().top;
+      const last = () => [...document.querySelectorAll<HTMLElement>(".acpmux-row")].at(-1)!.getBoundingClientRect();
+      const latest = () => last().top;
       const trayTop = () => document.querySelector<HTMLElement>(".acpmux-running-tray")!.getBoundingClientRect().top;
       // After the frame paints: a task queued from its animation frame callback.
       const painted = () =>
@@ -75,15 +78,15 @@ await requireBrowserLane("subagent-tray-expand-shift.test.ts", async () => {
       const before = latest();
       const trayBefore = trayTop();
       document.querySelector<HTMLElement>(".acpmux-running-tray__head")!.click();
-      const frames: { moved: number; tray: number }[] = [];
+      const frames: { moved: number; tray: number; covered: number }[] = [];
       for (let index = 0; index < 20; index++) {
         await painted();
-        frames.push({ moved: latest() - before, tray: trayTop() - trayBefore });
+        frames.push({ moved: latest() - before, tray: trayTop() - trayBefore, covered: last().bottom - trayTop() });
       }
       return frames;
     });
 
-  test("opening and folding the tray at the latest row moves no transcript row", async () => {
+  test("opening the tray at the latest row draws the rows up only for the live line, and folding it moves none", async () => {
     const port = (server.httpServer!.address() as { port: number }).port;
     const page = await browser.newPage({ viewport: { width: 760, height: 420 }, deviceScaleFactor: 2 });
     try {
@@ -103,7 +106,15 @@ await requireBrowserLane("subagent-tray-expand-shift.test.ts", async () => {
       expect(await head.getAttribute("aria-expanded")).toBe("true");
       // It opened, up over the transcript's foot.
       expect(Math.min(...opened.map((frame) => frame.tray))).toBeLessThan(-20);
-      for (const frame of opened) expect(Math.abs(frame.moved)).toBeLessThanOrEqual(0.5);
+      // The latest row is the running turn's live line: it is never under the tray, and the rows go
+      // up with what opened, less half the line's rest gap, never back down.
+      const live = await page.evaluate(() => !!document.querySelector(".acpmux-row--below .cv-worked--live"));
+      expect(live).toBe(true);
+      for (const frame of opened) expect(frame.covered).toBeLessThanOrEqual(0.5);
+      for (let index = 1; index < opened.length; index++)
+        expect(opened[index]!.moved).toBeLessThanOrEqual(opened[index - 1]!.moved + 0.5);
+      const rose = -opened.at(-1)!.moved;
+      expect(rose).toBeLessThan(-Math.min(...opened.map((frame) => frame.tray)) - 20);
 
       const folded = await toggle(page);
       expect(await head.getAttribute("aria-expanded")).toBe("false");
@@ -113,7 +124,7 @@ await requireBrowserLane("subagent-tray-expand-shift.test.ts", async () => {
     }
   });
 
-  test("the wheel past the end shows the rows under an opened tray", async () => {
+  test("the wheel past the end keeps the latest row above an opened tray", async () => {
     const port = (server.httpServer!.address() as { port: number }).port;
     const page = await browser.newPage({ viewport: { width: 760, height: 420 }, deviceScaleFactor: 2 });
     try {
@@ -127,8 +138,8 @@ await requireBrowserLane("subagent-tray-expand-shift.test.ts", async () => {
           const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!.getBoundingClientRect();
           return last.bottom - tray.top;
         });
-      // What opened lies over the latest row's foot.
-      expect(await covered()).toBeGreaterThan(0.5);
+      // What opened lies over the rest gap under the running turn's live line, never over the line.
+      expect(await covered()).toBeLessThanOrEqual(0.5);
       const box = (await page.locator(".acpmux-scroll").boundingBox())!;
       await page.mouse.move(box.x + box.width / 2, box.y + 40);
       for (let turn = 0; turn < 6; turn++) await page.mouse.wheel(0, 240);

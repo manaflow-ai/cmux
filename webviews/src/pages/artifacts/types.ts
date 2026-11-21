@@ -10,6 +10,13 @@ export const ArtifactsOps = {
   history: "cmux.artifacts.history",
 } as const;
 
+/** The app's action op, and the one action the page runs: Sign In, when the platform says signed out. */
+export const ACTION_RUN = "cmux.app.action.run";
+export const ArtifactsActions = { signIn: "palette.auth.signIn" } as const;
+
+/** The failure code of a read refused because nobody is signed in. */
+export const SIGNED_OUT = "cmux.artifacts.signed_out";
+
 export interface ArtifactTreeEntry {
   name: string;
   path: string;

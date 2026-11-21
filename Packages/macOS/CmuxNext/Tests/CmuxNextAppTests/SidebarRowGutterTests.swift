@@ -19,7 +19,7 @@ import Testing
 /// from the sidebar's right edge; since Leo 2026-11-02 ("CHATGPT HAS A SLIGHT GAP") that gap is the leading inset,
 /// so the pill sits inside the sidebar with an even gap on both sides; the content's insets inside it are unchanged.
 /// Since #27598 (Leo 2026-10-29: "We need to have the stuff aligned on grids and lines") the trailing
-/// column is the shared grid's line, `LayoutGrid.sidebarTrailCenter` from the sidebar's right edge, and a row with no
+/// column is `SidebarStyle.trailingCenterInset` inside the fill (Leo 2026-11-04), and a row with no
 /// mark runs its title to that column's 16 pt slot (`SidebarColumns.trailingEdge`).
 @MainActor @Suite(.serialized) struct SidebarRowGutterTests {
     private static let pinnedID = WorkspaceID("ws-pinned")
@@ -74,12 +74,12 @@ import Testing
         let sidebar = Self.sidebar()
         let unread = try Self.row(sidebar, Self.unreadID), selected = try Self.row(sidebar, Self.selectedID)
         #expect(selected.isSelected && !unread.isSelected)
-        let gutter = SidebarStyle.horizontalInset
-        // A status glyph centers on the trailing column (10990df76a738): the grid's trailing line, 24 pt from the
-        // sidebar's right edge, so `sidebarTrailCenter - rowEdgeGap` inside the row's fill (#27598). A row with no
+        let gutter = SidebarStyle.horizontalInset, content = SidebarStyle.contentInset
+        // A status glyph centers on the trailing column (10990df76a738): `trailingCenterInset` inside the row's fill,
+        // the mark's ink ending the leading inset short of the fill's end (Leo 2026-11-04). A row with no
         // mark (the selected row: `.working` with no agent at work shows idle) runs its title to the column's slot,
         // one grid icon box wide around the line.
-        let centerInset = LayoutGrid.sidebarTrailCenter - SidebarStyle.rowEdgeGap
+        let centerInset = SidebarStyle.trailingCenterInset
         // The control slot on that line still clears the resize band (#27954, 9a79771762c4).
         #expect(centerInset - SidebarStyle.trailingSlotSide / 2 >= SidebarStyle.trailingColumnInset,
                 "the trailing control slot ends \(centerInset - SidebarStyle.trailingSlotSide / 2) pt in, inside the resize clearance")
@@ -96,9 +96,9 @@ import Testing
             } else {
                 #expect(trailing == slotEnd, "\(name): title ends \(trailing) pt in, the column's slot \(slotEnd) pt in")
             }
-            #expect(row.title.frame.minX == gutter, "\(name): the title at the inset (no empty icon slot)")
+            #expect(row.title.frame.minX == content, "\(name): the title at the content inset (no empty icon slot)")
             // The pill's own inset from the list's edges is the same token, plus the trim on the right.
-            #expect(leading == gutter, "\(name): text \(leading) pt in, pill inset \(gutter)")
+            #expect(leading == content, "\(name): text \(leading) pt in, content inset \(content)")
             #expect(row.frame.minX == gutter)
             #expect(sidebar.list.bounds.width - row.frame.maxX == gutter + SidebarStyle.rowTrailingTrim,
                     "\(name): pill ends \(sidebar.list.bounds.width - row.frame.maxX) pt in")

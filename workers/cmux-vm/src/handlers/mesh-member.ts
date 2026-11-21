@@ -32,7 +32,7 @@ export const readMeshMember = <C, M, V>(caller: Named<C, Principal>, mesh: Named
     ], { concurrency: "unbounded" });
     if (ownsVm === null) return yield* Effect.fail(vmNotFound());
     if (Option.isNone(current) || current.value.meshId !== mesh.value) return yield* Effect.fail(vmNotFound());
-    const { ipv4 } = yield* upstream.readVmAddress(mesh, vm, { ...proofs, ownsVm }).pipe(Effect.mapError(() => unavailable()));
+    const { ipv4 } = yield* upstream.readVmAddress(mesh, vm, { ...proofs, ownsVm }).pipe(Effect.mapError(unavailable));
     if (Option.isNone(cidr) || (ipv4 !== null && !addressInMesh(ipv4, cidr.value))) return yield* Effect.fail(unavailable());
     // The ownership fence after the provider read, both halves in one round trip.
     const [liveVm, liveMesh] = yield* Effect.all([

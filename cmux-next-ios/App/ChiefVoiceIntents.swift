@@ -1,6 +1,7 @@
 import AppIntents
 import CmuxChiefVoiceCore
 import CmuxMobileChief
+import CmuxMobileModel
 import CmuxMobileVoice
 
 // App Intents for the iPhone Action Button, Siri, Spotlight, Shortcuts and the
@@ -48,6 +49,28 @@ struct RecordChiefVoiceNoteIntent: AppIntent {
     }
 }
 
+/// Message Chief from Shortcuts, Siri, Spotlight or the Action Button (the Mac's Message the
+/// Chief from Any App): opens cmux with a message to the Chief, the text (if any) in it, ready
+/// to send. Nothing is sent until the person taps Send.
+struct MessageChiefIntent: AppIntent {
+    static let title: LocalizedStringResource = "Message Chief"
+    static let description = IntentDescription("Opens cmux with a message to your Chief, ready to send.")
+    static let openAppWhenRun = true
+
+    @Parameter(title: "Message", requestValueDialog: "What should Chief know?")
+    var message: String?
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Message Chief: \(\.$message)")
+    }
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        ChiefMessenger.shared.message(text: message)
+        return .result()
+    }
+}
+
 /// The App Shortcuts the Action Button setting and Siri list for cmux.
 struct CmuxMobileAppShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
@@ -69,6 +92,15 @@ struct CmuxMobileAppShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Voice Note for Chief",
             systemImageName: "waveform"
+        )
+        AppShortcut(
+            intent: MessageChiefIntent(),
+            phrases: [
+                "Message my Chief in \(.applicationName)",
+                "Message Chief in \(.applicationName)",
+            ],
+            shortTitle: "Message Chief",
+            systemImageName: "text.bubble"
         )
         AppShortcut(
             intent: NewAgentChatIntent(),

@@ -16,6 +16,10 @@ public import Foundation
 /// alone (an app launched from another cmux's terminal), it is another
 /// daemon's socket.
 public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
+    /// How long the app waits for the daemon's answer to one request. A loaded daemon answers
+    /// late, not never (#28083); a 2 s bound turned its late answers into failures.
+    public static let answerDeadline: Duration = .seconds(30)
+
     public var executable: URL
     public var home: URL
     public var socketPath: String
@@ -23,10 +27,7 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     public var daemonArguments: [String]
     /// Variables the daemon and the status client must agree on.
     public var childEnvironment: [String: String]
-    /// Non-secret Computer Use launch configuration for this daemon. The v2
-    /// endpoint directory is allowed; legacy socket tokens are withheld.
-    public var computerUse: [String: String] = [:]
-    /// Whether the daemon this app spawns gets ``offerToolsKey`` (`1`): its local sessions then get
+    /// Whether the daemon this app spawns gets ``offerToolsKey`` `1` rather than `0`: its local sessions then get
     /// the cmux-sessions MCP server (`offer_session`), whatever the harness. On while suggested tasks
     /// are on (``AgentPaneSuggestedTasks``); ``AcpmuxHost`` reads it at each daemon start, so a running
     /// daemon keeps the value it started with.
@@ -48,9 +49,8 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// This build's own home while attached (``logPath``); nil otherwise.
     public var ownHome: URL?
 
-    /// The Computer Use variables (AgentActivitySocketSource.Configuration).
-    /// The spawn environment drops all three when inherited and takes only
-    /// the first two from `computerUse`: the host token never leaves the app.
+    /// The retired cmux-cua socket variables: the spawn environment drops them when inherited, so
+    /// no old credential reaches acpmux (Computer Use's endpoint comes from the cmux-tui daemon).
     public static let computerUseKeys = ["CMUX_NEXT_CUA_SOCKET", "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN"]
     public static let computerUseHostKey = "CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN"
     /// acpmux `agent_tools::OFFER_TOOLS_ENV`: `1` gives sessions `offer_session`.
@@ -80,7 +80,7 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
 
     /// Where this app writes why it could not reach the daemon: its own home's `daemon.log`, so an
     /// attached daemon's log (another app's home) gets no line from this app.
-    public var logPath: String { (ownHome ?? home).appendingPathComponent("daemon.log").path }
+    public var logPath: String { (ownHome ?? home).appending(path: "daemon.log", directoryHint: .notDirectory).path }
 
     /// Whether `ACPMUX_HOME` (`custom`) names another build's home while this build has a home of
     /// its own (`ownHome` is not `root`): the shared root (NIGHTLY's `~/.acpmux`), another
@@ -130,6 +130,15 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// `environment::socket_path`, tests/cases/environment.json): `configured`
     /// (`ACPMUX_SOCKET`) when set, except an absolute path past the Unix socket limit (a long
     /// TMPDIR), which maps to the short alias acpmux binds; else ``defaultSocketPath(home:uid:)``.
+    /// The socket of the acpmux daemon whose `ACPMUX_HOME` is `home`, for this user (no `ACPMUX_SOCKET`):
+    /// how Home reaches a Chief's own acpmux (``defaultSocketPath(home:uid:)``).
+    public static func socketPath(home: URL) -> String {
+        defaultSocketPath(home: home, uid: getuid())
+    }
+
+    /// The app's own acpmux home of `userHome` (`~/.acpmux`), the daemon a Chief on the app's acpmux uses.
+    public static func appHome(userHome: URL) -> URL { sharedRoot(userHome: userHome) }
+
     static func socketPath(configured: String?, home: URL, uid: UInt32) -> String {
         guard let configured else { return defaultSocketPath(home: home, uid: uid) }
         if configured.hasPrefix("/"), configured.utf8.count > maxSocketPathBytes {
@@ -144,7 +153,7 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     }
 
     static func defaultSocketPath(home: URL, uid: UInt32) -> String {
-        let preferred = home.appendingPathComponent("acpmux.sock").path
+        let preferred = home.appending(path: "acpmux.sock", directoryHint: .notDirectory).path
         if preferred.utf8.count < 96 { return preferred }
         return shortAlias(home.path, uid: uid)
     }

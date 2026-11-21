@@ -37,7 +37,7 @@ import Testing
 
     private func editMenu() throws -> NSMenu {
         _ = NSApplication.shared
-        let bar = MainMenu.make(registry: ActionRegistry.standard(), blocking: .forProcess())
+        let bar = MainMenu.make(registry: ActionRegistry.standard())
         return try #require(bar.items.first { $0.title == Strings.menuEdit }?.submenu)
     }
 

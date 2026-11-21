@@ -22,6 +22,9 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
+
 WORKFLOW = ROOT / ".github/workflows/machine-vault-e2e.yml"
 SCRIPT = ROOT / "scripts/cmux-next/machine-vault-e2e.ts"
 DEV = "https://cmux-platform-development.debussy.workers.dev"
@@ -53,13 +56,15 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
     def test_manual_dispatch_only(self) -> None:
         self.assertEqual(list(load()["on"].keys()), ["workflow_dispatch"])
         inputs = load()["on"]["workflow_dispatch"]["inputs"]
-        self.assertEqual(sorted(inputs), ["join_channel"])
+        self.assertEqual(sorted(inputs), ["join_channel", "model"])
+        # The model stub by default; the team's login only on a model: real dispatch (the canary).
+        self.assertEqual((inputs["model"]["default"], inputs["model"]["options"]), ("stub", ["stub", "real"]))
         self.assertEqual(inputs["join_channel"]["default"], "feat-cmux-next")
 
     def test_feat_cmux_next_only(self) -> None:
         job = load()["jobs"]["e2e"]
         self.assertEqual(job["if"], "github.ref == 'refs/heads/feat-cmux-next'")
-        self.assertEqual(job["environment"], "cmux-next-vm-image-dev")
+        self.assertEqual(workflow_jobs.resolve(job).environment, {"name": "cmux-next-vm-image-dev", "deployment": "false"})
         self.assertIn("refs/heads/feat-cmux-next", steps()[0]["run"])
         self.assertIn("exit 1", steps()[0]["run"])
 
@@ -87,13 +92,19 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
 
     def test_secrets_reach_one_step_through_env(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertEqual(len(re.findall(r"\$\{\{\s*secrets\.", text)), 3)
-        holders = [s for s in steps() if re.search(r"\$\{\{\s*secrets\.", str(s))]
+        self.assertEqual(len(re.findall(r"\bsecrets\.[A-Z]", text)), 3)
+        self.assertEqual(workflow_jobs.secret_names(text),
+                         {"CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CLAUDE_CODE_OAUTH_TOKEN"})
+        for name, job in load()["jobs"].items():
+            outside_steps = workflow_jobs.copy_job(job, {"steps": workflow_jobs.DROP}) if name == "e2e" else job
+            self.assertEqual(workflow_jobs.secret_names(outside_steps), set(), name)
+        holders = [s for s in steps() if workflow_jobs.secret_names(s)]
         self.assertEqual([s["name"] for s in holders], [RUN_STEP])
         run = holders[0]
         self.assertEqual(run["env"]["CMUX_UITEST_STACK_EMAIL"], "${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}")
         self.assertEqual(run["env"]["CMUX_UITEST_STACK_PASSWORD"], "${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}")
-        self.assertEqual(run["env"]["CLAUDE_CODE_OAUTH_TOKEN"], "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}")
+        # The subscription login reaches the run only on a model: real dispatch (the canary).
+        self.assertEqual(run["env"]["CLAUDE_CODE_OAUTH_TOKEN"], "${{ inputs.model == 'real' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}")
         self.assertNotIn("secrets", run["run"])
         self.assertNotIn("CMUX_UITEST_STACK", run["run"])
         self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", run["run"])
@@ -112,8 +123,8 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
         self.assertNotRegex(script, r'vault[^\n]*LOGIN_VAR')
         self.assertIn('export const LOGIN_VAR = "CLAUDE_CODE_OAUTH_TOKEN"', script)
         self.assertIn("hold(login)", script)
-        self.assertLess(script.index("login = env.CLAUDE_CODE_OAUTH_TOKEN"), script.index("hold(login)"))
-        self.assertIn("sshUser(AGENT_SCRIPT, `${login}\\n`", script)
+        self.assertLess(script.index("env.CLAUDE_CODE_OAUTH_TOKEN"), script.index("hold(login)"))
+        self.assertIn("sshUser(agentScript(stubUrl), `${login}\\n`", script)
         self.assertIn("IFS= read -r ${LOGIN_VAR}", script)
         self.assertIn("unset ${LOGIN_VAR}", script)
         # Cleanup confirms the processes that held it are gone; the scans count its hits.
@@ -130,16 +141,17 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
             self.assertNotRegex(s.get("run", ""), r"set -[a-z]*x|set -o xtrace|bash -x")
 
     def test_development_origin_only(self) -> None:
-        job = load()["jobs"]["e2e"]
-        self.assertEqual(job["env"]["HUB_ORIGIN"], DEV)
+        document = load()
+        self.assertEqual(workflow_jobs.effective_env(document, document["jobs"]["e2e"])["HUB_ORIGIN"], DEV)
         script = SCRIPT.read_text(encoding="utf-8")
         self.assertIn(f'export const DEV_PLATFORM = "{DEV}"', script)
         self.assertIn("if (opts.origin !== DEV_PLATFORM)", script)
 
     def test_ephemeral_macos_runner(self) -> None:
         job = load()["jobs"]["e2e"]
-        self.assertEqual(job["runs-on"], RUNS_ON)
-        self.assertNotRegex(job["runs-on"], r"vars\.(?!RUNNER_POOLS)")
+        cells = workflow_jobs.runs_on_cells(job)
+        self.assertEqual(cells, [RUNS_ON])
+        self.assertNotRegex("\n".join(cells), r"vars\.(?!RUNNER_POOLS)")
         self.assertIn("timeout-minutes", job)
 
     def test_channel_must_carry_the_vault_before_secrets(self) -> None:

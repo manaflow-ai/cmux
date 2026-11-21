@@ -103,6 +103,9 @@ fn machine_gate_refuses_an_older_machine_before_anything_moves() {
             vec![
                 ("CMUX_TEST_DAEMON_BUILD_ID", OLD_BUILD.to_owned()),
                 ("CMUX_TEST_DAEMON_HIDE_CAPABILITIES", NEWER_VERBS.to_owned()),
+                // Older, as its build time says: a machine of another build that is not older
+                // lacks a capability instead (`machine_capability_missing`, #36044).
+                ("CMUX_TEST_DAEMON_BUILD_TIME", "1".to_owned()),
             ],
         ),
     );
@@ -164,13 +167,14 @@ fn machine_gate_refuses_an_older_machine_before_anything_moves() {
 }
 
 /// A machine of this client's own build that does not serve a verb (here a
-/// host without the Cloud records, so no `fs-v1`) is not called outdated:
+/// host with no file owner, as a Mac, so no `fs-v1`) is not called outdated:
 /// updating it would change nothing, so the verb's own refusal stands.
 #[test]
 fn machine_gate_leaves_a_same_build_machine_to_its_own_refusal() {
     let (root, _cleanup) = journey_root("mgs");
     let mac = Machine::start(&root, "mac", Vec::new());
-    let plain = Machine::start(&root, "plain", Vec::new());
+    let no_owner = vec![("CMUX_TEST_NO_FILE_OWNER", "1".to_owned())];
+    let plain = Machine::start(&root, "plain", no_owner);
     let project = mac.home().join("app");
     fs::create_dir_all(&project).unwrap();
     fs::write(project.join("notes.txt"), "stays here\n").unwrap();
@@ -470,7 +474,8 @@ fn machine_update_swaps_in_the_pinned_build_and_keeps_terminals_and_chats() {
     let shipped = fs::read(bin()).unwrap();
     let mut old = shipped.clone();
     old.extend_from_slice(b"\0cmux-tui built before the move verbs\0");
-    let vm = SupervisedVm::start(&root, &old, true);
+    // Built before this client, as its build time says: only an older machine is outdated (#36044).
+    let vm = SupervisedVm::start_built_at(&root, &old, true, LACKS_FOR_UPDATE, "1");
     let before = vm.identify().unwrap();
     assert_eq!(before["build_id"], json!(OLD_BUILD), "{before}");
 

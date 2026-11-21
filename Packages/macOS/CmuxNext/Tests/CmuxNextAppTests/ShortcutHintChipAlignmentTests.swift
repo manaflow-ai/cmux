@@ -12,7 +12,7 @@ import Testing
 /// their glass edges ran together and crowded the lights.
 ///
 /// Every sidebar chip now ends on the rows' one trailing content edge (the trailing mark column's right edge: since
-/// #27598 the control slot around the grid's trailing line, `LayoutGrid.sidebarTrailCenter` from the sidebar's right
+/// #27598 the control slot around the trailing line, `SidebarStyle.trailingCenterFromEdge` from the sidebar's right
 /// edge) and centers on its row; titlebar chips keep the traffic lights' own gap
 /// between each other, twice that after the lights, and center on the lights' line.
 @MainActor @Suite(.closesItsWindows, .serialized)
@@ -138,10 +138,10 @@ struct ShortcutHintChipAlignmentTests {
             for item in items {
                 let fill = try #require(harness.drawnFill(item), "\(c.testDescription): \(item) draws no fill")
                 let chip = try #require(chips[item], "\(c.testDescription): \(item) has no chip; chips \(chips.keys)")
-                // The trailing column sits on the grid's line, 24 pt from the sidebar's right edge (#27598), and its
+                // The trailing column sits `trailingCenterFromEdge` from the sidebar's right edge (#27598), and its
                 // control slot (the hover close's, `trailingSlotSide`) ends half a slot past it.
                 let column = fill.minX + SidebarStyle.trailingColumnCenterX(rowWidth: fill.width)
-                #expect(abs(harness.sidebar.bounds.maxX - column - LayoutGrid.sidebarTrailCenter) <= Self.tolerance,
+                #expect(abs(harness.sidebar.bounds.maxX - column - SidebarStyle.trailingCenterFromEdge) <= Self.tolerance,
                         "\(c.testDescription): \(item)'s trailing column is \(harness.sidebar.bounds.maxX - column) pt from the sidebar's edge")
                 let edge = column + SidebarStyle.trailingSlotSide / 2
                 #expect(abs(chip.maxX - edge) <= Self.tolerance,

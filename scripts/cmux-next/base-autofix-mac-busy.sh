@@ -22,10 +22,14 @@
 # Prints mac_busy=true and mac_busy_run=RUN when another run's pushed-exports or Mac job is not
 # completed, else mac_busy=false. A read that fails prints mac_busy=false: two waits beat none.
 #
-# Usage: GH_TOKEN=... base-autofix-mac-busy.sh RUN_ID [BRANCH]   (GITHUB_REPOSITORY: owner/repo)
+# The pushed-exports job rechecks with its App token when the first job-token read missed a carrier.
+# That recheck uses --older-only: concurrent candidates must not all defer to one another.
+# Usage: GH_TOKEN=... base-autofix-mac-busy.sh RUN_ID [BRANCH] [--older-only]
+# (GITHUB_REPOSITORY: owner/repo)
 set -uo pipefail
 self="${1:?usage: $0 RUN_ID [BRANCH]}"
 branch="${2:-feat-cmux-next}"
+older_only="${3:-}"
 repo="${GITHUB_REPOSITORY:-manaflow-ai/cmux}"
 mac_job="action exports (Mac)"
 pushed_job="exports from the push's generated files"
@@ -34,6 +38,10 @@ runs="$(gh api "repos/$repo/actions/workflows/cmux-next-base-autofix.yml/runs?br
   --jq '.workflow_runs[] | select(.status != "completed") | .id' 2>/dev/null)" || runs=""
 for run in $runs; do
   [[ "$run" == "$self" ]] && continue
+  if [[ "$older_only" == "--older-only" ]]; then
+    [[ "$run" =~ ^[0-9]+$ && "$self" =~ ^[0-9]+$ ]] || continue
+    ((10#$run < 10#$self)) || continue
+  fi
   open="$(gh api "repos/$repo/actions/runs/$run/jobs?per_page=100" \
     --jq "[.jobs[] | select((.name == \"$mac_job\" or .name == \"$pushed_job\") and .status != \"completed\")] | length" 2>/dev/null)" || open=0
   if [[ "$open" =~ ^[0-9]+$ ]] && ((open > 0)); then

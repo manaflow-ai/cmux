@@ -1,5 +1,8 @@
 import AppKit
 import CmuxNextDesign
+import os
+
+private let pageInfoLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "browser.page-info")
 
 extension PageInfoController {
     /// Commands that change or open site state.
@@ -31,11 +34,15 @@ extension PageInfoController {
             windows.showSiteSettings(origin: origin, site: site, store: store, provider: provider, send: { [weak self] in self?.send($0) })
         case .manageSiteData:
             guard let provider else { return }
+            // Managing the site's data can change its counts: the next opening waits for the engine.
+            siteDataMemory.forget(site)
             close()
             windows.showSiteData(site: site, provider: provider, send: { [weak self] in self?.send($0) })
         case .deleteSiteData(let domain):
             guard let provider else { return }
+            siteDataMemory.forget(site)
             let host = site.host
+            model.siteDataDeleteFailure = nil
             Task { [weak self] in
                 let targets: [String]
                 if let domain {
@@ -43,7 +50,11 @@ extension PageInfoController {
                 } else {
                     targets = await provider.pageInfoSiteData(pageHost: host).entries.map(\.domain)
                 }
-                await provider.pageInfoDeleteSiteData(domains: targets + (host.map { [$0] } ?? []))
+                do throws(PageInfoSiteDataDeleteError) {
+                    try await provider.pageInfoDeleteSiteData(domains: targets + (host.map { [$0] } ?? []))
+                } catch {
+                    self?.siteDataDeleteFailed(error, domains: targets)
+                }
                 self?.reloadSiteData()
             }
         case .aboutThisPage:
@@ -158,7 +169,24 @@ extension PageInfoController {
             let data = await provider.pageInfoSiteData(pageHost: host)
             guard !Task.isCancelled else { return }
             self.model.siteData = data
+            self.siteDataMemory.remember(data, for: self.model.site)
             if self.isShown, self.model.page == .cookies { self.render() }
+        }
+    }
+
+    /// "Delete site data" left data behind: logged with the reason, and said plainly where the person
+    /// looks, in the cookies page's counts line while the bubble is open, else as the tab's notice (the
+    /// Site data and Site settings windows, which delete with the bubble closed).
+    func siteDataDeleteFailed(_ error: PageInfoSiteDataDeleteError, domains: [String]) {
+        pageInfoLogger.error("""
+        delete site data failed for \(domains.count, privacy: .public) sites: \(error.reason, privacy: .public)
+        """)
+        model.siteDataDeleteFailure = error
+        guard let tab else { return }
+        if isShown {
+            if model.page == .cookies { render() }
+        } else {
+            tab.delegate?.browserTab(tab, didRequest: .notice(PageInfoStrings.deleteSiteDataFailed(error.reason)))
         }
     }
 
@@ -167,9 +195,12 @@ extension PageInfoController {
         let host = model.site.host
         Task { [weak self] in
             let data = await provider.pageInfoSiteData(pageHost: host)
-            self?.model.siteData = data
-            self?.windows.siteDataChanged(data)
-            if self?.isShown == true, self?.model.page == .cookies { self?.render() }
+            guard let self else { return }
+            self.model.siteData = data
+            self.windows.siteDataChanged(data)
+            guard self.isShown else { return }
+            self.siteDataMemory.remember(data, for: self.model.site)
+            if self.model.page == .cookies { self.render() }
         }
     }
 }

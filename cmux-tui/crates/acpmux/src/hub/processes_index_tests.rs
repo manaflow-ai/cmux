@@ -53,3 +53,16 @@ fn three_thousand_replayed_processes_have_one_index_slot_each() {
     assert_eq!(table.processes.len(), 3_000);
     assert_eq!(table.unused_id("session/task-999".into()), "session/task-999-2");
 }
+
+#[test]
+fn a_description_round_trips_and_is_left_out_when_absent() {
+    let mut value = serde_json::to_value(process("session/task", "tool-a")).unwrap();
+    assert!(value.get("description").is_none());
+    value["description"] = json!("Wait for the PR checks to finish");
+    let process: Process = serde_json::from_value(value).unwrap();
+    assert_eq!(process.description.as_deref(), Some("Wait for the PR checks to finish"));
+    assert_eq!(
+        serde_json::to_value(&process).unwrap()["description"],
+        json!("Wait for the PR checks to finish")
+    );
+}

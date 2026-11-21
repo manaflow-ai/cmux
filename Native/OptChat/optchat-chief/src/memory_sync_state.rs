@@ -73,13 +73,115 @@ pub fn detect(user_home: &Path, claude_config_dir: Option<String>) -> Vec<Detect
     found
 }
 
-/// `detect` plus the export zips of claude.ai or ChatGPT in `~/Downloads` and
-/// `~/Desktop`. Only for a person's own request (`detect --exports`, the Import
-/// Memories dialog): listing those folders asks macOS for access.
+/// `detect` plus recent export zips in the usual places. This is only called
+/// from a person-visible import surface (`detect --exports`); macOS can ask for
+/// access to Downloads/Desktop the first time the person opens that surface.
 pub fn detect_with_exports(user_home: &Path, claude_config_dir: Option<String>) -> Vec<Detected> {
     let mut found = detect(user_home, claude_config_dir);
     found.extend(detect_zips(user_home));
+    found.extend(detect_app_data(user_home));
     found
+}
+
+/// Local app data is only a presence hint for the paste-summary rows. These
+/// products do not provide a portable memory export, so cmux never parses the
+/// files and never sends them to the Chief. The paths include the documented
+/// CLI roots and the common macOS Application Support roots.
+fn detect_app_data(user_home: &Path) -> Vec<Detected> {
+    const CANDIDATES: [(&str, &str, &[&str]); 4] = [
+        (
+            "grok-bot",
+            "grok-bot",
+            &[
+                ".grok/sessions",
+                ".grok/grok.db",
+                "Library/Application Support/Grok",
+                "Library/Application Support/xAI/Grok",
+                "Library/Application Support/com.x.ai.grok",
+            ],
+        ),
+        (
+            "muse",
+            "muse",
+            &[
+                ".local/share/muse",
+                "Library/Application Support/muse",
+                "Library/Application Support/Muse",
+            ],
+        ),
+        (
+            "dots",
+            "dots",
+            &[
+                "Library/Application Support/Dot",
+                "Library/Application Support/New Computer/Dot",
+            ],
+        ),
+        (
+            "instinct",
+            "instinct",
+            &[
+                ".instinct",
+                "Library/Application Support/Instinct",
+                "Library/Application Support/instinct",
+            ],
+        ),
+    ];
+
+    CANDIDATES
+        .into_iter()
+        .filter_map(|(source, kind, paths)| {
+            let path = paths
+                .iter()
+                .map(|relative| user_home.join(relative))
+                .find(|path| has_data(path))?;
+            Some(Detected {
+                source: source.into(),
+                kind: kind.into(),
+                count: data_entry_count(&path),
+                bytes: data_bytes(&path),
+                path: path.display().to_string(),
+            })
+        })
+        .collect()
+}
+
+fn has_data(path: &Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    if metadata.is_file() {
+        return metadata.len() > 0;
+    }
+    metadata.is_dir()
+        && std::fs::read_dir(path)
+            .map(|mut entries| entries.next().is_some())
+            .unwrap_or(false)
+}
+
+fn data_entry_count(path: &Path) -> usize {
+    if path.is_file() {
+        return 1;
+    }
+    std::fs::read_dir(path)
+        .map(|entries| entries.flatten().count())
+        .unwrap_or(1)
+        .max(1)
+}
+
+fn data_bytes(path: &Path) -> u64 {
+    if path.is_file() {
+        return std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    }
+    std::fs::read_dir(path)
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter_map(|entry| entry.metadata().ok())
+                .map(|metadata| metadata.len())
+                .sum()
+        })
+        .unwrap_or(0)
 }
 
 /// `*.jsonl` sessions under `projects/<project>/` (one level, as Claude Code writes them).
@@ -106,7 +208,7 @@ fn count_transcripts(projects: &Path) -> (usize, u64) {
     (n, bytes)
 }
 
-const ZIP_FOLDERS: [&str; 2] = ["Downloads", "Desktop"];
+const ZIP_FOLDERS: [&str; 3] = ["Downloads", "Desktop", "Documents"];
 /// An export older than this is probably not what the person means to bring now.
 const ZIP_MAX_AGE_DAYS: u64 = 400;
 const ZIP_LIMIT: usize = 8;
@@ -167,13 +269,22 @@ fn export_kind(zip: &Path) -> Option<&'static str> {
     if !has("conversations.json") {
         return None;
     }
-    Some(if has("chat.html") || has("message_feedback.json") {
-        "chatgpt-export"
-    } else if has("projects.json") || has("users.json") {
-        "claude-ai-export"
-    } else {
-        "export"
-    })
+    let file_name = zip
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    Some(
+        if file_name.contains("dot") || file_name.contains("newcomputer") {
+            "dots-export"
+        } else if has("chat.html") || has("message_feedback.json") {
+            "chatgpt-export"
+        } else if has("projects.json") || has("users.json") {
+            "claude-ai-export"
+        } else {
+            "export"
+        },
+    )
 }
 
 /// One write, as the log keeps it.
@@ -462,6 +573,19 @@ mod tests {
             &home.join(".codex/sessions/2026/11/02/rollout-a.jsonl"),
             "{\"type\":\"session_meta\"}\n",
         );
+        write(&home.join(".grok/sessions/project/summary.json"), "{}\n");
+        write(
+            &home.join("Library/Application Support/Muse/session-index.db"),
+            "sqlite fixture",
+        );
+        write(
+            &home.join("Library/Application Support/Dot/threads.json"),
+            "{}\n",
+        );
+        write(
+            &home.join("Library/Application Support/Instinct/memory.json"),
+            "{}\n",
+        );
         let stage = temp("stage");
         write(&stage.join("conversations.json"), "[]");
         write(&stage.join("chat.html"), "<html>");
@@ -474,6 +598,11 @@ mod tests {
         );
         // A zip with no conversations.json is not an export.
         zip_of(&stage, &home.join("Downloads/photos.zip"), &["a.txt"]);
+        zip_of(
+            &stage,
+            &home.join("Documents/dot-export.zip"),
+            &["conversations.json"],
+        );
         let found = detect_with_exports(&home, None);
         let kinds: Vec<&str> = found.iter().map(|d| d.kind.as_str()).collect();
         assert!(kinds.contains(&"claude-code"), "{kinds:?}");
@@ -484,9 +613,14 @@ mod tests {
             assert_eq!(codex.count, 1);
         }
         assert!(kinds.contains(&"chatgpt-export"), "{kinds:?}");
+        assert!(kinds.contains(&"grok-bot"), "{kinds:?}");
+        assert!(kinds.contains(&"muse"), "{kinds:?}");
+        assert!(kinds.contains(&"dots"), "{kinds:?}");
+        assert!(kinds.contains(&"instinct"), "{kinds:?}");
+        assert!(kinds.contains(&"dots-export"), "{kinds:?}");
         assert_eq!(
             found.iter().filter(|d| d.kind != "codex-sessions").count(),
-            4,
+            9,
             "photos.zip is not an export: {found:?}"
         );
         let code = found.iter().find(|d| d.kind == "claude-code").unwrap();
@@ -498,10 +632,10 @@ mod tests {
         );
     }
 
-    /// LAUNCH-NO-TCC-PROMPTS: Home's first-run offer runs `detect` at launch with no action of
-    /// the person, so `detect` never reads ~/Downloads or ~/Desktop (a read there raises the
-    /// macOS "access files in your Downloads folder" prompt for cmux). Export zips are found
-    /// only when the person asks (`detect --exports`, the Import Memories dialog).
+    /// The unasked CLI detector remains safe for scripts: export folders are
+    /// only read with `--exports` after the person opens the import surface.
+    /// It never reads privacy-protected folders (LAUNCH-NO-TCC-PROMPTS): the
+    /// first-run offer calls `detect` at launch with no action from the person.
     #[test]
     fn unasked_detect_never_lists_downloads_or_desktop() {
         let home = temp("unasked");
@@ -518,6 +652,10 @@ mod tests {
             &["conversations.json"],
         );
         write(&home.join(".codex/memories/MEMORY.md"), "codex note");
+        write(
+            &home.join("Library/Application Support/Instinct/memory.json"),
+            "{}\n",
+        );
         let found = detect(&home, None);
         assert!(
             found.iter().all(|d| !d.source.starts_with("zip:")),
@@ -527,6 +665,7 @@ mod tests {
             found.iter().map(|d| d.kind.as_str()).collect::<Vec<_>>(),
             ["codex"]
         );
+        assert!(found.iter().all(|d| d.kind != "instinct"));
     }
 
     #[test]

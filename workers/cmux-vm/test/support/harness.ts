@@ -6,6 +6,7 @@
 import { Effect, Layer, Option, Redacted } from "effect";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { makeWebHandler } from "../../src/app.ts";
+import { CiTrust, GITHUB_ACTIONS_ISSUER, makeCiTrust, parseCiTrust } from "../../src/auth/ci-trust.ts";
 import { generateApiKey, hashApiKey, makeStackSessionVerifier, makeStackTeamMembership, SessionVerifier, TeamMembership } from "../../src/auth/credentials.ts";
 import { makeMemoryMembershipCache } from "../../src/auth/membership-cache.ts";
 import { signWebhookContent } from "../../src/auth/webhook-signature.ts";
@@ -24,7 +25,7 @@ import { makeFakeUpstream } from "./fake-upstream.ts";
 import { makeS3aFakes } from "./s3a-fakes.ts";
 import { TeamAdmin } from "../../src/auth/team-admin.ts";
 import { ApiKeyAdminStore } from "../../src/db/api-keys.ts";
-import { applyServiceScopeGrants, parseServiceScopeGrants, ServiceKeys } from "../../src/auth/service-keys.ts";
+import { applyServiceScopeGrants, parseServiceScopeGrants, ServiceKeys, teamKeysOf } from "../../src/auth/service-keys.ts";
 import { makeMeshFakes, type MeshFakeOptions } from "./mesh-fakes.ts";
 import { AgentStore, type ClientSessionRow } from "../../src/db/agents.ts";
 
@@ -61,6 +62,10 @@ export interface HarnessOptions {
   readonly mesh?: MeshFakeOptions;
   /** The Stack webhook signing secret (whsec_...); absent: the webhook answers 503. */
   readonly stackWebhookSecret?: string;
+  /** The CMUX_VM_CI_TRUST var; tokens from `githubToken` are signed by the harness's stand-in for GitHub's key. */
+  readonly ciTrust?: string;
+  /** The CMUX_VM_TEAM_KEYS var (src/auth/team-keys.ts), merged with the service keys as the Worker does. */
+  readonly teamKeys?: string;
 }
 
 /** One audit row as a test sees it. */
@@ -110,7 +115,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const upstream = makeFakeUpstream(UPSTREAM_KEY);
   /** Client sessions (migration 0016), as cmux_vm.vm_client_sessions holds them. */
   const clientSessions: ClientSessionRow[] = [];
-  const upstreamClient = makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: (request) => upstream.fetch(request) });
+  const upstreamClient = makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1 });
   const upstreamRequests = upstream.calls;
   const audit: AuditRow[] = [];
   /** Tenants whose plan allows creating VMs. */
@@ -144,6 +149,8 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const { publicKey, privateKey } = await generateKeyPair("ES256");
   const jwk = { ...(await exportJWK(publicKey)), kid: "test-key", alg: "ES256" };
   const getKey = createLocalJWKSet({ keys: [jwk] });
+  const github = await generateKeyPair("RS256");
+  const githubKey = createLocalJWKSet({ keys: [{ ...(await exportJWK(github.publicKey)), kid: "github-test-key", alg: "RS256" }] });
 
   const ownership = Layer.succeed(OwnershipStore, {
     findCreation: (tenantId, key) => Effect.sync(() => {
@@ -162,6 +169,11 @@ export async function makeHarness(options: HarnessOptions = {}) {
       Effect.sync(() =>
         Option.fromNullable(resources.find((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId && live(row))),
       ),
+    findMany: (tenantId, kind, cmuxIds) =>
+      Effect.sync(() => {
+        const wanted = new Set(cmuxIds);
+        return new Map(resources.filter((row) => row.tenantId === tenantId && row.kind === kind && wanted.has(row.cmuxId) && live(row)).map((row) => [row.cmuxId, row] as const));
+      }),
     record: (resource) => Effect.gen(function* () {
       if (resource.kind === "mesh" && meshRecordFault.before > 0) { meshRecordFault.before--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected before commit" })); }
       if (resource.kind === "vm" && recordFault.before > 0) { recordFault.before--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected before commit" })); }
@@ -255,7 +267,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     Layer.succeed(ServiceKeys, {
       find: (sha256) =>
         Effect.sync(() =>
-          Option.map(Option.fromNullable(serviceKeys.find((key) => key.sha256 === sha256)), (key) =>
+          Option.orElse(Option.map(Option.fromNullable(serviceKeys.find((key) => key.sha256 === sha256)), (key) =>
             applyServiceScopeGrants(
               [
                 {
@@ -268,7 +280,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
               ],
               parseServiceScopeGrants(options.serviceScopeGrants).grants,
             )[0]!,
-          ),
+          ), () => Option.fromNullable(teamKeysOf([], options.teamKeys).find((key) => key.sha256 === sha256))),
         ),
     }),
     auditStore,
@@ -280,6 +292,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
       UpstreamClient,
       upstreamClient,
     ),
+    Layer.succeed(CiTrust, makeCiTrust(parseCiTrust(options.ciTrust).rows, { getKey: githubKey })),
     Layer.succeed(SessionVerifier, makeStackSessionVerifier({ apiUrl: STACK_API_URL, projectId: STACK_PROJECT_ID, getKey })),
     // The real membership client and shared positive cache (mesh M4), over a fake Stack teams API.
     Layer.succeed(
@@ -401,7 +414,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     recordFault,
     meshRecordFault,
     setProviderConfig(baseUrl = UPSTREAM_URL, apiKey = UPSTREAM_KEY) {
-      Object.assign(upstreamClient, makeUpstreamClient({ baseUrl, apiKey: Redacted.make(apiKey), environment: "local", fetch: (request) => upstream.fetch(request) }));
+      Object.assign(upstreamClient, makeUpstreamClient({ baseUrl, apiKey: Redacted.make(apiKey), environment: "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1 }));
     },
     /** One agent reaper run, as the Worker's cron does. */
     reap,
@@ -495,7 +508,13 @@ export async function makeHarness(options: HarnessOptions = {}) {
     async addKey(
       tenant: string,
       scopes: ReadonlyArray<Scope>,
-      options: { readonly revoked?: boolean; readonly expiresAt?: Date; readonly allowlist?: ReadonlyArray<string> } = {},
+      options: {
+        readonly revoked?: boolean;
+        readonly expiresAt?: Date;
+        readonly allowlist?: ReadonlyArray<string>;
+        /** Store the key as an agent key confined to these labels (its principal's requiredLabels), whatever its scopes. */
+        readonly agentLabels?: Readonly<Record<string, string>>;
+      } = {},
     ): Promise<string> {
       const secret = generateApiKey();
       keys.push({
@@ -506,7 +525,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
         hash: await Effect.runPromise(hashApiKey(secret)),
         revoked: options.revoked ?? false,
         expiresAt: options.expiresAt ?? null,
-        agent: null,
+        agent: options.agentLabels === undefined ? null : { labels: options.agentLabels, maxVms: 1, maxUsdPerHour: 1 },
       });
       return secret;
     },
@@ -578,6 +597,19 @@ export async function makeHarness(options: HarnessOptions = {}) {
         .setIssuedAt()
         .setExpirationTime(options.expiresIn ?? "1h")
         .sign(options.key ?? privateKey);
+    },
+    /** A GitHub Actions OIDC token, signed with the harness's GitHub key unless `key` is given. */
+    async githubToken(
+      claims: Record<string, unknown>,
+      options: { readonly audience?: string; readonly expiresIn?: string; readonly issuedAt?: number; readonly issuer?: string; readonly key?: CryptoKey } = {},
+    ): Promise<string> {
+      const jwt = new SignJWT(claims)
+        .setProtectedHeader({ alg: "RS256", kid: "github-test-key" })
+        .setIssuer(options.issuer ?? GITHUB_ACTIONS_ISSUER)
+        .setAudience(options.audience ?? "https://vm.test")
+        .setExpirationTime(options.expiresIn ?? "5m");
+      jwt.setIssuedAt(options.issuedAt ?? Math.floor(Date.now() / 1000));
+      return jwt.sign(options.key ?? github.privateKey);
     },
     request(path: string, headers: Record<string, string> = {}, init: { readonly method?: string; readonly body?: unknown } = {}): Promise<Response> {
       const body = init.body === undefined ? null : JSON.stringify(init.body);

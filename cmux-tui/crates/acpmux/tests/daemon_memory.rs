@@ -9,15 +9,20 @@
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 const HERMETIC: daemon_env::Process = daemon_env::Process::deny().keep(BENCH_VARS);
-/// The benchmarks' bounds and sizes: numbers, no credential. The hermetic re-start
-/// keeps only these, so `env_or` refuses any other name.
+/// The benchmarks' bounds, sizes and optional executable path, never credentials.
+/// The hermetic re-start keeps only these, so `env_or` refuses any other name.
 const BENCH_VARS: &[&str] = &[
+    "ACPMUX_MEMORY_BENCH_BINARY",
     "ACPMUX_MEMORY_BENCH_LEFTOVERS",
     "ACPMUX_MEMORY_BENCH_CHATS",
     "ACPMUX_MEMORY_BUDGET_MB",
     "ACPMUX_WAIT_BENCH_SECS",
     "ACPMUX_PEER_SNAPSHOT_PEAK_MB",
     "ACPMUX_PEER_SNAPSHOT_CPU_MS",
+    "ACPMUX_SCALE_CHATS",
+    "ACPMUX_SCALE_TURNS",
+    "ACPMUX_SCALE_CATALOGS",
+    "ACPMUX_SCALE_DHAT_DIR",
 ];
 
 use serde_json::{Value, json};
@@ -92,7 +97,15 @@ impl Daemon {
     fn start_inner(scratch: &Path, home: &Path, log: Option<&Path>, peer_listener: bool) -> Self {
         let socket = scratch.join("s.sock");
         let level = if log.is_some() { "warn,acpmux::list_cost=debug" } else { "warn" };
-        let mut child = daemon_env::acpmux(scratch)
+        let mut command = match std::env::var_os("ACPMUX_MEMORY_BENCH_BINARY") {
+            Some(binary) => {
+                let binary = PathBuf::from(binary);
+                assert!(binary.is_absolute(), "ACPMUX_MEMORY_BENCH_BINARY must be absolute");
+                daemon_env::command_at(&binary, scratch, daemon_env::Agents::Deny, &[])
+            }
+            None => daemon_env::acpmux(scratch),
+        };
+        let mut child = command
             .args(["daemon", "run", "--ready-fd", "1", "--log", level])
             .args(
                 peer_listener
@@ -102,6 +115,11 @@ impl Daemon {
             )
             .env("ACPMUX_HOME", home)
             .env("ACPMUX_SOCKET", &socket)
+            // A dhat build writes its heap profile here when it stops (`heap_profile.rs`).
+            .envs(std::env::var_os("ACPMUX_SCALE_DHAT_DIR").map(|dir| {
+                let tag = scratch.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                ("ACPMUX_DHAT_OUT", PathBuf::from(dir).join(format!("dhat-{tag}.json")))
+            }))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(log.map_or_else(Stdio::null, |p| std::fs::File::create(p).unwrap().into()))
@@ -161,11 +179,9 @@ impl Drop for Daemon {
     }
 }
 
-fn scratch(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("amx-{tag}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+/// Removed when the test ends, passing or not (`ACPMUX_KEEP_SCRATCH=1` keeps it).
+fn scratch(tag: &str) -> daemon_env::Scratch {
+    daemon_env::Scratch::new(&format!("amx-{tag}"))
 }
 
 fn private_dir(path: &Path) {
@@ -265,13 +281,22 @@ fn websocket_token(home: &Path) -> String {
         .to_owned()
 }
 
+/// The ids of the whole list, sorted, as a client reads it: a list past one reply page comes in
+/// pages, each with the `nextCursor` of the rest (`server/list_reply.rs`).
 fn listed(rpc: &mut Rpc) -> Vec<String> {
-    let mut ids: Vec<String> = rpc.call("_acpmux/sessions", json!({}))["sessions"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|s| s["sessionId"].as_str().unwrap().to_owned())
-        .collect();
+    let (mut ids, mut cursor) = (Vec::new(), Value::Null);
+    loop {
+        let params = if cursor.is_null() { json!({}) } else { json!({"cursor": cursor}) };
+        let page = rpc.call("_acpmux/sessions", params);
+        let rows = page["sessions"].as_array().unwrap();
+        ids.extend(rows.iter().map(|s| s["sessionId"].as_str().unwrap().to_owned()));
+        let next = page["nextCursor"].clone();
+        if next.is_null() {
+            break;
+        }
+        assert_ne!(next, cursor, "the list's cursor did not move past a page");
+        cursor = next;
+    }
     ids.sort();
     ids
 }
@@ -300,7 +325,6 @@ fn a_start_skips_purged_sessions_a_late_save_wrote_back_and_keeps_every_chat() {
     let daemon = Daemon::start(&dir, &home);
     let mut rpc = Rpc::connect(&daemon.socket);
     assert_eq!(listed(&mut rpc), kept);
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 fn env_or(name: &str, default: u64) -> u64 {
@@ -313,10 +337,9 @@ fn env_or(name: &str, default: u64) -> u64 {
 
 /// Budget guard: a daemon over a Chief home of 7,500 purged leftovers and 400 chats
 /// stays under `ACPMUX_MEMORY_BUDGET_MB` (default 166) resident after it lists them.
-/// Before the fix the same home took 1,068 MB (rbx, 2026-10-20, 78aaa620aa5e). The list
-/// guard keeps the list it just sent, serialized, for its window (`hub/list_guard.rs`):
-/// about 1 MB of text, which reads as 160-164 MB here where the daemon held 158-160 MB
-/// without it (five runs each, one job).
+/// Before the fix the same home took 1,068 MB (rbx, 2026-10-20, 78aaa620aa5e). No list is
+/// kept after it is sent (`hub/list_guard.rs`); when one was, for its window, it read as
+/// 160-164 MB here where the daemon held 158-160 MB without it (five runs each, one job).
 #[test]
 fn a_chief_home_of_purged_leftovers_and_chats_stays_within_the_memory_budget() {
     let leftovers = env_or("ACPMUX_MEMORY_BENCH_LEFTOVERS", 7_500);
@@ -342,7 +365,222 @@ fn a_chief_home_of_purged_leftovers_and_chats_stays_within_the_memory_budget() {
     );
     assert!(rss_mb <= budget_mb, "the daemon holds {rss_mb} MB (budget {budget_mb} MB)");
     drop(daemon);
-    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Real-daemon retained-state measurement, run unchanged on base and head on the same host:
+/// `cargo test -p acpmux --test daemon_memory idle_session_resident_memory_benchmark --
+/// --ignored --exact --nocapture --test-threads=1`.
+/// `ACPMUX_MEMORY_BENCH_BINARY=/absolute/path/to/acpmux` selects another build while the
+/// harness and its fixture stay identical. The environment remains hermetic and denies agents.
+///
+/// This restores 200 worked-chat metadata records, half with the durable hibernation mark.
+/// It uses the built-in Claude translator's actual option and mode catalogs, with four tools
+/// and varied model/effort/mode selections. Sharing
+/// a catalog must not merge their current values. No live harness, large transcript, or tool
+/// output is simulated: RSS is the daemon's own resident memory, including allocator retention
+/// after detail/list requests, not the total process tree or a claimed heap-allocation count.
+/// Three fresh-process pairs give a bounded median without waiting on an arbitrary timer.
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "same-host resident-memory benchmark; run explicitly on fleet Linux"]
+fn idle_session_resident_memory_benchmark() {
+    const CHATS: u64 = 200;
+    const REPEATS: usize = 3;
+    const AT: u64 = 1_791_000_000_000;
+
+    fn id(i: u64) -> String {
+        format!("01a15906-0000-7000-8000-{i:012}")
+    }
+
+    fn metadata(i: u64, catalogs: &[(Value, Value)]) -> Value {
+        let models = [
+            ("claude-opus-5-5", "Claude Opus 5.5"),
+            ("claude-sonnet-5-5", "Claude Sonnet 5.5"),
+            ("claude-haiku-5-5", "Claude Haiku 5.5"),
+        ];
+        let selected = models[i as usize % models.len()].0;
+        let mut meta = chief_meta(&id(i), "idle", AT);
+        let (options, modes) = &catalogs[i as usize % catalogs.len()];
+        meta["configOptions"] = options.clone();
+        meta["models"] = json!({
+            "availableModels": models.iter().map(|(id, name)| {
+                json!({"modelId": id, "name": name})
+            }).collect::<Vec<_>>(),
+            "currentModelId": selected,
+        });
+        meta["modes"] = modes.clone();
+        meta["hibernatedMs"] = json!(if i.is_multiple_of(2) { AT + 5_000 } else { 0 });
+        meta
+    }
+
+    fn sample(repeat: usize, chats: u64, catalogs: &[(Value, Value)]) -> (u64, u64) {
+        let dir = scratch(&format!("idle-resident-{repeat}-{chats}"));
+        let home = dir.join("home");
+        private_dir(&home);
+        private_dir(&home.join("sessions"));
+        for i in 0..chats {
+            write_session(&home, &id(i), "idle", true);
+            private_file(
+                &home.join("sessions").join(id(i)).join("session.json"),
+                &metadata(i, catalogs).to_string(),
+            );
+        }
+        let daemon = Daemon::start(&dir, &home);
+        let mut rpc = Rpc::connect(&daemon.socket);
+        // The initial list waits for the restored session index before resolving ids.
+        assert_eq!(listed(&mut rpc), (0..chats).map(id).collect::<Vec<_>>());
+        for i in 0..chats {
+            // Ready precedes deferred log loading. Info waits for this chat's log;
+            // it does not open the chat on screen or wake a hibernated harness.
+            let detail = rpc.call("_acpmux/info", json!({"sessionId": id(i)}));
+            let expected = metadata(i, catalogs);
+            assert_eq!(detail["sessionId"], id(i));
+            assert_eq!(detail["logsLoading"], false);
+            assert_eq!(detail["status"], "idle");
+            assert_eq!(detail["queued"], 0);
+            assert!(detail["turn"].is_null());
+            assert_eq!(detail["configOptions"], expected["configOptions"], "options of {}", id(i));
+            assert_eq!(detail["models"], expected["models"], "models of {}", id(i));
+            assert_eq!(detail["modes"], expected["modes"], "modes of {}", id(i));
+            assert_eq!(detail["tools"], expected["tools"]["rows"], "tools of {}", id(i));
+        }
+        // Health's first check waits on startup's readiness watch. That watch precedes
+        // the end of all startup work, so one final status check refuses an incomplete
+        // sample instead of estimating completion with a sleep or polling for it.
+        rpc.call("_acpmux/harness/health", json!({}));
+        let status = rpc.call("_acpmux/status", json!({}));
+        let loading = &status["loading"];
+        assert!(
+            loading["phase"] == "ready" && loading["startupDone"] == true,
+            "refusing RSS sample before startup and log loading finish ({chats} sessions): {loading}"
+        );
+        assert_eq!(loading["sessionsLoaded"], chats, "incomplete session index: {loading}");
+        assert_eq!(loading["sessionsTotal"], chats, "unexpected session count: {loading}");
+        let loaded_rss = daemon.rss_bytes();
+        assert_eq!(listed(&mut rpc), (0..chats).map(id).collect::<Vec<_>>());
+        let listed_rss = daemon.rss_bytes();
+        drop(rpc);
+        drop(daemon);
+        (loaded_rss, listed_rss)
+    }
+
+    // Use production catalogs rather than multiplying synthetic select choices. Building
+    // fixtures happens in this test process, never in the daemon whose RSS is measured.
+    let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+    let catalogs = runtime.block_on(async {
+        let mut catalogs = Vec::new();
+        for i in 0..21 {
+            let translator = acpmux::claude_stdio::Translator::new(
+                id(i),
+                if i.is_multiple_of(3) { "plan" } else { "default" },
+                ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"][i as usize % 3],
+                ["low", "medium", "high", "xhigh"][i as usize % 4],
+            );
+            catalogs
+                .push((translator.config_options_value().await, translator.modes_value().await));
+        }
+        catalogs
+    });
+    let mut empty_rss = [0u64; REPEATS];
+    let mut full_rss = [0u64; REPEATS];
+    let mut per_session = [0i64; REPEATS];
+    let mut samples = Vec::new();
+    for repeat in 0..REPEATS {
+        // Alternate pair order so startup/host drift does not always favor one size.
+        let sizes = if repeat % 2 == 0 { [0, CHATS] } else { [CHATS, 0] };
+        for chats in sizes {
+            let (loaded_rss, listed_rss) = sample(repeat, chats, &catalogs);
+            if chats == 0 {
+                empty_rss[repeat] = listed_rss;
+            } else {
+                full_rss[repeat] = listed_rss;
+            }
+            samples.push(json!({"repeat": repeat, "sessions": chats,
+                "loaded_rss_bytes": loaded_rss, "listed_rss_bytes": listed_rss}));
+        }
+        per_session[repeat] = (full_rss[repeat] as i64 - empty_rss[repeat] as i64) / CHATS as i64;
+    }
+    empty_rss.sort_unstable();
+    full_rss.sort_unstable();
+    per_session.sort_unstable();
+    println!(
+        "acpmux-idle-resident: {}",
+        json!({"sessions": CHATS, "hibernated_sessions": CHATS / 2, "repeats": REPEATS,
+            "binary_override": std::env::var("ACPMUX_MEMORY_BENCH_BINARY").ok(),
+            "rss_0_bytes": empty_rss[REPEATS / 2], "rss_200_bytes": full_rss[REPEATS / 2],
+            "resident_bytes_per_idle_session": per_session[REPEATS / 2], "samples": samples})
+    );
+}
+
+/// The daemon's resident memory over N chats of M turns (Leo, 2026-11-16, on a 952 MB daemon over
+/// his 544 chats: "infinite everything feels like nothing"). Each chat's metadata carries an agent's
+/// slash commands and tool rows (`god_fixture::agent_catalog`, about his median), one of a few
+/// folders' catalogs. Prints one line per N with its RSS once startup and every log load ended and
+/// every chat's detail was read, and after a list of every chat. The target is flat in N. Sizes:
+/// `ACPMUX_SCALE_CHATS` (comma list, default `10,100,1000`), `ACPMUX_SCALE_TURNS` (default 50),
+/// `ACPMUX_SCALE_CATALOGS` (default 4). `ACPMUX_MEMORY_BENCH_BINARY` runs another build, so one
+/// harness measures base and head; with `ACPMUX_SCALE_DHAT_DIR` a `dhat-heap` build writes its heap
+/// profile there.
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "same-host resident-memory benchmark; run explicitly on fleet Linux"]
+fn chats_by_turns_resident_memory_scale() {
+    let sizes: Vec<usize> = std::env::var("ACPMUX_SCALE_CHATS")
+        .unwrap_or_else(|_| "10,100,1000".into())
+        .split(',')
+        .map(|n| n.trim().parse().expect("ACPMUX_SCALE_CHATS: a comma list of counts"))
+        .collect();
+    let turns = env_or("ACPMUX_SCALE_TURNS", 50) as usize;
+    let catalogs = env_or("ACPMUX_SCALE_CATALOGS", 4) as usize;
+    for chats in sizes {
+        let dir = scratch(&format!("scale-{chats}x{turns}"));
+        let home = dir.join("home");
+        let ids = acpmux::god_fixture::write_scale_home(&home, chats, turns, catalogs).unwrap();
+        let home_bytes = du(&home);
+        let started = std::time::Instant::now();
+        let daemon = Daemon::start(&dir, &home);
+        let mut rpc = Rpc::connect(&daemon.socket);
+        assert_eq!(listed(&mut rpc).len(), ids.len());
+        rpc.call("_acpmux/harness/health", json!({}));
+        let status = rpc.call("_acpmux/status", json!({}));
+        let loading = &status["loading"];
+        assert!(
+            loading["phase"] == "ready" && loading["startupDone"] == true,
+            "refusing an RSS sample before startup ends ({chats} chats): {loading}"
+        );
+        let ready_ms = started.elapsed().as_millis();
+        // Every chat's detail, as a client that shows them reads it (commands and tools included).
+        for id in &ids {
+            let info = rpc.call("_acpmux/info", json!({"sessionId": id}));
+            assert_eq!(info["sessionId"], json!(id));
+        }
+        let loaded_rss = daemon.rss_bytes();
+        assert_eq!(listed(&mut rpc).len(), ids.len());
+        let listed_rss = daemon.rss_bytes();
+        println!(
+            "acpmux-scale-resident: {}",
+            json!({"chats": chats, "turns": turns, "catalogs": catalogs, "home_bytes": home_bytes,
+                "ready_ms": ready_ms, "loaded_rss_bytes": loaded_rss, "listed_rss_bytes": listed_rss,
+                "binary_override": std::env::var("ACPMUX_MEMORY_BENCH_BINARY").ok()})
+        );
+        drop(rpc);
+        drop(daemon);
+    }
+}
+
+/// Bytes of the files under `path`.
+#[cfg(target_os = "linux")]
+fn du(path: &Path) -> u64 {
+    let mut total = 0;
+    for entry in std::fs::read_dir(path).into_iter().flatten().flatten() {
+        let Ok(kind) = entry.file_type() else { continue };
+        if kind.is_dir() {
+            total += du(&entry.path());
+        } else if let Ok(meta) = entry.metadata() {
+            total += meta.len();
+        }
+    }
+    total
 }
 
 /// CPU time the process `pid` has used, in ms: `/proc/<pid>/stat` on Linux, `ps` elsewhere.
@@ -485,7 +723,6 @@ fn waits_on_some_chats_cost_nothing_extra_while_other_chats_log_records() {
     );
     release(&daemon, waits);
     drop(daemon);
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// Two keys for one chat, its name and its id, are two rows of the same chat: neither
@@ -517,7 +754,6 @@ fn a_wait_on_one_chat_by_name_and_by_id_reads_it_twice() {
         "{closed}"
     );
     drop(daemon);
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// Opt-in allocation experiment; the ordinary 400-chat/166 MiB guard stays unchanged.
@@ -582,7 +818,7 @@ fn retained_session_list_allocation_benchmark() {
         for request in 0..3 {
             let tag_started = std::time::Instant::now();
             if request > 0 && chats > 0 {
-                // Invalidate the shared snapshot, without omitting any inventory fields.
+                // Change one row (its closed bytes rebuilt), without omitting any inventory fields.
                 rpc.call(
                     "_acpmux/tag",
                     json!({"sessionId": id(0), "set": {"bench": request.to_string()}}),
@@ -641,7 +877,6 @@ fn retained_session_list_allocation_benchmark() {
                 println!("acpmux-list-cost chats={chats}: {line}");
             }
         }
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
 
@@ -728,7 +963,6 @@ fn peer_memory_case(closed: bool, fillers: u64) -> (u64, u64) {
     );
     drop(local_daemon);
     drop(remote_daemon);
-    let _ = std::fs::remove_dir_all(&dir);
     (peak_kib, cpu_ms)
 }
 

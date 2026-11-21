@@ -9,6 +9,12 @@
 //!   receives the whole state.
 //! - [`close_focus`]: the focus successor of every close kind (pane, tab,
 //!   workspace).
+//! - [`close_selection::Openers`]: the one close-selection rule for tabs
+//!   and workspaces: who opened which item, and the item selected after a
+//!   close (Chromium's ranks and opener lifetime).
+//! - [`close_selection::windows::WindowCloseSelection`]: that rule's whole
+//!   state for the workspaces of every window (the creates a window waits
+//!   for, the window of each relation, the repairs, the pick).
 //! - [`close_aim::PaneCloseAim`]: which pane a Close Tab press is aimed at
 //!   after a close emptied a pane.
 //! - [`omnibar_memory::OmnibarFocusMemory`]: Chrome's per-tab address bar
@@ -18,6 +24,9 @@
 //! - [`child_window`]: what a window does when a child window becomes key.
 //! - [`agent_cursor_visibility::resolve`]: where an agent cursor for a
 //!   target tab draws (its page, an anchor in its window, or nowhere).
+//! - [`input::InputRouter`]: the one input router: every window's focus and
+//!   every key's route, decided in the key's own call and fixed for the
+//!   key's life (handoff/rewrites/R-INPUT/DESIGN.md).
 //!
 //! Pure: no I/O, no clock (time comes in as monotonic nanoseconds), no
 //! daemon. The serde shapes are the macOS app's synthesized `Codable`
@@ -28,11 +37,14 @@ pub mod agent_cursor_visibility;
 pub mod child_window;
 pub mod close_aim;
 pub mod close_focus;
+pub mod close_selection;
 pub mod event;
+pub mod input;
 pub mod invariants;
 pub mod omnibar_memory;
 pub mod reducer;
 pub mod state;
 pub mod topology;
 pub mod type_ahead;
+pub mod window;
 pub mod wire;

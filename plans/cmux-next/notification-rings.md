@@ -55,6 +55,7 @@ focus` (the Oct 19 `keystroke` value lives only in the classic `cmux.json` and a
 | Remote daemon without ack | nothing sent, logged | `aRemoteDaemonWithoutAckKeepsItsMarkAndSaysWhy` |
 | Dismissal policy | same on every machine | `thePolicyIsTheSameOnEveryMachine` |
 | Agent chat turn ended | rings on this Mac's chats only | `AgentTurnRingTests` |
+| Agent chat with an unread notification | rings like its dot, whatever `notifications.attention.agentChats` says (terminal look while that is off; cmux#34447) | `AgentTurnRingTests.anUnreadAgentChatRingsLikeItsDotWithTheDefaultSettings` |
 | Restore after relaunch | the daemon keeps unread; the first read clears | daemon-owned marker |
 
 Not changed: the Dock badge counts this Mac's daemon and Home only (a shared Cloud machine's unread is

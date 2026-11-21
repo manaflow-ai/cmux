@@ -40,6 +40,13 @@ public struct MobileHostMacIdentity: Sendable, Equatable {
     static func hex(_ data: Data) -> String { data.map { String(format: "%02x", $0) }.joined() }
 }
 
+/// Why ``MobileHostMacIdentityStore/loadOrCreate(fileStoreOnRefusal:)`` has no key yet.
+public enum MobileHostMacIdentityError: Error, Equatable {
+    /// The Keychain holds this Mac's key but refused the read (locked, or this build may not read
+    /// it); the caller tries again rather than prove a second identity.
+    case keychainRefused(OSStatus)
+}
+
 /// Where the identity key lives: the login Keychain (a generic password of
 /// `service`, this device only), created on first use. When the Keychain
 /// refuses (a build without Keychain access), a 0600 file in the iPhone host's
@@ -49,8 +56,9 @@ public struct MobileHostMacIdentity: Sendable, Equatable {
 /// another build's key. Every call runs with Keychain UI off (``LoginKeychain/withoutUI(_:)``): a
 /// login item trusts the signature that made it, so an earlier build of the same bundle id signed
 /// another way (a rebuilt DEV tag, an ad hoc rig build) would otherwise make macOS ask for the
-/// login keychain password. That read is refused instead and the file store is used, with a new
-/// key when the file has none (phones paired with the old build pair again).
+/// login keychain password. That read is refused instead and the caller retries; only a DEV build
+/// uses the file store (its key, or a new one) after its retries (phones paired with the old build
+/// pair again).
 public struct MobileHostMacIdentityStore: Sendable {
     public let service: String
     public let fallbackFile: URL
@@ -88,13 +96,38 @@ public struct MobileHostMacIdentityStore: Sendable {
     /// The stored key, or a new one saved now. Blocking I/O: call it off the main actor.
     /// It never shows Keychain UI: an item this build may not read without asking (a
     /// re-signed app) is skipped, with a log line, for the file store.
-    public func loadOrCreate() throws -> MobileHostMacIdentity {
-        if useKeychain, let stored = keychainRead().flatMap(MobileHostMacIdentity.restore) { return stored }
-        if let data = try? Data(contentsOf: fallbackFile), let stored = MobileHostMacIdentity.restore(data) {
-            return stored
+    ///
+    /// One identity, whichever store answers. A Keychain that refused one read used to make a new
+    /// file key, a second identity beside the Keychain's; later launches proved whichever store
+    /// answered, so a phone that pinned the Keychain key refused this Mac as `mac_identity_changed`
+    /// on every launch the Keychain refused (2026-11-03: the approval prompt came only after a
+    /// relaunch). So:
+    /// - a Keychain read that answers removes a file key beside it (the Keychain key is the one
+    ///   phones pin; the copy on disk only made the second identity);
+    /// - a refused read proves no file key and makes none unless `fileStoreOnRefusal`: a file key
+    ///   beside a Keychain item that refuses is the second identity (phones pinned the Keychain's), so
+    ///   the caller waits and reads again. A build that can never read the item (a re-signed DEV app)
+    ///   passes `fileStoreOnRefusal` after its retries and keeps one key of its own in the file.
+    public func loadOrCreate(fileStoreOnRefusal: Bool = true) throws -> MobileHostMacIdentity {
+        let fileKey = (try? Data(contentsOf: fallbackFile)).flatMap(MobileHostMacIdentity.restore)
+        var refused: OSStatus?
+        if useKeychain {
+            switch keychainRead() {
+            case .found(let data):
+                if let stored = MobileHostMacIdentity.restore(data) {
+                    if fileKey != nil { setAsideFileKey() }
+                    return stored
+                }
+            case .notFound:
+                break
+            case .refused(let status):
+                refused = status
+            }
         }
+        if let refused, !fileStoreOnRefusal { throw MobileHostMacIdentityError.keychainRefused(refused) }
+        if let fileKey { return fileKey }
         let identity = MobileHostMacIdentity.generate()
-        if !(useKeychain && keychainAdd(identity.privateKey)) {
+        if !(useKeychain && refused == nil && keychainAdd(identity.privateKey)) {
             try writeFallback(identity.privateKey)
         }
         return identity
@@ -119,19 +152,35 @@ public struct MobileHostMacIdentityStore: Sendable {
                                          kSecAttrLabel as String: "cmux iPhone host identity"]) { $1 }
     }
 
-    private func keychainRead() -> Data? {
+    enum KeychainRead { case found(Data), notFound, refused(OSStatus) }
+
+    private func keychainRead() -> KeychainRead {
         let (status, data) = loginKeychain.withoutUI { keychain.copy(Self.readQuery(service: service)) }
-        guard status == errSecSuccess else {
-            if status != errSecItemNotFound {
-                Self.logger.error("iPhone host identity: Keychain read refused (\(status, privacy: .public)); using the file store")
-            }
-            return nil
+        switch status {
+        case errSecSuccess: return data.map(KeychainRead.found) ?? .notFound
+        case errSecItemNotFound: return .notFound
+        default:
+            Self.logger.error("iPhone host identity: Keychain read refused (\(status, privacy: .public))")
+            return .refused(status)
         }
-        return data
     }
 
     private func keychainAdd(_ privateKey: Data) -> Bool {
         loginKeychain.withoutUI { keychain.add(Self.addQuery(service: service, privateKey: privateKey)) } == errSecSuccess
+    }
+
+    /// The file key beside a readable Keychain key is a second identity: it stops counting, but it is
+    /// moved aside (`mac-identity.superseded`), never deleted, so a phone that pinned it while the
+    /// Mac was split can still be recovered from it by hand.
+    private func setAsideFileKey() {
+        let aside = fallbackFile.appendingPathExtension("superseded")
+        do {
+            if FileManager.checked.fileExists(atPath: aside.path) { try FileManager.checked.removeItem(at: aside) }
+            try FileManager.checked.moveItem(at: fallbackFile, to: aside)
+            Self.logger.error("iPhone host identity: the file key beside the Keychain's was a second identity; set aside")
+        } catch {
+            Self.logger.error("iPhone host identity: could not set the second identity aside (\(String(describing: error), privacy: .public))")
+        }
     }
 
     private func writeFallback(_ privateKey: Data) throws {

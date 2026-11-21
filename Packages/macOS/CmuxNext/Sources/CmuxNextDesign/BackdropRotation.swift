@@ -1,19 +1,58 @@
 public import Foundation
 
 /// How often a shuffled background turns to its next picture (`appearance.backgroundRotation`),
-/// like macOS's rotating wallpaper. Consecutive periods step through the pictures by a stride that
+/// like macOS's rotating wallpaper: every 15 minutes, hour or day, or every N minutes (a number,
+/// 1...1440). Unset is `BackdropSelectionSetting.rotationDefault` (daily,
+/// schemas/settings/source/appearance.json). Consecutive periods step through the pictures by a stride that
 /// shares no factor with their count, so each shows once before any repeats and neighbours land
 /// far apart.
-public nonisolated enum BackdropRotation: String, CaseIterable, Sendable {
-    case quarterHour = "15m"
+public nonisolated enum BackdropRotation: RawRepresentable, Hashable, Sendable {
+    case quarterHour
     case hourly
     case daily
+    /// Every this many minutes, on the local clock (periods counted from local midnight of 1970).
+    case minutes(Int)
 
-    /// Unset: once a day, as Shuffle Daily always turned.
-    public static let defaultRotation = BackdropRotation.daily
+    /// The fixed choices, in the Settings order.
+    public static let allCases: [BackdropRotation] = [.quarterHour, .hourly, .daily]
+
+    /// The choice's stored string (`15m`, `hourly`, `daily`); a minute count as its number.
+    public var rawValue: String {
+        switch self {
+        case .quarterHour: "15m"
+        case .hourly: "hourly"
+        case .daily: "daily"
+        case .minutes(let count): String(count)
+        }
+    }
+
+    /// A stored string: a choice, or a whole number of minutes from 1 to 1440.
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "15m": self = .quarterHour
+        case "hourly": self = .hourly
+        case "daily": self = .daily
+        default:
+            guard let count = Int(rawValue), (1...1_440).contains(count) else { return nil }
+            self = .minutes(count)
+        }
+    }
+
+    /// A stored number of minutes (1...1440, rounded to whole minutes).
+    public init?(minutes: Double) {
+        guard minutes.isFinite, (1...1_440).contains(minutes) else { return nil }
+        self = .minutes(Int(minutes.rounded()))
+    }
 
     /// The length of one period for the clock-aligned intervals.
-    private var seconds: Double { self == .hourly ? 3_600 : 900 }
+    private var seconds: Double {
+        switch self {
+        case .hourly: 3_600
+        case .quarterHour: 900
+        case .minutes(let count): Double(max(count, 1)) * 60
+        case .daily: 86_400
+        }
+    }
 
     /// The count of the period `date` falls in, in `calendar`'s time zone: the local day's number
     /// for ``daily`` (``BackdropArt/dayNumber(of:calendar:)``), else local clock periods.
@@ -21,18 +60,18 @@ public nonisolated enum BackdropRotation: String, CaseIterable, Sendable {
         switch self {
         case .daily:
             return BackdropArt.dayNumber(of: date, calendar: calendar)
-        case .hourly, .quarterHour:
+        case .hourly, .quarterHour, .minutes:
             let local = date.timeIntervalSince1970 + Double(calendar.timeZone.secondsFromGMT(for: date))
             return Int((local / seconds).rounded(.down))
         }
     }
 
-    /// When the period after `date`'s starts: the next local midnight, hour or quarter hour.
+    /// When the period after `date`'s starts: the next local midnight, hour, quarter hour or N minutes.
     public func nextTurn(after date: Date, calendar: Calendar) -> Date {
         switch self {
         case .daily:
             return BackdropArt.nextDay(after: date, calendar: calendar)
-        case .hourly, .quarterHour:
+        case .hourly, .quarterHour, .minutes:
             let offset = Double(calendar.timeZone.secondsFromGMT(for: date))
             let next = ((date.timeIntervalSince1970 + offset) / seconds).rounded(.down) * seconds + seconds
             return Date(timeIntervalSince1970: next - offset)

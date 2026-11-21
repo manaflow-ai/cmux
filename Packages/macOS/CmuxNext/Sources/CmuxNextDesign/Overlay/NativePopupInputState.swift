@@ -32,10 +32,7 @@ struct NativePopupInputState {
                 return row
             }
         }
-        next.rows = preserve(next.rows)
-        if let rail = next.rail { next.rail = preserve(rail) }
-        if let footer = next.footer { next.footer = preserve(footer) }
-        return next
+        return next.mappingRows(preserve)
     }
 
     private func fields(in model: NativePopupModel) -> [String: (acknowledgment: Int, identity: [String])] {
@@ -51,7 +48,7 @@ struct NativePopupInputState {
                 if let children = row.children { visit(children, ancestors: ancestors + [row.id]) }
             }
         }
-        visit((model.rail ?? []) + model.rows + (model.footer ?? []))
+        visit(model.allRows)
         return result
     }
 }

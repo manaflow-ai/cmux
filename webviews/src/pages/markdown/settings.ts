@@ -34,7 +34,7 @@ export const MARKDOWN_STYLE_DEFAULTS = {
   "--cmux-md-code-block-size": "calc(var(--cmux-md-font-size) * var(--cmux-md-code-scale))",
   "--cmux-md-code-line-height": "1.55",
   "--cmux-md-code-background": "color-mix(in srgb, var(--page-text) 5%, transparent)",
-  "--cmux-md-code-radius": "6px",
+  "--cmux-md-code-radius": "var(--ds-radius-2xl)",
   "--cmux-md-content-width": "72ch",
   "--cmux-md-page-padding": "32px",
   "--cmux-md-paragraph-spacing": "1em",

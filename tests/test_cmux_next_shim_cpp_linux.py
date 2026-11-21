@@ -14,6 +14,10 @@ import unittest
 from pathlib import Path
 
 import yaml
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,7 +50,7 @@ class ShimCppLinuxTests(unittest.TestCase):
     def test_job_runs_on_linux_and_keeps_its_name(self) -> None:
         shim = job()
         self.assertEqual(shim["name"], JOB_NAME)
-        runs_on = shim["runs-on"]
+        runs_on = workflow_jobs.single_runs_on(shim)
         self.assertIn("ubuntu", runs_on)
         self.assertNotIn("macos", runs_on)
         self.assertNotIn("LANE_RUNNER", runs_on)

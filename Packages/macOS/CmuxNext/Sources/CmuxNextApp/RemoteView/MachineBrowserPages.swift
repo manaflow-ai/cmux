@@ -133,6 +133,6 @@ struct MachineBrowserPages {
         #if DEBUG
         onMachine = onMachine || RemoteBrowserPages.runsOnMachine(key)
         #endif
-        entry.chrome.machineBadge = onMachine ? nil : { [weak cache] url in cache?.machineBadge?(key, url) }
+        entry.state.machineBadge = onMachine ? nil : { [weak cache] url in cache?.machineBadge?(key, url) }
     }
 }

@@ -178,7 +178,9 @@ pub fn merge(ckpt: &Path, copy: &CloudCopy, chief: &str) -> Result<Merged, Strin
         .map_err(|e| format!("memory: {e}"))? as u64;
     if (copy.messages.len() as u64) < local {
         return Err(format!(
-            "the cloud memory holds {} messages, fewer than the {local} this home had: not this Chief's copy",
+            "the cloud memory holds {} messages, fewer than the {local} this home has: this home's Chief \
+             kept answering while the cloud copy ran, so the two copies split; nothing was merged and the \
+             Cloud Chief answers again",
             copy.messages.len()
         ));
     }
@@ -763,6 +765,7 @@ pub fn pull_back(options: &MoveOptions, home: &Path, host: &str, path: &str) -> 
         from: format!("ssh:{host}:{path}"),
         to: format!("local:{}", home.display()),
         moved: false,
+        forked: false,
         dry_run: options.dry_run,
         steps: Vec::new(),
         memory: migrate::Counts::default(),
@@ -861,7 +864,7 @@ fn pull_back_steps(
     let _ = std::fs::remove_dir_all(&tmp);
     restored.map_err(thaw)?;
     let here = format!("local:{}", home.display());
-    migrate::timed(&mut report.steps, "commit", || {
+    let back = migrate::timed(&mut report.steps, "commit", || {
         migrate::ssh(
             host,
             &format!(
@@ -873,20 +876,21 @@ fn pull_back_steps(
             ),
             None,
         )?;
+        // The subagents a move handed to that host come back with the Chief, while its host
+        // here still does not start (the marker is there), so their new place is the only
+        // write. The Chief is home either way; one that does not come back stays on record.
+        let back = crate::migrate_subagents::recorded(home)
+            .map(|_| crate::migrate_subagents::bring_back(home));
         std::fs::remove_file(home.join(migrate::MOVED_FILE)).map_err(|e| e.to_string())?;
         let _ = std::fs::remove_file(home.join(migrate::SHUTDOWN_FILE));
         Ok((
-            (),
+            back,
             format!("{} answers again; {host}:{path} is retired", home.display()),
         ))
     })?;
     report.moved = true;
-    // The subagents a move handed to that host come back with the Chief. The Chief is home
-    // either way; one that does not come back stays on record for the next try.
-    if crate::migrate_subagents::recorded(home).is_some() {
-        let _ = migrate::timed(&mut report.steps, "subagents", || {
-            crate::migrate_subagents::bring_back(home).map(|d| ((), d))
-        });
+    if let Some(back) = back {
+        let _ = migrate::timed(&mut report.steps, "subagents", || back.map(|d| ((), d)));
     }
     Ok(())
 }

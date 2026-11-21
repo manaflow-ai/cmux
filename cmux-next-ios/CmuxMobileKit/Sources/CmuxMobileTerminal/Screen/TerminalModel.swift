@@ -1,6 +1,8 @@
 #if os(iOS)
 import CmuxMobileArtifacts
-import CmuxMobileDesign
+import CmuxMobileLinkFFI
+public import CmuxMobileRealtime
+public import CmuxMobileDesign
 import CmuxMobileTransport
 import Foundation
 import Observation
@@ -22,6 +24,12 @@ public final class TerminalModel {
 
     public internal(set) var title: String
     public internal(set) var programName: String
+    /// The Mac the session runs on (`Workspace.macID`): the terminal shows that Mac's terminal
+    /// theme (``CmuxMobileTerminalThemes``). Nil for a placeholder or mock session.
+    public var hostMacID: String?
+    /// The terminal theme the surface shows now (its card paints the same background); nil until
+    /// a Mac ever sent one.
+    public internal(set) var hostTheme: CmuxMobileTerminalTheme?
     /// Alternate screen: the program owns scrolling; the frame pins to the composer.
     public internal(set) var isTUI = false
     public internal(set) var keyboardVisible = false
@@ -31,10 +39,22 @@ public final class TerminalModel {
     /// Whether the screen shows the Mac's terminal; anything else draws the
     /// connecting placeholder over it.
     public internal(set) var connectionState: TerminalConnectionState
+    /// Says when a dropped connection may show its line (after 10 s).
+    @ObservationIgnored public let quietStatus: QuietStatusGate
+    /// The one quiet status line by the composer: nil while attached and for
+    /// the first ``QuietStatusGate/threshold`` of an outage (the page keeps
+    /// showing its last frame meanwhile), then what is going on. Retry sits
+    /// beside it (``reconnect``).
+    public var connectionLine: String? {
+        quietStatus.isShown ? connectionState.quietLine : nil
+    }
     var sticky = TerminalStickyModifiers()
 
     // Composer
     public var composerText = ""
+    /// Voice mode on this terminal's agent (set by the shell); the composer's
+    /// voice button shows only when there is one.
+    public var voiceSource: (any AgentVoiceSource)?
     var composerFocused = false
     /// Incremented to ask the composer field to take focus.
     var composerFocusRequest = 0
@@ -133,18 +153,33 @@ public final class TerminalModel {
     public func restoreLastFrame(_ image: UIImage?) {
         guard let image else { return }
         coldFrame = image
+        restoredFrame = image
         if snapshot == nil { snapshot = image }
     }
+
+    /// The cached frame this host was given (`restoreLastFrame`), kept after
+    /// live output replaces `coldFrame`: what the tab keeps when its host
+    /// goes before its page drew anything worth keeping.
+    @ObservationIgnored private var restoredFrame: UIImage?
+
+    /// The page drew the Mac's output while attached, since this host was
+    /// built. Until then the surface holds nothing of the Mac's (a blank
+    /// page, or one from before the first attach), and no frame from it may
+    /// replace the tab's cached frame (`TerminalFrameKeep`).
+    @ObservationIgnored public private(set) var drewLiveOutput = false
 
     /// Set by the controller.
     weak var controller: TerminalViewController?
 
-    public init(session: any TerminalSession, artifactSource: any ArtifactSource, title: String = "zsh") {
+    public init(session: any TerminalSession, artifactSource: any ArtifactSource, title: String = "zsh",
+                quietStatus: QuietStatusGate = QuietStatusGate()) {
+        self.quietStatus = quietStatus
         self.session = session
         self.artifactSource = artifactSource
         self.title = title
         self.programName = session.programName
         self.connectionState = session.connectionState
+        quietStatus.update(down: !session.connectionState.isAttached)
         joystickEngine.send = { [weak self] direction in self?.joystick(direction) }
         collector = TerminalArtifactCollector { [weak self] list in self?.artifacts = list }
         sizeClaimer = TerminalSizeClaimer(clock: ContinuousClock()) { [weak self] claims in
@@ -167,6 +202,7 @@ public final class TerminalModel {
 
     /// The app is in the foreground (false: background, locked).
     public func setAppActive(_ active: Bool) {
+        controller?.appActiveChanged(active)
         sizeClaimer.set(appActive: active)
     }
 
@@ -181,11 +217,23 @@ public final class TerminalModel {
     /// frame over the live one, R2-5). Throttled, the new frame is saved for
     /// the next cold launch.
     func liveOutputDrawn() {
-        if connectionState.isAttached, coldFrame != nil { coldFrame = nil }
+        if connectionState.isAttached {
+            drewLiveOutput = true
+            if coldFrame != nil { coldFrame = nil }
+        }
         lastDrawnOutput = CACurrentMediaTime()
         saveFrameSoon()
     }
     @ObservationIgnored private var lastDrawnOutput: CFTimeInterval = 0
+
+    /// The attached terminal's reset is placed (its replay parsed, or the
+    /// replay gate or held frame ran out): the surface now shows the Mac's
+    /// screen, even an empty one that sends no bytes after the reset, so a
+    /// held last frame goes. Without this, an attach to an empty terminal
+    /// left the cached frame over the live surface until the next output.
+    func mirrorPlaced() {
+        if connectionState.isAttached, coldFrame != nil { coldFrame = nil }
+    }
 
     /// Saves the page's frame (for the next cold launch) at most every few
     /// seconds: called when the frame is captured, it returns the writer for
@@ -194,13 +242,24 @@ public final class TerminalModel {
     @ObservationIgnored private var lastFrameSave: CFTimeInterval = 0
     @ObservationIgnored private var frameSavePending = false
 
-    /// The page for the next cold launch, without the cursor block (R3-4).
+    /// The page for the next cold launch, without the cursor block (R3-4):
+    /// nil while it may not replace the cached frame (`TerminalFrameKeep`).
     public func frameForSaving() -> UIImage? {
-        controller?.snapshot(hidingCursor: true)
+        guard drewLiveOutput else { return nil }
+        return TerminalFrameKeep.kept(controller?.snapshot(hidingCursor: true), drewLiveOutput: drewLiveOutput)
+    }
+
+    /// What the tab keeps as its cached frame when this host goes (cooled,
+    /// or replaced by its live session): the live page once it drew the
+    /// Mac's output, else the cached frame the host was given. Never a blank
+    /// page, nor one from before the first attach.
+    public func frameToKeep() -> UIImage? {
+        if drewLiveOutput, let live = frameForSaving() ?? TerminalFrameKeep.kept(snapshot, drewLiveOutput: true) { return live }
+        return restoredFrame
     }
 
     func saveFrameSoon() {
-        guard frameSaver != nil, !frameSavePending else { return }
+        guard drewLiveOutput, frameSaver != nil, !frameSavePending else { return }
         let wait = TerminalFrameSaveSchedule.delay(sinceLastSave: lastFrameSave == 0 ? .infinity : CACurrentMediaTime() - lastFrameSave)
         frameSavePending = true
         let requested = CACurrentMediaTime()
@@ -218,14 +277,20 @@ public final class TerminalModel {
             // Taken here, rendered off the main thread (V8 claim 7).
             guard let capture = controller?.captureForSaving(), let write = frameSaver?() else { return }
             Task.detached(priority: .utility) {
-                if let image = capture.render() { write(image) }
+                if let image = TerminalFrameKeep.kept(capture.render(), drewLiveOutput: true) { write(image) }
             }
         }
     }
 
     func ingest(_ event: TerminalSessionEvent) {
         let connection = connectionState.applying(event)
-        if connection != connectionState { connectionState = connection }
+        if connection != connectionState {
+            connectionState = connection
+            quietStatus.update(down: !connection.isAttached)
+        }
+        // Attached again: a held composer send went out (or was dropped, which says so
+        // first); a later drop must never put already-sent text back.
+        if connection.isAttached { heldComposerSend = nil }
         switch event {
         case .output:
             // The bytes are scanned once per display frame (`scanOutput`).
@@ -240,8 +305,21 @@ public final class TerminalModel {
             break
         case .connection:
             break
+        case .inputNotSent(let bytes) where bytes <= 0:
+            // Nothing the person typed was dropped: nothing to say.
+            break
         case .inputNotSent:
             composerNotice = TerminalConnectionState.inputNotSentNotice
+            // A composer send that waited out a blip and was dropped comes back to edit.
+            if let held = heldComposerSend, !composerText.isEmpty, composerText == held.text {
+                // Refused inside `send` itself (the hold was full or already dropped): the
+                // composer keeps its text.
+                composerSendRefused = true
+            } else if let held = heldComposerSend, composerText.isEmpty,
+               ProcessInfo.processInfo.systemUptime - held.at <= Self.heldComposerSendWindow {
+                composerText = held.text
+            }
+            heldComposerSend = nil
         case .hostGrid, .hostGridOwner:
             break
         }
@@ -346,15 +424,39 @@ public final class TerminalModel {
         }
     }
 
-    /// A web link tapped in the terminal: a cmux browser tab beside it in the workspace
-    /// (the page sets it, like the Mac's Cmd-click); without one, Safari. Not observed: the
-    /// page sets it while SwiftUI builds it.
+    /// Opens a web link on the Mac: a cmux browser tab beside the terminal in the workspace
+    /// (the page sets it, like the Mac's Cmd-click); nil when the Mac can't open tabs. Not
+    /// observed: the page sets it while SwiftUI builds it.
     @ObservationIgnored public var linkOpener: (@MainActor (URL) -> Void)?
 
-    /// Opens a web link the person tapped: a cmux browser tab, or (`external`) Safari.
-    public func openLink(_ url: URL, external: Bool = false) {
-        if !external, let linkOpener { return linkOpener(url) }
-        UIApplication.shared.open(url)
+    /// Where this terminal's links open (``TerminalLinkRoute``).
+    var linkRoute: TerminalLinkRoute { TerminalLinkRoute(opensOnMac: linkOpener != nil) }
+
+    /// Who can reach `url`: the Rust classifier (`link_open_side`) reads its host.
+    func linkReach(_ url: URL) -> TerminalLinkReach {
+        switch linkOpenSide(url: url.absoluteString) {
+        case .phone: .phone
+        case .mac: .mac
+        case .notWeb: .notWeb
+        }
+    }
+
+    /// The long-press menu's row for the device a tap does not open `url` on.
+    func otherLinkDevice(_ url: URL) -> TerminalLinkAction? {
+        linkRoute.otherDevice(for: linkReach(url))
+    }
+
+    /// Opens a web link the person tapped or picked in the menu, where
+    /// ``TerminalLinkRoute`` says: a public page on this iPhone in a Safari view (Safari's
+    /// passkeys, AutoFill and cookies work there, unlike in a web view or a page streamed
+    /// from the Mac), a page only the Mac reaches in a browser tab on the Mac.
+    public func openLink(_ url: URL, action: TerminalLinkAction = .tap) {
+        switch linkRoute.destination(for: url, reach: linkReach(url), action: action) {
+        case .phone(let page): if controller?.presentWebPage(page) != true { UIApplication.shared.open(page) }
+        case .systemBrowser(let page): UIApplication.shared.open(page)
+        case .mac(let page): linkOpener?(page)
+        case .none: break
+        }
     }
 
     /// Find… (the page menu, Cmd-F): the find bar over the terminal's rows.
@@ -362,9 +464,50 @@ public final class TerminalModel {
         controller?.presentFind()
     }
 
+    /// Copy Mode is on (Select Text…, Shift-Cmd-M).
+    public internal(set) var copyModeActive = false
+
+    /// Select Text… (the page menu): Copy Mode with the cursor's row selected; vi keys from a
+    /// hardware keyboard or the handles move it, Copy copies it.
+    public func selectText() {
+        controller?.presentCopyMode()
+    }
+
+    /// Copy Mode can start: the shell's rows (a full-screen app selects with a long press).
+    public var canSelectText: Bool { !isTUI }
+
+    /// The Mac's Select All: every row, scrollback included, with Copy in the edit menu.
+    public func selectAll() {
+        controller?.selectAllText()
+    }
+
+    /// The Mac's Scroll to Top: the first row of the scrollback.
+    public func scrollToTop() {
+        controller?.scrollToTop()
+    }
+
+    /// Send Text… (the page menu): asks for the text.
+    public func showSendText() {
+        controller?.presentSendText()
+    }
+
+    /// The Mac's Send Text…: `text` typed into the terminal as is, with no Return.
+    public func sendText(_ text: String) {
+        guard !text.isEmpty, connectionState.composerNotSentNotice == nil else { return }
+        controller?.surface.sendText(text, pressReturn: false, fullScreenApp: isTUI)
+    }
+
     #if DEBUG
     /// DEBUG: the controller's layout and viewport state, for demo timelines.
     public var debugState: String { controller?.debugState ?? "-" }
+    #endif
+
+    /// Grid sizes this page sent the Mac (`TerminalViewController.sendResize`),
+    /// for demos and UI tests.
+    public internal(set) var ptyResizesSent = 0
+    #if DEBUG
+    /// DEBUG: the terminal demo driver's last step (`TerminalDemoDriver`).
+    var demoNote = "start"
     #endif
 
     /// Refreshes `snapshot` from the live page (the grid is about to show it).
@@ -418,8 +561,75 @@ public final class TerminalModel {
             sendAttachments(pressReturn: true)
             return
         }
-        controller?.surface.sendText(composerText, pressReturn: true, fullScreenApp: isTUI)
-        composerText = ""
+        holdComposerText()
+        // A draft that goes as a paste goes to the Mac's terminal as one paste
+        // plus Return (`sendPasteAndSubmit`), when the session can; a one-line
+        // draft typed into a full-screen app, a bare Return, or a session with
+        // no Mac daemon goes through the mirror as before.
+        let submit = ComposerSubmit(text: composerText, pressReturn: true, fullScreenApp: isTUI)
+        let text = composerText
+        composerSending = true
+        let viaDaemon = submit.steps.first == .paste(text)
+            && session.sendPasteAndSubmit(text, notSent: { [weak self] in self?.composerSendNotSent(text) })
+        composerSending = false
+        if !viaDaemon {
+            controller?.surface.sendText(text, pressReturn: true, fullScreenApp: isTUI)
+        }
+        finishComposerSend()
+    }
+
+    /// Inside `send`, handing the draft to the session.
+    @ObservationIgnored private var composerSending = false
+
+    /// The session dropped, refused or got an error for a composer send
+    /// (``TerminalSession/sendPasteAndSubmit(_:notSent:)``): never silent.
+    /// The notice shows and the text comes back to an empty composer (one the
+    /// person typed into since keeps what they typed).
+    private func composerSendNotSent(_ text: String) {
+        composerNotice = TerminalConnectionState.composerSendNotSentNotice
+        heldComposerSend = nil
+        if composerSending {
+            composerSendRefused = true
+        } else if composerText.isEmpty {
+            composerText = text
+        }
+    }
+
+    /// A composer send made while the terminal is not attached (a blip): the
+    /// session holds its keys, and drops them if the terminal does not come
+    /// back in time. Its text, with when it was sent, comes back then.
+    @ObservationIgnored var heldComposerSend: (text: String, at: TimeInterval)?
+    /// How long after a held send its text may come back (the session's hold, with room for the attach).
+    static let heldComposerSendWindow: TimeInterval = 30
+
+    /// The session refused the composer's text while `send` was handing it over.
+    @ObservationIgnored var composerSendRefused = false
+
+    /// Empties the composer after a send, unless the session refused the text on the spot.
+    private func finishComposerSend() {
+        if composerSendRefused {
+            composerSendRefused = false
+        } else {
+            composerText = ""
+        }
+    }
+
+    private func holdComposerText() {
+        // A refusal is about this send only: a stale one never keeps the next send's text.
+        composerSendRefused = false
+        heldComposerSend = connectionState.isAttached || composerText.isEmpty
+            ? nil : (composerText, ProcessInfo.processInfo.systemUptime)
+    }
+
+    /// Voice mode's prompt: the user's words typed into the terminal with
+    /// Return, as the composer's send does, without touching the draft. Words
+    /// for a Mac that can't take them now are dropped, never queued (D5).
+    /// Returns false when nothing was typed.
+    @discardableResult
+    public func sendVoicePrompt(_ text: String) -> Bool {
+        guard connectionState.composerNotSentNotice == nil, let controller else { return false }
+        controller.surface.sendText(text, pressReturn: true, fullScreenApp: isTUI)
+        return true
     }
 
     public func sendWithoutReturn() {
@@ -428,8 +638,9 @@ public final class TerminalModel {
             sendAttachments(pressReturn: false)
             return
         }
+        holdComposerText()
         controller?.surface.sendText(composerText, pressReturn: false, fullScreenApp: isTUI)
-        composerText = ""
+        finishComposerSend()
     }
 
     /// The Mac's terminal can take a command now. Otherwise the text stays in
@@ -504,6 +715,24 @@ public final class TerminalModel {
     // MARK: Key bar
 
     #if DEBUG
+    /// Demo drivers (`ws-terminal-composer`): a draft, with two photos and a
+    /// file attached when asked, for gallery captures of the composer.
+    public func demoFillComposer(_ text: String, attachments withAttachments: Bool) {
+        composerText = text
+        guard withAttachments else { return }
+        let colors: [UIColor] = [.systemOrange, .systemTeal]
+        for (index, color) in colors.enumerated() {
+            let image = UIGraphicsImageRenderer(size: CGSize(width: 168, height: 168)).image { context in
+                color.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 168, height: 168))
+                UIColor.white.withAlphaComponent(0.35).setFill()
+                context.cgContext.fillEllipse(in: CGRect(x: 40, y: 40, width: 88, height: 88))
+            }
+            addAttachment(ComposerAttachment(kind: .image, name: "Photo \(index + 1).png", thumbnail: image, data: image.pngData()))
+        }
+        addAttachment(ComposerAttachment(kind: .file, name: "build.log", data: Data(repeating: 0x61, count: 18_432)))
+    }
+
     /// Demo drivers (`ws-terminal-armed`): arms a modifier as its key-row tap does.
     public func demoArm(_ modifier: TerminalStickyModifiers.Modifier) {
         guard let surface = controller?.surface else { return }

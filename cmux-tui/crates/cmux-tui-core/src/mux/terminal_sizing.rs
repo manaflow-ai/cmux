@@ -2,6 +2,7 @@
 
 use super::*;
 
+mod agent_layout_hold;
 mod grid_hold;
 mod handheld_ceiling;
 pub(super) use grid_hold::AppliedSeat;
@@ -23,6 +24,9 @@ impl Mux {
                 return false;
             }
             sizing.terminal_runtime_by_placement.insert(surface, runtime);
+            // A focus click is the person's: an agent layout hold of this
+            // view ends and its own report counts again.
+            let released = mux.end_agent_layout_hold(sizing, runtime, surface, client);
             let id = view_participant_id(runtime, surface, client);
             let participant = mux.view_participant(sizing, runtime, surface, client);
             let entry = mux.terminal_sizing_entry(sizing, runtime, surface);
@@ -33,7 +37,7 @@ impl Mux {
                 entry.engine.note_activity(&id)
             } else {
                 entry.engine.attach(participant)
-            };
+            } | released;
             sizing.note_size_state(runtime, changed);
             changed
         }))
@@ -46,6 +50,12 @@ impl Mux {
     /// Takes the terminal the input was written to, not its id: a key's turn never looks it up through the session
     /// lock, which automation's lists, snapshots and durable mutations hold (TYPING UNDER LOAD F4).
     pub(crate) fn note_terminal_input(&self, surface: &Surface, client: u64) {
+        // The key's view is the terminal's settled newest: the note would change nothing, so the key takes no sizing
+        // lock (R-DAEMON-STATE stage S1, mux/sizing_fast_path.rs).
+        if self.control_clients.input_lane.on() && surface.skips_sizing_note(client) {
+            self.activity.note_user_input();
+            return;
+        }
         if self.note_terminal_activity_of(surface, client, None).is_some() {
             self.activity.note_user_input();
         }
@@ -80,12 +90,24 @@ impl Mux {
         // Activity keeps the participants and their identities, the only inputs of the host policy's expansion that
         // a key can change, so a key does not re-expand it: that asks for the terminal's workspace default, which
         // reads the session lock (TYPING FIX 2).
-        self.mutate_terminal_sizing_keeping_participants(runtime, |_, sizing| {
+        self.mutate_terminal_sizing_keeping_participants(runtime, |mux, sizing| {
+            let publishing = sizing.terminal_sizing.publishing();
             let entry = sizing.terminal_sizing.get_mut(&runtime)?;
             if entry.members.get(&id).is_none_or(|member| member.client != client) {
                 return None;
             }
-            let changed = entry.engine.note_activity(&id);
+            // The person's input in their own view ends an agent layout hold
+            // of it: its own report counts again.
+            let released = view.is_none()
+                && !entry.agent_layout_holds.is_empty()
+                && mux.end_agent_layout_hold(sizing, runtime, surface.id, client);
+            let entry = sizing.terminal_sizing.get_mut(&runtime)?;
+            // The key's terminal may be a respawn of the entry's runtime: its fast path follows it (stage S1 only;
+            // with the switch off nothing is published).
+            if publishing {
+                entry.follow_runtime_of(runtime, surface);
+            }
+            let changed = entry.engine.note_activity(&id) | released;
             sizing.note_size_state(runtime, changed);
             Some(changed)
         })
@@ -370,9 +392,17 @@ impl Mux {
             let resolved = mux.resolved_size_policy(sizing, runtime, surface);
             let entry = mux.terminal_sizing_entry(sizing, runtime, surface);
             let changed = entry.engine.set_policy(resolved);
+            let state = entry.engine.state().clone();
             sizing.note_size_state(runtime, changed);
-            sizing.terminal_sizing[&runtime].engine.state().clone()
+            state
         }))
+    }
+
+    /// Runs `hold` while this thread holds the client sizing lock (tests: a person's key must not wait for it).
+    #[cfg(test)]
+    pub(crate) fn hold_client_sizing_for_test(&self, hold: &dyn Fn()) {
+        let _held = self.client_sizing.lock().unwrap_or_else(PoisonError::into_inner);
+        hold();
     }
 
     /// Pins the `latest` policy on the workspace that shows `surface`, for
@@ -442,6 +472,30 @@ impl Mux {
         self.publish_size_states();
         self.emit_client_sizing_changes(owner_changes);
         Ok(())
+    }
+
+    /// Re-resolve a runtime's workspace default after one of its placements
+    /// changes workspaces. The move has already committed, so the placement
+    /// lookup is outside the topology mutation and the sizing engine can
+    /// apply the new policy immediately.
+    pub(crate) fn refresh_terminal_size_policy(&self, surface: SurfaceId) {
+        let Some(runtime) = self.surface(surface).and_then(|surface| surface.terminal_runtime_id())
+        else {
+            return;
+        };
+        let mut sizing = self.client_sizing.lock().unwrap_or_else(PoisonError::into_inner);
+        let owners_before = sizing.terminal_owner_clients(runtime);
+        let resolved = self.resolved_size_policy(&sizing, runtime, surface);
+        let Some(entry) = sizing.terminal_sizing.get_mut(&runtime) else {
+            return;
+        };
+        let changed = entry.engine.set_policy(resolved);
+        sizing.note_size_state(runtime, changed);
+        self.apply_terminal_grid(&sizing, runtime);
+        let owners_after = sizing.terminal_owner_clients(runtime);
+        drop(sizing);
+        self.publish_size_states();
+        self.emit_client_sizing_changes(owners_before.symmetric_difference(&owners_after).copied());
     }
 
     /// The terminal's published size state, creating its engine on demand.
@@ -519,11 +573,17 @@ impl Mux {
         runtime: SurfaceId,
         placement: SurfaceId,
     ) -> &'a mut TerminalSizingEntry {
+        // The surface is looked up only to make the entry: with the switch off the lookup takes the session lock,
+        // under the sizing lock (#34261 review 2). A respawn's new runtime is followed by its first key's sizing
+        // note (`note_terminal_activity_of`), which holds the surface already.
         if !sizing.terminal_sizing.contains_key(&runtime) {
-            let (cols, rows) = self
-                .surface(placement)
-                .or_else(|| self.surface(runtime))
-                .map_or((80, 24), |surface| surface.size());
+            let surface = self.surface(placement).or_else(|| self.surface(runtime));
+            let (cols, rows) = surface.as_ref().map_or((80, 24), |surface| surface.size());
+            // Only a surface of this runtime: a placement that a respawn moved to a new runtime id keeps its slot.
+            let fast_path_slot = surface
+                .as_ref()
+                .filter(|surface| surface.terminal_runtime_id() == Some(runtime))
+                .and_then(|surface| surface.sizing_fast_path_slot());
             let policy = self.resolved_size_policy(sizing, runtime, placement);
             sizing.terminal_sizing.insert(
                 runtime,
@@ -534,6 +594,8 @@ impl Mux {
                     applied: std::cell::Cell::new(None),
                     applied_participants: std::cell::RefCell::new(std::collections::BTreeMap::new()),
                     hold: std::cell::Cell::new(None),
+                    agent_layout_holds: HashMap::new(),
+                    fast_path_slot,
                 },
             );
         }
@@ -552,6 +614,21 @@ impl Mux {
         placement: SurfaceId,
         client: u64,
     ) {
+        self.sync_terminal_view_report_locked(sizing, runtime, placement, client);
+        // A view this change left as the only one counting stops keeping the
+        // size an agent's layout change would have shrunk.
+        self.settle_agent_layout_holds(sizing, runtime);
+    }
+
+    /// [`Self::sync_terminal_view_locked`] of one view, without settling the
+    /// other views' agent layout holds. True when the engine changed.
+    fn sync_terminal_view_report_locked(
+        &self,
+        sizing: &mut ClientSizingState,
+        runtime: SurfaceId,
+        placement: SurfaceId,
+        client: u64,
+    ) -> bool {
         let id = view_participant_id(runtime, placement, client);
         let has_report =
             sizing.surfaces.get(&placement).is_some_and(|viewers| viewers.contains_key(&client));
@@ -562,14 +639,18 @@ impl Mux {
         let known =
             sizing.terminal_sizing.get(&runtime).is_some_and(|entry| entry.engine.contains(&id));
         if !present && !known {
-            return;
+            return false;
         }
-        let participant =
+        let mut participant =
             present.then(|| self.view_participant(sizing, runtime, placement, client));
+        if let Some(participant) = participant.as_mut() {
+            self.hold_agent_layout_report(sizing, runtime, placement, client, participant);
+        }
         let entry = self.terminal_sizing_entry(sizing, runtime, placement);
         let changed = match participant {
             None => {
                 entry.members.remove(&id);
+                entry.agent_layout_holds.remove(&id);
                 entry.engine.detach(&id)
             }
             Some(participant) => {
@@ -587,6 +668,7 @@ impl Mux {
         };
         sizing.note_size_state(runtime, changed);
         self.refresh_host_policy_locked(sizing, runtime);
+        changed
     }
 
     /// Resize the PTY to the engine's decision when that decision changed.

@@ -8,6 +8,7 @@ import { avatarsChanged, UPLOADED_AVATAR } from "../../../gallery/fixtures/agent
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, session, summary, tool, user, SESSION_ID } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxSessionEntry } from "../sessionList";
+import { openEndedStretch } from "./endedStretchPlay";
 
 /// Claude Code's shape for a call to the server: `mcp__cmux-subsessions__<tool>`, the arguments as
 /// its input and the result's text as its output.
@@ -309,11 +310,15 @@ export default agentPaneEntry({
           user(prompt, 6),
           activity([started("tests", "sub-tests"), started("docs", "sub-docs"), started("lint", "sub-lint")], 5.8),
           assistant("Started three sub-sessions; I'll collect their reports.", 5.5),
+          // The stretch that started them ended while the chat works on: under the shipped
+          // live-turn-work `line` a stretch still running draws no call (turns.ts `codexRuns`).
+          summary(5.5, { status: "completed", toolCount: 3 }),
         ],
         { isWorking: true },
       ),
       native: { "agent.avatar": { src: UPLOADED_AVATAR } },
       play: async (ctx) => {
+        await openEndedStretch(ctx);
         await ctx.click({ selector: ".cv-disclosure__toggle" });
         avatarsChanged(ctx.document, ["sub-tests", "sub-docs", "sub-lint"]);
         await ctx.waitFor(() => {
@@ -344,6 +349,26 @@ export default agentPaneEntry({
         ),
         assistant("Sent both.", 2.5),
         summary(2.5, { status: "completed" }),
+      ]),
+    },
+    "message-after-list": {
+      note: "A message to a sub-session whose chat has left the session list: the row names it from the call that started it (perf-audit), never its bare id; the id stays in the call's Raw.",
+      snapshot: withChildren([
+        user("Start a perf audit lane, then tell it to look at the transcript first.", 4),
+        activity([started("perf-audit", "sub-perf-audit-7f3a9c2e41d0")], 3.9),
+        assistant("Started perf-audit.", 3.85),
+        activity(
+          [
+            sent(
+              "sub-perf-audit-7f3a9c2e41d0",
+              "Start with the transcript's scroll.",
+              "Sent: it started a turn with it.",
+            ),
+          ],
+          3.5,
+        ),
+        assistant("Sent.", 3.4),
+        summary(3.4, { status: "completed" }),
       ]),
     },
     replies: {

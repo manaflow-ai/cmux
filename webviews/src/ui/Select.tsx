@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "./Menu";
 import { cx } from "./cx";
 import type { NativePopupDescription } from "./nativePopup";
@@ -36,6 +36,9 @@ export interface SelectProps {
   popupClassName?: string;
   /** Close the menu when an option is picked (the shared Menu keeps a radio menu open by default). */
   closeOnPick?: boolean;
+  /** The trigger edge the menu lines up with: `end` for a trigger whose right edge stays put as its
+   * value changes width (a right-aligned value), so a closing menu never slides. */
+  align?: "start" | "end";
   /** Declarative native rows. Supplying this routes the open select to WebPopupHost. */
   native?: { model: NativePopupDescription; onDismiss?(): void };
 }
@@ -53,11 +56,23 @@ export function Select({
   buttonClassName,
   popupClassName,
   closeOnPick,
+  align,
   native,
 }: SelectProps) {
   const selected = options.find((option) => option.value === value);
+  // The trigger's name is the field's label followed by its current value ("Color scheme, Dark"),
+  // the way a native pop-up button and Base UI Select announce it. An `aria-label` alone would
+  // replace the button's content, so VoiceOver would hear the label without the value.
+  const id = useId();
+  const labelId = `${id}-label`;
+  const valueId = `${id}-value`;
   return (
     <span className={cx("ui-select", className)}>
+      {labelledBy ? null : (
+        <span id={labelId} hidden>
+          {label}
+        </span>
+      )}
       <Menu
         native={
           native
@@ -84,15 +99,17 @@ export function Select({
         <MenuButton
           className={cx("ui-select-button", buttonClassName)}
           label={label}
-          aria-labelledby={labelledBy}
+          aria-labelledby={`${labelledBy ?? labelId} ${valueId}`}
           disabled={disabled}
           aria-haspopup="menu"
           fieldTrigger
         >
-          <span className="ui-select-value">{selected?.label ?? placeholder}</span>
+          <span id={valueId} className="ui-select-value">
+            {selected?.label ?? placeholder}
+          </span>
           <span className="ui-select-chevron" aria-hidden="true" />
         </MenuButton>
-        <MenuPopup className={cx("ui-select-popup", popupClassName)} matchTrigger>
+        <MenuPopup className={cx("ui-select-popup", popupClassName)} matchTrigger {...(align ? { align } : {})}>
           <MenuRadioGroup value={value} onValueChange={onChange}>
             {options.map((option) => (
               <MenuRadioItem

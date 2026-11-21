@@ -87,6 +87,15 @@ The card opens on the way that fits, with the other two one click away:
    the card opens here when the network lists nothing and a computer already reached with an ssh
    key needs no line (HQ #4877 break 5).
 
+**Default since 2026-11-05: the pair code, ssh under Advanced.** Leo, 2026-11-05: "I don't want to
+deal with SSH keys. I just want the app to handle the thing for me." The card opens on **Any
+machine** with no Labs switch: signed in, Pair Another Machine… (an invite code and QR the new
+machine types with `cmux pair CODE`, then the person confirms its four words here); signed out,
+the single-use join line. The switch shows Any machine, It shows a code and Set up a new device.
+On your network (way 1, ssh enroll) moves behind an **Advanced: add over SSH** disclosure and works
+as before; `device.add way=network` and `machine.add` still open on it. Labs `labs.machineJoin`
+still gates the joined rows in Machines and This Mac's join consent switches.
+
 Approval always happens on a device that is already yours: the Mac card, or the phone's approval
 sheet, or `cmux device approve CODE` in a terminal that is yours (the card's same intents, refused
 from scripts and MCP).

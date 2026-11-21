@@ -66,7 +66,5 @@ struct CmuxToastModifierTests {
 
 @MainActor
 private final class HeadlessHost: CmuxToastHosting {
-    func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, appearing: Bool, windowGone: @escaping () -> Void) {}
-    func move(_ toast: CmuxToastView, to slot: Int) {}
-    func hide(_ toast: CmuxToastView, animated: Bool) {}
+    func show(_ toasts: [CmuxToastShown], in window: NSWindow, center: CmuxToastCenter) {}
 }

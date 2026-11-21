@@ -1,5 +1,6 @@
 public import CmuxNextMobile
 public import CmuxNextSettings
+import CmuxNextDesign
 import Foundation
 
 /// The Mobile page's iPhone card (`iphone` in `cmux.settings.host.lists`), every text localized
@@ -12,6 +13,8 @@ extension IPhoneHostService {
             "allowed": .bool(allowed),
             "status_title": .string(IPhoneHostStrings.statusTitle),
             "status": .string(statusText),
+            // Msg 3790: where the status says to sign in, the card shows the Sign In button.
+            "sign_in": statusText == IPhoneHostStrings.signedOut ? .string(SignInButton.defaultTitle) : .null,
             "phase": .string(phaseName),
             "account_title": .string(IPhoneHostStrings.accountTitle),
             "account": account.map { .string(IPhoneHostStrings.registered(as: $0.email ?? $0.userID)) } ?? .null,
@@ -79,7 +82,8 @@ extension IPhoneHostService {
              "fingerprint": .string(phone.identityKey), "connected": .bool(false), "removable": .bool(true),
              "transport": .string("iroh"), "path": .null]
         }
-        // The iPhone-host toggle does not hide the separately served Phone Access list.
+        // Phones a person allowed through the removed Phone Access (iroh) listener stay listed, whatever
+        // the iPhone-host toggle, so they can be removed from the shared list.
         return hostdPhoneRows + local
     }
 

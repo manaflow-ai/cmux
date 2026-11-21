@@ -1,0 +1,51 @@
+name: Measure probes compile
+
+# The measuring probes in scripts/measure/*.swift are compiled only on the fleet Mac that runs a
+# measurement (launch-ready.sh's swiftc step). One that does not compile merged unseen would break
+# every run of its harness, the nightly benches with it, and no Linux job can type-check AppKit.
+# This type-checks each one on a Mac whenever a change touches them (2026-11-17: the launch-ready
+# keys=1 probe had no route to a compile before merging).
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - scripts/measure/*.swift
+      - .github/workflows/measure-swift-typecheck.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: measure-swift-typecheck-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
+jobs:
+  typecheck:
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt == 1 && (vars.CI_LIGHT_LANE_RUNNER || (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER))) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || fromJSON(vars.RUNNER_POOLS).macos_15) }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Select pinned Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Type-check every measuring probe
+        run: |
+          set -o pipefail
+          failed=0
+          for probe in scripts/measure/*.swift; do
+            if xcrun swiftc -typecheck "$probe"; then
+              echo "ok: $probe"
+            else
+              echo "::error file=$probe::$probe does not compile"
+              failed=1
+            fi
+          done
+          exit "$failed"

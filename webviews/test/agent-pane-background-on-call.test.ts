@@ -283,7 +283,9 @@ test("a shell whose call is not in the transcript is one row, and joins its call
   const { client, rows } = await connect(daemon);
   const notes = () => rows().filter((row) => row.kind === "backgroundTask");
   // A running update without its call draws nothing; an end draws one row.
-  expect(notes().map((row) => row.backgroundTask)).toEqual([{ toolCallId: "bg3", command: LONG, state: "completed" }]);
+  expect(notes().map((row) => row.backgroundTask)).toEqual([
+    expect.objectContaining({ toolCallId: "bg3", command: LONG, state: "completed" }),
+  ]);
 
   // The older page brings the call: the end moves onto its row, and the separate row goes.
   await client.loadOlder();

@@ -9,6 +9,7 @@ import { afterAll, afterEach, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { teardownDom } from "./support/domTeardown";
 // These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
@@ -90,13 +91,9 @@ setBookmarkTransport({
   },
 });
 
-afterAll(() => {
+afterAll(async () => {
   setBookmarkTransport(undefined);
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 afterEach(() => {
   jest.useRealTimers();
@@ -126,10 +123,16 @@ async function mount(prompts: number) {
     ),
   );
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-  const scrolled = () => act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+  // The minimap places its band in the frame after a scroll event, as a browser runs it.
+  const scrolled = () =>
+    act(async () => {
+      scroller.dispatchEvent(new dom.window.Event("scroll"));
+      await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
+    });
   await act(async () => {
     scroller.scrollTop = 0;
     scroller.dispatchEvent(new dom.window.Event("scroll"));
+    await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
   });
   return { root, scroller, scrolled, unmount: () => act(async () => root.unmount()) };
 }
@@ -346,18 +349,54 @@ test("focus in the card keeps it; Escape there or focus leaving rail and card cl
 
 test("the rail never outgrows a short transcript", async () => {
   const { railHeight, RAIL_HEIGHTS } = await import("../src/agent-session/acpmux/threadMinimap/model");
-  // 60 prompts in an 820 px window over a 400 px transcript: the rail fits the transcript, less the
-  // mask's 18 px bands and 4 px past each.
-  expect(railHeight(60, 820, 400)).toBe(400 - 22 - 22);
-  expect(railHeight(60, 820, 820)).toBe(600);
+  // 60 prompts in an 820 px window over a 200 px transcript: the rail fits the transcript, less the
+  // mask's 18 px top band and 4 px past each end (the foot has no band since 2026-11-17).
+  expect(railHeight(60, 820, 200)).toBe(200 - 22 - 4);
   // Not measured yet: the window caps it alone.
   expect(railHeight(60, 820, 0)).toBe(railHeight(60, 820));
-  // The selected height arm starts a short thread tall and grows toward the cleared pane room.
-  expect(railHeight(4, 720, 720)).toBe(320);
-  expect(railHeight(70, 720, 720)).toBe(Math.floor(720 * 0.92));
   // The visible transcript band no longer controls the rail's initial height.
   expect(railHeight(18, 720, 720, 720, 1)).toBe(railHeight(18, 720, 720, 720, 4));
   expect(railHeight(18, 720, 720, 720, 4, RAIL_HEIGHTS["initial-240-max-80"])).toBe(240);
+});
+
+test("the rail is never taller than 480 px, whatever the prompt count or the pane's height", async () => {
+  const { railHeight } = await import("../src/agent-session/acpmux/threadMinimap/model");
+  // Leo, 2026-11-04: "make it look like codex's size" and "the height of the left scroll rail should
+  // never be affected by anything". As tall as its ticks up to 480 px; past 48 prompts its list scrolls.
+  for (const count of [1, 4, 12, 24, 70, 1000])
+    for (const view of [540, 720, 1100, 2100]) expect(railHeight(count, view, view)).toBe(Math.min(count * 10, 480));
+  // Nor the prompts on screen: a view showing 50 short prompts at once keeps 480, and its list
+  // scrolls to keep them in view (railScrollTop).
+  for (const band of [1, 24, 50, 1000]) expect(railHeight(1000, 1000, 1000, 1000, band)).toBe(480);
+});
+
+test("the rail keeps one tick pitch at every prompt count, as tall as its ticks up to 480 px, on one middle", async () => {
+  // Leo, 2026-11-05, on a rail whose ticks sat 20 px apart in a fixed 480 px box: "the rail, ok keep it at
+  // this max size, but don't reduce the density. y'all reduced the density". The ticks go back to the
+  // 10 px pitch in a rail as tall as they are. Its middle is the view's middle at every count (Lucas,
+  // 2026-11-17: "always vertically aligned, and is on the vertical center of the screen"), so it grows
+  // at both ends and its middle never shifts.
+  const drawn: { count: number; pitch: number; height: number; top: number }[] = [];
+  for (const count of [3, 13, 24, 100]) {
+    const view = await mount(count);
+    try {
+      const rail = document.querySelector<HTMLElement>(".acpmux-minimap__rail")!;
+      const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+      drawn.push({
+        count,
+        pitch: Number.parseFloat(list.style.getPropertyValue("--acpmux-minimap-pitch")),
+        height: Number.parseFloat(rail.style.height),
+        top: Number.parseFloat(rail.style.top),
+      });
+    } finally {
+      await view.unmount();
+    }
+  }
+  expect(drawn.map(({ count, pitch, height }) => ({ count, pitch, height }))).toEqual(
+    [3, 13, 24, 100].map((count) => ({ count, pitch: 10, height: Math.min(count * 10, 480) })),
+  );
+  const middles = drawn.map(({ top, height }) => top + height / 2);
+  expect(Math.max(...middles) - Math.min(...middles)).toBeLessThanOrEqual(1);
 });
 
 test("wheel browsing belongs to the rail and is not snapped back by transcript scrolling", async () => {
@@ -380,6 +419,7 @@ test("wheel browsing belongs to the rail and is not snapped back by transcript s
     await act(async () => {
       view.scroller.scrollTop = 500;
       view.scroller.dispatchEvent(new dom.window.Event("scroll"));
+      await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
     });
     expect(list.scrollTop).toBe(240);
   } finally {
@@ -452,7 +492,7 @@ test("a wheel over a rail that scrolls itself is not the reader's: the transcrip
     input.mockClear();
     await act(async () => {
       list.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true }));
-      tick(40).dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -40, bubbles: true, cancelable: true }));
+      tick(10).dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -40, bubbles: true, cancelable: true }));
     });
     expect(captured).toEqual([-120, -40]);
     expect(input).not.toHaveBeenCalled();
@@ -553,10 +593,12 @@ test("a rail browsed in one chat follows the reader again in the next chat the t
     await act(async () => {
       view.scroller.scrollTop = 5000;
       view.scroller.dispatchEvent(new dom.window.Event("scroll"));
+      await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
     });
     await act(async () => {
       view.scroller.scrollTop = 0;
       view.scroller.dispatchEvent(new dom.window.Event("scroll"));
+      await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
     });
     expect(list().scrollTop).toBe(0);
   } finally {
@@ -625,22 +667,38 @@ test("a press released off the rail ends there: a later hover does not scrub", a
   }
 });
 
-test("a bookmark shows as the tick's dot; the dot and the card toggle it; a prompt's row has no Pin", async () => {
+test("a bookmark shows as the tick's dot; the prompt row, dot and card share its state", async () => {
   const view = await mount(8);
   try {
-    // Leo's prompt row (2026-10-21): check, age, Copy, Retry, Fork; no Pin under a prompt.
-    expect(document.querySelector('.acpmux-row[data-row-id^="user-"] .cv-message-pin')).toBeNull();
+    // The first prompt row the transcript mounts: it windows its rows, and which ones it mounts here
+    // follows the row estimates (user-1 is not mounted since #31690). Row `user-<n>` is tick n - 1.
+    const promptButton = document.querySelector<HTMLButtonElement>(
+      '.acpmux-row[data-row-id^="user-"] .cv-message-pin',
+    )!;
+    expect(promptButton).not.toBeNull();
+    const promptTick = Number(promptButton.closest("[data-row-id]")!.getAttribute("data-row-id")!.slice(5)) - 1;
+    expect(promptButton.getAttribute("aria-pressed")).toBe("false");
+    await act(async () => promptButton.click());
+    expect(tick(promptTick).hasAttribute("data-bookmarked")).toBe(true);
+    expect(tick(promptTick).querySelector(".acpmux-minimap__dot")).not.toBeNull();
+    await act(async () => tick(promptTick).focus());
+    const cardButton = () => card()!.querySelector<HTMLElement>(".acpmux-minimap__bookmark")!;
+    expect(cardButton().getAttribute("aria-pressed")).toBe("true");
+    await act(async () => cardButton().click());
+    expect(promptButton.getAttribute("aria-pressed")).toBe("false");
     expect(tick(2).hasAttribute("data-bookmarked")).toBe(false);
     // The card marks it: the rail's tick gets its dot.
     await act(async () => tick(2).focus());
-    const cardButton = () => card()!.querySelector<HTMLElement>(".acpmux-minimap__bookmark")!;
     await act(async () => cardButton().click());
     expect(tick(2).hasAttribute("data-bookmarked")).toBe(true);
     expect(tick(2).querySelector(".acpmux-minimap__dot")).not.toBeNull();
+    // Its spoken label says so: a row's kept label (TickList `labelOf`) follows its mark.
+    expect(tick(2).getAttribute("aria-label")).toBe("Message 3 of 8, bookmarked: Question 2");
     // The card shows it filled, and its button removes it.
     expect(cardButton().getAttribute("aria-pressed")).toBe("true");
     await act(async () => cardButton().click());
     expect(tick(2).hasAttribute("data-bookmarked")).toBe(false);
+    expect(tick(2).getAttribute("aria-label")).toBe("Message 3 of 8: Question 2");
     // A click on the dot's spot past a hovered tick toggles the mark and does not jump.
     const before = view.scroller.scrollTop;
     await enter(5);

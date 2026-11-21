@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { Button } from "../../../ui/Button";
+import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
 import { displayNumber, parseNumber } from "../format";
 import { Icon } from "../icons";
@@ -34,19 +36,22 @@ export function NumberListEditor({ row, value, disabled, labelId }: EditorProps)
           return (
             <span key={number} className="token">
               {label}
-              <button
+              <Button
                 type="button"
+                icon
+                size="sm"
+                variant="ghost"
                 className="token-remove"
                 aria-label={`${t("settingsPage.remove")} ${label}`}
                 disabled={disabled}
                 onClick={() => write(numbers.filter((item) => item !== number))}
               >
                 <Icon name="xmark" />
-              </button>
+              </Button>
             </span>
           );
         })}
-        <input
+        <Input
           className="field token-input"
           type="text"
           inputMode="decimal"

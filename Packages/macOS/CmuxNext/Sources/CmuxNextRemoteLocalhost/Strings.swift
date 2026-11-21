@@ -13,7 +13,7 @@ enum Strings {
 
     static func errorUnsupported(_ machine: String) -> String {
         String(localized: "remoteLocalhost.error.unsupported",
-               defaultValue: "The cmux-tui on \(machine) cannot forward localhost. Update that machine to use its localhost here.",
+               defaultValue: "cmux on \(machine) can't forward localhost. Update that machine to use its localhost here.",
                bundle: .module)
     }
 

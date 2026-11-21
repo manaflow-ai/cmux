@@ -6,12 +6,13 @@
 import { componentEntry } from "../../../gallery/format";
 import type { AcpmuxRow } from "../model";
 import { SUBAGENTS } from "../subagents/subagentFold";
-import { workflowFixture } from "../summary/workflowFixture";
+import { backgroundCommands } from "../session-info/processes";
+import { parallelWorkflowProcesses, workflowFixture } from "../summary/workflowFixture";
 import { workflowPaneId, type TranscriptRead } from "../summary/workflowTranscript";
 import { backgroundGroups } from "./backgroundTasks";
 import { BackgroundTasksPanel } from "./BackgroundTasksPanel";
 
-type Props = { drill: boolean; loads: boolean };
+type Props = { drill: boolean; loads: boolean; parallel?: boolean };
 
 const SESSION = "gallery";
 const text = (sessionUpdate: string, value: string) => ({ sessionUpdate, content: { type: "text", text: value } });
@@ -34,10 +35,11 @@ const PAGE = {
   ],
 };
 
-function GalleryWorkflowPanel({ drill, loads }: Props) {
-  const nodes = workflowFixture("running");
+function GalleryWorkflowPanel({ drill, loads, parallel }: Props) {
+  const nodes = workflowFixture(parallel ? "parallel" : "running");
   const rows: AcpmuxRow[] = [{ id: "wf", version: 1, at: 0, kind: SUBAGENTS, subagents: nodes }];
-  const groups = backgroundGroups({ rows, commands: [], sessions: [], chatName: "This chat", sessionId: SESSION });
+  const commands = parallel ? backgroundCommands(parallelWorkflowProcesses(), [], true) : [];
+  const groups = backgroundGroups({ rows, commands, sessions: [], chatName: "This chat", sessionId: SESSION });
   const read: TranscriptRead = () => (loads ? Promise.resolve(PAGE) : new Promise<never>(() => undefined));
   const pane = workflowPaneId({ sessionId: SESSION, runId: "wf_7c2e91", agentId: "a4" });
   return (
@@ -70,6 +72,10 @@ export default componentEntry<Props>({
     list: {
       note: "A running workflow's block: its agents that started are its tasks, the running one first, then the finished ones.",
       props: { drill: false, loads: true },
+    },
+    "parallel-commands": {
+      note: "Two phases running at once, with the shell tasks the workflow's agents started: each sits under the agent that started it (Leo, 2026-11-05), and only the chat's own command is in the chat's group.",
+      props: { drill: false, loads: true, parallel: true },
     },
     loading: {
       note: "A workflow agent opened before acpmux answered: the transcript's Loading line, never a blank pane.",

@@ -7,7 +7,7 @@ import CmuxNextDesign
 /// as its content, up to the pane's foot (then its list scrolls), so no empty panel hangs under its
 /// last section (Leo, 2026-11-02: "IT IS TAKING THIS STUPID FUCKING SPACE FOR NO REASON"). It floats:
 /// it never takes a column and never moves the chat's layout; the page supplies the current push or
-/// overlay geometry. Over the chat's column (the page sends a `foot`) the transcript runs under it,
+/// overlay geometry. Over the chat's column (the page sends `overChat`, or a `foot`) the transcript runs under it,
 /// so there, and only there, it lies on the composer's glass (``backing``, the shared overlay glass,
 /// solid under Reduce Transparency) so its text never reads through the chat's, as the web panel's
 /// `.ui-glass` does over the chat. No close button and no band at its top: its header toggle and Esc
@@ -15,7 +15,27 @@ import CmuxNextDesign
 final class AgentPaneSessionInfoPanel: NSView {
     let store: AgentPaneSessionInfoStore
     private let content: AgentPaneSessionInfoContent
+    /// Holds the content at its unzoomed size and draws it ``magnification`` times larger: its bounds
+    /// are its frame's size over the magnification. The panel's own layer (its edge, its cut-outs'
+    /// mask) stays in pane points.
+    private let stage = NSView()
     private let edge = AgentPaneSessionInfoEdge()
+    /// How much larger than its layout the content shows: the page's trackpad pinch
+    /// (``AgentPaneSessionInfoPinch``), 1 with none.
+    var magnification: CGFloat = 1 {
+        didSet { if magnification != oldValue { needsLayout = true } }
+    }
+    /// Where the panel's frame starts in the whole pinched panel, points from its left and bottom
+    /// edges: nonzero while the page's edge cuts the panel off, so the part on screen shows the content
+    /// that lies there.
+    var contentOffset: CGPoint = .zero {
+        didSet { if contentOffset != oldValue { needsLayout = true } }
+    }
+    /// The whole pinched panel's size, points, while the page's edge cuts it off; nil when the
+    /// panel's frame is all of it.
+    var wholeSize: CGSize? {
+        didSet { if wholeSize != oldValue { needsLayout = true } }
+    }
     /// The glass under the content while the panel lies over the chat's column; nil over the
     /// pane's empty gutter, where the content stands on the pane itself.
     private(set) var backing: OverlaySurfaceView?
@@ -25,8 +45,12 @@ final class AgentPaneSessionInfoPanel: NSView {
         content = AgentPaneSessionInfoContent(store: store)
         super.init(frame: .zero)
         content.translatesAutoresizingMaskIntoConstraints = true
-        content.autoresizingMask = [.width, .height]
-        addSubview(content)
+        stage.translatesAutoresizingMaskIntoConstraints = true
+        // The content can be larger than the stage (a panel the page's edge cuts off): only the stage's part draws.
+        stage.wantsLayer = true
+        stage.layer?.masksToBounds = true
+        stage.addSubview(content)
+        addSubview(stage)
         edge.autoresizingMask = [.height, .maxXMargin]
         addSubview(edge)
         let draw = store.redraw
@@ -54,15 +78,26 @@ final class AgentPaneSessionInfoPanel: NSView {
     /// The content's height at `width` points: the panel ends after its last section.
     func fittingHeight(forWidth width: CGFloat) -> CGFloat { content.fittingHeight(forWidth: width) }
 
-    /// Over the chat (`foot` set) the content lies on the overlay glass; over the gutter, on nothing.
+    /// Whether `info` lies over the chat's column: it says so (`overChat`), or it stops above the
+    /// composer (`foot`, all a page that predates `overChat` sends). A short pane's popover lies over
+    /// the transcript with no `foot`; with only `foot` read it had no glass, and the transcript and
+    /// its sections showed through each other.
+    static func liesOverChat(_ info: AgentPaneSessionInfoModel?) -> Bool {
+        info?.overChat == true || info?.foot != nil
+    }
+
+    /// Over the chat the content lies on the overlay glass; over the gutter, on nothing.
     private func updateBacking() {
-        let overChat = store.info?.foot != nil
+        let overChat = Self.liesOverChat(store.info)
         if overChat, backing == nil {
             let glass = Glass.makeOverlayPanel()
+            // Denser than a popover's glass: at the popover level the transcript under the list
+            // washed its text out (Lucas, 2026-11-10: "a bit too washed out").
+            glass.tintLevel = .chip
             glass.translatesAutoresizingMaskIntoConstraints = true
             glass.autoresizingMask = [.width, .height]
             glass.frame = bounds
-            addSubview(glass, positioned: .below, relativeTo: content)
+            addSubview(glass, positioned: .below, relativeTo: stage)
             backing = glass
         } else if !overChat, let glass = backing {
             glass.removeFromSuperview()
@@ -70,17 +105,17 @@ final class AgentPaneSessionInfoPanel: NSView {
         }
     }
 
-    /// The panel's edge: a hairline in the theme's separator color on the panel's rounded corners, over
-    /// the gutter and over the chat alike, with no fill of its own (Leo, 2026-11-03: "maybe it's ok...?
-    /// to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a border for it might be better").
-    /// A layer's border draws over its sublayers, so it shows over the glass under the content too.
+    /// The panel's edge: a hairline in ``AgentPaneSessionInfoColors/edge`` on the panel's rounded corners,
+    /// over the gutter and over the chat alike, with no fill of its own (Leo, 2026-11-03: "maybe it's
+    /// ok...? to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a border for it might be
+    /// better"). A layer's border draws over its sublayers, so it shows over the glass under the content too.
     private func applyEdge() {
         wantsLayer = true
         guard let layer else { return }
         layer.backgroundColor = nil
         layer.cornerRadius = Metrics.panelCornerRadius
         layer.borderWidth = 1 / max(window?.backingScaleFactor ?? 2, 1)
-        layer.borderColor = store.colors.separator.cgColor
+        layer.borderColor = store.colors.edge.cgColor
     }
 
     override func viewDidChangeBackingProperties() {
@@ -88,10 +123,23 @@ final class AgentPaneSessionInfoPanel: NSView {
         applyEdge()
     }
 
+    /// A new size lays the stage out again: its bounds are the size over the magnification, which
+    /// autoresizing does not keep.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsLayout = true
+    }
+
     override func layout() {
         super.layout()
         backing?.frame = bounds
-        content.frame = bounds
+        stage.frame = bounds
+        let scale = max(0.1, magnification)
+        stage.bounds = CGRect(x: contentOffset.x / scale, y: contentOffset.y / scale,
+                              width: bounds.width / scale, height: bounds.height / scale)
+        // The whole panel's content, of which the stage shows the part on screen.
+        let whole = wholeSize ?? bounds.size
+        content.frame = CGRect(x: 0, y: 0, width: whole.width / scale, height: whole.height / scale)
         edge.frame = CGRect(x: 0, y: 0, width: AgentPaneSessionInfoEdge.width, height: bounds.height)
         applyHoles()
     }
@@ -197,7 +245,7 @@ extension NSView {
 @MainActor final class AgentPaneSessionInfoStore {
     var info: AgentPaneSessionInfoModel? { didSet { if info != oldValue { redraw() } } }
     var colors = AgentPaneSessionInfoColors() { didSet { if colors != oldValue { redraw() } } }
-    /// Points per CSS pixel: the page's zoom.
+    /// Points per CSS pixel on screen: the page's zoom times its trackpad pinch.
     var zoom: CGFloat = 1
     /// The width a drag of the left edge gives the panel before the page hears it, CSS pixels.
     var dragWidth: Double?
@@ -257,10 +305,15 @@ struct AgentPaneSessionInfoColors: Equatable {
     var tertiary = ThemeTokens.unresolved.textTertiary.nsColor
     var hover = ThemeTokens.unresolved.hoverFill.nsColor
     var separator = ThemeTokens.unresolved.separator.nsColor
+    /// The panel's own edge: the text at 22%, as the web panel's (sessionInfo.css), not the separator,
+    /// whose 7 to 8% read as no edge at all (Leo, 2026-11-07: "but the border on session info is way too
+    /// faint"); the full text under Increase Contrast. Clear when appearance.borders is none.
+    var edge = Self.edge(text: ThemeTokens.unresolved.textPrimary.nsColor, increaseContrast: false)
     var danger = ThemeTokens.unresolved.danger.nsColor
     var success = ThemeTokens.unresolved.success.nsColor
     var attention = ThemeTokens.unresolved.attention.nsColor
     var accent = ThemeTokens.unresolved.litGlyph.nsColor
+    var identities: [NSColor] = []
 
     init() {}
 
@@ -270,10 +323,24 @@ struct AgentPaneSessionInfoColors: Equatable {
         tertiary = tokens.textTertiary.nsColor
         hover = tokens.hoverFill.nsColor
         separator = Borders.color(tokens.separator.nsColor)
+        edge = Borders.color(Self.edge(text: primary, increaseContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast))
         danger = tokens.danger.nsColor
         success = tokens.success.nsColor
         attention = tokens.attention.nsColor
         accent = tokens.litGlyph.nsColor
+        identities = (0..<5).compactMap { AgentIdentityTone.rgb($0, tokens: tokens)?.nsColor }
+    }
+
+    /// The edge's share of the text color.
+    static let edgeShare: CGFloat = 0.22
+
+    static func edge(text: NSColor, increaseContrast: Bool) -> NSColor {
+        increaseContrast ? text : text.withAlphaComponent(text.alphaComponent * edgeShare)
+    }
+
+    func identity(_ tone: Int?) -> NSColor? {
+        guard let tone, identities.indices.contains(tone) else { return nil }
+        return identities[tone]
     }
 
     func symbol(_ token: String?, fallback: NSColor) -> NSColor {

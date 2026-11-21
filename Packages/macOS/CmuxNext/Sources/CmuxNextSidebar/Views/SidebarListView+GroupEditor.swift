@@ -15,6 +15,9 @@ struct SidebarGroupEditing {
     /// Not a row: the editor is about to give way to another picker (the
     /// color panel) that still edits this group, so a new empty group stays.
     static let keepGroupItem = "sidebar.group.keep"
+    /// The id of the editor's Sort row: it opens the sort menu (Manual, Name, Recent) next to the group, which the
+    /// App builds from the registry (`groupSortMenu`, `workspaceGroup.setSort`).
+    static let sortItem = "sidebar.group.sort"
 
     /// The editor's rows when the App gives none: the shared group actions. Pin and Move to Top
     /// sit in the editor itself (Lawrence 2026-10-20); the rest are in the header's right-click
@@ -31,6 +34,7 @@ struct SidebarGroupEditing {
                 SidebarGroupEditorItem(id: "workspaceGroup.togglePin", title: pinned ? GroupEditorStrings.unpin : GroupEditorStrings.pin,
                                        icon: .actionPin),
                 SidebarGroupEditorItem(id: "workspaceGroup.moveToTop", title: GroupEditorStrings.moveToTop, icon: .navPreviousMatch),
+                SidebarGroupEditorItem(id: sortItem, title: GroupEditorStrings.sort, icon: .filter),
             ],
             [
                 SidebarGroupEditorItem(id: "workspaceGroup.ungroup", title: GroupEditorStrings.ungroup, icon: .groupUngroup),
@@ -50,6 +54,15 @@ struct SidebarGroupEditing {
         editor.onItem = { [weak list] id, item in
             guard let list else { return }
             // The App hears every row, More too (a menu action may add a member).
+            // Sort opens the group's sort menu (`groupSortMenu`); its pick runs the action, not the row.
+            // It opens once the bubble has closed (the row's press closes it), where the bubble's more button is.
+            if item == Self.sortItem {
+                Task { @MainActor [weak list] in
+                    guard let list else { return }
+                    SidebarGroupEditing(list: list).showSortMenu(id)
+                }
+                return
+            }
             list.onGroupEditorItem?(id, item)
             if item == Self.moreActionsItem { SidebarGroupEditing(list: list).showMenu(id) }
         }
@@ -95,7 +108,8 @@ struct SidebarGroupEditing {
         }
         let anchor = PopupAnchor(rect: window.convertToScreen(list.convert(control.rect, to: nil)), edge: control.edge, gap: control.gap)
         list.hoverCards.dismiss(.click)
-        list.groupEditor.show(group, items: list.groupEditorItems?(id) ?? Self.standardItems(pinned: group.isPinned), anchor: anchor, parent: window,
+        list.groupEditor.show(group, items: Self.showingSort(list.groupEditorItems?(id) ?? Self.standardItems(pinned: group.isPinned), group.sort),
+                              anchor: anchor, parent: window,
                               themeAnchor: list)
         view.isEditing = true
     }
@@ -108,7 +122,8 @@ struct SidebarGroupEditing {
         let title = view.titleFrame.offsetBy(dx: rowFrame.minX, dy: rowFrame.minY)
         let anchor = PopupAnchor(rect: window.convertToScreen(list.convert(title, to: nil)), edge: .leading)
         list.hoverCards.dismiss(.click)
-        list.groupEditor.show(group, items: list.groupEditorItems?(group.id) ?? Self.standardItems(pinned: group.isPinned), anchor: anchor,
+        list.groupEditor.show(group, items: Self.showingSort(list.groupEditorItems?(group.id) ?? Self.standardItems(pinned: group.isPinned),
+                                                             group.sort), anchor: anchor,
                               parent: window, themeAnchor: list)
     }
 
@@ -118,11 +133,34 @@ struct SidebarGroupEditing {
         open(group.id)
     }
 
+    /// `items` with the Sort row reading the group's sort on its trailing side, where a row shows its shortcut.
+    static func showingSort(_ items: [[SidebarGroupEditorItem]], _ sort: SidebarGroupSort) -> [[SidebarGroupEditorItem]] {
+        items.map { section in
+            section.map { item in
+                guard item.id == sortItem else { return item }
+                var item = item
+                item.shortcut = GroupEditorStrings.sortTitle(sort)
+                return item
+            }
+        }
+    }
+
+    /// The App's sort menu (Manual, Name, Recent) where the group's full menu opens (`showMenu`).
+    func showSortMenu(_ id: GroupID) {
+        guard list.groups[id] != nil, let menu = list.groupSortMenu?(id) else { return }
+        present(menu, for: id)
+    }
+
     /// The group's full menu under its more button, on the button's trailing
     /// edge (the editor's More Group Actions row, VoiceOver's menu action).
     func showMenu(_ id: GroupID) {
         let target = SidebarGroup.hostMachine(id).map { SidebarContextTarget.section(.machine($0)) } ?? .group(id)
         guard let menu = list.contextMenuProvider?(target) else { return }
+        present(menu, for: id)
+    }
+
+    /// `menu` under the group's more button, on its trailing edge; a group drawn as its one row: on that row's.
+    private func present(_ menu: NSMenu, for id: GroupID) {
         guard let view = list.rowViews[.group(id)] as? GroupHeaderRowView else {
             // A group drawn as its one row: on that row's trailing edge.
             guard let row = list.displayed.groupRow(id), let view = list.rowViews[row.key] else { return }

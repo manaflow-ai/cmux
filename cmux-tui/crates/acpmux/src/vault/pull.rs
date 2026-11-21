@@ -70,8 +70,7 @@ pub(super) fn hold(home: &Path) -> Result<(), &'static str> {
     crate::config::private_state_dir(home).map_err(|_| "vault.state_write_failed")?;
     #[cfg(unix)]
     {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        std::fs::OpenOptions::new()
+        crate::home_fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(false)
@@ -82,11 +81,11 @@ pub(super) fn hold(home: &Path) -> Result<(), &'static str> {
             .map_err(|_| "vault.state_write_failed")
     }
     #[cfg(not(unix))]
-    std::fs::write(hold_path(home), b"").map_err(|_| "vault.state_write_failed")
+    crate::home_fs::write(hold_path(home), b"").map_err(|_| "vault.state_write_failed")
 }
 
 pub(super) fn release(home: &Path) {
-    let _ = std::fs::remove_file(hold_path(home));
+    let _ = crate::home_fs::remove_file(hold_path(home));
 }
 
 /// Save `state`. The one rule for the hold: it is lifted only by a durable
@@ -110,12 +109,12 @@ pub fn verify_kept(steps: Vec<Step>, store: &dyn SecretStore) -> Vec<Step> {
     steps
         .into_iter()
         .map(|step| match step {
-            Step::Keep { name, revision, value } => match store.get(&name) {
+            Step::Keep { name, revision, value, proxy } => match store.get(&name) {
                 Ok(Some(have)) if have.as_str() == value.as_str() => {
-                    Step::Keep { name, revision, value }
+                    Step::Keep { name, revision, value, proxy }
                 }
-                Err(_) => Step::Keep { name, revision, value },
-                Ok(_) => Step::Store { name, revision, value },
+                Err(_) => Step::Keep { name, revision, value, proxy },
+                Ok(_) => Step::Store { name, revision, value, proxy },
             },
             other => other,
         })
@@ -200,7 +199,7 @@ pub async fn fetch(hub: &str, credential: &str) -> Answer {
         return Answer::Retry("vault.client".to_owned());
     };
     let response = match client
-        .get(format!("{hub}{}", wire::MACHINE_PATH))
+        .get(format!("{hub}{}?{}", wire::MACHINE_PATH, wire::DELIVERY_QUERY))
         .bearer_auth(credential)
         .send()
         .await
@@ -236,15 +235,21 @@ pub fn apply(
     let (mut stored, mut deleted, mut failed) = (Vec::new(), Vec::new(), Vec::new());
     for step in steps {
         match step {
-            Step::Keep { .. } => {}
-            Step::Store { name, revision, value } => match store.put(&name, &value) {
+            // A policy change (proxy hosts, or env and proxy swapped) comes
+            // without a new revision: the record takes it.
+            Step::Keep { name, proxy, .. } => {
+                if let Some(record) = state.env.get_mut(&name) {
+                    record.proxy = proxy;
+                }
+            }
+            Step::Store { name, revision, value, proxy } => match store.put(&name, &value) {
                 Ok(()) => {
                     state.pending_delete.remove(&name);
                     let fingerprint = state.fingerprint(&name, &value);
                     let credential = binding.to_owned();
                     state.env.insert(
                         name.clone(),
-                        plan::EnvRecord { revision, fingerprint, credential },
+                        plan::EnvRecord { revision, fingerprint, credential, proxy },
                     );
                     stored.push(name);
                 }
@@ -511,7 +516,7 @@ pub fn forget(home: &Path, store: &dyn SecretStore) -> Result<Outcome, Failure> 
     };
     // The state file goes only once no item is left in any store.
     if outcome.failed.is_empty() && state.os_pending.is_empty() {
-        match std::fs::remove_file(state_path(home)) {
+        match crate::home_fs::remove_file(state_path(home)) {
             Ok(()) => {
                 release(home);
                 Ok(outcome)

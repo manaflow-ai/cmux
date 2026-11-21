@@ -4,7 +4,7 @@ import CmuxNextCompat
 /// Frames only for what the person can see (Chrome's rule for a hidden tab: no animation frames, and
 /// the page shows its final state when it is shown again). A window out of sight gets no animation
 /// frames: an animation client that starts in it, or is running when it goes out of sight, ends at
-/// once at its final state (its completions run), and the window's display link goes with the last
+/// once at its final state (its completions run), and the window's display link pauses with the last
 /// client. Clients that are not animations (the daemon mirror, batch drains) keep ticking, on the
 /// link or on the stall deadline, as before.
 ///
@@ -60,7 +60,34 @@ extension FrameScheduler {
             }()
             note.coveredWhileShown = window.isVisible && !window.occlusionState.contains(.visible)
             if windowIsOutOfSight(window) { scheduler(of: window)?.endAnimations() }
+            tellSightFollowers(of: window)
         }
+    }
+
+    /// Calls `handler` each time WindowServer reports a change in `window`'s occlusion, from the app's
+    /// one occlusion observer (no observer of its own), until ``unfollowSight(of:owner:)`` or `owner`
+    /// or `window` goes away. One handler per owner and window; a second call replaces the first.
+    public static func followSight(of window: NSWindow, owner: AnyObject, _ handler: @escaping @MainActor () -> Void) {
+        watchSight()
+        app.sightFollowers[ObjectIdentifier(window), default: [:]][ObjectIdentifier(owner)] =
+            SightFollower(window: window, owner: owner, handler: handler)
+    }
+
+    /// Stops `owner`'s ``followSight(of:owner:_:)`` on `window`.
+    public static func unfollowSight(of window: NSWindow, owner: AnyObject) {
+        let key = ObjectIdentifier(window)
+        app.sightFollowers[key]?[ObjectIdentifier(owner)] = nil
+        if app.sightFollowers[key]?.isEmpty == true { app.sightFollowers[key] = nil }
+    }
+
+    /// Calls the handlers following `window`, dropping followers whose owner or window went away (an
+    /// identifier a freed window left behind is never told about a new window at the same address).
+    static func tellSightFollowers(of window: NSWindow) {
+        let key = ObjectIdentifier(window)
+        guard let followers = app.sightFollowers[key] else { return }
+        let live = followers.filter { $0.value.owner != nil && $0.value.window === window }
+        app.sightFollowers[key] = live.isEmpty ? nil : live
+        for follower in live.values { follower.handler() }
     }
 
     private static var sightKey: UInt8 = 0
@@ -70,7 +97,7 @@ extension FrameScheduler {
         objc_getAssociatedObject(window, &associationKey) as? FrameScheduler
     }
 
-    /// Ends every running animation client now (the window went out of sight), and drops the link
+    /// Ends every running animation client now (the window went out of sight), and pauses the link
     /// when no client is left.
     func endAnimations() {
         for client in clients.values where client.isActive && client.isAnimation { end(client) }
@@ -88,4 +115,11 @@ extension FrameScheduler {
 @MainActor
 final class SightNote {
     var coveredWhileShown = false
+}
+
+/// One follower of a window's occlusion reports (``FrameScheduler/followSight(of:owner:_:)``).
+struct SightFollower {
+    weak var window: NSWindow?
+    weak var owner: AnyObject?
+    let handler: @MainActor () -> Void
 }

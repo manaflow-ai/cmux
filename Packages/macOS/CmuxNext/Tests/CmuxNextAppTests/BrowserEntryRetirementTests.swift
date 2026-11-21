@@ -14,7 +14,8 @@ import Testing
         autoreleasepool {
             var entry: BrowserEntry? = BrowserEntry(tab: page)
             released = entry
-            entry?.chrome.isHidden = true
+            let pane = BrowserPaneChrome()
+            if let entry { pane.bind(entry.tab, state: entry.state).isHidden = true }
             #expect(page.contentView.superview != nil)
             entry = nil
         }
@@ -27,7 +28,8 @@ import Testing
     @Test func closingAnEntryDetachesItsContentWhileItsChromeIsStillAlive() {
         let page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
         let entry = BrowserEntry(tab: page)
-        entry.chrome.isHidden = true
+        let pane = BrowserPaneChrome()
+        pane.bind(entry.tab, state: entry.state).isHidden = true
         entry.close()
         #expect(page.isClosed)
         #expect(page.contentView.superview == nil)
@@ -43,7 +45,7 @@ import Testing
         let owner: EntryOwner
         do {
             let entry = BrowserEntry(tab: page)
-            chrome = entry.chrome
+            chrome = BrowserPaneChrome().bind(entry.tab, state: entry.state)
             owner = EntryOwner(entry)
         }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
@@ -86,5 +88,19 @@ import Testing
             onLeaveWindow = nil
             callback?()
         }
+    }
+
+    /// A closed tab frees its toolbar state: no hook it holds keeps it (a closure capturing its own state was a cycle).
+    @Test func aClosedTabsStateIsFreed() async {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        weak var freed: BrowserChromeTabState?
+        autoreleasepool {
+            let entry = services.cache.browser(for: "state-freed", url: URL(string: "https://example.com/freed"))
+            freed = entry.state
+            #expect(entry.state.loadOverride != nil, "the cache wired the tab's hooks")
+            services.cache.release("state-freed")
+        }
+        for _ in 0..<20 { await Task.yield() }
+        withExtendedLifetime(services) { #expect(freed == nil, "the closed tab's BrowserChromeTabState is still alive") }
     }
 }

@@ -5,6 +5,7 @@
 // replaces), goes exactly once when the chat is back, and a failed wake gives it back.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -26,18 +27,14 @@ Object.assign(globals, replacements);
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { useTrustHeldPrompts } = await import("../src/agent-session/acpmux/trustHeld");
-const { cloudSendWakes } = await import("../src/agent-session/acpmux/cloudWake");
+const { cloudSendWakes, cloudTypingWakes } = await import("../src/agent-session/acpmux/cloudWake");
 type Held = ReturnType<typeof useTrustHeldPrompts>;
 type Entry = Parameters<Parameters<typeof useTrustHeldPrompts>[0]["send"]>[0];
 
 const root = createRoot(dom.window.document.getElementById("root")!);
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) globals[key] = value;
-    else delete globals[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope: globals });
 });
 
 const live = { cloud: true, chat: "chat-1", linkUp: true, paused: false, unavailable: false };
@@ -50,6 +47,21 @@ test("a send wakes only a Cloud chat whose machine is paused or out of reach", (
   // Not a Cloud chat, or no chat yet: the send goes as before.
   expect(cloudSendWakes({ ...live, cloud: false, linkUp: false })).toBeUndefined();
   expect(cloudSendWakes({ ...live, chat: undefined, linkUp: false })).toBeUndefined();
+});
+
+test("typing wakes a paused Cloud machine once per sleep, before any send", () => {
+  const asleep = { ...live, linkUp: false, asleep: true, woke: undefined };
+  expect(cloudTypingWakes(asleep)).toBe("chat-1");
+  expect(cloudTypingWakes({ ...asleep, unavailable: true, paused: true })).toBe("chat-1");
+  // The next keys of the same sleep wake nothing more; another chat's sleep is its own.
+  expect(cloudTypingWakes({ ...asleep, woke: "chat-1" })).toBeUndefined();
+  expect(cloudTypingWakes({ ...asleep, chat: "chat-2", woke: "chat-1" })).toBe("chat-2");
+  // A link that is only connecting (the machine not read as paused) is left alone, and so is a
+  // live chat, a chat that is not Cloud, or none.
+  expect(cloudTypingWakes({ ...asleep, asleep: false })).toBeUndefined();
+  expect(cloudTypingWakes({ ...live, asleep: true, woke: undefined })).toBeUndefined();
+  expect(cloudTypingWakes({ ...asleep, cloud: false })).toBeUndefined();
+  expect(cloudTypingWakes({ ...asleep, chat: undefined })).toBeUndefined();
 });
 
 let shown: Held | undefined;

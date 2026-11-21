@@ -1,7 +1,7 @@
 public import AppKit
 
 /// A pane's hosted view that draws its own tools at the trailing end of the pane's tab row
-/// (`ChromeTunables.tabRowTools`; Leo 2026-10-14, "why is there even a top bar"): a chat's header
+/// (Leo 2026-10-14, "why is there even a top bar"): a chat's header
 /// tools. While it reports a width, the pane lays the view over the strip's row too and narrows the
 /// strip by that width; the strip and the pane's own toolbar stay above the view, so the view
 /// draws its tools in the space the strip gave up.
@@ -21,6 +21,8 @@ public protocol PaneTabRowSharing: AnyObject {
     /// Whether the pane draws its tabs at the row's leading end; false while a lone tab hides, so the
     /// view shows through all of the row but its tools and the pane's toolbar. Called before ``setTabRow(height:trailingInset:)``.
     func setTabRowTabs(shown: Bool)
+    /// The view takes the whole row when its pane hides a lone tab (a chat; `TabStripModel.hidesLoneTab`).
+    var tabRowTakesLoneTab: Bool { get }
     /// What the pane's toolbar fills its frame with while the view shares the row, so the toolbar reads as the
     /// surface the view paints around it: a view that is a window above the pane (a Chromium chat) leaves the
     /// toolbar a hole, and where it paints its own surface across the row (alone in its pane) the hole would
@@ -30,6 +32,7 @@ public protocol PaneTabRowSharing: AnyObject {
 
 extension PaneTabRowSharing {
     public func setTabRowTabs(shown: Bool) {}
+    public var tabRowTakesLoneTab: Bool { false }
     public var tabRowHoleFill: CGColor? { nil }
 
     /// Points the strip gives up beside the view's tools in a row `room` wide (at most half of it).
@@ -39,6 +42,12 @@ extension PaneTabRowSharing {
     /// that do not keep the view's own header row, so in a narrow pane the last tab does not cover
     /// the leading tools. Tools that never reported are offered the row once, to learn their width.
     public func fitsTabRow(room: CGFloat) -> Bool { (tabRowToolsNeed ?? 0) <= max(0, room / 2) }
+
+    /// Whether the view's tools are in a row `room` wide now. A view that keeps its size through a key resize (the stated
+    /// exception ``PaneKeyResizeHeld``: the Home) is then held whole with its pane's strip, the tools being page pixels the
+    /// strip cannot follow (``PaneContentAreaView/holdArea(for:drawsInTabRow:)``); every other view (a chat) follows its
+    /// pane with its tools. Decided for the view shown at the hold's start, never kept from the view the pane showed before.
+    public func drawsInTabRow(room: CGFloat) -> Bool { fitsTabRow(room: room) && tabRowWidth(room: room) > 0 }
 
     /// Offers the view the row (`height` 0: none); a change in its tools' width lays `pane` out
     /// again while the view is still in it (a view another pane took gets its row from that pane).
@@ -54,8 +63,10 @@ extension PaneTabRowSharing {
     }
 }
 
-/// The window's lit top rim where a shared tab row meets the window's top edge: nothing over the row covers its
-/// top `height` points (a Chromium chat's page, #33346; the toolbar's fill, ``NSView/paintTabRowHole(_:rim:)``).
+/// The window's lit rim, `height` points just inside its frame: nothing in the main pane covers it where the pane
+/// meets a window edge (``Metrics/windowEdgeInset(_:in:)``), and where a shared tab row meets the window's top edge
+/// nothing over the row covers its top `height` points (a Chromium chat's page, #33346; the toolbar's fill,
+/// ``NSView/paintTabRowHole(_:rim:)``).
 public struct PaneTabRowRim {
     public init() {}
     public static let height: CGFloat = 1
@@ -78,6 +89,7 @@ extension PaneTabRowForwarding {
     }
     public func setTabRow(height: CGFloat, trailingInset: CGFloat) { tabRowSharer?.setTabRow(height: height, trailingInset: trailingInset) }
     public func setTabRowTabs(shown: Bool) { tabRowSharer?.setTabRowTabs(shown: shown) }
+    public var tabRowTakesLoneTab: Bool { tabRowSharer?.tabRowTakesLoneTab ?? false }
     public var tabRowHoleFill: CGColor? { tabRowSharer?.tabRowHoleFill }
 }
 
@@ -105,7 +117,15 @@ extension NSView {
     public func setTabRowCover(_ points: CGFloat) {
         let guide = tabRowCover
         let height = constraints.first { $0.identifier == Self.tabRowCoverID.rawValue && $0.firstItem === guide }
-        if height?.constant != max(0, points) { height?.constant = max(0, points) }
+        guard let height, height.constant != max(0, points) else { return }
+        height.constant = max(0, points)
+        needsLayout = true // what lies under the row follows it (a chat's ground, AgentPaneGround)
+    }
+
+    /// ``tabRowCover``'s height now, in points: 0 while the view does not share its pane's row (no guide is made).
+    public var tabRowCoverHeight: CGFloat {
+        guard let guide = layoutGuides.first(where: { $0.identifier == Self.tabRowCoverID }) else { return 0 }
+        return constraints.first { $0.identifier == Self.tabRowCoverID.rawValue && $0.firstItem === guide }?.constant ?? 0
     }
 
     private static let tabRowCoverID = NSUserInterfaceItemIdentifier("cmux.tabRowCover")

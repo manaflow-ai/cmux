@@ -114,7 +114,7 @@ struct HomeSearchGlassTests {
         #expect(h.filter.width == h.filter.height)
         #expect(h.filter.minY >= 0, "the filter circle runs off the window's top at \(width)")
         #expect(h.filter.midY == lights.midY)
-        #expect(h.search.height == HomeSidebarHeaderLayout.side)
+        #expect(h.search.height == HomeSidebarHeaderMetrics.standard.side)
         #expect(h.search.minY >= h.filter.maxY, "the search capsule overlaps the filter's row at \(width)")
     }
 

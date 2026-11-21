@@ -125,7 +125,7 @@ struct AgentShareConsentTests {
 
     /// An Allow at the sheet's last second still gets the daemon's create inside the caller's deadline.
     @Test func theSheetClosesBeforeTheCallerGivesUp() {
-        #expect(AgentShareConsentSheet.answerWithin + AgentShareActions.createDeadline < ActionDescriptor.personDeadline)
+        #expect(AgentShareActions.consentAnswerWithin + AgentShareActions.createDeadline < ActionDescriptor.personDeadline)
         #expect(ActionRegistry.standard().descriptor(for: AgentShareActions.share)?.waitsForPerson == true)
     }
 
@@ -184,10 +184,10 @@ struct AgentShareConsentTests {
     @Test func anInviteNamesAnAccountAndARole() {
         let f = AgentShareTests.fixture()
         let registry = f.services.registry
-        let none = registry.capturingTypedRefusal {
-            _ = registry.perform(AgentShareActions.invite, invocation: ActionInvocation(target: nil, arguments: ["surface": .int(1)], origin: .cli))
-        }
-        #expect(none != nil, "an invite with no account ran")
+        var cli = ActionInvocation(target: nil, arguments: ["surface": .int(1)], origin: .cli)
+        cli.viaControlSocket = true
+        let none = registry.capturingTypedRefusal { _ = registry.perform(AgentShareActions.invite, invocation: cli) }
+        #expect(none?.reason == AgentShareStrings.needsAccount, "a CLI invite with no account ran")
         let uninvite = registry.capturingTypedRefusal {
             _ = registry.perform(AgentShareActions.uninvite, invocation: ActionInvocation(target: nil, arguments: ["surface": .int(1)], origin: .cli))
         }

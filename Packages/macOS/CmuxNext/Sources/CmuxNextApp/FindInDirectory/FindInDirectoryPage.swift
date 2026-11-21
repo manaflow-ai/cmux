@@ -20,7 +20,7 @@ enum FindInDirectoryPage {
         }
         return PalettePageSpec(id: "findInDirectory.results", title: query,
                                placeholder: (root as NSString).abbreviatingWithTildeInPath,
-                               symbol: "folder.badge.magnifyingglass", providers: [provider])
+                               symbol: "doc.text.magnifyingglass", providers: [provider])
     }
 
     static func items(for outcome: RipgrepSearch.Outcome, effects: any FileExplorerEffects,
@@ -52,7 +52,7 @@ enum FindInDirectoryPage {
             PaletteCommand(id: "copyRelativePath", title: FindInDirectoryStrings.copyRelativePath, symbol: "doc.on.doc",
                            effect: .perform { copy(match.relativePath) }),
             PaletteCommand(id: "insertPath", title: FindInDirectoryStrings.insertPath, symbol: "text.insert",
-                           effect: .perform { insert(TerminalHandlers.shellQuoted(match.path)) }),
+                           effect: .perform { if let quoted = TerminalHandlers.shellQuoted(match.path) { insert(quoted) } }),
         ]
         return PaletteItem(
             id: "\(match.path):\(match.line):\(match.column)", title: match.preview, subtitle: location,

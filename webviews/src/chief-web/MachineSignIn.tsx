@@ -36,17 +36,17 @@ export function MachineSignIn({ run, api, onExpired }: { run: string; api: Machi
         setState({ phase: "hidden" });
         expired.current();
       } else if (error instanceof MachineLoginError && error.status === 404) setState({ phase: "hidden" });
+      else if (
+        error instanceof MachineLoginError &&
+        (error.status === 410 || error.code === "chief.machine.login_changed")
+      )
+        setState((old) => ({ ...old, phase: "ready", login: undefined, error: "expired", recover: false }));
       else
         setState((old) => ({
           ...old,
           phase: "ready",
           recover,
-          ...(error instanceof MachineLoginError &&
-          (error.status === 410 || error.code === "chief.machine.login_changed")
-            ? { login: undefined, error: "expired", recover: false }
-            : {
-                error: error instanceof MachineLoginError && error.status === 409 ? "busy" : "failed",
-              }),
+          error: error instanceof MachineLoginError && error.status === 409 ? "busy" : "failed",
         }));
     },
     [current],
@@ -148,7 +148,11 @@ export function MachineSignIn({ run, api, onExpired }: { run: string; api: Machi
       ? t("turn.signIn.codex")
       : state.harness === "claude"
         ? t("turn.signIn.claude")
-        : t("needsYou.chief");
+        : state.harness === "grok"
+          ? t("turn.signIn.grok")
+          : state.harness === "cursor"
+            ? t("turn.signIn.cursor")
+            : t("needsYou.chief");
   return (
     <section className="chief-machine-login" aria-label={title} data-testid="chief-machine-login" aria-busy={busy}>
       <div className="chief-machine-login__heading">

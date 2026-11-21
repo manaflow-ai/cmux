@@ -12,6 +12,10 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 pub use cmux_link::stamp::LinkPeer;
+use cmux_tui_util::published::{PublishGuard, Published};
+
+/// The verified link peer of each remote connection, by client id.
+pub type PeerRecords = BTreeMap<u64, LinkPeer>;
 
 /// Last good check older than this: new streams of the install are refused.
 pub const REFUSE_NEW_STREAMS_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
@@ -225,8 +229,10 @@ pub fn lock_checked<T>(
 /// The remote-relay state on the conversation host.
 #[derive(Default)]
 pub struct RemoteRelayState {
-    /// The verified link peer of each remote connection (memory only).
-    pub peers: Mutex<BTreeMap<u64, LinkPeer>>,
+    /// The verified link peer of each remote connection (memory only). Every line of every connection asks for its
+    /// record (the remote-client check, the request's actor), so with publishing on (R-DAEMON-STATE stage S1) a
+    /// reader loads the published copy and never waits for a bind, a disconnect or a revocation sweep.
+    pub peers: Published<PeerRecords, PeerRecords>,
     /// Connections whose peer stamp was produced after the Cloud control
     /// plane accepted a link token.  A caller-supplied capability is not
     /// authority; Cloud mobile uses this authenticated admission bit.
@@ -236,10 +242,33 @@ pub struct RemoteRelayState {
 }
 
 impl RemoteRelayState {
+    /// The state of a daemon whose stage S1 switch (R-DAEMON-STATE) is `publish_peers`: on, the peer records are
+    /// published and [`Self::peer_checked`] never takes their lock.
+    pub fn new(publish_peers: bool) -> Self {
+        Self {
+            peers: Published::new(PeerRecords::new(), PeerRecords::clone, publish_peers),
+            ..Self::default()
+        }
+    }
+
+    /// The peer records, locked for a change or for a read of more than one record; an error when a panic poisoned
+    /// them (callers fail closed).
+    pub fn peers_checked(
+        &self,
+    ) -> Result<PublishGuard<'_, PeerRecords, PeerRecords>, RelayStateError> {
+        self.peers.lock().map_err(|_| RelayStateError::Poisoned(RelayLock::Peers))
+    }
+
     /// The peer record of `client`; an error when the peers lock is
-    /// poisoned (callers fail closed).
+    /// poisoned (callers fail closed). With publishing on, the published
+    /// records: the newest finished bind or removal, no wait.
     pub fn peer_checked(&self, client: u64) -> Result<Option<LinkPeer>, RelayStateError> {
-        Ok(lock_checked(&self.peers, RelayLock::Peers)?.get(&client).cloned())
+        if self.peers.publishing() {
+            let peers =
+                self.peers.load().map_err(|_| RelayStateError::Poisoned(RelayLock::Peers))?;
+            return Ok(peers.get(&client).cloned());
+        }
+        Ok(self.peers_checked()?.get(&client).cloned())
     }
 
     /// The peer record of `client` (tests). A poisoned peers lock gives
@@ -258,7 +287,7 @@ impl RemoteRelayState {
 
     /// The remote connections of `install`.
     pub fn clients_of(&self, install: &str) -> Result<Vec<u64>, RelayStateError> {
-        let peers = lock_checked(&self.peers, RelayLock::Peers)?;
+        let peers = self.peers_checked()?;
         Ok(peers.iter().filter(|(_, peer)| peer.install == install).map(|(c, _)| *c).collect())
     }
 

@@ -20,7 +20,8 @@ final class SidebarStatesPlaygroundCellView: NSView {
         caption.textColor = .secondaryLabelColor
         caption.lineBreakMode = .byTruncatingTail
         caption.stringValue = cell.image == nil ? Strings.statesPlaygroundNotDrawn
-            : (cell.bars.map(\.sizeText) + cell.marks.map(\.sizeText)).joined(separator: "   ")
+            : ([cell.card?.sizeText(rowHeight: cell.rowFrame.height)].compactMap { $0 } + cell.bars.map(\.sizeText)
+                + cell.marks.map(\.sizeText)).joined(separator: "   ")
         addSubview(caption)
     }
 

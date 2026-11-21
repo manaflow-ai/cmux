@@ -136,6 +136,7 @@ def plan(repo: Path, head: str, out: Path, github_repo: str = "", run_url: str =
         except (check.FixError, check.ListError) as error:
             print(f"package-deps-heal: cannot declare {module} in {target}: {error}", file=sys.stderr)
             return {"red": "true", "fixable": "false"}
+    fixed_text = check.check(fixed_text, fix=True)[1]  # a one-entry list that gained an entry goes one per line
     # Every problem, a stale IMPORT_BASELINE line included: a pull request that leaves one is red itself (review of
     # 8e00c8ba).
     still = check.check(fixed_text, fix=False)[0] + check.import_problems(fixed_text, manifest.parent)

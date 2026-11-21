@@ -27,7 +27,8 @@ case "${1:-}" in
     sha=$(git -C "$repo" rev-parse "${2:?SHA}^{commit}"); name=${3:?NAME}
     key=$(printf '%s\n' "$(git -C "$repo" rev-parse "$sha:cmux-next-ios/rust")" \
       "$(git -C "$repo" rev-parse "$sha:cmux-tui/crates/cmux-wg")" \
-      "$(git -C "$repo" rev-parse "$sha:cmux-tui/crates/cmux-transport")" | shasum | cut -c1-16)
+      "$(git -C "$repo" rev-parse "$sha:cmux-tui/crates/cmux-transport")" \
+      "$(git -C "$repo" rev-parse "$sha:cmux-tui/vendor/smoltcp")" | shasum | cut -c1-16)
     sync_tools
     ssh "$HOST" "rm -rf ~/hdralign/$name/src && mkdir -p ~/hdralign/$name/src"
     git -C "$repo" archive --format=tar "$sha" cmux-next-ios Packages vendor/stack-auth-swift-sdk-prerelease AppIcon.icon \

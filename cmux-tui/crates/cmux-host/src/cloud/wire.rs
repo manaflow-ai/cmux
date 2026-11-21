@@ -10,6 +10,10 @@ use serde_json::{Map, Value, json};
 pub const BIND_FILE: &str = "/var/lib/cmux/bind.json";
 /// Written by a successful bind, before `bind.json` is removed (0600).
 pub const BOUND_FILE: &str = "/var/lib/cmux/bound.json";
+/// A bind POST whose answer was lost (a transport error, 429 or 5xx): the
+/// token's digest and when (0600). A refusal of that same token later may be
+/// the platform answering a replay of a bind it already committed.
+pub const BIND_UNANSWERED_FILE: &str = "/var/lib/cmux/bind-unanswered.json";
 /// This VM's kind for processes that cannot read /var/lib/cmux (0700 root):
 /// `owner` or `team`, root-owned, 0644. Informational: it records the kind
 /// cmux assigned, and acpmux does not trust it for any decision (#26227).
@@ -35,6 +39,14 @@ pub const DAEMON_SOCKET_FILE: &str = "/etc/cmux/daemon-socket";
 /// only these travel, plus the agent's own.
 pub const CLOUD_GATED_DAEMON_CAPABILITIES: [&str; 2] = ["fs-v1", "loopback-forward-v1"];
 pub const AGENT_CAPABILITY: &str = "vm-agent-v1";
+/// Advertised when the image serves link service `desktop`: its
+/// [`DESKTOP_SOCKET_UNIT`] is installed, and this receiver build knows the
+/// service. The platform grants `desktop` (to the machine's creator only)
+/// only to a machine whose daemon block carries it.
+pub const DESKTOP_CAPABILITY: &str = "link-desktop-v1";
+/// The image's socket unit of the agent display's `cmux.rd/1` host
+/// (`/run/cmux-rd/desktop.sock`, root 0600).
+pub const DESKTOP_SOCKET_UNIT: &str = "/etc/systemd/system/cmux-agent-rd.socket";
 /// Advertised only while the activity stream to the daemon is live.
 pub const ACTIVITY_CAPABILITY: &str = "activity";
 /// Advertised with `activity` while acpmux's `acp_activity` lines arrive (each within
@@ -44,6 +56,18 @@ pub const ACTIVITY_CAPABILITY: &str = "activity";
 /// Cloud short-idle-pauses a machine only when its report advertises this, so a chat mid-turn
 /// with no app attached is never paused, also not right after the agent restarted.
 pub const ACTIVITY_TURNS_CAPABILITY: &str = "activity-turns";
+/// Advertised with `activity-turns` while every acpmux daemon whose count holds also says what
+/// each of its sessions at work waits on: the report's `activity.phases`
+/// (`{"relayed": bool, "turns": [{"phase", "since", ...}]}`, one entry per acpmux session at
+/// work; acpmux `daemon/cloud_activity.rs` names the phases). The Cloud sleeps a machine inside
+/// its turns only from a report that advertises this (cmux#34298).
+pub const ACTIVITY_PHASES_CAPABILITY: &str = "activity-phases";
+/// Advertised with `activity` while the agent's workload probe reads (`workload.rs`): the
+/// report's `activity.workload` counts the processes using CPU, the listening sockets and the
+/// timers that are not the system's. The Cloud reads a machine as idle only from a report that
+/// advertises this and counts none of them, so a dev server, a build or a cron job an agent left
+/// running is never paused.
+pub const ACTIVITY_WORKLOAD_CAPABILITY: &str = "activity-workload";
 /// How long acpmux's count of sessions at work holds without a new `acp_activity` line
 /// (acpmux renews it every 20 s, `daemon/cloud_activity.rs`): a
 /// daemon that died mid-turn does not keep the machine awake for good.
@@ -84,9 +108,9 @@ impl Env {
     /// The only API origin each environment may bind to.
     pub fn api_origin(self) -> &'static str {
         match self {
-            Env::Dev => "https://cmux-api-development.debussy.workers.dev",
-            Env::Stg => "https://cloud-api-staging.cmux.dev",
-            Env::Prod => "https://cloud-api.cmux.dev",
+            Env::Dev => cmux_cloud_environment::DEVELOPMENT_API,
+            Env::Stg => cmux_cloud_environment::STAGING_API,
+            Env::Prod => cmux_cloud_environment::PRODUCTION_API,
         }
     }
 
@@ -94,9 +118,9 @@ impl Env {
     /// choose an origin and redirect the machine's bearer elsewhere.
     pub fn platform_origin(self) -> &'static str {
         match self {
-            Env::Dev => "https://cmux-platform-development.debussy.workers.dev",
-            Env::Stg => "https://cmux-platform-staging.debussy.workers.dev",
-            Env::Prod => "https://cmux-platform-production.debussy.workers.dev",
+            Env::Dev => cmux_cloud_environment::DEVELOPMENT_PLATFORM,
+            Env::Stg => cmux_cloud_environment::STAGING_PLATFORM,
+            Env::Prod => cmux_cloud_environment::PRODUCTION_PLATFORM,
         }
     }
 
@@ -107,6 +131,12 @@ impl Env {
             Env::Stg => "staging",
             Env::Prod => "production",
         }
+    }
+
+    /// The `iss` of a carrier grant for a machine bound here: the Worker
+    /// signs grants as `cmux:cloud:<ENVIRONMENT>`, never the short tag.
+    pub fn grant_issuer(self) -> String {
+        format!("cmux:cloud:{}", self.auth_environment())
     }
 
     fn parse(raw: &str) -> Option<Env> {
@@ -126,6 +156,8 @@ pub struct BindFile {
     pub bind_token: String,
     pub api_origin: String,
     pub env: Env,
+    /// The relay carrier route (`carrier_entry.rs`), when the platform sent one.
+    pub carrier: Option<crate::carrier_entry::CarrierRoute>,
 }
 
 fn prefixed_id(raw: &str, prefix: &str) -> bool {
@@ -161,7 +193,18 @@ pub fn parse_bind_file(text: &str) -> Result<BindFile, String> {
     if api_origin != env.api_origin() {
         return Err(format!("bind.json: api_origin is not the {} origin", field("env")));
     }
-    Ok(BindFile { team, machine, bind_token, api_origin, env })
+    let carrier = match raw.get("carrier") {
+        None => None,
+        Some(section) => {
+            let route = crate::carrier_entry::parse_section(section)
+                .map_err(|why| format!("bind.json: {why}"))?;
+            if route.machine != machine {
+                return Err("bind.json: `carrier.machine` is not this machine".to_owned());
+            }
+            Some(route)
+        }
+    };
+    Ok(BindFile { team, machine, bind_token, api_origin, env, carrier })
 }
 
 /// `bound.json`: what the machine needs to report after a restart.
@@ -188,16 +231,35 @@ pub struct DaemonInfo {
 }
 
 impl DaemonInfo {
-    /// The same block with `activity` on (the stream is live) or off, and `activity-turns` with
-    /// it while acpmux's count is known (`turns`).
-    pub fn with_activity(&self, on: bool, turns: bool) -> DaemonInfo {
+    /// The same block with `activity` on (the stream is live) or off, `activity-turns` with it
+    /// while acpmux's count is known (`turns`), and `activity-phases` with that while acpmux's
+    /// phases are known too (`phases`).
+    pub fn with_activity(&self, on: bool, turns: bool, phases: bool) -> DaemonInfo {
         let mut capabilities: Vec<String> =
             self.capabilities.iter().filter(|c| !is_activity_capability(c)).cloned().collect();
         if on {
             capabilities.push(ACTIVITY_CAPABILITY.to_owned());
             if turns {
                 capabilities.push(ACTIVITY_TURNS_CAPABILITY.to_owned());
+                if phases {
+                    capabilities.push(ACTIVITY_PHASES_CAPABILITY.to_owned());
+                }
             }
+        }
+        DaemonInfo { version: self.version.clone(), capabilities }
+    }
+
+    /// The same block with `activity-workload` on (the workload is known and `activity` is on)
+    /// or off. [`Self::with_activity`] drops it: apply this after.
+    pub fn with_workload(&self, on: bool) -> DaemonInfo {
+        let mut capabilities: Vec<String> = self
+            .capabilities
+            .iter()
+            .filter(|c| *c != ACTIVITY_WORKLOAD_CAPABILITY)
+            .cloned()
+            .collect();
+        if on && capabilities.iter().any(|c| c == ACTIVITY_CAPABILITY) {
+            capabilities.push(ACTIVITY_WORKLOAD_CAPABILITY.to_owned());
         }
         DaemonInfo { version: self.version.clone(), capabilities }
     }
@@ -208,7 +270,10 @@ impl DaemonInfo {
 }
 
 fn is_activity_capability(c: &str) -> bool {
-    c == ACTIVITY_CAPABILITY || c == ACTIVITY_TURNS_CAPABILITY
+    c == ACTIVITY_CAPABILITY
+        || c == ACTIVITY_TURNS_CAPABILITY
+        || c == ACTIVITY_PHASES_CAPABILITY
+        || c == ACTIVITY_WORKLOAD_CAPABILITY
 }
 
 /// The daemon block from one `identify` answer's `data`: version plus the
@@ -246,6 +311,16 @@ pub struct Activity {
     pub active_sessions: u64,
     pub last_user_input_at: Option<u64>,
     pub last_agent_action_at: Option<u64>,
+    /// acpmux's `phases` block, while every daemon whose count holds sent one
+    /// ([`ACTIVITY_PHASES_CAPABILITY`]).
+    pub phases: Option<Value>,
+    /// When a person last prompted one of acpmux's chats (Unix ms), the newest any daemon sent:
+    /// the Cloud keeps the machine running for a while after it (cmux-platform `IdlePolicy.ts`,
+    /// the post-chat warm window).
+    pub last_person_prompt_at: Option<u64>,
+    /// The agent's workload probe (`workload.rs`), while it reads
+    /// ([`ACTIVITY_WORKLOAD_CAPABILITY`]).
+    pub workload: Option<Value>,
 }
 
 impl Activity {
@@ -258,18 +333,37 @@ impl Activity {
         if let Some(at) = self.last_agent_action_at {
             out.insert("last_agent_action_at".to_owned(), json!(at));
         }
+        if let Some(phases) = &self.phases {
+            out.insert("phases".to_owned(), phases.clone());
+        }
+        if let Some(at) = self.last_person_prompt_at {
+            out.insert("last_person_prompt_at".to_owned(), json!(at));
+        }
+        if let Some(workload) = &self.workload {
+            out.insert("workload".to_owned(), workload.clone());
+        }
         Value::Object(out)
     }
 }
 
 impl Activity {
     /// The report's activity from the daemon's (or the socket's `activity` lines) and acpmux's
-    /// sessions at work: the counts add up, the newest agent action wins.
-    pub fn with_acp(&self, acp_sessions: u64, acp_action_at: Option<u64>) -> Activity {
+    /// sessions at work: the counts add up, the newest agent action wins, and acpmux's person's
+    /// prompt time rides along.
+    pub fn with_acp(
+        &self,
+        acp_sessions: u64,
+        acp_action_at: Option<u64>,
+        acp_phases: Option<Value>,
+        acp_prompt_at: Option<u64>,
+    ) -> Activity {
         Activity {
             active_sessions: self.active_sessions.saturating_add(acp_sessions),
             last_user_input_at: self.last_user_input_at,
             last_agent_action_at: self.last_agent_action_at.max(acp_action_at),
+            phases: acp_phases,
+            last_person_prompt_at: acp_prompt_at,
+            workload: self.workload.clone(),
         }
     }
 }

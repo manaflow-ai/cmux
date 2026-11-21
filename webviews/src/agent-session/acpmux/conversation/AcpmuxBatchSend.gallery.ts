@@ -14,7 +14,7 @@ const bash = (command: string, description: string, status: string, output?: str
   tool(command.slice(0, 120), "execute", status, { command, description, ...(output !== undefined && { output }) });
 
 const FUNCTION_BATCH = bash(
-  'cd /tmp/coord; s(){ acpmux send --no-wait --from coord "$1" "$(cat "$2")" 2>&1 | tail -1; }; s build-box/nightly escalate-nightly.md; s gcp-lane/acpmux-owner relay-owner.md; s review-astra rereview-4182.md',
+  'cd /tmp/coord; s(){ acpmux send --no-wait --from coord "$1" "$(cat "$2")" 2>&1 | tail -1; }; s build-box/nightly escalate-nightly.md; s ci-box/acpmux-owner relay-owner.md; s review-astra rereview-4182.md',
   "Escalate legacy nightly, relay to owners",
   "completed",
   'queued\nsteered\nacpmux: no_session: no session matches "review-astra"',
@@ -65,11 +65,6 @@ const MCP_BATCH = tool("mcp__cmux__acpmux_send", "other", "completed", {
     failed: 0,
   }),
 });
-const RUNNING = bash(
-  'for lane in tests docs; do acpmux send "$lane" "$(cat "/tmp/briefs/$lane.md")"; done',
-  "Brief tests and docs and wait for replies",
-  "in_progress",
-);
 
 const turn = (calls: ReturnType<typeof tool>[], working = false) =>
   chat(
@@ -90,33 +85,51 @@ const turn = (calls: ReturnType<typeof tool>[], working = false) =>
 /// MessageRunLine.tsx, #31398), so each message's own row shows.
 const openTurn: Play = async (ctx) => {
   const run = () => ctx.document.querySelector("button[data-message-run]");
+  const group = () => ctx.document.querySelector(GROUP);
   if (ctx.document.querySelector(".cv-worked.is-toggle")) {
     await ctx.click({ selector: ".cv-worked.is-toggle" });
-    await ctx.waitFor(() => ctx.document.querySelector(".cv-sent") ?? run());
+    await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg") ?? run() ?? group());
   }
-  if (!ctx.document.querySelector(".cv-sent") && run()?.getAttribute("aria-expanded") === "false") {
+  if (!ctx.document.querySelector(".cv-sent-msg") && run()?.getAttribute("aria-expanded") === "false") {
     await ctx.click({ selector: "button[data-message-run]" });
-    await ctx.waitFor(() => ctx.document.querySelector(".cv-sent"));
+    await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg") ?? group());
+  }
+  // A run of sends is one closed group ("Sent 8 messages", SentMessageLine.tsx `SentMessageGroup`).
+  if (!ctx.document.querySelector(".cv-sent-msg") && group()?.getAttribute("aria-expanded") === "false") {
+    await ctx.click({ selector: GROUP });
+    await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg"));
   }
 };
+
+const GROUP = ".cv-sent-group .cv-message-group__head";
 
 /// Opens the turn, then the first message's call (behind Raw when the message has words): the whole
 /// shell function stays at most one click away.
 const openRaw: Play = async (ctx) => {
   await openTurn(ctx);
-  await ctx.click({ selector: ".cv-sent" });
+  await ctx.click({ selector: ".cv-sent-msg .cv-agentmsg__toggle" });
   // A message whose words the transcript never held (its text read from a file) opens straight to
   // its call, with no Raw toggle (SentMessageLine.tsx); one with words keeps the call behind Raw.
-  const shell = () => ctx.document.querySelector(".cv-subsession__under .cv-shell");
-  const toggle = () => ctx.document.querySelector(".cv-subsession__under .cv-subsession__toggle");
+  const shell = () => ctx.document.querySelector(".cv-sent-msg :is(.cv-sent__raw, .cv-sent__call) [data-tool-id]");
+  const toggle = () => ctx.document.querySelector(".cv-sent-msg .cv-sent__raw > .cv-received__more");
   await ctx.waitFor(() => shell() ?? toggle());
   if (!shell()) {
-    await ctx.click({ selector: ".cv-subsession__under .cv-subsession__toggle" });
+    await ctx.click({ selector: ".cv-sent-msg .cv-sent__raw > .cv-received__more" });
     await ctx.waitFor(shell);
   }
 };
 
 const ALL = [FUNCTION_BATCH, LOOP_BATCH, CHAIN, MCP_BATCH];
+
+/// Leo's call (2026-11-04): one Bash loop of sends to 8 sessions, then one memory note. One closed
+/// line, "Sent 8 messages · and 1 more command", not 8 rows each saying "and 1 more command".
+const EIGHT = ["ux-a", "ux-b", "ci-c", "ci-d", "cloud-e", "cloud-f", "perf-g", "perf-h"];
+const LOOP_EIGHT = bash(
+  `for s in ${EIGHT.join(" ")}; do acpmux send --no-wait "$s" "From claude-sr2-coord: the broker merges directly now; land your reviewed heads."; done; agent-memory remember "broker merges directly"`,
+  "Tell the eight lanes the broker merges directly",
+  "completed",
+  Array(8).fill("queued").join("\n"),
+);
 
 export default agentPaneEntry({
   id: "agent-pane.acpmux-batch-send",
@@ -126,7 +139,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/acpmuxSends.ts", "agent-session/acpmux/conversation/acpmuxMcpSends.ts"],
   variants: {
     batches: {
-      note: 'Default: a shell function batch, a for loop, a && chain and an MCP messages batch, one sent-message row per recipient, each on its own; a file-sourced message names its file; one message acpmux refused reads "Couldn\'t send".',
+      note: 'Default: a shell function batch, a for loop, a && chain and an MCP messages batch, one "Sent N messages" group (its failure counted) that opens to a row per recipient; a file-sourced message names its file; one message acpmux refused reads "Couldn\'t send".',
       snapshot: turn(ALL),
       play: openTurn,
     },
@@ -135,10 +148,14 @@ export default agentPaneEntry({
       snapshot: turn([FUNCTION_BATCH]),
       play: openRaw,
     },
-    "batch-sending": {
-      note: "A loop batch in flight: each message is its own row and reads Sending to, with no spinner on the row.",
-      theme: { codexToolRuns: false },
-      snapshot: turn([RUNNING], true),
+    "loop-eight": {
+      note: 'A shell loop of sends to 8 sessions and one other command: one closed line, "Sent 8 messages · and 1 more command", the recipients muted after it; no Copy.',
+      snapshot: turn([LOOP_EIGHT]),
+    },
+    "loop-eight-open": {
+      note: 'The same group opened: a row per recipient, none repeating "and 1 more command", no Copy on any row.',
+      snapshot: turn([LOOP_EIGHT]),
+      play: openTurn,
     },
   },
 });

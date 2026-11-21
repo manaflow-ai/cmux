@@ -13,6 +13,8 @@ use std::time::Duration;
 
 /// How long a start waits for a missing harness binary to come back. An npm
 /// reinstall of Claude Code takes about 10 to 30 seconds end to end.
+// timeout: this covers only the updater's remove-and-recreate hazard; once the
+// binary exists, host startup waits on process/socket liveness instead.
 pub const PROGRAM_BUDGET: Duration = Duration::from_secs(30);
 
 /// [`link::spawn`], waiting up to [`PROGRAM_BUDGET`] for a harness binary

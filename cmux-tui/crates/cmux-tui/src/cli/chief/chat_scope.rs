@@ -19,7 +19,8 @@
 //! The person at a terminal (no agent detected) keeps the app action as it
 //! was. `read`, `wait` and `list` read Chief chats (`cmux chief read|wait|
 //! chats`); people's and group chats live with the app's cloud lease, which
-//! only the app may use.
+//! only the app may use. `read|wait SESSION` with an agent chat's session id
+//! is that chat's (chat_send.rs).
 
 use super::script::{self, Request};
 use super::{ChatTarget, Session, caller, pick_chat};
@@ -75,9 +76,17 @@ pub(in crate::cli) fn run_if_requested(args: &[String]) -> Option<Chat> {
     let prefix = args.get(..args.len().saturating_sub(command.len())).unwrap_or_default();
     match verb.as_str() {
         "send" => send(&global, prefix, rest),
+        // `chat read|wait SESSION`: an agent chat's, not a Chief's (chat_send.rs).
+        "read" | "wait" if names_agent_chat(rest) => None,
         "read" | "wait" | "list" => Some(Chat::Exit(read(&global, verb, rest))),
         _ => None,
     }
+}
+
+/// Whether `chat read|wait` words start with an agent chat's session id (a UUID or `acp:…`):
+/// a Chief's chat is named with `--to`, and its words are message refs.
+fn names_agent_chat(rest: &[String]) -> bool {
+    rest.first().is_some_and(|word| crate::cli::chat_send::is_session_id(word))
 }
 
 fn parse_send(args: &[String]) -> Result<Send, String> {
@@ -102,10 +111,7 @@ fn parse_send(args: &[String]) -> Result<Send, String> {
             "--wait" => send.wait = true,
             "--no-wait-agents" => send.no_wait_agents = true,
             "--timeout" => {
-                let text = value()?;
-                let secs: u64 =
-                    text.parse().map_err(|_| format!("--timeout takes seconds, not {text}"))?;
-                send.timeout_secs = (secs > 0).then_some(secs);
+                send.timeout_secs = crate::cli::chat_send::timeout_secs(&value()?)?;
             }
             "--as" | "--from" => send.sender_name = Some(value()?),
             "--class" => send.class = Some(value()?),
@@ -244,37 +250,5 @@ fn read(global: &GlobalArgs, verb: &str, rest: &[String]) -> i32 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn strings(words: &[&str]) -> Vec<String> {
-        words.iter().map(|w| (*w).to_owned()).collect()
-    }
-
-    #[test]
-    fn send_takes_its_text_as_a_flag_or_words_and_keeps_the_apps_flags() {
-        let send = parse_send(&strings(&["--to", "Codex Chief", "--text=hi there", "--wait"]))
-            .expect("parsed");
-        assert_eq!(send.to.as_deref(), Some("Codex Chief"));
-        assert_eq!(send.text.as_deref(), Some("hi there"));
-        assert!(send.wait);
-        let words =
-            parse_send(&strings(&["--to", "Austin", "ship", "it", "--focus"])).expect("parsed");
-        assert_eq!(words.text.as_deref(), Some("ship it"));
-        assert_eq!(words.other, strings(&["--focus"]));
-        let dashed =
-            parse_send(&strings(&["--to", "chief", "--", "--wait", "is", "text"])).expect("parsed");
-        assert_eq!((dashed.text.as_deref(), dashed.wait), (Some("--wait is text"), false));
-        assert!(parse_send(&strings(&["--timeout", "soon"])).is_err());
-    }
-
-    #[test]
-    fn a_persons_send_without_wait_is_the_app_action_unchanged() {
-        // No agent in this test's own environment is assumed: --as names one only when given.
-        let words = strings(&["chat", "send", "--to", "Austin", "--text", "hi"]);
-        if caller::current(None, None, None).is_none() {
-            assert_eq!(run_if_requested(&words), None);
-        }
-        assert_eq!(run_if_requested(&strings(&["chat", "create", "--members", "a"])), None);
-    }
-}
+#[path = "chat_scope_tests.rs"]
+mod tests;

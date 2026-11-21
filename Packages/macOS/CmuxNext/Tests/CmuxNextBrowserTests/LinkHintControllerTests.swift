@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import ObjectiveC
 import Testing
@@ -8,7 +9,7 @@ import Testing
 /// send-back path stood in for: every key typed while the page answers reaches the page once, in order, or is a hint
 /// key; the answer's bound never sends hint letters to a page with no text field; a key Chromium sends back is the
 /// page's even when Chromium loaded after the first key.
-@MainActor @Suite(.serialized) struct LinkHintControllerTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct LinkHintControllerTests {
     /// An answer the test gives when it chooses.
     @MainActor private final class Answer<Value: Sendable> {
         private var waiter: CheckedContinuation<Value?, Never>?
@@ -94,6 +95,7 @@ import Testing
     /// once, in order, each key-up after its key-down.
     @Test func aFieldGetsEveryKeyOnceInOrderAfterTheFocusCheck() async throws {
         let harness = try Harness()
+        defer { harness.shell.closeAfterTest() }
         await harness.start()
         harness.type(["i", "e", " ", "d"])
         #expect(harness.sent.isEmpty, "a key went to the page before it answered: \(harness.sent)")
@@ -108,6 +110,7 @@ import Testing
     /// page (a page shortcut on the letter would run), and pick once the labels come.
     @Test func aSlowTargetCollectNeverSendsHintLettersToThePage() async throws {
         let harness = try Harness()
+        defer { harness.shell.closeAfterTest() }
         await harness.start()
         let label = Array(LinkHintSession.labels(count: 30))[7]
         harness.type(label.map(String.init))
@@ -125,6 +128,7 @@ import Testing
     /// letters never reach the page (a page shortcut on the letter would run), as before #32537.
     @Test func aClickAfterThePageSaidNoFieldNeverSendsHintLettersToThePage() async throws {
         let harness = try Harness()
+        defer { harness.shell.closeAfterTest() }
         await harness.start()
         harness.type(["a", "s"])
         harness.focus.give(false)
@@ -143,6 +147,7 @@ import Testing
     /// is no hint key ends it and reaches the page at once; neither waits for a slow target collect.
     @Test func escapeOrAnotherKeyAfterNoFieldActsAtOnce() async throws {
         let escape = try Harness()
+        defer { escape.shell.closeAfterTest() }
         await escape.start()
         escape.type(["a"])
         escape.focus.give(false)
@@ -151,6 +156,7 @@ import Testing
         #expect(!escape.controller.isActive, "Escape waited for the target collect")
         #expect(!escape.sent.contains("a"), "a hint letter reached the page: \(escape.sent)")
         let other = try Harness()
+        defer { other.shell.closeAfterTest() }
         await other.start()
         other.type(["a"])
         other.focus.give(false)
@@ -165,6 +171,7 @@ import Testing
     /// session must live: the old session ends before its keys go to the page, never after.
     @Test func aHeldKeyThatStartsLinkHintsAgainKeepsTheNewSession() async throws {
         let harness = try Harness()
+        defer { harness.shell.closeAfterTest() }
         await harness.start()
         harness.type(["a", "<cmd-f>"])
         var restarted = false
@@ -188,12 +195,14 @@ import Testing
     /// its own; the hint letters before them never reach the page.
     @Test func heldKeysAtTheNoFieldAnswerEndTheSessionLikeLiveKeys() async throws {
         let other = try Harness()
+        defer { other.shell.closeAfterTest() }
         await other.start()
         other.type(["a", " ", "b"])
         other.focus.give(false)
         await other.until { !other.controller.isActive }
         #expect(other.sent == [" ", "^ ", "b", "^b"], "the page got \(other.sent)")
         let escape = try Harness()
+        defer { escape.shell.closeAfterTest() }
         await escape.start()
         escape.type(["a", "<esc>", "b"])
         escape.focus.give(false)
@@ -207,6 +216,7 @@ import Testing
     /// the labels and acts, whatever comes during the draw.
     @Test func aPickDecidedWhenTheLabelsComeSurvivesAClickDuringTheirDraw() async throws {
         let harness = try Harness()
+        defer { harness.shell.closeAfterTest() }
         var asked: [String] = []
         let draw = Answer<BrowserJSValue>()
         harness.controller.script = { _, source in
@@ -232,6 +242,7 @@ import Testing
     /// off the main actor before the cancel). It must not end the new session, whose own bound still runs.
     @Test func anEndedSessionsBoundNeverEndsTheNextSession() async throws {
         let harness = try Harness()
+        defer { harness.shell.closeAfterTest() }
         await harness.start()
         let stale = harness.controller.boundForCurrentSession()
         harness.controller.cancel()
@@ -248,6 +259,7 @@ import Testing
     /// focus check must never answer for the session the start makes).
     @Test func aStartWhoseCancelStartsASessionLeavesOnlyItsOwnSession() async throws {
         let harness = try Harness()
+        defer { harness.shell.closeAfterTest() }
         let answers = Answers()
         harness.controller.focusAnswer = { _ in await answers.next() }
         await harness.start()
@@ -305,6 +317,7 @@ import Testing
     /// A click before the page answered ends the session: every held key goes to the page first, in order.
     @Test func aClickBeforeTheAnswerGivesEveryHeldKeyToThePageInOrder() async throws {
         let harness = try Harness()
+        defer { harness.shell.closeAfterTest() }
         await harness.start()
         harness.type(["i", "e"])
         let click = NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: harness.shell.windowNumber,
@@ -319,6 +332,7 @@ import Testing
     /// No answer to the focus check within the bound (a hung renderer): the held keys go to the page, once, in order.
     @Test func noFocusAnswerWithinTheBoundGivesTheKeysToThePage() async throws {
         let harness = try Harness()
+        defer { harness.shell.closeAfterTest() }
         await harness.start()
         harness.type(["i", "e"])
         harness.controller.answerTimedOut()
@@ -333,6 +347,7 @@ import Testing
     /// a new key in that page window is the session's.
     @Test func aKeyChromiumSentBackIsThePagesWhenChromiumLoadedAfterTheFirstKey() async throws {
         let harness = try Harness()
+        defer { harness.shell.closeAfterTest() }
         let early = Harness.key("x", .keyDown, code: 7, window: harness.shell)
         harness.controller.noteKeyDown(early, in: harness.shell) // a key before Chromium loaded
         let pageClass: AnyClass = objc_lookUpClass("CefNSWindow") ?? {
@@ -343,7 +358,7 @@ import Testing
         let pageType = try #require(pageClass as? NSWindow.Type)
         let page = pageType.init(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless], backing: .buffered, defer: true)
         harness.shell.addChildWindow(page, ordered: .above)
-        defer { harness.shell.removeChildWindow(page) }
+        defer { harness.shell.removeChildWindow(page); page.closeAfterTest() }
         let f = Harness.key("f", .keyDown, code: 3, window: page, time: 9)
         harness.controller.noteKeyDown(f, in: page) // the page had the `f`
         await harness.start()
