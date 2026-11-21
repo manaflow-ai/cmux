@@ -483,7 +483,7 @@ jobs:
           if (( ${#names[@]} > 0 )) && [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::group::replay ${#names[@]} failing test(s) on the merge parent ${BASE_SHA:0:12}"
             # The scope step fetched the merge parent; its build shares this target dir.
-            if git worktree add --detach "$RUNNER_TEMP/acpmux-base" "$BASE_SHA"; then
+            if git worktree add -f -f --detach "$RUNNER_TEMP/acpmux-base" "$BASE_SHA"; then
               # A test target the change adds is not on the merge parent, and cargo refuses the
               # whole run for one unknown `--test`: every red then read as the change's own
               # (#45327, which adds tests/permission_matrix.rs). The replay names only targets
