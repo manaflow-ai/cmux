@@ -20,6 +20,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -35,6 +36,8 @@ DIGESTS = {
 }
 # Bump to start an empty namespace (a poisoned or incompatible store).
 GHA_VERSION = "cmux-rcc-v1"
+# Crates whose hash keys `report` prints, to tell a key that moved from a write that never landed.
+KEY_PROBES = {"serde", "libc", "memchr", "tokio", "acpmux_core", "acpmux"}
 
 
 def env_file(name: str, pairs: dict[str, str]) -> None:
@@ -101,7 +104,7 @@ def server_env() -> dict[str, str]:
         # so the pool holds two key spaces; GITHUB_WORKSPACE under one HOME for every instance would make it one.
         # The server's warnings (a refused or throttled store call) for `report` to name.
         "SCCACHE_ERROR_LOG": str(Path(os.environ.get("RUNNER_TEMP", tempfile.gettempdir())) / "sccache-server.log"),
-        "SCCACHE_LOG": "warn",
+        "SCCACHE_LOG": "warn,sccache::compiler::compiler=debug",
     }
 
 
@@ -158,9 +161,12 @@ def summarize(stats: dict) -> dict:
     noncache = total(s.get("requests_not_cacheable"))
     looked = hits + misses
     return {"hits": hits, "misses": misses, "store_errors": errors, "not_cacheable": noncache,
+            "writes": total(s.get("cache_writes")), "write_errors": total(s.get("cache_write_errors")),
+            "read_errors": total(s.get("cache_read_errors")), "mode": stats.get("effective_cache_mode"),
             "hit_rate": round(hits / looked, 3) if looked else None,
-            # Down: lookups failed and none hit. A few failed writes beside hits is a busy store, not down.
-            "store_down": errors > 0 and hits == 0}
+            # Down: nothing read and nothing written. The Actions cache answers a miss as a NotFound read error,
+            # so errors alone (a cold store) are not down.
+            "store_down": looked > 0 and hits == 0 and total(s.get("cache_writes")) == 0}
 
 
 def report(job: str) -> int:
@@ -181,16 +187,21 @@ def report(job: str) -> int:
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
             f.write(f"rust compile cache: `{line}`\n")
     log = Path(server_env()["SCCACHE_ERROR_LOG"])
-    seen: list[str] = []
+    kinds: dict[str, int] = {}
+    keys: dict[str, str] = {}
     if log.is_file():
         for text in log.read_text(errors="replace").splitlines():
-            text = text.split("]", 1)[-1].strip()[:240]
-            if text and text not in seen:
-                seen.append(text)
-            if len(seen) == 5:
-                break
-    for text in seen:
-        print(f"sccache: {text}")
+            m = re.search(r"(read|write) failed (\w+)", text)
+            if m:
+                kinds[m.group(0)] = kinds.get(m.group(0), 0) + 1
+            # "[serde]: Hash key: <hex>": a few fixed crates, so two runs' keys can be compared.
+            k = re.search(r"\[([\w-]+)\]: Hash key: ([0-9a-f]{16})", text)
+            if k and k.group(1) in KEY_PROBES and k.group(1) not in keys:
+                keys[k.group(1)] = k.group(2)
+            elif re.search(r" (WARN|ERROR) ", text) and not m and len(kinds) < 40:
+                kinds[text.split("]", 1)[-1].strip()[:160]] = kinds.get(text.split("]", 1)[-1].strip()[:160], 0) + 1
+    print("sccache store calls: " + json.dumps(kinds, sort_keys=True))
+    print("sccache keys: " + json.dumps(keys, sort_keys=True))
     looked = row["hits"] + row["misses"]
     if not row["store_down"] and looked and row["store_errors"] > looked // 10:
         print(f"::warning title=rust compile cache degraded::{job}: {row['store_errors']} store calls failed against "
