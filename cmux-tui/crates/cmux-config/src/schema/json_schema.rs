@@ -167,6 +167,16 @@ fn kind_schema(row: &Row) -> Value {
         Validation::Domain(DomainKind::BackdropLocation) => {
             return json!({ "type": "string", "pattern": super::backdrop::LOCATION_PATTERN });
         }
+        Validation::Domain(DomainKind::BackdropMemory) => {
+            let folder = json!({ "type": "string", "pattern": "^folder:/." });
+            let rotate = json!({ "anyOf": [{ "const": "daily" }, folder] });
+            let off = json!({ "anyOf": [{ "const": "none" }, picture()] });
+            return json!({
+                "type": "object",
+                "properties": { "rotate": rotate, "folder": folder, "off": off },
+                "additionalProperties": false,
+            });
+        }
         Validation::Domain(DomainKind::ChatRoots) => {
             return json!({ "type": "array", "items": { "type": "string", "pattern": "^/" } });
         }
