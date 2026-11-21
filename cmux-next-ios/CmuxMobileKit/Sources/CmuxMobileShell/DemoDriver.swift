@@ -77,12 +77,12 @@ struct DemoDriver {
             // top bar (no link is dialed: the mock store marks the Mac's link failed).
             MacHomeFeed.shared.seedStressRows(count: 8, macID: "mac-studio")
             shell.store.tracksMacData = true
-            shell.store.macConnection["mac-studio"] = .failed("The Mac didn't answer.")
+            shell.store.macConnection["mac-studio"] = .failed("Can't reach the Mac right now.")
             shell.tab = .home
         case "retry-home-failed":
             // The link is up, but the last read failed: kept rows, "Couldn't refresh · last known".
             MacHomeFeed.shared.seedStressRows(count: 8, macID: "mac-studio")
-            MacHomeFeed.shared.setProblemForDemo("The Mac didn't answer.")
+            MacHomeFeed.shared.setProblemForDemo("Can't reach the Mac right now.")
             shell.store.tracksMacData = true
             shell.store.macConnection["mac-studio"] = .connected
             shell.tab = .home
@@ -101,7 +101,7 @@ struct DemoDriver {
                 }
             }
             shell.store.tracksMacData = true
-            shell.store.macConnection["mac-studio"] = .failed("The Mac didn't answer.")
+            shell.store.macConnection["mac-studio"] = .failed("Can't reach the Mac right now.")
             shell.tab = .home
         case "retry-terminal":
             shell.terminalTabs.mockDataEnabled = false
