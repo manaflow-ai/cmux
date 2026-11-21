@@ -441,6 +441,14 @@ export function rovingIndex(
 // Jump to file palette
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether the toolbar shows Jump to file: only while the files list is hidden (its filter field
+ * does the same beside it) and for a diff of more than one file.
+ */
+export function jumpToFileShown(state: { filesVisible: boolean; fileCount: number }): boolean {
+  return !state.filesVisible && state.fileCount > 1;
+}
+
 export type JumpRow = { id: string; name: string; directory: string };
 
 /** Rendered rows are capped so a 10k-file diff stays a small DOM. */

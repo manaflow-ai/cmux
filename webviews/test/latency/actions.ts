@@ -240,6 +240,11 @@ const diffActions: LatencyAction[] = [
       await page.keyboard.press("Escape");
       const atTop = (await page.evaluate(`window.__lh.headerAtTop("file150.ts")`)) as boolean;
       const target = atTop ? "file030.ts" : "file150.ts";
+      // Jump to file shows while the files list is hidden (toolbar-model.ts jumpToFileShown).
+      if ((await attr(page, "body", "data-files-hidden")) !== "true") {
+        await page.click("#files-toggle");
+        await page.waitForFunction(() => !document.querySelector<HTMLElement>("#files-sidebar")?.dataset.filesMotion);
+      }
       await page.click("#jump-to-file-button");
       await page.waitForSelector(".jump-palette-input");
       await page.fill(".jump-palette-input", target.replace(".ts", ""));

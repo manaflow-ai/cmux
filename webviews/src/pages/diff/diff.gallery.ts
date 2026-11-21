@@ -165,9 +165,12 @@ export default diffPageEntry({
   ],
   variants: {
     "jump-file-overflow": {
-      note: "Thirty changed files scroll under soft edges in the open jump-to-file palette.",
+      note: "Thirty changed files scroll under soft edges in the open jump-to-file palette (files list hidden).",
       files: many,
       play: async (ctx) => {
+        // Jump to file shows while the files list is hidden (toolbar-model.ts jumpToFileShown).
+        await ctx.waitFor(() => ctx.document.querySelector('#files-toggle[aria-pressed="true"]'), { capMs: 10_000 });
+        await ctx.click({ selector: "#files-toggle" });
         await ctx.waitFor(() => ctx.document.querySelector("#jump-to-file-button"), { capMs: 10_000 });
         await ctx.click({ selector: "#jump-to-file-button" });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".jump-palette-row").length === many.length);

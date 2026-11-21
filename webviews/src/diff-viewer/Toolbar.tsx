@@ -7,6 +7,7 @@ import { type DiffViewerOptions } from "../pierre-options";
 import { FloatingToolbar, JumpToFilePalette, SourceMenu, ViewMenuButton } from "../DiffToolbar";
 import {
   diffLineTotals,
+  jumpToFileShown,
   NO_HOST_CAPABILITIES,
   overflowMenuItems,
   plainEnglishMenuItem,
@@ -73,7 +74,9 @@ export function Toolbar({
         rememberedBranch={rememberedBranch}
         transport={transport}
       >
-        <JumpToFilePalette items={visibleItems} label={label} onJump={onJump} />
+        {jumpToFileShown({ filesVisible: state.filesVisible, fileCount: visibleItems.length }) ? (
+          <JumpToFilePalette items={visibleItems} label={label} onJump={onJump} />
+        ) : null}
       </SourceControls>
       {pill}
       <span id="copy-feedback" className="visually-hidden" aria-live="polite">

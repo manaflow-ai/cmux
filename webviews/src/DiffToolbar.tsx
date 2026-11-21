@@ -377,7 +377,7 @@ export function JumpToFilePalette({
           setOpen(true);
         }}
       >
-        <Icon name="chevronDown" />
+        <Icon name="files" />
       </button>
       {open && style
         ? createPortal(
