@@ -1,0 +1,83 @@
+{
+  "id": "memory-loop-schedules-followup",
+  "group": "memory",
+  "owner": "chief-memory",
+  "about": "An ask that can only be done later (after a 3 pm deploy) gets a self-wake for then, not a promise.",
+  "now": "2026-11-19T13:20:00-08:00",
+  "budget": 1800,
+  "dream": true,
+  "history": [
+    {
+      "kind": "user",
+      "text": "the sidebar row hover is a bit too strong, tone it down",
+      "at": "2026-11-18T09:00:00-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "On it: a1002 softens the hover fill.",
+      "at": "2026-11-18T11:15:00-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1003] Landed the hover change on feat-cmux-next (3f9a1003c1). Screenshots in the workspace.",
+      "at": "2026-11-18T13:30:00-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "why is the nightly slow again",
+      "at": "2026-11-18T15:45:00-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "a1005 is timing the nightly phases.",
+      "at": "2026-11-18T18:00:00-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1006] Nightly codesign step took 14 min, notary 9 min; the rest is under 6 min.",
+      "at": "2026-11-18T20:15:00-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "can we make the compose button look like imessage",
+      "at": "2026-11-18T22:30:00-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "Started a1008 on the compose button.",
+      "at": "2026-11-19T00:45:00-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1009] Compose button restyled; landed 9c2e1009aa. Gallery entry updated.",
+      "at": "2026-11-19T03:00:00-08:00"
+    },
+    {
+      "kind": "user",
+      "text": "cmd+shift+p shows tabs again, that is wrong",
+      "at": "2026-11-19T05:15:00-08:00"
+    },
+    {
+      "kind": "talk",
+      "text": "a1011 is removing tabs from the palette results.",
+      "at": "2026-11-19T07:30:00-08:00"
+    },
+    {
+      "kind": "work",
+      "text": "[a1012] Palette no longer lists tabs; landed 77ab1012e0.",
+      "at": "2026-11-19T09:45:00-08:00"
+    }
+  ],
+  "turns": [
+    {
+      "text": "after the 3pm deploy goes out, check that the usage dashboard shows the new cost chart and tell me",
+      "checks": [
+        {
+          "type": "due",
+          "at": "2026-11-19T15:30:00-08:00",
+          "minutes": 45
+        }
+      ]
+    }
+  ]
+}

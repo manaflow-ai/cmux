@@ -1,9 +1,10 @@
 // l10n-allow-file: gallery fixtures (sample prompts, commands and replies), not shipped UI.
-// A running turn as chatgpt.com draws it: one live status line that replaces itself at each step,
-// with no finished run stacked over it (the user, 2026-11-10: "we need to match and be the same").
-// The replies to the person stay in sight (Leo, 2026-11-06). The arms of liveTurnWork.experiment.ts
-// differ only in the finished runs: none (`line`, shipped) or each in sight (`runs`).
-// Tests: live-turn-one-line.test.ts.
+// A running turn's work above its one live status line. The arms of liveTurnWork.experiment.ts
+// differ only in the finished calls: each on its own line until the turn ends (`open`, shipped:
+// Leo, 2026-11-21, "i thought we dont fold while you're still going. but my steers affect these"),
+// each finished run folded into its summary line (`runs`, the Codex app), or none (`line`, as
+// chatgpt.com draws it). The replies to the person stay in sight (Leo, 2026-11-06).
+// Tests: live-turn-open-runs.test.tsx, live-turn-one-line.test.ts, transcript-live-runs.test.tsx.
 import { agentPaneEntry } from "../../../gallery/format";
 import { GALLERY_NOW } from "../../../gallery/clock";
 import { activity, assistant, chat, thought, tool, user } from "../../../gallery/fixtures/acpmux";
@@ -47,6 +48,31 @@ const withReply = () =>
     ),
   ]);
 
+/// The person steered mid-turn: four finished calls before the steer, more after it, one in flight.
+/// Under `open` the calls before the steer draw as they did before it came; under `runs` they fold.
+const steered = () =>
+  live([
+    prompt(),
+    activity(
+      [
+        run("rg -n scheduleReconnect src"),
+        run("git log -5 --oneline src/net"),
+        run("rg -n armBackoff src"),
+        run("bun test src/net/reconnect.test.ts"),
+      ],
+      3,
+    ),
+    user("Also check the retry cap while you're there.", 2, { steer: "landed" }),
+    activity(
+      [
+        run("rg -n MAX_RETRIES src/net"),
+        run("git diff src/net/backoff.ts"),
+        run("bun test src/net/backoff.test.ts --rerun-each 10", "in_progress"),
+      ],
+      1,
+    ),
+  ]);
+
 /// Between steps: the calls all finished, the agent thinks.
 const thinking = () =>
   live([prompt(), activity([run("rg -n scheduleReconnect src"), thought("Now check who else arms the timer.")], 1)]);
@@ -59,7 +85,7 @@ const liveLine: Play = async (ctx) => {
 
 export default agentPaneEntry({
   id: "agent-pane.live-turn-work",
-  title: "Running turn: one live line",
+  title: "Running turn: its work above the live line",
   area: "Agent pane",
   height: 520,
   covers: ["agent-session/acpmux/conversation/turns.ts#codexRuns", "agent-session/acpmux/conversation/Thinking.tsx"],
@@ -67,12 +93,16 @@ export default agentPaneEntry({
   experiment: { definition: liveTurnWork, script: [{ name: "The live line shows", run: liveLine }] },
   variants: {
     running: {
-      note: "A test run in flight: the prompt, then one live line naming it; the finished calls and the thought leave no row.",
+      note: "A test run in flight: the prompt, the finished calls and the thought as the arm draws them, then one live line naming the test run.",
       snapshot: running(),
     },
     "with-reply": {
-      note: "A reply between two runs stays in sight; the runs around it do not.",
+      note: "A reply between two runs stays in sight under every arm; the runs around it draw as the arm draws them.",
       snapshot: withReply(),
+    },
+    steered: {
+      note: "The person steered mid-turn. Under open the calls before the steer keep their own lines, as before it came; under runs the steer folds them into a summary line.",
+      snapshot: steered(),
     },
     thinking: {
       note: "Every call finished: the same line reads Thinking, in place.",
