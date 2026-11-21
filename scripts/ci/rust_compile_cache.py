@@ -157,12 +157,14 @@ def total(value) -> int:
 def summarize(stats: dict) -> dict:
     s = stats.get("stats", stats)
     hits, misses = total(s.get("cache_hits")), total(s.get("cache_misses"))
-    errors = (total(s.get("cache_errors")) + total(s.get("cache_read_errors")) + total(s.get("cache_write_errors"))
-              + total(s.get("cache_timeouts")))
+    read_only = stats.get("effective_cache_mode") == "ReadOnly"
+    # A read-only server counts every put it skips as a write error: not a store call that failed.
+    write_errors = 0 if read_only else total(s.get("cache_write_errors"))
+    errors = (total(s.get("cache_read_errors")) + write_errors + total(s.get("cache_timeouts")))
     noncache = total(s.get("requests_not_cacheable"))
     looked = hits + misses
     return {"hits": hits, "misses": misses, "store_errors": errors, "not_cacheable": noncache,
-            "writes": total(s.get("cache_writes")), "write_errors": total(s.get("cache_write_errors")),
+            "writes": total(s.get("cache_writes")), "write_errors": write_errors,
             "read_errors": total(s.get("cache_read_errors")), "mode": stats.get("effective_cache_mode"),
             "hit_rate": round(hits / looked, 3) if looked else None,
             # Down: nothing read and, in a writing job, nothing written. The Actions cache answers a miss as a
