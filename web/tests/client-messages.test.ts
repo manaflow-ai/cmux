@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Glob } from "bun";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import enMessages from "../messages/en.json";
 import {
@@ -50,9 +49,10 @@ describe("docs client catalog", () => {
   test("every docs section a client component reads is in DOCS_CLIENT_SECTIONS", () => {
     // A client component that reads a section missing here throws MISSING_MESSAGE
     // in the browser, so list it in DOCS_CLIENT_SECTIONS.
-    const root = join(import.meta.dir, "..", "app");
+    const root = join(import.meta.dirname, "..", "app");
     const read = new Set<string>();
-    for (const rel of new Glob("**/*.tsx").scanSync(root)) {
+    for (const rel of readdirSync(root, { recursive: true, encoding: "utf8" })) {
+      if (!rel.endsWith(".tsx")) continue;
       const source = readFileSync(join(root, rel), "utf8");
       if (!/^\s*["']use client["']/m.test(source)) continue;
       for (const m of source.matchAll(/useTranslations\(\s*"docs\.([A-Za-z]+)/g)) {
