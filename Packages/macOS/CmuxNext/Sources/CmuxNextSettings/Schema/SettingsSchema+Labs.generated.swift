@@ -26,6 +26,9 @@ extension CmuxConfigSnapshot {
     /// `labs.agentCustomization`: Opt-in Claude Code and Codex customization (cmux-agent-customize, `cmux agent-config`), each agent's own setup read and changed in the agent's own files: Settings > MCP Servers shows and edits the MCP servers the person gave Claude Code (~/.claude.json, .mcp.json) and Codex (~/.codex/config.toml, .codex/config.toml, plugins); Settings > Agents > Claude Code & Codex lists, edits and turns on or off their skills and slash commands. Off by default; off hides the card and shows only cmux own servers, as before. Leo 2026-11-19: "when I say Claude Code, when I say Codex [...] I need you guys to be, like, doing the thing."
     public nonisolated static let agentCustomizationPath = ["labs", "agentCustomization"]
     public nonisolated static let agentCustomizationDefault = false
+    /// `labs.hostsSidebar`: A Hosts section in the sidebar under Home: the Machines page catalog with an Add Host row; a machine row opens a workspace on it or connects to it. Off by default until the sidebar surface is ready.
+    public nonisolated static let hostsSidebarPath = ["labs", "hostsSidebar"]
+    public nonisolated static let hostsSidebarDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -113,6 +116,16 @@ nonisolated enum LabsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.agentCustomizationDefault),
                 keywords: ["labs", "claude", "codex", "mcp", "servers", "skills", "commands", "slash", "customize", "agent", "agents", "config"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.hostsSidebarPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.hostsSidebar", "Hosts Sidebar"),
+                help: SettingsText.keyed("settings.labs.hostsSidebar.help", "Shows your machines in the sidebar, with Add Host. Click a machine to open a workspace on it."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.hostsSidebarDefault),
+                keywords: ["labs", "hosts", "sidebar", "machines", "remote", "add", "terminal"]
             ),
         ]
     }
