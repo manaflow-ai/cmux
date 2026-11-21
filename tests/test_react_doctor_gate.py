@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The React Doctor ratchet fails on an added error, passes on old ones, and routes by changed paths.
+"""The React Doctor ratchet reports an added error as a warning (fails only with --strict), and routes by changed paths.
 
 Runs scripts/ci/react_doctor_gate.py's main on stand-in JSON reports (the shape
 React Doctor 0.9 writes with --json) and a temporary baseline, so no scan runs.
@@ -44,6 +44,9 @@ class GateTest(unittest.TestCase):
             json.dump(data, handle)
 
     def run_gate(self, *args):
+        return self.run_lenient("--strict", *args)
+
+    def run_lenient(self, *args):
         out = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
             code = gate.main(["--from-json-dir", self.reports, "--project", "webviews", *args])
@@ -78,6 +81,33 @@ class GateTest(unittest.TestCase):
     def test_a_failed_scan_fails(self):
         self.write("webviews", {"ok": False, "reactDetected": False, "error": "boom", "diagnostics": []})
         self.assertEqual(self.run_gate()[0], 1)
+
+    def test_by_default_an_added_error_is_a_warning_and_passes(self):
+        # Leo, 2026-11-20: "WHY IS LINT EVEN STOPPING SHIT INSTEAD OF JUST BEING OOPS".
+        self.write("webviews", report())
+        self.run_gate("--update-baseline")
+        self.write("webviews", report(diag("src/b.tsx", "effect-needs-cleanup", line=7)))
+        summary = os.path.join(self.tmp, "summary.md")
+        with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true", "GITHUB_STEP_SUMMARY": summary}), \
+                mock.patch.object(gate, "GITHUB", True):
+            code, out = self.run_lenient()
+        self.assertEqual(code, 0, out)
+        self.assertIn("::warning file=webviews/src/b.tsx,line=7,", out)
+        self.assertNotIn("::error", out)
+        with open(summary) as handle:
+            self.assertIn("Passed with findings", handle.read())
+
+    def test_by_default_a_failed_scan_is_a_warning(self):
+        self.write("webviews", {"ok": False, "reactDetected": False, "error": "boom", "diagnostics": []})
+        # Off Actions output (CI sets GITHUB_ACTIONS, which turns the line into a ::warning annotation).
+        with mock.patch.object(gate, "GITHUB", False):
+            code, out = self.run_lenient()
+        self.assertEqual(code, 0, out)
+        self.assertIn("warning: webviews", out)
+        with mock.patch.object(gate, "GITHUB", True):
+            code, out = self.run_lenient()
+        self.assertEqual(code, 0, out)
+        self.assertIn("::warning title=React Doctor::webviews", out)
 
     def test_routing(self):
         self.assertEqual(gate.select_projects(["webviews/src/x.tsx", "README.md"]), ["webviews"])

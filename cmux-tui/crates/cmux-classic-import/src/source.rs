@@ -3,9 +3,10 @@
 //!
 //! Classic saves `~/Library/Application Support/cmux/session-<bundle>.json`
 //! per channel, a `-previous` copy, and archives in `session-history/`. The
-//! finder prefers the classic channel that matches this build's own bundle
-//! id (cmux NEXT stable reads classic stable, nightly reads nightly), then
-//! the channel saved last. Classic debug builds are never a source.
+//! finder reads the channel saved last, whichever classic app that was;
+//! equal save times go to this build's own channel. When no file of that
+//! channel decodes, the next channel's are read. Classic debug builds are
+//! never a source.
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -91,31 +92,42 @@ impl Finder {
         })
     }
 
-    /// The channel to read: this build's own when classic saved one, else
-    /// the channel whose session changed last. A channel whose session file
-    /// is gone still counts by its `-previous` copy, then its newest archive.
+    /// The channel to read: the one whose session changed last.
     pub fn channel(&self) -> Option<&'static str> {
-        let saved: Vec<(&'static str, SystemTime)> = CHANNELS
+        self.channels_by_recency().into_iter().next()
+    }
+
+    /// Every channel classic saved, the newest save first; equal times put
+    /// this build's own channel first, then stable before nightly, rc and
+    /// staging. A channel whose session file is gone still counts by its
+    /// `-previous` copy, then its newest archive. A cmux NEXT nightly
+    /// installed beside the classic stable someone still uses brings
+    /// stable's session, not an older classic nightly one.
+    pub fn channels_by_recency(&self) -> Vec<&'static str> {
+        let own = self.own_channel();
+        let mut saved: Vec<(&'static str, SystemTime, isize)> = CHANNELS
             .iter()
-            .filter_map(|channel| {
+            .enumerate()
+            .filter_map(|(index, channel)| {
                 let date = modified(&self.primary(channel))
                     .or_else(|| modified(&self.previous(channel)))
                     .or_else(|| modified(&self.newest_archive(channel)?))?;
-                Some((*channel, date))
+                let rank = if Some(*channel) == own { -1 } else { index as isize };
+                Some((*channel, date, rank))
             })
             .collect();
-        if let Some(own) =
-            self.own_channel().filter(|own| saved.iter().any(|(channel, _)| channel == own))
-        {
-            return Some(own);
-        }
-        saved
+        saved.sort_by(|a, b| b.1.cmp(&a.1).then(a.2.cmp(&b.2)));
+        saved.into_iter().map(|(channel, _, _)| channel).collect()
+    }
+
+    /// [`Finder::candidates`] of every channel in
+    /// [`Finder::channels_by_recency`] order: a reader that cannot decode
+    /// the newest channel's files goes on to the next.
+    pub fn all_candidates(&self) -> Vec<(PathBuf, String)> {
+        self.channels_by_recency()
             .into_iter()
-            .fold(None::<(&'static str, SystemTime)>, |best, next| match best {
-                Some(best) if best.1 >= next.1 => Some(best),
-                _ => Some(next),
-            })
-            .map(|(channel, _)| channel)
+            .flat_map(|channel| self.candidates(Some(channel)))
+            .collect()
     }
 
     /// The files to try, best first, for `channel` (else [`Finder::channel`]):
@@ -206,12 +218,15 @@ impl Finder {
 
 /// Whether classic cmux is running now, so it may still save.
 ///
-/// Classic writes a launch sentinel, `<state>/lifecycle/<bundle id>/running.sentinel`,
-/// when it launches and removes it at the end of a clean quit. No sentinel
-/// means classic quit: the update relaunch starts cmux NEXT seconds after
-/// classic's quit save, and that save migrates. A sentinel with a save older
-/// than [`RunningProbe::QUIET_SECONDS`] is a classic that crashed (it
-/// autosaves every 8 s while it runs). No process scan.
+/// Classic writes a launch sentinel, `<state>/lifecycle/<bundle id>/running.sentinel`
+/// (`pid=<n>`), when it launches and removes it at the end of a clean quit. No
+/// sentinel means classic quit: the update relaunch starts cmux NEXT seconds
+/// after classic's quit save, and that save migrates. A sentinel whose pid is
+/// alive is a classic that runs, however long ago it last saved: it saves only
+/// when its session changes, so an idle classic can go minutes without one. A
+/// sentinel without a live pid counts only with a save newer than
+/// [`RunningProbe::QUIET_SECONDS`]; an older one is a classic that crashed. No
+/// process scan.
 #[derive(Debug, Clone)]
 pub struct RunningProbe {
     /// Classic's state folder, holding `lifecycle/`.
@@ -243,9 +258,104 @@ impl RunningProbe {
         self.state_root.join("lifecycle").join(channel).join("running.sentinel")
     }
 
-    /// Whether the classic that wrote `source` is running at `now` (seconds since 1970).
+    /// Whether the classic that wrote `source` is running at `now` (seconds
+    /// since 1970), by its launch sentinel: its pid alive, or a recent save.
     pub fn is_running(&self, source: &Source, now: f64) -> bool {
-        self.sentinel(&source.bundle_id).exists() && now - source.modified_at < Self::QUIET_SECONDS
+        let Ok(sentinel) = std::fs::read_to_string(self.sentinel(&source.bundle_id)) else {
+            return false;
+        };
+        Self::sentinel_pid(&sentinel).is_some_and(Self::is_alive)
+            || now - source.modified_at < Self::QUIET_SECONDS
+    }
+
+    /// The `pid=<n>` line of a sentinel.
+    fn sentinel_pid(sentinel: &str) -> Option<u32> {
+        sentinel
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("pid=")?.trim().parse().ok())
+            .filter(|pid| *pid > 1)
+    }
+
+    /// Whether `pid` names a live process: `kill(pid, 0)` succeeds or is refused.
+    #[cfg(unix)]
+    fn is_alive(pid: u32) -> bool {
+        let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
+        // SAFETY: signal 0 performs only the existence and permission check.
+        let signalled = unsafe { libc::kill(pid, 0) == 0 };
+        signalled || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    }
+
+    #[cfg(not(unix))]
+    fn is_alive(_pid: u32) -> bool {
+        false
+    }
+
+    /// The lock files classic of `channel` (a bundle id) holds while it
+    /// listens, for this user: [`RunningProbe::lock_paths_for`] with the
+    /// process's uid.
+    pub fn lock_paths(channel: &str, home: &Path, tmp: &Path) -> Vec<PathBuf> {
+        #[cfg(unix)]
+        // SAFETY: getuid has no preconditions.
+        let uid = unsafe { libc::getuid() };
+        #[cfg(not(unix))]
+        let uid = 0;
+        Self::lock_paths_for(channel, home, tmp, uid)
+    }
+
+    /// The lock files classic of `channel` holds while it listens:
+    /// `<socket>.lock` beside `~/.local/state/cmux/cmux[-<channel>].sock`, then
+    /// beside the `/tmp` one (`tmp`), each also in the per-user form
+    /// `cmux[-<channel>]-<uid>.sock` that classic stable listens on. cmux NEXT
+    /// uses the same socket names but never takes these locks.
+    pub fn lock_paths_for(channel: &str, home: &Path, tmp: &Path, uid: u32) -> Vec<PathBuf> {
+        let suffix = match channel {
+            "com.cmuxterm.app.nightly" => "-nightly",
+            "com.cmuxterm.app.rc" => "-rc",
+            "com.cmuxterm.app.staging" => "-staging",
+            _ => "",
+        };
+        let state = home.join(".local/state/cmux");
+        let names = [format!("cmux{suffix}.sock.lock"), format!("cmux{suffix}-{uid}.sock.lock")];
+        let mut paths: Vec<PathBuf> = names.iter().map(|name| state.join(name)).collect();
+        paths.extend(names.iter().map(|name| tmp.join(name)));
+        paths
+    }
+
+    /// Whether a process holds the `flock` on `path`, asked without
+    /// blocking. A missing file, one another user owns, or a free lock is
+    /// not held; a free lock is taken shared for an instant and let go.
+    #[cfg(unix)]
+    pub fn is_lock_held(path: &Path) -> bool {
+        use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+        let Ok(file) = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(path)
+        else {
+            return false;
+        };
+        // SAFETY: getuid has no preconditions.
+        let me = unsafe { libc::getuid() };
+        if !file.metadata().is_ok_and(|info| info.uid() == me) {
+            return false;
+        }
+        cmux_file_lock::FileLock::held_elsewhere(&file, cmux_file_lock::Kind::Shared)
+            .unwrap_or(false)
+    }
+
+    /// Never held where there is no `flock`.
+    #[cfg(not(unix))]
+    pub fn is_lock_held(_path: &Path) -> bool {
+        false
+    }
+
+    /// Whether the classic that saved `source` is open and may still save:
+    /// it holds a lock beside its control socket, or its launch sentinel and
+    /// a recent save say so. Classic builds older than the sentinel write
+    /// none, which is why the lock is asked too.
+    pub fn is_open(&self, source: &Source, home: &Path, tmp: &Path, now: f64) -> bool {
+        Self::lock_paths(&source.bundle_id, home, tmp).iter().any(|path| Self::is_lock_held(path))
+            || self.is_running(source, now)
     }
 }
 
@@ -270,27 +380,108 @@ mod tests {
         file
     }
 
-    /// cmux NEXT nightly reads classic nightly's session; stable reads stable's.
+    /// The newest save wins whichever build reads it: a cmux NEXT nightly
+    /// beside the classic stable someone still uses brings stable's session.
     #[test]
-    fn the_own_channel_is_preferred_then_the_newest() {
+    fn the_newest_channel_is_read_and_a_tie_goes_to_the_own_channel() {
         let root = tempfile::tempdir().unwrap();
         write(root.path(), "support/cmux/session-com.cmuxterm.app.json", Some(1));
         write(root.path(), "support/cmux/session-com.cmuxterm.app.nightly.json", Some(2));
         write(root.path(), "support/cmux/session-com.cmuxterm.app.debug.json", Some(9));
         let support = root.path().join("support");
+        for own in ["com.cmuxterm.app", "com.cmuxterm.app.nightly.cmux-next", "com.cmuxterm.app.rc"]
+        {
+            assert_eq!(
+                Finder::new(&support, Some(own)).channel(),
+                Some("com.cmuxterm.app.nightly")
+            );
+        }
         assert_eq!(
-            Finder::new(&support, Some("com.cmuxterm.app")).channel(),
-            Some("com.cmuxterm.app")
+            Finder::new(&support, Some("com.cmuxterm.app")).channels_by_recency(),
+            ["com.cmuxterm.app.nightly", "com.cmuxterm.app"]
+        );
+        // Equal times: the own channel, then stable before the others.
+        write(root.path(), "support/cmux/session-com.cmuxterm.app.json", Some(5));
+        write(root.path(), "support/cmux/session-com.cmuxterm.app.nightly.json", Some(5));
+        write(root.path(), "support/cmux/session-com.cmuxterm.app.rc.json", Some(5));
+        assert_eq!(
+            Finder::new(&support, Some("com.cmuxterm.app.rc.cmux-next")).channels_by_recency(),
+            ["com.cmuxterm.app.rc", "com.cmuxterm.app", "com.cmuxterm.app.nightly"]
         );
         assert_eq!(
-            Finder::new(&support, Some("com.cmuxterm.app.nightly.cmux-next")).channel(),
-            Some("com.cmuxterm.app.nightly")
+            Finder::new(&support, None).channels_by_recency(),
+            ["com.cmuxterm.app", "com.cmuxterm.app.nightly", "com.cmuxterm.app.rc"]
         );
-        // A channel classic never saved falls back to the newest one; debug is never a source.
+    }
+
+    /// Every channel's files, the newest channel's first.
+    #[test]
+    fn all_candidates_go_channel_by_channel_newest_first() {
+        let root = tempfile::tempdir().unwrap();
+        let stable = write(root.path(), "support/cmux/session-com.cmuxterm.app.json", Some(1));
+        let nightly =
+            write(root.path(), "support/cmux/session-com.cmuxterm.app.nightly.json", Some(3));
+        let copy = write(
+            root.path(),
+            "support/cmux/session-com.cmuxterm.app.nightly-previous.json",
+            Some(2),
+        );
+        let finder = Finder::new(&root.path().join("support"), Some("com.cmuxterm.app"));
+        let all: Vec<PathBuf> = finder.all_candidates().into_iter().map(|(file, _)| file).collect();
+        assert_eq!(all, [nightly, copy, stable]);
+    }
+
+    #[test]
+    fn the_socket_lock_paths_follow_the_channel() {
+        let home = Path::new("/Users/me");
+        let tmp = Path::new("/tmp");
+        // Classic stable listens on the per-user `cmux-<uid>.sock` (seen
+        // 2026-11-15: `~/.local/state/cmux/cmux-501.sock.lock`), which a probe
+        // that knew only `cmux.sock.lock` missed.
         assert_eq!(
-            Finder::new(&support, Some("com.cmuxterm.app.rc")).channel(),
-            Some("com.cmuxterm.app.nightly")
+            RunningProbe::lock_paths_for("com.cmuxterm.app", home, tmp, 501),
+            [
+                home.join(".local/state/cmux/cmux.sock.lock"),
+                home.join(".local/state/cmux/cmux-501.sock.lock"),
+                PathBuf::from("/tmp/cmux.sock.lock"),
+                PathBuf::from("/tmp/cmux-501.sock.lock"),
+            ]
         );
+        assert_eq!(
+            RunningProbe::lock_paths_for("com.cmuxterm.app.nightly", home, tmp, 501)[0],
+            home.join(".local/state/cmux/cmux-nightly.sock.lock")
+        );
+        assert_eq!(
+            RunningProbe::lock_paths_for("com.cmuxterm.app.rc", home, tmp, 501)[2],
+            PathBuf::from("/tmp/cmux-rc.sock.lock")
+        );
+        assert_eq!(
+            RunningProbe::lock_paths_for("com.cmuxterm.app.staging", home, tmp, 501)[3],
+            PathBuf::from("/tmp/cmux-staging-501.sock.lock")
+        );
+    }
+
+    /// A lock another open file description holds is held; a free one, a
+    /// missing file and a link are not.
+    #[cfg(unix)]
+    #[test]
+    fn a_held_socket_lock_says_classic_is_open() {
+        let root = tempfile::tempdir().unwrap();
+        let lock = write(root.path(), "cmux.sock.lock", None);
+        assert!(!RunningProbe::is_lock_held(&lock));
+        assert!(!RunningProbe::is_lock_held(&root.path().join("missing.lock")));
+        let holder = cmux_file_lock::FileLock::try_take(
+            File::open(&lock).unwrap(),
+            cmux_file_lock::Kind::Exclusive,
+        )
+        .unwrap();
+        assert!(RunningProbe::is_lock_held(&lock));
+        let link = root.path().join("link.lock");
+        std::os::unix::fs::symlink(&lock, &link).unwrap();
+        assert!(!RunningProbe::is_lock_held(&link));
+        // FileLock unlocks before it closes, so a process another test starts keeps no lock.
+        drop(holder);
+        assert!(!RunningProbe::is_lock_held(&lock));
     }
 
     #[test]
@@ -340,7 +531,7 @@ mod tests {
         );
         let finder = Finder::new(&root.path().join("support"), Some("com.cmuxterm.app"));
         let files: Vec<PathBuf> =
-            finder.candidates(None).into_iter().map(|(file, _)| file).collect();
+            finder.candidates(Some("com.cmuxterm.app")).into_iter().map(|(file, _)| file).collect();
         assert_eq!(files, [primary.clone(), previous, newest.clone()]);
         assert!(finder.is_session_file(&primary) && finder.is_session_file(&newest));
         assert!(!finder.is_session_file(&root.path().join("support/cmux/other.json")));
@@ -412,6 +603,28 @@ mod tests {
         assert!(probe.is_running(&source, 1010.0));
         // An old save with a sentinel is a classic that crashed.
         assert!(!probe.is_running(&source, 1100.0));
+        // A sentinel naming a live pid is a classic that runs however long ago it saved:
+        // it saves only on a change (an idle classic, 2026-11-15, went 2 min between saves
+        // and a launch took it for crashed and offered its workspaces unasked).
+        std::fs::write(
+            root.path().join("lifecycle/com.cmuxterm.app/running.sentinel"),
+            format!("pid={}\n", std::process::id()),
+        )
+        .unwrap();
+        assert!(probe.is_running(&source, 100_000.0));
+        // A dead pid is a classic that crashed.
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let dead = child.id();
+        child.wait().unwrap();
+        std::fs::write(
+            root.path().join("lifecycle/com.cmuxterm.app/running.sentinel"),
+            format!("pid={dead}"),
+        )
+        .unwrap();
+        assert!(!probe.is_running(&source, 100_000.0));
+        assert_eq!(RunningProbe::sentinel_pid("pid=55424\n"), Some(55424));
+        assert_eq!(RunningProbe::sentinel_pid("pid=1"), None);
+        assert_eq!(RunningProbe::sentinel_pid("{}"), None);
         let home = Path::new("/Users/me");
         assert_eq!(RunningProbe::default_state_root(home, None), home.join(".local/state/cmux"));
         assert_eq!(RunningProbe::default_state_root(home, Some(" ~/st ")), home.join("st/cmux"));

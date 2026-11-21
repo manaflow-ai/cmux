@@ -17,6 +17,21 @@ import Testing
         #expect(row.buttons.last?.destructive == true)
     }
 
+    /// A dev build's row says which Cloud backend it talks to, signed in or out; with no backend
+    /// (release, RC) the row has no such line.
+    @Test func aDevBuildsRowNamesItsCloudBackend() {
+        let label = "https://cmux-dev-backend-1.tail137216.ts.net:3850 (this tag's backend.json)"
+        let services = MockAccountsServices()
+        services.cmuxSignInState = CmuxAccountState(signedIn: false, backend: label)
+        #expect(AccountsModel(services: services).pageState.cmux.note == "Cloud backend: \(label)")
+        services.isSignedInToCmux = false
+        #expect(AccountsModel(services: services).pageState.cmux.note == "Cloud backend: \(label)")
+        services.cmuxSignInState = CmuxAccountState(signedIn: false)
+        #expect(AccountsModel(services: services).pageState.cmux.note == nil)
+        services.isSignedInToCmux = true
+        #expect(AccountsModel(services: services).pageState.cmux.note == nil)
+    }
+
     @Test func aSignInInProgressOffersTheBrowserAndCancel() {
         let services = MockAccountsServices()
         services.isSignedInToCmux = false

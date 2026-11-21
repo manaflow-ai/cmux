@@ -87,7 +87,7 @@ fn setup_peer(fake: FakeHub) -> (Arc<Hub>, Arc<FakeHub>, Arc<crate::peer::Peer>)
                      "updatedAt": 5});
     let peer = hub.seed_down_peer("huge-blue", vec![row]);
     let fake = Arc::new(fake);
-    assert!(hub.mesh.set(fake.clone()).is_ok());
+    hub.mesh.set(fake.clone());
     (hub, fake, peer)
 }
 
@@ -317,7 +317,7 @@ async fn the_pin_of_an_attempt_that_reached_nothing(rules: u8) -> Option<crate::
     let row = json!({"sessionId": LANE, "name": "lane", "status": "idle", "turnCount": 1,
                      "updatedAt": 5, "createdAt": 5});
     hub.seed_down_peer("huge-blue", vec![row]);
-    assert!(hub.mesh.set(Arc::new(FakeHub::default())).is_ok());
+    assert!(hub.mesh.set(Arc::new(FakeHub::default())).is_none(), "no client before");
     let shot = crate::attach::block("shot.png", b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR");
     let mut attached = request("huge-blue/lane", "prompt-pin");
     attached["request"]["prompt"] = json!([{"type": "text", "text": "see this"}, shot]);

@@ -72,7 +72,9 @@ pub(super) const SEND_EXPECT_FOREGROUND_CAPABILITY: &str = "send-expect-foregrou
 
 /// `send-expect-agent-v1`: `send` takes `expect_agent` and `submit`, so a reply typed from
 /// somewhere that cannot see the screen (the phone's Feed) reaches only the agent that waits at
-/// its prompt, and is submitted with no gap between the text and Return.
+/// its prompt, and is submitted by a Return of its own. The PTY writer gives it its own read once
+/// the program read the text (`paste_pacing`): sent right behind a paste, an agent TUI took it as
+/// part of the paste.
 pub(super) const SEND_EXPECT_AGENT_CAPABILITY: &str = "send-expect-agent-v1";
 
 /// `send` `expect_agent`: the terminal's agent must wait at its prompt (`idle`, never `working`,
@@ -286,7 +288,8 @@ pub(super) fn send(
     }
     if submit {
         // Return as its own key: a full-screen agent editor reads a pasted newline as a line
-        // break, not a submit.
+        // break, not a submit. The PTY writer holds it until the program read the paste
+        // (`paste_pacing`).
         // The text is already in: a failed Return must not read as "nothing was written".
         surface.write_bytes_replying(b"\r", reply).map_err(|error| {
             anyhow::anyhow!("submit failed after the text was written: {error}")

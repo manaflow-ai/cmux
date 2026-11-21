@@ -299,6 +299,16 @@ public final class SidebarContainerView: NSView {
         sidebarView.beginRename(group: id)
     }
 
+    /// Rename on the first group the sidebar lists (its editor), as that header's menu does; false with no group
+    /// (`debug.overlay_open_bench`).
+    public func beginRenameFirstGroup() -> Bool {
+        let first = model.sections.lazy.flatMap(\.nodes).compactMap { node -> GroupID? in if case let .group(group) = node { group.id } else { nil } }.first
+        guard let first else { return false }
+        sidebarView.list.groupEditor.forgetLastClose()
+        beginRename(group: first)
+        return true
+    }
+
     /// Turns the sidebar's edit mode on or off (`SidebarView+EditItems`), showing a hidden sidebar first.
     public func toggleEditingItems() {
         let on = !sidebarView.isEditingItems

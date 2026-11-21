@@ -189,7 +189,11 @@ pub struct Facts {
     /// The page's JSON-RPC id as raw JSON.
     pub page_id: Option<String>,
     /// The gesture ticket the frame carried (stripped from it), and whether
-    /// its `_meta` held anything else (R1).
+    /// its `_meta` held anything else (R1). The host redeems it, but a
+    /// frame that needs no gesture (a Send) is granted even when its ticket
+    /// does not redeem (Swift `granted = !facts.needsGesture || (redeemed &&
+    /// ...)`; Leo, 2026-11-17, on "Not sent: it needs your own key press or
+    /// click": "go remove this").
     pub ticket: Option<String>,
     pub other_meta: bool,
     pub pick: Option<GesturePick>,
@@ -228,9 +232,14 @@ pub struct Facts {
 }
 
 impl Facts {
-    /// No host state decides this frame: it is sent as checked.
+    /// No host state decides this frame: it is sent as checked. A
+    /// `session/prompt` never is, though it needs no gesture (Leo,
+    /// 2026-11-17, on "Not sent: it needs your own key press or click": "go
+    /// remove this"): it goes on disk first (the prompt journal) and ends
+    /// its tickets and credits (Swift `Facts.free`).
     pub fn free(&self) -> bool {
-        self.ticket.is_none()
+        self.method.as_deref() != Some("session/prompt")
+            && self.ticket.is_none()
             && !self.needs_gesture
             && !self.needs_path_check
             && self.setting.is_none()
