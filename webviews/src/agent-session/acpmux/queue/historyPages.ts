@@ -7,6 +7,7 @@ import { copyTextResult } from "../conversation/clipboard";
 import type { WatchedAsk } from "../needsYou/model";
 import { answerAnotherChat } from "../needsYou/useNeedsYou";
 import type { LedgerScreen } from "../ledger/LedgerScreen";
+import type { UnitCostScreen } from "../unitCost/UnitCostScreen";
 import type { TeamAuditScreen } from "../teamAudit/TeamAuditScreen";
 import type { QueueScreen } from "./QueueScreen";
 import { auditEntries, needsYouItem, QUEUE_LIMIT, verdictParams, type QueueItem } from "./queueModel";
@@ -18,6 +19,7 @@ type CallNative = <T>(method: string, params?: Record<string, unknown>) => Promi
 /// The pane's connection calls these pages use (AcpmuxDirectClient).
 export type HistoryPagesClient = {
   ledger(params: Record<string, unknown>): Promise<unknown>;
+  unitCost?(params: Record<string, unknown>): Promise<unknown>;
   teamAudit(params: Record<string, unknown>): Promise<unknown>;
   reviewQueue(params?: Record<string, unknown>): Promise<unknown>;
   reviewVerdict(params: Record<string, unknown>): Promise<unknown>;
@@ -98,6 +100,7 @@ export function historyPages({
   queue: ComponentProps<typeof QueueScreen>;
   ledger: ComponentProps<typeof LedgerScreen>;
   team: ComponentProps<typeof TeamAuditScreen>;
+  unitCost: ComponentProps<typeof UnitCostScreen>;
 } {
   const connected = () => {
     const current = client();
@@ -169,7 +172,14 @@ export function historyPages({
         }
       },
     },
-    // History shows it only while the `team-audit` experiment is on (newtab/HistoryScreen.tsx).
+    // Both optional History experiments make requests only after explicit activation.
+    unitCost: {
+      load: async (params) => {
+        const current = connected();
+        if (!current.unitCost) throw { code: -32601 };
+        return current.unitCost(params);
+      },
+    },
     team: { load: async (params) => connected().teamAudit(params) },
   };
 }
