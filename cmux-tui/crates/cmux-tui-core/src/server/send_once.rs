@@ -66,6 +66,7 @@ impl SentKeys {
         self.at.remove(key);
     }
 
+    #[cfg(test)]
     pub(super) fn len(&self) -> usize {
         self.at.len()
     }

@@ -56,21 +56,16 @@ import Testing
         session.reconnect()
         try await waitUntil { session.isAttached }
         try await waitUntil { sends(daemon).count == 2 }
-        for _ in 0..<50 { await Task.yield() }
-        try await Task.sleep(for: .milliseconds(100))
+        // Later keys get a key of their own, and go after the resend on the same ordered lane:
+        // once the Mac has them, a second resend would already be on record.
+        try await sendMarker("x", session, daemon)
 
         let all = sends(daemon)
-        #expect(all.count == 2, "resent exactly once")
-        #expect(all.last?["key"] as? String == key, "the resend carries the first key")
-        #expect(all.last?["bytes"] as? String == Data("ls\r".utf8).base64EncodedString())
+        #expect(all.count == 3, "resent exactly once")
+        #expect(all[1]["key"] as? String == key, "the resend carries the first key")
+        #expect(all[1]["bytes"] as? String == Data("ls\r".utf8).base64EncodedString())
         #expect(!Self.notSent(events), "nothing goes back to the composer")
-
-        // Later keys get a key of their own.
-        session.send(Data("x".utf8))
-        try await waitUntil { sends(daemon).count == 3 }
-        let next = sends(daemon).last
-        #expect(next?["bytes"] as? String == Data("x".utf8).base64EncodedString())
-        #expect((next?["key"] as? String).map { $0 != key } == true)
+        #expect((all[2]["key"] as? String).map { $0 != key } == true)
     }
 
     /// A resend that fails uncertainly again is not sent a third time: the
@@ -94,9 +89,8 @@ import Testing
         daemon.unansweredSends = false
         session.reconnect()
         try await waitUntil { session.isAttached }
-        for _ in 0..<50 { await Task.yield() }
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(sends(daemon).count == 2)
+        try await sendMarker("m", session, daemon)
+        #expect(sends(daemon).count == 3, "the batch went twice, then only the marker")
     }
 
     /// A Mac without `send-key-v1`: no key, and a written batch is never sent
@@ -116,9 +110,16 @@ import Testing
         daemon.unansweredSends = false
         session.reconnect()
         try await waitUntil { session.isAttached }
-        for _ in 0..<50 { await Task.yield() }
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(sends(daemon).count == 1, "never sent again")
+        try await sendMarker("m", session, daemon)
+        #expect(sends(daemon).count == 2, "never sent again: only the marker followed")
+    }
+
+    /// Sends `text` after a reattach and waits until the Mac has it: input goes in order on one
+    /// lane, so any resend of an earlier batch is on record by then (no sleep as synchronization).
+    private func sendMarker(_ text: String, _ session: DaemonTerminalSession, _ daemon: FakeTerminalDaemon) async throws {
+        let bytes = Data(text.utf8).base64EncodedString()
+        session.send(Data(text.utf8))
+        try await waitUntil { sends(daemon).contains { $0["bytes"] as? String == bytes } }
     }
 
     private func waitUntil(attempts: Int = 300, _ condition: @MainActor () -> Bool) async throws {
