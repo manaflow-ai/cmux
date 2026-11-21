@@ -51,6 +51,13 @@ public final class UpdaterService {
     public var debugIndicatorPhase: UpdateIndicatorPhase? {
         didSet { syncFlowPhase() }
     }
+    /// A newer build already installed in this app's bundle on disk (``checkInstalledBuild()``).
+    public internal(set) var installedNewerBuild: InstalledBuild?
+    /// Relaunches into the installed build: quits and opens the bundle again (set by the App;
+    /// nil where it cannot, so Restart to Update then offers nothing for it).
+    @ObservationIgnored public var relaunchInstalledBuild: (() -> Void)?
+    /// Reads the build in this app's bundle on disk (replaced by tests).
+    @ObservationIgnored var readInstalledBuild: () -> InstalledBuild? = { InstalledBuildWatch.read(bundleURL: Bundle.main.bundleURL) }
     /// The R114 install gate over ``indicatorPhase``.
     public internal(set) var flow = UpdateFlow()
     /// How many times the gate's phase moved (``syncFlowPhase()``): a caller that follows one
@@ -426,7 +433,11 @@ public final class UpdaterService {
         refreshUpdateSnooze()
         tipCheck.refresh(self)
         refreshReleasePush()
-        pulledWatch.onRefresh = { [weak self] in self?.followPulled() }
+        pulledWatch.onRefresh = { [weak self] in
+            self?.followPulled()
+            // After every update cycle: Sparkle may have swapped the bundle under this running build.
+            self?.checkInstalledBuild()
+        }
         guard let controller else {
             log.append("sparkle not started (\(disabledReason?.rawValue ?? "no driver"), track=\(identity.track.rawValue))")
             return
@@ -566,6 +577,7 @@ public final class UpdaterService {
     /// notice card; a found update downloads and waits as the staged update
     /// card (Restart to Update).
     public func installAvailableUpdate() throws {
+        if relaunchIntoInstalledBuild() { return }
         guard let controller, disabledReason == nil else { throw UpdaterUnavailable(reason: disabledReason) }
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("install_clicked")

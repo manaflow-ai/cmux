@@ -35,6 +35,13 @@ extension UpdaterService {
         hidesForRelaunch = { _ = handoff.hide() }
         installAbandoned = { handoff.restore() }
         isSheetPresented = { sheet.isPresented }
+        // Restart to Update for a build already installed on disk: quit (keeping every session),
+        // then open the bundle again. Only a click gets here; nothing relaunches by itself.
+        relaunchInstalledBuild = { [weak self] in
+            guard InstalledBuildRelaunch.start(bundle: Bundle.main.bundleURL) else { self?.installAbandoned?(); return }
+            self?.hidesForRelaunch?()
+            NSApp.terminate(nil)
+        }
         sheet.onDismiss = { [weak self] in self?.updateSheetClosed() }
         // The check's progress and result show on the sidebar's notice card; with the
         // active window's sidebar hidden (or no window) nothing would show, so the sheet
