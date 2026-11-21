@@ -577,9 +577,9 @@ fn a_created_cloud_machine_prints_its_target_and_next_steps() {
     let text = created_line(&params, &created, &GlobalArgs::default()).unwrap();
     assert!(text.starts_with("Created Cloud VM api-dev (vm-abc): running."), "{text}");
     for next in [
-        "cmux vm ssh --target vm:vm-abc",
-        "cmux vm start-session --target vm:vm-abc",
-        "cmux vm exec --target vm:vm-abc",
+        "cmux vm ssh vm-abc",
+        "cmux chat --on vm:vm-abc 'PROMPT'",
+        "cmux vm exec vm-abc -- uname -a",
     ] {
         assert!(text.contains(next), "{next} missing: {text}");
     }
@@ -630,11 +630,11 @@ fn the_next_steps_keep_the_socket_the_create_used() {
     };
     let text = created_line(&params, &created, &global).unwrap();
     let cmux = "cmux --socket=/tmp/d.sock '--app-socket=/tmp/my app.sock'";
-    for verb in ["vm ssh", "vm start-session", "vm exec"] {
-        assert!(text.contains(&format!("{cmux} {verb} --target vm:vm-abc")), "{verb}: {text}");
+    for next in ["vm ssh vm-abc", "chat --on vm:vm-abc", "vm exec vm-abc --"] {
+        assert!(text.contains(&format!("{cmux} {next}")), "{next}: {text}");
     }
     let text = created_line(&params, &created, &GlobalArgs::default()).unwrap();
-    assert!(text.contains("  cmux vm ssh --target vm:vm-abc"), "{text}");
+    assert!(text.contains("  cmux vm ssh vm-abc"), "{text}");
     let pending = json!({ "result": { "pending": true, "status": "creating" } });
     let text = created_line(&params, &pending, &global).unwrap();
     assert!(text.contains(&format!("`{cmux} vm ls`")), "{text}");
@@ -688,6 +688,15 @@ fn vm_runs_every_cloud_verb_and_keeps_its_machine_verbs() {
             &["vm", "kill-machine", "--target", "machine:m", "--confirm"],
             &["cloud", "kill-machine", "--target", "machine:m", "--confirm"],
         ),
+        (
+            &["vm", "kill-machine", "--target", "machine:m", "--yes"],
+            &["cloud", "kill-machine", "--target", "machine:m", "--confirm"],
+        ),
+        // Only a verb that deletes reads `--yes` as its yes; anywhere else it is a value.
+        (
+            &["vm", "exec", "--target", "machine:m", "--command", "--yes"],
+            &["cloud", "exec", "--target", "machine:m", "--command", "--yes"],
+        ),
         (&["vm", "secret", "ls"], &["cloud", "secret", "ls"]),
         (&["vm", "env", "get"], &["cloud", "env", "get"]),
         // The Cloud forms of `exec` and `client-session` name a target.
@@ -715,6 +724,15 @@ fn vm_runs_every_cloud_verb_and_keeps_its_machine_verbs() {
     ] {
         assert_eq!(cloud_alias(&args(typed)), None, "{typed:?}");
     }
+}
+
+/// `cmux cloud … --yes` is the app's `--confirm` only on a verb that deletes.
+#[test]
+fn a_yes_that_is_a_value_stays_as_typed() {
+    let typed = args(&["cloud", "start-chat", "--target", "vm:m", "--prompt", "--yes"]);
+    assert_eq!(cloud_yes(&typed), None);
+    let rm = args(&["cloud", "file-remove", "--target", "vm:m", "--path", "/f", "-y"]);
+    assert_eq!(cloud_yes(&rm).unwrap().last().map(String::as_str), Some("--confirm"));
 }
 
 /// No `vm chat`: a Cloud chat is `cmux chat --on vm:…`.
@@ -854,4 +872,27 @@ fn vm_help_teaches_vm_and_machine_help_points_at_it() {
     assert!(!super::super::surface::VM_VERBS_HELP.contains("cmux machine new ("));
     assert!(super::super::surface::VM_POINTER.contains("cmux vm --help"));
     assert!(super::super::surface::MACHINE_CATALOG_HELP.contains("cmux device"));
+}
+
+/// A DEV build names its own `vm.json` (`CMUX_VM_DEFAULT_CONFIG`, BuildStatePaths): the person's
+/// `~/.config/cmux/vm.json` is NIGHTLY's and stable's, never a DEV build's credential.
+#[test]
+fn dev_build_own_vm_config_is_the_one_counted() {
+    let base = std::env::temp_dir().join(format!("cmux-vm-dev-config-{}", std::process::id()));
+    std::fs::create_dir_all(base.join("home/.config/cmux")).unwrap();
+    std::fs::create_dir_all(base.join("build")).unwrap();
+    std::fs::write(base.join("home/.config/cmux/vm.json"), r#"{"apiKey":"cmuxvm_sk_person"}"#)
+        .unwrap();
+    let own = base.join("build/vm.json");
+    let home = base.join("home").to_string_lossy().into_owned();
+    let own_text = own.to_string_lossy().into_owned();
+    let env = |name: &str| match name {
+        "HOME" => Some(home.clone()),
+        "CMUX_VM_DEFAULT_CONFIG" => Some(own_text.clone()),
+        _ => None,
+    };
+    assert!(!has_own_credential(&env), "the person's vm.json counted in a DEV build");
+    std::fs::write(&own, r#"{"apiKey":"cmuxvm_sk_dev"}"#).unwrap();
+    assert!(has_own_credential(&env), "the DEV build's own vm.json did not count");
+    let _ = std::fs::remove_dir_all(&base);
 }

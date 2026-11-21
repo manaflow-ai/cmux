@@ -7,30 +7,13 @@ public import Foundation
 public nonisolated struct SpringParameters: Hashable, Sendable {
     /// Seconds for one undamped oscillation; smaller is stiffer.
     public var response: Double
-    /// 1 is critically damped; below 1 overshoots.
+    /// 1 is critically damped; above 1 is slower. Below 1 passes the target: no Motion token is
+    /// (`MotionSpring.base`).
     public var dampingFraction: Double
 
     public init(response: Double, dampingFraction: Double) {
         self.response = response
         self.dampingFraction = dampingFraction
-    }
-
-    /// SwiftUI `Spring(duration:bounce:)`: `duration` is the perceptual
-    /// duration (the response), `bounce` 0 is critically damped, above 0
-    /// overshoots (0.15 is a subtle bounce), below 0 is over-damped.
-    public init(duration: Double, bounce: Double) {
-        self.response = duration
-        self.dampingFraction = bounce >= 0 ? 1 - bounce : 1 / (1 + bounce)
-    }
-
-    /// SwiftUI's bounce for this damping fraction (0 critically damped).
-    public var bounce: Double {
-        dampingFraction <= 1 ? 1 - dampingFraction : 1 / dampingFraction - 1
-    }
-
-    /// The same response with `bounce` (SwiftUI semantics).
-    public func withBounce(_ bounce: Double) -> SpringParameters {
-        SpringParameters(duration: response, bounce: bounce)
     }
 
     /// Angular frequency (rad/s).
@@ -39,6 +22,41 @@ public nonisolated struct SpringParameters: Hashable, Sendable {
     public var stiffness: Double { omega * omega }
     /// `CASpringAnimation.damping` for mass 1.
     public var damping: Double { 2 * dampingFraction * omega }
+
+    /// The velocity a value may start a step with, `distance` (its target minus its value) from its
+    /// target: no motion passes its target (Lawrence 2026-11-10; motion-first-principles-DESIGN.md,
+    /// principle 5). A velocity carries only when it points at the target, and then at most
+    /// omega x |distance|; one that points away, or one at the target, is dropped.
+    ///
+    /// Why omega x |distance|: with x = value - target, a critically damped spring is
+    /// x(t) = (x0 + (v0 + omega x0) t) e^(-omega t). It is zero at t = -x0 / (v0 + omega x0), which is
+    /// a time to come only when v0 points at the target and |v0| > omega |x0|. So a velocity toward
+    /// the target of at most omega |x0| never reaches zero: the value arrives and does not pass.
+    /// Over-damped, the limit is omega (zeta + sqrt(zeta^2 - 1)) |x0|, which is larger, so
+    /// omega |x0| is safe there too. Along a free path the ratio r = v / |x| obeys
+    /// r' = omega^2 - 2 zeta omega r + r^2, which is not positive between its roots, so a path that
+    /// starts under the limit stays under it: the limit changes a state only when a caller wrote one
+    /// (a release velocity, a new target under a moving value), never a spring in free flight.
+    public func admitted(velocity: CGFloat, distance: CGFloat) -> CGFloat {
+        guard velocity != 0 else { return 0 }
+        let limit = CGFloat(omega) * abs(distance)
+        if distance > 0 { return min(max(velocity, 0), limit) }
+        if distance < 0 { return max(min(velocity, 0), -limit) }
+        return 0
+    }
+
+    /// ``admitted(velocity:distance:)`` for the two edges of one axis of a rect held as a start and
+    /// an extent (x and width): the near edge is `start`, the far edge is their sum. The owner then
+    /// steps both with `SpringValue.advanceAdmitted`. Edges inside the limit are not touched.
+    public func admitEdges(start: inout SpringValue, extent: inout SpringValue) {
+        guard start.velocity != 0 || extent.velocity != 0 else { return }
+        let far = start.velocity + extent.velocity
+        let low = admitted(velocity: start.velocity, distance: start.target - start.value)
+        let high = admitted(velocity: far, distance: (start.target + extent.target) - (start.value + extent.value))
+        guard low != start.velocity || high != far else { return }
+        start.velocity = low
+        extent.velocity = high - low
+    }
 
     /// The same spring with every time constant multiplied by `scale`.
     public func scaled(by scale: Double) -> SpringParameters {
@@ -80,8 +98,10 @@ public nonisolated struct SpringParameters: Hashable, Sendable {
 }
 
 /// One scalar driven by a damped spring toward `target`. Retargeting keeps
-/// `value` and `velocity`, so an interrupted animation continues from where
-/// it is on screen with its momentum: no jump, no queue.
+/// `value`, so an interrupted animation continues from where it is on screen:
+/// no jump, no queue. Its `velocity` carries into the next step only as far
+/// as it cannot pass the target (`SpringParameters.admitted(velocity:distance:)`):
+/// with a spring that is not under-damped, the value never passes its target.
 public nonisolated struct SpringValue: Hashable, Sendable {
     public var value: CGFloat
     public var velocity: CGFloat = 0
@@ -100,7 +120,7 @@ public nonisolated struct SpringValue: Hashable, Sendable {
     /// FFI (`cmux_motion_step`, no settle: epsilon 0); a non-finite or
     /// non-positive tuning takes `move`'s (cmux-motion `finite_or`).
     public mutating func step(_ dt: Double, parameters: SpringParameters) {
-        _ = stepFFI(dt, parameters: parameters, epsilon: 0)
+        _ = stepFFI(dt, parameters: parameters, epsilon: 0, admits: true)
     }
 
     /// Displacement from the target and velocity `time` seconds after a state, for `parameters`
@@ -128,8 +148,11 @@ public nonisolated struct SpringValue: Hashable, Sendable {
     }
 
     /// One `cmux_motion_step` call on this value: steps, and snaps once
-    /// within `epsilon` and slower than 8 x `epsilon` per second.
-    private mutating func stepFFI(_ dt: Double, parameters: SpringParameters, epsilon: CGFloat) -> Bool {
+    /// within `epsilon` and slower than 8 x `epsilon` per second. `admits`: the step starts with
+    /// the velocity that cannot pass the target; false when the owner limited it already
+    /// (`AnimatedFrame`, by edge).
+    private mutating func stepFFI(_ dt: Double, parameters: SpringParameters, epsilon: CGFloat, admits: Bool) -> Bool {
+        if admits { velocity = parameters.admitted(velocity: velocity, distance: target - value) }
         var state = CmuxMotionState(value: Double(value), velocity: Double(velocity), target: Double(target))
         let spring = CmuxMotionSpring(response: parameters.response, damping_fraction: parameters.dampingFraction)
         let moving = cmux_motion_step(&state, dt, spring, Double(epsilon))
@@ -157,6 +180,12 @@ public nonisolated struct SpringValue: Hashable, Sendable {
     /// Steps and snaps once settled (cmux-motion `advance_spring`). Returns
     /// true while still moving.
     public mutating func advance(_ dt: Double, parameters: SpringParameters, epsilon: CGFloat) -> Bool {
-        stepFFI(dt, parameters: parameters, epsilon: epsilon)
+        stepFFI(dt, parameters: parameters, epsilon: epsilon, admits: true)
+    }
+
+    /// ``advance(_:parameters:epsilon:)`` with the velocity as it is: for an owner that limited it
+    /// itself, on values that move one edge together (`AnimatedFrame`: a right edge is x plus width).
+    public mutating func advanceAdmitted(_ dt: Double, parameters: SpringParameters, epsilon: CGFloat) -> Bool {
+        stepFFI(dt, parameters: parameters, epsilon: epsilon, admits: false)
     }
 }

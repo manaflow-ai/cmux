@@ -5,10 +5,13 @@
 //!
 //! - Each person prompt is checked once, when it is sent ([`Coach::prompt`]), never per token: a
 //!   correction is a prompt that says no, stop, actually, not that, I meant, or re-explains
-//!   ([`is_redirect`], on top of the memory inbox's [`crate::memory_inbox::is_correction`]).
-//! - A completed turn whose prompt was not a correction, after [`THRESHOLD`] or more corrections,
-//!   means the person kept the result and moved on ([`Coach::turn_ended`]). The chat then logs a
-//!   `mux` `coach_offer` record once (`hub/prompt_coach.rs`). No model is asked for that.
+//!   ([`is_redirect`], on top of the memory inbox's [`crate::memory_inbox::is_correction`]). Only
+//!   a prompt a connection proved the person's counts (`server/requests.rs` `person_admitted`).
+//! - A completed turn whose own prompt was the person's and not a correction, after [`THRESHOLD`]
+//!   or more corrections, means the person kept the result and moved on ([`Coach::turn_ended`]).
+//!   Each prompt is kept by its id until its own turn ends, so a prompt queued behind a running
+//!   turn, or a turn an agent or a peer started, never settles another turn's. The chat then
+//!   logs a `mux` `coach_offer` record once (`hub/prompt_coach.rs`). No model is asked for that.
 //! - Only when the chat page shows it (its setting on, the card not dismissed) does it ask for the
 //!   rewrite (`_acpmux/prompt_coach`): one small-model call that reads the chat's first prompt and
 //!   the corrections, never the transcript ([`rewrite_prompt`]). Its answer is logged as a `mux`
@@ -22,6 +25,9 @@ pub const MAX_KEPT: usize = 8;
 pub const MAX_PROMPT_CHARS: usize = 2000;
 /// The longest rewrite kept, in characters.
 pub const MAX_REWRITE_CHARS: usize = 4000;
+/// The most person prompts kept waiting for their turns to end; the oldest goes first. A steer
+/// joins a running turn and never ends one of its own, so it waits here until pushed out.
+pub const MAX_PENDING: usize = 32;
 
 /// A chat's corrections and offer, this daemon run only. Corrections made before a restart are
 /// not counted, so a restart can only make an offer later, never one more.
@@ -31,8 +37,9 @@ pub struct Coach {
     corrections: Vec<String>,
     /// Every correction counted, kept or not.
     count: usize,
-    /// The prompt of the running turn: whether there is one, and whether it was a correction.
-    turn_prompt: Option<bool>,
+    /// The person's prompts whose turns have not ended, oldest first, by prompt id: whether
+    /// each was a correction. At most [`MAX_PENDING`].
+    pending: std::collections::VecDeque<(String, bool)>,
     /// The offer logged, by its id.
     offered: Option<String>,
     /// The offer's rewrite is being made, or was made: never asked twice.
@@ -40,10 +47,17 @@ pub struct Coach {
 }
 
 impl Coach {
-    /// A person's prompt.
-    pub fn prompt(&mut self, text: &str) {
+    /// A person's prompt `id`, whose turn ends later ([`Coach::turn_ended`]). A resend of an id
+    /// still waiting is the same prompt: it counts once.
+    pub fn prompt(&mut self, id: &str, text: &str) {
+        if self.pending.iter().any(|(p, _)| p == id) {
+            return;
+        }
         let corrects = is_redirect(text);
-        self.turn_prompt = Some(corrects);
+        if self.pending.len() >= MAX_PENDING {
+            self.pending.pop_front();
+        }
+        self.pending.push_back((id.to_owned(), corrects));
         if !corrects || self.offered.is_some() {
             return;
         }
@@ -53,14 +67,15 @@ impl Coach {
         }
     }
 
-    /// A turn ended, `completed` or not: true when the chat qualifies for its offer now. A turn
-    /// that did not complete keeps its prompt for the next end.
-    pub fn turn_ended(&mut self, completed: bool) -> bool {
-        if !completed {
+    /// The turn of prompt `prompt_id` ended, `completed` or not: true when the chat qualifies for
+    /// its offer now. Only that prompt's own turn settles it: a turn whose prompt was no person's
+    /// (an agent's or a peer's) decides nothing, and one that did not complete drops its prompt.
+    pub fn turn_ended(&mut self, prompt_id: &str, completed: bool) -> bool {
+        let Some(at) = self.pending.iter().position(|(p, _)| p == prompt_id) else {
             return false;
-        }
-        let moved_on = self.turn_prompt.take() == Some(false);
-        moved_on && self.offered.is_none() && self.count >= THRESHOLD
+        };
+        let corrects = self.pending.remove(at).is_some_and(|(_, corrects)| corrects);
+        completed && !corrects && self.offered.is_none() && self.count >= THRESHOLD
     }
 
     /// The offer was logged as `id`, or an earlier daemon run's offer was found: none again.
@@ -76,6 +91,18 @@ impl Coach {
         }
         self.asked = true;
         Some((self.corrections.clone(), self.count))
+    }
+
+    /// The offer `id` whose rewrite a chat's log already holds: never asked again.
+    pub fn offer_made(&mut self, id: String) {
+        self.offered = Some(id);
+        self.asked = true;
+    }
+
+    /// An offer that was never logged and has no id to stand in for it: none held, so a later
+    /// turn may log one.
+    pub fn forget_offer(&mut self) {
+        self.offered = None;
     }
 
     /// The offer logged, if any.

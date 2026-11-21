@@ -60,7 +60,8 @@ final class PageWKWebView: WKWebView {
         }
     }
 
-    /// When a real key or mouse event last reached this view (`systemUptime`): a page call shortly
+    /// When a real key or mouse event last reached this view (`systemUptime`), or a menu choice, a drop or,
+    /// with VoiceOver running, a VoiceOver press (``noteAccessibilityPress(at:)``): a page call shortly
     /// after it is backed by the person's gesture (``hasRecentUserGesture(within:)``). Page script
     /// cannot set it.
     private(set) var lastUserEventUptime: TimeInterval?
@@ -83,6 +84,21 @@ final class PageWKWebView: WKWebView {
     /// A choice in a host-owned native menu is real input even when the menu outlived the opener.
     func noteNativeMenuSelection(at uptime: TimeInterval) {
         noteUserActivation(at: uptime)
+    }
+
+    /// Whether VoiceOver runs now (read per press; tests stand in for it).
+    var isVoiceOverRunning: @MainActor () -> Bool = { NSWorkspace.shared.isVoiceOverEnabled }
+
+    /// A trusted click reached the page with no key or mouse event behind it that this view saw: a VoiceOver
+    /// press (AXPress), which WebKit's web process turns into a user-agent click (``PageAccessibilityPress``).
+    /// It backs the page call it leads to, with a mouse event's expiry, only while VoiceOver runs: page
+    /// script cannot make a trusted click, and the press script's handler is out of its reach.
+    /// Returns whether it counted.
+    @discardableResult
+    func noteAccessibilityPress(at uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
+        guard isVoiceOverRunning() else { return false }
+        noteUserActivation(at: uptime)
+        return true
     }
 
     /// Drops the recorded activation and the opened menu: the view now shows another document
@@ -141,7 +157,20 @@ final class PageWKWebView: WKWebView {
         return became
     }
 
-    override func keyDown(with event: NSEvent) { noteUserEvent(event); super.keyDown(with: event) }
+    /// A page inside a native scroll view that never scrolls itself (a sidebar chat history block): a wheel or trackpad
+    /// scroll over it goes to that scroll view in the same event, momentum and phases intact, as over a native row.
+    var passesScrollWheel = false
+
+    override func scrollWheel(with event: NSEvent) {
+        if passesScrollWheel, let scrollView = enclosingScrollView {
+            scrollView.scrollWheel(with: event)
+            return
+        }
+        super.scrollWheel(with: event)
+    }
+
+    /// The key's edit renders now, not at the next display refresh (``NSView/renderKeyEditNow()``).
+    override func keyDown(with event: NSEvent) { noteUserEvent(event); super.keyDown(with: event); renderKeyEditNow() }
     override func keyUp(with event: NSEvent) { noteUserEvent(event); super.keyUp(with: event) }
     override func mouseDown(with event: NSEvent) { noteUserEvent(event); menuAutoFill.noteContextClick(event); super.mouseDown(with: event) }
     override func mouseUp(with event: NSEvent) { noteUserEvent(event); super.mouseUp(with: event) }

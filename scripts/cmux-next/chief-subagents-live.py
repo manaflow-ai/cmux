@@ -2,7 +2,7 @@
 """Live proof of the Chief's subagent orchestration in a real tagged app (cmux-lawrence-2 only).
 
 Launches the tagged app (no-activate, scratch config, an isolated Chief home),
-drives the real Chief through the Home composer (home_page.py) and its
+drives the real Chief through the Home composer (`debug.home.drive`) and its
 tools socket (`optchat/tools.sock`: spawn, zoom, engine, stop, the same calls
 its harness makes), and checks each flow against the Chief's memory
 (`optchat/memory.sqlite3`), its trace (`optchat/traces`), acpmux (`acpmux ls`,
@@ -27,9 +27,8 @@ Usage: chief-subagents-live.py --tag <tag> --app PATH --debug-cli PATH --derived
 Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPMUX_AGENT_LAUNCH=deny (cx-tgf4h).
 """
 import argparse, glob, json, os, re, shutil, signal, socket, sqlite3, subprocess, sys, tempfile, threading, time
-
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import home_page  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -308,7 +307,7 @@ def host_log():
 
 def show_home():
     rpc("action.run", {"id": "home.show"})
-    wait(lambda: (home_page.drive(rpc, {"action": "geometry"}) or {}).get("ok"), 20)
+    wait(lambda: (rpc("debug.home.drive", {"action": "geometry"}) or {}).get("ok"), 20)
 
 
 def ask(text, wait_reply=True):
@@ -316,7 +315,7 @@ def ask(text, wait_reply=True):
     show_home()
     before = len(log_items())
     for action, extra in (("focus", {}), ("type", {"text": text}), ("send", {})):
-        reply = home_page.drive(rpc, {"action": action, **extra})
+        reply = rpc("debug.home.drive", {"action": action, **extra})
         if not (isinstance(reply, dict) and reply.get("ok")):
             return f"(drive {action} failed: {reply})"
     # Its index + 1 (index 0 is a found message, and wait() takes only a truthy value).
@@ -331,7 +330,7 @@ def ask(text, wait_reply=True):
         print(f"ask: not logged after 90 s ({json.dumps(rpc('debug.home') or {})[:300]}); sending again", flush=True)
         show_home()
         for action, extra in (("focus", {}), ("type", {"text": text}), ("send", {})):
-            home_page.drive(rpc, {"action": action, **extra})
+            rpc("debug.home.drive", {"action": action, **extra})
         found = wait(logged, opts.turn_timeout)
     mine = None if found is None else found - 1
     if mine is None:
@@ -682,7 +681,7 @@ def subagent_link_opens_its_chat():
     show_home()
     snapshot("link-home")
     # This subagent's own link (earlier replies link other subagents).
-    clicked = home_page.drive(rpc, {"action": "link", "prefix": f"cmux://chief/{HOME_ID}/session/{session}"}) or {}
+    clicked = rpc("debug.home.drive", {"action": "link", "prefix": f"cmux://chief/{HOME_ID}/session/{session}"}) or {}
     print("link click:", json.dumps(clicked)[:300], flush=True)
     state = wait(lambda: (lambda st: st if st.get("sessionId") == session else None)(
         rpc("debug.agent_pane", {"action": "chat_state"}) or {}), 30) or rpc("debug.agent_pane", {"action": "chat_state"}) or {}
@@ -717,7 +716,7 @@ def subagent_mentions_are_links():
     last = next((m["text"] for m in reversed(log_items()) if m["kind"] == "talk"), "")
     show_home()
     snapshot("mentions-home")
-    clicked = home_page.drive(rpc, {"action": "link", "prefix": "cmux://chief/"} if not session else
+    clicked = rpc("debug.home.drive", {"action": "link", "prefix": "cmux://chief/"} if not session else
                   {"action": "link", "prefix": f"cmux://chief/{HOME_ID}/session/{session}"}) or {}
     print("mention click:", json.dumps(clicked)[:300], flush=True)
     state = wait(lambda: (lambda st: st if session and st.get("sessionId") == session else None)(
@@ -1101,7 +1100,7 @@ def cloud_chief():
             return next((w for w in (snap.get("topology") or {}).get("workspaces", [])
                          if key and (w.get("key") == key or w.get("id") == key)), None)
         ws = wait(server_ws, 120)
-        print("cloud ws:", json.dumps({k: (ws or {}).get(k) for k in ("id", "key", "name", "machine", "session")}), flush=True)
+        safe_print("cloud ws:", json.dumps({k: (ws or {}).get(k) for k in ("id", "key", "name", "machine", "session")}), flush=True)
         if ws:
             focus_workspace(ws.get("id"), f"cloud-{sub}-watch")
         state = rpc("debug.agent_pane", {"action": "chat_state"})
@@ -1127,7 +1126,7 @@ def cloud_chief():
             bool(seen) and bool(ws) and bool(typed) and "agent-session-attach-v1" in caps)
     finally:
         if host:
-            print("cloud cleanup:", json.dumps(rpc("debug.server_reach.cleanup", {"host": host, **({"chief": chief} if chief else {})},
+            safe_print("cloud cleanup:", json.dumps(rpc("debug.server_reach.cleanup", {"host": host, **({"chief": chief} if chief else {})},
                                                   timeout=90))[:300], flush=True)
         for p in reversed(procs):
             if p.poll() is None:
@@ -1223,7 +1222,7 @@ def cleanup():
         for line in ps.splitlines():
             parts = line.split(None, 1)
             if len(parts) == 2 and parts[1].startswith(APP + "/") and int(parts[0]) != os.getpid():
-                print("leftover", line[:160], flush=True)
+                safe_print("leftover", line[:160], flush=True)
                 try:
                     os.kill(int(parts[0]), signal.SIGTERM)
                 except OSError:

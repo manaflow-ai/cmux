@@ -467,7 +467,57 @@ pub(super) fn cloud_alias(args: &[String]) -> Option<Vec<String>> {
     let before = args.get(..args.len().checked_sub(after.len())?.checked_sub(1)?)?;
     let mut rewritten = before.to_vec();
     rewritten.push("cloud".to_owned());
-    rewritten.extend(after.iter().cloned());
+    rewritten.extend(yes_as_confirm(after));
+    Some(rewritten)
+}
+
+/// `words` (a Cloud verb and its words) with `--yes` (`-y`), every delete's yes (`vm rm dev
+/// --yes`), as the `--confirm` the app's Cloud actions read. Only a verb that deletes gets it
+/// (anywhere else a `--yes` is a value, as in `start-chat --prompt --yes`); from `--` on, words
+/// are text.
+fn yes_as_confirm(words: &[String]) -> Vec<String> {
+    let verb = words.iter().find(|word| !word.starts_with('-')).map_or("", String::as_str);
+    yes_words(verb, words)
+}
+
+/// `words` of Cloud's `verb` with its yes (`--yes`, `-y`) as the app's `--confirm`, when `verb`
+/// deletes something. A delete's other flags all take a value (`--path -y` removes the file
+/// `-y`), so a word right after one stays as typed, as does every word from `--` on.
+pub(super) fn yes_words(verb: &str, words: &[String]) -> Vec<String> {
+    if !super::cloud_help::confirms(verb) {
+        return words.to_vec();
+    }
+    let mut text = false;
+    let mut value_next = false;
+    words
+        .iter()
+        .map(|word| {
+            text |= word == "--";
+            let value = std::mem::replace(
+                &mut value_next,
+                word.starts_with("--")
+                    && !word.contains('=')
+                    && !matches!(word.as_str(), "--" | "--yes" | "--confirm" | "--json"),
+            );
+            match word.as_str() {
+                "--yes" | "-y" if !text && !value => "--confirm".to_owned(),
+                _ => word.clone(),
+            }
+        })
+        .collect()
+}
+
+/// `cmux cloud VERB … --yes` (`cloud`, `vm`'s old name): the same `--confirm`, `None` when there
+/// is no `--yes` to respell.
+pub(super) fn cloud_yes(args: &[String]) -> Option<Vec<String>> {
+    let (_, at) = scope_at(args, |word| word == "cloud")?;
+    let after = args.get(at + 1..)?;
+    let respelled = yes_as_confirm(after);
+    if respelled == after {
+        return None;
+    }
+    let mut rewritten = args.get(..=at)?.to_vec();
+    rewritten.extend(respelled);
     Some(rewritten)
 }
 
@@ -721,9 +771,9 @@ pub(super) fn created_line(params: &Value, result: &Value, global: &GlobalArgs) 
     Some(format!(
         "Created Cloud VM {name}: {status}.\n\n\
          Next:\n  \
-         open a terminal:  {cmux} vm ssh --target {target}\n  \
-         start an agent:   {cmux} vm start-session --target {target} --agent claude\n  \
-         run a command:    {cmux} vm exec --target {target} --command 'uname -a'\n"
+         open a terminal:  {cmux} vm ssh {id}\n  \
+         start an agent:   {cmux} chat --on {target} 'PROMPT'\n  \
+         run a command:    {cmux} vm exec {id} -- uname -a\n"
     ))
 }
 
@@ -786,6 +836,12 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         return Some(super::cloud_client_session::run_words(&global, &words));
     }
     let env = |name: &str| std::env::var(name).ok();
+    if scope == Scope::Vm
+        && let [verb, tail @ ..] = rest
+        && verb == "pool"
+    {
+        return Some(run_pool(tail, global.output, &env));
+    }
     if let [verb, tail @ ..] = rest
         && matches!(verb.as_str(), "new" | "create")
     {
@@ -829,6 +885,23 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         return Some(mint_through_app(&global, &plan));
     }
     Some(run_in_process(plan, scope, &env))
+}
+
+/// `cmux vm pool …`: the CI runner pool's surge, idle pause and scheduler (crate cmux-vm-pool). It talks to
+/// Freestyle, GCE and GitHub with their own credentials (`cmux vm pool --help`), not the VM API's.
+fn run_pool(tail: &[String], output: OutputMode, env: &dyn Fn(&str) -> Option<String>) -> i32 {
+    let runtime = match client_runtime() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("cmux: cannot start the pool client: {error}");
+            return 1;
+        }
+    };
+    let mut words = tail.to_vec();
+    if output == OutputMode::Json {
+        words.push("--json".to_owned());
+    }
+    runtime.block_on(cmux_vm_pool::cli::run(&words, env, &mut std::io::stdout().lock()))
 }
 
 /// Runs the cmux-vm CLI on its own runtime, with this process's stdio.
@@ -884,11 +957,10 @@ pub(super) fn has_own_credential(env: &dyn Fn(&str) -> Option<String>) -> bool {
     if set("CMUX_VM_API_KEY") || set("CMUX_VM_CONFIG") {
         return true;
     }
-    let base = env("XDG_CONFIG_HOME")
-        .filter(|value| !value.is_empty())
-        .map(std::path::PathBuf::from)
-        .or_else(|| env("HOME").map(|home| std::path::PathBuf::from(home).join(".config")));
-    let Some(text) = base.and_then(|base| std::fs::read(base.join("cmux").join("vm.json")).ok())
+    // cmux-vm's own default (a DEV build's `CMUX_VM_DEFAULT_CONFIG`, else `vm.json` in the config folder).
+    let empty_is_unset = |name: &str| env(name).filter(|value| !value.is_empty());
+    let Some(text) =
+        cmux_vm::default_config_path(&empty_is_unset).and_then(|path| std::fs::read(path).ok())
     else {
         return false;
     };

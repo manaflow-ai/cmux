@@ -4,7 +4,9 @@
 //
 // A slot is defined once (`defineSlot`, its spec read from slots.json: props, motion tokens, reduced
 // motion, box, stop condition) and drawn with `<Slot>` (Slot.tsx). Variants register against it
-// (`registerSlotVariant`); cmux's own default ships the same way a theme pack's variant would.
+// (`registerSlotVariant`); cmux's own default ships the same way a theme pack's variant would. One
+// host draws its default in place: the live line (Thinking.tsx `LiveWords`) draws the built-in
+// thinking indicator's markup itself, so its shimmer band stays one element through a named step.
 //
 // The variant a slot draws comes from one place, in this order, as experiments pick an arm
 // (experiments/experiment.ts) but for a lasting theme choice rather than a comparison:

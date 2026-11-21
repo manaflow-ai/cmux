@@ -17,6 +17,9 @@ import CmuxNextWakeups
 ///   the next beat (at most 2 s later in a live page) marks it handled. Counting native events
 ///   against the page's own count drifts (a scrollbar click the page never sees), so the host counts
 ///   only "since the last beat"; a page that takes input and stops beating reads slow after 3 s.
+/// - Rest: a page with nothing happening in it for 10 s sends a `rest` beat and stops beating, so an
+///   idle app wakes for no page (CMUX-571). Its silence is not timed then; input sent to it is, from
+///   the first key or click, and the page beats again once it handled it.
 @MainActor
 final class AppHealthPageFeed: PageHealthFeed {
     private let health: AppHealth
@@ -41,20 +44,25 @@ final class AppHealthPageFeed: PageHealthFeed {
         health.setInjector(.renderer, hang)
     }
 
-    func pageBeat(_ page: PageWebView, handled: UInt64) {
+    func pageBeat(_ page: PageWebView, handled: UInt64, resting: Bool) {
         let key = ObjectIdentifier(page), id = page.healthPartID
         if shown[key] == nil {
             let visible = timedVisible(page)
             shown[key] = visible
             followSight(of: page)
-            health.register(id, kind: .page, label: page.healthLabel, visible: visible)
+            health.register(id, kind: .page, label: AppHealthStrings.pageLabel(resource: page.descriptor.resource, fallback: page.healthLabel), visible: visible)
         } else {
             pageVisibilityChanged(page)
         }
         lastHandled[key] = handled
-        health.beat(id)
+        health.beat(id, rest: resting)
+        // A beat answers the input sent since the last one: the page's thread ran after it. Its count cannot
+        // decide (#39247 at aebd2ef): the host notes key ups, mouse ups, drags, scrollbar clicks and menu
+        // choices the page never counts, so a healthy page would read as ignoring them and be reloaded.
         if inputSinceBeat.remove(key) != nil { health.input(id, sent: handled, handled: handled) }
     }
+
+    var takesRestBeats: Bool { health.takesRestBeats }
 
     func pageInput(_ page: PageWebView) {
         let key = ObjectIdentifier(page)
@@ -78,6 +86,8 @@ final class AppHealthPageFeed: PageHealthFeed {
         health.event(AppHealth.pageHostID, .loaded)
         let key = ObjectIdentifier(page)
         guard shown[key] != nil else { return }
+        // A new document counts its handled input from 0 (pageHealth.ts), so the next beat compares with that.
+        lastHandled[key] = 0
         health.event(page.healthPartID, .loaded)
         if showingCrashNotice.remove(key) != nil { pageVisibilityChanged(page) }
     }
@@ -100,7 +110,7 @@ final class AppHealthPageFeed: PageHealthFeed {
     func pageRenderer(_ page: PageWebView, unresponsive: Bool) {
         let key = ObjectIdentifier(page), id = Self.rendererID(page)
         if unresponsive, renderers.insert(key).inserted {
-            health.register(id, kind: .renderer, label: page.healthLabel, visible: page.isShownForHealth)
+            health.register(id, kind: .renderer, label: AppHealthStrings.pageLabel(resource: page.descriptor.resource, fallback: page.healthLabel), visible: page.isShownForHealth)
         }
         guard renderers.contains(key) else { return }
         health.event(id, unresponsive ? .unresponsive : .responsive)
@@ -143,11 +153,13 @@ final class AppHealthPageFeed: PageHealthFeed {
     static func repair(_ action: AppHealth.Action) async -> Bool {
         guard let page = page(forPart: action.id) else { return false }
         // Unsaved edits a reload would drop: refuse, and the status says the repair did not run.
-        guard !page.holdsUnsavedEdits() else { return false }
+        guard !page.holdsEdits else { return false }
         switch action.action {
         case .reloadPage:
             return await page.reloadKeepingState()
         case .restartRenderer:
+            // A renderer can be shared (Chromium keeps one per site): ending it reloads every page in it.
+            guard !PageRegistry.pages().contains(where: \.holdsEdits) else { return false }
             page.restartRenderer()
             return true
         default:

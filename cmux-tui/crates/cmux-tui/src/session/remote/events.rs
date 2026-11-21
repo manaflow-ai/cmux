@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// Why the connection closed after a stream event this client could not apply.
+const UNREADABLE_STREAM_EVENT: &str = "the daemon sent a terminal event this client cannot apply";
+
 impl RemoteSession {
     pub(super) fn emit(&self, event: MuxEvent) {
         self.subscribers.emit(event);
@@ -148,7 +151,7 @@ impl RemoteSession {
                 };
                 let colors = value.get("colors").and_then(parse_terminal_colors);
                 let Ok(pending_sequence) = parse_pending_sequence(&value) else {
-                    self.disconnect_transport();
+                    self.fail_transport(UNREADABLE_STREAM_EVENT);
                     return;
                 };
                 self.log_frame(
@@ -156,11 +159,11 @@ impl RemoteSession {
                     format_args!("vt-state cols={cols} rows={rows} bytes={}", replay.len()),
                 );
                 let Ok(kitty_image_aliases) = parse_kitty_image_aliases(&value) else {
-                    self.disconnect_transport();
+                    self.fail_transport(UNREADABLE_STREAM_EVENT);
                     return;
                 };
                 let Ok(kitty_state) = parse_kitty_replay_state(&value) else {
-                    self.disconnect_transport();
+                    self.fail_transport(UNREADABLE_STREAM_EVENT);
                     return;
                 };
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
@@ -176,7 +179,7 @@ impl RemoteSession {
                         )
                         .is_err()
                     {
-                        self.disconnect_transport();
+                        self.fail_transport(UNREADABLE_STREAM_EVENT);
                         return;
                     }
                     surface.dirty.store(true, Ordering::Release);
@@ -241,12 +244,12 @@ impl RemoteSession {
                 let replay = match value.get("replay").or_else(|| value.get("data")) {
                     Some(data) => {
                         let Some(data) = data.as_str() else {
-                            self.disconnect_transport();
+                            self.fail_transport(UNREADABLE_STREAM_EVENT);
                             return;
                         };
                         let Ok(replay) = base64::engine::general_purpose::STANDARD.decode(data)
                         else {
-                            self.disconnect_transport();
+                            self.fail_transport(UNREADABLE_STREAM_EVENT);
                             return;
                         };
                         Some(replay)
@@ -254,16 +257,16 @@ impl RemoteSession {
                     None => None,
                 };
                 let Ok(kitty_image_aliases) = parse_kitty_image_aliases(&value) else {
-                    self.disconnect_transport();
+                    self.fail_transport(UNREADABLE_STREAM_EVENT);
                     return;
                 };
                 let Ok(kitty_state) = parse_kitty_replay_state(&value) else {
-                    self.disconnect_transport();
+                    self.fail_transport(UNREADABLE_STREAM_EVENT);
                     return;
                 };
                 let colors = value.get("colors").and_then(parse_terminal_colors);
                 let Ok(pending_sequence) = parse_pending_sequence(&value) else {
-                    self.disconnect_transport();
+                    self.fail_transport(UNREADABLE_STREAM_EVENT);
                     return;
                 };
                 self.log_frame(
@@ -286,7 +289,7 @@ impl RemoteSession {
                         )
                         .is_err()
                     {
-                        self.disconnect_transport();
+                        self.fail_transport(UNREADABLE_STREAM_EVENT);
                         return;
                     }
                     surface.dirty.store(true, Ordering::Release);
@@ -318,7 +321,7 @@ impl RemoteSession {
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     let Some((cols, rows)) = remote_terminal_size(&value) else { return };
                     if surface.apply_stream_resize(cols, rows, None, &[]).is_err() {
-                        self.disconnect_transport();
+                        self.fail_transport(UNREADABLE_STREAM_EVENT);
                         return;
                     }
                     surface.update_browser_state(&value);

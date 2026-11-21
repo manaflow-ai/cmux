@@ -816,7 +816,7 @@ fn local_and_authenticated_remote_namespaces_do_not_cross_target() {
     assert_success(&remote_help);
     let remote_help = String::from_utf8(remote_help.stdout).unwrap();
     assert!(
-        remote_help.contains("USAGE: cmux remote connect|ssh|forward|rpc [OPTIONS]"),
+        remote_help.contains("USAGE: cmux remote connect|ssh|exec|cp|forward|rpc [OPTIONS]"),
         "{remote_help}"
     );
     assert!(remote_help.contains("cmux remote enroll <ACTION> [OPTIONS]"), "{remote_help}");
@@ -3041,6 +3041,10 @@ mod session_shutdown;
 mod apps_store;
 
 #[cfg(unix)]
+#[path = "cli/apps_external_server.rs"]
+mod apps_external_server;
+
+#[cfg(unix)]
 #[path = "cli/stop_start_lock.rs"]
 mod stop_start_lock;
 
@@ -3765,6 +3769,9 @@ mod closed_ids;
 #[cfg(unix)]
 #[path = "cli/cloud_lease_gate.rs"]
 mod cloud_lease_gate;
+#[cfg(unix)]
+#[path = "cli/cloud_runs_app_route.rs"]
+mod cloud_runs_app_route;
 #[path = "cli/command_history.rs"]
 mod command_history;
 #[cfg(unix)]

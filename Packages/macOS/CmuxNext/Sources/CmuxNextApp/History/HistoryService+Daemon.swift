@@ -38,34 +38,32 @@ extension HistoryService {
         // read by `commands`; the local daemon lists only its own.
         let appRead: Set<HistoryEntry.Kind> = [.command]
         let kinds = query.kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting(appRead) : query.kinds.subtracting(appRead)
-        var all: [HistoryEntry] = []
-        var unavailable = false
-        if !kinds.isEmpty {
-            // Closed rows carry their chat's session and harness, and the daemon searches them (#31871).
-            var rows: [DaemonHistoryEntry]?
-            if let daemon { rows = await DaemonHistoryClient.retrying { try await daemon.list(kinds: kinds, text: query.text, range: query.range, limit: query.limit) } }
-            all += (rows ?? []).compactMap { daemonRow($0) }.map { reachable($0) }
-            unavailable = rows == nil
-        }
+        // Closed rows carry their chat's session and harness, and the daemon searches them (#31871).
+        var list: DaemonHistoryList?
+        if !kinds.isEmpty, let daemon { list = await DaemonHistoryClient.retrying { try await daemon.list(kinds: kinds, text: query.text, range: query.range, limit: query.limit) } }
+        var all = (list?.entries ?? []).compactMap { daemonRow($0) }.map { reachable($0) }
         if wantsCommands {
             await commands.refresh()
             all += HistoryQuery(text: query.text, kinds: [.command], range: query.range).apply(to: commands.entries())
         }
         all.sort { ($0.time, $0.id) > ($1.time, $1.id) }
         if let limit = query.limit, all.count > limit { all.removeLast(all.count - limit) }
-        return HistoryRead(entries: all, unavailable: unavailable)
+        // `pending`: the kinds the daemon's list does not hold all of yet (`pending_kinds`); the reader says so and reads again.
+        return HistoryRead(entries: all, unavailable: !kinds.isEmpty && list == nil, pending: list?.pendingKinds ?? [])
     }
 
     /// One entry by id: commands from every connected machine's rows, everything else from the local daemon's newest entries of the
-    /// id's kind (through the same bounded retry as a list read, so a slow daemon does not make the entry look gone; nil while it is away).
-    func daemonEntry(id: String, _ daemon: DaemonHistoryClient?) async -> HistoryEntry? {
+    /// id's kind (through the same bounded retry as a list read, so a slow daemon does not make the entry look gone; gone while it is away).
+    /// An id that is not in a list that is not complete yet is `stillLoading`: one read, no wait for the rest.
+    func daemonEntry(id: String, _ daemon: DaemonHistoryClient?) async -> HistoryLookup {
         if id.hasPrefix("command:") {
             await commands.refresh()
-            return commands.entries().first { $0.id == id }
+            return commands.entries().first { $0.id == id }.map { HistoryLookup.found($0) } ?? .gone
         }
-        guard let daemon, let kind = id.split(separator: ":").first.flatMap({ HistoryEntry.Kind(rawValue: String($0)) }) else { return nil }
-        let rows = await DaemonHistoryClient.retrying { try await daemon.list(kinds: [kind], text: "", range: .all, limit: 5_000) } ?? []
-        return rows.first(where: { $0.id == id }).flatMap { daemonRow($0) }.map { reachable($0) }
+        guard let daemon, let kind = id.split(separator: ":").first.flatMap({ HistoryEntry.Kind(rawValue: String($0)) }) else { return .gone }
+        guard let list = await DaemonHistoryClient.retrying({ try await daemon.list(kinds: [kind], text: "", range: .all, limit: 5_000) }) else { return .gone }
+        if let entry = list.entries.first(where: { $0.id == id }).flatMap({ daemonRow($0) }).map({ reachable($0) }) { return .found(entry) }
+        return list.isStillLoading(id: id) ? .stillLoading : .gone
     }
 
     /// The app's entry for a daemon row, with the app's localized titles of an untitled terminal and chat.

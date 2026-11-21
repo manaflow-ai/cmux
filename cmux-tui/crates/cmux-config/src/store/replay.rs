@@ -62,7 +62,7 @@ impl ReplayLog {
 fn committed_operation(fingerprint: &str) -> String {
     let name = serde_json::from_str::<serde_json::Value>(fingerprint)
         .ok()
-        .and_then(|value| value["op"].as_str().map(str::to_string))
+        .and_then(|value| value.get("op").and_then(serde_json::Value::as_str).map(str::to_string))
         .unwrap_or_default();
     format!("settings.{name}")
 }
@@ -70,13 +70,33 @@ fn committed_operation(fingerprint: &str) -> String {
 /// The op's kind and canonical params (target as a key path, value with
 /// sorted keys and canonical numbers), without the idempotency key.
 pub(super) fn fingerprint(op: &Op) -> String {
+    if let Op::Edit { edits, meta } = op {
+        let edits: Vec<_> = edits
+            .iter()
+            .map(|edit| {
+                json!({
+                    "kind": edit.kind.wire_name(),
+                    "path": edit.target.path(),
+                    "value": edit.kind.value().cloned().map(crate::value::canonical),
+                })
+            })
+            .collect();
+        return compact(&json!({
+            "op": "edit",
+            "edits": edits,
+            "origin": meta.origin.as_str(),
+            "if_revision": meta.if_revision,
+        }));
+    }
     let (name, meta, path, value) = match op {
         Op::Set { target, value, meta } => {
             ("set", meta, Some(target.path()), Some(crate::value::canonical(value.clone())))
         }
         Op::Reset { target, meta } => ("reset", meta, Some(target.path()), None),
         Op::ResetAll { meta } => ("reset_all", meta, None, None),
-        Op::DomainsPublish { .. } | Op::TeamPolicySet { .. } => return String::new(),
+        Op::Edit { .. } | Op::DomainsPublish { .. } | Op::TeamPolicySet { .. } => {
+            return String::new();
+        }
     };
     compact(&json!({
         "op": name,

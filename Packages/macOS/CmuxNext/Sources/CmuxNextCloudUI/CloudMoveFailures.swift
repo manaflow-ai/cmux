@@ -2,10 +2,15 @@ public import CmuxNextCloud
 
 /// What a failed Move to Cloud, Move to another machine or Bring Back Local answer means, in the
 /// person's words, and what its Retry does (the App's `CloudMove`, `CloudStartChat`, `CloudBringBack`).
+/// `CloudMoveFailure` is nonisolated (CmuxNextCloud); its texts are this target's main-actor strings,
+/// and every caller is on the main actor, so these makers are too.
+@MainActor
 extension CloudMoveFailure {
     /// A failed copy's failure: an outdated machine's Retry updates it first.
     public static func syncing(_ answer: CloudMoveCLI.Answer, machine: String, retry: CloudMoveRetries.Retry) -> Self {
         if answer.errorCode == CloudMoveStrings.outdatedCode { return Self(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating) }
+        // Past the copy's limits (`copy.too_large`): another try fails the same way, so no Retry (the start then deletes its machine).
+        if answer.errorCode == CloudMoveCLI.StartChatPreflightRefusal.code { return Self(message: CloudMoveStrings.syncFailed(machine, answer.error ?? "")) }
         return Self(message: CloudMoveStrings.syncFailed(machine, answer.error ?? answer.errorCode ?? ""), retry: retry)
     }
 

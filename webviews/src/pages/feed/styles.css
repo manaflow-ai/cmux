@@ -344,7 +344,6 @@
   border-color: transparent;
   background: var(--ds-color-selection);
   color: var(--ds-color-fg);
-  font-weight: var(--weight-emphasis, 600);
 }
 
 .feed-chip:disabled {
@@ -1250,10 +1249,6 @@
   color: var(--ds-color-muted);
   font-size: var(--text-caption);
   cursor: default;
-}
-
-.feed-needs-more:hover {
-  background: var(--ds-color-hover);
 }
 
 .feed-needs-row {

@@ -85,7 +85,13 @@ impl Cli {
     /// `cmux <args>` with no session, no app and no network setup: every
     /// probe here is a refusal, so nothing it runs changes anything.
     fn run(&self, args: &[&str]) -> Output {
+        self.run_in(args, &self.dir, &[])
+    }
+
+    /// [`Cli::run`] from `cwd`, with `env` added.
+    fn run_in(&self, args: &[&str], cwd: &std::path::Path, env: &[(&str, &str)]) -> Output {
         Command::new(self.dir.join("cmux"))
+            .current_dir(cwd)
             .args(args)
             .env_clear()
             .env("PATH", "/usr/bin:/bin")
@@ -95,6 +101,7 @@ impl Cli {
             .env("LC_ALL", "C")
             .env("LANG", "C")
             .env("CMUX_TUI_CONFIG", self.dir.join("config.json"))
+            .envs(env.iter().copied())
             .stdin(Stdio::null())
             .output()
             .unwrap()
@@ -482,6 +489,103 @@ fn a_missing_or_bad_option_is_the_usage_error_object() {
     }
 }
 
+/// Shell completion for every scope, read from the help (Leo, 2026-11-10: "We need to keep
+/// cleaning up the cli commands so they're nice to type and intuitive and ergonomic and go with
+/// best practices"). Every scope the root help lists completes at the first word, the everyday
+/// scopes complete their verbs, and each shell gets a script that asks `cmux __complete`.
+#[test]
+fn completion_lists_every_scope() {
+    let cli = Cli::new();
+    let first = cli.run(&["__complete", "--", ""]);
+    assert!(first.status.success(), "cmux __complete -- '': {}", text(&first.stderr));
+    let offered: Vec<String> = text(&first.stdout).lines().map(str::to_owned).collect();
+    for scope in scopes(&cli) {
+        assert!(offered.contains(&scope), "`cmux <Tab>` does not offer `{scope}`: {offered:?}");
+    }
+    assert!(offered.iter().any(|word| word == "completion"), "{offered:?}");
+    for (scope, verb) in
+        [("vm", "ls"), ("chat", "send"), ("workspace", "list"), ("completion", "zsh")]
+    {
+        let out = cli.run(&["__complete", "--", scope, ""]);
+        let verbs = text(&out.stdout);
+        assert!(
+            verbs.lines().any(|line| line == verb),
+            "`cmux {scope} <Tab>` lacks `{verb}`: {verbs}"
+        );
+    }
+    for shell in ["zsh", "bash", "fish"] {
+        let out = cli.run(&["completion", shell]);
+        assert!(out.status.success(), "cmux completion {shell}: {}", text(&out.stderr));
+        assert!(text(&out.stdout).contains("cmux __complete --"), "cmux completion {shell}");
+    }
+    let help = cli.run(&["completion", "--help"]);
+    assert!(help.status.success() && text(&help.stdout).contains("cmux completion zsh"));
+    let bare = cli.run(&["completion"]);
+    assert_eq!(bare.status.code(), Some(2), "bare `cmux completion` is a usage error");
+}
+
+/// The VM verbs a person types every day (`cmux vm exec dev -- uname -a`).
+const EVERYDAY_VM_VERBS: &[&str] =
+    &["exec", "ssh", "move", "status", "pause", "resume", "rm", "resize", "fork", "rename"];
+
+/// Leo, 2026-11-10: "We need to keep cleaning up the cli commands so they're
+/// nice to type and intuitive and ergonomic and go with best practices". The
+/// everyday VM verbs name the VM by position in every example the VM help
+/// prints, never `--target vm:ID`, and no VM help shows a retired spelling (a
+/// delete says yes with `--yes`, not `--confirm`).
+#[test]
+fn the_vm_help_names_a_vm_by_position_and_deletes_with_yes() {
+    let cli = Cli::new();
+    let mut problems = Vec::new();
+    for scope in ["vm", "cloud"] {
+        let help = text(&cli.run(&[scope, "--help"]).stdout);
+        problems.extend(
+            targeted_examples(&help).into_iter().map(|line| format!("cmux {scope} --help: {line}")),
+        );
+        let mut helps = vec![(format!("{scope} --help"), help.clone())];
+        for verb in verb_rows(&help) {
+            let output = cli.run(&[scope, &verb, "--help"]);
+            helps.push((format!("{scope} {verb} --help"), text(&output.stdout)));
+        }
+        for (command, help) in helps {
+            for option in options(&help) {
+                if let Some((_, now)) = RETIRED.iter().find(|(old, _)| *old == option) {
+                    problems.push(format!("cmux {command} shows the retired {option}; use {now}"));
+                }
+            }
+        }
+    }
+    assert!(
+        problems.is_empty(),
+        "VM help that is harder to type than it needs to be:\n{}",
+        problems.join("\n")
+    );
+}
+
+/// The `cmux vm|cloud VERB …` example lines of `help` whose everyday verb
+/// names its VM with `--target`.
+fn targeted_examples(help: &str) -> Vec<String> {
+    help.lines()
+        .map(str::trim)
+        .filter_map(|line| {
+            let rest =
+                line.strip_prefix("cmux vm ").or_else(|| line.strip_prefix("cmux cloud "))?;
+            let verb = rest.split_whitespace().next()?;
+            (EVERYDAY_VM_VERBS.contains(&verb) && rest.contains("--target"))
+                .then(|| line.to_owned())
+        })
+        .collect()
+}
+
+#[test]
+fn the_targeted_example_check_reads_example_lines() {
+    assert_eq!(targeted_examples("  cmux vm exec --target vm:X --command 'uname -a'").len(), 1);
+    assert!(
+        targeted_examples("  cmux vm exec dev -- uname -a\n  cmux vm access new --target vm:X")
+            .is_empty()
+    );
+}
+
 /// Leo, 2026-11-10: "We need to keep cleaning up the cli commands so they're
 /// nice to type and intuitive and ergonomic and go with best practices". The
 /// next command to a chat names no session id: `cmux chat send TEXT` and
@@ -518,4 +622,31 @@ fn chat_follow_ups_need_no_session_id() {
     // `-w` is `--wait` in the chat help, so the short-option check holds it to that.
     let help = text(&cli.run(&["chat", "--help"]).stdout);
     assert!(short_options(&help).contains(&("-w".to_owned(), "--wait".to_owned())), "{help}");
+}
+
+/// A Tab only reads helps: completing a launcher's words (`cmux preview open`, which runs the
+/// checkout's own script) runs nothing, and a help reader refuses anything but a help.
+#[test]
+fn completion_runs_nothing_but_helps() {
+    let cli = Cli::new();
+    let checkout = cli.dir.join("checkout");
+    let marker = cli.dir.join("ran");
+    for script in ["Prototypes/ViewShell/launch.sh", "Prototypes/UiLayerHost/launch.sh"] {
+        let path = checkout.join(script);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, format!("#!/bin/sh\ntouch {}\n", marker.display())).unwrap();
+        fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    }
+    fs::create_dir_all(checkout.join(".git")).unwrap();
+    for words in [&["preview", "open", ""][..], &["dev", "ui-host", ""], &["preview", ""]] {
+        let mut args = vec!["__complete", "--"];
+        args.extend(words);
+        let out = cli.run_in(&args, &checkout, &[]);
+        assert!(out.status.success(), "cmux {args:?}: {}", text(&out.stderr));
+    }
+    for args in [&["preview", "open", "--help"][..], &["dev", "ui-host", "--help"], &["vm", "ls"]] {
+        let out = cli.run_in(args, &checkout, &[("CMUX_COMPLETE_HELP", "1")]);
+        assert_eq!(out.status.code(), Some(2), "a help reader ran `cmux {args:?}`");
+    }
+    assert!(!marker.exists(), "a Tab ran a checkout's launcher");
 }

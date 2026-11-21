@@ -5,6 +5,7 @@ import { JSDOM } from "jsdom";
 import { resetSettledChatsForTests } from "./settledCache";
 import { AllChatsList } from "./AllChatsList";
 import { SEARCH_SETTLE_MS, useChatPages, type AllChatsPage, type LoadChatsPage } from "./allChatsListModel";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 // All chats search asks the daemon once per settled query, not once per keystroke: each read
 // ranks every chat, so a read per key made typing cost keys x chats (Leo, 2026-11-04: "never ...
@@ -45,11 +46,12 @@ beforeEach(() => {
   root = createRoot(container);
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   jest.useRealTimers();
   root = undefined;
   resetSettledChatsForTests();
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

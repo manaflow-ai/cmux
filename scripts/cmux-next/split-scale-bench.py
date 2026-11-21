@@ -21,10 +21,11 @@ and in each cell every transition of --transitions, each sent through the real i
   bottom_open   Cmd-Shift-D on the bottom-left pane: a pane grows up from the window's bottom edge
   bottom_close  Cmd-W on it: the pane above grows back down (Leo's 2026-11-08 recording: a page above a terminal)
   divider_drag  the first divider dragged 120 pt left (and back, untimed); cells with one pane have none
-  side_open     Option-Cmd-B: the right sidebar opens         side_close    Option-Cmd-B again
-                (Toggle Right Sidebar, a window panel at its remembered section; it needs no chat or tab. Which way
-                the toggle went is read from the trace's pane widths: a press that went the other way is dropped and
-                the key pressed once more, and a press that moved nothing fails the round)
+  side_open     Cmd-B: the sidebar opens                      side_close    Cmd-B again
+                (Toggle Sidebar, the window's sidebar beside the panes; it needs no chat or tab. NEXT has no right
+                sidebar any more, so Option-Cmd-B moved no pane in any cell. Which way the toggle went is read from
+                the trace's pane widths: a press that went the other way is dropped and the key pressed once more,
+                and a press that moved nothing fails the round)
 
 Per transition, from two recordings of the same gesture (split_scale_metrics.py has the definitions):
 
@@ -63,6 +64,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import uuid
@@ -82,7 +84,7 @@ STATIC_CONTENTS = ("empty", "browser", "chat")
 CMD_D = {"key": "d", "modifiers": ["command"]}
 CMD_SHIFT_D = {"key": "d", "modifiers": ["command", "shift"]}
 CMD_W = {"key": "w", "modifiers": ["command"]}
-OPT_CMD_B = {"key": "b", "modifiers": ["option", "command"]}
+CMD_B = {"key": "b", "modifiers": ["command"]}
 # The scrollback terminal: --scrollback numbered lines, then about 2,000 lines a second until the cell ends.
 SCROLL_COMMAND = ("seq -f 'scrollback %g lorem ipsum dolor sit amet consectetur adipiscing elit' 1 {n}; "
                   "while :; do seq -f \"stream %g $RANDOM $RANDOM $RANDOM output\" 1 20; sleep 0.01; done\r")
@@ -105,6 +107,11 @@ parser.add_argument("--settle", type=float, default=0.8, help="seconds between t
 parser.add_argument("--vdisplay", type=float, default=0,
                     help="a 1920 x 1200 virtual main display at this rate (perf-stress-session's helper); "
                          "0 measures on the host's display (split-spring.sh --vdisplay makes its own)")
+parser.add_argument("--keep-frames", default="",
+                    help="comma-separated prefixes of round labels (CELL-TRANSITION-ROUND, such as "
+                         "'s1-browser-w30-bottom_open' or 's9'; 's1,s4,s9' is every round): those rounds' frames, "
+                         "frame times and trace go to --out/frames.tar.gz, with an mp4 at the frames' own times when "
+                         "ffmpeg is on PATH (prefixes, not globs: a fleet step's args take no '*')")
 parser.add_argument("--json")
 parser.add_argument("--md")
 opts, _unknown = parser.parse_known_args()
@@ -404,6 +411,7 @@ def record(run, gesture, label, content="focused", static=True):
                 trace = json.load(handle)
         except (OSError, ValueError) as error:
             trace = {"error": f"trace: {error}"}
+    keep(label, folder, strip)
     shutil.rmtree(folder, ignore_errors=True)
     key = strip.get("key") if isinstance(strip.get("key"), dict) else {}
     if key.get("error"):
@@ -411,26 +419,70 @@ def record(run, gesture, label, content="focused", static=True):
     return ssm.transition(strip, trace, opts.strip_tolerance, static=static)
 
 
+KEEP = [p.strip() for p in opts.keep_frames.split(",") if p.strip()]
+
+
+def keep(label, folder, strip):
+    """A --keep-frames round: its frames, the strip's per-frame times (strip.json) and the trace, kept under
+    --out/frames/LABEL, with frames.mp4 showing each frame for as long as the screen held it."""
+    if not opts.out or not any(label.startswith(p) for p in KEEP):
+        return
+    dest = os.path.join(opts.out, "frames", label)
+    shutil.rmtree(dest, ignore_errors=True)
+    shutil.copytree(folder, dest)
+    with open(os.path.join(dest, "strip.json"), "w") as handle:
+        json.dump(strip, handle, indent=1)
+    frames = [f for f in strip.get("frames") or [] if isinstance(f, dict) and f.get("file")
+              and isinstance(f.get("ms"), (int, float)) and os.path.exists(os.path.join(dest, f["file"]))]
+    if not frames or not shutil.which("ffmpeg"):
+        return
+    # The concat demuxer's durations are the gaps between frames, so the clip plays at the screen's own pace.
+    lines = []
+    for here, after in zip(frames, frames[1:] + [None]):
+        gap = ((after["ms"] - here["ms"]) if after else 100) / 1000
+        lines += [f"file '{here['file']}'", f"duration {max(gap, 0.001):.4f}"]
+    lines.append(f"file '{frames[-1]['file']}'")
+    with open(os.path.join(dest, "frames.txt"), "w") as handle:
+        handle.write("\n".join(lines) + "\n")
+    try:
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", "frames.txt",
+                        "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-fps_mode", "vfr", "-pix_fmt", "yuv420p",
+                        "frames.mp4"], cwd=dest, capture_output=True, timeout=120, check=False)
+    except subprocess.TimeoutExpired:
+        say(f"split-scale: ffmpeg took over 120 s on {label}; its frames are kept without a clip")
+
+
+def pack_frames():
+    """--out/frames.tar.gz: every kept round and report.json, one file a step can return."""
+    frames = os.path.join(opts.out or "", "frames")
+    if not KEEP or not opts.out or not os.path.isdir(frames):
+        return
+    with tarfile.open(os.path.join(opts.out, "frames.tar.gz"), "w:gz") as tar:
+        tar.add(frames, arcname="frames")
+        if opts.json and os.path.exists(opts.json):
+            tar.add(opts.json, arcname="report.json")
+
+
 def side_toggle(run, label, want, static):
-    """Option-Cmd-B recorded as the side pane's `want` ("opened" or "closed"). The key toggles, and the app keeps the
-    right sidebar's visibility across launches (RightSidebarModel, UserDefaults), so a sidebar left open by an earlier
-    run or a key that missed would swap open and close for every later cell: the trace says which way the panes went
-    (ssm.side_way), and a press that went the other way restored `want`'s starting state, so it is pressed again and
-    that press is the record. A press that moved no pane is the round's error."""
+    """Cmd-B recorded as the sidebar's `want` ("opened" or "closed"). The key toggles, and the app keeps the
+    sidebar's visibility across launches, so a sidebar left hidden by an earlier run or a key that missed would swap
+    open and close for every later cell: the trace says which way the panes went (ssm.side_way), and a press that went
+    the other way restored `want`'s starting state, so it is pressed again and that press is the record. A press that
+    moved no pane is the round's error."""
     for attempt in range(2):
-        row = record(run, OPT_CMD_B, label if not attempt else f"{label}-again", content="none", static=static)
+        row = record(run, CMD_B, label if not attempt else f"{label}-again", content="none", static=static)
         way = ssm.side_way(row)
         if way == want:
             if ssm.side_returned(row):
-                problem = f"Option-Cmd-B {way} the right sidebar and the panes went back to their width"
+                problem = f"Cmd-B {way} the sidebar and the panes went back to their width"
                 row["error"] = f"{row['error']}; {problem}" if row.get("error") else problem
             return row
         if way is None:
-            problem = "Option-Cmd-B moved no pane (the right sidebar neither opened nor closed)"
+            problem = "Cmd-B moved no pane (the sidebar neither opened nor closed)"
             row["error"] = f"{row['error']}; {problem}" if row.get("error") else problem
             return row
         time.sleep(opts.settle)  # test script: the wrong-way toggle's motion ends before the press that is timed
-    row["error"] = f"Option-Cmd-B {way} the right sidebar twice in a row, not {want}"
+    row["error"] = f"Cmd-B {way} the sidebar twice in a row, not {want}"
     return row
 
 
@@ -545,7 +597,7 @@ def finish(results):
     results["refresh_ms"] = refresh
     results["verdicts"] = {cell: {name: ssm.verdict(s, refresh) for name, s in per.items()} for cell, per in cells.items()}
     results["flatness"] = ssm.flatness(cells)
-    results["worst"] = ssm.headline(cells, results["flatness"])
+    results["worst"] = ssm.headline(cells, results["flatness"], unsettled_ms=opts.strip_ms)
     pairs = [v for per in results["verdicts"].values() for v in per.values()]
     results["measured"] = len(pairs)
     results["passing"] = sum(1 for v in pairs if v["pass"])
@@ -571,6 +623,7 @@ def finish(results):
     if opts.md:
         with open(opts.md, "w") as handle:
             handle.write("```\n" + text + "\n```\n")
+    pack_frames()
 
 
 def main():

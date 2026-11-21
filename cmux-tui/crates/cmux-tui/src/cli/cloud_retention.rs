@@ -78,22 +78,23 @@ pub(super) fn parse(verb: &str, words: &[String]) -> Result<Parsed, String> {
                     target = Some(words.get(index).cloned().ok_or("--target needs a value")?);
                 }
                 "--off" if verb == KEEP => off = true,
-                "--confirm" if verb == ARCHIVE => confirm = true,
+                // `--yes` (`-y`) like every delete; the old `--confirm` still works.
+                "--yes" | "-y" | "--confirm" if verb == ARCHIVE => confirm = true,
                 _ => return Err(format!("unexpected argument {word:?}")),
             },
         }
         index += 1;
     }
-    let target = target.ok_or("--target machine:MACHINE_ID is required")?;
+    let target = target.ok_or("--target vm:VM_ID is required")?;
     let machine = super::vm_words::bare_id(&target).trim().to_owned();
     if machine.is_empty() {
-        return Err("--target machine:MACHINE_ID".to_owned());
+        return Err("--target vm:VM_ID".to_owned());
     }
     if verb == KEEP {
         return Ok(Parsed::Keep { machine, keep: !off });
     }
     if !confirm {
-        return Err("archive-machine deletes the machine: add --confirm".to_owned());
+        return Err("archive-machine deletes the machine: add --yes".to_owned());
     }
     Ok(Parsed::Archive { machine })
 }

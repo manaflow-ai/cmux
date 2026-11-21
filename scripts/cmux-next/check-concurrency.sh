@@ -77,6 +77,14 @@
 #               and an isolated deinit run inline there makes the Swift 6.2
 #               runtime free() a marker its global task allocator made (cx-bpcj).
 #
+#   closure-holding locks (#40144): no `withLock` on a Mutex or
+#               OSAllocatedUnfairLock whose value is a closure, an optional
+#               one or a tuple holding one (each call wraps the stored closure
+#               in two more thunks; the watchdog's onStall grew 74,661 frames
+#               deep and overflowed the main thread's stack). Use `load()` /
+#               `store(_:)` or keep the closure in a struct
+#               (scripts/cmux-next/check-closure-mutex.py; also in crash-class).
+#
 # Usage: scripts/cmux-next/check-concurrency.sh [package-root]
 set -euo pipefail
 root="${1:-$(git rev-parse --show-toplevel)/Packages/macOS/CmuxNext}"
@@ -567,6 +575,20 @@ for dirpath, _, files in ([] if ONLY else os.walk(tests)):
                       "(declare it `@Suite(.serialized) nonisolated struct`)")
                 print(f"    {line.strip()}")
                 failures += 1
+
+# Closure-holding locks (#40144, a crash class: CHECK_CONCURRENCY_ONLY=crash-class runs it too): `withLock` on a lock
+# whose value is a closure, an optional one or a tuple holding one wraps the stored closure in two more thunks per
+# call, until calling it overflows the stack. check-closure-mutex.py is the one detector; it scans this package's
+# Sources and the shared packages'.
+if ONLY != "synchronization":
+    _spec = importlib.util.spec_from_file_location(
+        "check_closure_mutex", os.path.join(os.path.dirname(sys.argv[2]), "check-closure-mutex.py"))
+    check_closure_mutex = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(check_closure_mutex)
+    closure_roots = [root] + ([shared_root] if os.path.isdir(shared_root) else [])
+    for finding in check_closure_mutex.check(closure_roots):
+        print(f"concurrency: {finding}")
+        failures += 1
 
 if failures:
     print(f"check-concurrency: {failures} violation(s). Fix the blocking call, or add a reviewed "

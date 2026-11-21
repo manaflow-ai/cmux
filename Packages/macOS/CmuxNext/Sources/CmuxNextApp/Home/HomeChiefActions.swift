@@ -1,7 +1,6 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextActions
-import CmuxNextHome
 import CmuxNextHomeModel
 import CmuxNextHomeEngine
 
@@ -10,7 +9,7 @@ import CmuxNextHomeEngine
 /// with none in front, Stop stops the working Chief directly and Settings brings Home forward at
 /// the Chief and opens its settings (``HomeChiefActionPlan``). Each refuses with a reason only when
 /// there is nothing to act on. `home.stopAllAgents` acts only on the front window's Chief Home
-/// (``HomeChiefSurface/stopAllAgents()``) and is unavailable, with its reason, without one.
+/// (HomeHostView+StopAll) and is unavailable, with its reason, without one.
 @MainActor
 enum HomeChiefActions {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
@@ -21,23 +20,29 @@ enum HomeChiefActions {
     }
 
     /// The front window's Chief Home, unless a hosted cloud Chief (no stop there).
-    private static func stopAllTarget() -> HomeChiefSurface? {
-        frontHome().flatMap { $0.control.isHosted ? nil : $0 }
+    private static func stopAllTarget() -> HomeHostView? { frontHome().flatMap { $0.chiefControl.isHosted ? nil : $0 } }
+
+    /// The Home in the front window (``HomeChiefSettingsPopover/frontToggleTarget``) that shows a Chief.
+    private static func frontHome() -> HomeHostView? {
+        guard let root = HomeChiefSettingsPopover.frontToggleTarget?.contentView else { return nil }
+        return firstChiefHome(in: root)
     }
 
-    /// The Chief a Messages page in the front window (``HomeChiefSettingsPopover/frontToggleTarget``) shows:
-    /// the docked page, a conversation tab or the Chief panel, the one with the keyboard first (``HomeShownView``).
-    static func frontHome() -> HomeChiefSurface? {
-        HomeShownView.find(in: HomeChiefSettingsPopover.frontToggleTarget) { ($0 as? any HomeChiefShowing)?.shownChief }
+    private static func firstChiefHome(in view: NSView) -> HomeHostView? {
+        if let home = view as? HomeHostView, home.showsChiefOnScreen { return home }
+        for subview in view.subviews where !subview.isHidden {
+            if let home = firstChiefHome(in: subview) { return home }
+        }
+        return nil
     }
 
-    private static func plan(_ context: AppActionContext, front: HomeChiefSurface?) -> HomeChiefActionPlan {
+    private static func plan(_ context: AppActionContext, front: HomeHostView?) -> HomeChiefActionPlan {
         let home = context.services.home
         let defaultID = HomeChiefName.select(from: home.conversations)?.id
         let chiefs = home.homeStore.rows.filter { $0.summary.participants.contains { $0.agentClass == .chief } }.map {
             HomeChiefActionPlan.Chief(conversation: $0.summary.id, isWorking: $0.isTyping, isDefault: $0.summary.id.rawValue == defaultID)
         }
-        return HomeChiefActionPlan(front: front.map { .chief(isWorking: $0.isWorking) } ?? .none, chiefs: chiefs)
+        return HomeChiefActionPlan(front: front.map { .chief(isWorking: $0.chiefIsWorking) } ?? .none, chiefs: chiefs)
     }
 
     private static func stop(_ context: AppActionContext) {
@@ -46,8 +51,8 @@ enum HomeChiefActions {
         switch plan(context, front: front).stop {
         case .front:
             guard let front else { return }
-            if front.control.isHosted {
-                control = front.control
+            if front.chiefControl.isHosted {
+                control = front.chiefControl
                 break
             }
             let interactive = !context.registry.isCapturingRefusal
@@ -80,11 +85,11 @@ enum HomeChiefActions {
         let front = frontHome()
         switch plan(context, front: front).settings {
         case .front:
-            front?.toggleSettings()
+            front?.toggleChiefSettings()
         case .open(let conversation):
             let services = context.services
             services.home.pendingChiefSettings = conversation
-            // Its Home view opens the settings once it shows the Chief (HomeChiefSurface.openPendingSettings).
+            // Its Home view opens the settings once it shows the Chief (HomeHostView.openPendingSettings).
             if services.home.dock.isClassic {
                 AppActions.homePage(services)?.open(conversation)
             } else {

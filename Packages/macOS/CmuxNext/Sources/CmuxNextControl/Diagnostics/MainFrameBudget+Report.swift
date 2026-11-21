@@ -6,7 +6,9 @@ extension MainFrameBudget {
     /// its budget, tasks run, input yields, over-budget deferrals, tasks run on idle frame time past
     /// its share, over-budget tasks, longest task and the most it spent in one frame; the input checks
     /// and the render passes (before-waiting phase) with their longest times; background tasks held for a frame
-    /// with idle time.
+    /// with idle time; and `owners`: every task's own time by owner, all classes, the unbudgeted store drain
+    /// (`daemon.store.drain`) too, largest total first (count, over_8ms, total_ms, p50_ms, p95_ms, p99_ms, max_ms;
+    /// plans/cmux-next/main-thread-scheduling.md G3 and G4).
     public var report: JSONValue {
         let stats = stats
         var classes: [String: JSONValue] = [:]
@@ -25,6 +27,16 @@ extension MainFrameBudget {
         return ["frames": JSONValue(stats.frames), "classes": .object(classes), "pending_input": JSONValue(board.pendingInputCount),
                 "input_checks": JSONValue(stats.inputChecks), "max_input_check_ms": .number(Double(stats.maxInputCheckNanos) / 1_000_000),
                 "render_passes": JSONValue(stats.renderPasses), "waited_for_idle_frame": JSONValue(stats.waitedForIdleFrame),
-                "max_render_pass_ms": .number(Double(stats.maxRenderPassNanos) / 1_000_000)]
+                "max_render_pass_ms": .number(Double(stats.maxRenderPassNanos) / 1_000_000),
+                "owners": .array(ownerTimes.map(\.report))]
+    }
+}
+
+extension MainFrameBudget.OwnerTimes {
+    /// One `owners` row of `debug.main_budget`.
+    var report: JSONValue {
+        let ms = { (nanos: UInt64) in JSONValue.number(Double(nanos) / 1_000_000) }
+        return ["owner": .string(owner), "count": JSONValue(count), "over_8ms": JSONValue(over8msCount), "total_ms": ms(totalNanos),
+                "p50_ms": ms(p50Nanos), "p95_ms": ms(p95Nanos), "p99_ms": ms(p99Nanos), "max_ms": ms(maxNanos)]
     }
 }

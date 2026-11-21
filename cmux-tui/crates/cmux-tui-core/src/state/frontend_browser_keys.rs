@@ -171,6 +171,34 @@ impl Mux {
         })
     }
 
+    /// `new-frontend-browser-tab {idempotency_key, workspace}`
+    /// (`frontend-browser-tab-workspace-v1`): the keyed creation of a tab in
+    /// a workspace (its first tab when it is empty). The fingerprint names
+    /// the workspace by its public id, which survives a restart.
+    pub(crate) fn new_frontend_browser_tab_in_workspace_keyed_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        workspace: WorkspaceId,
+        record: FrontendBrowserRecord,
+        key: &str,
+        placement: FrontendTabPlacement,
+    ) -> anyhow::Result<FrontendBrowserTabOutcome> {
+        let workspace_id = self.with_state(|state| {
+            state
+                .workspaces
+                .iter()
+                .find(|item| item.id == workspace)
+                .map(|item| item.public_id.to_string())
+                .with_context(|| format!("unknown workspace {workspace}"))
+        })?;
+        let fingerprint = json!({"workspace": workspace_id, "record": &record});
+        let url = record.url.clone();
+        self.keyed_frontend_browser_tab_with(key, record, fingerprint, |browser_id| {
+            let fields = frontend_browser_fields(browser_id, placement);
+            self.new_browser_tab_in_workspace_with_fields_as(actor, url, workspace, fields)
+        })
+    }
+
     /// `new-frontend-browser-tab {idempotency_key, pane, split}`
     /// (`frontend-browser-tab-split-v1`): the keyed creation of a tab in a
     /// new pane split from `split.pane`. The fingerprint names the split

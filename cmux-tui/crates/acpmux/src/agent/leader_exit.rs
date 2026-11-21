@@ -27,6 +27,14 @@ impl LeaderExit {
         Self::open_native(pid)
     }
 
+    /// The exit event of the process `pidfd` names (Linux): a replacement agent host's harness,
+    /// which is no child of it (`agent_host/custody.rs`).
+    #[cfg(target_os = "linux")]
+    pub(crate) fn from_pidfd(fd: OwnedFd) -> Option<Self> {
+        let fd = tokio::io::unix::AsyncFd::with_interest(fd, tokio::io::Interest::READABLE).ok()?;
+        Some(Self { fd: Some(fd) })
+    }
+
     #[cfg(target_os = "linux")]
     fn open_native(pid: u32) -> Option<Self> {
         let pid = libc::pid_t::try_from(pid).ok()?;

@@ -5,6 +5,35 @@ import type { CloudMachine, CloudRetention, CloudSnapshot, PortForward } from ".
 
 const machines = sampleMachines();
 const snapshots = sampleSnapshots();
+const diskReport = (free_mb: number, total_mb: number, floor_mb: number, observed_at = Date.now()) => ({
+  free_mb,
+  used_mb: total_mb - free_mb,
+  total_mb,
+  floor_mb,
+  top_users: [
+    { path: "/var/lib/docker", used_mb: Math.round((total_mb - free_mb) * 0.52) },
+    { path: "/home/cmux/.cache", used_mb: Math.round((total_mb - free_mb) * 0.18) },
+  ],
+  observed_at,
+});
+const diskHealthyMachines = machines.map((machine) => ({
+  ...machine,
+  disk_health: diskReport(Math.round((machine.size.disk_mb ?? 65_536) * 0.58), machine.size.disk_mb ?? 65_536, 4_096),
+}));
+const diskWarningMachines = machines.map((machine, index) => ({
+  ...machine,
+  disk_health:
+    index === 0
+      ? diskReport(3_072, machine.size.disk_mb ?? 65_536, 4_096)
+      : diskReport(Math.round((machine.size.disk_mb ?? 65_536) * 0.58), machine.size.disk_mb ?? 65_536, 4_096),
+}));
+const diskStaleMachines = machines.map((machine, index) => ({
+  ...machine,
+  disk_health:
+    index === 0
+      ? diskReport(8_192, machine.size.disk_mb ?? 65_536, 4_096, Date.now() - 16 * 60_000)
+      : diskReport(Math.round((machine.size.disk_mb ?? 65_536) * 0.58), machine.size.disk_mb ?? 65_536, 4_096),
+}));
 const samplePorts: PortForward[] = [
   {
     machine: machines[0]!.id,
@@ -122,6 +151,20 @@ const capPausedMachines = machines.map((machine) =>
     : machine,
 ) as CloudMachine[];
 
+// A paused machine exactly as staging's cloud.machine.get answered it (sleep-keeps probe, run 42823810342), only its
+// ids and name changed: the paused rate is the backend's own (cmux-platform Cost.ts), not a fixture's guess.
+const stagingPaused: CloudMachine = {
+  ...structuredClone(buildCache!),
+  id: "vm_staging_paused",
+  name: "sleeps-when-idle",
+  size: { cpu: 2, memory_mb: 4096, disk_mb: 16_384 },
+  status: "paused",
+  hourly_rate_usd: 0.1322,
+  paused_hourly_rate_usd: 0.001376,
+  running_since: null,
+  revision: "1",
+};
+
 export default cloudPageEntry({
   id: "pages.cloud",
   title: "Cloud",
@@ -133,6 +176,7 @@ export default cloudPageEntry({
     "pages/cloud/CloudPage.tsx",
     "pages/cloud/MachineList.tsx",
     "pages/cloud/MachineDetail.tsx",
+    "pages/cloud/DiskHealth.tsx",
     "pages/cloud/CreateSheet.tsx",
     "pages/cloud/AccountPanel.tsx",
     "pages/cloud/DetailSections.tsx",
@@ -152,9 +196,49 @@ export default cloudPageEntry({
       snapshots,
       ports: samplePorts,
     },
+    "disk-healthy": {
+      note: "Fresh disk reports show free and used capacity with the configured floor and top users.",
+      action: "select-machine",
+      machines: diskHealthyMachines,
+      snapshots,
+    },
+    "disk-warning": {
+      note: "A machine is below its disk floor and warns before the volume fills.",
+      action: "select-machine",
+      machines: diskWarningMachines,
+      snapshots,
+    },
+    "disk-stale": {
+      note: "A stale disk report is called out so the operator does not trust an old capacity value.",
+      action: "select-machine",
+      machines: diskStaleMachines,
+      snapshots,
+    },
     creating: {
       note: "The create machine sheet with plan sizes and snapshot choices.",
       action: "create",
+      machines,
+      snapshots,
+    },
+    "creating-at-limit": {
+      note: "The create sheet when every machine the plan runs at once is running: Create stays open; a create pauses an idle machine.",
+      action: "create",
+      maxActive: 3,
+      machines,
+      snapshots,
+    },
+    "creating-at-limit-idle": {
+      note: "Create at the running-machines limit with an idle machine: the new machine starts and the idle one shows paused.",
+      action: "create-at-cap",
+      maxActive: 3,
+      idle: [machines[0]!.id],
+      machines,
+      snapshots,
+    },
+    "creating-at-limit-busy": {
+      note: "Create at the running-machines limit with nothing idle: the sheet offers to pause the running machine used longest ago, then create.",
+      action: "create-at-cap",
+      maxActive: 3,
       machines,
       snapshots,
     },
@@ -179,6 +263,12 @@ export default cloudPageEntry({
       machines,
       snapshots,
       ports: samplePorts,
+    },
+    "paused-price-staging": {
+      note: "A paused machine with the paused rate staging sends: the row and detail say what the pause costs a month.",
+      action: "select-machine",
+      machines: [stagingPaused, apiDev!],
+      snapshots,
     },
     "spend-cap-near": {
       note: "The team is near its spending cap: a dismissible warning with the spend, and team spend in Usage.",
@@ -236,7 +326,7 @@ export default cloudPageEntry({
       snapshots,
     },
     "storefront-full": {
-      note: "The storefront when every active machine on the plan is in use: Get is disabled.",
+      note: "The storefront when every machine the plan runs at once is running: Get stays open and says a new one pauses one of yours.",
       hash: "#/get",
       maxActive: 3,
       machines,

@@ -86,7 +86,7 @@ carveout_ok() { # file lineno — carve-out classes may also justify inline
 scan() { # rule severity pattern carveout(0/1) pathspec...
   local rule="$1" sev="$2" pat="$3" carve="$4"; shift 4
   local paths=("$@")
-  if [ -n "$FILES_FROM" ]; then paths=("${TARGET_FILES[@]}"); fi
+  if [ -n "$FILES_FROM" ]; then paths=(${TARGET_FILES[@]+"${TARGET_FILES[@]}"}); fi
   local grep_args
   if [ -n "$FILES_FROM" ]; then
     grep_args=(-nHE "$pat" "${paths[@]}")
@@ -107,29 +107,29 @@ scan() { # rule severity pattern carveout(0/1) pathspec...
 }
 
 echo "== singletons (no shared-singleton accessors) =="
-scan singleton ERROR 'static (let|var) (shared|standard|default)\b' 0 "${SCOPES[@]}"
+scan singleton ERROR 'static (let|var) (shared|standard|default)\b' 0 ${SCOPES[@]+"${SCOPES[@]}"}
 
 echo "== combine / old observation =="
-scan combine ERROR '(^|[^.])\b(import Combine|@Published|ObservableObject|PassthroughSubject|CurrentValueSubject)\b' 0 "${SCOPES[@]}"
+scan combine ERROR '(^|[^.])\b(import Combine|@Published|ObservableObject|PassthroughSubject|CurrentValueSubject)\b' 0 ${SCOPES[@]+"${SCOPES[@]}"}
 
 echo "== locks (use actors) =="
-scan lock ERROR '\b(NSLock|NSRecursiveLock|OSAllocatedUnfairLock|os_unfair_lock|pthread_mutex_t|DispatchSemaphore|Mutex\()' 1 "${SCOPES[@]}"
+scan lock ERROR '\b(NSLock|NSRecursiveLock|OSAllocatedUnfairLock|os_unfair_lock|pthread_mutex_t|DispatchSemaphore|Mutex\()' 1 ${SCOPES[@]+"${SCOPES[@]}"}
 
 echo "== dispatch as sync / timer hacks =="
-scan dispatch WARN '\bDispatchQueue\.(main\.async|global)|DispatchQueue\(label' 1 "${SCOPES[@]}"
-scan timer ERROR '\b(Timer\.scheduledTimer|asyncAfter)\b' 1 "${SCOPES[@]}"
+scan dispatch WARN '\bDispatchQueue\.(main\.async|global)|DispatchQueue\(label' 1 ${SCOPES[@]+"${SCOPES[@]}"}
+scan timer ERROR '\b(Timer\.scheduledTimer|asyncAfter)\b' 1 ${SCOPES[@]+"${SCOPES[@]}"}
 
 echo "== KVO =="
-scan kvo ERROR 'addObserver\([^)]*forKeyPath' 0 "${SCOPES[@]}"
+scan kvo ERROR 'addObserver\([^)]*forKeyPath' 0 ${SCOPES[@]+"${SCOPES[@]}"}
 
 echo "== untyped wire payloads =="
-scan untyped WARN '\[String: Any\]' 1 "${SCOPES[@]}"
+scan untyped WARN '\[String: Any\]' 1 ${SCOPES[@]+"${SCOPES[@]}"}
 
 echo "== hardcoded global state in packages (inject instead) =="
 scan global WARN '\b(UserDefaults\.standard|FileManager\.default|Bundle\.main)\b' 1 Packages/Shared/CMUXMobileCore Packages/iOS/CmuxMobile* 2>/dev/null || true
 
 echo "== free functions (scope functionality to a type) =="
-scan free-function ERROR '^(@[A-Za-z()_ ]+ )?(public |internal |package |private |fileprivate )?func [a-zA-Z]' 0 "${SCOPES[@]}"
+scan free-function ERROR '^(@[A-Za-z()_ ]+ )?(public |internal |package |private |fileprivate )?func [a-zA-Z]' 0 ${SCOPES[@]+"${SCOPES[@]}"}
 
 echo "== namespace-enums and namespace-types =="
 NS_TYPE_ROOTS=()
@@ -148,8 +148,8 @@ if ! python3 scripts/lint_swift_namespaces.py \
   ${NAMESPACE_RATCHET_UPDATE:+--update-ratchet} \
   ${NAMESPACE_FIX[@]+"${NAMESPACE_FIX[@]}"} \
   ${NAMESPACE_FILES[@]+"${NAMESPACE_FILES[@]}"} \
-  --enum-roots "${SCOPES[@]}" \
-  --type-roots "${NS_TYPE_ROOTS[@]}"; then
+  --enum-roots ${SCOPES[@]+"${SCOPES[@]}"} \
+  --type-roots ${NS_TYPE_ROOTS[@]+"${NS_TYPE_ROOTS[@]}"}; then
   fail=1
 fi
 

@@ -9,8 +9,9 @@
 // (`useStreamingRow`) and draws that one row. Any other change goes through the pane as before and
 // clears this store in the same turn, so the pane's own rows are the truth again. The store holds
 // one value; nothing else owns it.
-import { useSyncExternalStore } from "react";
+import { startTransition, useLayoutEffect, useState } from "react";
 import type { AcpmuxRow } from "./model";
+import { keptPrefix } from "./conversation/prefixFlatMap";
 
 /// The reply's raw row (the client's), how many chunks it is ahead of the row the pane drew, and
 /// that drawn row's text.
@@ -58,17 +59,26 @@ export function drawsAsIs(row: AcpmuxRow): boolean {
   return drawn !== undefined && drawn.id === row.id && drawn.text === row.text;
 }
 
-const none = (): undefined => undefined;
-const noSubscribe = (): (() => void) => () => {};
-
 /// The streaming row the transcript draws ahead of the pane's snapshot, if any. Only the pane's
 /// live transcript (`active`) subscribes; a replay, guest or other transcript never re-renders for it.
+///
+/// Each streamed frame's draw is a transition: React renders it in 5 ms slices and a key goes
+/// between them, so a key waits for at most one slice, not for the whole transcript's render. As
+/// an external store (`useSyncExternalStore`) every frame's draw was a sync render in the frame's
+/// microtask that no input could cut into: the largest share of the wait before a key reached the
+/// page while a reply streamed (every chat page shares one renderer, CEFSwitches
+/// `processPerSitePageSchemes`, so another chat's stream held the key too). A slice the stream's
+/// next frame overtakes renders the newer row; the transcript reads `live` only while its row
+/// still shows `drawnText`, so a draw that lands after the pane's own redraw shows nothing stale.
 export function useStreamingRow(active: boolean): StreamingRow | undefined {
-  return useSyncExternalStore(
-    active ? streamingRow.subscribe : noSubscribe,
-    active ? streamingRow.get : none,
-    active ? streamingRow.get : none,
-  );
+  const [live, setLive] = useState<StreamingRow | undefined>(() => (active ? current : undefined));
+  useLayoutEffect(() => {
+    if (!active) return;
+    // A frame that landed between the render and this effect.
+    setLive(current);
+    return streamingRow.subscribe(() => startTransition(() => setLive(current)));
+  }, [active]);
+  return active ? live : undefined;
 }
 
 /// Whether the pane may draw a streamed chunk through the row alone: false while a view that reads
@@ -95,12 +105,14 @@ function sameButText(previous: AcpmuxRow, next: AcpmuxRow): boolean {
 }
 
 /// The index of the one row `next` changes from `previous` when the change is only a streaming
-/// reply's text growing, else -1. Unchanged rows keep their objects (direct.ts `OrderedRows`), so
-/// the scan is one pointer compare per row.
+/// reply's text growing, else -1. Unchanged rows keep their objects (direct.ts `OrderedRows`), and
+/// the client says how many leading rows a snapshot kept (prefixFlatMap.ts `keptPrefix`), so only
+/// the rows past those are compared: a token in a 35,000-row chat compares its own row, not every row.
 export function textOnlyRow(previous: readonly AcpmuxRow[], next: readonly AcpmuxRow[]): number {
   if (previous === next || previous.length !== next.length) return -1;
+  const kept = keptPrefix(previous, next);
   let changed = -1;
-  for (let index = next.length - 1; index >= 0; index -= 1) {
+  for (let index = next.length - 1; index >= kept; index -= 1) {
     const before = previous[index]!;
     const after = next[index]!;
     if (before === after) continue;

@@ -15,6 +15,12 @@ import { errorText, format, L } from "./strings";
 import { DialogButton } from "../../ui/DialogButton";
 import { Sheet } from "../../ui/Sheet";
 
+const OFFER_LABEL = {
+  delete: L.capDeleteAndCreate,
+  archive: L.capArchiveAndCreate,
+  pause: L.capPauseAndCreate,
+} as const;
+
 const focusOnMount = (node: HTMLInputElement | null) => node?.focus();
 
 export function CreateSheet({
@@ -133,6 +139,7 @@ export function CreateSheet({
       {draft.refusal && <PlanNotice refusal={draft.refusal} strings={strings} />}
       {draft.offer && !draft.waitingFor && (
         // At a machines cap: free the machine the platform names (or the oldest paused one), then create.
+        // At the running-machines limit with nothing idle: pause the running one used longest ago.
         <p className="cloud-create-offer">
           <DialogButton
             dialogKey={null}
@@ -140,7 +147,7 @@ export function CreateSheet({
             disabled={draft.submitting}
             onClick={() => void store.makeRoom()}
           >
-            {format(t(draft.offer.kind === "delete" ? L.capDeleteAndCreate : L.capArchiveAndCreate), {
+            {format(t(OFFER_LABEL[draft.offer.kind]), {
               name: draft.offer.name,
             })}
           </DialogButton>

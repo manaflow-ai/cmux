@@ -49,9 +49,12 @@ extension ProfileBarView {
         if drag.outsideWindow {
             // The new window takes the space's workspaces that no window showing the space lists. The press
             // showed the space here, so this window goes back to its own space first: the workspaces move out
-            // and this window stays where it was, as a tear-off left it before a press switched.
-            if let pressOrigin, model.profiles.contains(where: { $0.id == pressOrigin }) { model.send(.switchProfile(pressOrigin)) }
-            model.send(.openProfileInNewWindow(model.profiles[drag.from].id))
+            // and this window stays where it was, as a tear-off left it before a press switched. A window that
+            // shows another space by now (a key or an agent switched it during the drag) is not on the torn-off
+            // space: that later switch is not the press's to take back.
+            let torn = model.profiles[drag.from].id
+            if let pressOrigin, model.activeProfileID == torn, model.profiles.contains(where: { $0.id == pressOrigin }) { model.send(.switchProfile(pressOrigin)) }
+            model.send(.openProfileInNewWindow(torn))
         }
         if !drag.overBand || drag.outsideWindow { drag.target = drag.from }
         // The insertion index of `move-profile` (an index before removal), as Move Right/Left send it.

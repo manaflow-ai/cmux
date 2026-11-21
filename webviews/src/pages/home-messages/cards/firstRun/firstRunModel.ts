@@ -9,19 +9,19 @@ import type { Strings } from "../strings";
 export const FIRST_RUN_OPS = {
   /** `{action}`: a row's action (`HomeFirstRunAction`): a terminal tab, a new agent chat, the Chief
    * pet's Show / Hide, memory import. */
-  action: "cmux.home.messages.firstRun.action",
+  action: "cmux.home.firstRun.action",
   /** `{id}`: an agent row's daemon tab, opened. */
-  openAgent: "cmux.home.messages.firstRun.openAgent",
+  openAgent: "cmux.home.firstRun.openAgent",
   /** `{}`: the Switching card's Hide, recorded so it never shows again. */
-  hideSwitchKeys: "cmux.home.messages.firstRun.hideSwitchKeys",
+  hideSwitchKeys: "cmux.home.firstRun.hideSwitchKeys",
   /** `{}`: the Switching card's note button: System Settings > Keyboard > Keyboard Shortcuts. */
-  openKeyboardSettings: "cmux.home.messages.firstRun.openKeyboardSettings",
+  openKeyboardSettings: "cmux.home.firstRun.openKeyboardSettings",
   /** `{kind, conversation}`: the intro showed (`ChiefIntroStore.markShown`); it never returns. */
-  markIntroShown: "cmux.home.messages.firstRun.markIntroShown",
+  markIntroShown: "cmux.home.firstRun.markIntroShown",
 } as const;
 
 /** What a first-run row asks the app to do. */
-export type FirstRunAction = "openTerminal" | "startAgent" | "togglePet" | "importMemories";
+export type FirstRunAction = "openTerminal" | "startAgent" | "togglePet";
 
 /** Which first-open intro a Chief's empty conversation shows. */
 export type ChiefIntroKind = "welcome" | "askFocus";

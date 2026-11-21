@@ -4,6 +4,7 @@
 // and the click did nothing. When nothing can play it, the chip says so.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -62,7 +63,7 @@ function Chip() {
       <VideoAttachmentTile
         name="screen-demo.mp4"
         video={undefined}
-        reading={false}
+        shape={1}
         remove={null}
         onPlay={player.play}
         unplayable={player.unplayable}
@@ -107,13 +108,9 @@ try {
     }
   });
 } finally {
-  afterAll(() => {
+  afterAll(async () => {
     setChipHost(undefined);
     act(() => root.unmount());
-    dom.window.close();
-    for (const [key, had, value] of saved) {
-      if (had) scope[key] = value;
-      else delete scope[key];
-    }
+    await teardownDom(saved, { window: dom.window, scope });
   });
 }

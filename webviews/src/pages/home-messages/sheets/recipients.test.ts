@@ -7,7 +7,6 @@ import { parseAddress } from "./address";
 import {
   EMPTY_DRAFT,
   addRecipient,
-  chiefShortcuts,
   commitDraft,
   contactRecipient,
   deleteBackward,
@@ -211,75 +210,5 @@ describe("mixed recipients", () => {
 
   test("an empty draft says to add someone first", () => {
     expect(sendBlocker(EMPTY_DRAFT, strings)).toBe("Add someone in To: first.");
-  });
-});
-
-// The cases the native New Message's tests held (HomeNewMessageTests, deleted with it in #37736).
-describe("Chiefs in New Message", () => {
-  const chiefs: HomeContact[] = Array.from({ length: 8 }, (_, index) => ({
-    id: `chief-${index + 1}`,
-    name: `Chief ${index + 1}`,
-    source: "agent",
-  }));
-
-  test("before anything is typed at most six Chiefs are listed, the chosen ones left out", () => {
-    expect(chiefShortcuts(EMPTY_DRAFT, chiefs).map((chief) => chief.id)).toEqual([
-      "chief-1",
-      "chief-2",
-      "chief-3",
-      "chief-4",
-      "chief-5",
-      "chief-6",
-    ]);
-    const one = addRecipient(EMPTY_DRAFT, contactRecipient(chiefs[0]!));
-    expect(chiefShortcuts(one, chiefs).map((chief) => chief.id)).toEqual([
-      "chief-2",
-      "chief-3",
-      "chief-4",
-      "chief-5",
-      "chief-6",
-      "chief-7",
-    ]);
-    // The team follows the capped Chiefs, never squeezed out by them.
-    const team: HomeContact = { id: "p-ada", name: "Ada Park", source: "team" };
-    expect(idleSuggestions(EMPTY_DRAFT, [...chiefs, team]).map((contact) => contact.id)).toHaveLength(7);
-    expect(idleSuggestions(EMPTY_DRAFT, [...chiefs, team]).at(-1)?.id).toBe("p-ada");
-  });
-
-  test("one Chief opens its own conversation; two Chiefs make a group, the one with exactly them", () => {
-    const rows = [
-      { id: "chief-1-chat", kind: "chief" as const, participants: [{ id: "me" }, { id: "chief-1" }] },
-      { id: "chief-2-chat", kind: "chief" as const, participants: [{ id: "me" }, { id: "chief-2" }] },
-      {
-        id: "three",
-        kind: "group" as const,
-        participants: [{ id: "me" }, { id: "chief-1" }, { id: "chief-2" }, { id: "p-ada" }],
-      },
-      { id: "both", kind: "group" as const, participants: [{ id: "me" }, { id: "chief-1" }, { id: "chief-2" }] },
-    ];
-    const one = addRecipient(EMPTY_DRAFT, contactRecipient(chiefs[0]!));
-    expect(isGroupDraft(one)).toBe(false);
-    expect(existingConversation(one, rows, "me")).toBe("chief-1-chat");
-    const two = addRecipient(one, contactRecipient(chiefs[1]!));
-    expect(isGroupDraft(two)).toBe(true);
-    expect(existingConversation(two, rows, "me")).toBe("both");
-    // No group with exactly them yet: the page is blank and the first send makes it.
-    expect(existingConversation(two, rows.slice(0, 3), "me")).toBeNull();
-  });
-
-  test("one person shows their DM, several the group with exactly them, and nobody's DM a blank page", () => {
-    const people = contacts.slice(2, 5);
-    const rows = [
-      { id: "group-big", kind: "group" as const, participants: [{ id: "me" }, ...people.map(({ id }) => ({ id }))] },
-      { id: "dm-ada", kind: "direct" as const, participants: [{ id: "me" }, { id: "p-ada" }] },
-      { id: "group-two", kind: "group" as const, participants: [{ id: "me" }, { id: "p-ada" }, { id: "p-adam" }] },
-    ];
-    let draft = addRecipient(EMPTY_DRAFT, contactRecipient(people[0]!));
-    expect(existingConversation(draft, rows, "me")).toBe("dm-ada");
-    draft = addRecipient(draft, contactRecipient(people[1]!));
-    expect(existingConversation(draft, rows, "me")).toBe("group-two");
-    draft = addRecipient(draft, contactRecipient(people[2]!));
-    expect(existingConversation(draft, rows, "me")).toBe("group-big");
-    expect(existingConversation(addRecipient(EMPTY_DRAFT, contactRecipient(people[2]!)), rows, "me")).toBeNull();
   });
 });

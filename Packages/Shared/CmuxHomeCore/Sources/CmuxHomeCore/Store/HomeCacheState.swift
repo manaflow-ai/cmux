@@ -13,9 +13,8 @@ struct HomeCacheState: Sendable {
     var sends: [HomeCachedSend] = []
     var drafts: [ConversationID: String] = [:]
     var draftAttachments: [ConversationID: [HomeCachedDraftAttachment]] = [:]
-    var uploadedDraftAttachments: [ConversationID: [String: String]] = [:]
-    var pendingWebSends: [ConversationID: [String: String]] = [:]
     var scroll: [ConversationID: HomeScrollAnchor] = [:]
+    var chief: ConversationID?
 
     init() {}
 
@@ -27,9 +26,8 @@ struct HomeCacheState: Sendable {
         sends = snapshot.sends
         drafts = snapshot.drafts
         draftAttachments = snapshot.draftAttachments ?? [:]
-        uploadedDraftAttachments = snapshot.uploadedDraftAttachments ?? [:]
-        pendingWebSends = snapshot.pendingWebSends ?? [:]
         scroll = snapshot.scroll
+        chief = snapshot.chief
     }
 
     /// The index file's snapshot: everything but the windows' messages, which go in their own
@@ -41,9 +39,8 @@ struct HomeCacheState: Sendable {
         snapshot.sends = sends
         snapshot.drafts = drafts
         snapshot.draftAttachments = draftAttachments.isEmpty ? nil : draftAttachments
-        snapshot.uploadedDraftAttachments = uploadedDraftAttachments.isEmpty ? nil : uploadedDraftAttachments
-        snapshot.pendingWebSends = pendingWebSends.isEmpty ? nil : pendingWebSends
         snapshot.scroll = scroll
+        snapshot.chief = chief
         snapshot.windowIDs = windows.keys.sorted { $0.rawValue < $1.rawValue }
         return snapshot
     }

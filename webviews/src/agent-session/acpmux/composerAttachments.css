@@ -97,7 +97,7 @@
   box-sizing: border-box;
   border-radius: var(--acpmux-attach-radius);
   background: var(--agent-control);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
 }
 /* Select All in the prompt selects the strip's attachments too (Leo, 2026-11-01): each wears the
    selection's tint, as the chips placed in the text do (markdownField.css). */
@@ -143,7 +143,7 @@
   border-radius: var(--acpmux-attach-radius);
   /* A neutral backing under the image, so a transparent one still shows its content as a
      thumbnail; a checker read as an image that failed to draw. */
-  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  background: var(--ds-surface-inset);
   /* The edge draws over the image (an outline paints above it) in the text's color, so a
      screenshot as dark or light as the composer still shows where it ends (Leo, 2026-10-13 and
      -14: dark ones looked missing behind a hairline of the border color). */
@@ -173,10 +173,10 @@
 /* A video the host could not read (no poster): the same square tile, the play glyph on the tile's
    neutral backing, never a file chip's long name strip (Leo, 2026-10-26: "Just do the square."). */
 .acpmux-attachment-video-unread .acpmux-attachment-video-open {
-  width: 104px;
+  width: 100%;
   height: var(--acpmux-attach-height);
   border-radius: var(--acpmux-attach-radius);
-  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  background: var(--ds-surface-inset);
   outline: 1px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
   outline-offset: -1px;
 }
@@ -198,6 +198,20 @@
   line-height: 1.4;
   pointer-events: none;
   letter-spacing: var(--text-detail--letter-spacing);
+}
+/* The length: one line in the corner, never broken over the play glyph (Leo, 2026-11-11: "this
+   preview, the time is on the wrong place ... we should never be able to see this"). At the caption
+   size, so a 64 px tile has it under the glyph; where the tile has no room for it clear of the glyph
+   (a chip in the text, a narrow portrait one), the tile is marked and it is not drawn
+   (composer/videoLengthFit.ts). */
+.acpmux-attachment-video-length {
+  white-space: nowrap;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  line-height: var(--text-caption--line-height);
+}
+[data-length-clipped] > .acpmux-attachment-video-length:not(.acpmux-queued-video) {
+  display: none;
 }
 /* A video nothing can play (Leo, 2026-11-04: "i can neither preview a vid in place nor have it pop
    up anymore :("): it says so over its whole tile, in the play glyph's place, on the length's scrim. */
@@ -255,9 +269,6 @@
   justify-content: center;
   width: 104px;
 }
-.acpmux-attachment-file.acpmux-attachment-pending {
-  gap: 4px;
-}
 /* A loading image whose header gave its size (composer/attachmentIntakeModel.ts imageShape): the
    width its thumbnail will have (`.acpmux-attachment-image img`: its height, its shape, 48 to
    128px wide), so a wide or tall screenshot's picture arriving moves nothing (Leo, 2026-11-07: "they
@@ -276,7 +287,7 @@
   padding: 0;
 }
 .acpmux-md-inline > .acpmux-md-inline-chip[data-sizing] {
-  margin-inline-end: 0;
+  margin-inline: 0;
 }
 /* A loading image's own picture (composer/attachmentIntake.tsx InstantPreview), there the moment it
    is pasted or dropped, filling its tile under the spinner until its chip takes the tile's place
@@ -321,16 +332,20 @@
   flex-direction: column;
   width: 104px;
 }
-.acpmux-attachment-file.acpmux-attachment-failed {
-  max-width: min(260px, 70vw);
-  /* Room for its x on the right, as a file chip has. */
-  padding: 0 32px 0 8px;
+/* A video's one box (composer/videoShape.ts): its shape from its file's header, at the tile's height,
+   loading, failed, with its poster or without, so nothing resizes from the paste to the sent message
+   (Leo, 2026-11-10: "the preview placeholder boxes are incongruent between the initial load, then the
+   second load, and the chat attachment itself"). Its poster fills the box, cropped past its bounds.
+   One still held for its header (`[data-sizing]`) stays zero wide and unseen. */
+.acpmux-attachment-image[data-video-shape]:not([data-sizing]) {
+  width: calc(var(--acpmux-attach-height) * var(--acpmux-video-ratio, 1));
+  min-width: 0;
+  max-width: none;
 }
-.acpmux-attachment-failed-name {
-  overflow: hidden;
-  color: var(--agent-text);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.acpmux-attachment-video img {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
 }
 /* The one retry control of a failed attachment, in the strip and in the text: a small round glyph
    button on the composer's own surface, like the tile's × beside it. */
@@ -344,7 +359,7 @@
   padding: 0;
   border: 0;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  background: var(--ds-surface-inset);
   color: var(--agent-text);
   text-decoration: none;
   cursor: default;
@@ -368,7 +383,7 @@
 .acpmux-attachment-progress-arc {
   stroke: var(--agent-text);
   stroke-linecap: round;
-  transition: stroke-dashoffset 120ms linear;
+  transition: stroke-dashoffset var(--agent-motion-in, 120ms) linear;
 }
 /* A staged image whose original could not be saved: its preview still sends; a Retry badge in its
    corner uploads the original again, and its tooltip says why it failed (attachmentIntake.tsx). */
@@ -591,6 +606,10 @@
 .acpmux-attachment:focus-within .acpmux-attachment-remove {
   opacity: 1;
 }
+/* A failed chip in the prompt keeps its remove control visible. */
+.acpmux-md-inline-chip > .acpmux-attachment-failed .acpmux-attachment-remove {
+  opacity: 1;
+}
 :is(.acpmux-composer, .nt-box) .acpmux-attachment-remove:hover {
   background: color-mix(in srgb, var(--agent-text) 82%, var(--acpmux-base, Canvas));
 }
@@ -650,7 +669,7 @@
   text-align: start;
 }
 button.acpmux-attachment-pasted-open:hover {
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  background: var(--ds-surface-hover);
 }
 .acpmux-attachment-pasted-open:focus-visible {
   outline: 1.5px solid var(--agent-text);
@@ -749,7 +768,7 @@ button.acpmux-attachment-pasted-open:hover {
   width: 32px;
   height: 32px;
   border-radius: var(--ds-radius-control);
-  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  background: var(--ds-surface-inset);
   color: var(--agent-muted);
 }
 .acpmux-paste-chip__body {
@@ -977,7 +996,7 @@ button.acpmux-attachment-pasted-open:hover {
   white-space: nowrap;
 }
 .acpmux-chip-collapse:hover {
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  background: var(--ds-surface-hover);
   color: var(--agent-text);
 }
 .acpmux-chip-collapse:focus-visible {
@@ -1003,7 +1022,7 @@ button.acpmux-attachment-pasted-open:hover {
   height: 20px;
   border-radius: var(--ds-radius-md);
   background: var(--agent-control);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
 }
 .acpmux-paste-chip[data-chip-kind] .acpmux-paste-chip__panel:has(.acpmux-chip-collapse[data-place="corner"]) .acpmux-paste-view__text {
   padding-top: calc(var(--ds-space-3) + 12px);
@@ -1044,6 +1063,34 @@ button.acpmux-attachment-pasted-open:hover {
 }
 .acpmux-paste-chip[data-chip-kind="ui"] .acpmux-paste-chip__label > .acpmux-paste-chip__part[data-part="kind"] {
   color: var(--agent-muted);
+}
+
+/* A browser pick (composer/BrowserPickChip.tsx): its number in a round badge, the number its pin
+   shows on the page, then the person's comment as the title, the element and page under it. The
+   badge sits in the glyph slot, so a row of picks lines up like a numbered list. */
+.acpmux-browser-pick-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
+  padding: 0 4px;
+  border-radius: 999px;
+  /* The accent role and the text the theme draws on it. */
+  background: var(--agent-accent);
+  color: var(--agent-on-accent, var(--agent-page-bg, #fff));
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis);
+  line-height: var(--ds-icon-16);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-paste-chip__title > .acpmux-paste-chip__part[data-part="comment"] {
+  overflow: hidden;
+  color: var(--agent-text);
+  font-weight: var(--weight-emphasis);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* A pick in a sent message (conversation/SentUIPick.tsx): the composer's chip in the message's one
@@ -1115,6 +1162,15 @@ button.acpmux-attachment-pasted-open:hover {
 }
 .acpmux-file-chip--removable { padding-right: 32px; }
 .acpmux-file-chip > svg { flex: none; color: var(--agent-muted); }
+.acpmux-file-chip > .acpmux-file-chip__status {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
+  overflow: visible;
+  color: var(--agent-muted);
+}
 .acpmux-file-chip .acpmux-file-chip__name { display: flex; min-width: 0; }
 .acpmux-file-chip .acpmux-file-chip__head {
   min-width: 0;
@@ -1150,7 +1206,7 @@ button.acpmux-attachment-pasted-open:hover {
   pointer-events: none;
   filter: drop-shadow(0 0 0.5px color-mix(in srgb, var(--agent-text) 40%, transparent))
     drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.16));
-  transition: opacity 120ms ease-out;
+  transition: opacity var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out);
 }
 .acpmux-source-badge > img,
 .acpmux-attachment-image .acpmux-source-badge > img {
@@ -1210,6 +1266,16 @@ button.acpmux-attachment-pasted-open:hover {
   box-shadow: var(--glass-rim-shadow);
   color: var(--agent-muted);
   opacity: 0.85;
+}
+/* A loading image that shows its own picture (attachmentIntake.tsx InstantPreview, `data-instant`)
+   is the chip it becomes from its first frame: no glass over it, no dim, no coming up, so a paste
+   is one step, the picture, and the ready chip that takes its place changes nothing (Leo,
+   2026-11-11: "this 3 stage attachment thing is still there"). Only a late indicator shows on it. */
+:is(.acpmux-md-inline-chip, .acpmux-attachment).acpmux-paste-loading[data-instant] {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+  opacity: 1;
 }
 /* Its indicator (a ring, a bar, an upload's progress) shows only once a read passes 400 ms
    (pasteLoading.tsx sets data-late from one timer); a quick paste never flashes one. */
@@ -1275,7 +1341,7 @@ button.acpmux-attachment-pasted-open:hover {
    the indicator appears at 400 ms with no fade, the bar is its track and half fill, the picture
    shows at once. */
 @media (prefers-reduced-motion: no-preference) {
-  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-paste-loading {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-paste-loading:not([data-instant]) {
     animation: acpmux-paste-arrive calc(var(--agent-motion-in, 120ms) * 8) var(--agent-ease-out, ease-out) both;
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-paste-late[data-late] {
