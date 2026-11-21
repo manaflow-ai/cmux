@@ -271,10 +271,13 @@ pub(crate) fn use_tree(u: &Use) -> Result<Obj, String> {
 
     if restore {
         let (_, s) = best.as_ref().expect("restore implies a saved tree");
-        let tc = Instant::now();
+        // The old seat is removed, timed apart from the clone (a big tree takes a while to delete).
+        let td = Instant::now();
         if seat_exists {
             fsx::remove_tree(&seat).map_err(ctx(format!("remove {}", seat.display())))?;
         }
+        out.set("discard_ms", ms_since(td));
+        let tc = Instant::now();
         let how = fsx::clone_tree(&s.dir, &seat).map_err(ctx(format!(
             "clone {} to {}",
             s.dir.display(),

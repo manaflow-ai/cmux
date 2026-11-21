@@ -156,7 +156,7 @@ for lang in ${langs//,/ }; do
   [ "$(field "$used" restored)" = True ] || { echo "warm-tree: $lang warm did not restore: $used" >&2; exit 1; }
   edit "$lang" 3
   read -r ms compiled status < <(build "$lang" "$root/$lang-warm.log"); must "$status" "$root/$lang-warm.log" "$lang warm"
-  emit "$lang" warm "$ready" "$ms" "$compiled" "$status" "\"restore_ms\":$(field "$used" restore_ms),\"checkout_ms\":$(field "$used" checkout_ms),\"nearest_distance\":$(field "$used" nearest_distance)"
+  emit "$lang" warm "$ready" "$ms" "$compiled" "$status" "\"discard_ms\":$(field "$used" discard_ms),\"restore_ms\":$(field "$used" restore_ms),\"checkout_ms\":$(field "$used" checkout_ms),\"nearest_distance\":$(field "$used" nearest_distance)"
   warm_s=$(secs $(( ready + ms )))
 
   # warm_far: only the ancestor's tree saved (an old tip): restore it, check out the ref, edit, build.
@@ -165,7 +165,7 @@ for lang in ${langs//,/ }; do
   submodules; ready=$(( $(now_ms) - t ))
   edit "$lang" 4
   read -r ms compiled status < <(build "$lang" "$root/$lang-warm-far.log"); must "$status" "$root/$lang-warm-far.log" "$lang warm_far"
-  emit "$lang" warm_far "$ready" "$ms" "$compiled" "$status" "\"restore_ms\":$(field "$used" restore_ms),\"checkout_ms\":$(field "$used" checkout_ms),\"nearest_distance\":$(field "$used" nearest_distance),\"changed_files\":$(field "$used" changed_files)"
+  emit "$lang" warm_far "$ready" "$ms" "$compiled" "$status" "\"discard_ms\":$(field "$used" discard_ms),\"restore_ms\":$(field "$used" restore_ms),\"checkout_ms\":$(field "$used" checkout_ms),\"nearest_distance\":$(field "$used" nearest_distance),\"changed_files\":$(field "$used" changed_files)"
   summary+=("\"$lang\":{\"cold_s\":$cold_s,\"current_s\":$current_s,\"warm_s\":$warm_s}")
 done
 printf 'WARMTREE-SUMMARY {%s,"k":%s,"ref":"%s","host":"%s","xcode":"%s"}\n' \
