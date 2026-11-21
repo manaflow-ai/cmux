@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxNotifications
 import CmuxSettings
 import Darwin
@@ -548,18 +549,16 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         // Hooks are spawned from a dispatch queue, and a dispatch worker runs with most
         // signals blocked. A mask survives exec, so without this the hook and everything
         // it runs inherit that mask; see the longer note in TerminalCustomUploadRunner.
-        // Dispositions are left alone: this clears the mask, not an inherited SIG_IGN.
-        var emptyMask = sigset_t()
-        sigemptyset(&emptyMask)
-        try throwIfPOSIXError(
-            posix_spawnattr_setsigmask(&attributes, &emptyMask),
-            operation: "clear inherited signal mask"
-        )
         // Keep unrelated app descriptors out of hooks. The dup2 actions above
         // preserve the hook's standard streams.
-        let flags = Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_CLOEXEC_DEFAULT)
+        let flags = Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT)
         try throwIfPOSIXError(posix_spawnattr_setflags(&attributes, flags), operation: "set spawn flags")
         try throwIfPOSIXError(posix_spawnattr_setpgroup(&attributes, 0), operation: "set process group")
+        // Like the upload command, a hook keeps the app's ignored SIGPIPE.
+        try throwIfPOSIXError(
+            POSIXSpawnSignalPolicy(inheritingDispositionsOf: [SIGPIPE]).apply(to: &attributes),
+            operation: "reset inherited signal state"
+        )
         let arguments = ["/bin/sh", "-c", hook.command]
         let environment = environmentStrings()
         var spawnedPID: pid_t = 0

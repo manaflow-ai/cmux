@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 import os
@@ -109,6 +110,13 @@ enum RosettaNativeRelaunch {
             rosettaRelaunchLogger.warning("failed to set POSIX_SPAWN_SETEXEC; continuing translated")
             unsetenv(guardKey)
             return
+        }
+        // The native image keeps this thread's mask and ignored signals like any
+        // exec; start it from the default state. A failure here is not worth
+        // staying translated for, so only log it.
+        let signalStatus = POSIXSpawnSignalPolicy().apply(to: &attributes)
+        if signalStatus != 0 {
+            rosettaRelaunchLogger.warning("failed to reset signal state (errno \(signalStatus, privacy: .public))")
         }
 
         // Force the arm64 slice of the universal binary so the replacement
