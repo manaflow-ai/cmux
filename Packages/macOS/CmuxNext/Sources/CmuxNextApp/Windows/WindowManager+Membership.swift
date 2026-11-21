@@ -129,7 +129,7 @@ extension WindowManager {
     /// An action run without view-change permission shows nothing. The window
     /// swaps its content in this turn, not on its observation hop (I6).
     func show(workspaceID: String, in state: WindowState, from origin: ShowOrigin = .anywhere) {
-        guard ActionRunScope.viewChangeAllowed() else { return }
+        guard ActionRunScope.viewChangeAllowed() else { return }; if let mac = services.agentTabs.frontedChats.mac(showingWorkspace: workspaceID) { return CloudFrontedChats.show(mac, in: state, from: origin, windows: self) } // a Cloud chat a Mac tab shows in place shows there (CloudFrontedChats)
         let value = registry.value
         if DebugWorkspaceSwitch.timer.isRecording, let timed = controller(for: value.owner(of: workspaceID) ?? state.id) ?? controller(for: state.id) {
             DebugWorkspaceSwitch.began(timed)
@@ -245,7 +245,7 @@ extension WindowManager {
     /// window; a normal one joins the most recent open normal window, else opens one.
     func fileHeldWorkspace(_ workspaceID: String, select: Bool) {
         // Placed meanwhile (opening its machine's other workspace re-ran reconcile): it stays there.
-        guard registry.value.owner(of: workspaceID) == nil else { return }
+        guard registry.value.owner(of: workspaceID) == nil, !services.agentTabs.frontedChats.workspaceIDs.contains(workspaceID) else { return } // nor one a Mac tab shows in place (CloudFrontedChats)
         if EphemeralWorkspaces.isEphemeral(workspaceID, self) {
             openWindow(workspaces: [workspaceID], incognito: true, behind: !select)
         } else if let normal = registry.value.mostRecentOpen(incognito: false), let state = states[normal] {
@@ -497,7 +497,7 @@ extension WindowManager {
         // unflagged one of this daemon may be it before its flag arrived:
         // it waits for the create's claim instead of joining a normal window; so does one awaiting its first tab (FirstTabHold).
         // So does one claimed for the launch window before the restore (`awaitsRestore`).
-        let held: Set<String> = FirstTabHold.held(live).union(unopened).union(pendingEphemeralWindows.isEmpty ? [] : live.filter { id in
+        let held: Set<String> = FirstTabHold.held(live).union(unopened).union(services.agentTabs.frontedChats.workspaceIDs).union(pendingEphemeralWindows.isEmpty ? [] : live.filter { id in
             registered.owner(of: id) == nil && placements[id] == nil
                 && services.machines.workspace(id: id).map { $0.1 === services.daemon } == true
         }).union(live.filter { id in placements[id].map(awaitsRestore) == true })
