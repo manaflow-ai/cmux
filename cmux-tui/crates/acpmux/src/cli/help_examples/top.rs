@@ -351,6 +351,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "board",
+        &[
+            (
+                "Print the read-only branch board as JSON (needs Labs > Show Preview Features)",
+                "acpmux board",
+            ),
+            ("Same, the way the app calls it", "acpmux board --json"),
+        ],
+    ),
+    (
         "web",
         &[
             ("Open the dashboard in the browser", "acpmux web"),

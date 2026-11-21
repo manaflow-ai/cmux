@@ -51,6 +51,12 @@ const ALLOWED: &[(&str, &str, usize, &str)] = &[
         "`acpmux ls`'s page fetcher: one `limit` page per call, its cursor followed",
     ),
     (
+        "cmux-tui/crates/acpmux/src/cli/run/board.rs",
+        "method::MUX_SESSIONS",
+        1,
+        "`board`'s v1 page fetcher: `ls_pages::read` follows the cursor, one page per call",
+    ),
+    (
         "cmux-tui/crates/cmux-tui-core/src/server/agent_session_link.rs",
         "\"_acpmux/sessions\"",
         1,
@@ -147,6 +153,7 @@ const V1_LIST_USES: &[(&str, &str, usize, &str)] = &[
     // Row 7b part one's callers, moved to `cli/list_read.rs`: each v1 read is the fallback for a
     // daemon without the list surface or `info-rows-v1` (`Via::open` gave none).
     ("cli/run/ls.rs", "method::MUX_SESSIONS", 1, "`ls`'s fallback (`V1_PAGES`)"),
+    ("cli/run/board.rs", "method::MUX_SESSIONS", 1, "`board`'s fallback (`ls_pages::read`)"),
     ("cli/run/standard.rs", "method::MUX_SESSIONS", 1, "`pending`'s fallback"),
     ("cli/run/fanout.rs", "method::MUX_SESSIONS", 1, "`send --tag`'s fallback"),
     ("cli/search_all.rs", "method::MUX_SESSIONS", 1, "search's fallback for the whole view"),

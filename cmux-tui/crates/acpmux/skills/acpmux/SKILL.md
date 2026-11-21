@@ -499,6 +499,7 @@ acpmux ledger --since 30d --by pr              # what turns cost, per repo, pull
 acpmux bead ls cx-cus7j.230                    # the sessions working on a tracker bead
 acpmux process list                            # background processes agents left running
 acpmux worktree list                           # this machine's worktrees and the agents that made them
+acpmux board                                   # read-only branch board of local sessions (Labs > Show Preview Features; off by default)
 ```
 
 Add `--json` before the command for ids and paths to act on. The rest of the
