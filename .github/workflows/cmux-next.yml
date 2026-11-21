@@ -93,6 +93,7 @@ on:
       - skills/cmux-customization/**
       - skills/cmux-live/**
       - skills/cmux/SKILL.md
+      - scripts/measure/screen-stream-eval/wifi-away-holds.json
       - .xcode-version
       - schemas/**
       - plans/cmux-next/**
@@ -477,6 +478,7 @@ on:
       - skills/cmux-customization/**
       - skills/cmux-live/**
       - skills/cmux/SKILL.md
+      - scripts/measure/screen-stream-eval/wifi-away-holds.json
       - .xcode-version
       - schemas/**
       - plans/cmux-next/**
