@@ -518,6 +518,104 @@ class ApiReadTests(unittest.TestCase):
 
 
 
+def one_job(status: str, steps: tuple[tuple[str, str, str | None], ...] = (), minutes_ago: float = 1.0) -> list[dict]:
+    """A one-job loop run's jobs: decide done, nightly-next-one in `status` (a runner once it started)."""
+    one = job("nightly-next-one", status, minutes_ago, "mac" if status in ("in_progress", "completed") else "")
+    one["steps"] = [{"name": n, "status": st, "conclusion": c} for n, st, c in steps]
+    return [job("decide", "completed", 20, "r"), one]
+
+
+ONE_BUILDING = one_job("in_progress", (("Build the app", "in_progress", None),))
+ONE_PENDING = one_job("pending", minutes_ago=0.5)
+ONE_FINISHING = one_job("in_progress", (("Ask main's nightly-next tick at notarization", "completed", "success"),
+                                         ("Notarize app ticket through final DMG", "in_progress", None)))
+SET_UP = [job("decide", "completed", 3, "r"), job("resolve-nightly-cmux-tui-client", "in_progress", 2, "r")]
+
+
+class SlotCapTests(unittest.TestCase):
+    """NIGHTLY_NEXT_SLOTS (2026-11-21, design manaflow-ai/cmuxterm-hq#17011): one build per signer Mac. The rule
+    promotes while fewer than `slots` loop runs hold a slot and none of them waits for one: a second pending run
+    would pend on the same group and GitHub would replace (cancel) the first. Cap 1 is the one-slot rule."""
+
+    def decide(self, runs_and_jobs, slots, waited_minutes=30.0):
+        runs = [run_ for run_, _ in runs_and_jobs]
+        jobs = {run_["id"]: jobs_ for run_, jobs_ in runs_and_jobs}
+        return rolling.decide(NOW, head=HEAD, head_runs=runs, jobs_of=lambda r: jobs[r["id"]], promotions=[],
+                              oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=waited_minutes)), starts=runs,
+                              slots=slots)
+
+    def test_cap_1_one_busy_waits_as_before(self):
+        busy = (run(1, 20, head_sha=HEAD), ONE_BUILDING)
+        self.assertEqual(self.decide([busy], 1), rolling.decide(
+            NOW, head=HEAD, head_runs=[busy[0]], jobs_of=lambda r: busy[1], promotions=[],
+            oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=30)), starts=[busy[0]]))
+        self.assertFalse(self.decide([busy], 1)[0])
+
+    def test_cap_2_one_busy_promotes(self):
+        go, reason = self.decide([(run(1, 20, head_sha=HEAD), ONE_BUILDING)], 2)
+        self.assertTrue(go, reason)
+
+    def test_cap_2_two_busy_wait(self):
+        go, reason = self.decide([(run(1, 25, head_sha="c" * 40), ONE_BUILDING),
+                                  (run(2, 15, head_sha=HEAD), ONE_BUILDING)], 2)
+        self.assertFalse(go, reason)
+        self.assertIn("is building", reason)
+
+    def test_cap_2_one_busy_and_one_pending_wait(self):
+        go, reason = self.decide([(run(1, 25, head_sha="c" * 40), ONE_BUILDING),
+                                  (run(2, 15, head_sha=HEAD), ONE_PENDING)], 2)
+        self.assertFalse(go, reason)
+        self.assertIn("every one of 2 slots is taken or a run waits for one", reason)
+        with self.subTest("one busy holder that waits, below the cap, names the pending run"):
+            go, reason = self.decide([(run(2, 15, head_sha=HEAD), ONE_PENDING)], 2)
+            self.assertFalse(go, reason)
+            self.assertIn("a second pending run would replace it", reason)
+
+    def test_cap_2_a_pending_run_alone_waits(self):
+        """A run whose nightly-next-one waits (on a group or a runner) is the one pending run: never a second."""
+        for name, jobs in (("job pending", ONE_PENDING), ("set-up still running", SET_UP),
+                           ("job queued", one_job("queued", minutes_ago=0.5))):
+            with self.subTest(name):
+                go, reason = self.decide([(run(2, 15, head_sha=HEAD), jobs)], 2)
+                self.assertFalse(go, reason)
+
+    def test_cap_2_a_run_pending_with_no_job_yet_waits(self):
+        go, reason = self.decide([(run(1, 25, head_sha="c" * 40), ONE_BUILDING),
+                                  (run(2, 15, status="pending", head_sha=HEAD), [])], 2)
+        self.assertFalse(go, reason)
+
+    def test_cap_2_a_finishing_head_beside_one_busy_promotes_one(self):
+        """The finishing holder of the head holds nothing while no more loop runs are open than slots: the promoted
+        run's nightly-next-one then pends behind it (the pick's furthest-along host), the one pending run."""
+        older = (run(1, 25, head_sha="c" * 40), ONE_BUILDING)
+        head = (run(2, 30, head_sha=HEAD), ONE_FINISHING)
+        go, reason = self.decide([older, head], 2)
+        self.assertTrue(go, reason)
+        with self.subTest("a third open run: the finishing holder holds again"):
+            go, reason = self.decide([older, head, (run(3, 5, head_sha="d" * 40), ONE_PENDING)], 2)
+            self.assertFalse(go, reason)
+        with self.subTest("cap 1: not alone, so it holds"):
+            go, reason = self.decide([older, head], 1)
+            self.assertFalse(go, reason)
+
+    def test_cap_2_a_start_inside_the_race_window_waits(self):
+        go, reason = self.decide([(run(1, 1, head_sha=HEAD), ONE_BUILDING)], 2)
+        self.assertFalse(go, reason)
+
+    def test_slots_from_the_variable(self):
+        for value, want in (("", 1), (None, 1), ("1", 1), ("2", 2), (" 2 ", 2), ("0", 1), ("-3", 1), ("two", 1)):
+            with self.subTest(value=value):
+                self.assertEqual(rolling.slots_from(value), want)
+
+    def test_evaluate_passes_the_cap(self):
+        busy = run(1, 20, head_sha=HEAD)
+        for slots, want in ((1, False), (2, True)):
+            with self.subTest(slots=slots):
+                api = api_for(compare("ahead", [(WAITING, 30)]), runs=[busy], jobs=ONE_BUILDING)
+                go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api, window_minutes=5, slots=slots)
+                self.assertEqual(go, want, reason)
+
+
 def git_repo(scratch: str):
     """A linear history of four commits a minute apart (committer dates set), and a side commit off
     the second: git(*args) runs in it."""
