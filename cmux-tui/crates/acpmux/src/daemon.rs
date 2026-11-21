@@ -1025,6 +1025,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
                         hub.finish_clone_boot(&home());
                         // Once every log is read: a pass reads only chats whose log is loaded.
                         let _worker = hub.retention_worker();
+                        hub.inactive_archive_worker();
                     });
                 }
                 // A chat a machine's Full-access setting moved out of its policy's mode goes back:

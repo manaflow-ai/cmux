@@ -44,6 +44,10 @@ impl Hub {
                 m.tags.remove(k);
             }
         }
+        self.persist_tags(session)
+    }
+
+    pub(super) fn persist_tags(&self, session: &Session) -> Result<(), RpcError> {
         self.child_tags.note(session);
         self.lane_tags_changed(session);
         // The line first, then the metadata: with the event journal, a crash keeps records as a

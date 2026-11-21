@@ -21,6 +21,10 @@ extension ChatSettings {
     public nonisolated static let coldArchiveAfterDaysPath = ["agents", "chats", "coldArchiveAfterDays"]
     public nonisolated static let coldArchiveAfterDaysDefault: Double = 30
     public nonisolated static let coldArchiveAfterDaysRange: ClosedRange<Double> = 1...3650
+    /// `agents.chats.archiveInactive`: The local daemon archives sessions using the same timestamp tag as the chat menu. Never (zero days) disables the pass.
+    public nonisolated static let archiveInactivePath = ["agents", "chats", "archiveInactive"]
+    public nonisolated static let archiveInactiveDefault = "never"
+    public nonisolated static let archiveInactiveValues = ["never", "1d", "2d", "7d", "14d", "30d"]
     /// `chat.on`: The default target of `cmux chat` (cli/chat_start.rs): here, cloud, vm:new, vm:ID|NAME, or a device id or name. `--on` and then CMUX_ON come first; empty is here. The CLI reads it through settings.get only when both are absent, and `cmux config set on TARGET` is the CLI's short name for this key (cli/app/settings.rs). Leo, 2026-11-07: "cmux chat is normal, and cmux chat with the flag/arguments can separate if you want it on a different device/vm/cloud/whatevret".
     public nonisolated static let chatOnPath = ["chat", "on"]
     public nonisolated static let chatOnDefault = ""
@@ -92,6 +96,23 @@ nonisolated enum ChatSettingsSchema {
                 kind: .number(SettingNumber(ChatSettings.coldArchiveAfterDaysRange, step: 1, unit: .days)),
                 default: .number(ChatSettings.coldArchiveAfterDaysDefault),
                 keywords: ["agents", "chats", "archive", "cold", "compress", "disk", "idle", "days"]
+            ),
+            SettingDescriptor(
+                ChatSettings.archiveInactivePath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.chats.archiveInactive", "Archive Inactive Chats"),
+                help: SettingsText.keyed("settings.chats.archiveInactive.help", "Move inactive local chats to the archive. Pinned chats, nested chats and chats with work in progress stay in place."),
+                kind: .choice([
+                    SettingChoice("never", SettingsText.keyed("settings.choice.archiveInactiveNever", "Never")),
+                    SettingChoice("1d", SettingsText.keyed("settings.choice.archiveInactiveOneDay", "After 1 Day")),
+                    SettingChoice("2d", SettingsText.keyed("settings.choice.archiveInactiveTwoDays", "After 2 Days")),
+                    SettingChoice("7d", SettingsText.keyed("settings.choice.archiveInactiveSevenDays", "After 7 Days")),
+                    SettingChoice("14d", SettingsText.keyed("settings.choice.archiveInactiveFourteenDays", "After 14 Days")),
+                    SettingChoice("30d", SettingsText.keyed("settings.choice.archiveInactiveThirtyDays", "After 30 Days")),
+                ]),
+                default: .string(ChatSettings.archiveInactiveDefault),
+                keywords: ["agents", "chats", "archive", "archived", "settled", "inactive", "idle", "auto archive", "days"]
             ),
             SettingDescriptor(
                 ChatSettings.chatOnPath,

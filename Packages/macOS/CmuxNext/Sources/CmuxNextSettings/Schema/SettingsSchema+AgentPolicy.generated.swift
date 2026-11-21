@@ -274,8 +274,8 @@ extension SettingsSchema {
         "browser.toolbar.downloads", "browser.toolbar.media", "browser.toolbar.profile", "browser.toolbar.menu",
         "browser.omnibox.color", "browser.omnibox.popupColor", "browser.omnibox.popupHoverColor", "layout.stripMargin",
         "layout.columnWidthPresets", "window.trafficLightClearance", "sidebar.workspaceIcons",
-        // Whether old chats' logs are compressed on disk, and after how long: lossless (opening a chat brings its log back), a local disk policy.
-        "agents.chats.coldArchive", "agents.chats.coldArchiveAfterDays",
+        // Reversible local chat policies: archive inactive chats in the sidebar or compress old logs on disk.
+        "agents.chats.archiveInactive", "agents.chats.coldArchive", "agents.chats.coldArchiveAfterDays",
         // Whether a chat's pull request link opens the cmux GitHub page or github.com in a cmux tab: both stay in cmux, with no network, privacy or destructive effect.
         "browser.openPullRequestsInGitHubPage",
         // Which of the person's own connections a thread may move to when one runs out: it adds no connection and spends nothing past a connection's own limit.
