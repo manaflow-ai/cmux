@@ -181,49 +181,12 @@
       },
       {
         "actions" : [
-
+          "appearance"
         ],
         "aliases" : [
-          "theme"
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.appTheme",
-            "rows" : [
-              "appearance.theme",
-              "appearance.appTheme",
-              "appearance.themeEdits",
-              "appearance.favoriteThemes",
-              "appearance.rotateFavoriteThemes",
-              "appearance.accent",
-              "appearance.themeFile",
-              "appearance.highlightColor"
-            ],
-            "title" : {
-              "key" : "settings.group.appTheme",
-              "text" : "App Theme"
-            }
-          }
-        ],
-        "id" : "personalization",
-        "lead" : [
+          "appearance",
+          "theme",
           "personalization"
-        ],
-        "symbol" : "wand.and.stars",
-        "title" : {
-          "key" : "settings.category.personalization",
-          "text" : "Personalization"
-        },
-        "trail" : [
-          "customizeLibrary"
-        ]
-      },
-      {
-        "actions" : [
-          "appearance"
-        ],
-        "aliases" : [
-          "appearance"
         ],
         "groups" : [
           {
@@ -402,11 +365,30 @@
               "key" : "settings.pageGroup.viewerSurfaces",
               "text" : "Surfaces: Viewers"
             }
+          },
+          {
+            "key" : "settings.group.appTheme",
+            "rows" : [
+              "appearance.theme",
+              "appearance.appTheme",
+              "appearance.themeEdits",
+              "appearance.favoriteThemes",
+              "appearance.rotateFavoriteThemes",
+              "appearance.accent",
+              "appearance.themeFile",
+              "appearance.highlightColor"
+            ],
+            "title" : {
+              "key" : "settings.group.appTheme",
+              "text" : "App Theme"
+            }
           }
         ],
         "id" : "appearance",
         "lead" : [
-
+          "themeStudio",
+          "backdrops",
+          "density"
         ],
         "symbol" : "paintbrush",
         "title" : {
@@ -414,7 +396,7 @@
           "text" : "Appearance"
         },
         "trail" : [
-
+          "customizeLibrary"
         ]
       },
       {
@@ -438,7 +420,6 @@
               "sidebar.noFade",
               "sidebar.controlsOnHover",
               "sidebar.minimal",
-              "sidebar.look",
               "sidebar.style",
               "sidebar.density",
               "sidebar.textSize",
@@ -725,42 +706,6 @@
         "title" : {
           "key" : "settings.category.tabsAndPanes",
           "text" : "Tabs and Panes"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-          {
-            "key" : "newTab.0",
-            "rows" : [
-              "tabs.newTabTemplate",
-              "tabs.newTabApp",
-              "tabs.nativeNewTabPage",
-              "sidebar.showChats",
-              "tabs.newTabNowPlaying"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.newTabPage",
-              "text" : "New Tab Page"
-            }
-          }
-        ],
-        "id" : "newTab",
-        "lead" : [
-
-        ],
-        "symbol" : "plus.square",
-        "title" : {
-          "key" : "settings.pageGroup.newTabPage",
-          "text" : "New Tab Page"
         },
         "trail" : [
 
@@ -1501,138 +1446,6 @@
         ],
         "groups" : [
           {
-            "key" : "settings.group.computerUse",
-            "rows" : [
-              "computerUse.mode",
-              "computerUse.deniedApps",
-              "computerUse.allowOwnMachines",
-              "computerUse.pauseOnTakeover",
-              "computerUse.showCursor",
-              "computerUse.cursorTag",
-              "computerUse.settle",
-              "computerUse.livePreview",
-              "computerUse.menus",
-              "computerUse.allowForeground"
-            ],
-            "title" : {
-              "key" : "settings.group.computerUse",
-              "text" : "Computer Use"
-            }
-          }
-        ],
-        "id" : "computerUse",
-        "lead" : [
-          "computerUse"
-        ],
-        "symbol" : "cursorarrow.click.2",
-        "title" : {
-          "key" : "settings.category.computerUse",
-          "text" : "Computer Use"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.mcpServers",
-            "rows" : [
-              "agents.mcpServers.enabled"
-            ],
-            "title" : {
-              "key" : "settings.group.mcpServers",
-              "text" : "Agent Chats"
-            }
-          }
-        ],
-        "id" : "mcpServers",
-        "lead" : [
-          "mcpServers"
-        ],
-        "symbol" : "server.rack",
-        "title" : {
-          "key" : "settings.category.mcpServers",
-          "text" : "MCP Servers"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-
-        ],
-        "id" : "models",
-        "lead" : [
-          "models"
-        ],
-        "symbol" : "cpu",
-        "title" : {
-          "key" : "settings.category.models",
-          "text" : "Models"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.cloudWorkspaces",
-            "rows" : [
-              "cloud.newWorkspacesInCloud",
-              "cloud.newWorkspaceFolder",
-              "cloud.agentsStartWithoutAsking",
-              "cloud.turnCheckpoints"
-            ],
-            "title" : {
-              "key" : "settings.group.cloudWorkspaces",
-              "text" : "Cloud Workspaces"
-            }
-          }
-        ],
-        "id" : "cloud",
-        "lead" : [
-          "cloudModels",
-          "cloudEnvironments"
-        ],
-        "symbol" : "cloud",
-        "title" : {
-          "key" : "settings.category.cloud",
-          "text" : "Cloud"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-          {
             "key" : "settings.group.chiefChat",
             "rows" : [
               "home.chiefBubbleStyle",
@@ -1652,7 +1465,6 @@
             "rows" : [
               "home.chiefDock.edge",
               "home.chiefPanel.style",
-              "home.chiefPanel.seesScreen",
               "home.chiefDock.openBeside"
             ],
             "title" : {
@@ -1713,6 +1525,7 @@
         "id" : "chief",
         "lead" : [
           "chiefs",
+          "chiefPet",
           "voiceInput"
         ],
         "symbol" : "crown",
@@ -1722,6 +1535,29 @@
         },
         "trail" : [
           "notices"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "models",
+        "lead" : [
+          "models"
+        ],
+        "symbol" : "cpu",
+        "title" : {
+          "key" : "settings.category.models",
+          "text" : "Models"
+        },
+        "trail" : [
+
         ]
       },
       {
@@ -1918,29 +1754,6 @@
       },
       {
         "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-
-        ],
-        "id" : "menus",
-        "lead" : [
-          "contextMenus"
-        ],
-        "symbol" : "contextualmenu.and.cursorarrow",
-        "title" : {
-          "key" : "settings.category.menus",
-          "text" : "Menus"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
           "accounts",
           "machines"
         ],
@@ -1992,29 +1805,6 @@
 
         ],
         "groups" : [
-
-        ],
-        "id" : "keys",
-        "lead" : [
-          "keys"
-        ],
-        "symbol" : "key",
-        "title" : {
-          "key" : "settings.category.keys",
-          "text" : "Keys"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
           {
             "key" : "settings.group.mobile",
             "rows" : [
@@ -2050,6 +1840,197 @@
         },
         "trail" : [
           "mobile"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "newTab.0",
+            "rows" : [
+              "tabs.newTabTemplate",
+              "tabs.newTabApp",
+              "tabs.nativeNewTabPage",
+              "sidebar.showChats",
+              "tabs.newTabNowPlaying"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.newTabPage",
+              "text" : "New Tab Page"
+            }
+          }
+        ],
+        "id" : "newTab",
+        "lead" : [
+
+        ],
+        "symbol" : "plus.square",
+        "title" : {
+          "key" : "settings.pageGroup.newTabPage",
+          "text" : "New Tab Page"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "menus",
+        "lead" : [
+          "contextMenus"
+        ],
+        "symbol" : "contextualmenu.and.cursorarrow",
+        "title" : {
+          "key" : "settings.category.menus",
+          "text" : "Menus"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.computerUse",
+            "rows" : [
+              "computerUse.mode",
+              "computerUse.deniedApps",
+              "computerUse.allowOwnMachines",
+              "computerUse.pauseOnTakeover",
+              "computerUse.showCursor",
+              "computerUse.cursorTag",
+              "computerUse.settle",
+              "computerUse.livePreview",
+              "computerUse.menus",
+              "computerUse.allowForeground"
+            ],
+            "title" : {
+              "key" : "settings.group.computerUse",
+              "text" : "Computer Use"
+            }
+          }
+        ],
+        "id" : "computerUse",
+        "lead" : [
+          "computerUse"
+        ],
+        "symbol" : "cursorarrow.click.2",
+        "title" : {
+          "key" : "settings.category.computerUse",
+          "text" : "Computer Use"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.mcpServers",
+            "rows" : [
+              "agents.mcpServers.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.mcpServers",
+              "text" : "Agent Chats"
+            }
+          }
+        ],
+        "id" : "mcpServers",
+        "lead" : [
+          "mcpServers"
+        ],
+        "symbol" : "server.rack",
+        "title" : {
+          "key" : "settings.category.mcpServers",
+          "text" : "MCP Servers"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.cloudWorkspaces",
+            "rows" : [
+              "cloud.newWorkspacesInCloud",
+              "cloud.newWorkspaceFolder",
+              "cloud.agentsStartWithoutAsking",
+              "cloud.turnCheckpoints"
+            ],
+            "title" : {
+              "key" : "settings.group.cloudWorkspaces",
+              "text" : "Cloud Workspaces"
+            }
+          }
+        ],
+        "id" : "cloud",
+        "lead" : [
+          "cloudModels",
+          "cloudEnvironments"
+        ],
+        "symbol" : "cloud",
+        "title" : {
+          "key" : "settings.category.cloud",
+          "text" : "Cloud"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "keys",
+        "lead" : [
+          "keys"
+        ],
+        "symbol" : "key",
+        "title" : {
+          "key" : "settings.category.keys",
+          "text" : "Keys"
+        },
+        "trail" : [
+
         ]
       },
       {
@@ -2321,11 +2302,9 @@
       },
       {
         "categories" : [
-          "personalization",
           "appearance",
           "sidebar",
-          "tabs",
-          "newTab"
+          "tabs"
         ],
         "id" : "look",
         "title" : {
@@ -2349,11 +2328,8 @@
         "categories" : [
           "chat",
           "agents",
-          "computerUse",
-          "mcpServers",
-          "models",
-          "cloud",
-          "chief"
+          "chief",
+          "models"
         ],
         "id" : "ai",
         "title" : {
@@ -2364,8 +2340,7 @@
       {
         "categories" : [
           "notifications",
-          "keyboard",
-          "menus"
+          "keyboard"
         ],
         "id" : "interaction",
         "title" : {
@@ -2376,9 +2351,7 @@
       {
         "categories" : [
           "accounts",
-          "keys",
-          "mobile",
-          "devices"
+          "mobile"
         ],
         "id" : "devices",
         "title" : {
@@ -2388,16 +2361,24 @@
       },
       {
         "categories" : [
+          "newTab",
+          "menus",
+          "computerUse",
+          "mcpServers",
+          "cloud",
+          "keys",
+          "devices",
           "import",
           "privacy",
           "advanced",
           "experimental",
           "development"
         ],
-        "id" : "system",
+        "collapsed" : true,
+        "id" : "more",
         "title" : {
-          "key" : "settings.sidebarSection.system",
-          "text" : "Data and System"
+          "key" : "settings.sidebarSection.more",
+          "text" : "More"
         }
       }
     ]
@@ -64722,7 +64703,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -66216,176 +66197,6 @@
       "title" : {
         "key" : "settings.sidebar.minimal",
         "text" : "Minimal Mode"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "cmux",
-        "claude",
-        "codex",
-        "studio"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.sidebarLookCmux",
-            "text" : "cmux"
-          },
-          "value" : "cmux"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.sidebarLookClaude",
-            "text" : "Claude"
-          },
-          "value" : "claude"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.sidebarLookCodex",
-            "text" : "Codex"
-          },
-          "value" : "codex"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.sidebarLookStudio",
-            "text" : "Studio"
-          },
-          "value" : "studio"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "cmux",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : {
-        "key" : "settings.sidebar.look.help",
-        "text" : "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.look",
-      "keywords" : [
-        "sidebar",
-        "look",
-        "preset",
-        "style",
-        "claude",
-        "codex",
-        "studio",
-        "like",
-        "app"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "look"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "options",
-          "offered" : true,
-          "operations" : [
-
-          ],
-          "reason" : null,
-          "row" : "setting:sidebar.look"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.sidebar.look",
-        "text" : "Sidebar Look"
       },
       "validation" : "portable"
     },
@@ -95032,143 +94843,6 @@
         true,
         false
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.chiefDock",
-        "text" : "Chief Dock"
-      },
-      "help" : {
-        "key" : "settings.home.chiefPanelSeesScreen.help",
-        "text" : "The floating Chief takes one look at your screen when it opens. The eye turns it off."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "home.chiefPanel.seesScreen",
-      "keywords" : [
-        "chief",
-        "screen",
-        "see",
-        "context",
-        "screenshot",
-        "eye",
-        "floating",
-        "privacy",
-        "home"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "home",
-        "chiefPanel",
-        "seesScreen"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "home",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get"
-          ],
-          "reason" : "agent_settable_false",
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:home.chiefPanel.seesScreen"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.home.chiefPanelSeesScreen",
-        "text" : "Chief Sees Your Screen When It Opens"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
@@ -111973,7 +111647,7 @@
       "symbol" : "house",
       "title" : {
         "key" : "settings.section.home",
-        "text" : "Home"
+        "text" : "Chief"
       }
     },
     {
