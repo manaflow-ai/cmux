@@ -114,7 +114,7 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
          reduceTransparency: @escaping @MainActor () -> Bool = { ReduceTransparency.shared.isEnabled },
          applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) },
          revealClock: any Clock<Duration> = ContinuousClock()) {
-        (self.sidebar, backdropView) = (sidebar, WindowMaterialView(frame: .zero, images: .shared, activeLook: activeLook))
+        (self.sidebar, backdropView) = (sidebar, WindowMaterialView(frame: .zero, images: .shared, activeLook: activeLook, fillsWindow: true))
         collapsedBand = CollapsedBandReveal(clock: revealClock)
         sidebarFloat = SidebarFloat(container: sidebar, clock: revealClock)
         self.reduceTransparency = reduceTransparency
@@ -254,10 +254,10 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
     /// reorder that added no view (no add hook ran), and the sidebar stays
     /// above Chromium pages and pane overlays (R126) as an occluder of the
     /// window's overlay host. The sidebar's resize band gets a catcher panel
-    /// above pages, like a pane divider's hit area.
-    func windowDidLayout() {
-        // Before the guard: the band's catcher needs no overlay host.
-        (window as? ShellWindow)?.overlayLayer.setSidebarResizeBand(sidebar.resizeBandInWindow)
+    /// above pages, like a pane divider's hit area. The lights only after a pass that laid out a view (`placesTrafficLights`).
+    func windowDidLayout(placesTrafficLights: Bool = true) {
+        (window as? ShellWindow)?.overlayLayer.setSidebarResizeBand(sidebar.resizeBandInWindow) // before the guard: needs no overlay host
+        if placesTrafficLights, let window { TrafficLightsLine.apply(in: window) } // AppKit's own titlebar layout in this pass put them back at its place
         guard let window, let host = WindowOverlayHost.existingHost(for: window) else { return }
         host.repairAgentCursorOrder()
         host.setOccluder(id: "sidebar", rect: sidebar.occluderRectInWindow)
