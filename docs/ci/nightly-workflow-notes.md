@@ -231,6 +231,12 @@ Every failure after the feed only warns (continue-on-error on each step): a delt
 
 The base DMGs stay on the signer: the kept workspace built the earlier builds, so after each feed write the final DMG is copied to $HOME/.cmux-nightly-next-dmg-cache (the newest 4 builds; nightly_next_previous_dmgs.py --save) and the next build uses a cached copy instead of the R2 download when its size equals the Content-Length R2 serves for that build's DMG (one HEAD request); a copy that disagrees is deleted and downloaded. The size check, not a hash, is the verification: the copy is the exact file the same job uploaded, and R2 stores a build's DMG write-once.
 
+## note-32
+
+nightly-next-one, Upload nightly variant artifacts (2026-11-21):
+
+The upload runs after the feed is written, but it still holds nightly-next-one-push and the whole signing Mac, so every second of it delays the next landing's build. In run 44904268153 (job 136847063748) it uploaded 571,388,812 bytes in 283 s (12:59:52 to 13:04:35Z) while run 44906071087 waited at the slot and then left it, publishing nothing. Two of the six files were the same DMG: the immutable `<prefix>-arm64-<build>.dmg` and the rolling `<prefix>-arm64.dmg`, a copy of it. No reader of this artifact uses the rolling copy. build-nightly-deltas and generate-nightly-deltas read the immutable name and the appcast. publish-nightly-next-github checks the immutable DMG against the tested digest and makes the rolling name itself (`cp`, github-names-publish-rolling-name.sh). republish-verified-nightly.py, the one reader that requires both names, takes the variant only from build-sign-notarize-nightly (its ARTIFACTS producers), never from this job. So this job leaves out the rolling copy, about 243 MB, about half the upload. The split jobs' upload (build-sign-notarize-nightly) is unchanged.
+
 ## note-33
 
 Both cmux15 and ultra1 carry `glaeda-trusted-next-signing` on multiple runners. A single `nightly-next-one-push` group serialized both Macs; removing it without pinning the runner could send both builds to the same Mac and leave the other idle.
