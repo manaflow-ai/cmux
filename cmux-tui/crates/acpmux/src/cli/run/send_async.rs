@@ -120,6 +120,13 @@ async fn queue_once(
         )
         .await
         .unwrap_or_else(|_| queued.clone());
+    if let Some(warning) = queued
+        .get("warning")
+        .and_then(Value::as_str)
+        .or_else(|| status.get("warning").and_then(Value::as_str))
+    {
+        eprintln!("warning: {warning}");
+    }
     let state = status.get("status").and_then(Value::as_str).unwrap_or("queued");
     // A refusal the target gave at once (its folder's trust, a bad prompt, a paused or full agent
     // pair) is this send's error, as it was before the outbox.
@@ -163,6 +170,13 @@ async fn queue_once(
             "accepted": accepted,
             "hostUnreachable": unreachable,
         });
+        if let Some(warning) = queued
+            .get("warning")
+            .and_then(Value::as_str)
+            .or_else(|| status.get("warning").and_then(Value::as_str))
+        {
+            out["warning"] = json!(warning);
+        }
         if superseding {
             // null until delivered, or when the target's daemon predates the key.
             out["replaced"] = accepted.get("replaced").cloned().unwrap_or(Value::Null);

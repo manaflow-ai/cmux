@@ -249,11 +249,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             Ok(())
         }
         Command::Ls(args) => super::ls::run(args, json_out).await,
-        Command::New(args) if args.parent.is_some() => {
-            super::parent::run(*args, json_out, deadline).await
-        }
         Command::New(args) => {
-            let args = *args;
+            let mut args = *args;
+            for notice in args.apply_compat() {
+                eprintln!("{notice}");
+            }
+            if args.parent.is_some() {
+                return super::parent::run(args, json_out, deadline).await;
+            }
             // Checked before connecting, so the error needs no daemon. Preparing first preserves
             // launch-file semantics and rejects whitespace-only prompt words like `new "  "`.
             let launch = launch::Launch::prepare(&args)?;

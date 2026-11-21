@@ -6,6 +6,7 @@ All notable changes to cmux are documented here.
 
 ### Fixed
 - Cloud agent authentication failures now name missing, expired or rejected provider credentials and offer an explicit, confirmed setup followed by retrying the failed turn.
+- ACPMux `new` keeps a lone positional session name, explains `--stay` and `--wait` compatibility flags, avoids stale or restarting placement hosts, and delivers mesh-relayed sends after warning when a requested class cannot be carried.
 
 ## [0.65.2] - 2026-10-14
 

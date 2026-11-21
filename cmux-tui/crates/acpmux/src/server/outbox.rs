@@ -529,6 +529,11 @@ async fn relayed_status(
                     }
                 }
             }
+            if let Some(kept) = delivery.accepted.as_ref()
+                && let Some(v) = kept.get("warning").filter(|v| !v.is_null())
+            {
+                status["warning"] = v.clone();
+            }
             status.set("deliveryId", json!(delivery.id));
             status.set("relayDeliveryId", json!(relay));
             status.set("target", json!(delivery.target));

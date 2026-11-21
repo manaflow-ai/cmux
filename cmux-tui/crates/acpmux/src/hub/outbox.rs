@@ -238,7 +238,7 @@ impl Delivery {
 
     /// What `_acpmux/send_status` answers.
     pub fn status(&self) -> Value {
-        json!({
+        let mut status = json!({
             "deliveryId": self.id,
             "target": self.target,
             "promptId": self.prompt_id(),
@@ -246,6 +246,7 @@ impl Delivery {
             "attempts": self.attempts,
             "error": self.error,
             "accepted": self.accepted,
+            "warning": self.accepted.as_ref().and_then(|a| a.get("warning")),
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
             // Why it failed, for a program: the target's machine has no such session, or it
@@ -259,7 +260,11 @@ impl Delivery {
             // Taken by a peer whose journal has not shown it since: delivered again if its
             // machine lost it (`server/outbox.rs` `redeliver_open`).
             "openOnPeer": self.open_on_peer,
-        })
+        });
+        if let Some(warning) = self.accepted.as_ref().and_then(|a| a.get("warning")) {
+            status["warning"] = warning.clone();
+        }
+        status
     }
 
     /// It failed because the target's machine has no such session (`server/outbox.rs`).
@@ -490,8 +495,9 @@ impl Outbox {
         id: &str,
         address: &str,
         caller: Option<&str>,
+        warning: Option<&str>,
     ) -> bool {
-        self.record_mesh_origin(id, address, caller, true)
+        self.record_mesh_origin(id, address, caller, true, warning)
     }
 
     /// Who posted hub message `id` from here, and to whom: a team address (`team`), or a
@@ -503,11 +509,12 @@ impl Outbox {
         address: &str,
         caller: Option<&str>,
         team: bool,
+        warning: Option<&str>,
     ) -> bool {
         let key = format!("mesh:{id}");
         let mut book = self.book();
         let now = crate::store::now_ms();
-        book.deliveries.entry(key.clone()).or_insert_with(|| Delivery {
+        let delivery = book.deliveries.entry(key.clone()).or_insert_with(|| Delivery {
             id: key.clone(),
             target: address.to_owned(),
             request: json!({"teamOrigin": team, "_meta": {"acpmux": {"promptId": key}}}),
@@ -526,6 +533,9 @@ impl Outbox {
             created_at: now,
             updated_at: now,
         });
+        if let Some(warning) = warning {
+            delivery.request["meshWarning"] = json!(warning);
+        }
         book.dirty.insert(key);
         let change = book.changed();
         drop(book);

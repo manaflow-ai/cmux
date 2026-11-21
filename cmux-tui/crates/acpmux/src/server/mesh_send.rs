@@ -15,10 +15,11 @@
 
 use super::*;
 use crate::mesh::{HubError, Kind, MeshHub, Mode, OutMessage, Receipt, Sender, Target};
-use crate::prompt_class::PromptClass;
 
 /// The prefix of a delivery id the hub holds.
 pub(super) const PREFIX: &str = "mesh:";
+const CLASS_DROP_WARNING: &str =
+    "mesh relay cannot carry --class, so the class was dropped before delivery";
 
 /// The hub's idempotency key for prompt id `id`: itself when the hub takes it
 /// (`[A-Za-z0-9._:-]{8,128}`), else a digest of it.
@@ -85,11 +86,12 @@ pub(super) async fn relay(
     delivery: &crate::hub::outbox::Delivery,
 ) -> Option<Result<Value, HubError>> {
     let mesh = hub.mesh.get()?;
-    let message = match &delivery.relay_post {
-        Some(post) => post.clone(),
+    let (message, class_dropped) = match &delivery.relay_post {
+        Some(post) => (post.clone(), class_dropped(&delivery.request)),
         None => {
             let to = down_peer_recipient(hub, &delivery.target)?;
             let carried = carried(&delivery.request, &delivery.target).ok()?;
+            let class_dropped = carried.class_dropped;
             let message = OutMessage {
                 to,
                 from: sender(hub, delivery.caller.as_deref(), carried.named, carried.claim),
@@ -100,21 +102,39 @@ pub(super) async fn relay(
                 idempotency_key: idempotency_key(&carried.prompt_id),
             };
             hub.outbox.update(&delivery.id, |d| d.relay_post = Some(message.clone()));
-            message
+            (message, class_dropped)
         }
     };
     Some(mesh.send(&message).await.map(|receipt| {
         // Its sender reads the hub's status of it, as a direct send's (`status`).
         let caller = delivery.caller.as_deref();
-        hub.outbox.record_mesh_origin(&receipt.message_id, &delivery.target, caller, false);
-        json!({
+        let warning = class_dropped.then_some(CLASS_DROP_WARNING);
+        hub.outbox.record_mesh_origin(
+            &receipt.message_id,
+            &delivery.target,
+            caller,
+            false,
+            warning,
+        );
+        let mut accepted = json!({
             "via": "mesh",
             "relayDeliveryId": format!("{PREFIX}{}", receipt.message_id),
             "promptId": receipt.prompt_id.as_deref().unwrap_or(&receipt.message_id),
             "sessionId": receipt.to.session_id.clone().or_else(|| message.to.session_id.clone()),
             "steer": message.mode == Mode::Now,
-        })
+        });
+        if let Some(warning) = warning {
+            accepted["warning"] = json!(warning);
+        }
+        accepted
     }))
+}
+
+fn class_dropped(request: &Value) -> bool {
+    crate::prompt_class::declared(request)
+        .ok()
+        .flatten()
+        .is_some_and(|class| class != crate::prompt_class::PromptClass::Result)
 }
 
 /// What the relay carries of a `session/prompt` request: its text, its mode, its prompt id, the
@@ -125,10 +145,11 @@ struct Carried {
     prompt_id: String,
     named: Option<String>,
     claim: Option<Value>,
+    class_dropped: bool,
 }
 
-/// `request` as the relay carries it, or the refusal for what it cannot carry: an attachment,
-/// `--supersede` or a class other than result.
+/// `request` as the relay carries it, or the refusal for what it cannot carry: an attachment or
+/// `--supersede`. Classes are dropped because the mesh message format has no class field.
 fn carried(request: &Value, target: &str) -> Result<Carried, RpcError> {
     let mut texts = Vec::new();
     // These refusals never say "no session": `acpmux send` turns any error with those words into
@@ -155,14 +176,8 @@ fn carried(request: &Value, target: &str) -> Result<Carried, RpcError> {
         ))
         .with_data(json!({"reason": "mesh.no_supersede", "session": target})));
     }
-    // Nor a class (`prompt_class.rs`): the target would read it as a result, the default, so a
-    // block, a question or an FYI is refused rather than delivered as something else.
-    if crate::prompt_class::declared(request)?.is_some_and(|c| c != PromptClass::Result) {
-        return Err(RpcError::invalid_params(format!(
-            "{target:?} is reached only through the mesh relay, which cannot carry --class: send it without one"
-        ))
-        .with_data(json!({"reason": "mesh.no_class", "session": target})));
-    }
+    let class_dropped = crate::prompt_class::declared(request)?
+        .is_some_and(|class| class != crate::prompt_class::PromptClass::Result);
     Ok(Carried {
         body: texts.join("\n\n"),
         mode: if field("steer") == Some(&json!(true)) { Mode::Now } else { Mode::TurnEnd },
@@ -173,6 +188,7 @@ fn carried(request: &Value, target: &str) -> Result<Carried, RpcError> {
         named: field("fromAgent").and_then(Value::as_str).map(str::to_owned),
         // Sanitized, without what this daemon checked: the receiver keeps it as the sender's word.
         claim: field(crate::sender_harness::META_KEY).and_then(crate::sender_harness::sanitized),
+        class_dropped,
     })
 }
 
@@ -205,6 +221,7 @@ pub(super) async fn send(
         }
     }
     let carried = carried(request, target)?;
+    let warning = carried.class_dropped.then_some(CLASS_DROP_WARNING);
     let caller = conn.caller().filter(|_| !conn.is_person());
     let message = OutMessage {
         to: recipient(target),
@@ -221,12 +238,12 @@ pub(super) async fn send(
     };
     let receipt = mesh.send(&message).await.map_err(|e| refusal(target, e))?;
     if target.starts_with('@') {
-        super::team::remember_sender(hub, conn, &receipt.message_id, target)?;
+        super::team::remember_sender(hub, conn, &receipt.message_id, target, warning)?;
     } else {
         // Sent either way; unrecorded, its status is gated as a team message's (`status`).
-        hub.outbox.record_mesh_origin(&receipt.message_id, target, caller, false);
+        hub.outbox.record_mesh_origin(&receipt.message_id, target, caller, false, warning);
     }
-    Ok(status_of(&receipt, target))
+    Ok(status_of(&receipt, target, warning))
 }
 
 /// `_acpmux/send_status` of a delivery the hub holds: its receipt, read once.
@@ -249,6 +266,8 @@ pub(super) async fn status(
         }
     })?;
     let origin = hub.outbox.mesh_origin(message);
+    let warning =
+        origin.as_ref().and_then(|d| d.request.get("meshWarning")).and_then(Value::as_str);
     let direct = origin.as_ref().filter(|d| !d.team_origin());
     if let Some(sent) = direct {
         // A direct `HOST/NAME` send's, which the hub stamps with `startWork` as it does every
@@ -276,19 +295,21 @@ pub(super) async fn status(
             }
         }
     }
-    let target =
-        receipt.to.team_address.clone().or_else(|| origin.map(|d| d.target)).unwrap_or_else(|| {
-            match (&receipt.to.host, &receipt.to.name) {
-                (Some(host), Some(name)) => format!("{host}/{name}"),
-                (_, name) => name.clone().unwrap_or_default(),
-            }
+    let target = receipt
+        .to
+        .team_address
+        .clone()
+        .or_else(|| origin.as_ref().map(|d| d.target.clone()))
+        .unwrap_or_else(|| match (&receipt.to.host, &receipt.to.name) {
+            (Some(host), Some(name)) => format!("{host}/{name}"),
+            (_, name) => name.clone().unwrap_or_default(),
         });
-    Ok(status_of(&receipt, &target))
+    Ok(status_of(&receipt, &target, warning))
 }
 
 /// A receipt in the outbox's status shape (`hub/outbox.rs` `Delivery::status`). Its `promptId`
 /// is the one the target runs it with: the hub's message id (`mesh_relay.rs` `deliver`).
-fn status_of(receipt: &Receipt, target: &str) -> Value {
+fn status_of(receipt: &Receipt, target: &str, warning: Option<&str>) -> Value {
     let status = match receipt.state.as_str() {
         "leased" => "delivering",
         "delivered" => "delivered",
@@ -307,7 +328,7 @@ fn status_of(receipt: &Receipt, target: &str) -> Value {
         .or(receipt.delivered_at)
         .or(receipt.leased_until)
         .unwrap_or(receipt.created_at);
-    json!({
+    let mut status = json!({
         "deliveryId": format!("{PREFIX}{}", receipt.message_id),
         "target": target,
         "promptId": receipt.prompt_id.as_deref().unwrap_or(&receipt.message_id),
@@ -320,7 +341,11 @@ fn status_of(receipt: &Receipt, target: &str) -> Value {
         "startWork": receipt.start_work,
         "createdAt": receipt.created_at,
         "updatedAt": updated.max(receipt.created_at),
-    })
+    });
+    if let Some(warning) = warning {
+        status["warning"] = json!(warning);
+    }
+    status
 }
 
 /// The hub's refusal as this daemon's own.
@@ -391,5 +416,25 @@ mod tests {
         assert!(valid_team_address("@team/role"));
         assert!(valid_team_address("@member/reviewer:backend"));
         assert!(!valid_team_address("@team"));
+    }
+
+    #[test]
+    fn a_class_is_marked_for_warning_and_dropped_by_mesh_transport() {
+        let request = json!({
+            "prompt": [{"type": "text", "text": "hello"}],
+            "_meta": {"acpmux": {"class": "block"}}
+        });
+        let carried = carried(&request, "remote").unwrap();
+        assert!(carried.class_dropped);
+        assert_eq!(carried.body, "hello");
+    }
+
+    #[test]
+    fn result_class_is_native_mesh_default_without_a_warning() {
+        let request = json!({
+            "prompt": [{"type": "text", "text": "hello"}],
+            "_meta": {"acpmux": {"class": "result"}}
+        });
+        assert!(!carried(&request, "remote").unwrap().class_dropped);
     }
 }
