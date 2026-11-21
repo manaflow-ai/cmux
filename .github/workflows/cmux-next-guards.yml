@@ -510,7 +510,9 @@ jobs:
     needs: [coalesce, fast-check-route]
     if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && needs.fast-check-route.outputs.ci_guard_group != 'false' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
-    timeout-minutes: 25
+    # Temporary 35 (was 25) until the head pass is short again: green p50 rose from about 15 min to 20-23 min on
+    # 11-20 12Z, and a third of runs were cancelled at 25 with no verdict, then re-run (hq docs/ci/ci-cut-ledger.md).
+    timeout-minutes: 35
     permissions:
       contents: read
     steps:
