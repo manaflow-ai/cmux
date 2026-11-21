@@ -232,10 +232,10 @@ async fn a_diverged_prefix_is_refused_and_given_back_and_a_full_move_then_works(
 /// chat and one of about 20 MB. Prints the times; asserts what moved.
 #[tokio::test]
 async fn a_precopied_freeze_does_not_grow_with_the_history() {
-    // Each prompt is logged twice: as said, and as the fake agent's echo.
-    let big = "x".repeat(400_000);
+    // History as an agent's chat has it: many small records (a reply streamed in chunks), about
+    // 20 MB of log for the big one.
     let mut report = Vec::new();
-    for (label, prompts) in [("small", 1usize), ("20MB", 25)] {
+    for (label, prompts) in [("small", 1usize), ("20MB", 30)] {
         for precopy in [false, true] {
             let (dirs, mut src, mut dst) = two_local().await;
             let s = src
@@ -244,8 +244,7 @@ async fn a_precopied_freeze_does_not_grow_with_the_history() {
                 .unwrap();
             let id = s["sessionId"].as_str().unwrap().to_owned();
             for n in 0..prompts {
-                let text = format!("{n} {big}");
-                src.request(method::SESSION_PROMPT, prompt(&id, &format!("p-{n}"), &text))
+                src.request(method::SESSION_PROMPT, prompt(&id, &format!("p-{n}"), "chunks: 2500"))
                     .await
                     .unwrap();
             }

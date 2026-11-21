@@ -12,7 +12,8 @@
 //!    and a digest of the record at `afterSeq`).
 //! 2. target `_acpmux/transfer_stage {manifest}` (that answer): a receive (`in-<id>`) that
 //!    `transfer_write` fills; `_acpmux/transfer_stage_finish {stageId}` checks every record and
-//!    writes them, as the store would, to one synced file (`prefix.ndjson`). Nothing runs and
+//!    writes them, as the store would, to one synced segment (`store/<chat>/events/000000.ndjson`,
+//!    its kind index beside it). Nothing runs and
 //!    nothing is listed: it is no chat yet. Swept like any receive.
 //! 3. source `transfer_begin {..., prepareId, afterSeq}`: frozen as ever, but the bundle's log
 //!    holds only the records past `afterSeq`; its answer names the prefix (`prefix: {prepareId,
@@ -46,8 +47,6 @@ pub(in crate::hub) struct CheckedPrefix {
     pub(in crate::hub) prepare_id: String,
     pub(in crate::hub) after_seq: u64,
     pub(in crate::hub) token: String,
-    /// The prepared log, read before the bundle's for its held prompts (`held_prompts_with`).
-    pub(in crate::hub) file: PathBuf,
 }
 
 fn transfer_error(what: &str, message: impl std::fmt::Display) -> RpcError {
@@ -91,6 +90,12 @@ impl Hub {
             return Err(transfer_error("moving", "this chat is being moved"));
         }
         self.sweep();
+        // The log's kind index made now, not under the freeze: the begin reads its held prompts
+        // and its ownership epoch from it.
+        let warmed = self.store.scan_kinds(&session.id, &["queued"], &mut |_| true);
+        if let Err(error) = warmed {
+            tracing::debug!(session = %session.id, "kind index not made before a move: {error:#}");
+        }
         let prepare_id = format!("pre-{}", uuid::Uuid::now_v7());
         let root = transfers_dir().join(&prepare_id);
         let events = root.join(&session.id).join("events");
@@ -177,10 +182,8 @@ impl Hub {
         let Some(record) = read_json(&root.join("prefix.json")) else {
             return Err(diverged("no such prepare here"));
         };
-        let file = root.join(&session.id).join("events").join("000001.ndjson");
         if record["sessionId"] != session.id.as_str()
             || record["afterSeq"].as_u64() != Some(after_seq)
-            || !file.is_file()
         {
             return Err(diverged("the prepare is of another chat or prefix"));
         }
@@ -206,7 +209,7 @@ impl Hub {
             }
         }
         let token = record["token"].as_str().unwrap_or_default().to_owned();
-        Ok(CheckedPrefix { prepare_id: prepare_id.to_owned(), after_seq, token, file })
+        Ok(CheckedPrefix { prepare_id: prepare_id.to_owned(), after_seq, token })
     }
 
     /// `_acpmux/transfer_stage {manifest}`: a receive for a prepare's prefix, filled with
@@ -242,7 +245,7 @@ impl Hub {
     }
 
     /// `_acpmux/transfer_stage_finish {stageId}`: every record of the staged prefix read and
-    /// written, as the store writes them, to `prefix.ndjson`, synced. Answers `{stageId, afterSeq,
+    /// written, as the store writes them, to a synced segment `000000`, and indexed. Answers `{stageId, afterSeq,
     /// records}`.
     pub(in crate::hub) fn transfer_stage_finish(&self, params: &Value) -> Result<Value, RpcError> {
         let stage_id = params.get("stageId").and_then(Value::as_str).unwrap_or("");
@@ -261,15 +264,21 @@ impl Hub {
                 return Err(transfer_error("incomplete", format!("{path:?}: {have} of {size:?}")));
             }
         }
-        let (records, last) = write_staged(&bundle.join("events"), &dir.join("prefix.ndjson"))
-            .map_err(|e| transfer_error("stage", format!("{e:#}")))?;
+        let chat = manifest["sessionId"].as_str().unwrap_or_default();
+        let staged = dir.join("store").join(chat);
+        let segment = staged.join("events").join("000000.ndjson");
+        let written = crate::home_fs::create_dirs(staged.join("events"))
+            .map_err(anyhow::Error::from)
+            .and_then(|()| write_staged(&bundle.join("events"), &segment));
+        let (records, last) = written.map_err(|e| transfer_error("stage", format!("{e:#}")))?;
         if last != after_seq {
-            let _ = crate::home_fs::remove_file(dir.join("prefix.ndjson"));
+            let _ = crate::home_fs::remove_dir_all(dir.join("store"));
             return Err(transfer_error(
                 "stage",
                 format!("the prefix ends at {last}, not {after_seq}"),
             ));
         }
+        index_staged(&dir.join("store"), chat);
         let staged = json!({"sessionId": manifest["sessionId"], "afterSeq": after_seq,
                             "token": manifest["token"]});
         crate::home_fs::write(dir.join("staged.json"), staged.to_string())
@@ -300,7 +309,7 @@ impl Hub {
             return Err(transfer_error("unstaged", "no staged prefix here matches this move")
                 .with_data(json!({"stageId": stage_id})));
         }
-        crate::home_fs::rename(stage.join("prefix.ndjson"), dir.join("prefix.ndjson"))
+        crate::home_fs::rename(stage.join("store"), dir.join("store"))
             .and_then(|()| {
                 crate::home_fs::write(
                     dir.join("prefix.json"),
@@ -323,7 +332,8 @@ impl Hub {
         if !names_prefix(manifest) {
             return Ok(None);
         }
-        let file = dir.join("prefix.ndjson");
+        let chat = manifest["sessionId"].as_str().unwrap_or_default();
+        let file = dir.join("store").join(chat).join("events").join("000000.ndjson");
         let staged = read_json(&dir.join("prefix.json"));
         let Some(staged) =
             staged.filter(|s| s["token"] == manifest["prefix"]["token"] && file.is_file())
@@ -414,6 +424,7 @@ impl Hub {
                 std::fs::File::open(&tmp)?.sync_all()?;
                 crate::home_fs::rename(&tmp, &segment)?;
             }
+            adopt_index(file, &dir);
             for synced in [&events, &dir] {
                 crate::home_fs::sync_dir(synced)?;
             }
@@ -467,4 +478,30 @@ fn write_staged(events: &Path, out: &Path) -> anyhow::Result<(u64, u64)> {
     file.sync_all()?;
     crate::home_fs::rename(&tmp, out)?;
     Ok((count, last))
+}
+
+/// The staged segment's kind index (`store/kind_index.rs`), made by a store of the stage's own
+/// (`<stage>/store/<chat>/events-index/`): a log load's queue and transfer reads of the chat
+/// read it, not the segment. A copy names its segment's file by device and inode, which the
+/// adopted link keeps. One that is not made is made by the first scan, as for any segment.
+fn index_staged(root: &Path, chat: &str) {
+    let indexed = crate::store::LocalStore::new(root.to_path_buf(), 1 << 30).and_then(|store| {
+        crate::store::Store::scan_kinds(&store, chat, &["queued"], &mut |_| true)
+    });
+    if let Err(error) = indexed {
+        tracing::debug!(session = %chat, "staged prefix not indexed: {error:#}");
+    }
+}
+
+/// Links the kind index made beside the staged segment `file` into the chat's folder `dir`.
+fn adopt_index(file: &Path, dir: &Path) {
+    let Some(staged) = file.parent().and_then(Path::parent) else { return };
+    let index = crate::store::KIND_INDEX_DIR;
+    let (copy, to) = (staged.join(index).join("000000.ndjson"), dir.join(index));
+    if !copy.is_file() || crate::config::private_state_dir(&to).is_err() {
+        return;
+    }
+    let target = to.join("000000.ndjson");
+    let _ = crate::home_fs::remove_file(&target);
+    let _ = crate::home_fs::hard_link(&copy, &target);
 }

@@ -443,8 +443,8 @@ impl Hub {
             .export_after(session, &dir, prefix.as_ref().map(|p| p.after_seq))
             .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
             .and_then(|bundle| {
-                let prefix_file = prefix.as_ref().map(|p| p.file.as_path());
-                let approved_waiting = self.held_prompts_with(prefix_file, &bundle)?;
+                let prefix_seq = prefix.as_ref().map(|p| (session.id.as_str(), p.after_seq));
+                let approved_waiting = self.held_prompts_with(prefix_seq, &bundle)?;
                 if !approved_waiting.is_empty() && !gates_receiver {
                     return Err(approved_prompts_error(
                         json!(approved_waiting),

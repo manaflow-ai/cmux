@@ -65,6 +65,25 @@ pub(super) async fn begin_move(
     begin_move_after(src, id, watch, interrupt, None).await
 }
 
+/// [`begin_move`] after `staged` (see [`precopy`]), whose bundle then holds only the records
+/// past its prefix; a prefix the source no longer holds as it was is moved in full (the refusal
+/// gave the chat back first).
+pub(super) async fn begin_staged(
+    src: &Client,
+    id: &str,
+    watch: Option<Value>,
+    interrupt: bool,
+    staged: Option<&Staged>,
+) -> Result<Begun> {
+    if let Some(staged) = staged {
+        match begin_move_after(src, id, watch.clone(), interrupt, Some(staged)).await {
+            Err(e) if refused_as(&e, "transfer.diverged") => {}
+            begun => return begun,
+        }
+    }
+    begin_move(src, id, watch, interrupt).await
+}
+
 /// [`begin_move`]; after `staged`, the bundle holds only the records past its prefix.
 async fn begin_move_after(
     src: &Client,
@@ -118,21 +137,18 @@ pub(super) async fn move_chat(
     interrupt: bool,
     to_meta: Value,
 ) -> Result<Value> {
-    // Pre-copied when both daemons can: the freeze then costs only what changed since. A
-    // prefix the source no longer holds as it was, or a target that lost its stage, is moved in
-    // full (each refusal gives the chat back first).
-    if let Some(staged) = precopy(src, dst, dst_init, id).await {
-        match begin_move_after(src, id, watch.clone(), interrupt, Some(&staged)).await {
-            Ok(begun) => {
-                let (cwd, name, meta) = (cwd.clone(), name.clone(), to_meta.clone());
-                match finish_move(src, dst, dst_init, id, &begun, cwd, name, meta).await {
-                    Err(e) if refused_as(&e, "transfer.unstaged") => {}
-                    moved => return moved,
-                }
-            }
-            Err(e) if refused_as(&e, "transfer.diverged") => {}
-            Err(e) => return Err(e),
+    // Pre-copied when both daemons can: the freeze then costs only what changed since. A target
+    // that lost its stage refuses the bundle, and the move is made again in full.
+    let staged = precopy(src, dst, dst_init, id).await;
+    let begun = begin_staged(src, id, watch.clone(), interrupt, staged.as_ref()).await?;
+    if begun.stage_id.is_some() {
+        let (cwd, name, meta) = (cwd.clone(), name.clone(), to_meta.clone());
+        match finish_move(src, dst, dst_init, id, &begun, cwd, name, meta).await {
+            Err(e) if refused_as(&e, "transfer.unstaged") => {}
+            moved => return moved,
         }
+    } else {
+        return finish_move(src, dst, dst_init, id, &begun, cwd, name, to_meta).await;
     }
     let begun = begin_move(src, id, watch, interrupt).await?;
     finish_move(src, dst, dst_init, id, &begun, cwd, name, to_meta).await
@@ -150,7 +166,12 @@ fn lists_precopy(reply: &Value, pointer: &str) -> bool {
 
 /// The chat's history as of now staged on `dst`, with no freeze, when both daemons list
 /// pre-copy; None (a full move) when either does not or any step fails.
-async fn precopy(src: &Client, dst: &Client, dst_init: &Value, id: &str) -> Option<Staged> {
+pub(super) async fn precopy(
+    src: &Client,
+    dst: &Client,
+    dst_init: &Value,
+    id: &str,
+) -> Option<Staged> {
     if !lists_precopy(dst_init, "/_meta/acpmux/capabilities") {
         return None;
     }
@@ -334,4 +355,23 @@ fn stamped(params: &mut Value, epoch: Option<u64>) -> Value {
         params.set("epoch", json!(epoch));
     }
     params.take()
+}
+
+/// A client of the target's daemon at `socket`, through an ssh forward of it unless `ssh` is
+/// empty (this machine's own daemon), and the receiving daemon's own `initialize` reply on it
+/// (`receiver_takes`).
+pub(super) async fn connect_target(
+    ssh: &str,
+    socket: &str,
+) -> Result<(Option<crate::ssh_forward::Forward>, std::sync::Arc<Client>, Value)> {
+    let (forward, dst) = if ssh.is_empty() {
+        (None, Client::connect(std::path::Path::new(socket)).await?)
+    } else {
+        let forward = crate::ssh_forward::Forward::open(ssh, socket).await?;
+        let dst = Client::connect(&forward.local).await?;
+        (Some(forward), dst)
+    };
+    let init = json!({"protocolVersion": 1, "clientInfo": {"name": "acpmux-move"}});
+    let dst_init = dst.request(method::INITIALIZE, init).await?;
+    Ok((forward, dst, dst_init))
 }
