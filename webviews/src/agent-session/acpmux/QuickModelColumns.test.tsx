@@ -748,6 +748,25 @@ test("the chat's tab with no row for the running model still shows the session's
   expect(fastSwitch()).not.toBeNull();
 });
 
+// Leo 2026-11-20 (ask-e8a6bcbb62): "when i tried toggling on fast ... it turned it to terra for some
+// reason!!!! model picked got [messed] up". His Codex chat ran a model its tab did not list, so the
+// tab's first model (GPT-6.1 Terra) stood in for it and Fast landed that model.
+test("the chat's tab listing other models but not the running one toggles the session's Fast", async () => {
+  const calls = await openMenu([
+    { ...claude, models: [model("claude", "Sonnet", { canFast: true })], more: [] },
+    codex,
+  ]);
+  expect(row("Sonnet").hasAttribute("data-hl")).toBe(false);
+  expect(row("Sonnet").getAttribute("aria-selected")).not.toBe("true");
+  expect(levels().find((level) => level.checked)?.name).toBe("Medium");
+  await click(fastSwitch());
+  expect(calls.fast).toEqual([true]);
+  await click([...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "High")!);
+  expect(calls.efforts).toEqual(["high"]);
+  await press("Enter");
+  expect(calls.picks).toHaveLength(0);
+});
+
 test("the account card lists only the other accounts, then Add account…", async () => {
   const calls = await openMenu();
   await click(popup().querySelector<HTMLElement>(".acpmux-cols-profile")!);
