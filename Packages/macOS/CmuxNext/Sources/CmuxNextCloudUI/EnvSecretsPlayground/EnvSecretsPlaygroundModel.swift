@@ -60,7 +60,21 @@ final class EnvSecretsPlaygroundModel {
     var reviewKinds: [String: EnvSecretsKind] = [:]
     /// The scope tab the page shows.
     var scope: EnvSecretsEntry.Scope = .team
+    /// Where the agent's requested secret is kept; Chat by default.
+    var requestScope: EnvSecretsEntry.Scope = .chat
     let sample = EnvSecretsSample()
+
+    /// The request card's "where to keep it" choices, the same in every direction.
+    var requestScopeChoices: [EnvRequestScopeChoice] { EnvRequestScopeChoice.all }
+
+    /// The request card's save button for ``requestScope``.
+    var requestSaveTitle: String {
+        switch requestScope {
+        case .chat: "Save for this chat"
+        case .personal: "Save for me"
+        case .team: "Ask an admin to approve"
+        }
+    }
 
     func kind(of entry: EnvSecretsEntry) -> EnvSecretsKind { reviewKinds[entry.name] ?? entry.kind }
 
