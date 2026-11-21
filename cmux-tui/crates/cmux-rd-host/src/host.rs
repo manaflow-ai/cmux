@@ -665,6 +665,37 @@ fn stream_session<S: ViewerStream>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cmux_rd_core::profile::EncodeProfile;
+
+    fn cfg_from(args: &[&str]) -> Res<SessionCfg> {
+        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        session_cfg(&Opts::parse(&args)?)
+    }
+
+    #[test]
+    fn encode_profile_ultra_reaches_the_host_session() {
+        let standard = cfg_from(&["--max-fps", "240"]).expect("standard");
+        assert_eq!(standard.encode_profile, EncodeProfile::Standard);
+        assert_eq!((standard.max_fps, standard.max_kbps), (240, 50_000));
+
+        let ultra = cfg_from(&["--max-fps", "240", "--encode-profile", "ultra"]).expect("ultra");
+        assert_eq!(ultra.encode_profile, EncodeProfile::Ultra);
+        assert_eq!(ultra.max_fps, EncodeProfile::Ultra.stream_fps(240));
+        assert_eq!(
+            ultra.max_kbps,
+            cmux_rd_core::profile::max_kbps(EncodeProfile::Ultra, None, 50_000)
+        );
+        assert!(ultra.max_kbps > standard.max_kbps);
+
+        let capped =
+            cfg_from(&["--encode-profile", "ultra", "--max-fps", "60", "--max-kbps", "9000"])
+                .expect("explicit ceiling");
+        assert_eq!(capped.max_kbps, 9000);
+
+        let err =
+            cfg_from(&["--max-fps", "60", "--encode-profile", "fast"]).err().expect("refused");
+        assert!(err.to_string().contains("--encode-profile"), "{err}");
+    }
 
     #[test]
     fn a_real_loopback_connection_passes_the_default_check() {
