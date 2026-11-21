@@ -146,6 +146,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `dhat-top.py` | Top allocation sites at a dhat profile's peak. | - | 2026-11-15 | active |
 | `infinite-items.py` | Time-compressed run of N workspaces, tabs and chats against the daemons. | CMUX-571 | 2026-11-15 | active |
 | `infinite-items-linux.sh` | Infinite items on Linux, daemons plus headless chat pages. | CMUX-571 | 2026-11-15 | active |
+| `perf-cron-linux.sh` | One perf cron Linux part on a Linux pool worker, for the build controller. | - | 2026-11-21 | active |
 | `infinite-items-profile.sh` | dhat heap profile of the daemons per item. | CMUX-571 | 2026-11-15 | active |
 | `tui-idle-ram.sh` | Idle cmux-tui daemon memory on Linux at commits (bench tui-idle); with latency=1 its hot-path latency (bench daemon-latency). | CMUX-571 | 2026-11-16 | active |
 | `tui-idle-ram.py` | One idle headless daemon: smaps, threads, mappings, children. | CMUX-571 | 2026-11-16 | active |

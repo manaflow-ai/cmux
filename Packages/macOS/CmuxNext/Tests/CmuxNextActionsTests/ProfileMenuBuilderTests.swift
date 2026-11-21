@@ -63,26 +63,18 @@ struct ProfileMenuBuilderTests {
         #expect(updates.representedObject as? String == "palette.checkForUpdates")
     }
 
-    /// Personalization… (Leo 2026-11-07: "the personalization is not there"): right under Show
-    /// Chief, above Settings, and it runs `appearance.personalize` (Settings > Personalization).
-    @Test func personalizationFollowsShowChief() throws {
+    /// One settings area (David Beyer, 2026-11-20: "Personalization and Settings are redundant"):
+    /// Settings… follows Show Chief, and the menu has no second Personalization… row beside it,
+    /// even in a build that binds `appearance.personalize` (it opens Settings > Appearance).
+    @Test func oneSettingsRowFollowsShowChief() throws {
         let registry = ActionRegistry.standard()
         for id: ActionID in ["palette.toggleSetting", "appearance.personalize", "openSettings"] { registry.bind(id) {} }
         let menu = ProfileMenuBuilder(registry: registry).make(profile: ProfileMenuProfile(name: "Default"), chiefPetShown: false)
         let ids = menu.items.map { $0.identifier?.rawValue }
         let chief = try #require(ids.firstIndex(of: "profileMenu.chiefPet"))
-        #expect(ids[chief + 1] == "cmux.action.appearance.personalize")
-        #expect(ids[chief + 2] == "cmux.action.openSettings")
-        let row = menu.items[chief + 1]
-        #expect(row.title == "Personalization…")
-        #expect(row.image != nil)
-        #expect(row.representedObject as? String == "appearance.personalize")
-
-        // A build that does not bind it leaves the row out.
-        let bare = ActionRegistry.standard()
-        bare.bind("openSettings") {}
-        let without = ProfileMenuBuilder(registry: bare).make(profile: ProfileMenuProfile(name: "Default")).items
-        #expect(!without.contains { $0.identifier?.rawValue == "cmux.action.appearance.personalize" })
+        #expect(ids[chief + 1] == "cmux.action.openSettings")
+        #expect(!ids.contains("cmux.action.appearance.personalize"))
+        #expect(!menu.items.contains { $0.title == "Personalization…" })
     }
 
     /// The signed-in person leads the menu: their picture on their name's row.
