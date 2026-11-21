@@ -5,7 +5,7 @@ name: base coalesce
 #
 #   coalesce:
 #     uses: ./.github/workflows/base-coalesce.yml
-#     with: { key: cmux-next-guards, hold_minutes: 30, no_coalesce: ${{ vars.NEXT_GUARDS_COALESCE == '0' }} }
+#     with: { key: cmux-next-guards, hold_minutes: 30, no_coalesce: ${{ format('{0}', vars.NEXT_GUARDS_COALESCE) == '0' }} }
 #
 # and gives each of its other top-level jobs `needs: coalesce` and
 # `if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && (its own condition) }}`.
