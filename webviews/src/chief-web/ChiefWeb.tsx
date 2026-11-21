@@ -53,6 +53,10 @@ export function loadChiefTranscript(): Promise<TranscriptModule> {
 const CHUNK_RETRY_FIRST_MS = 1_000;
 const CHUNK_RETRY_MAX_MS = 30_000;
 const reloadWindow = () => window.location.reload();
+interface ChunkLoad {
+  delay: number;
+  byRetry: boolean;
+}
 
 function browserStorage(): Storage {
   try {
@@ -211,39 +215,38 @@ function ChiefChat({
   // ... up to 30 s apart, as the guest page does. The browser may keep a failed module fetch for the
   // page's life, so a Retry that fails again reloads the page.
   const [view, setView] = useState<TranscriptModule>();
-  const [loadFailed, setLoadFailed] = useState(false);
-  const retryLoad = useRef<(() => void) | undefined>(undefined);
+  // Each load is its own attempt; Retry's (byRetry) reloads the page when it fails too.
+  const [load, setLoad] = useState<ChunkLoad>(() => ({ delay: CHUNK_RETRY_FIRST_MS, byRetry: false }));
+  const [failedLoad, setFailedLoad] = useState<ChunkLoad>();
   useEffect(() => {
     let stopped = false;
-    let retry: ReturnType<typeof setTimeout> | undefined;
-    let attempt = 0;
-    const load = (delay: number, byRetry = false) => {
-      clearTimeout(retry);
-      retry = undefined;
-      const mine = ++attempt;
-      void loadTranscript().then(
-        (chunk) => {
-          if (stopped) return;
-          setLoadFailed(false);
-          setView(() => chunk);
-        },
-        () => {
-          // Only the newest attempt schedules the next one.
-          if (stopped || mine !== attempt) return;
-          if (byRetry) return reloadPage();
-          setLoadFailed(true);
-          retry = setTimeout(() => load(Math.min(delay * 2, CHUNK_RETRY_MAX_MS)), delay);
-        },
-      );
-    };
-    retryLoad.current = () => load(CHUNK_RETRY_FIRST_MS, true);
-    load(CHUNK_RETRY_FIRST_MS);
+    void loadTranscript().then(
+      (chunk) => {
+        if (stopped) return;
+        setFailedLoad(undefined);
+        setView(() => chunk);
+      },
+      () => {
+        // A newer attempt (or an unmount) stopped this one.
+        if (stopped) return;
+        if (load.byRetry) reloadPage();
+        else setFailedLoad(load);
+      },
+    );
     return () => {
       stopped = true;
-      clearTimeout(retry);
-      retryLoad.current = undefined;
     };
-  }, [loadTranscript, reloadPage]);
+  }, [loadTranscript, reloadPage, load]);
+  useEffect(() => {
+    if (!failedLoad || failedLoad !== load) return;
+    const retry = setTimeout(
+      () => setLoad({ delay: Math.min(failedLoad.delay * 2, CHUNK_RETRY_MAX_MS), byRetry: false }),
+      failedLoad.delay,
+    );
+    return () => clearTimeout(retry);
+  }, [failedLoad, load]);
+  const loadFailed = failedLoad !== undefined;
+  const retryLoad = () => setLoad({ delay: CHUNK_RETRY_FIRST_MS, byRetry: true });
   const [confirmed, setConfirmed] = useState(() => new Set<string>());
   const prompts = useMemo(
     () => new GuestPrompts(`chief:${identity.chiefId}:${identity.mainConversationId}`, storage),
@@ -334,7 +337,7 @@ function ChiefChat({
           ) : loadFailed ? (
             <div className="chief-web__empty" role="alert">
               <p>{t("guest.live.loadFailed")}</p>
-              <button className="chief-web__action" onClick={() => retryLoad.current?.()}>
+              <button className="chief-web__action" onClick={retryLoad}>
                 {t("retry.action")}
               </button>
             </div>

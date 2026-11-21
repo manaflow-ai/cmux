@@ -1,6 +1,6 @@
 import { composerPickerEntries } from "./composerPickerEntries";
 import { acpmuxPerf } from "./perf";
-import React, { useCallback, useContext, useEffect, useMemo, useRef, useState, useEffectEvent } from "react";
+import React, { useCallback, useContext, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
 import { useClaudeConnectFlow } from "./ClaudeConnectRow";
@@ -97,14 +97,14 @@ import {
   type ModeIconName,
   RECOMMENDED_BADGE,
   type ShownMode,
+  cloudPickableModes,
   cloudStartAgent,
+  cloudStartMode,
   harnessFamilyMenu,
   harnessModeMenu,
   highestMode,
   remoteStartMode,
   shownModes,
-  cloudPickableModes,
-  cloudStartMode,
 } from "./harnessModes";
 import {
   PICKER_LABELS,
