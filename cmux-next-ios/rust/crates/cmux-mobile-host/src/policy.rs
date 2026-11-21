@@ -11,6 +11,35 @@ use serde_json::{Map, Value, json};
 /// Largest request line the phone may send (the daemon's WebSocket frame cap).
 pub const MAXIMUM_LINE_BYTES: usize = 4 * 1024 * 1024;
 
+/// The Labs read-only workspace list (`CMUX_MOBILE_LABS_READ_ONLY_WORKSPACES=1`,
+/// off by default): the "Session and discovery (read-only)" group of
+/// [`ALLOWED_COMMANDS`], and nothing else. The phone sees the host's live
+/// workspaces and cannot type, create, close, move or open anything.
+pub const READ_ONLY_COMMANDS: &[&str] = &[
+    "identify",
+    "ping",
+    "server-stats",
+    "set-client-info",
+    "list-clients",
+    "list-workspaces",
+    "list-workspace-groups",
+    "list-tab-groups",
+    "list-saved-tab-groups",
+    "list-notifications",
+    "list-personal",
+    "list-agents",
+    "list-terminals",
+    "resolve-terminal",
+    "process-info",
+    "machine-usage",
+    "machine-listening-tcp",
+    "ids",
+    "export-layout",
+    "subscribe",
+    "terminal-events",
+    "wait-for",
+];
+
 /// Commands a phone may send.
 pub static ALLOWED_COMMANDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     [
@@ -275,6 +304,8 @@ pub struct DaemonPolicy {
     /// The `agent_session.host` this Mac's app records on its own agent tabs
     /// (`CMUX_MOBILE_AGENT_TAB_HOST`). Unset: a phone cannot create agent tabs.
     agent_tab_host: Option<String>,
+    /// Labs read-only workspace list: only [`READ_ONLY_COMMANDS`] pass.
+    read_only: bool,
 }
 
 impl DaemonPolicy {
@@ -283,7 +314,15 @@ impl DaemonPolicy {
             projection_subject: format!("ios-device:{device_id}"),
             device_id: device_id.to_string(),
             agent_tab_host: None,
+            read_only: false,
         }
+    }
+
+    /// Labs read-only workspace list: refuse every command outside
+    /// [`READ_ONLY_COMMANDS`] and every `cmux.protocol/2` resource request.
+    pub fn read_only(mut self, read_only: bool) -> Self {
+        self.read_only = read_only;
+        self
     }
 
     /// The phone's device id this policy was made for.
@@ -306,12 +345,23 @@ impl DaemonPolicy {
             return Verdict::Refuse(error_line(None, "bad_request", "request is not a JSON object"));
         };
         if object.contains_key("protocol") {
+            if self.read_only {
+                let id = object.get("id").cloned();
+                return Verdict::Refuse(resource_refusal(id.as_ref(), "this host shares a read-only workspace list"));
+            }
             return resource_verdict(object);
         }
         let id = object.get("id");
         let Some(command) = object.get("cmd").and_then(Value::as_str) else {
             return Verdict::Refuse(error_line(id, "bad_request", "missing cmd"));
         };
+        if self.read_only && !READ_ONLY_COMMANDS.contains(&command) {
+            return Verdict::Refuse(error_line(
+                id,
+                "forbidden",
+                &format!("{command} is not available: this host shares a read-only workspace list"),
+            ));
+        }
         if !ALLOWED_COMMANDS.contains(command) {
             return Verdict::Refuse(error_line(
                 id,
@@ -1583,5 +1633,34 @@ mod tests {
         let end = start + swift[start..].find("]\n").expect("end of resource fields");
         let swift_envelope: HashSet<&str> = swift[start..end].split('"').skip(1).step_by(2).collect();
         assert_eq!(swift_envelope, RESOURCE_FIELDS.iter().copied().collect::<HashSet<_>>());
+    }
+
+    /// Labs read-only workspace list: the discovery group passes, every
+    /// other command and every resource request is refused; off, unchanged.
+    #[test]
+    fn read_only_passes_only_the_workspace_list() {
+        let policy = DaemonPolicy::new("phone-1").read_only(true);
+        for command in READ_ONLY_COMMANDS {
+            assert!(ALLOWED_COMMANDS.contains(command), "{command} is not in ALLOWED_COMMANDS");
+            let line = format!(r#"{{"cmd":"{command}","id":"r1"}}"#);
+            assert!(
+                !matches!(policy.evaluate(line.as_bytes()), Verdict::Refuse(_)),
+                "{command} refused in read-only"
+            );
+        }
+        for command in ["send", "send-key", "create-workspace", "close-workspace", "attach-surface"] {
+            let line = format!(r#"{{"cmd":"{command}","id":"w1"}}"#);
+            let Verdict::Refuse(reply) = policy.evaluate(line.as_bytes()) else {
+                panic!("{command} passed in read-only");
+            };
+            assert!(reply.contains("forbidden") && reply.contains("read-only"), "{command}: {reply}");
+            assert!(
+                !matches!(DaemonPolicy::new("phone-1").evaluate(line.as_bytes()), Verdict::Refuse(ref r) if r.contains("read-only")),
+                "{command} refused for read-only with the switch off"
+            );
+        }
+        let resource = br#"{"protocol":"cmux.protocol/2","type":"request","id":"p1","operation":"x","params":{}}"#;
+        let Verdict::Refuse(reply) = policy.evaluate(resource) else { panic!("resource request passed") };
+        assert!(reply.contains("read-only"), "{reply}");
     }
 }

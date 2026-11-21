@@ -36,6 +36,16 @@ pub struct Peer {
     pub session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
 }
 
+/// The services a Labs read-only workspace list host opens
+/// (`CMUX_MOBILE_LABS_READ_ONLY_WORKSPACES=1`); `auth` is answered before this.
+pub const READ_ONLY_SERVICES: &[&str] = &["echo", "version", "daemon"];
+
+/// Whether `service` opens: every service with the Labs switch off, only
+/// [`READ_ONLY_SERVICES`] with it on.
+fn read_only_allows(config: &ServiceConfig, service: &str) -> bool {
+    !config.read_only_workspaces || READ_ONLY_SERVICES.contains(&service)
+}
+
 /// Serve one incoming channel to completion. With pairing on, only `auth`
 /// is served until the link's phone proved keys the Mac approved; a channel
 /// opened after `auth` waits for it.
@@ -116,6 +126,10 @@ pub async fn serve(
         _ if gate != crate::pairing::Gate::Paired => {
             Err(Refusal::new("unpaired", "pair this iPhone with the Mac first (auth)"))
         }
+        other if !read_only_allows(&config, other) => Err(Refusal::new(
+            "forbidden",
+            format!("{other} is not available: this host shares a read-only workspace list"),
+        )),
         "echo" => echo(&sender, receiver).await,
         "daemon" => daemon(&config, &peer, &args, &sender, receiver).await,
         "chief" => chief(&config, &peer, &sender, receiver).await,
@@ -602,7 +616,9 @@ async fn daemon(
         &path,
         session,
         LinePolicy::Daemon(
-            DaemonPolicy::new(&peer.device_id).with_agent_tab_host(config.agent_tab_host.clone()),
+            DaemonPolicy::new(&peer.device_id)
+                .with_agent_tab_host(config.agent_tab_host.clone())
+                .read_only(config.read_only_workspaces),
         ),
         config.pairing.as_ref().map(|pairing| std::sync::Arc::clone(&pairing.spent_replies)),
         sender,
@@ -2101,6 +2117,7 @@ mod tests {
             uploads_dir: base.path().join("uploads"),
             chief_socket: None,
             browser: crate::browser::BrowserConfig::default(),
+            read_only_workspaces: false,
             surface: Default::default(),
         };
         let view = config.view().await;
@@ -2166,6 +2183,37 @@ mod tests {
         assert_eq!(at(42), None);
     }
 
+    /// Labs read-only workspace list: only `echo`, `version` and `daemon` open;
+    /// off (the default), nothing is refused here.
+    #[test]
+    fn read_only_workspaces_opens_only_the_workspace_list_services() {
+        let mut config = crate::config::ServiceConfig {
+            tui_socket_dir: std::path::PathBuf::from("/tmp"),
+            default_session: "main".into(),
+            default_socket: None,
+            file_roots: Vec::new(),
+            acpmux: crate::config::AcpmuxTarget::Fixed { url: "ws://127.0.0.1:1".into(), token: None },
+            pairing: None,
+            agent_tab_host: None,
+            uploads_dir: std::path::PathBuf::from("/tmp"),
+            chief_socket: None,
+            browser: crate::browser::BrowserConfig::default(),
+            read_only_workspaces: false,
+            surface: Default::default(),
+        };
+        let others = ["file", "upload", "browser", "surface", "localhost", "acpmux", "chief", "machine", "appearance"];
+        for service in READ_ONLY_SERVICES.iter().chain(others.iter()) {
+            assert!(read_only_allows(&config, service), "{service} refused with the switch off");
+        }
+        config.read_only_workspaces = true;
+        for service in READ_ONLY_SERVICES {
+            assert!(read_only_allows(&config, service), "{service} refused");
+        }
+        for service in others {
+            assert!(!read_only_allows(&config, service), "{service} opened in read-only");
+        }
+    }
+
     #[test]
     fn browser_tabs_are_a_capability_only_with_a_browser_host() {
         let mut config = crate::config::ServiceConfig {
@@ -2179,6 +2227,7 @@ mod tests {
             uploads_dir: std::path::PathBuf::from("/tmp"),
             chief_socket: None,
             browser: crate::browser::BrowserConfig::default(),
+            read_only_workspaces: false,
             surface: Default::default(),
         };
         assert_eq!(
@@ -2292,6 +2341,7 @@ mod tests {
             uploads_dir: std::path::PathBuf::from("/tmp"),
             chief_socket: None,
             browser: crate::browser::BrowserConfig::default(),
+            read_only_workspaces: false,
             surface: Default::default(),
         };
         assert!(!capabilities(&config).contains(&CLOUD_DESKTOP));

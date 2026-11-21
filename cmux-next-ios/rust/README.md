@@ -201,6 +201,7 @@ target/release/cmux-mobile-host
 | `CMUX_MOBILE_CONTROL=stdio` | Supervised mode (below): tokens and the acpmux endpoint come from stdin, events go to stdout. |
 | `CMUX_MOBILE_FILE_ROOTS` | Colon-separated workspace roots for the `file` service. Unset denies every read. |
 | `CMUX_MOBILE_AGENT_TAB_HOST` | The `agent_session.host` this Mac's app records on its own agent tabs (`install:<id>`). hostd sets it on a phone's `new-conversation-tab`. Unset refuses agent tabs from a phone. |
+| `CMUX_MOBILE_LABS_READ_ONLY_WORKSPACES` | Labs, off by default. `1` serves phones a read-only workspace list: only `auth`, `echo`, `version` and `daemon` open, and `daemon` passes only the read-only discovery commands (`READ_ONLY_COMMANDS` in `policy.rs`). Pairing and owner approval are unchanged. For a Linux host shown on the phone (hive design P1). |
 | `CMUX_MOBILE_UPLOADS_DIR` | Where `upload` writes a file that has no `cwd`, one folder per link session. Default `$CMUX_MOBILE_STATE_DIR/uploads`. |
 | `ACPMUX_HOME` | acpmux state dir (default `~/.acpmux`); hostd reads `websocket.listen` and `websocket.token` from its `config.json` at every `acpmux` open. `CMUX_MOBILE_ACPMUX_URL` / `CMUX_MOBILE_ACPMUX_TOKEN` override. |
 | `CMUX_MOBILE_INCLUDE_LOOPBACK=1` | Offer loopback candidates (same-host testing). |

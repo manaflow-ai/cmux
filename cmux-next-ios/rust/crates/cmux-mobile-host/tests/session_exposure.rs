@@ -119,6 +119,7 @@ async fn fixture(initial: SessionExposure) -> Fixture {
         agent_tab_host: None,
         uploads_dir: uploads.path().to_path_buf(),
         browser: cmux_mobile_host::browser::BrowserConfig::default(),
+        read_only_workspaces: false,
         surface: cmux_mobile_host::surface::SurfaceConfig::default(),
     };
     let (exposure, session_exposure) = watch::channel(initial);
