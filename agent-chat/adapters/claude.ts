@@ -84,6 +84,8 @@ interface ClaudeState {
   thinking: string;
   effort: string;
   fastMode: boolean;
+  /// Live fast was turned off because the current model cannot use it. The preference in `fastMode` stays.
+  fastSuppressed?: boolean;
   context: string;
   initialApplied: boolean;
   commands: CommandEntry[];
@@ -353,7 +355,7 @@ async function applyInitialOptions(sess: SessionCtx) {
   if (st.effort) {
     await control(sess, "apply_flag_settings", { settings: { effortLevel: st.effort } });
   }
-  if (typeof sess.startOptions.fastMode === "boolean" || st.fastMode) {
+  if (modelMeta(st).supportsFastMode && (typeof sess.startOptions.fastMode === "boolean" || st.fastMode)) {
     await control(sess, "apply_flag_settings", { settings: { fastMode: st.fastMode } });
   }
   emitOptions(sess);
@@ -370,7 +372,9 @@ async function setClaudeOption(sess: SessionCtx, id: string, value: OptionValue)
       await control(sess, "set_model", { model });
       const changed = normalizeEffort(st);
       if (changed.effort && st.effort) await control(sess, "apply_flag_settings", { settings: { effortLevel: st.effort } });
-      if (changed.fastMode) await control(sess, "apply_flag_settings", { settings: { fastMode: st.fastMode } });
+      if (changed.fastMode) {
+        await control(sess, "apply_flag_settings", { settings: { fastMode: modelMeta(st).supportsFastMode && st.fastMode } });
+      }
       break;
     }
     case "context": {
@@ -404,6 +408,7 @@ async function setClaudeOption(sess: SessionCtx, id: string, value: OptionValue)
     }
     case "fastMode": {
       if (typeof value !== "boolean") throw new Error("fastMode must be boolean");
+      if (!modelMeta(st).supportsFastMode) throw new Error(`unsupported fast mode for ${st.model}`);
       await control(sess, "apply_flag_settings", { settings: { fastMode: value } });
       st.fastMode = value;
       break;
@@ -459,21 +464,39 @@ function buildOptions(st: Pick<ClaudeState, "model" | "modelChoices" | "modelMet
     { id: "effort", label: "Effort", kind: "select", value: st.effort, role: "effort", choices: meta.efforts },
   ];
   if (meta.context) opts.push({ id: "context", label: "Context", kind: "select", value: st.context, role: "context", choices: CONTEXT_CHOICES });
-  if (meta.supportsFastMode) opts.push({ id: "fastMode", label: "Fast", kind: "toggle", value: st.fastMode });
+  opts.push(fastModeOption(meta.supportsFastMode, st.fastMode));
   return opts;
+}
+
+const fastModeUnsupported = "This model does not support fast mode.";
+
+function fastModeOption(supported: boolean, preferred: boolean): SessionOption {
+  return {
+    id: "fastMode",
+    label: "Fast",
+    kind: "toggle",
+    value: supported ? preferred : false,
+    disabled: !supported,
+    description: supported ? undefined : fastModeUnsupported,
+  };
 }
 
 function modelMeta(st: Pick<ClaudeState, "model" | "modelMeta">): ClaudeModelMeta {
   return st.modelMeta.get(st.model) ?? { efforts: [], defaultEffort: "", supportsFastMode: false };
 }
 
-function normalizeEffort(st: Pick<ClaudeState, "model" | "modelMeta" | "effort" | "fastMode">): { effort: boolean; fastMode: boolean } {
+function normalizeEffort(st: Pick<ClaudeState, "model" | "modelMeta" | "effort" | "fastMode" | "fastSuppressed">): { effort: boolean; fastMode: boolean } {
   const meta = modelMeta(st);
   const beforeEffort = st.effort;
   const beforeFast = st.fastMode;
   if (!meta.efforts.some((c) => c.value === st.effort)) st.effort = validDefaultEffort(meta.efforts, meta.defaultEffort);
-  if (!meta.supportsFastMode) st.fastMode = false;
-  return { effort: st.effort !== beforeEffort, fastMode: st.fastMode !== beforeFast };
+  // The saved preference stays. A model that cannot use fast only forces the
+  // live flag off, and the next model that can use it turns that flag back on.
+  const wireOff = !meta.supportsFastMode && beforeFast;
+  const wireOn = meta.supportsFastMode && beforeFast && st.fastSuppressed === true;
+  if (wireOff) st.fastSuppressed = true;
+  if (meta.supportsFastMode) st.fastSuppressed = false;
+  return { effort: st.effort !== beforeEffort, fastMode: wireOff || wireOn };
 }
 
 function normalizeContext(st: Pick<ClaudeState, "model" | "modelMeta" | "context">): boolean {

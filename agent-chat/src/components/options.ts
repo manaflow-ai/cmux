@@ -46,6 +46,7 @@ export function optionAction(id: string): KeyAction | undefined {
 }
 
 export function optionTooltip(option: SessionOption): string {
+  if (option.disabled && option.description) return option.description;
   if (option.id === "model") return "Adjust model";
   if (option.id === "context") return "Adjust context window";
   if (option.id === "effort") return "Adjust effort level";
@@ -56,6 +57,7 @@ export function optionTooltip(option: SessionOption): string {
 }
 
 export function optionAcceptsValue(option: SessionOption, value: OptionValue): boolean {
+  if (option.disabled) return false;
   if (option.kind === "toggle") return typeof value === "boolean";
   if (typeof value !== "string") return false;
   return Boolean(option.choices?.some((c) => c.value === value && !c.disabled));

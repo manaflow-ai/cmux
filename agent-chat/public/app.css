@@ -107,8 +107,10 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
 .input-wrap { position: relative; }
 
 .status-row {
-  display: flex; align-items: center; gap: 4px; min-width: 0;
-  padding: 2px 5px 4px 7px; color: var(--text-dim);
+  display: flex; align-items: center; gap: 4px; min-width: 0; flex: none;
+  position: sticky; bottom: 0; z-index: 1;
+  padding-block: 2px 4px; padding-inline: 12px 5px; color: var(--text-dim);
+  background: var(--bg-input);
   container-type: inline-size;
 }
 .status-row-spacer { flex: 1; min-width: 4px; }
@@ -144,6 +146,10 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
   width: 24px; min-width: 24px; padding: 0; gap: 0; color: var(--amber);
   background: color-mix(in srgb, var(--amber) 16%, transparent);
   box-shadow: inset 0 0 14px color-mix(in srgb, var(--amber) 10%, transparent);
+}
+.fast-toggle.is-disabled,
+.fast-toggle:disabled {
+  opacity: .42; cursor: default;
 }
 .shield-toggle.active { color: var(--green); }
 .static-provider { cursor: default; }
@@ -691,14 +697,20 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
 .diff-error span { min-width: 0; overflow-wrap: anywhere; }
 .diff-retry { flex-shrink: 0; border: 1px solid rgba(128, 128, 128, 0.28); border-radius: 6px; background: rgba(128, 128, 128, 0.08); color: inherit; cursor: default; font: inherit; padding: 2px 7px; }
 
-#chat-input-row { position: relative; flex: none; padding: 10px 24px 18px; max-width: 808px; width: 100%; margin: 0 auto; }
+#chat-input-row {
+  position: sticky; bottom: 0; z-index: 2; flex: none;
+  padding-block: 10px 18px; padding-inline: 24px;
+  max-width: 760px; width: 100%; margin: 0 auto;
+  background: var(--bg);
+}
 .routing-notice {
   margin: 0 0 7px; padding: 7px 10px; border-radius: 8px;
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-input));
   color: var(--text-dim); font: 400 calc(var(--font-size-base) - 2px) var(--font-sans);
 }
 .transcript-composer-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; padding: 0 0 1px 8px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px;
+  padding-block: 0 1px; padding-inline: 12px 0;
 }
 .transcript-hint {
   display: inline-flex; align-items: center; gap: 8px; min-width: 0;
@@ -728,8 +740,9 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
   background: var(--bg-input); border: 0; border-radius: 14px;
 }
 #chat-input {
-  width: 100%; background: transparent; border: 0; outline: none; resize: none;
-  color: var(--text); font-family: var(--font-sans); font-size: var(--font-size-base); line-height: 1.5; padding: 9px 8px; min-height: 24px; max-height: 200px;
+  width: 100%; background: transparent; border: 0; outline: none; resize: none; overflow-y: auto;
+  color: var(--text); font-family: var(--font-sans); font-size: var(--font-size-base); line-height: 1.5;
+  padding-block: 9px; padding-inline: 12px; min-height: 24px; max-height: 200px;
 }
 #chat-input::placeholder { color: var(--text-faint); }
 #chat-input:disabled { color: var(--text-faint); cursor: default; }
@@ -768,7 +781,7 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
 @container (max-width: 390px) {
   .status-row .shield-toggle,
   .status-row .row-select:not(.provider-model-trigger):not(:has(.row-icon)) { display: none; }
-  .status-row { gap: 2px; padding-left: 4px; }
+  .status-row { gap: 2px; }
   .provider-model-trigger { max-width: min(280px, 66cqw); }
 }
 
