@@ -60,7 +60,7 @@ Everything lands in `--out-dir` (default a new `cmux-perf-ab-<time>` in the temp
 listing each step and whether it worked. Over ssh on macOS, hot-apply can't restart sessions
 (`--restart-sessions`); the daemon swap and web bundle still go in, and the summary says so.
 
-## `cmux perf sim [--profile cosmic-gray|unreasonable] [--seconds N] [--events N] [--shape FILE]`
+## `cmux perf sim [--profile cosmic-gray|unreasonable] [--scale N] [--seconds N] [--events N] [--shape FILE]`
 
 It needs `--app-socket` or `--socket` and refuses without one: it never picks an app for you.
 
@@ -88,11 +88,25 @@ The shape is data. The first of these that exists is used:
    tool may overwrite from a real session
 3. the built-in `perf/profiles.json`
 
-A file is either one bare shape or `{"profiles": {name: shape}}`. Missing fields take defaults.
+A file is one bare shape, `{"profiles": {name: shape}}`, or a capture of a real session (schema
+`cmux-perf-sim-profile/1`, what the mirror exports). Missing fields take defaults.
+
+A capture gives the counts: `workspaces`, `panes_per_workspace` (one entry per workspace),
+`busy_terminals`, `streaming_chats` and `browser_pages`. Streaming chats run as fake agent
+terminals (no model runs), so the capture's agent chat tabs and `agent_sessions` aren't driven as
+chats. The timings, commands, burst and churn come from the built-in profile. A count the profile
+sets higher stays.
+
+The built-in `cosmic-gray` is the capture in `perf/captures/cosmic-gray-2026-11-21.json`: 213
+workspaces, 217 panes, 40 streaming chats, 16 pages and no busy terminals. `unreasonable` is
+that capture times 4 (852 workspaces, 160 fake agents, 64 pages, 32 busy loops), with a
+10,000-event burst every 5 s and churn every 120 ms. `--scale N` (1 to 100) multiplies every
+count again: workspaces, busy terminals, agents and pages. The burst stays `--events` lines at once.
 
 | Field | Meaning |
 | --- | --- |
-| `workspaces`, `splits_per_workspace`, `max_panes_per_workspace`, `extra_tabs_per_pane` | layout |
+| `capture`, `scale` | a built-in capture's counts, times `scale` |
+| `workspaces`, `panes_per_workspace`, `splits_per_workspace`, `max_panes_per_workspace`, `extra_tabs_per_pane` | layout |
 | `busy_terminals`, `busy_sleep_s`, `busy_command` (`{sleep}`) | output loops |
 | `agents`, `agent_sleep_s`, `agent_command` (`{name}`, `{sleep}`) | fake agent sessions |
 | `browsers` | local page tabs |
@@ -103,4 +117,5 @@ A file is either one bare shape or `{"profiles": {name: shape}}`. Missing fields
 
 `cmux-ci test -- cargo test -p cmux-tui perf` runs the unit tests in `perf/tests.rs`. They cover
 percentiles, host sampling math, the `ioreg` parser, verdicts, the report round trip,
-the hang-file parser, argument parsing, the built-in shapes and burst splitting.
+the hang-file parser, argument parsing, the built-in shapes, the captured session read as captured,
+scaling and burst splitting.

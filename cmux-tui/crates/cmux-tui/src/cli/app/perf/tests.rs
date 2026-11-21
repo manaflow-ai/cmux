@@ -308,7 +308,8 @@ fn perf_parse_accepts_each_verb() {
             profile: "unreasonable".into(),
             seconds: super::DEFAULT_SIM_SECONDS,
             events: Some(10_000),
-            shape: None
+            shape: None,
+            scale: 1,
         })
     );
 }
@@ -326,6 +327,8 @@ fn perf_parse_refuses_bad_input() {
         &["sim", "--profile", "nope-not-a-profile"],
         &["sim", "--events", "0"],
         &["sim", "--events", "2000000"],
+        &["sim", "--scale", "0"],
+        &["sim", "--scale", "101"],
         &["bogus"],
         &[],
     ] {
@@ -345,6 +348,7 @@ fn builtin_shapes_parse_and_both_profiles_are_known() {
             seconds: 1,
             events: None,
             shape: None,
+            scale: 1,
         });
         let (shape, _) = shape.unwrap();
         assert_eq!(shape.burst_lines, 10_000);
@@ -408,4 +412,70 @@ fn ab_plan_and_repo() {
     let here = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let repo = ab::find_repo(&here).expect("this crate lives in a cmux checkout");
     assert!(repo.join("scripts/cmux-next/hot-apply.py").is_file());
+}
+
+const COSMIC_GRAY_CAPTURE: &str = include_str!("captures/cosmic-gray-2026-11-21.json");
+
+#[test]
+fn the_cosmic_gray_capture_is_read_as_captured() {
+    let raw: serde_json::Value = serde_json::from_str(COSMIC_GRAY_CAPTURE).unwrap();
+    assert_eq!(raw["schema"], sim::CAPTURE_SCHEMA);
+    let shape = sim::parse_shape(COSMIC_GRAY_CAPTURE, "cosmic-gray").unwrap();
+    assert_eq!(shape.workspaces, 213);
+    assert_eq!(shape.panes_per_workspace.len(), 213);
+    let listed: Vec<usize> = raw["panes_per_workspace"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|n| n.as_u64().unwrap() as usize)
+        .collect();
+    assert_eq!(shape.panes_per_workspace, listed);
+    assert_eq!(shape.busy_terminals, 0);
+    assert_eq!(shape.agents, 40, "streaming chats run as fake agent terminals");
+    assert_eq!(shape.browsers, 16);
+    assert_eq!(shape.burst_lines, 10_000);
+    // A workspace the capture lists with no pane still gets the one it opens with.
+    assert_eq!(sim::panes_in(&shape, 207), 1);
+    assert_eq!(sim::panes_in(&shape, 122), 3);
+    // The built-in cosmic-gray profile is that capture.
+    let builtin = sim::load_shape(&SimArgs {
+        profile: "cosmic-gray".into(),
+        seconds: 1,
+        events: None,
+        shape: None,
+        scale: 1,
+    })
+    .unwrap()
+    .0;
+    assert_eq!(builtin.workspaces, shape.workspaces);
+    assert_eq!(builtin.panes_per_workspace, shape.panes_per_workspace);
+    assert_eq!((builtin.busy_terminals, builtin.agents, builtin.browsers), (0, 40, 16));
+}
+
+#[test]
+fn scale_and_unreasonable_multiply_the_capture() {
+    let load = |profile: &str, scale: usize| {
+        sim::load_shape(&SimArgs {
+            profile: profile.into(),
+            seconds: 1,
+            events: None,
+            shape: None,
+            scale,
+        })
+        .unwrap()
+        .0
+    };
+    let tripled = load("cosmic-gray", 3);
+    assert_eq!(tripled.workspaces, 639);
+    assert_eq!(tripled.panes_per_workspace.len(), 639);
+    assert_eq!((tripled.agents, tripled.browsers), (120, 48));
+    assert_eq!(tripled.burst_lines, 10_000, "the burst stays 10,000 events at once");
+    let unreasonable = load("unreasonable", 1);
+    assert_eq!(unreasonable.workspaces, 213 * 4);
+    assert_eq!(unreasonable.busy_terminals, 32);
+    assert_eq!((unreasonable.agents, unreasonable.browsers), (160, 64));
+    assert_eq!((unreasonable.burst_lines, unreasonable.burst_every_s), (10_000, 5));
+    assert_eq!(load("unreasonable", 2).workspaces, 213 * 8);
+    let parsed = super::parse(&words(&["sim", "--scale", "5"])).unwrap();
+    assert!(matches!(parsed, Command::Sim(SimArgs { scale: 5, .. })));
 }

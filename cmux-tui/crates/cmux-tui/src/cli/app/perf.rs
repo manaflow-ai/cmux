@@ -70,6 +70,8 @@ pub(super) struct SimArgs {
     pub events: Option<u64>,
     /// A shape file to use instead of the profile's.
     pub shape: Option<PathBuf>,
+    /// Every count of the shape times this (1 to 100).
+    pub scale: usize,
 }
 
 fn seconds(value: Option<&str>, default: u64, max: u64) -> Result<u64, UsageError> {
@@ -135,7 +137,8 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
             }))
         }
         "sim" => {
-            let options = Options::parse(rest, &["profile", "seconds", "events", "shape"], &[])?;
+            let options =
+                Options::parse(rest, &["profile", "seconds", "events", "shape", "scale"], &[])?;
             let profile = options.value("profile").unwrap_or(sim::DEFAULT_PROFILE).to_owned();
             if options.value("shape").is_none() && !sim::is_known_profile(&profile) {
                 return Err(UsageError::new(messages.unknown_profile.replace("{name}", &profile)));
@@ -154,6 +157,14 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
                 seconds: seconds(options.value("seconds"), DEFAULT_SIM_SECONDS, 24 * 3600)?,
                 events,
                 shape: options.value("shape").map(PathBuf::from),
+                scale: match options.value("scale") {
+                    None => 1,
+                    Some(text) => text
+                        .parse::<usize>()
+                        .ok()
+                        .filter(|scale| (1..=sim::MAX_SCALE).contains(scale))
+                        .ok_or_else(|| UsageError::new(messages.scale))?,
+                },
             }))
         }
         _ => Err(usage()),

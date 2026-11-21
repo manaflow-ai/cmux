@@ -1,8 +1,12 @@
-//! `cmux perf sim [--profile cosmic-gray|unreasonable] [--seconds N] [--events N] [--shape FILE]`:
+//! `cmux perf sim [--profile cosmic-gray|unreasonable] [--scale N] [--seconds N] [--events N] [--shape FILE]`:
 //! load on the app behind a named socket (`--app-socket` or `--socket`; it never guesses).
 //!
 //! The shape is data: `--shape FILE`, else `$CMUX_PERF_SIM_DIR/<profile>.json` (default
-//! `~/.local/share/cmux-perf-sim/`; a mirror tool may write it from a real session), else the built-in profiles.json. It makes
+//! `~/.local/share/cmux-perf-sim/`; a mirror tool may write it from a real session), else the
+//! built-in profiles.json. A file may also be a capture of a real session (schema
+//! `cmux-perf-sim-profile/1`, what the mirror exports): its workspaces, panes per workspace,
+//! busy terminals, streaming chats and browser pages replace the shape's counts, and `--scale N`
+//! multiplies them. It makes
 //! workspaces of split terminals, puts busy output loops and fake agent sessions (scripted
 //! agent-like output, no model) in them, opens local pages it serves itself, fires a burst of
 //! `--events` lines across its terminals (and again every `burst_every_s`), and churns the
@@ -30,6 +34,12 @@ use super::SimArgs;
 pub(super) const DEFAULT_PROFILE: &str = "cosmic-gray";
 pub(super) const MAX_EVENTS: u64 = 1_000_000;
 const BUILTIN: &str = include_str!("profiles.json");
+/// The schema of a captured session (the mirror's export).
+pub(super) const CAPTURE_SCHEMA: &str = "cmux-perf-sim-profile/1";
+/// Captured sessions shipped with the binary, by the name a shape's `capture` gives.
+const CAPTURES: &[(&str, &str)] =
+    &[("cosmic-gray-2026-11-21", include_str!("captures/cosmic-gray-2026-11-21.json"))];
+pub(super) const MAX_SCALE: usize = 100;
 const TIMEOUT: Duration = Duration::from_secs(30);
 
 /// One load shape (profiles.json).
@@ -37,7 +47,13 @@ const TIMEOUT: Duration = Duration::from_secs(30);
 #[serde(default)]
 pub(super) struct Shape {
     pub description: String,
+    /// A built-in capture whose counts replace this shape's (see [`apply_capture`]).
+    pub capture: Option<String>,
+    /// Every count times this, after the capture.
+    pub scale: usize,
     pub workspaces: usize,
+    /// Panes in each workspace, one entry per workspace; empty: `splits_per_workspace + 1` each.
+    pub panes_per_workspace: Vec<usize>,
     pub splits_per_workspace: usize,
     pub max_panes_per_workspace: usize,
     pub extra_tabs_per_pane: usize,
@@ -64,7 +80,10 @@ impl Default for Shape {
     fn default() -> Self {
         Self {
             description: String::new(),
+            capture: None,
+            scale: 1,
             workspaces: 1,
+            panes_per_workspace: Vec::new(),
             splits_per_workspace: 1,
             max_panes_per_workspace: 4,
             extra_tabs_per_pane: 0,
@@ -108,14 +127,87 @@ fn mirror_path(profile: &str) -> Option<PathBuf> {
     Some(dir.join(format!("{profile}.json")))
 }
 
-/// A shape from a file's text: a bare shape, or `{"profiles": {name: shape}}`.
+/// What a captured session says, in the mirror's `cmux-perf-sim-profile/1` export.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub(super) struct Capture {
+    pub source: String,
+    pub captured_at: String,
+    pub workspaces: usize,
+    pub panes_per_workspace: Vec<usize>,
+    pub streaming_chats: usize,
+    pub busy_terminals: usize,
+    pub browser_pages: usize,
+}
+
+/// `shape` with `capture`'s counts: its workspaces and panes, its busy terminals, its streaming
+/// chats as fake agent terminals (no model runs) and its browser pages. A count the shape sets
+/// higher stays (a stress profile adds load on top of the real session).
+pub(super) fn apply_capture(mut shape: Shape, capture: &Capture) -> Shape {
+    let mut panes = capture.panes_per_workspace.clone();
+    panes.resize(capture.workspaces, 1);
+    shape.workspaces = capture.workspaces;
+    shape.panes_per_workspace = panes;
+    shape.busy_terminals = shape.busy_terminals.max(capture.busy_terminals);
+    shape.agents = shape.agents.max(capture.streaming_chats);
+    shape.browsers = shape.browsers.max(capture.browser_pages);
+    if shape.description.is_empty() {
+        shape.description = format!("{} ({})", capture.source, capture.captured_at);
+    }
+    shape
+}
+
+/// `shape` with every count times `factor`: workspaces (the pane list repeats), busy terminals,
+/// agents and pages. The burst stays `burst_lines` lines at once.
+pub(super) fn scale(mut shape: Shape, factor: usize) -> Shape {
+    let factor = factor.clamp(1, MAX_SCALE);
+    if factor == 1 {
+        return shape;
+    }
+    shape.workspaces *= factor;
+    shape.panes_per_workspace = shape.panes_per_workspace.repeat(factor);
+    shape.busy_terminals *= factor;
+    shape.agents *= factor;
+    shape.browsers *= factor;
+    shape
+}
+
+/// How many panes workspace `index` of `shape` gets.
+pub(super) fn panes_in(shape: &Shape, index: usize) -> usize {
+    shape.panes_per_workspace.get(index).copied().unwrap_or(shape.splits_per_workspace + 1).max(1)
+}
+
+fn builtin_capture(name: &str) -> Option<Capture> {
+    CAPTURES
+        .iter()
+        .find(|(known, _)| *known == name)
+        .and_then(|(_, text)| serde_json::from_str(text).ok())
+}
+
+/// A shape from a file's text: a capture, a bare shape, or `{"profiles": {name: shape}}`.
+/// A capture takes the built-in `profile` (else cosmic-gray) for its timings and commands.
 pub(super) fn parse_shape(text: &str, profile: &str) -> Option<Shape> {
     let value: Value = serde_json::from_str(text).ok()?;
+    if value["schema"] == CAPTURE_SCHEMA {
+        let capture: Capture = serde_json::from_value(value).ok()?;
+        let mut base =
+            parse_shape(BUILTIN, profile).or_else(|| parse_shape(BUILTIN, DEFAULT_PROFILE))?;
+        base.capture = None;
+        base.description = String::new();
+        let factor = base.scale;
+        return Some(scale(apply_capture(base, &capture), factor));
+    }
     let shape = match value.get("profiles") {
         Some(profiles) => profiles.get(profile)?.clone(),
         None => value,
     };
-    serde_json::from_value(shape).ok()
+    let shape: Shape = serde_json::from_value(shape).ok()?;
+    let factor = shape.scale;
+    let shape = match shape.capture.as_deref() {
+        Some(name) => apply_capture(shape.clone(), &builtin_capture(name)?),
+        None => shape,
+    };
+    Some(scale(shape, factor))
 }
 
 /// The shape for `args`: `--shape`, else the mirrored file, else the built-in one.
@@ -132,15 +224,16 @@ pub(super) fn load_shape(args: &SimArgs) -> Result<(Shape, String), String> {
             .map(|shape| (shape, path.display().to_string()))
             .ok_or_else(|| messages.bad_shape.replace("{path}", &path.display().to_string()))
     };
-    if let Some(path) = &args.shape {
-        return from_file(path);
-    }
-    if let Some(path) = mirror_path(&args.profile).filter(|p| p.exists()) {
-        return from_file(&path);
-    }
-    parse_shape(BUILTIN, &args.profile)
-        .map(|shape| (shape, "built-in".into()))
-        .ok_or_else(|| messages.unknown_profile.replace("{name}", &args.profile))
+    let found = if let Some(path) = &args.shape {
+        from_file(path)
+    } else if let Some(path) = mirror_path(&args.profile).filter(|p| p.exists()) {
+        from_file(&path)
+    } else {
+        parse_shape(BUILTIN, &args.profile)
+            .map(|shape| (shape, "built-in".into()))
+            .ok_or_else(|| messages.unknown_profile.replace("{name}", &args.profile))
+    };
+    found.map(|(shape, from)| (scale(shape, args.scale), from))
 }
 
 /// `template` with `{name}` filled.
@@ -383,7 +476,7 @@ impl Sim<'_> {
                 continue;
             };
             let mut ws_panes = vec![first];
-            for split in 0..shape.splits_per_workspace {
+            for split in 0..panes_in(shape, index) - 1 {
                 if interrupted() {
                     return;
                 }

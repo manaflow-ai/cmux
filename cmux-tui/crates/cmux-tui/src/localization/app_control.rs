@@ -94,6 +94,8 @@ pub(crate) struct PerfMessages {
     pub seconds: &'static str,
     /// A bad `--events`.
     pub events: &'static str,
+    /// `--scale` out of range.
+    pub scale: &'static str,
     /// No such sim profile: `{name}`.
     pub unknown_profile: &'static str,
     /// A file could not be read: `{path}`, `{error}`.
@@ -376,9 +378,10 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         unreadable: "cannot read {path}: {error}",
     },
     perf: PerfMessages {
-        usage: "usage: cmux perf profile [--seconds N] [--out FILE.json] [--label L] [--probe]\n       cmux perf compare BEFORE.json AFTER.json\n       cmux perf ab --patch SHA [--rollback] [--seconds N] [--probe] [--out-dir DIR] [--repo DIR] [--parts web,rust,ffi]\n       cmux perf sim [--profile cosmic-gray|unreasonable] [--seconds N] [--events N] [--shape FILE.json]\n  profile  samples the app for N seconds (default 10) against a 120 Hz frame (8.33 ms): frames, main-thread\n           stalls, layout shifts, responsiveness (--probe drives tab, workspace, sidebar, palette and typing),\n           CPU, RAM, GPU and disk; each row names its source and whether a Release build has it\n  compare  two reports side by side with the change and a verdict per row\n  ab       profile, hot-apply SHA (scripts/cmux-next/hot-apply.py), profile, compare; --rollback undoes it\n  sim      drives load on the app behind --app-socket or --socket (required) and closes what it made on exit\nSee docs/cmux-next/perf-loop.md.",
+        usage: "usage: cmux perf profile [--seconds N] [--out FILE.json] [--label L] [--probe]\n       cmux perf compare BEFORE.json AFTER.json\n       cmux perf ab --patch SHA [--rollback] [--seconds N] [--probe] [--out-dir DIR] [--repo DIR] [--parts web,rust,ffi]\n       cmux perf sim [--profile cosmic-gray|unreasonable] [--scale N] [--seconds N] [--events N] [--shape FILE.json]\n  profile  samples the app for N seconds (default 10) against a 120 Hz frame (8.33 ms): frames, main-thread\n           stalls, layout shifts, responsiveness (--probe drives tab, workspace, sidebar, palette and typing),\n           CPU, RAM, GPU and disk; each row names its source and whether a Release build has it\n  compare  two reports side by side with the change and a verdict per row\n  ab       profile, hot-apply SHA (scripts/cmux-next/hot-apply.py), profile, compare; --rollback undoes it\n  sim      drives load on the app behind --app-socket or --socket (required) and closes what it made on exit\nSee docs/cmux-next/perf-loop.md.",
         seconds: "--seconds takes a whole number from 1 to {max}",
         events: "--events takes a whole number from 1 to 1000000",
+        scale: "--scale takes a whole number from 1 to 100",
         unknown_profile: "no sim profile named {name}: use cosmic-gray, unreasonable, a file in $CMUX_PERF_SIM_DIR (~/.local/share/cmux-perf-sim/), or --shape FILE",
         unreadable: "cannot read {path}: {error}",
         not_a_report: "{path} is not a cmux perf profile report",
@@ -594,9 +597,10 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         unreadable: "{path} を読み取れません: {error}",
     },
     perf: PerfMessages {
-        usage: "使い方: cmux perf profile [--seconds N] [--out FILE.json] [--label L] [--probe]\n        cmux perf compare BEFORE.json AFTER.json\n        cmux perf ab --patch SHA [--rollback] [--seconds N] [--probe] [--out-dir DIR] [--repo DIR] [--parts web,rust,ffi]\n        cmux perf sim [--profile cosmic-gray|unreasonable] [--seconds N] [--events N] [--shape FILE.json]\n  profile  アプリを N 秒 (既定 10) 計測し、120 Hz のフレーム (8.33 ms) と比べます: フレーム、メインスレッドの停止、\n           レイアウトシフト、応答性 (--probe でタブ、ワークスペース、サイドバー、パレット、入力を操作)、\n           CPU、RAM、GPU、ディスク。各行に取得元と Release ビルドで取れるかを示します\n  compare  2 つのレポートを並べ、変化と行ごとの判定を表示します\n  ab       計測、SHA のホット適用 (scripts/cmux-next/hot-apply.py)、再計測、比較。--rollback で元に戻します\n  sim      --app-socket または --socket (必須) のアプリに負荷をかけ、終了時に作ったものだけを閉じます\n詳細は docs/cmux-next/perf-loop.md を参照してください。",
+        usage: "使い方: cmux perf profile [--seconds N] [--out FILE.json] [--label L] [--probe]\n        cmux perf compare BEFORE.json AFTER.json\n        cmux perf ab --patch SHA [--rollback] [--seconds N] [--probe] [--out-dir DIR] [--repo DIR] [--parts web,rust,ffi]\n        cmux perf sim [--profile cosmic-gray|unreasonable] [--scale N] [--seconds N] [--events N] [--shape FILE.json]\n  profile  アプリを N 秒 (既定 10) 計測し、120 Hz のフレーム (8.33 ms) と比べます: フレーム、メインスレッドの停止、\n           レイアウトシフト、応答性 (--probe でタブ、ワークスペース、サイドバー、パレット、入力を操作)、\n           CPU、RAM、GPU、ディスク。各行に取得元と Release ビルドで取れるかを示します\n  compare  2 つのレポートを並べ、変化と行ごとの判定を表示します\n  ab       計測、SHA のホット適用 (scripts/cmux-next/hot-apply.py)、再計測、比較。--rollback で元に戻します\n  sim      --app-socket または --socket (必須) のアプリに負荷をかけ、終了時に作ったものだけを閉じます\n詳細は docs/cmux-next/perf-loop.md を参照してください。",
         seconds: "--seconds には 1 から {max} までの整数を指定してください",
         events: "--events には 1 から 1000000 までの整数を指定してください",
+        scale: "--scale には 1 から 100 までの整数を指定してください",
         unknown_profile: "{name} という sim プロファイルはありません: cosmic-gray、unreasonable、$CMUX_PERF_SIM_DIR (~/.local/share/cmux-perf-sim/) のファイル、または --shape FILE を使ってください",
         unreadable: "{path} を読み取れません: {error}",
         not_a_report: "{path} は cmux perf profile のレポートではありません",
