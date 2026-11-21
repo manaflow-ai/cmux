@@ -1,5 +1,6 @@
 public import CmuxNextDaemon
 import Foundation
+import CmuxNextBrowserCore
 
 /// The name a workspace made from dragged or moved tabs takes (Lawrence,
 /// 2026-10-02: "workspace name should be adopted from the name of the tab
@@ -41,6 +42,9 @@ public nonisolated struct NewWorkspaceName {
 
     public static let maxLength = 80
 
+    /// A workspace named after a browser tab on the New Tab page.
+    public static var newTabName: String { String(localized: "workspaceNaming.newTab", defaultValue: "New Tab", bundle: .module) }
+
     /// The name for a workspace made from `tab`, or nil to keep the
     /// daemon's default. Order: the tab's user name, then a browser's page
     /// title (else its host), or a terminal's live title (a bare shell name
@@ -54,6 +58,9 @@ public nonisolated struct NewWorkspaceName {
                 guard let title = clean(candidate), title != clean(tab.url) else { continue }
                 return title
             }
+            // The New Tab page is "New Tab", as its tab reads, never its address's host ("newtab"). After any title: the
+            // saved address lags a navigation by up to 500 ms, so a live page's title wins over a stale New Tab address.
+            if let url = tab.url, BrowserNewTabPage.isNewTabPage(url) { return newTabName }
             return clean(host)
         case .page:
             return clean(tab.title).flatMap { isPlaceholder($0) ? nil : $0 }
