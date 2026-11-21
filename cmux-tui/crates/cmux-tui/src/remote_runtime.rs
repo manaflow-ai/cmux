@@ -767,8 +767,12 @@ fn start_client_runtime_with(
                 let _ = shutdown_tx.send(true);
                 reap_failed_startup(thread, "cmux-remote-client");
                 return Err(anyhow!(
-                    "remote connection did not become ready within {}s: {error}",
-                    startup_timeout.as_secs()
+                    "remote connection did not become ready within {}s ({}): the host may be down or the route wrong; `cmux remote known-daemons` lists the routes paired here, and a longer `--connect-timeout-seconds N` waits more",
+                    startup_timeout.as_secs(),
+                    match error {
+                        mpsc::RecvTimeoutError::Timeout => "no answer",
+                        mpsc::RecvTimeoutError::Disconnected => "the client stopped",
+                    }
                 ));
             }
         }
@@ -934,7 +938,10 @@ async fn dial_first_connection(
     network: watch::Receiver<u64>,
 ) -> anyhow::Result<(Arc<ClientConnection>, String)> {
     let attempt_shutdown = shutdown.clone();
-    let progress = StartupProgress::new();
+    let progress = StartupProgress::new(match &options.auth {
+        ClientAuthMode::Invitation { id, .. } => Some(id.clone()),
+        _ => None,
+    });
     let progress = &progress;
     let dial = cell.dial(options.reconnect, network, || {
         let mut attempt =
