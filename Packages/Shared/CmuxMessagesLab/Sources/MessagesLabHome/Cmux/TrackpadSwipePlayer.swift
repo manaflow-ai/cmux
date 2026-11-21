@@ -77,7 +77,7 @@ import AppKit
         let f = CGFloat(min(1, t / duration))
         let want = (x: CrashGuard.int(dx * f), y: CrashGuard.int(dy * f))
         if want != sent || !began {
-            let (step, phase) = ((x: want.x - sent.x, y: want.y - sent.y), Int64(began ? 2 : 1))
+            let (step, phase) = ((x: want.x - sent.x, y: want.y - sent.y), began ? 2 : 1 as Int64)
             (began, sent) = (true, want)
             post(dx: step.x, dy: step.y, phase: phase, at: t)
         }
@@ -93,7 +93,7 @@ import AppKit
                                   wheel1: Int32(clamping: dy), wheel2: Int32(clamping: dx), wheel3: 0) else { return }
         let screen = window.convertPoint(toScreen: point)
         event.location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - screen.y)
-        event.timestamp = base + UInt64(max(0, t) * 1e9)
+        event.timestamp = base &+ UInt64(clamping: CrashGuard.int(max(0, t) * 1e9, in: 0...Int.max))
         event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(truncatingIfNeeded: window.windowNumber))
         event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(truncatingIfNeeded: window.windowNumber))
         event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
