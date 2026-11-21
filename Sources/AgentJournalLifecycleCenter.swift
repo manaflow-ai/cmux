@@ -113,7 +113,11 @@ final class AgentJournalLifecycleCenter: Sendable {
                 // Live events only: the startup replay folds history through
                 // its own path, so restoring a session never types `continue`.
                 if decision.disposition != .stale {
-                    await MainActor.run { AgentAutoResumeCoordinator.shared.observe(canonical.draft) }
+                    await MainActor.run {
+                        AgentAutoResumeCoordinator.shared.observe(canonical.draft)
+                        ClaudeAccountAutoSwitchCoordinator.shared.observe(canonical.draft)
+                        SessionPriorityCoordinator.shared.observe(canonical.draft)
+                    }
                 }
                 Self.clearInvalidatedNotifications(canonical, decision: decision)
                 let notificationEvent = Self.canonicalized(decision.notificationEvent ?? canonical, aliases: eventAliases)

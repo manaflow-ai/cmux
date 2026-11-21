@@ -1,0 +1,105 @@
+import CMUXAgentLaunch
+import Foundation
+
+/// What cmux does about one Claude usage-limit report while `automation.claudeAccountAutoSwitch`
+/// is on. Decided by ``ClaudeAccountAutoSwitchRequest/action(policy:usageLimitReset:pane:isEnabled:storedExhaustion:ledger:sourceScreen:sourceTextBoxHasDraft:isUsable:isTrusted:now:timeZone:)``.
+enum ClaudeAccountAutoSwitchAction: Equatable, Sendable {
+    /// Nothing: the setting went off, the pane is gone, runs on another machine, is already
+    /// switching, has no Claude session cmux knows, or the report predates its last switch.
+    case ignore
+    /// Record the account as exhausted. No other account is free, so the pane keeps its
+    /// "Usage limit, resets …" status.
+    case markExhaustedOnly(Exhaustion)
+    /// Record the account as exhausted, but leave the pane alone and tell the user why.
+    case holdBack(Exhaustion, HoldBack)
+    /// Record the account as exhausted, then move the pane to `to`. `sendContinue` is true only
+    /// when `to` already trusts the session's folder, so the resumed Claude cannot be sitting at
+    /// a trust prompt.
+    case switchAccount(to: ClaudeAccount, sendContinue: Bool, exhausted: Exhaustion)
+
+    /// The account that hit its usage limit and until when cmux skips it.
+    struct Exhaustion: Equatable, Sendable {
+        /// The account the pane ran under when it hit the limit.
+        let account: ClaudeAccount
+        /// The ``ClaudeAccountExhaustionStore`` key: the account's config directory.
+        let accountKey: String
+        /// When the limit resets: the time the limit message gave, or a conservative fallback.
+        let until: Date
+        /// The reset time the limit message gave; `nil` when it gave none and `until` is the
+        /// fallback, which is a guess and never shown as a reset time.
+        let quotedReset: Date?
+    }
+
+    /// Why another account was free but the pane was not switched.
+    enum HoldBack: Equatable, Sendable {
+        /// The pane received input after the limit: someone is using it.
+        case userInput
+        /// A typed message waits unsent, in Claude's input box or the pane's text box, and
+        /// restarting the pane would discard it.
+        case draftPending
+        /// The stopped turn left background work running, which a restart would kill.
+        case backgroundWork
+        /// The pane already went through every other account without finishing a turn.
+        case attemptLimit
+        /// The limit could not be written to the exhaustion file, so a later report could pick
+        /// this account again.
+        case notRecorded
+
+        /// Why the source pane must not restart now, or `nil` when it may: Claude's input box or
+        /// the pane's text box holds a typed message, or the pane received input after the limit.
+        /// Checked when the switch is decided and again, synchronously, right before the pane
+        /// restarts.
+        ///
+        /// - Parameters:
+        ///   - receivedInputSinceReport: Whether the pane got input since the limit was reported,
+        ///     including in the report's own millisecond.
+        ///   - screen: The pane's screen as the shared prompt classifier reads it.
+        ///   - textBoxHasDraft: Whether the pane's text box holds an unsent draft. Typing there
+        ///     never reaches the input ledger, and the restart replaces the panel that holds it.
+        static func paneInUse(
+            receivedInputSinceReport: Bool,
+            screen: AgentAutoResumeCoordinator.ScreenState,
+            textBoxHasDraft: Bool
+        ) -> HoldBack? {
+            if screen == .draft || textBoxHasDraft { return .draftPending }
+            return receivedInputSinceReport ? .userInput : nil
+        }
+    }
+
+    /// The exhaustion every non-ignored action records.
+    var exhaustion: Exhaustion? {
+        switch self {
+        case .ignore:
+            return nil
+        case .markExhaustedOnly(let exhaustion), .holdBack(let exhaustion, _), .switchAccount(_, _, let exhaustion):
+            return exhaustion
+        }
+    }
+
+    /// A fixed name for debug logs. It names no account, path or time.
+    var logName: String {
+        switch self {
+        case .ignore:
+            return "ignore"
+        case .markExhaustedOnly:
+            return "markExhaustedOnly"
+        case .holdBack(_, let reason):
+            return "holdBack.\(reason)"
+        case .switchAccount(_, let sendContinue, _):
+            return sendContinue ? "switchAccount.continue" : "switchAccount.confirmTrust"
+        }
+    }
+
+    /// Whether this report replaces a `continue` still waiting on the pane. A report ignored as
+    /// late or duplicate (it came from the replaced Claude) leaves the wait alone.
+    var supersedesPendingContinue: Bool {
+        self != .ignore
+    }
+
+    /// This action once the exhaustion was (or failed to be) written: a switch whose source
+    /// account could not be recorded is held back.
+    func recording(succeeded: Bool) -> ClaudeAccountAutoSwitchAction {
+        guard !succeeded, case .switchAccount(_, _, let exhaustion) = self else { return self }
+        return .holdBack(exhaustion, .notRecorded)
+    }
+}

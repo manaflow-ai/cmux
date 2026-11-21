@@ -15,8 +15,8 @@ import Testing
 /// trust of another install's own session file.
 @Suite("Session snapshot import trust")
 struct SessionSnapshotImportTrustTests {
-    private static let fileImport = ControlSessionImportSource.file(path: "/tmp/shared-session.json")
-    private static let channelImport = ControlSessionImportSource.channel("nightly")
+    static let fileImport = ControlSessionImportSource.file(path: "/tmp/shared-session.json")
+    static let channelImport = ControlSessionImportSource.channel("nightly")
 
     // MARK: - Path import holds back custom resume commands
 
@@ -463,7 +463,7 @@ struct SessionSnapshotImportTrustTests {
     }
 
 
-    private static func untrustedTerminal() -> SessionTerminalPanelSnapshot {
+    static func untrustedTerminal() -> SessionTerminalPanelSnapshot {
         var custom = CmuxVaultAgentRegistration.builtInAmp
         custom.id = "my-agent"
         custom.name = "My Agent"
@@ -508,7 +508,7 @@ struct SessionSnapshotImportTrustTests {
         }
     }
 
-    private static func snapshot(
+    static func snapshot(
         terminal: SessionTerminalPanelSnapshot,
         workspaceHasRemote: Bool = false
     ) -> AppSessionSnapshot {

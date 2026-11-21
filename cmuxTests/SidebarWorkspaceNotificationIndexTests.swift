@@ -203,7 +203,9 @@ struct SidebarWorkspaceContextMenuTargetAggregateTests {
         #expect(single.notifications.map(\.id) == [singleNotification.id])
     }
 
-    private static func rowInput(
+    /// A row input for `workspaceId` with every other field at a neutral value; other suites
+    /// build rows through it too.
+    static func rowInput(
         workspaceId: UUID,
         groupId: UUID?,
         unreadCount: Int,

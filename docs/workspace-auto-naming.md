@@ -42,6 +42,10 @@ The other hook integrations are intentionally skipped for now:
 - Gemini has hook payload text, but the available non-interactive CLI invocation has not been verified to disable tools/project access, so it is skipped rather than running untrusted transcript text through a tool-capable summarizer.
 - Cursor, Antigravity, Kiro, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory, and Qoder have cmux Stop/notification hooks, but this branch does not yet have both a verified transcript source and a safe cheap non-interactive summarizer invocation that disables tools/project access.
 
+## Session priority difficulty
+
+The same Claude `Stop` hook also runs the session priority difficulty check when `automation.sessionPriority` is on, after naming's pass. It is gated and throttled separately from naming, keeps its own state in `~/.cmuxterm/claude-difficulty-assessments.json`, and always uses Claude, whatever `automation.autoNamingAgent` picks; see [Automatic difficulty](configuration.md#automatic-difficulty).
+
 ## Mechanics
 
 The Claude Code wrapper registers an async `Stop` hook (`cmux hooks claude auto-name`); other supported agents spawn an equivalent detached pass from their turn-end hook. Each pass reads the adapter's transcript source, evaluates the throttle against per-session state in `~/.cmuxterm/<agent>-hook-sessions.json`, and applies the title through the `workspace.set_auto_title` socket method, which enforces the setting and the user-provenance rule app-side.

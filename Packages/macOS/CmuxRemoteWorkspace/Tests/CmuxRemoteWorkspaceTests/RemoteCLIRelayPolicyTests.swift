@@ -4,8 +4,8 @@ import Testing
 
 @Suite("RemoteCLIRelayPolicy", .serialized)
 struct RemoteCLIRelayPolicyTests {
-    private let tokenHex = "00112233445566778899aabbccddeeff"
-    private let relayID = "relay-policy"
+    let tokenHex = "00112233445566778899aabbccddeeff"
+    let relayID = "relay-policy"
 
     @Test("core discovery uses canonical RPC names and the authenticated relay", arguments: [
         "system.ping", "system.capabilities", "workspace.list"
@@ -186,7 +186,7 @@ struct RemoteCLIRelayPolicyTests {
         }
     }
 
-    private func withServer(
+    func withServer(
         workspaceAliases: [UUID: UUID] = [:],
         surfaceAliases: [UUID: UUID] = [:],
         responseBody: Data = Data("{\"ok\":true,\"result\":{}}\n".utf8),
@@ -212,7 +212,7 @@ struct RemoteCLIRelayPolicyTests {
         try body(port, unixServer)
     }
 
-    private func expectDenial(
+    func expectDenial(
         _ exchange: PolicyRelayExchange,
         _ unixServer: PolicyFakeUnixSocketServer,
         _ label: String

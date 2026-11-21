@@ -275,6 +275,7 @@ struct SidebarWorkspaceRowMenuBuilder {
             addTodoSection(to: menu, tabManager: tabManager)
             menu.addItem(.separator())
         }
+        addSessionPrioritySection(to: menu, tabManager: tabManager)
         addRenameAndDescriptionItems(
             to: menu,
             tabManager: tabManager,
@@ -404,6 +405,15 @@ struct SidebarWorkspaceRowMenuBuilder {
                 }
             })
         }
+    }
+
+    /// Menu-time targets and item factory for the session-priority extension file.
+    func targetWorkspaces(_ tabManager: TabManager) -> [Workspace] {
+        todoTargetWorkspaces(tabManager)
+    }
+
+    func menuItem(_ title: String, action: @escaping () -> Void) -> NSMenuItem {
+        item(title, action: action)
     }
 
     private func todoTargetWorkspaces(_ tabManager: TabManager) -> [Workspace] {

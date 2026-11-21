@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CMUXAgentLaunch
 import Foundation
 import Testing
 
@@ -65,6 +66,47 @@ struct SidebarDerivedStateScaleTests {
         #expect(builds <= 3, "One changed workspace must not rebuild derived snapshots for the whole list.")
         #expect(inputs <= workspaceCount * 4, "One event must not fan out into N parent-list updates.")
         #expect(harness.counter.maxSnapshotBuildsInOneRowBody == 0)
+    }
+
+    /// The row's session-priority menu values reach it through its workspace snapshot, which
+    /// the workspace's change event refreshes. The sidebar body itself must not read the
+    /// `@Observable` state: that would tie it to every workspace and rebuild every row input.
+    @Test
+    func sessionPriorityValuesReachRowsOnlyThroughTheWorkspaceSnapshot() async throws {
+        let workspaceCount = 20
+        let harness = try await SidebarLazyLayoutScaleTests.mountSidebar(
+            workspaceCount: workspaceCount, includeGroups: false
+        )
+        defer { harness.tearDown() }
+        await settle(harness)
+
+        // Written to the model directly, without the workspace's change event: only a body
+        // that observes the state rebuilds now, once per write. Other suites' main-actor work
+        // can invalidate the sidebar during a round too, so a few rounds may rebuild anyway.
+        let rounds = 8
+        var roundsThatRebuilt = 0
+        for workspace in harness.tabManager.tabs.prefix(rounds) {
+            harness.counter.reset()
+            workspace.sessionPriorityState.difficultyOverride = .hard
+            workspace.sessionPriorityState.isManual = true
+            await settle(harness, minimumSnapshotBuilds: 0)
+            if harness.counter.workspaceRowInputProjections > 0 { roundsThatRebuilt += 1 }
+        }
+        #expect(roundsThatRebuilt <= rounds / 2,
+                "The sidebar body must not observe session priority state (\(roundsThatRebuilt) of \(rounds) writes rebuilt it).")
+
+        // Through the workspace, the change event rebuilds that one snapshot, and the new
+        // values reach the rows in one parent update.
+        for workspace in harness.tabManager.tabs.suffix(3) {
+            harness.counter.reset()
+            workspace.setClaudeDifficultyOverride(.easy)
+            await settle(harness)
+            let builds = harness.counter.workspaceSnapshotBuilds
+            let inputs = harness.counter.workspaceRowInputProjections
+            #expect((1...3).contains(builds), "Only the changed workspace's snapshot rebuilds (\(builds)).")
+            #expect(inputs > 0, "The changed snapshot must reach the row inputs.")
+            #expect(inputs <= workspaceCount * 4, "One change must not fan out into N parent-list updates (\(inputs)).")
+        }
     }
 
     /// Wait for accepted publisher emissions, then require a quiet interval.

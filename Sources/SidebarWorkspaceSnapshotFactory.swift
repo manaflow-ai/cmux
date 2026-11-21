@@ -144,6 +144,7 @@ struct SidebarWorkspaceSnapshotFactory {
                 : [],
             compacts: settings.compactsAgentStatus
         )
+        let metadataRows = rowsIncludingClaudeAccount(statusEntries.rows, appendsAccount: detailVisibility.showsMetadata && !settings.compactsAgentStatus, orderedPanelIds: orderedPanelIds)
         let activeCodingAgentCount = SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
             showsAgentActivity: showsAgentActivity,
             statesByPanelId: workspace.agentLifecycleStatesByPanelId
@@ -188,10 +189,10 @@ struct SidebarWorkspaceSnapshotFactory {
             metadataEntries: detailVisibility.showsMetadata
                 ? (detailVisibility.showsAgentUsage
                     ? SidebarAgentUsageFormatter().decorate(
-                        statusEntries.rows,
+                        metadataRows,
                         usageByStatusKey: workspace.sidebarMetadata.agentUsageByStatusKey
                     )
-                    : statusEntries.rows)
+                    : metadataRows)
                 : [],
             metadataBlocks: detailVisibility.showsMetadata
                 ? workspace.sidebarMetadataBlocksInDisplayOrder()
@@ -219,7 +220,8 @@ struct SidebarWorkspaceSnapshotFactory {
             taskStatusInput: taskStatusInput,
             deviceWorkspaceLabel: cloud?.deviceLabel,
             compactStatusGlyph: compactStatusGlyph,
-            hostTitleSuffix: hostTitleSuffix
+            hostTitleSuffix: hostTitleSuffix,
+            sessionPriorityMenu: SessionPriorityMenuState(workspace: workspace)
         )
     }
 
@@ -490,14 +492,21 @@ struct SidebarWorkspaceSnapshotFactory {
         )
     }
 
-    /// Unique config-profile labels of the workspace's live agents, in panel order.
+    /// Unique config-profile labels of the workspace's live agents, in panel order. Compact mode
+    /// shows the Claude account here instead of a row, so a pane cmux switched to another account
+    /// names it from the pane by the row's rule (``accountLabelAgent(switchedAccount:indexed:)``);
+    /// a non-Claude agent in that pane keeps its own profile.
     private func agentProfileLabels(orderedPanelIds: [UUID]) -> [String] {
-        guard let index = SharedLiveAgentIndex.shared.index else { return [] }
+        let index = SharedLiveAgentIndex.shared.index
         let home = NSHomeDirectory()
         var labels: [String] = []
         for panelId in orderedPanelIds {
-            let environment = index.entry(workspaceId: workspace.id, panelId: panelId)?
-                .snapshot.launchCommand?.environment
+            let environment = Self.accountLabelAgent(
+                switchedAccount: workspace.terminalPanel(for: panelId)?.claudeAccountEnvironment?.accountEnvironment,
+                indexed: index?.entry(workspaceId: workspace.id, panelId: panelId).map {
+                    (kind: $0.snapshot.kind, environment: $0.snapshot.launchCommand?.environment)
+                }
+            )?.environment
             if let label = SidebarAgentProfileLabel.label(environment: environment, homeDirectory: home),
                !labels.contains(label) {
                 labels.append(label)
