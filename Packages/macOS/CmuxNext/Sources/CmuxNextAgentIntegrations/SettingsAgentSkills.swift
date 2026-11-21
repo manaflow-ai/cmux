@@ -139,14 +139,14 @@ public final class SettingsAgentSkills: PageProvider {
     }
 
     /// The JSON the CLI printed: the whole output, or its last line when something printed before it.
-    static func lastJSON(_ data: Data) -> JSONValue? {
+    nonisolated static func lastJSON(_ data: Data) -> JSONValue? {
         if let value = try? JSONValue.parse(data) { return value }
         let last = String(data: data, encoding: .utf8)?.split(separator: "\n").last.map { Data($0.utf8) } ?? Data()
         return try? JSONValue.parse(last)
     }
 
     /// The CLI's refusal (`--json` error envelope on stderr): its message; nil when it succeeded.
-    static func refusal(_ reply: (Int32, Data, Data)) -> String? {
+    nonisolated static func refusal(_ reply: (Int32, Data, Data)) -> String? {
         guard reply.0 != 0 else { return nil }
         let error = lastJSON(reply.2)
         return error?["error"]?["message"]?.stringValue ?? error?["message"]?.stringValue ?? ""
