@@ -232,6 +232,26 @@ class SpmArtifactPreflight(unittest.TestCase):
         found = preflight.problems(self.packages, [])
         self.assertTrue(any('iroh-ffi/Iroh/Iroh.xcframework is missing' in problem for problem in found), found)
 
+    def test_a_dependency_only_a_stale_state_names_is_not_needed_after_the_resolve(self):
+        # Nightly 44847411222 (b9cf72046b): the host tree's workspace-state.json, from slot -2, still named iroh-ffi
+        # after #42780 removed it from the project. The resolve rightly fetched no Iroh, and the preflight failed
+        # "Iroh.xcframework is missing ... still missing after a resolve".
+        other = self.root / 'Caches/cmux-nightly-next/runner-2/id/SourcePackages/artifacts/iroh-ffi/Iroh/Iroh.xcframework'
+        write_state(self.packages, other)
+        resolved = self.root / 'Package.resolved'
+        resolved.write_text(json.dumps({'pins': [{'identity': 'sparkle',
+                                                  'location': 'https://github.com/sparkle-project/Sparkle'}]}))
+        script = self.root / 'resolve-without-iroh.py'
+        script.write_text("import json, pathlib, sys\n"
+                          "(pathlib.Path(sys.argv[1]) / 'workspace-state.json').write_text("
+                          "json.dumps({'object': {'artifacts': [], 'dependencies': []}}))\n")
+        args = [sys.executable, '-I', str(PREFLIGHT), str(self.packages), '--resolved', str(resolved),
+                '--', sys.executable, '-I', str(script), str(self.packages)]
+        result = subprocess.run(args, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('resolving again', result.stdout)
+        self.assertFalse(self.own.exists())
+
     def test_a_complete_tree_does_not_resolve(self):
         write_state(self.packages, self.own)
         self.own.mkdir(parents=True)

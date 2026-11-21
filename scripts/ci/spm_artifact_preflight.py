@@ -123,14 +123,16 @@ def expected_place(declared: dict[Path, str], artifacts: Path) -> Path:
 
 
 def expected_artifacts(source_packages: Path, resolved_files: list[Path],
-                       local_roots: list[Path] | None = None) -> dict[Path, str]:
+                       local_roots: list[Path] | None = None, include_state: bool = True) -> dict[Path, str]:
     """Every binary target xcframework the packages in play need, mapped to why it is expected. LOCAL_ROOTS are
-    local package directories or Xcode projects (read for their local package references)."""
+    local package directories or Xcode projects (read for their local package references). Without INCLUDE_STATE
+    the dependencies workspace-state.json names are left out: a state written for another tree or an older
+    project can name a package the project no longer uses."""
     expected: dict[Path, str] = {}
     artifacts = source_packages / 'artifacts'
     packages: list[tuple[str, Path]] = [(package_dir.name.lower(), package_dir)
                                         for package_dir in local_packages(local_roots or [])]
-    state = read_json(source_packages / STATE).get('object') or {}
+    state = (read_json(source_packages / STATE).get('object') or {}) if include_state else {}
     for dependency in state.get('dependencies') or []:
         ref = dependency.get('packageRef') or {}
         identity = str(ref.get('identity') or '').lower()
@@ -232,7 +234,10 @@ def main(argv: list[str]) -> int:
         return 0
     for problem in found:
         print(f'::warning title=Swift package artifacts::{problem}')
-    needed = expected_artifacts(source_packages, args.resolved, roots)
+    # What a resolve must bring back, read before the state is dropped. Not from workspace-state.json: the state
+    # being dropped is the suspect one, and a dependency only it names (iroh-ffi, removed in #42780, still named
+    # by a host tree's state from runner slot -2) is fetched by no resolve; the state the resolve writes is checked.
+    needed = expected_artifacts(source_packages, args.resolved, roots, include_state=False)
     drop_artifact_state(source_packages)
     if not resolve_cmd:
         print('Swift package artifacts: dropped the artifact state; the build resolves it again')
