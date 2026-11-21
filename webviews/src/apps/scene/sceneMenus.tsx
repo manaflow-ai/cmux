@@ -109,8 +109,9 @@ export function SceneMenu({
   const menu = useSceneMenu(value, node, dispatch);
   return (
     <Menu native={menu.native}>
-      <MenuButton className="cmux-app-scene-button" label={title} disabled={disabled}>
-        {title}
+      <MenuButton className="cmux-app-scene-button cmux-app-scene-menu-trigger" label={title} disabled={disabled}>
+        <span>{title}</span>
+        <SceneSymbol symbol="disclosure.expanded" size={12} className="cmux-app-scene-menu-chevron" />
       </MenuButton>
       <MenuPopup>
         <MenuRows items={menu.items} pick={menu.pick} />

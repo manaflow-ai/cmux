@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { Spinner } from "../../agent-session/acpmux/conversation/icons";
@@ -24,12 +25,12 @@ import {
 import { formatSceneDate, sceneDateStyle, useSceneNow, type SceneDateStyle } from "./sceneDate";
 import {
   sceneColor,
-  sceneGlass,
+  sceneGradient,
   sceneNumber,
   sceneStyle,
   sceneText,
   textStyle,
-  sceneGradient,
+  sceneGlass,
   sceneRecord,
   type SceneStyle,
 } from "./sceneStyle";
@@ -37,6 +38,27 @@ import type { SceneNode, SceneStore } from "./store";
 import "./scene.css";
 
 export type SceneDispatch = (node: string, event: string, payload?: unknown) => void;
+/** Where a `Composer` node sits and what it asks for: the embedding host draws cmux's own New Tab
+ * composer into `element` (a portal), so an app's New Tab page places the real field. */
+export type SceneComposerSlot = { element: HTMLElement; prompt: boolean; placeholder?: string; cwd?: string };
+/** What the embedding host draws into an app's scene. A New Tab page (NewTabAppPage) gives
+ * `composer`; every other host gives none, and a `Composer` node draws nothing there. */
+/** A host-handled tap (`.opens(...)`): a recent chat by its chat key, or a Recently Closed item. */
+export type SceneOpenTarget = { chat: string } | { closed: string };
+/** What the embedding host draws into an app's scene, and the taps it runs itself. A New Tab page
+ * (NewTabAppPage) gives `composer` and `open`; every other host gives none: a `Composer` node draws
+ * nothing there, and an `.opens(...)` node runs its own `onTap`. */
+export type SceneHost = { composer?(slot: SceneComposerSlot | null): void; open?(target: SceneOpenTarget): void };
+
+/** A node's `opens` prop, when it names one chat or one closed item. */
+export function sceneOpenTarget(value: unknown): SceneOpenTarget | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const { chat, closed } = value as Record<string, unknown>;
+  if (typeof chat === "string" && chat) return { chat };
+  if (typeof closed === "string" && closed) return { closed };
+  return undefined;
+}
+export const SceneHostContext = createContext<SceneHost | undefined>(undefined);
 /** The embedding host resolves an app-relative bundle path to a trusted local resource URL.
  * App-supplied URLs are never passed directly to an image. */
 export type SceneAssetResolver = (bundlePath: string) => string | undefined;
@@ -117,6 +139,27 @@ function SceneRow({ node }: { node: SceneNode }) {
   );
 }
 
+/** `Composer`: a placeholder the host fills with cmux's own New Tab composer (the project and
+ * agent chips, attachments, slash commands and the start flow), at the node's place. `prompt` puts
+ * the Console's `>` before a monospace field; `cwd` moves the folder the next chat starts in;
+ * `placeholder` replaces the field's hint. Without a host that gives one (the sidebar, a pane, the
+ * native renderers) it draws nothing. */
+function SceneComposer({ node }: { node: SceneNode }) {
+  const host = useContext(SceneHostContext);
+  const [element, setElement] = useState<HTMLDivElement | null>(null);
+  const prompt = node.props.prompt === true;
+  const placeholder = sceneText(node.props.placeholder) || undefined;
+  const cwd = sceneText(node.props.cwd) || undefined;
+  const give = host?.composer;
+  useEffect(() => {
+    if (!give || !element) return;
+    give({ element, prompt, ...(placeholder ? { placeholder } : {}), ...(cwd ? { cwd } : {}) });
+    return () => give(null);
+  }, [give, element, prompt, placeholder, cwd]);
+  if (!give) return null;
+  return <div ref={setElement} className="cmux-app-scene-composer-slot" />;
+}
+
 function SceneTextField({ node, dispatch, disabled }: { node: SceneNode; dispatch: SceneDispatch; disabled: boolean }) {
   const external = sceneText(node.props.text);
   const [text, setText] = useState(external);
@@ -132,6 +175,8 @@ function SceneTextField({ node, dispatch, disabled }: { node: SceneNode; dispatc
     <input
       ref={input}
       className="cmux-app-scene-field"
+      // `.font()`, `.weight()` and `.monospaced()` as a Text's (a console look's monospace field).
+      style={fieldStyle(node.props)}
       value={text}
       placeholder={sceneText(node.props.placeholder)}
       aria-label={sceneText(node.props.help) || sceneText(node.props.placeholder) || undefined}
@@ -269,6 +314,17 @@ function SceneSlider({ node, dispatch, disabled }: { node: SceneNode; dispatch: 
   );
 }
 
+/** A TextField's own type: the font, weight and monospace a Text takes, never its line limit. */
+function fieldStyle(props: SceneNode["props"]): CSSProperties | undefined {
+  const { fontSize, fontWeight, fontStyle, fontFamily } = textStyle(props);
+  const style: CSSProperties = {};
+  if (fontSize !== undefined) style.fontSize = fontSize;
+  if (fontWeight !== undefined) style.fontWeight = fontWeight;
+  if (fontStyle !== undefined) style.fontStyle = fontStyle;
+  if (fontFamily !== undefined) style.fontFamily = fontFamily;
+  return Object.keys(style).length ? style : undefined;
+}
+
 /** A Text with `date` and `dateStyle`: formatted here and ticked by the shared clock (sceneDate.ts),
  * so the app sends nothing while it counts. */
 function SceneDateText({ props, style }: { props: SceneNode["props"]; style: SceneDateStyle }) {
@@ -361,6 +417,8 @@ function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch
     }
     case "TextField":
       return <SceneTextField node={node} dispatch={dispatch} disabled={disabled} />;
+    case "Composer":
+      return <SceneComposer node={node} />;
     case "Circle":
     case "Capsule":
     case "Rectangle":
@@ -395,6 +453,7 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
   // A leaving node (and its subtree) draws from its last props, which the store keeps, until
   // its transition ends.
   const inLeaving = useContext(SceneLeavingContext);
+  const host = useContext(SceneHostContext);
   const leaving = own === true || inLeaving;
   const node = live ?? (leaving ? store.getDeparted(id) : undefined);
   const entering = useSceneEntering(store, node);
@@ -455,9 +514,14 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
       style.borderWidth = Math.max(0, sceneNumber(props.strokeWidth) ?? 1);
     }
   }
-  const tappable = props.onTap === true || node.type === "Button";
+  // `.opens(...)`: the host opens the chat or closed item through cmux's own path, as the person's
+  // click; with no host that opens, the node's own onTap runs.
+  const opens = sceneOpenTarget(props.opens);
+  const tappable = props.onTap === true || node.type === "Button" || (!!opens && !!host?.open);
   const tap = () => {
-    if (!disabled) dispatch(node.id, "tap");
+    if (disabled) return;
+    if (opens && host?.open) return host.open(opens);
+    dispatch(node.id, "tap");
   };
   const shared = {
     "data-app-node": node.id,

@@ -775,6 +775,20 @@ test("layout: HStack aligns top or bottom, ZStack centers, a shape's frame wins 
   expect(css).toMatch(/\.cmux-app-scene-zstack \{\s*display: grid;\s*place-items: center;/);
 });
 
+test("a Menu draws a chevron after its title; the looks' SF names map to pack icons", () => {
+  const { container } = render([
+    { op: "create", id: "menu", type: "Menu", props: { title: "All", menu: [{ title: "Unread" }] } },
+    { op: "root", id: "menu" },
+  ]);
+  const trigger = container.querySelector<HTMLButtonElement>(".cmux-app-scene-menu-trigger");
+  expect(trigger?.textContent).toBe("All");
+  expect(trigger?.querySelector(".cmux-app-scene-menu-chevron")).not.toBeNull();
+  expect(appSceneIcon("magnifyingglass")).toBe("search");
+  expect(appSceneIcon("bubble.left")).toBe("agent.chat");
+  expect(appSceneIcon("arrow.up")).toBe("composer.send");
+  expect(appSceneIcon("status.needsinput")).toBe("status.needsinput");
+});
+
 test("a drop in a Reorderable sends the list its item key and final index", () => {
   const { container, calls } = render([
     { op: "create", id: "pins", type: "Reorderable", props: { onMove: true } },

@@ -17,7 +17,20 @@
 }
 /* The chat column's width (--cv-column), as cmux's own page centers its composer. */
 .nt-app-page-body {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
   width: 100%;
   min-width: 0;
   max-width: var(--cv-column, 720px);
+}
+/* The scene fills the page's height, so a Spacer puts a Composer at the page's foot (the Default
+   stage's layout). */
+.nt-app-page-body > .cmux-app-scene-root {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+.nt-app-page-body > .cmux-app-scene-root > .cmux-app-scene-node {
+  flex: 1 0 auto;
 }
