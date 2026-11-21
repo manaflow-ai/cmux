@@ -26,6 +26,9 @@ extension CmuxConfigSnapshot {
     /// `labs.agentCustomization`: Opt-in Claude Code and Codex customization (cmux-agent-customize, `cmux agent-config`): Settings > MCP Servers shows and edits the MCP servers the person gave Claude Code (~/.claude.json, .mcp.json) and Codex (~/.codex/config.toml, .codex/config.toml, plugins) in those agents own files. Off by default; off shows only cmux own servers, as before. Leo 2026-11-19: "when I say Claude Code, when I say Codex [...] I need you guys to be, like, doing the thing."
     public nonisolated static let agentCustomizationPath = ["labs", "agentCustomization"]
     public nonisolated static let agentCustomizationDefault = false
+    /// `labs.hostsSidebar`: Rex-style Hosts section in the sidebar. It projects the Machines page catalog, including Add Host and per-machine terminal actions. Off by default until the sidebar surface is ready.
+    public nonisolated static let hostsSidebarPath = ["labs", "hostsSidebar"]
+    public nonisolated static let hostsSidebarDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -113,6 +116,16 @@ nonisolated enum LabsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.agentCustomizationDefault),
                 keywords: ["claude", "codex", "mcp", "servers", "customize", "agent", "config", "labs"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.hostsSidebarPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.hostsSidebar", "Hosts Sidebar"),
+                help: SettingsText.keyed("settings.labs.hostsSidebar.help", "Shows your machines in the sidebar with Add Host and per-host terminal actions."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.hostsSidebarDefault),
+                keywords: ["labs", "hosts", "sidebar", "machines", "remote", "add", "terminal"]
             ),
         ]
     }
