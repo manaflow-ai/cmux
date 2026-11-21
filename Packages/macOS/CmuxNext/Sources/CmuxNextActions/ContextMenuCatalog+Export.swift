@@ -36,7 +36,7 @@ nonisolated extension ContextMenuCatalog {
         ["name": "titlebarHistory", "source": "CmuxNextHistory/TitlebarHistoryMenu.swift"],
         ["name": "notificationRow", "source": "CmuxNextApp/Notifications/Panel/NotificationsPanelController.swift"],
         ["name": "agentPaneMessage", "source": "CmuxNextAgentPane/AgentPaneContextMenu.swift"],
-        ["name": "paneToolbarMore", "source": "CmuxNextApp/PaneToolbar.swift"],
+        ["name": "paneTabBarRows", "source": "CmuxNextApp/PaneToolbar.swift"],
         ["name": "browserReload", "source": "CmuxNextBrowser/UI/BrowserReloadMenu.swift"],
         ["name": "browserDownloads", "source": "CmuxNextApp/Handlers/BrowserDownloadsMenu.swift"],
         ["name": "browserMedia", "source": "CmuxNextApp/Handlers/BrowserMediaMenu.swift"],

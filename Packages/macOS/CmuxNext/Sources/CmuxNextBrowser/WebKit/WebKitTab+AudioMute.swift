@@ -20,7 +20,8 @@ extension WebKitTab {
         let setter = NSSelectorFromString("_setPageMuted:")
         guard let current = mutedState(), webView.responds(to: setter) else { return }
         let wanted = state.isAudioMuted ? current | Self.audioMutedBit : current & ~Self.audioMutedBit
-        guard wanted != current else { return }
+        // The sidebar's speaker or the media menu mutes a hidden tab, which may be frozen.
+        guard wanted != current, resumeIfSuspended() else { return }
         typealias SetMuted = @convention(c) (AnyObject, Selector, Int) -> Void
         unsafeBitCast(webView.method(for: setter), to: SetMuted.self)(webView, setter, wanted)
     }

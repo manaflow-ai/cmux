@@ -109,3 +109,14 @@ fn cmux_next_machine_catalog_owner_metadata_matches_the_native_snapshot() {
     assert_eq!(identity["machine_platform"], machine["platform"]);
     assert_eq!(identity["machine_capabilities"], machine["capabilities"]);
 }
+
+/// `identify` says what device the machine is and the SF Symbol its sidebar header draws
+/// (cmux-device-kind; Leo 2026-11-14: "nicer icons ... across all the remote related areas").
+#[test]
+fn identify_names_the_machine_device_and_its_symbol() {
+    let mux = identity_mux();
+    let identity = run(&mux, json!({"cmd":"identify","machine_metadata":true})).unwrap();
+    let kind = cmux_device_kind::this_device().kind;
+    assert_eq!(identity["machine_device"], json!(kind.as_str()), "{identity}");
+    assert_eq!(identity["machine_symbol"], json!(kind.symbol()), "{identity}");
+}

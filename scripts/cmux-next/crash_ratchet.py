@@ -1019,7 +1019,7 @@ def rust_test_modules(paths):
         text = open(path, encoding="utf-8", errors="replace").read()
         if "mod " not in text:
             continue
-        here, name = os.path.split(path)
+        here, name = os.path.split(os.path.normpath(path))
         # A mod.rs, lib.rs or main.rs owns its folder; any other file foo.rs owns foo/.
         owner = here if name in ("mod.rs", "lib.rs", "main.rs") else os.path.join(here, name[:-3])
         for decl in TEST_MOD_DECL.finditer(text):
@@ -1029,7 +1029,7 @@ def rust_test_modules(paths):
                 files.add(target)
                 folders.add(os.path.dirname(target) if os.path.basename(target) == "mod.rs" else target[:-3])
                 continue
-            module = os.path.normpath(os.path.join(owner, decl.group("name")))
+            module = os.path.join(owner, decl.group("name"))
             files.update((module + ".rs", os.path.join(module, "mod.rs")))
             folders.add(module)
     return files, folders
@@ -1047,8 +1047,8 @@ def scan_rust(repo, scan, exported):
             continue
         if not name.endswith(".rs") or name in ("tests.rs",) or name.endswith("_tests.rs") or name.endswith("_test.rs"):
             continue
-        # Both sides normalized: a #[path] target goes through normpath, and a relative --repo (`.`) leaves
-        # `./` on every path, so 28 cmux-vnc test unwraps counted as code (2026-11-08).
+        # rust_test_modules normalises its targets, so compare the normalised path: with a relative
+        # `--repo .` the scanned paths start with `./` and a `#[path]` test module never matched.
         norm = os.path.normpath(path)
         if norm in test_files or any(norm.startswith(folder + os.sep) for folder in test_folders):
             continue

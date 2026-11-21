@@ -243,7 +243,7 @@ public actor CloudLinkSession {
     /// whose first dial the platform judges (a person's pause refuses it).
     public func park(reason: String) async {
         end(reason: reason)
-        await resolver.close(key)
+        await resolver.park(key)
     }
 
     /// The machine's carrier socket for the Cloud app server (``CloudLinkResolver/carrierSocket(_:)``): it

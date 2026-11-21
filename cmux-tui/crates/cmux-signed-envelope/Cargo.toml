@@ -1,0 +1,18 @@
+[package]
+name = "cmux-signed-envelope"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux's ed25519 signed envelope: exact payload bytes and the signatures over them (scripts/cmux-next/web-ota-pointer.py signs it), opened against a list of trusted keys"
+
+[lints]
+workspace = true
+
+[dependencies]
+base64.workspace = true
+ring.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true

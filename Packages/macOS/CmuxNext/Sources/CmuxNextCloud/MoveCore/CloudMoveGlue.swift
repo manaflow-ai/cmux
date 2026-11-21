@@ -28,10 +28,13 @@ public nonisolated struct CloudMoveFailure: Error {
     public let message: String
     /// What Retry does; none when retrying cannot help.
     public var retry: CloudMoveRetries.Retry?
+    /// The code a Cloud start's page card reads instead of its generic failure (`seed.needs_github`: Connect GitHub); nil for that one.
+    public var code: String?
 
     /// Creates a failure without changing the chat or its retry policy.
-    public init(message: String, retry: CloudMoveRetries.Retry? = nil) {
+    public init(message: String, code: String? = nil, retry: CloudMoveRetries.Retry? = nil) {
         self.message = message
+        self.code = code
         self.retry = retry
     }
 }

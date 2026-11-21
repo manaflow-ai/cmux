@@ -525,6 +525,11 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       emit(socket!, record("dequeued", { promptId }));
       emit(socket!, record("user_message", { text, client: "acpmux", promptId, _meta: { provenance } }));
       await drawn(page);
+      // The turn's end folds once (turnEndFold.ts): until that motion settles, an inert copy of the
+      // queued line fades out where it was (`acpmux-row--fold-ghost`). Read the chat at rest, as
+      // agent-pane-steer.test.ts does; counting during the fold saw that copy as a second line.
+      await page.locator("[data-turn-end-folding]").waitFor({ state: "detached", timeout: 5_000 });
+      expect(await page.locator(".acpmux-row--fold-ghost").count()).toBe(0);
       expect(await line.count()).toBe(1);
       expect(await page.locator("body").innerText()).not.toContain("Result from the suggested task");
       await page.close();

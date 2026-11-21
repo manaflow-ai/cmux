@@ -1000,7 +1000,7 @@ def _read_bun_step(lines: list[str], step: int, attempts: list, result: Result) 
 # Each log is parsed once per process (2026-11-06, cmux#36356 at 2c9f6957). base_red_excuse.py's window compares the
 # head's log with up to BASE_WINDOW base logs and re-classifies the whole window each time it grows, and classify,
 # classify_any, observations and flaky_failures each read the head again: 50 reads of 6 logs. A `cmux-next daemon
-# tests` log is 20 to 27 MB, about 3 s a read, so that judge spent 110 s of CPU in read() alone and merge_hold's 120 s
+# tests` log is 20 to 27 MB, about 3 s a read, so that judge spent 110 s of CPU in read() alone and land-judge's 120 s
 # bound on the classifier refused the merge three times. A read depends only on the log's text and BUN, so its result
 # is kept by text: each caller gets its own copy, and at most KEEP_PARSED texts are kept (the window's logs, which
 # the judge holds anyway, plus the head), the oldest dropped first.
@@ -1271,6 +1271,9 @@ def _observations(log: str | None) -> list[dict]:
 TAP_STATE_URL = "https://raw.githubusercontent.com/manaflow-ai/cmux/ci-test-health/tap-tests.json"
 TAP_MIN_OBSERVATIONS = 8
 TAP_MIN_FLIP_RATE = 0.2
+# The producer's bar for a timing flake: a row under TAP_MIN_FLIP_RATE that it quarantined anyway because its fails
+# differ only in their numbers or stand apart (hq tools/fleet-reconcilers/tap_flakes.py TIMING_MIN_RATE, hq#14483).
+TAP_TIMING_MIN_FLIP_RATE = 0.06
 TAP_MAX_AGE = timedelta(hours=48)
 # Keep the consumer bound to the producer's public snapshot limits. A bounded
 # list prevents malformed state from turning into an unbounded comparison,
@@ -1312,6 +1315,20 @@ def _tap_time(value) -> datetime | None:
         return when.astimezone(timezone.utc) if when.tzinfo else None
     except (AttributeError, TypeError, ValueError):
         return None
+
+
+def _numberless(signature: str) -> str:
+    """A diagnostic with its numbers taken out: what stays the same when only a measured value moves."""
+    return re.sub(r"\d+(?:\.\d+)?", "#", signature)
+
+
+def _tap_signature_matches(signature: str, quarantined: list[str]) -> bool:
+    """The exact quarantined diagnostic, or a timing flake's: two or more quarantined signatures that differ only in
+    their numbers also cover the same assertion missed by another amount, never other words."""
+    if signature in quarantined:
+        return True
+    forms = {_numberless(value) for value in quarantined}
+    return len(quarantined) >= 2 and len(forms) == 1 and _numberless(signature) in forms
 
 
 def _tap_quarantine_signatures(value) -> list[str] | None:
@@ -1369,9 +1386,10 @@ def flaky_failures(head_log: str | None, job: str, workflow: str, state: dict | 
         historical_signatures = row.get("failure_signatures")
         quarantine_signatures = _tap_quarantine_signatures(
             quarantine.get("signatures") if isinstance(quarantine, dict) else None)
-        if (rate < TAP_MIN_FLIP_RATE or not isinstance(historical_signatures, list)
+        # Under TAP_MIN_FLIP_RATE only the producer's timing-flake rows carry a quarantine; the floor stays its own.
+        if (rate < TAP_TIMING_MIN_FLIP_RATE or not isinstance(historical_signatures, list)
                 or not all(isinstance(value, str) and value for value in historical_signatures)
-                or quarantine_signatures is None or signature not in quarantine_signatures):
+                or quarantine_signatures is None or not _tap_signature_matches(signature, quarantine_signatures)):
             continue
         if not isinstance(quarantine, dict):
             continue
