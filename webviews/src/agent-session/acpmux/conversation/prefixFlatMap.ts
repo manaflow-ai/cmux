@@ -60,6 +60,24 @@ export function keptPrefix(previous: readonly unknown[], rows: readonly unknown[
   return count;
 }
 
+/// The first `keep` items of `previous`, then `tail`, as one new array of exactly that length. A kept
+/// prefix copied with `slice` and then grown with `push` is copied twice: the slice has no room to
+/// grow, so the first push copies it again into a store half as large again. In a chat of 35,000
+/// rows that was every thought update's largest garbage (bench/transcript-replay.bench.ts god,
+/// ALLOC=1).
+export function keptWith<T>(previous: readonly T[], keep: number, tail: readonly T[]): T[] {
+  // As `slice(0, keep)` would: never more than `previous` holds.
+  keep = Math.max(0, Math.min(keep, previous.length));
+  const length = keep + tail.length;
+  // `previous` already holds `length` items or more: copy them and write the tail over the end.
+  // Otherwise its whole length and the part of the tail past it, in one concat.
+  const out =
+    length <= previous.length ? previous.slice(0, length) : previous.concat(tail.slice(previous.length - keep));
+  const over = Math.min(tail.length, previous.length - keep);
+  for (let at = 0; at < over; at += 1) out[keep + at] = tail[at]!;
+  return out;
+}
+
 /// `rows.flatMap(each)`, with `previous` (the last pass of the same `each`) reused for the rows it
 /// read that are still the same objects at the same places. The same rows give `previous` back.
 /// `each` may read the rows before its own (`rows[index - 1]`), never after: a kept row's items
@@ -78,13 +96,20 @@ export function prefixFlatMap<R, T>(
     keep = previous!.from.length;
     while (keep > 0 && previous!.from[keep - 1]! >= start) keep -= 1;
   }
-  const items = keep > 0 ? previous!.items.slice(0, keep) : [];
-  const from = keep > 0 ? previous!.from.slice(0, keep) : [];
+  // The changed rows' items first, then one copy of the kept ones with them (keptWith).
+  const tail: T[] = [];
+  const tailFrom: number[] = [];
   for (let index = start; index < rows.length; index += 1)
     for (const item of each(rows[index]!, index, rows)) {
-      items.push(item);
-      from.push(index);
+      tail.push(item);
+      tailFrom.push(index);
     }
+  // No row that changed yields an item, nor did it last pass (a streamed update to a row a filter
+  // drops): the same items from the same rows, so the last pass's lists, not copies of them.
+  if (previous && tail.length === 0 && keep === previous.items.length)
+    return { rows, items: previous.items, from: previous.from };
+  const items = keep > 0 ? keptWith(previous!.items, keep, tail) : tail;
+  const from = keep > 0 ? keptWith(previous!.from, keep, tailFrom) : tailFrom;
   // A pass over these items (the next shaping step) starts after the kept ones too.
   if (previous) noteKeptPrefix(items, previous.items, keep);
   return { rows, items, from };
