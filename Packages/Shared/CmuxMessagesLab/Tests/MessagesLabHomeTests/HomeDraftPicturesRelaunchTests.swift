@@ -225,4 +225,28 @@ import UniformTypeIdentifiers
         #expect(second.store.draftAttachments(for: Self.conversation).isEmpty, "nothing for the field to restore")
         #expect(second.view.draftAttachments.isEmpty)
     }
+
+    /// Design mode in Chief's Home chat (BrowserDesignModeController): a pick whose chip leaves the
+    /// field (its x, or the send) takes its pin off the page, so the host hears which attachments the
+    /// field still holds each time that changes, and not on every key.
+    @Test func theHostHearsTheFieldsAttachmentsWhenAChipGoesOrTheDraftIsSent() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("home-draft-pictures-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let launch = try await launch(root)
+        defer { launch.quit() }
+        var heard: [[String]] = []
+        launch.view.onDraftAttachmentsChange = { heard.append($0) }
+        let first = try await paste(launch)
+        let second = try await otherShot(launch)
+        #expect(heard.last == [first.ref.hash, second.ref.hash])
+        // The chip's x (PaneHost): the reducer takes the chip, then the field reports its change.
+        launch.view.controller.dispatch(.removeDraftAttachment(first.ref.hash))
+        launch.view.projection.draftChanged()
+        #expect(heard.last == [second.ref.hash])
+        let before = heard.count
+        append("a key", in: launch)
+        #expect(heard.count == before, "typing changes no attachment")
+        #expect(launch.view.sendDraft() == nil)
+        #expect(heard.last == [], "the send took the last chip")
+    }
 }
