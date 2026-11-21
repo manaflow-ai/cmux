@@ -94,7 +94,7 @@ function Surface({ role, look }: { role: Role; look: Look }) {
         position: "absolute",
         ...BOXES[role],
         boxSizing: "border-box",
-        padding: "6px 10px",
+        padding: "var(--ds-space-1) var(--ds-space-3)",
         background: `color-mix(in srgb, var(--cmux-surface-solid) ${TINT[role]}, transparent)`,
         backdropFilter: backdrop,
         WebkitBackdropFilter: backdrop,
