@@ -140,11 +140,11 @@ const menu = { padding: 5, borderRadius: 12, display: "grid", fontSize: "var(--t
 
 function Many() {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 14, padding: 24 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12, padding: 24 }}>
       {Array.from({ length: 30 }, (_, index) => (
         <Glass
           key={index}
-          style={{ height: 52, borderRadius: index % 3 === 0 ? 26 : 12, padding: "8px 12px", ...text }}
+          style={{ height: 52, borderRadius: index % 3 === 0 ? 999 : 12, padding: "8px 12px", ...text }}
         >
           Pane {index + 1}
         </Glass>
@@ -163,19 +163,19 @@ function GlassEngineGallery(props: Props) {
       style={{
         position: "relative",
         minHeight: "100vh",
-        padding: 28,
+        padding: 24,
         boxSizing: "border-box",
         fontSize: "var(--text-body)",
         lineHeight: "var(--text-body--line-height)",
         ...text,
       }}
     >
-      <div style={{ display: "flex", gap: 28, alignItems: "flex-start", flexWrap: "wrap" }}>
-        <div style={{ display: "grid", gap: 14, width: 320 }}>
-          <Glass style={{ justifySelf: "end", maxWidth: 260, padding: "10px 14px", borderRadius: 18 }}>
+      <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <div style={{ display: "grid", gap: 12, width: 320 }}>
+          <Glass style={{ justifySelf: "end", maxWidth: 260, padding: "8px 12px", borderRadius: 16 }}>
             Does the rim bend what is behind it?
           </Glass>
-          <Glass style={{ padding: "14px 16px", borderRadius: 14 }}>
+          <Glass style={{ padding: "12px 16px", borderRadius: 12 }}>
             <div style={{ fontWeight: "var(--weight-emphasis)", fontSize: "var(--text-title)" }}>
               Updated to nightly
             </div>
@@ -183,14 +183,14 @@ function GlassEngineGallery(props: Props) {
               The veil comes up only where the wallpaper fights the text.
             </div>
           </Glass>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, ...secondary }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, ...secondary }}>
             <span className="ui-glass" style={{ width: 28, height: 28, borderRadius: "50%" }} />
             Thinking
           </div>
         </div>
         <Glass role="menu" style={{ width: 200, ...menu }}>
           {["Copy", "Quote in reply", "Fork from here", "Delete"].map((label) => (
-            <div key={label} role="menuitem" style={{ padding: "5px 10px", borderRadius: 7 }}>
+            <div key={label} role="menuitem" style={{ padding: "4px 8px", borderRadius: 6 }}>
               {label}
             </div>
           ))}
@@ -200,12 +200,12 @@ function GlassEngineGallery(props: Props) {
         data-engine-composer=""
         style={{
           position: "absolute",
-          left: 28,
-          right: 28,
-          bottom: 28,
+          left: 24,
+          right: 24,
+          bottom: 24,
           minHeight: 92,
-          padding: "14px 16px",
-          borderRadius: 22,
+          padding: "12px 16px",
+          borderRadius: 16,
           display: "flex",
           flexDirection: "column",
           justifyContent: "space-between",
