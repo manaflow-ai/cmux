@@ -220,8 +220,10 @@ def bundled_client_commit(root, folder="app"):
 
 def bundled_client_version(root, folder="app"):
     """(commit, tree key) from the app's cmux-tui.version; the key is "" when the file has none.
-    A build that bundled a fallback tree records that tree's key (app-bundle-cmux-tui-client.sh),
-    and the marker gate reads it as INSTALLED_KEY."""
+    A build that bundled a fallback tree records that tree's key (app-bundle-cmux-tui-client.sh). The
+    restore step outputs it as cmux_tui_key; until nightly.yml passes it to the sign stage's marker gate
+    (INSTALLED_KEY, a nightly.yml change that needs its main twin), a resumed fallback build fails closed
+    there: it publishes nothing rather than the wrong client."""
     # The uploaded app artifact contains the precompressed unsigned tarball.
     # Open it only after the authenticated ZIP extraction and read the one
     # cmux-tui.version member, a regular file at a safe path, for the client

@@ -2014,7 +2014,7 @@ jobs:
       daemon_build: ${{ steps.resume.outputs.build || steps.remote_daemon.outputs.build }}
       daemon_version: ${{ steps.resume.outputs.version || steps.remote_daemon.outputs.version }}
       cmux_tui_commit: ${{ steps.install_client.outputs.commit || steps.resume.outputs.cmux_tui_commit }}
-      cmux_tui_key: ${{ steps.install_client.outputs.key || steps.resume.outputs.cmux_tui_key }}
+      cmux_tui_key: ${{ steps.install_client.outputs.key }}
       # A sign stage restored the push run's prepared app: the sign run prepares nothing again.
       prepared: ${{ steps.resume.outputs.prepared }}
       # Its sha256, checked through the zip's artifact digest: prepare-nightly-variant records it for admission.
