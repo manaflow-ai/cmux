@@ -598,7 +598,9 @@ fn try_code(
     // From when it is on, not when the fetch or build began.
     let until_ms = self::now_ms().max(now_ms).saturating_add(duration_ms);
     customize.library_try_until(&name, until_ms, origin, now_ms)?;
-    json[TRY_UNTIL] = json!(until_ms);
+    if let Some(object) = json.as_object_mut() {
+        object.insert(TRY_UNTIL.to_owned(), json!(until_ms));
+    }
     human.push_str(&format!(
         "  trying it on: off by itself in {}\n  cmux customize library on {name}    keep it\n",
         cmux_customize::library::expire::minutes(duration_ms)
