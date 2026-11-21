@@ -469,19 +469,27 @@ pub fn check_base_url(url: &str) -> Result<String, String> {
 /// A host a key must never be sent to from a named endpoint: this machine, a private or
 /// link-local network (cloud metadata), or a name only an internal resolver answers.
 fn is_private_host(host: &str) -> bool {
-    use std::net::IpAddr;
     let bare = host.trim_start_matches('[').trim_end_matches(']');
-    let ip = match bare.parse::<IpAddr>() {
-        Ok(IpAddr::V6(v6)) => v6.to_ipv4_mapped().map_or(IpAddr::V6(v6), IpAddr::V4),
-        Ok(ip) => ip,
+    match bare.parse::<std::net::IpAddr>() {
+        Ok(ip) => is_private_ip(ip),
         Err(_) => {
             let name = bare.trim_end_matches('.').to_ascii_lowercase();
-            return name == "localhost"
+            name == "localhost"
                 || [".localhost", ".local", ".internal", ".lan", ".home.arpa", ".ts.net"]
                     .iter()
                     .any(|suffix| name.ends_with(suffix))
-                || !name.contains('.');
+                || !name.contains('.')
         }
+    }
+}
+
+/// An address a key must never be sent to: this machine, a private, link-local, CGNAT or
+/// unique-local network (an IPv4-mapped IPv6 address is read as its IPv4 one).
+fn is_private_ip(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    let ip = match ip {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(IpAddr::V6(v6), IpAddr::V4),
+        ip => ip,
     };
     match ip {
         IpAddr::V4(v4) => {
@@ -495,7 +503,10 @@ fn is_private_host(host: &str) -> bool {
         }
         IpAddr::V6(v6) => {
             let first = v6.segments()[0];
-            v6.is_loopback() || v6.is_unspecified() || (first & 0xfe00) == 0xfc00 || (first & 0xffc0) == 0xfe80
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || (first & 0xfe00) == 0xfc00
+                || (first & 0xffc0) == 0xfe80
         }
     }
 }
@@ -506,8 +517,10 @@ pub fn check_region(region: &str) -> Result<String, String> {
     let parts: Vec<&str> = region.split('-').collect();
     let ok = (3..=4).contains(&parts.len())
         && parts.iter().all(|w| !w.is_empty() && w.len() <= 12)
-        && parts[..parts.len() - 1].iter().all(|w| w.bytes().all(|b| b.is_ascii_lowercase()))
-        && parts[parts.len() - 1].bytes().all(|b| b.is_ascii_digit());
+        && parts.split_last().is_some_and(|(last, words)| {
+            last.bytes().all(|b| b.is_ascii_digit())
+                && words.iter().all(|w| w.bytes().all(|b| b.is_ascii_lowercase()))
+        });
     if ok {
         Ok(region.to_owned())
     } else {
@@ -526,6 +539,8 @@ pub enum Checked {
     Unreachable,
     /// Another answer (a 404 model list, a 429, a 5xx): the key is kept, unconfirmed.
     Unconfirmed(u16),
+    /// The endpoint's name resolves to this machine or a private network: nothing was sent.
+    PrivateHost,
 }
 
 impl Checked {
@@ -535,6 +550,7 @@ impl Checked {
             Self::Rejected(code) => json!({"status": "rejected", "http": code}),
             Self::Unreachable => json!({"status": "unreachable"}),
             Self::Unconfirmed(code) => json!({"status": "unconfirmed", "http": code}),
+            Self::PrivateHost => json!({"status": "private_host"}),
         }
     }
 }
@@ -598,11 +614,30 @@ pub async fn check(p: &Provider, endpoints: &Endpoints, key: &str) -> Checked {
         return Checked::Unconfirmed(0);
     };
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let Ok(client) = reqwest::Client::builder()
+    // The name is resolved here and every address it gives is checked; the request then goes to
+    // exactly those addresses, so a name that answers differently a moment later cannot carry the
+    // key to this machine or a private network.
+    let Ok(parsed) = reqwest::Url::parse(&url) else { return Checked::Unreachable };
+    let Some(host) = parsed.host_str().map(str::to_owned) else { return Checked::Unreachable };
+    let mut builder = reqwest::Client::builder()
         .timeout(CHECK_TIMEOUT)
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-    else {
+        .redirect(reqwest::redirect::Policy::none());
+    if host.trim_start_matches('[').trim_end_matches(']').parse::<std::net::IpAddr>().is_err() {
+        let port = parsed.port_or_known_default().unwrap_or(443);
+        let lookup =
+            tokio::time::timeout(CHECK_TIMEOUT, tokio::net::lookup_host((host.as_str(), port)))
+                .await;
+        let Ok(Ok(addrs)) = lookup else { return Checked::Unreachable };
+        let addrs: Vec<std::net::SocketAddr> = addrs.collect();
+        if addrs.is_empty() {
+            return Checked::Unreachable;
+        }
+        if addrs.iter().any(|a| is_private_ip(a.ip())) {
+            return Checked::PrivateHost;
+        }
+        builder = builder.resolve_to_addrs(&host, &addrs);
+    }
+    let Ok(client) = builder.build() else {
         return Checked::Unreachable;
     };
     let mut request = if post { client.post(url) } else { client.get(url) };
@@ -683,6 +718,11 @@ pub fn delivery(id: &str, endpoints: &Endpoints, key: String) -> Vec<(&'static s
 
 /// The variables OpenCode reads provider `id`'s key from on the machine, from this catalog
 /// (a launch credential names a provider, never a variable).
+/// The AWS region a Bedrock route keeps in its `health_url` (`https://bedrock-mantle.REGION.api.aws/v1/models`).
+pub fn bedrock_region(url: &str) -> Option<&str> {
+    url.strip_prefix("https://bedrock-mantle.")?.split_once(".api.aws/")?.0.into()
+}
+
 pub fn opencode_env(id: &str) -> Option<OpenCode> {
     find(id).and_then(|p| p.opencode)
 }
@@ -778,8 +818,24 @@ mod tests {
             assert!(check_base_url(bad).is_err(), "{bad}");
         }
         assert!(check_base_url("https://8.8.8.8/v1").is_ok());
+        for private in [
+            "127.0.0.1",
+            "10.1.2.3",
+            "169.254.169.254",
+            "100.100.1.1",
+            "::1",
+            "fe80::1",
+            "::ffff:192.168.0.1",
+        ] {
+            assert!(is_private_ip(private.parse().unwrap()), "{private}");
+        }
+        assert!(
+            !is_private_ip("1.1.1.1".parse().unwrap())
+                && !is_private_ip("2606:4700::1111".parse().unwrap())
+        );
         // A real gateway path (a Cloudflare account id is 32 hex characters) is not a key.
-        let gateway = "https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/main/anthropic";
+        let gateway =
+            "https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/main/anthropic";
         assert_eq!(check_base_url(gateway).as_deref(), Ok(gateway));
     }
 
@@ -794,7 +850,10 @@ mod tests {
         assert_eq!(fields("bedrock"), serde_json::json!(["region"]));
         let custom = listed.as_array().unwrap().iter().find(|p| p["id"] == "custom").unwrap();
         assert_eq!(custom["group"], "custom");
-        assert_eq!(custom["protocols"], serde_json::json!(["anthropic", "anthropic-bearer", "responses"]));
+        assert_eq!(
+            custom["protocols"],
+            serde_json::json!(["anthropic", "anthropic-bearer", "responses"])
+        );
     }
 
     #[test]

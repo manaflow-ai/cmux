@@ -39,6 +39,7 @@ import {
   type ModelsState,
 } from "../ops";
 import { sectionHref } from "../router";
+import { modelsKeySentences } from "../store";
 import { t } from "../strings";
 import { userMessage } from "../../shared/userMessage";
 import { DeviceSignInCard } from "../../shared/signIn/DeviceSignInCard";
@@ -105,17 +106,6 @@ function markOf(connection: Pick<ModelConnection, "kind" | "provider">): string 
   return PROVIDER_MARKS[connection.provider] ?? connection.provider;
 }
 
-/** What a refused key add says: acpmux's check of the key and its fields (cmux#48428). */
-function keySentences(): Record<string, string> {
-  return {
-    "cmux.models.connections.key_rejected": t("settingsWindow.models.key.rejected"),
-    "cmux.models.connections.unreachable": t("settingsWindow.models.key.unreachable"),
-    "cmux.models.connections.bad_base_url": t("settingsWindow.models.key.badEndpoint"),
-    "cmux.models.connections.bad_protocol": t("settingsWindow.models.key.badEndpoint"),
-    "cmux.models.connections.bad_region": t("settingsWindow.models.key.badRegion"),
-  };
-}
-
 /** "Authenticated as alex@example.com · ChatGPT Pro", "API key", or "Not signed in". */
 export function connectionAuthText(connection: ModelConnection): string {
   if (!connection.signedIn) return t("settingsWindow.harnesses.notAuthenticated");
@@ -162,7 +152,7 @@ export function useModelsRun(): { busy: boolean; error: string | null; run: Run 
           return refusal === null;
         },
         (failure: unknown) => {
-          setError(userMessage(failure, { ...SETTINGS_SENTENCES, ...keySentences() }));
+          setError(userMessage(failure, { ...SETTINGS_SENTENCES, ...modelsKeySentences() }));
           return false;
         },
       )
@@ -201,7 +191,9 @@ export function ModelsCard({ focus }: { focus: string | null }) {
       <PersonalSection models={models} busy={busy} run={run} onAdd={() => setAdding(true)} />
       <OrganizationSection models={models} busy={busy} run={run} />
       {models.members && <MembersSection members={models.members} busy={busy} run={run} />}
-      {adding && <AddConnectionSheet models={models} busy={busy} run={run} onClose={() => setAdding(false)} />}
+      {adding && (
+        <AddConnectionSheet models={models} busy={busy} error={error} run={run} onClose={() => setAdding(false)} />
+      )}
     </div>
   );
 }
@@ -890,12 +882,15 @@ function startChoice(start: SheetStart, catalog: readonly ModelProviderInfo[]): 
 export function AddConnectionSheet({
   models,
   busy,
+  error: refusal = null,
   run,
   onClose,
   start = null,
 }: {
   models: ModelsState;
   busy: boolean;
+  /** The last refusal's sentence (a key the provider refused), shown in the sheet over its form. */
+  error?: string | null;
   run: Run;
   onClose(): void;
   start?: SheetStart;
@@ -948,6 +943,11 @@ export function AddConnectionSheet({
           )}
           <h2>{picked ? picked.title : title}</h2>
         </header>
+        {picked && refusal && (
+          <p className="row-error" role="alert" data-models-sheet-error="">
+            {refusal}
+          </p>
+        )}
         {!picked && (
           <>
             <Input

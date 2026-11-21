@@ -263,7 +263,11 @@ OpenCode Go) has no check. A named endpoint (`custom`, Cloudflare AI Gateway, Ne
 an `https://` base URL with no user info, query or fragment, of URL-safe characters only, naming a
 public host (never this machine, a private, link-local or tailnet address, or a `.internal`, `.local`
 or one-label name, on the Mac and again on the machine), and the
-protocol it speaks (`anthropic`, `anthropic-bearer`, `responses`). Amazon Bedrock takes its AWS
+protocol it speaks (`anthropic`, `anthropic-bearer`, `responses`). The Mac's check also resolves
+the name and refuses it when any address is loopback, private, link-local, CGNAT or ULA, then sends
+the check only to those addresses, so a rebinding answer cannot aim it at a private one. The machine
+reruns the name rules but cannot pin the agent's own later lookups: the URL is the owner's own, and
+the key goes only to the owner's own machine. Amazon Bedrock takes its AWS
 Region, kept in the route's `health_url` (no new route field), and is checked against Bedrock's
 model list in that region.
 

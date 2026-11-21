@@ -782,7 +782,12 @@ export class MockSettingsProvider {
         try {
           this.setModels(runMockModels(this.models, run));
         } catch (error) {
-          throw new ProtocolError("cmux.settings.invalid", error instanceof Error ? error.message : String(error));
+          // A refusal that names its code (acpmux's, as the app relays it) keeps it.
+          const code = (error as { code?: unknown }).code;
+          throw new ProtocolError(
+            typeof code === "string" ? code : "cmux.settings.invalid",
+            error instanceof Error ? error.message : String(error),
+          );
         }
         return {};
       },
