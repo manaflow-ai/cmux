@@ -23,9 +23,9 @@ pub fn run(args: &[String]) -> i32 {
         eprintln!("usage: cmux-screen-sharing {MODE}");
         return 2;
     }
-    // WP3: the ScreenCaptureKit capture this helper already runs, as the desktop's
-    // HostServices. Until it lands, MacDesktop falls back to CoreGraphics capture.
-    let host: Option<Arc<dyn HostServices>> = None;
+    // The ScreenCaptureKit capture this helper already runs, as the desktop's HostServices
+    // (src/mac/cu_host.rs); None falls back to the engine's CoreGraphics capture.
+    let host: Option<Arc<dyn HostServices>> = crate::computer_use_host_services();
     run_with(host)
 }
 
