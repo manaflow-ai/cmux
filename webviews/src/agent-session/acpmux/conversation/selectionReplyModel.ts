@@ -157,22 +157,28 @@ const EDGE = 2;
 /// How many lines past the rows next to the end the chip looks beside the selection for a free spot.
 const FARTHER = 3;
 
+/// The transcript's scroller: the first scrolling ancestor of `node` (a handful of elements up from
+/// the text), or undefined outside one.
+export function transcriptScroller(doc: Document, node: Node | null): Element | undefined {
+  const view = doc.defaultView;
+  for (let element = elementOf(node); element && element !== doc.body; element = element.parentElement) {
+    const overflow = view?.getComputedStyle?.(element).overflowY;
+    if (overflow === "auto" || overflow === "scroll") return element;
+  }
+  return undefined;
+}
+
 /// The part of the viewport where the transcript shows: its scroller's box, above a composer dock
 /// floating over it. The chip never leaves it. Read once per placed chip.
 export function transcriptClip(doc: Document, node: Node | null): { top: number; bottom: number } {
   const view = doc.defaultView;
   let top = 0;
   let bottom = doc.documentElement.clientHeight || view?.innerHeight || 0;
-  // The first scrolling ancestor (a handful of elements up from the text).
-  for (let element = elementOf(node); element && element !== doc.body; element = element.parentElement) {
-    const overflow = view?.getComputedStyle?.(element).overflowY;
-    if (overflow !== "auto" && overflow !== "scroll") continue;
-    const box = element.getBoundingClientRect();
-    if (box.height) {
-      top = Math.max(top, box.top);
-      bottom = Math.min(bottom, box.bottom);
-    }
-    break;
+  const scroller = transcriptScroller(doc, node);
+  const box = scroller?.getBoundingClientRect();
+  if (box?.height) {
+    top = Math.max(top, box.top);
+    bottom = Math.min(bottom, box.bottom);
   }
   // A composer dock drawn over the transcript's foot (bottomStack.css `data-dock="float"`).
   const dock = doc.querySelector(".acpmux-dock");

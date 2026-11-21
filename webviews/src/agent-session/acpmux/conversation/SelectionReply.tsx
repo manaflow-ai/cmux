@@ -25,6 +25,7 @@ import {
   selectionReplyPlace,
   selectionReplyTarget,
   transcriptClip,
+  transcriptScroller,
   transcriptTextProbe,
   useSelectionReplyLook,
   type SelectionReplyPlace,
@@ -95,6 +96,24 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
       view?.removeEventListener("resize", scrolled);
     };
   }, [doc, enabled]);
+
+  // While the chip shows, the transcript's content changing size (a row opening or closing above
+  // the selection, a reply streaming in) moves the selected words, so the chip is placed again and
+  // follows them: placed once on pointerup, it stayed while the click that followed opened a row
+  // and the words moved under it (Leo's 2026-11-21 05:30Z video). Nothing is observed while no
+  // chip shows; the chip itself is on the body, outside what is observed.
+  const showing = target !== undefined;
+  useEffect(() => {
+    if (!enabled || !showing) return;
+    const Observer = (doc.defaultView as (Window & typeof globalThis) | null)?.ResizeObserver;
+    const selection = doc.getSelection();
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
+    const scroller = transcriptScroller(doc, range?.endContainer ?? null);
+    if (!Observer || !scroller) return;
+    const observer = new Observer(() => setTarget(selectionReplyTarget(doc)));
+    for (const element of [scroller, ...Array.from(scroller.children)]) observer.observe(element);
+    return () => observer.disconnect();
+  }, [doc, enabled, showing]);
 
   // Where no transcript text is under it (selectionReplyPlace), read once per shown selection.
   useLayoutEffect(() => {
