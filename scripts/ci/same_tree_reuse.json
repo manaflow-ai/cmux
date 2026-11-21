@@ -78,12 +78,6 @@
    "pr-red-checks": "calls a reusable workflow: no step here can record its pass; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.ref), not only the tree; judges other jobs (if: always() or failure())",
    "ci-timing": "reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.ref), not only the tree"
   },
-  "cla-policy-guard.yml": {
-   "validate": "pull_request_target only: runs the base's workflow with write access, not the tree under test; reads pull request metadata or the base (github.event.pull_request.base.sha, github.event.pull_request.head.sha, github.event.pull_request.number), not only the tree; checks out ${{ github.workflow_sha }}, not the run's commit"
-  },
-  "cla.yml": {
-   "CLAAssistant": "pull_request_target only: runs the base's workflow with write access, not the tree under test; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.pull_request.number), not only the tree"
-  },
   "classic-api-guard.yml": {
    "classic-api": "reads pull request metadata or the base (github.event.pull_request.base.ref, github.event.pull_request.base.sha, github.event.pull_request.body), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit"
   },
@@ -325,9 +319,6 @@
   "coderouter-ci.yml": {
    "test": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
   },
-  "contributor-welcome.yml": {
-   "welcome": "pull_request_target only: runs the base's workflow with write access, not the tree under test; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.pull_request.number, github.event.pull_request.user), not only the tree"
-  },
   "device-hub.yml": {
    "test": "needed by deploy-dev, deploy-prod: a skip would skip them or read as no verdict",
    "deploy-dev": "needed by deploy-prod: a skip would skip them or read as no verdict; reads secrets; publish, release, deploy, live or cloud work (by its name)",
@@ -391,9 +382,6 @@
   "merge-group-policy-checks.yml": {
    "cla-assistant": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for",
    "cla-policy-guard": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
-  },
-  "merge-receipt.yml": {
-   "receipt": "pull_request_target only: runs the base's workflow with write access, not the tree under test; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.pull_request.number), not only the tree; checks out ${{ github.workflow_sha }}, not the run's commit"
   },
   "mux.yml": {
    "test": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
