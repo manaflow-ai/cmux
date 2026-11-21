@@ -114,7 +114,11 @@ fn parses_every_verb() {
     );
     assert_eq!(
         parse("connect", &strings(&["chatgpt", "--wait", "a1", "--timeout", "30"])).unwrap(),
-        Command::Chatgpt(Chatgpt::Wait { attempt: "a1".into(), timeout: Duration::from_secs(30) })
+        Command::Chatgpt(Chatgpt::Wait {
+            attempt: "a1".into(),
+            timeout: Duration::from_secs(30),
+            keep: false
+        })
     );
     assert_eq!(
         parse("connect", &strings(&["chatgpt", "--cancel", "a1"])).unwrap(),
@@ -257,14 +261,21 @@ fn chatgpt_cancels_on_ctrl_c_and_on_the_timeout() {
     let keychain = FakeKeychain::default();
     let interrupted = FakeDaemon::default();
     interrupted.waits.borrow_mut().push_back(None);
-    let command =
-        Command::Chatgpt(Chatgpt::Wait { attempt: "a1".into(), timeout: Duration::from_secs(60) });
+    let command = Command::Chatgpt(Chatgpt::Wait {
+        attempt: "a1".into(),
+        timeout: Duration::from_secs(60),
+        keep: false,
+    });
     let error = run(&command, &io(&interrupted, &keychain), &mut |_| {}).unwrap_err();
     assert!(error.contains("interrupted"), "{error}");
     assert_eq!(interrupted.methods().last().unwrap(), method::MUX_CONNECTIONS_CHATGPT_CANCEL);
 
     let slow = FakeDaemon::default();
-    let command = Command::Chatgpt(Chatgpt::Wait { attempt: "a1".into(), timeout: Duration::ZERO });
+    let command = Command::Chatgpt(Chatgpt::Wait {
+        attempt: "a1".into(),
+        timeout: Duration::ZERO,
+        keep: false,
+    });
     let error = run(&command, &io(&slow, &keychain), &mut |_| {}).unwrap_err();
     assert!(error.contains("no sign-in"), "{error}");
     assert_eq!(slow.methods().last().unwrap(), method::MUX_CONNECTIONS_CHATGPT_CANCEL);
@@ -289,8 +300,11 @@ fn chatgpt_no_wait_answers_the_attempt_and_a_failure_names_its_error() {
         .waits
         .borrow_mut()
         .push_back(Some(json!({"status": "failed", "error": "state mismatch"})));
-    let command =
-        Command::Chatgpt(Chatgpt::Wait { attempt: "a1".into(), timeout: Duration::from_secs(5) });
+    let command = Command::Chatgpt(Chatgpt::Wait {
+        attempt: "a1".into(),
+        timeout: Duration::from_secs(5),
+        keep: false,
+    });
     assert!(
         run(&command, &io(&failed, &keychain), &mut |_| {}).unwrap_err().contains("state mismatch")
     );
@@ -412,4 +426,27 @@ fn the_pty_run_fails_with_no_token_and_names_a_missing_claude() {
     let error =
         capture::run(missing.to_str().unwrap(), &["setup-token"], None, 200, &mut out).unwrap_err();
     assert!(error.contains("not installed"), "{error}");
+}
+
+#[test]
+fn chatgpt_wait_with_keep_answers_pending_and_leaves_the_attempt() {
+    assert_eq!(
+        parse("connect", &strings(&["chatgpt", "--wait", "a1", "--keep", "--timeout=5"])).unwrap(),
+        Command::Chatgpt(Chatgpt::Wait {
+            attempt: "a1".into(),
+            timeout: Duration::from_secs(5),
+            keep: true
+        })
+    );
+    assert!(parse("connect", &strings(&["chatgpt", "--keep"])).is_err());
+    let daemon = FakeDaemon::default();
+    let keychain = FakeKeychain::default();
+    let command = Command::Chatgpt(Chatgpt::Wait {
+        attempt: "a1".into(),
+        timeout: Duration::ZERO,
+        keep: true,
+    });
+    let value = run(&command, &io(&daemon, &keychain), &mut |_| {}).unwrap();
+    assert_eq!(value, json!({"attempt": "a1", "status": "pending"}));
+    assert!(!daemon.methods().iter().any(|m| m == method::MUX_CONNECTIONS_CHATGPT_CANCEL));
 }

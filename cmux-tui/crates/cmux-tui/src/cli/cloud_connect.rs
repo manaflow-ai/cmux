@@ -116,9 +116,20 @@ pub(super) enum Command {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Chatgpt {
-    Begin { id: Option<String>, wait: bool, timeout: Duration },
-    Wait { attempt: String, timeout: Duration },
-    Cancel { attempt: String },
+    Begin {
+        id: Option<String>,
+        wait: bool,
+        timeout: Duration,
+    },
+    /// `keep`: the timeout answers `pending` and leaves the attempt running (the MCP tool's wait).
+    Wait {
+        attempt: String,
+        timeout: Duration,
+        keep: bool,
+    },
+    Cancel {
+        attempt: String,
+    },
 }
 
 pub(super) fn parse(verb: &str, args: &[String]) -> Result<Command, UsageError> {
@@ -150,7 +161,7 @@ pub(super) fn parse(verb: &str, args: &[String]) -> Result<Command, UsageError> 
             Ok(Command::ApiKey { provider: provider.to_owned(), label: options.label()? })
         }
         "chatgpt" => {
-            options.only(&["id", "no-wait", "timeout", "wait", "cancel"])?;
+            options.only(&["id", "no-wait", "timeout", "wait", "cancel", "keep"])?;
             let timeout = match options.value("timeout") {
                 None => CHATGPT_TIMEOUT,
                 Some(text) => text
@@ -165,11 +176,15 @@ pub(super) fn parse(verb: &str, args: &[String]) -> Result<Command, UsageError> 
                 return Ok(Command::Chatgpt(Chatgpt::Cancel { attempt: attempt.to_owned() }));
             }
             if let Some(attempt) = options.value("wait") {
-                options.only(&["wait", "timeout"])?;
+                options.only(&["wait", "timeout", "keep"])?;
                 return Ok(Command::Chatgpt(Chatgpt::Wait {
                     attempt: attempt.to_owned(),
                     timeout,
+                    keep: options.flag("keep"),
                 }));
+            }
+            if options.flag("keep") {
+                return Err(UsageError::new("--keep goes with --wait ATTEMPT"));
             }
             Ok(Command::Chatgpt(Chatgpt::Begin {
                 id: options.value("id").map(str::to_owned),
@@ -192,7 +207,7 @@ impl Flags {
             let Some(name) = args[index].strip_prefix("--") else {
                 return Err(UsageError::new(USAGE));
             };
-            if name == "no-wait" {
+            if name == "no-wait" || name == "keep" {
                 out.push((name.to_owned(), None));
             } else if let Some((name, value)) = name.split_once('=') {
                 out.push((name.to_owned(), Some(value.to_owned())));
@@ -296,7 +311,9 @@ pub(super) fn run(
         Command::Chatgpt(Chatgpt::Cancel { attempt }) => {
             io.daemon.call(method::MUX_CONNECTIONS_CHATGPT_CANCEL, json!({ "attempt": attempt }))
         }
-        Command::Chatgpt(Chatgpt::Wait { attempt, timeout }) => wait(io, attempt, *timeout),
+        Command::Chatgpt(Chatgpt::Wait { attempt, timeout, keep }) => {
+            wait(io, attempt, *timeout, *keep)
+        }
         Command::Chatgpt(Chatgpt::Begin { id, wait: should_wait, timeout }) => {
             let params = id.as_ref().map_or_else(|| json!({}), |id| json!({ "id": id }));
             let begun = io.daemon.call(method::MUX_CONNECTIONS_CHATGPT_BEGIN, params)?;
@@ -310,7 +327,7 @@ pub(super) fn run(
                 return Ok(pending);
             }
             notice(&pending);
-            wait(io, attempt, *timeout)
+            wait(io, attempt, *timeout, false)
         }
     }
 }
@@ -390,8 +407,9 @@ fn connection_ids(state: &Value) -> Vec<String> {
         .collect()
 }
 
-/// `chatgpt.wait` until the attempt is done; Ctrl-C or the timeout cancels it.
-fn wait(io: &Io<'_>, attempt: &str, timeout: Duration) -> Result<Value, String> {
+/// `chatgpt.wait` until the attempt is done; Ctrl-C or the timeout cancels it (`keep`: the
+/// timeout answers `pending` instead).
+fn wait(io: &Io<'_>, attempt: &str, timeout: Duration, keep: bool) -> Result<Value, String> {
     let deadline = Instant::now() + timeout;
     let cancel = |why: &str| {
         let _ =
@@ -407,6 +425,9 @@ fn wait(io: &Io<'_>, attempt: &str, timeout: Duration) -> Result<Value, String> 
             return cancel("interrupted");
         };
         match reply.get("status").and_then(Value::as_str).unwrap_or_default() {
+            "pending" if keep && Instant::now() >= deadline => {
+                return Ok(json!({ "attempt": attempt, "status": "pending" }));
+            }
             "pending" if Instant::now() >= deadline => {
                 return cancel(&format!("no sign-in after {} seconds", timeout.as_secs()));
             }
@@ -472,6 +493,9 @@ pub(super) fn human(command: &Command, value: &Value) -> String {
         ),
         Command::Chatgpt(Chatgpt::Cancel { attempt }) => {
             format!("Cancelled the ChatGPT sign-in {attempt}.")
+        }
+        Command::Chatgpt(_) if value.get("status").and_then(Value::as_str) == Some("pending") => {
+            "The ChatGPT sign-in is still waiting for the browser.".to_owned()
         }
         Command::Chatgpt(_) => match value.get("connection").filter(|c| !c.is_null()) {
             Some(connection) => format!("Signed in to ChatGPT: {}.", id(connection)),
