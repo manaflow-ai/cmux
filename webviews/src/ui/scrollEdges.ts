@@ -11,6 +11,9 @@ const EDGE_TOLERANCE = 1;
 ///
 /// `quietWhile`, an attribute name: while the scroller carries it, no edge is marked, whatever its
 /// overflow, and the marks come back when it goes. The composer's field carries
+/// `onEdges` (down only) hears whether either edge is marked after each mark, so an ancestor can carry the
+/// state as its own attribute instead of a `:has()` over this scroller's marks.
+///
 /// `data-cmux-scroller-settling` while its box moves to a height its draft fits
 /// (composer/fieldGrowth.ts): mid-move the draft overflows only until the move lands, so nothing is
 /// past either edge (Lawrence 2026-11-15: "on newline, there is a frame of weirdness": the fade
@@ -27,7 +30,7 @@ const EDGE_TOLERANCE = 1;
 export function followScrollEdges(
   node: HTMLElement,
   axis: "y" | "x" = "y",
-  { quietWhile }: { quietWhile?: string } = {},
+  { quietWhile, onEdges }: { quietWhile?: string; onEdges?: (marked: boolean) => void } = {},
 ): () => void {
   const quiet = () => quietWhile !== undefined && node.hasAttribute(quietWhile);
   const mark =
@@ -36,12 +39,16 @@ export function followScrollEdges(
           if (quiet()) {
             node.removeAttribute("data-fade-top");
             node.removeAttribute("data-fade-bottom");
+            onEdges?.(false);
             return;
           }
           const past = Math.max(0, node.scrollHeight - node.clientHeight);
           const above = Math.min(past, Math.max(0, node.scrollTop));
-          node.toggleAttribute("data-fade-top", above > EDGE_TOLERANCE);
-          node.toggleAttribute("data-fade-bottom", past - above > EDGE_TOLERANCE);
+          const top = above > EDGE_TOLERANCE;
+          const bottom = past - above > EDGE_TOLERANCE;
+          node.toggleAttribute("data-fade-top", top);
+          node.toggleAttribute("data-fade-bottom", bottom);
+          onEdges?.(top || bottom);
         }
       : () => {
           if (quiet()) {
