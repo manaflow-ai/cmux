@@ -3743,6 +3743,17 @@ class RollupsFromNeeds(unittest.TestCase):
                 "route": None, "exact": ["workflow-guard-submodule-forward-only"], "prefixes": []},
             "workflow-guard-tests": {"route": "linux_guard_tests", "exact": [], "prefixes": ["workflow-guard-tests / "]}})
 
+    def test_a_matrix_computed_by_an_earlier_job_is_matched_by_prefix(self):
+        # ci-web.yml's react-apps-check-shard since cmux#48561: the shards a pull request runs come from a job output.
+        for matrix in ("{include: \"${{ fromJSON(needs.scope.outputs.react_shards) }}\"}",
+                       "{shard: \"${{ fromJSON(needs.scope.outputs.react_shards) }}\"}"):
+            with self.subTest(matrix):
+                got = self.derive(web=CI_WEB_YML.replace(
+                    "{matrix: {include: [{shard: 1, shard_count: 2}, {shard: 2, shard_count: 2}]}}",
+                    "{matrix: " + matrix + "}"))
+                self.assertEqual(got["run"]["web / Web status"]["under"]["react-apps-check-shard"],
+                                 {"exact": [], "prefixes": ["web / react-apps-check ("]})
+
     def test_any_shape_it_does_not_know_is_refused(self):
         tests_if = "if: ${{ inputs.linux_guard_tests == 'true' }}"
         cases = {
