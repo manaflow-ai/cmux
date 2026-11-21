@@ -997,8 +997,10 @@ def render_comment(report: Mapping, rerun: str, reran: bool = False) -> str:
     else:
         counts = {v: sum(1 for j in jobs if j["verdict"] == v) for v in (MACHINE, CODE, UNKNOWN)}
         summary = ", ".join(f"{n} {v}" for v, n in counts.items() if n)
-        verb = "stopped" if report.get("conclusion") == "cancelled" else "failed"
-        out += [f"CI {verb} on `{sha}` ({run}): {summary or 'no failed job besides the gates'}."]
+        timed_out = report.get("conclusion") == "timed_out" and not jobs
+        verb = "stopped" if report.get("conclusion") == "cancelled" else "timed out" if timed_out else "failed"
+        none = "no job it attributes failed" if timed_out else "no failed job besides the gates"
+        out += [f"CI {verb} on `{sha}` ({run}): {summary or none}."]
         if report.get("macos_skipped"):
             out.append(f"{MACOS_SKIPPED}: {report.get('macos_blocked')}.")
         out.append("")
@@ -1066,6 +1068,8 @@ def rerun_decision(report: Mapping, latest: Mapping | Callable[[], Mapping]) -> 
     now, or a function that reads it: only a run whose every failure is the machine's needs it."""
     jobs = report["jobs"]
     if not jobs:
+        if report.get("conclusion") == "timed_out":
+            return False, "Not re-run automatically: the run timed out before a job it attributes failed."
         return False, "Not re-run automatically: only gate jobs failed."
     if not all_machine(jobs):
         blockers = [j["name"] for j in jobs if j["verdict"] != MACHINE]

@@ -418,6 +418,17 @@ class RerunDecisionTests(unittest.TestCase):
         self.assertNotIn("Gates only", line)
         self.assertIn("timed out", line)
 
+    def test_a_timed_out_run_without_failed_jobs_is_rendered_without_blaming_gates(self) -> None:
+        # Greptile on #28805: the re-run line and the comment body must agree with the headline.
+        report = self.report([], conclusion="timed_out")
+        rerun, line = cf.rerun_decision(report, self.LATEST)
+        self.assertFalse(rerun)
+        body = cf.render_comment(report, line)
+        for text in (line, body):
+            self.assertNotIn("gate", text)
+        self.assertIn("CI timed out on", body)
+        self.assertIn("the run timed out", line)
+
     def test_a_run_someone_else_reran_is_left_alone(self) -> None:
         for latest in ({"run_attempt": 2, "status": "completed", "triggering_actor": {"login": cf.BOT}},
                        {"run_attempt": 1, "status": "in_progress"}):
