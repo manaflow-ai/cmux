@@ -1,5 +1,3 @@
-package import Foundation
-
 /// A user interaction with a pane that has an unread notification.
 public nonisolated enum NotificationTrigger: String, Hashable, Sendable {
     /// The pane became the focused pane of the key window while cmux is active.
@@ -59,19 +57,11 @@ public nonisolated struct NotificationPolicy: Sendable {
         /// What the notification is about, for its sound; nil reads it from the source alone
         /// (an agent's is a finished turn, a terminal's a bell, the CLI's a message).
         public var soundEvent: NotificationSoundEvent?
-        /// Set when the delivery category differs from the historical sound choice.
-        public var deliveryEvent: NotificationSoundEvent?
         /// The agent kind, workspace and groups whose sound levels apply.
         public var soundScope = NotificationSoundScope()
 
         public init(source: NotificationSource) {
             self.source = source
-        }
-
-        package init(source: NotificationSource, at time: Date) {
-            self.init(source: source)
-            let parts = Calendar.current.dateComponents([.hour, .minute], from: time)
-            minuteOfDay = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
         }
     }
 
@@ -103,8 +93,6 @@ public nonisolated struct NotificationPolicy: Sendable {
     public func decide(_ arrival: Arrival) -> Decision {
         var decision = Decision()
         let mode = prefs.dismissal(for: arrival.source)
-        let event = arrival.soundEvent ?? NotificationSoundEvent(source: arrival.source, level: .info)
-        decision.soundEvent = event
         if prefs.suppressWhileTypingSeconds > 0, let typed = arrival.typedAgo, typed <= prefs.suppressWhileTypingSeconds {
             decision.acknowledge = true
             decision.attention = false
@@ -119,7 +107,7 @@ public nonisolated struct NotificationPolicy: Sendable {
             return decision
         }
         if arrival.workspaceMuted { decision.attention = false }
-        if !arrival.workspaceMuted && !quiet && prefs.postsDesktop(for: arrival.source) && prefs.permitsBanner(for: arrival.deliveryEvent ?? event) {
+        if !arrival.workspaceMuted && !quiet && prefs.postsDesktop(for: arrival.source) {
             switch prefs.desktop {
             case .always: decision.alerts = true
             case .unlessFocused: decision.alerts = !arrival.paneIsViewed
@@ -138,8 +126,9 @@ public nonisolated struct NotificationPolicy: Sendable {
     /// The arrival's sound event, and its sound when `notifications.sounds.when` plays it and
     /// neither a muted workspace nor quiet hours silence it.
     private func chooseSound(for arrival: Arrival, quiet: Bool, into decision: inout Decision) {
-        let event = decision.soundEvent
-        guard prefs.permitsSound(for: arrival.deliveryEvent ?? event), !arrival.workspaceMuted, !quiet, prefs.sounds.when.plays(viewed: arrival.paneIsViewed, appActive: arrival.appActive),
+        let event = arrival.soundEvent ?? NotificationSoundEvent(source: arrival.source, level: .info)
+        decision.soundEvent = event
+        guard !arrival.workspaceMuted, !quiet, prefs.sounds.when.plays(viewed: arrival.paneIsViewed, appActive: arrival.appActive),
               let choice = prefs.sounds.choice(for: event, in: arrival.soundScope, fallback: prefs.sound(for: arrival.source)) else { return }
         decision.sound = choice.name
         decision.soundVolume = choice.volume

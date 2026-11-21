@@ -537,7 +537,7 @@ final class NotificationCenterService {
             if let located { acknowledge(located.tab) }
             return
         }
-        var arrival = NotificationPolicy.Arrival(source: source, at: Date())
+        var arrival = NotificationPolicy.Arrival(source: source)
         arrival.bannerAllowed = notification.desktop
         arrival.appActive = services?.appActiveSource() ?? false
         let keys = (located?.workspace ?? workspace).map { notificationKeys(of: $0) }
@@ -548,6 +548,8 @@ final class NotificationCenterService {
             arrival.paneIsViewed = isViewed(located.tab.id)
             arrival.typedAgo = typedAgo(tabID: located.tab.id, onMachine: services?.machines.local.machineID ?? "local")
         }
+        let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
+        arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
         var decision = NotificationPolicy(prefs: preferences).decide(arrival)
         note("arrived \(notification.notification.rawValue) \(source.rawValue) tab=\(located?.tab.id ?? "-") \(decision)")
         guard let located else {

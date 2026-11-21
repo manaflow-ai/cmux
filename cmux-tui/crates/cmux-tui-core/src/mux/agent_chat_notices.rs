@@ -359,7 +359,8 @@ impl Mux {
         // Hashed: an adopted session's id is the agent's own, of any length.
         let digest = Sha256::digest(format!("{session}\n{}\n{content}", notice.key));
         let key = format!("acpmux-{digest:x}");
-        let staged = self.stage_durable_notification(
+        // Badge: the unread record and its ring, with no desktop banner.
+        let posted = self.create_durable_notification_with(
             &Actor::Daemon,
             &key,
             notice.title.clone(),
@@ -369,12 +370,8 @@ impl Mux {
             Some(*surface),
             NotificationSource::Agent,
             delivery == Delivery::Banner,
-            delivery == Delivery::Badge,
         );
-        if staged
-            .and_then(|notice| notice.map(|row| self.commit_staged_notification(row)).transpose())
-            .is_err()
-        {
+        if posted.is_err() {
             self.report_internal_diagnostic("agent chat notification not posted");
         }
     }

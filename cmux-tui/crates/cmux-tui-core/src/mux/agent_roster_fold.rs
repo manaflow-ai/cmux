@@ -294,12 +294,11 @@ impl Mux {
         let held = matches!(gate, agent_hook_children::FinishGate::Hold);
         let delivery = self.agent_notification_delivery(AgentEvent::from_hook(&ingress.kind));
         let notice = notification.filter(|_| !held && delivery != Delivery::Off);
-        let badge_only = delivery == Delivery::Badge;
+        let desktop = delivery == Delivery::Banner;
         // A notification that leaves the roster state as it is reports
         // nothing and leaves the fence where the last report stored it.
         let Some(state) = state else {
-            let staged =
-                self.stage_agent_hook_notification(notice, surface, sequence, badge_only)?;
+            let staged = self.stage_agent_hook_notification(notice, surface, sequence, desktop)?;
             return self.commit_agent_hook_notification(staged, sequence);
         };
         let next_fence = HookFence::next(
@@ -321,7 +320,7 @@ impl Mux {
         // Staged after the relaunch record's save (a commit when the record
         // changes): a daemon that stops between the stage and the report's
         // commit loses the notification, so no other commit is in that span.
-        let staged = self.stage_agent_hook_notification(notice, surface, sequence, badge_only)?;
+        let staged = self.stage_agent_hook_notification(notice, surface, sequence, desktop)?;
         let hook_state = crate::workspace_registry::AgentHookProjectionState {
             agent_session_id,
             applied_sequence: sequence,

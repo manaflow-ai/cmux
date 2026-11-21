@@ -115,7 +115,7 @@ fn agent_delivery_posts_a_badge_and_a_banner_and_skips_disabled_completion() {
     }}}"#,
     )
     .unwrap();
-    assert!(mux.start_settings_owner(crate::mux::settings::SettingsPaths {
+    assert!(mux.start_settings_owner(settings::SettingsPaths {
         config,
         seed: None,
         state_dir: None,
@@ -145,15 +145,15 @@ fn agent_delivery_posts_a_badge_and_a_banner_and_skips_disabled_completion() {
     let posted: Vec<_> = events
         .try_iter()
         .filter_map(|event| match event {
-            MuxEvent::Notification(note) => Some((note.title, note.desktop, note.badge_only)),
+            MuxEvent::Notification(note) => Some((note.title, note.desktop)),
             _ => None,
         })
         .collect();
     assert_eq!(
         posted,
         vec![
-            ("Claude needs approval".to_owned(), true, false),
-            ("Claude asked a question".to_owned(), false, true)
+            ("Claude needs approval".to_owned(), true),
+            ("Claude asked a question".to_owned(), false)
         ]
     );
     assert_eq!(mux.resource_notifications(16).len(), 2);
