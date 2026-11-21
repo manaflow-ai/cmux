@@ -50,10 +50,6 @@ mock.module("../services/coderouter/analytics", () => ({
   captureCoderouterEvent,
 }));
 
-const accountsRoute = await import("../app/api/subrouter/accounts/route");
-const accountRoute = await import(
-  "../app/api/subrouter/accounts/[accountId]/route"
-);
 const repairRoute = await import(
   "../app/api/subrouter/accounts/[accountId]/repair/route"
 );
@@ -76,10 +72,9 @@ let calls: Array<{
   readonly headers: Headers;
   readonly body: unknown;
 }> = [];
-let listedAccounts: unknown[] = [];
 let listTeamQueries: string[] = [];
 let exchangeStatus = 200;
-let accountListStatus = 200;
+let tenantRequestStatus = 200;
 
 afterAll(() => {
   globalThis.fetch = originalFetch;
@@ -101,11 +96,10 @@ beforeEach(() => {
   };
   authJsonError = null;
   calls = [];
-  listedAccounts = [];
   listTeamQueries = [];
   hostedCutoverReady = true;
   exchangeStatus = 200;
-  accountListStatus = 200;
+  tenantRequestStatus = 200;
   getUser.mockClear();
   getTeam.mockClear();
   createTeam.mockClear();
@@ -240,7 +234,7 @@ describe("hosted Subrouter account routes", () => {
   test("returns 401 without a Stack user and never contacts hosted Subrouter", async () => {
     currentUser = null;
 
-    const response = await accountsRoute.GET(request("/api/subrouter/accounts"));
+    const response = await leasesRoute.POST(leaseRequest("/api/subrouter/leases"));
 
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: "unauthorized" });
@@ -253,8 +247,11 @@ describe("hosted Subrouter account routes", () => {
       refreshToken: "",
     };
 
-    const response = await accountsRoute.GET(
-      request("/api/subrouter/accounts", { auth: "cookie" }),
+    const response = await leasesRoute.POST(
+      leaseRequest("/api/subrouter/leases", {
+        auth: "cookie",
+        headers: { origin: "https://cmux.test" },
+      }),
     );
 
     expect(response.status).toBe(401);
@@ -265,8 +262,8 @@ describe("hosted Subrouter account routes", () => {
   test("fails closed before hosted cutover for an unmigrated legacy team", async () => {
     hostedCutoverReady = false;
 
-    const response = await accountsRoute.GET(
-      request("/api/subrouter/accounts"),
+    const response = await leasesRoute.POST(
+      leaseRequest("/api/subrouter/leases"),
     );
 
     expect(response.status).toBe(503);
@@ -278,8 +275,8 @@ describe("hosted Subrouter account routes", () => {
   });
 
   test("rejects a team outside the caller's Stack memberships", async () => {
-    const response = await accountsRoute.GET(
-      request("/api/subrouter/accounts?teamId=other-team"),
+    const response = await leasesRoute.POST(
+      leaseRequest("/api/subrouter/leases?teamId=other-team"),
     );
 
     expect(response.status).toBe(403);
@@ -291,15 +288,8 @@ describe("hosted Subrouter account routes", () => {
     // Membership is the only requirement, and it is checked against the
     // caller's own team list; a team missing from that list is 403 for every
     // verb, including mutations.
-    const response = await accountsRoute.POST(
-      request("/api/subrouter/accounts?teamId=team-c", {
-        method: "POST",
-        body: JSON.stringify({
-          provider: "openai-apikey",
-          label: "work",
-          apiKey: "sk-test",
-        }),
-      }),
+    const response = await leasesRoute.POST(
+      leaseRequest("/api/subrouter/leases?teamId=team-c"),
     );
 
     expect(response.status).toBe(403);
@@ -311,21 +301,14 @@ describe("hosted Subrouter account routes", () => {
     // The user holds no Stack team permissions at all (listPermissions is
     // empty) and team-b is not the selected team. Membership alone grants
     // both capabilities, so the hosted tenant exchange asks for both and the
-    // upload succeeds.
+    // lease succeeds.
     currentUser = Object.assign(stackUser(), {
       hasPermission: async () => false,
       listPermissions: async () => [],
     });
 
-    const response = await accountsRoute.POST(
-      request("/api/subrouter/accounts?teamId=team-b", {
-        method: "POST",
-        body: JSON.stringify({
-          provider: "openai-apikey",
-          label: "work",
-          apiKey: "sk-test",
-        }),
-      }),
+    const response = await leasesRoute.POST(
+      leaseRequest("/api/subrouter/leases?teamId=team-b"),
     );
 
     expect(response.status).toBe(200);
@@ -335,23 +318,17 @@ describe("hosted Subrouter account routes", () => {
       teamName: "Team B",
       capabilities: ["use", "manage_accounts"],
     });
-    expect(calls[1]?.url.pathname).toBe("/_subrouter/accounts");
+    expect(calls[1]?.url.pathname).toBe("/_subrouter/leases");
   });
 
   test("blocks cross-site cookie mutations before exchanging a tenant", async () => {
-    const response = await accountsRoute.POST(
-      request("/api/subrouter/accounts", {
+    const response = await leasesRoute.POST(
+      leaseRequest("/api/subrouter/leases", {
         auth: "cookie",
-        method: "POST",
         headers: {
           origin: "https://evil.example",
           "sec-fetch-site": "cross-site",
         },
-        body: JSON.stringify({
-          provider: "openai-apikey",
-          label: "work",
-          apiKey: "sk-test",
-        }),
       }),
     );
 
@@ -360,35 +337,17 @@ describe("hosted Subrouter account routes", () => {
     expect(calls).toHaveLength(0);
   });
 
-  test("uses a cookie Stack token for same-origin account uploads", async () => {
-    const response = await accountsRoute.POST(
-      request("/api/subrouter/accounts", {
+  test("uses a cookie Stack token for same-origin mutations", async () => {
+    const response = await leasesRoute.POST(
+      leaseRequest("/api/subrouter/leases", {
         auth: "cookie",
-        method: "POST",
         headers: { origin: "https://cmux.test" },
-        body: JSON.stringify({
-          provider: "openai-apikey",
-          label: "work",
-          apiKey: "sk-test",
-        }),
       }),
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      teamId: "team-a",
-      account: {
-        id: "apikey:openai-apikey:work",
-        kind: "openai-apikey",
-        label: "work",
-      },
-    });
     expect(calls[0]?.headers.get("authorization")).toBe("Bearer cookie-access");
-    expect(calls[1]?.body).toEqual({
-      provider: "openai-apikey",
-      label: "work",
-      apiKey: "sk-test",
-    });
+    expect(calls[1]?.url.pathname).toBe("/_subrouter/leases");
   });
 
   test("forwards the authoritative refreshed native Stack token", async () => {
@@ -397,8 +356,8 @@ describe("hosted Subrouter account routes", () => {
       refreshToken: "refreshed-refresh",
     };
 
-    const response = await accountsRoute.GET(
-      request("/api/subrouter/accounts"),
+    const response = await leasesRoute.POST(
+      leaseRequest("/api/subrouter/leases"),
     );
 
     expect(response.status).toBe(200);
@@ -416,8 +375,8 @@ describe("hosted Subrouter account routes", () => {
   test("maps a Stack token refresh outage to service unavailable", async () => {
     authJsonError = new Error("Stack refresh unavailable");
 
-    const response = await accountsRoute.GET(
-      request("/api/subrouter/accounts"),
+    const response = await leasesRoute.POST(
+      leaseRequest("/api/subrouter/leases"),
     );
 
     expect(response.status).toBe(503);
@@ -425,52 +384,11 @@ describe("hosted Subrouter account routes", () => {
     expect(calls).toHaveLength(0);
   });
 
-  test("strips unknown account fields returned by the Go service", async () => {
-    listedAccounts = [{
-      id: "alice@example.com",
-      provider: "codex",
-      auth_mode: "oauth",
-      email: "alice@example.com",
-      label: "Alice work",
-      created_at: "2026-08-03T00:00:00Z",
-      health: { ok: false, message: "upstream detail must not leak" },
-      refreshToken: "must-not-leak",
-      nested: { accessToken: "must-not-leak" },
-    }];
-
-    const response = await accountsRoute.GET(request("/api/subrouter/accounts", { headers: { "x-cmux-view-open": "1" } }));
-    const text = await response.text();
-
-    expect(response.status).toBe(200);
-    expect(JSON.parse(text)).toEqual({
-      teamId: "team-a",
-      accounts: [{
-        id: "alice@example.com",
-        kind: "codex",
-        label: "Alice work",
-        createdAt: "2026-08-03T00:00:00Z",
-        health: { ok: false },
-      }],
-    });
-    expect(text).not.toContain("must-not-leak");
-    expect(text).not.toContain("upstream detail must not leak");
-    expect(text).not.toContain(tenantKey);
-    expect(captureCoderouterEvent).toHaveBeenCalledWith({
-      event: "coderouter_account_status_viewed",
-      teamId: "team-a",
-      properties: {
-        source: "legacy_dashboard",
-        account_count: 1,
-        account_error_count: 0,
-      },
-    });
-  });
-
   test("maps internal tenant-key authentication failures to an upstream error", async () => {
-    accountListStatus = 401;
+    tenantRequestStatus = 401;
 
-    const response = await accountsRoute.GET(
-      request("/api/subrouter/accounts"),
+    const response = await leasesRoute.POST(
+      leaseRequest("/api/subrouter/leases"),
     );
 
     expect(response.status).toBe(502);
@@ -482,8 +400,8 @@ describe("hosted Subrouter account routes", () => {
   test("preserves caller authentication failures from the Stack exchange", async () => {
     exchangeStatus = 401;
 
-    const response = await accountsRoute.GET(
-      request("/api/subrouter/accounts"),
+    const response = await leasesRoute.POST(
+      leaseRequest("/api/subrouter/leases"),
     );
 
     expect(response.status).toBe(401);
@@ -493,20 +411,21 @@ describe("hosted Subrouter account routes", () => {
   });
 
   test("validates and bounds uploads before forwarding provider secrets", async () => {
-    const invalid = await accountsRoute.POST(
-      request("/api/subrouter/accounts", {
+    const invalid = await repairRoute.POST(
+      request("/api/subrouter/accounts/work/repair", {
         method: "POST",
         body: JSON.stringify({
           provider: "anthropic-apikey",
           apiKey: "wrong-prefix",
         }),
       }),
+      { params: Promise.resolve({ accountId: "work" }) },
     );
     expect(invalid.status).toBe(400);
     expect(calls).toHaveLength(0);
 
-    const oversized = await accountsRoute.POST(
-      request("/api/subrouter/accounts", {
+    const oversized = await repairRoute.POST(
+      request("/api/subrouter/accounts/work/repair", {
         method: "POST",
         body: JSON.stringify({
           provider: "openai-apikey",
@@ -514,14 +433,15 @@ describe("hosted Subrouter account routes", () => {
           padding: "x".repeat(70 * 1024),
         }),
       }),
+      { params: Promise.resolve({ accountId: "work" }) },
     );
     expect(oversized.status).toBe(413);
     expect(calls).toHaveLength(0);
   });
 
   test("keeps only supported Codex token fields before upload", async () => {
-    const response = await accountsRoute.POST(
-      request("/api/subrouter/accounts", {
+    const response = await repairRoute.POST(
+      request("/api/subrouter/accounts/Alice/repair", {
         method: "POST",
         body: JSON.stringify({
           provider: "codex",
@@ -535,6 +455,7 @@ describe("hosted Subrouter account routes", () => {
           },
         }),
       }),
+      { params: Promise.resolve({ accountId: "Alice" }) },
     );
 
     expect(response.status).toBe(200);
@@ -547,6 +468,7 @@ describe("hosted Subrouter account routes", () => {
         idToken: "id",
         accountID: "account",
       },
+      targetAccountID: "Alice",
     });
     expect(captureCoderouterEvent).toHaveBeenCalledWith({
       event: "coderouter_account_added",
@@ -555,30 +477,12 @@ describe("hosted Subrouter account routes", () => {
       properties: {
         provider: "codex",
         source: "legacy_dashboard",
-        already_exists: false,
+        already_exists: true,
       },
     });
   });
 
-  test("deletes and repairs only the requested tenant account", async () => {
-    const deleted = await accountRoute.DELETE(
-      request("/api/subrouter/accounts/old%40example.com", { method: "DELETE" }),
-      { params: Promise.resolve({ accountId: "old@example.com" }) },
-    );
-    expect(deleted.status).toBe(200);
-    expect(calls[1]?.url.pathname).toBe(
-      "/_subrouter/accounts/old%40example.com",
-    );
-    expect(calls[1]?.headers.get("authorization")).toBe(`Bearer ${tenantKey}`);
-    expect(calls[1]?.url.href).not.toContain(tenantKey);
-    expect(captureCoderouterEvent).toHaveBeenCalledWith({
-      event: "coderouter_account_removed",
-      userId: "user-1",
-      teamId: "team-a",
-      properties: { source: "legacy_dashboard" },
-    });
-
-    calls = [];
+  test("repairs only the requested tenant account", async () => {
     const repaired = await repairRoute.POST(
       request("/api/subrouter/accounts/apikey%3Aopenai-apikey%3Awork/repair", {
         method: "POST",
@@ -823,6 +727,14 @@ function request(path: string, init: TestRequestInit = {}): Request {
   });
 }
 
+function leaseRequest(path: string, init: TestRequestInit = {}): Request {
+  return request(path, {
+    ...init,
+    method: "POST",
+    body: JSON.stringify({ provider: "codex", sessionId: "session-1" }),
+  });
+}
+
 function stackUser() {
   return {
     hasPermission: async () => true,
@@ -868,19 +780,6 @@ async function hostedFetch(
   if (
     url.pathname === "/_subrouter/accounts" &&
     headers.get("authorization") === `Bearer ${tenantKey}` &&
-    method === "GET"
-  ) {
-    if (accountListStatus !== 200) {
-      return Response.json(
-        { error: "tenant credential rejected" },
-        { status: accountListStatus },
-      );
-    }
-    return Response.json(listedAccounts);
-  }
-  if (
-    url.pathname === "/_subrouter/accounts" &&
-    headers.get("authorization") === `Bearer ${tenantKey}` &&
     method === "POST"
   ) {
     const upload = body as { provider: string; label?: string };
@@ -901,6 +800,12 @@ async function hostedFetch(
     headers.get("authorization") === `Bearer ${tenantKey}` &&
     method === "POST"
   ) {
+    if (tenantRequestStatus !== 200) {
+      return Response.json(
+        { error: "tenant credential rejected" },
+        { status: tenantRequestStatus },
+      );
+    }
     return Response.json({
       teamId: "team-a",
       lease: {
@@ -920,13 +825,6 @@ async function hostedFetch(
     url.pathname === "/_subrouter/leases/lease-1/events" &&
     headers.get("authorization") === `Bearer ${tenantKey}` &&
     method === "POST"
-  ) {
-    return new Response(null, { status: 204 });
-  }
-  if (
-    url.pathname.startsWith("/_subrouter/accounts/") &&
-    headers.get("authorization") === `Bearer ${tenantKey}` &&
-    method === "DELETE"
   ) {
     return new Response(null, { status: 204 });
   }
