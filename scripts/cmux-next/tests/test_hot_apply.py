@@ -323,7 +323,9 @@ class HotApplyRust(unittest.TestCase):
             return real(argv, **kwargs)
         hot.subprocess.run = run
         self.assertEqual(hot.app_commit(self.app, clone), self.base)
-        self.assertEqual(fetched[0][-2:], ["origin", "feat-cmux-next"])
+        # The clone has no origin, so the fetch names the repo's URL and lands the branch in BASE_REF.
+        self.assertEqual(fetched[0][-2:], [hot.fetch_remote(clone), "+refs/heads/feat-cmux-next:" + hot.BASE_REF])
+        self.assertEqual(hot.fetch_remote(clone), "https://github.com/manaflow-ai/cmux.git")
 
     def test_a_rollback_that_fails_can_be_tried_again(self):
         code, receipt, err = self.hot("apply", FIX, "--app", str(self.app))
