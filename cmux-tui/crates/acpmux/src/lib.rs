@@ -49,6 +49,7 @@ pub mod chatgpt;
 pub mod chats;
 pub mod claude_auth;
 mod claude_cloud_auth;
+pub mod claude_inbox_relay;
 pub mod claude_peers;
 pub mod claude_stdio;
 pub mod cli;
