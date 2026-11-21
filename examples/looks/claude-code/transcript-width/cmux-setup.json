@@ -7,7 +7,7 @@
   "license": "MIT",
   "cmuxProfile": 1,
   "settings": {
-    "agentPane.display.width": "narrow",
+    "agentPane.display.width": 640,
     "agentPane.display.fullWidth": false,
     "agentPane.display.transcriptView": "normal"
   }
