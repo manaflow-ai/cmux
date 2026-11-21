@@ -12,7 +12,7 @@
 // to run) are for its CLI and logs: the composer never shows them, only its Details disclosure does.
 import type { Translate } from "./i18n";
 import { NativeError } from "./nativeError";
-import { knownRefusalText } from "./transportErrors";
+import { knownRefusalText, refusalDetail } from "./transportErrors";
 
 /// acpmux's reasons for a request that failed because the chat's machine is not reachable now
 /// (`peer_link.rs` `unreachable_error`, `peer.rs` `fail_link_requests`). The daemon keeps
@@ -122,6 +122,10 @@ export function hostLineText(error: unknown, message: string, t: Translate, mach
     // a localized line; other coded native errors (a protocol failure's `native.invalid_request`) keep
     // their raw text, so they go behind Details.
     (error instanceof NativeError && error.code === "host_unavailable" && error.message === raw);
-  if (written && !isRawDaemonText(raw)) return { line: raw };
+  if (written && !isRawDaemonText(raw)) {
+    // A refusal the line names keeps the host's own reason behind Details (`unknown param "_meta"`).
+    const detail = refusalDetail(error);
+    return detail ? { line: raw, detail } : { line: raw };
+  }
   return { line: t("host.unavailable"), detail: raw };
 }

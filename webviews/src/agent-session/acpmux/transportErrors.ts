@@ -59,6 +59,10 @@ const DAEMON_REASON_TEXT: Record<string, StringKey> = {
 const INTENT_INVALID_TEXT: Record<string, StringKey> = {
   // Only the chat's own open: `_acpmux/watch` (the session list) and `_acpmux/events` (an older
   // page) are no chat the person opened, and keep the generic line.
+  // The chat's connection itself: a refused handshake leaves the chat unable to load or send
+  // (2026-11-21: the app's relay refused every chat's `initialize` for its `_meta`, and each chat
+  // said only "Something went wrong, so that didn't go through.").
+  initialize: "transport.intentInvalidConnect",
   "_acpmux/attach": "transport.intentInvalidOpen",
   "session/new": "transport.intentInvalidStart",
   "session/load": "transport.intentInvalidStart",
@@ -74,6 +78,17 @@ function intentInvalidKey(error: unknown, fallback: StringKey): StringKey {
   return typeof method === "string" && Object.hasOwn(INTENT_INVALID_TEXT, method)
     ? INTENT_INVALID_TEXT[method]!
     : fallback;
+}
+
+/// The host's own words for a malformed-request refusal it names (`data.detail`, AcpmuxPaneMethods
+/// `refusal`: the relay's rule, `unknown param "_meta"`), with the method it refused: what a line
+/// that names the refusal keeps behind its Details, so the failure keeps its reason.
+export function refusalDetail(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  if (refusalCode(error) !== "transport.intent_invalid") return undefined;
+  const { method, detail } = error as { method?: unknown; detail?: unknown };
+  if (typeof detail !== "string" || !detail.trim()) return undefined;
+  return typeof method === "string" && method ? `${method}: ${detail.trim()}` : detail.trim();
 }
 
 /// The text to show for `error`: a transport refusal's own text (a code without one reads as the

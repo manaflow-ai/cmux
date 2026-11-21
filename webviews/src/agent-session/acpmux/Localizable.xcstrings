@@ -150435,6 +150435,138 @@
         }
       }
     },
+    "transport.intentInvalidConnect": {
+      "comment": "Agent pane: the app refused the request that connects a chat to the agent service (initialize; a cmux bug), so the chat can't load or send",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "منع cmux اتصال هذه المحادثة، لذا لا يمكن تحميلها أو الإرسال منها. هذا خطأ في cmux وليس شيئًا فعلته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux je blokirao povezivanje ovog chata, pa se ne može učitati niti slati. To je greška u cmuxu, a ne nešto što ste vi uradili."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux blokerede forbindelsen til denne chat, så den kan ikke indlæses eller sende. Det er en fejl i cmux, ikke noget du har gjort."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux hat die Verbindung dieses Chats blockiert, daher kann er weder laden noch senden. Das ist ein Fehler in cmux, nicht etwas, das du getan hast."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux blocked connecting this chat, so it can’t load or send. That’s a bug in cmux, not something you did."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux bloqueó la conexión de este chat, así que no puede cargarse ni enviar. Es un error de cmux, no algo que hayas hecho."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux a bloqué la connexion de ce chat, il ne peut donc ni se charger ni envoyer. C’est un bug de cmux, pas une erreur de votre part."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ha bloccato la connessione di questa chat, quindi non può caricarsi né inviare. È un bug di cmux, non qualcosa che hai fatto tu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux がこのチャットの接続をブロックしたため、読み込みも送信もできません。これは cmux の不具合で、あなたの操作によるものではありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux បានរារាំងការភ្ជាប់ការជជែកនេះ ដូច្នេះវាមិនអាចផ្ទុក ឬផ្ញើបានទេ។ នេះជាកំហុសរបស់ cmux មិនមែនអ្វីដែលអ្នកបានធ្វើទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 이 채팅의 연결을 막아 불러오거나 보낼 수 없습니다. 사용자의 잘못이 아니라 cmux의 버그입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux blokkerte tilkoblingen til denne chatten, så den kan ikke lastes inn eller sende. Det er en feil i cmux, ikke noe du har gjort."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux zablokował połączenie tego czatu, więc nie może się wczytać ani wysyłać. To błąd w cmux, a nie coś, co zrobiłeś."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux bloqueou a conexão deste chat, então ele não carrega nem envia. É um bug do cmux, não algo que você fez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux заблокировал подключение этого чата, поэтому он не может загрузиться или отправлять сообщения. Это ошибка cmux, а не ваши действия."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux บล็อกการเชื่อมต่อของแชตนี้ จึงโหลดหรือส่งไม่ได้ นี่เป็นบั๊กของ cmux ไม่ใช่สิ่งที่คุณทำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux bu sohbetin bağlantısını engelledi, bu yüzden yüklenemiyor ve gönderemiyor. Bu sizin yaptığınız bir şey değil, cmux’taki bir hata."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux заблокував підключення цього чату, тож він не може завантажитися чи надсилати повідомлення. Це помилка cmux, а не ваші дії."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux đã chặn kết nối của cuộc trò chuyện này nên không thể tải hoặc gửi. Đây là lỗi của cmux, không phải do bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 阻止了此聊天的连接，因此无法加载或发送。这是 cmux 的错误，不是你的操作导致的。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 阻止了此聊天的連線，因此無法載入或傳送。這是 cmux 的錯誤，不是你的操作造成的。"
+          }
+        }
+      }
+    },
     "transport.intentInvalidOpen": {
       "comment": "Agent pane: the app refused the request that opens a chat (a cmux bug); may follow 'Couldn't start <agent>:'",
       "extractionState": "manual",

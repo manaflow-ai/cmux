@@ -70,10 +70,17 @@ export function failedSendText(
       return translate("prompt.failure.trustPending");
     case "trust-untrusted":
       return translate("prompt.failure.trustUntrusted");
-    case "pane":
+    case "pane": {
       // The pane's bug, not the person's: logged for its report, as errorMessage logs it.
       console.error("agent pane: the host refused a request", error);
+      // A send that failed because the chat's connection was refused says that, not "Try again":
+      // the same refused handshake comes back on every Retry.
+      if ((fields as { method?: unknown } | undefined)?.method === "initialize")
+        return translate(retried ? "prompt.stillNotSent" : "prompt.notSent", {
+          reason: translate("transport.intentInvalidConnect"),
+        });
       return translate(retried ? "prompt.failure.paneAgain" : "prompt.failure.pane");
+    }
     case "too-large":
       return tooLargeText(attachments);
     case "host-away":
