@@ -1,5 +1,5 @@
 //! `acpmux session move SESSION... --host PEER|auto [--interrupt] [--leave-dirty] [--dry-run]`
-//! (or `--all-idle` for every idle chat here): moves chats from this machine's daemon to an ssh
+//! (or `--all-idle` for every idle chat here): moves chats from this machine's daemon to a
 //! peer's, with their history, queue and draft, and their folder made there.
 //!
 //! For each chat, in order, stopping at the first step that fails (nothing after it is done):
@@ -124,7 +124,9 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
         }
         Some(from) => {
             let ssh = peer_ssh(&peers, from).ok_or_else(|| {
-                anyhow!("{from} is not an ssh peer of this daemon (`acpmux machine ls`)")
+                anyhow!(
+                    "{from} is not a peer of this daemon reachable over ssh (`acpmux machine ls`)"
+                )
             })?;
             if names_here(from, &here) {
                 bail!("--from {from} is this machine: leave --from out");
@@ -650,16 +652,29 @@ fn local_daemon() -> Result<RemoteDaemon> {
     })
 }
 
-/// The ssh destination of the peer `name` in a `_acpmux/peers` answer.
+/// The ssh destination of the peer `name` in a `_acpmux/peers` answer ([`move_ssh`]).
 fn peer_ssh(peers: &Value, name: &str) -> Option<String> {
     peers.get("peers").and_then(Value::as_array).into_iter().flatten().find_map(|p| {
         let n = p.get("name").and_then(Value::as_str)?;
         if !n.eq_ignore_ascii_case(name) {
             return None;
         }
-        let url = p.get("url").and_then(Value::as_str)?;
-        crate::peer::ssh_target(url).ok().map(|t| t.destination)
+        move_ssh(p)
     })
+}
+
+/// How a move reaches the peer `p` (one `_acpmux/peers` row) over ssh: its `ssh://` url's
+/// destination, else, for a peer linked another way (the team hub), its name as this machine's
+/// ssh config knows it. Fleet lane VMs are hub peers of every machine and ssh hosts of the
+/// fleet's origins by the same name; a name ssh cannot reach fails the move's first ssh
+/// (`about`) with ssh's own error, before anything is frozen.
+pub(super) fn move_ssh(p: &Value) -> Option<String> {
+    let url = p.get("url").and_then(Value::as_str).unwrap_or_default();
+    if url.starts_with("ssh://") {
+        return crate::peer::ssh_target(url).ok().map(|t| t.destination);
+    }
+    let name = p.get("name").and_then(Value::as_str)?;
+    crate::peer::ssh_target(&format!("ssh://{name}")).ok().map(|t| t.destination)
 }
 
 fn sub_text(subdir: &str) -> String {
@@ -872,10 +887,8 @@ impl Targets {
             .flatten()
             .filter_map(|p| {
                 let name = p.get("name").and_then(Value::as_str)?;
-                let url = p.get("url").and_then(Value::as_str)?;
-                let t = crate::peer::ssh_target(url).ok()?;
                 // The daemon's own socket is reached as the ssh login, not another user.
-                Some((name.to_owned(), t.destination))
+                Some((name.to_owned(), move_ssh(p)?))
             })
             .collect();
         if let Some(t) = here {
@@ -892,7 +905,7 @@ impl Targets {
         if let Some(n) = &named
             && !peers.iter().any(|(p, _)| p.eq_ignore_ascii_case(n))
         {
-            bail!("{n} is not an ssh peer of this daemon (`acpmux machine ls`)");
+            bail!("{n} is not a peer of this daemon reachable over ssh (`acpmux machine ls`)");
         }
         Ok(Self {
             here: None,
@@ -932,7 +945,9 @@ impl Targets {
         let held = |name: &str| crate::placement::held(registry.as_ref(), name);
         let target = match &self.named {
             Some(n) => {
-                let t = self.target(n).ok_or_else(|| anyhow!("{n} is not an ssh peer"))?;
+                let t = self
+                    .target(n)
+                    .ok_or_else(|| anyhow!("{n} is not a peer reachable over ssh"))?;
                 if let Some(why) = held(&t.name) {
                     bail!("{} is not a target now: {why}", t.name);
                 }
@@ -941,7 +956,7 @@ impl Targets {
             None => {
                 let (order, mut skipped) = ranked(&hosts, &self.placed, |n| {
                     if self.target(n).is_none() {
-                        return Some("not an ssh peer of this daemon".to_owned());
+                        return Some("not a peer of this daemon reachable over ssh".to_owned());
                     }
                     held(n)
                 });
