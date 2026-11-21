@@ -36,9 +36,11 @@ env:
   # `workflows:` spells a display name; this is the file behind it (tests/test_ci_workflow_run_sources.py).
   SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-next-pr-autofix.yml
 
+# One push at a time per branch; a running push is never cut short (a newer repair run queues behind it and
+# finds the head moved).
 concurrency:
   group: cmux-next-pr-autofix-push-${{ github.event.workflow_run.head_branch }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   push:
@@ -46,6 +48,7 @@ jobs:
     if: >-
       github.repository == 'manaflow-ai/cmux'
       && vars.CMUX_PR_AUTOFIX_PUSH != '0'
+      && github.event.workflow_run.path == '.github/workflows/cmux-next-pr-autofix.yml'
       && github.event.workflow_run.event == 'pull_request'
       && github.event.workflow_run.conclusion == 'success'
       && github.event.workflow_run.head_repository.full_name == github.repository
