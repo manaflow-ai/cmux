@@ -39,7 +39,23 @@ pub enum ProcessCmd {
         /// Only this chat's processes (a session name or id).
         #[arg(long)]
         session: Option<String>,
+        /// Only the ones still running.
+        #[arg(long)]
+        running: bool,
     },
+    /// Which agent session owns each process on this machine (by pid), read from the
+    /// process's own environment: yours, a background task's, another live session's, left
+    /// behind by an agent host that ended, or not an agent's; and the next step for each.
+    #[command(alias = "who")]
+    Owner {
+        /// The pids.
+        #[arg(required = true)]
+        pids: Vec<u32>,
+    },
+    /// Every process an ended agent host left running on this machine (nothing will end it),
+    /// with its session; `kill --pid` ends one.
+    #[command(name = "left-behind", alias = "orphans")]
+    LeftBehind,
     /// Everything a background process printed, with its command, folder,
     /// start and end. Also `tail`.
     #[command(alias = "tail")]
@@ -60,7 +76,13 @@ pub enum ProcessCmd {
     #[command(alias = "stop")]
     Kill {
         /// The process id from `process list`.
-        process: String,
+        #[arg(required_unless_present = "pid", conflicts_with = "pid")]
+        process: Option<String>,
+        /// Instead: a pid. Ended only when `process owner` says it is yours or left behind by
+        /// an ended agent host, with what runs under it (SIGTERM, then SIGKILL after 5 s), and
+        /// logged in `<acpmux home>/process-kills.jsonl`; any other owner is refused.
+        #[arg(long)]
+        pid: Option<u32>,
     },
     /// Inside an agent chat: run COMMAND as a background task the daemon owns
     /// (`bg_start`), which keeps running while the agent hibernates; prints
@@ -126,10 +148,23 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
         let outcome = start_task(&start, &env).await;
         return finish_start(&start, outcome, hook_denied.zip(hook_key), json_out);
     }
+    // Read from the processes themselves: no daemon needed, and none started.
+    match &cmd {
+        ProcessCmd::Owner { pids } => {
+            return crate::cli::process_owner::owner(pids, json_out).await;
+        }
+        ProcessCmd::LeftBehind => {
+            return crate::cli::process_owner::list_left_behind(json_out).await;
+        }
+        ProcessCmd::Kill { pid: Some(pid), .. } => {
+            return crate::cli::process_owner::kill_pid(*pid, json_out).await;
+        }
+        _ => {}
+    }
     // Never starts a daemon: a process lives in the daemon that started it.
     let client = crate::daemon::connect(false).await?;
     match cmd {
-        ProcessCmd::List { session } => {
+        ProcessCmd::List { session, running } => {
             // A chat's list is read whole, page by page. Every chat's at once cannot page: the
             // daemon sends the newest that fit one reply, and how many older it left out.
             let (v, omitted) = match session.as_deref() {
@@ -139,6 +174,11 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
                     let omitted = reply.get("omitted").and_then(Value::as_u64).unwrap_or(0);
                     (rows(&reply), omitted)
                 }
+            };
+            let v: Vec<Value> = if running {
+                v.into_iter().filter(|p| p.get_str("state") == Some("running")).collect()
+            } else {
+                v
             };
             if json_out {
                 let mut out = json!({"processes": v});
@@ -162,7 +202,8 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
             }
             Ok(())
         }
-        ProcessCmd::Kill { process } => {
+        ProcessCmd::Kill { process, .. } => {
+            let process = process.ok_or_else(|| anyhow!("name a process id or --pid"))?;
             client.request(method::MUX_PROCESS_KILL, json!({"processId": process})).await?;
             if json_out {
                 print_json(&json!({"ok": true}));
@@ -186,6 +227,9 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
         }
         // Answered above, on the chat's own daemon.
         ProcessCmd::Start { .. } => Err(anyhow!("process start runs before any other connection")),
+        ProcessCmd::Owner { .. } | ProcessCmd::LeftBehind => {
+            Err(anyhow!("answered without the daemon"))
+        }
         ProcessCmd::Show { process, session, tool_call, follow } => {
             if process.is_none() && tool_call.is_none() {
                 return Err(anyhow!("name a process id, or --session and --tool-call"));
