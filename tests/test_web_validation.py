@@ -253,17 +253,18 @@ class WebValidationTests(unittest.TestCase):
         start = workflow.index("  react-apps-check-shard:")
         match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3 :])
         block = workflow[start:] if match is None else workflow[start : start + 3 + match.start()]
-        shards = [int(n) for n in re.findall(r"^          - shard: (\d+)$", block, re.MULTILINE)]
-        counts = set(re.findall(r"^            shard_count: (\d+)$", block, re.MULTILINE))
-        self.assertEqual(len(shards), 12)
+        # The matrix is web-subarea-scope's pick (webviews_pr_shards.py): all REACT_APPS_SHARDS on a push, shard 1
+        # and the shards holding a touched test on a pull request.
+        self.assertIn("include: ${{ fromJSON(needs.web-subarea-scope.outputs.react_shards) }}", block)
+        scope = workflow[workflow.index("  web-subarea-scope:"):workflow.index("  web-typecheck:")]
+        self.assertEqual(int(re.search(r'^          REACT_APPS_SHARDS: "(\d+)"$', scope, re.MULTILINE).group(1)), 12)
+        self.assertIn("react_shards: ${{ steps.react-shards.outputs.matrix }}", scope)
         self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_4 }}", block)
-        self.assertEqual(shards, list(range(1, len(shards) + 1)))
-        self.assertEqual(counts, {str(len(shards))})
         base_start = workflow.index("  react-apps-base-check:")
         base_match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[base_start + 3 :])
         base = workflow[base_start:] if base_match is None else workflow[base_start : base_start + 3 + base_match.start()]
         self.assertNotIn("strategy:", base)
-        self.assertIn(f'HEAD_SHARDS: "{len(shards)}"', base)
+        self.assertIn("HEAD_SHARDS: ${{ needs.web-subarea-scope.outputs.react_shards }}", base)
         self.assertIn("pattern: react-apps-head-results-shard*", base)
         for step in ("Generated bundle merge driver", "Check diff viewer eager JS budget",
                      "Verify React Compiler for webviews", "Check webviews (Oxlint, Oxfmt, type check)",
@@ -283,8 +284,17 @@ class WebValidationTests(unittest.TestCase):
             body = block[block.index(f"- name: {name}\n"):]
             return body[: body.index("\n      - name:", 1)] if "\n      - name:" in body[1:] else body
         self.assertIn("id: engines", step("Install headless engines"))
-        self.assertIn("if: ${{ !cancelled() && steps.engines.outcome != 'failure' }}", step("Test webviews"))
+        self.assertIn("${{ !cancelled() && steps.engines.outcome != 'failure' && ", step("Test webviews"))
         self.assertIn("steps.webview-tests.outcome != 'skipped'", step("Upload head webview results"))
+        # A pull request's shard whose gate check failed is red whatever its tests say: it skips them (11-21:
+        # 50 of 52 shard 1 jobs red on one gate, then 40 min of tests). A push still runs every test.
+        tests = " ".join(step("Test webviews").split())
+        self.assertIn("!(github.event_name == 'pull_request' && (", tests)
+        for gate_id in ("source-build", "bundles", "merge-driver", "post-edit-format", "webviews-check",
+                        "pr-scoped-rules"):
+            with self.subTest(gate=gate_id):
+                self.assertIn(f"steps.{gate_id}.outcome == 'failure'", tests)
+                self.assertIn(f"id: {gate_id}", block)
         gate = step("Fail on the gate checks")
         self.assertIn("ENGINES: ${{ steps.engines.outcome }}", gate)
         self.assertIn('"ENGINES|Install headless engines"', gate)

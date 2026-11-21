@@ -585,7 +585,7 @@ def hot_keys(repo: Path, sha: str, web: str | None = None) -> dict:
         blobs[path] = meta.split()[2]
     files = live_apply.classify([("M", p) for p in blobs], {})["files"]
     # cmux-tui's own native sources (a shim, the Zig binding) are daemon in live_apply.py: the tree build compiles them.
-    shell = files.get("rebuild", []) + files.get("swift-live", [])
+    shell = files.get("rebuild", []) + files.get("swift-live", []) + files.get("strings", [])
     daemon = files.get("daemon", [])
     abi = json.loads(git(repo, "show", f"{sha}:webviews/src/web-abi.json"))["abi"]
     return {"schema": HOT_KEYS_SCHEMA, "commit": sha, "tree_key": _tree_key(repo, sha),
@@ -786,7 +786,7 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
         out["fork"] = fork
     result = live_apply.classify_range(str(repo), since, sha)
     files = result["files"]
-    for kind in ("swift-live", "rebuild"):
+    for kind in ("swift-live", "rebuild", "strings"):
         if files.get(kind):
             out["left"][kind] = files[kind]
     web = files.get("web-live", [])
