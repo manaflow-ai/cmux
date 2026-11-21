@@ -23,6 +23,9 @@ extension CmuxConfigSnapshot {
     /// `customize.fromTheApp`: Opt-in Customize surfaces in the window: holding Option over a big part shows the Customize Inspector (its settings, theme colors, Change This… and Reset), and the right-click menus of those parts end with Customize…. Off by default; off hides both, and nothing else changes. Leo 2026-11-15 (ask-9634dbcdac): opt-in UI needs a way back, which is turning this off.
     public nonisolated static let customizeFromTheAppPath = ["customize", "fromTheApp"]
     public nonisolated static let customizeFromTheAppDefault = false
+    /// `labs.hostsSidebar`: A Hosts section in the sidebar. It projects the Machines page catalog, including Add Host and per-machine terminal actions. Off by default until the sidebar surface is ready.
+    public nonisolated static let hostsSidebarPath = ["labs", "hostsSidebar"]
+    public nonisolated static let hostsSidebarDefault = false
     /// `labs.agentCustomization`: Opt-in Claude Code and Codex customization (cmux-agent-customize, `cmux agent-config`): Settings > MCP Servers shows and edits the MCP servers the person gave Claude Code (~/.claude.json, .mcp.json) and Codex (~/.codex/config.toml, .codex/config.toml, plugins) in those agents own files. Off by default; off shows only cmux own servers, as before. Leo 2026-11-19: "when I say Claude Code, when I say Codex [...] I need you guys to be, like, doing the thing."
     public nonisolated static let agentCustomizationPath = ["labs", "agentCustomization"]
     public nonisolated static let agentCustomizationDefault = false
@@ -103,6 +106,16 @@ nonisolated enum LabsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.customizeFromTheAppDefault),
                 keywords: ["customize", "inspector", "option", "hover", "right-click", "theme", "labs"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.hostsSidebarPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.hostsSidebar", "Hosts Sidebar"),
+                help: SettingsText.keyed("settings.labs.hostsSidebar.help", "Shows your machines in the sidebar with Add Host and per-host terminal actions."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.hostsSidebarDefault),
+                keywords: ["labs", "hosts", "sidebar", "machines", "remote", "add", "terminal"]
             ),
             SettingDescriptor(
                 CmuxConfigSnapshot.agentCustomizationPath,
