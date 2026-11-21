@@ -1325,14 +1325,13 @@ jobs:
       # newer feat-cmux-next tips of the key deferred to them). So, with the
       # marker in place, look once more. An owner that ended unpublished is
       # taken over through the claim, as in the wait step. An owner whose
-      # hand-off already started may have missed the marker: give the
-      # hand-off job its run time once, then look once more and decide. Any
-      # other live owner sees the marker.
+      # hand-off already started may have missed the marker: wait (bounded)
+      # for it to end, then decide. Any other live owner sees the marker.
       #
-      # No poll: the CDN is read first (no API call), and the owner run at
-      # most twice. Until 2026-11-21 a hand-off held this step in a 15 s loop
-      # of up to 12 owner reads on the routing App installation's budget
-      # (164690637), which runner placement needs.
+      # The CDN is read first (no API call) and before each owner read; the
+      # owner run is read at most 5 times. Until 2026-11-21 a hand-off held
+      # this step in a 15 s loop of up to 13 owner reads on the routing App
+      # installation's budget (164690637), which runner placement needs.
       - name: Re-check the owner after leaving the marker
         id: recheck
         if: steps.wait.outputs.deferred == 'true'
@@ -1366,11 +1365,16 @@ jobs:
           fi
           if [[ "$state" != completed && "$state" != unread ]] &&
               api "actions/runs/$OWNER_RUN_ID/jobs?per_page=100" | python3 -c 'import json,sys; sys.exit(0 if any(j.get("name") == "report an unpublished cmux-tui tree to cmux-next" and j.get("status") in ("in_progress", "completed") for j in json.load(sys.stdin).get("jobs", [])) else 1)' 2>/dev/null; then
-            # The hand-off job (5-minute limit) lists the markers, re-runs one
-            # run and ends; the run ends with it. One look after it.
-            echo "Owner run $OWNER_RUN_ID is handing tree $KEY off; one more look in 150 s."
-            sleep 150
-            published || state="$(owner_state)"
+            # The hand-off job lists the markers, re-runs one run and ends;
+            # the run ends with it. Same 3-minute bound as before, a third of
+            # the owner reads, and none once the CDN shows the tree.
+            echo "Owner run $OWNER_RUN_ID is handing tree $KEY off; waiting (at most 4 looks, 45 s apart) for it to end."
+            for _ in 1 2 3 4; do
+              sleep 45
+              published && break
+              state="$(owner_state)"
+              [[ "$state" == completed ]] && break
+            done
           fi
           if published; then
             echo "Tree $KEY is published; nothing to build."
