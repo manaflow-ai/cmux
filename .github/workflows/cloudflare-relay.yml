@@ -63,8 +63,14 @@ jobs:
       - name: Set up pinned Rust toolchain
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # worker-build links openssl-sys; the persistent cmux-linux pool has no
+      # OpenSSL headers unless a job installs them.
       - name: Install pinned Rust toolchain and Worker builder
         run: |
+          if ! pkg-config --exists openssl 2>/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends libssl-dev pkg-config
+          fi
           rustup target add wasm32-unknown-unknown
           cargo install --locked worker-build@0.8.5
 

@@ -974,12 +974,7 @@ jobs:
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Java version
-        run: |
-          echo "JAVA_HOME_17_X64=$JAVA_HOME_17_X64"
-          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
-          export PATH="$JAVA_HOME_17_X64/bin:$PATH"
-          java -version
-          javac -version
+        uses: ./.github/actions/setup-jdk17
 
       - name: Build cmux-tui server
         working-directory: cmux-tui

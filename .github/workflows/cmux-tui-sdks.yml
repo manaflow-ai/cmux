@@ -242,16 +242,19 @@ jobs:
 
       - name: Select JDK 17
         if: matrix.language == 'java'
-        run: |
-          test -x "$JAVA_HOME_17_X64/bin/java"
-          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
-          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
-          "$JAVA_HOME_17_X64/bin/java" -version
-          "$JAVA_HOME_17_X64/bin/javac" -version
+        uses: ./.github/actions/setup-jdk17
 
+      # The persistent cmux-linux pool does not ship CMake; hosted images do.
       - name: Select Clang C++20
         if: matrix.language == 'cpp'
-        run: clang++ --version
+        run: |
+          set -euo pipefail
+          if ! command -v cmake >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends cmake
+          fi
+          clang++ --version
+          cmake --version
 
       - name: Set up Zig
         if: matrix.language == 'zig'
@@ -432,16 +435,19 @@ jobs:
 
       - name: Select JDK 17
         if: matrix.language == 'java'
-        run: |
-          test -x "$JAVA_HOME_17_X64/bin/java"
-          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
-          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
-          "$JAVA_HOME_17_X64/bin/java" -version
-          "$JAVA_HOME_17_X64/bin/javac" -version
+        uses: ./.github/actions/setup-jdk17
 
+      # The persistent cmux-linux pool does not ship CMake; hosted images do.
       - name: Select Clang C++20
         if: matrix.language == 'cpp'
-        run: clang++ --version
+        run: |
+          set -euo pipefail
+          if ! command -v cmake >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends cmake
+          fi
+          clang++ --version
+          cmake --version
 
       - name: Set up Zig
         if: matrix.language == 'zig'
@@ -549,8 +555,18 @@ jobs:
         with:
           persist-credentials: false
 
+      # The persistent cmux-linux pool may not ship rustup, or may keep it in
+      # ~/.cargo/bin off PATH; provision it like setup-cmux-tui-rust does.
       - name: Install Rust 1.88 MSRV toolchain
-        run: rustup toolchain install 1.88.0 --profile minimal --component clippy --component rustfmt
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.cargo/bin:$PATH"
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain none --no-modify-path
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          rustup toolchain install 1.88.0 --profile minimal --component clippy --component rustfmt
 
       # Before rust-cache: its cleanup must never reach a home a sibling runner builds from.
       - name: Give this runner instance its own CARGO_HOME
@@ -634,12 +650,7 @@ jobs:
           cache-dependency-path: cmux-tui/bindings/go/go.mod
 
       - name: Select JDK 17
-        run: |
-          test -x "$JAVA_HOME_17_X64/bin/java"
-          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
-          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
-          "$JAVA_HOME_17_X64/bin/java" -version
-          "$JAVA_HOME_17_X64/bin/javac" -version
+        uses: ./.github/actions/setup-jdk17
 
       - name: Set up Zig for Ghostty
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
