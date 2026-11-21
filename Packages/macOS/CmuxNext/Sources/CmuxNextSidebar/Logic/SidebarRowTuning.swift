@@ -64,7 +64,7 @@ public nonisolated struct SidebarRowTuning {
     /// The side every leading glyph's ink fills (``SidebarOpticalGlyph``).
     public static let glyphSize = ComputedTunable(
         "sidebarRows.glyphSize", section, "Glyph size",
-        help: "The size every leading glyph's ink fills along its larger side: Home's house, a pin, a globe, a favicon.",
+        help: "The size every leading glyph's ink fills along its larger side: Home's house, a pin, a globe. Favicons take Favicon size.",
         range: 8...28, code: "SidebarRowTuning.glyphSize") {
             // A tab's icon box at the sidebar's defaults (Compact density, standard text), grown with its text size and
             // density as the workspace favicon grows (Lucas 2026-11-13: Helium's 16 pt favicon beside 12 pt text).
@@ -79,6 +79,25 @@ public nonisolated struct SidebarRowTuning {
             let atDefaults = CGFloat.iconRowSize(forLabelPointSize: Typography.sidebarTitle.pointSize)
             let ink = Metrics.densityToken("sidebarGlyphInk") ?? Metrics.tabIconSize * 11 / 16
             return (ink * SidebarStyle.workspaceFaviconSide / max(1, atDefaults) * 2).rounded() / 2
+        }
+    /// The side a page favicon's ink fills (``SidebarStyle/rowFaviconOptics``).
+    public static let faviconSize = ComputedTunable(
+        "sidebarRows.faviconSize", section, "Favicon size",
+        help: "The size a page's favicon fills along its larger side, in workspace, pinned and link rows. A favicon is a full picture, so it fills the tab's icon box; the line glyphs (house, pin, globe) keep Glyph size.",
+        range: 8...28, code: "SidebarRowTuning.faviconSize") {
+            // A tab draws a favicon across its whole icon box (`Metrics.tabIconSize`) and a pack glyph's ink across 11 of
+            // its 16 points. The glyphs above take that 11/16 ink; a favicon fitted to it drew at 69% of its tab's size
+            // and read smaller than the pin, Home's house and the title beside it (https://github.com/manaflow-ai/cmux/issues/48586).
+            // So a favicon fills the tab's box, grown with the sidebar's text size as the glyphs grow: a row's favicon is
+            // its tab's (Lucas 2026-11-14, sidebar items and tabs match 1:1). A tuned glyph size, a density's own
+            // `sidebarGlyphInk`, and the compact densities (whose glyphs already fill the box) keep the glyph size.
+            guard glyphSize.tunable.override == nil, Metrics.densityToken("sidebarIconColumn") != nil,
+                  Metrics.densityToken("sidebarGlyphInk") == nil else { return glyphSize.value }
+            let atDefaults = CGFloat.iconRowSize(forLabelPointSize: Typography.sidebarTitle.pointSize)
+            let box = (Metrics.tabIconSize * SidebarStyle.workspaceFaviconSide / max(1, atDefaults) * 2).rounded() / 2
+            // Never wider than the icon column the rows lay out (`iconColumnBox`, not `iconColumn`'s grid floor, which a
+            // compact density's text-sized box can sit under), so the title keeps its one gap after it.
+            return max(glyphSize.value, min(box, SidebarStyle.iconColumnBox))
         }
     /// The leading icon column's width: a title after a glyph starts one gap after it.
     public static let iconColumn = ComputedTunable(
@@ -140,14 +159,14 @@ public nonisolated struct SidebarRowTuning {
 
     /// The numbers, in the tuner's order.
     static var computed: [ComputedTunable] {
-        [rowHeight, rowGap, outerInset, contentInset, cornerRadius, sectionGap, bandGap, glyphSize, iconColumn, glyphGap,
+        [rowHeight, rowGap, outerInset, contentInset, cornerRadius, sectionGap, bandGap, glyphSize, faviconSize, iconColumn, glyphGap,
          titleSize, headingSize, statusDot]
     }
 
     /// Every tunable, in the tuner's order (box, glyph, text, trailing).
     public static var all: [TunableDescriptor] {
         [rowHeight.descriptor, rowGap.descriptor, outerInset.descriptor, contentInset.descriptor, cornerRadius.descriptor,
-         sectionGap.descriptor, bandGap.descriptor, glyphSize.descriptor, iconColumn.descriptor, glyphGap.descriptor, glyphOpacity.descriptor,
+         sectionGap.descriptor, bandGap.descriptor, glyphSize.descriptor, faviconSize.descriptor, iconColumn.descriptor, glyphGap.descriptor, glyphOpacity.descriptor,
          titleSize.descriptor, titleWeight.descriptor, titleOpacity.descriptor, headingSize.descriptor,
          headingWeight.descriptor, statusDot.descriptor]
     }

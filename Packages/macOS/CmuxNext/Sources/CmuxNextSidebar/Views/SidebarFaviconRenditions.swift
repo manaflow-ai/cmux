@@ -67,6 +67,22 @@ import Observation
         return SidebarFaviconDrawing(image: image, treatment: treatment, pixels: pixels)
     }
 
+    /// `favicon` drawn at the side whose ink fills `optics.target` once fitted (`SidebarOpticalGlyph.frame`), so the fit
+    /// draws it at its own size and every bitmap pixel lands on one screen pixel (https://github.com/manaflow-ai/cmux/issues/48586:
+    /// crisp at every density and text size). The first drawing at `side` is measured (`SidebarGlyphInk`, keyed by
+    /// `inkKey` and the side); a favicon with a transparent margin draws again larger. Both drawings are kept.
+    func fittedDrawing(_ favicon: SidebarFavicon, side: CGFloat, target: CGFloat, scale: CGFloat, ground: Double,
+                       inkKey: (SidebarFaviconTreatment) -> String) -> SidebarFaviconDrawing {
+        let first = drawing(favicon, side: side, scale: scale, ground: ground)
+        guard target > 0, let ink = SidebarGlyphInk.shared.box(of: first.image, glyph: inkKey(first.treatment)) else { return first }
+        let extent = SidebarOpticalGlyph.fittedExtent(ink.size)
+        guard extent > 0 else { return first }
+        let pixelScale = max(1, scale)
+        let fitted = (side * target / extent * pixelScale).rounded() / pixelScale
+        guard abs(fitted - side) * pixelScale >= 0.5 else { return first }
+        return drawing(favicon, side: fitted, scale: scale, ground: ground)
+    }
+
     /// The WCAG relative luminance of a ground `color` (its alpha ignored: the ground is taken as opaque).
     static func groundLuminance(_ color: NSColor) -> Double {
         let ground = color.usingColorSpace(.sRGB) ?? .black
