@@ -181,9 +181,9 @@ function burst(socket: FakeAcpmux, chats: number, round: number): void {
   }
 }
 
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 test("while a chat scrolls, other chats' changes draw no page; they draw once when it rests", async () => {
+  const clock = manualClock();
+  resetPageScrollQuietForTests(clock);
   const { socket, client, snapshots } = await openPane();
   try {
     const before = snapshots();
@@ -192,11 +192,11 @@ test("while a chat scrolls, other chats' changes draw no page; they draw once wh
       pageScrollQuiet()!.scrolled();
       burst(socket, 3, step);
       flushFrames();
-      await wait(50);
+      clock.advance(50);
       flushFrames();
     }
     expect(snapshots() - before).toBe(0);
-    await wait(SCROLL_QUIET_MS + 100);
+    clock.advance(SCROLL_QUIET_MS + 100);
     flushFrames();
     expect(snapshots() - before).toBe(1);
   } finally {
@@ -205,6 +205,8 @@ test("while a chat scrolls, other chats' changes draw no page; they draw once wh
 });
 
 test("the scrolled page's own chat still draws while it scrolls", async () => {
+  const clock = manualClock();
+  resetPageScrollQuietForTests(clock);
   const { socket, client, snapshots } = await openPane();
   try {
     const before = snapshots();
@@ -218,7 +220,7 @@ test("the scrolled page's own chat still draws while it scrolls", async () => {
     });
     flushFrames();
     expect(snapshots() - before).toBe(1);
-    await wait(SCROLL_QUIET_MS + 100);
+    clock.advance(SCROLL_QUIET_MS + 100);
   } finally {
     client.close();
   }
