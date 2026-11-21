@@ -289,6 +289,23 @@ export function foldOffScreen(node: HTMLElement): boolean {
   return node.getBoundingClientRect().top > scroller.getBoundingClientRect().bottom;
 }
 
+/// How many pixels of a closing body's height its fade plays over (px): the band's last few.
+export const CLOSE_FADE_PX = 28;
+
+/// A close's keyframes, from the drawn `height` and `opacity` to shut. The body keeps its opacity
+/// until only the last `CLOSE_FADE_PX` of its height is left, then fades out with it ("Fade out,
+/// yes", Leo, 2026-10-24). On one curve with the height, the fade tracked the share of height left: a
+/// 300 px card was at 10% opacity with 30 px still to close, and the settle curve's long tail held
+/// that near-blank band under the closed row for most of the fold (the "ghost band", Leo's 05:30Z
+/// video at 0:42; test/command-close-no-ghost-band.test.ts). The effect's easing maps time to the
+/// keyframes' offsets, so an offset here is a share of the height's travel.
+export function closeKeyframes(height: number, opacity: number): Keyframe[] {
+  const fadeFrom = height > CLOSE_FADE_PX ? 1 - CLOSE_FADE_PX / height : 0;
+  const shut = { height: "0px", opacity: 0 };
+  if (fadeFrom <= 0) return [{ height: `${height}px`, opacity }, shut];
+  return [{ height: `${height}px`, opacity }, { opacity, offset: fadeFrom }, shut];
+}
+
 export type Fold = {
   /// Draw the body: while open, and while it closes.
   present: boolean;
@@ -401,10 +418,12 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
     // "sometimes ... there's, like, some elements in between"). It lets go when the fold ends.
     node.style.height = `${fromHeight}px`;
     const animation = node.animate(
-      [
-        { height: `${fromHeight}px`, opacity: fromOpacity },
-        { height: `${toHeight}px`, opacity: open ? 1 : 0 },
-      ],
+      open
+        ? [
+            { height: `${fromHeight}px`, opacity: fromOpacity },
+            { height: `${toHeight}px`, opacity: 1 },
+          ]
+        : closeKeyframes(fromHeight, fromOpacity),
       // It holds its end until it lets go (`settled`), so the frame it ends on never draws the held
       // start height.
       { duration: ms, easing: foldMotion.easing(node), fill: "forwards" },
