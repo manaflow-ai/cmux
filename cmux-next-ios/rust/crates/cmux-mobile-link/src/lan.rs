@@ -813,15 +813,24 @@ mod tests {
         };
         assert_eq!(
             mac.candidates(Some("10.0.0.0/24")),
-            vec!["192.168.1.20:7421".parse().unwrap(), "10.0.0.5:7421".parse().unwrap()]
+            vec![
+                "192.168.1.20:7421".parse::<SocketAddr>().unwrap(),
+                "10.0.0.5:7421".parse::<SocketAddr>().unwrap()
+            ]
         );
         mac.last_ok.insert("10.0.0.0/24".into(), "10.0.0.5:7421".into());
         assert_eq!(
             mac.candidates(Some("10.0.0.0/24")),
-            vec!["10.0.0.5:7421".parse().unwrap(), "192.168.1.20:7421".parse().unwrap()]
+            vec![
+                "10.0.0.5:7421".parse::<SocketAddr>().unwrap(),
+                "192.168.1.20:7421".parse::<SocketAddr>().unwrap()
+            ]
         );
         // Another network keeps enrollment's order.
-        assert_eq!(mac.candidates(Some("172.16.0.0/24"))[0], "192.168.1.20:7421".parse().unwrap());
+        assert_eq!(
+            mac.candidates(Some("172.16.0.0/24"))[0],
+            "192.168.1.20:7421".parse::<SocketAddr>().unwrap()
+        );
     }
 
     #[test]
