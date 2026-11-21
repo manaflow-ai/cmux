@@ -34,6 +34,7 @@ members = [
     "crates/cmux-cloud-cli",
     "crates/cmux-cloud-environment",
     "crates/cmux-conversation",
+    "crates/cmux-message-preview",
     "crates/cmux-chief",
     "bindings/rust",
     "bindings/rust-sidebar",
@@ -61,6 +62,7 @@ members = [
     "crates/cmux-tui-remote-access",
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
+    "crates/cmux-follow-cam",
     "crates/cmux-cloud-start-core",
     "crates/cmux-tab-discard",
     "crates/cmux-cloud-machine",
@@ -82,16 +84,19 @@ members = [
     "crates/cmux-process",
     "crates/cmux-hub-host",
     "crates/cmux-signed-bundle",
+    "crates/cmux-signed-envelope",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
     "crates/cmux-files-host",
     "crates/cmux-projection",
+    "crates/cmux-deadline",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-netwatch",
     "crates/cmux-remote",
     "crates/cmux-terminal-client",
     "crates/cmux-relay",
+    "crates/cmux-fault",
     "crates/chatmux-relay",
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
@@ -172,6 +177,7 @@ default-members = [
     "crates/cmux-apps",
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
+    "crates/cmux-message-preview",
     "bindings/rust",
     "bindings/rust-sidebar",
     "bindings/rust-daemon-client",
@@ -213,13 +219,16 @@ default-members = [
     "crates/cmux-process",
     "crates/cmux-hub-host",
     "crates/cmux-signed-bundle",
+    "crates/cmux-signed-envelope",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
+    "crates/cmux-deadline",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-netwatch",
     "crates/cmux-remote",
     "crates/cmux-relay",
+    "crates/cmux-fault",
     "crates/chatmux-relay",
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
@@ -333,7 +342,9 @@ cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-git = { path = "crates/cmux-git" }
 cmux-supervise-core = { path = "crates/cmux-supervise-core" }
 cmux-file-lock = { path = "crates/cmux-file-lock" }
+cmux-signed-envelope = { path = "crates/cmux-signed-envelope" }
 cmux-projection = { path = "crates/cmux-projection" }
+cmux-deadline = { path = "crates/cmux-deadline" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
 cmux-browser-import = { path = "crates/cmux-browser-import" }
@@ -341,6 +352,7 @@ cmux-classic-import = { path = "crates/cmux-classic-import" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-focus-core = { path = "crates/cmux-focus-core" }
+cmux-follow-cam = { path = "crates/cmux-follow-cam" }
 cmux-bookmarks-core = { path = "crates/cmux-bookmarks-core" }
 cmux-bookmarks-ops = { path = "crates/cmux-bookmarks-ops" }
 cmux-cloud-start-core = { path = "crates/cmux-cloud-start-core" }
@@ -381,6 +393,7 @@ cmux-scope = { path = "crates/cmux-scope" }
 cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
+cmux-message-preview = { path = "crates/cmux-message-preview" }
 cmux-history = { path = "crates/cmux-history" }
 cmux-tasks = { path = "crates/cmux-tasks" }
 cmux-tasks-core = { path = "crates/cmux-tasks-core" }
@@ -407,6 +420,7 @@ cmux-tui-remote-access = { path = "crates/cmux-tui-remote-access" }
 cmux-link = { path = "crates/cmux-link" }
 cmux-build-identity = { path = "crates/cmux-build-identity" }
 cmux-netwatch = { path = "crates/cmux-netwatch" }
+cmux-fault = { path = "crates/cmux-fault" }
 cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
 cmux-wg = { path = "crates/cmux-wg" }
 cmux-server = { path = "crates/cmux-server" }
@@ -427,6 +441,7 @@ async-trait = "0.1"
 axum = { version = "0.8", features = ["ws", "macros"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+indexmap = "2"
 toml = "0.8"
 # Same version toml 0.8 already pulls in; used for comment-preserving edits of
 # the user's codex config.toml when syncing hook trust state.
