@@ -36,9 +36,9 @@
 //!   below the home grants nothing the default one (`~/.codex`, `~/.claude`) does not: the
 //!   user, and so an agent, can already write either.
 //!
-//! The file is deployed from a reviewed registry (leo-workspace `machines/acpmux-presets.json`,
-//! installed by root with `install -o root -m 0644`); the daemon reads it at each check, so a
-//! new entry needs no restart.
+//! The file is meant to be rendered from a reviewed registry by a root deploy step
+//! (`install -o root -m 0644`); the daemon reads it at each check, so a new entry needs no
+//! restart.
 
 use serde::Deserialize;
 use serde_json::Value;
