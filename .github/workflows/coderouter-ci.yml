@@ -1,7 +1,13 @@
 name: coderouter CLI
 
-# A pull request runs this job's commands as the ci/steps.toml step `coderouter` (pr-pipeline.yml).
+# A feat-cmux-next pull request runs this job's commands as the ci/steps.toml step `coderouter`
+# (pr-pipeline.yml); a pull request into any other base still runs them here.
 on:
+  pull_request:
+    branches-ignore: [feat-cmux-next]
+    paths:
+      - "coderouter/**"
+      - ".github/workflows/coderouter-*.yml"
   push:
     branches: [main]
     paths:
@@ -11,7 +17,8 @@ on:
 permissions: {}
 
 concurrency:
-  group: coderouter-ci-${{ github.ref }}
+  group: coderouter-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).

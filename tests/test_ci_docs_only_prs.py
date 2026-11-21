@@ -90,6 +90,7 @@ SCOPED: dict[str, str] = {
                            "follow",
     "cmux-tui-windows-check.yml": "cmux-tui/**",
     "cmux-vm.yml": "workers/cmux-vm/**",
+    "coderouter-ci.yml": "coderouter/**",
     "device-hub.yml": "workers/device-hub/**",
     "fleet-artifact-cdn.yml": "workers/fleet-artifacts/**",
     "fleet-rd-host-macos.yml": "cmux-tui/crates/cmux-rd-host/**",

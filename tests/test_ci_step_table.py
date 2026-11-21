@@ -427,7 +427,7 @@ class PipelineTest(unittest.TestCase):
                  "cloud-vm-image-lock.yml": "cloud-vm-image-lock", "mux.yml": "mux",
                  "automation-bench.yml": "automation-bench",
                  "repair-nightly-appcast-content-types.yml": "repair-nightly-appcast",
-                 "cmux-next-remote-daemon.yml": "remote-daemon-packaging", "coderouter-ci.yml": "coderouter"}
+                 "cmux-next-remote-daemon.yml": "remote-daemon-packaging"}
         steps = ci_steps.load().steps
         for name, step in moved.items():
             with self.subTest(workflow=name):
@@ -435,6 +435,10 @@ class PipelineTest(unittest.TestCase):
                 self.assertNotIn("pull_request", wf.get("on", wf.get(True)), "the step table runs it")
                 self.assertEqual(steps[step].job, "linux")
         self.assertNotIn("validate", yaml.safe_load((ROOT / ".github/workflows/labels-sync.yml").read_text())["jobs"])
+        # coderouter-ci.yml also ran for pull requests into main, which the table does not serve: it keeps those.
+        wf = yaml.safe_load((ROOT / ".github/workflows/coderouter-ci.yml").read_text())
+        self.assertEqual(wf.get("on", wf.get(True))["pull_request"]["branches-ignore"], ["feat-cmux-next"])
+        self.assertEqual(steps["coderouter"].job, "linux")
         # These workflows keep the pull_request trigger for a macOS job; the moved Linux job skips it, and
         # a pull request runs it as a step of the table with the same command.
         jobs = {("agent-brands.yml", "drift"): "agent-brands-drift",
