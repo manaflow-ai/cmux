@@ -18,6 +18,13 @@ public protocol BrowserPasskeyHost: Sendable {
     @MainActor
     func reveal(tabID: String) async throws
 
+    /// Runs `trigger` with tab `tabID`'s WebAuthn handed to the person: a tab an agent drove refuses every ceremony
+    /// (plans/cmux-next/passkeys.md 3.5) until the person takes it, and their click on the request, or the tab already
+    /// in front of them when the agent asks, is that.
+    /// - Throws: what `trigger` throws.
+    @MainActor
+    func handOver(tabID: String, during trigger: @Sendable () async throws -> Void) async throws
+
     /// Shows `request` to the person (a banner whose click answers it).
     @MainActor
     func post(_ request: BrowserPasskeyRequest) async
