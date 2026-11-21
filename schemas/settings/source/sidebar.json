@@ -395,8 +395,12 @@
             "key": "settings.sidebar.showSpaces",
             "text": "Show Spaces"
           },
+          "help": {
+            "key": "settings.sidebar.showSpaces.help",
+            "text": "Spaces show once you have more than one. New Space is in the command palette."
+          },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "sidebar",
             "spaces",

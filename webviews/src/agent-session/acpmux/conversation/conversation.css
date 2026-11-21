@@ -5919,9 +5919,20 @@ a.cv-sha:focus-visible {
 /* Its card (TurnRows.tsx TurnFailure; the turn-error-card experiment's arms): the cause with its
    mark, then the way out and Details on one wrapping row. */
 .cv-turn-error {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--transient-surface-gap);
+}
+/* Its × (cmux#48434): closes the card for good, at the card's top trailing corner; the cause keeps
+   clear of it. */
+.cv-turn-error__dismiss {
+  position: absolute;
+  inset-block-start: var(--ds-space-1);
+  inset-inline-end: var(--ds-space-1);
+}
+.cv-turn-error:has(.cv-turn-error__dismiss) .cv-turn-error__cause {
+  padding-inline-end: calc(var(--ds-space-5) + var(--ds-space-2));
 }
 .cv-turn-error__cause {
   display: flex;
@@ -8028,7 +8039,7 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   overflow: hidden;
   text-overflow: ellipsis;
   padding-inline: calc(8 * var(--ui-px, 1px)) calc(12 * var(--ui-px, 1px));
-  border: var(--cmux-hairline, 0.5px) solid color-mix(in srgb, var(--agent-text) 18%, transparent);
+  border: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge);
   border-radius: 8px;
   background: color-mix(in srgb, var(--glass-surface) var(--cv-selection-reply-veil), transparent);
   -webkit-backdrop-filter: blur(var(--glass-frost)) saturate(1.4);

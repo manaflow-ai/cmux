@@ -699,7 +699,7 @@ jobs:
 
   valgrind-leak-check:
     name: valgrind-leak-check
-    if: always() && inputs.mode == 'full'
+    if: ${{ !cancelled() && inputs.mode == 'full' }}
     needs: valgrind-leak-check-shard
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 2
@@ -1748,7 +1748,7 @@ jobs:
 
   hosted-verification:
     name: ${{ inputs.mode == 'full' && 'hosted verification' || 'focused hosted verification' }}
-    if: always()
+    if: ${{ !cancelled() }}
     needs:
       - validate-inputs
       - lint

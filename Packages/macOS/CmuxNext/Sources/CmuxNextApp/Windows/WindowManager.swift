@@ -64,6 +64,9 @@ final class WindowManager {
     private var notSavedToasts: [String: CmuxToastHandle] = [:]
     /// New workspaces windows asked for before the daemon reported them (`WorkspaceClaims`).
     var claims = WorkspaceClaims()
+    /// Spaces off (#48355): a workspace moved into a window on another space, selected there once its pin shows it while the
+    /// window still shows what it showed at the move (`since`) or that workspace: a pick made since wins.
+    var pinSelections: [String: (window: String, since: String?)] = [:]
     /// Windows to open behind (automation, Option).
     var behindWindows: Set<String> = []
     /// While ``fileOpenedMachine(of:into:)`` re-runs reconcile: a window that pass opens files nothing again.
@@ -347,7 +350,7 @@ final class WindowManager {
             // One step at a time: Agents, then Bring your history once its window closed.
             await services.onboarding.showFirstRunSteps(isFirstRun: isFirstRun)
             // Then, once per channel: `cmux` in Terminal that would not run this app.
-            await CLIInstallHandlers.offerAtLaunch(skipsOnboarding: services.environment.skipsOnboarding)
+            await CLIInstallHandlers.offerAtLaunch(skipsOnboarding: services.environment.launchSteps.skipsFirstRun)
         }
         savedWindowsUnread = false
         recordSaver.scheduleSave()

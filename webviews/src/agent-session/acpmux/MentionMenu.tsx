@@ -30,7 +30,7 @@ export function MentionMenu({
   // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
   // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
   const box = useComposerListBox();
-  const escape = useEscapingList("top", 6, undefined, box);
+  const escape = useEscapingList("top", 6, undefined, box, true);
   // The file search speaks only when the menu has no row to show: under a plugin or a chat, its state
   // ("Couldn't search files" in a chat with no folder) is noise (Lucas 2026-11-21). A failed search then
   // reads as no files, never as an error under rows that work.
