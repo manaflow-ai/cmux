@@ -512,8 +512,10 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
           persist-credentials: false
+      # Refs only: no submodule commits. Fetching every branch otherwise also fetches each branch's
+      # ghostty pins, and one pin upstream no longer serves fails the job ("not our ref").
       - name: Fetch split refs without blobs
-        run: git fetch --no-tags --filter=blob:none --unshallow origin
+        run: git fetch --no-tags --no-recurse-submodules --filter=blob:none --unshallow origin
       # The classifier comes from the base: a head branched before the guard has no copy, and a
       # pull request should not grade itself with its own edits to the guard.
       - name: Report split metrics

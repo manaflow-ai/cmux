@@ -63,6 +63,8 @@ CARGO_TARGET_DIR=/tmp/demo-check cargo run -q --manifest-path examples/customize
   examples/customize-demo/*/*.json
 ```
 
+The Claude Code packages reuse the Claude demo’s New Tab, usage and status views. Install the [whole look](../looks/claude-code/whole) or pick the [sidebar](../looks/claude-code/sidebar), [project picker](../looks/claude-code/project-picker), [transcript](../looks/claude-code/transcript) or [composer](../looks/claude-code/composer) on its own.
+
 One setup at a time: each brings its own `local/customize` app, so the next one replaces its views.
 Views that read the network or run actions say which scope to turn on in Settings > Apps.
 

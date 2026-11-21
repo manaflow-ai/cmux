@@ -157,8 +157,31 @@ jobs:
     permissions:
       contents: read
 
+  rust-workspaces:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' rust-workspaces ')
+    uses: ./.github/workflows/rust-workspaces.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      actions: read
+      contents: read
+
+  web:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' web ')
+    uses: ./.github/workflows/ci-web.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    # actions: read: the base's webview test history and duration manifest are artifacts (ci-web.yml).
+    permissions:
+      contents: read
+      actions: read
+
   judge:
-    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol]
+    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web]
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
