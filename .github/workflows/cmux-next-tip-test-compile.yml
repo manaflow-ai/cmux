@@ -151,8 +151,8 @@ jobs:
   report:
     name: tip test-compile report
     needs: [plan, compile]
-    if: ${{ always() && needs.plan.outputs.needed == 'true' && needs.compile.result != 'skipped' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    if: ${{ !cancelled() && needs.plan.outputs.needed == 'true' && needs.compile.result != 'skipped' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     permissions:
       issues: write
       actions: write

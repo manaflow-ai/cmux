@@ -9,11 +9,14 @@ from-chat); a form with too few chord cases is NOT PROVED; a case's steps agains
 fails is `not_run` and closes its workspace; a close-move case keeps the app's notes of the close, a case whose close
 did not move is counted apart, and the form with too few cases in a move is NOT PROVED; a case with no note of a
 hold's start is `not_run`; a switch case whose setup letters did not get to their fields is `not_run`; each printed
-line is JSON after its name; the words for a run in which no case ran.
+line is JSON after its name; the words for a run in which no case ran; the tab that a pane shows is the pane's
+`selected_tab` of the snapshot (no key of a tab), else the focus model's word; a select that the pane shows late is
+waited for, and one that it never shows is `not_run` with the shown tab and the app's refusal, in a setup too.
 
 No app: the app is a small model of the calls that a case makes. So this proves the tool's own logic, NOT that the
-app drops or keeps a letter, NOT that a key of a sequence reaches a page, and NOT that the app writes the notes of a
-close in the words of the model (they are copied from the app's source).
+app drops or keeps a letter, NOT that a key of a sequence reaches a page, NOT that the app writes the notes of a
+close in the words of the model (they are copied from the app's source), and NOT that the app's snapshot has the
+keys of the model (they are copied from the app's source too: ControlTopology+JSON.swift, DebugFocus.swift).
 Run: python3 -I scripts/measure/tests/new-tab-letters.test.py"""
 import importlib.util, json, os, unittest
 
@@ -158,11 +161,15 @@ class Order(unittest.TestCase):
 
 class Builder:
     """A model of the session helper: panes (one at the start) with tabs that have ids, the script's actions that a
-    case sends. `selected` is the tab that the pane with the keyboard shows."""
+    case sends. `selected` is the tab that the pane with the keyboard shows. A pane and a tab have the keys of the
+    app's snapshot (ControlTopology+JSON.swift): the pane names its shown tab in `selected_tab`, and a tab of the
+    daemon has NO key `selected`. `late`: a select shows its tab only after that many reads of the panes. `refuse`:
+    what the app says to a select that it does not do. `store`: False when the snapshot names no shown tab."""
 
-    def __init__(self):
+    def __init__(self, late=0, refuse=None, store=True):
         self.tabs_of, self.shown, self.focused = {"p": ["first"]}, {"p": "first"}, "p"
         self.actions, self.chat_fallbacks, self.count = [], 0, 0
+        self.late, self.refuse, self.store, self.coming = late, refuse, store, None
 
     @property
     def selected(self):
@@ -178,13 +185,18 @@ class Builder:
         return {"id": workspace}
 
     def panes(self, workspace):
-        return [{"id": pane} for pane in self.tabs_of]
+        if self.coming:  # a select that the pane shows late: one read of the panes nearer
+            self.coming[2] -= 1
+            if self.coming[2] < 0:
+                self.shown[self.coming[0]], self.coming = self.coming[1], None
+        return [{"id": pane, "selected_tab": self.shown.get(pane) if self.store else None, "tabs": self.tabs(workspace, pane)}
+                for pane in self.tabs_of]
 
     def focus_pane(self, pane):
         self.focused = pane
 
     def tabs(self, workspace, pane):
-        return [{"id": tab, "selected": tab == self.shown.get(pane)} for tab in self.tabs_of.get(pane, [])]
+        return [{"id": tab, "kind": "page"} for tab in self.tabs_of.get(pane, [])]
 
     def settled_tabs(self, workspace, pane, seconds=20):
         return self.tabs(workspace, pane)
@@ -219,19 +231,26 @@ class Builder:
             self.add(target.split(":", 1)[1])
         if name == "tab.focus":
             tab = target.split(":", 1)[1]
-            self.shown[next(pane for pane, tabs in self.tabs_of.items() if tab in tabs)] = tab
+            pane = next(pane for pane, tabs in self.tabs_of.items() if tab in tabs)
+            if self.refuse:
+                return {"error": self.refuse}
+            if self.late:
+                self.coming = [pane, tab, self.late]
+            else:
+                self.shown[pane] = tab
         if name == "closeTab":
             self.close(target.split(":", 1)[1])
+        return {}
 
 
 class App:
     """A model of the app's calls: a sequence makes a tab for each New Tab key, closes the shown tab at a Close Tab
     key, and writes the hold's notes. `motion`: what `debug.motion` says at its stop. `deaf`: a letter of a setup
-    does not get to its field."""
+    does not get to its field. `focus`: `debug.focus` has the focus model's word on each pane (DebugFocus.swift)."""
 
-    def __init__(self, builder, notes, texts, refuse=None, motion=None, deaf=False):
+    def __init__(self, builder, notes, texts, refuse=None, motion=None, deaf=False, focus=False):
         self.builder, self.notes, self.texts, self.refuse, self.log, self.sequences = builder, notes, texts, refuse, ["old +0ms"], []
-        self.motion, self.deaf, self.calls = motion, deaf, []
+        self.motion, self.deaf, self.calls, self.focus = motion, deaf, [], focus
 
     def __call__(self, method, params=None):
         params = params or {}
@@ -250,7 +269,9 @@ class App:
             self.log = self.log + self.notes
             return {"scheduled": len(params["sequence"]), "key_window": params["key_window"]}
         if method == "debug.focus":
-            return {"new_tab_key_log": list(self.log)}
+            panes = [{"pane": pane, "selected": shown, "tabs": [f"{tab}:page" for tab in self.builder.tabs_of[pane]]}
+                     for pane, shown in self.builder.shown.items()]
+            return {"new_tab_key_log": list(self.log), **({"windows": [{"topology": panes}]} if self.focus else {})}
         if method == "debug.new_tab" and params.get("action") == "field":
             return {"text": self.texts.get(self.builder.selected, "")}
         if method == "debug.new_tab":  # an opening as the app gives it (DebugNewTab.swift): no key `idle`
@@ -267,11 +288,55 @@ def wait(predicate, seconds, step=0.25):
     return predicate() or None
 
 
+def poll(predicate, seconds, step=0.25):
+    """The helper's wait with no sleep: one read for each step of the time, to the first read that is true."""
+    return next((found for found in (predicate() for _ in range(max(1, round(seconds / step)))) if found), None)
+
+
 class Case(unittest.TestCase):
-    def letters(self, notes, texts, refuse=None, **model):
-        builder = Builder()
+    def letters(self, notes, texts, refuse=None, builder=None, wait=wait, **model):
+        builder = builder or Builder()
         app = App(builder, notes, texts, refuse, **model)
         return M.Letters(builder, app, wait, pause=lambda seconds: None), builder, app
+
+    def test_the_shown_tab_is_the_panes_selected_tab_and_no_key_of_a_tab(self):
+        # The app's snapshot: a pane has `selected_tab`, and a tab of the daemon has no key `selected`. A tool that
+        # wants `selected` in a tab finds no shown tab in any pane: then each case of each form is `not_run`.
+        letters, builder, _ = self.letters(CHORD, {"t2": "x"})
+        self.assertEqual([sorted(pane) for pane in builder.panes({"id": "w"})], [["id", "selected_tab", "tabs"]])
+        self.assertNotIn("selected", builder.tabs("w", "p")[0])
+        record = letters.case("three-key", 0)
+        self.assertEqual((record.get("not_run"), record.get("pass"), record.get("field")), (None, True, "x"))
+        self.assertEqual(letters.shown("w", "p"), "t2")
+
+    def test_a_select_that_the_pane_shows_late_is_waited_for(self):
+        letters, builder, _ = self.letters(CHORD, {"t2": "x"}, builder=Builder(late=3), wait=poll)
+        record = letters.case("three-key", 0)
+        self.assertEqual((record.get("not_run"), record.get("pass"), record.get("field")), (None, True, "x"))
+        self.assertIsNone(builder.coming)
+
+    def test_a_select_that_the_pane_never_shows_is_not_run_with_the_shown_tab_and_the_apps_word(self):
+        letters, builder, _ = self.letters(CHORD, {"t2": "x"}, builder=Builder(refuse="No tab matches t2"), wait=poll)
+        record = letters.case("three-key", 0)
+        self.assertEqual(record.get("not_run"), "the pane shows the tab t3, not the tab t2, after its select: the app said: No tab matches t2")
+        self.assertNotIn("pass", record)
+        self.assertEqual(builder.actions[-1], ("closeWorkspace", "workspace:w"))
+
+    def test_a_select_of_a_setup_that_the_pane_does_not_show_is_not_run_before_the_cases_keys(self):
+        # switch-next selects its first tab before the keys: with no such select the case would be switch-previous'.
+        letters, builder, app = self.letters(CHORD, {"t3": "x"}, builder=Builder(refuse="no"))
+        record = letters.case("switch-next", 0)
+        self.assertEqual(record.get("not_run"), "the pane shows the tab t2, not the tab t1, after its select: the app said: no")
+        self.assertEqual(len(app.sequences), 2)  # the 2 letters of the setup, and no key of the case
+
+    def test_the_focus_models_word_is_the_shown_tab_when_the_snapshot_names_none(self):
+        letters, builder, _ = self.letters(CHORD, {"t2": "x"}, builder=Builder(store=False), focus=True)
+        self.assertEqual(builder.panes({"id": "w"})[0]["selected_tab"], None)
+        record = letters.case("three-key", 0)
+        self.assertEqual((record.get("not_run"), record.get("pass")), (None, True))
+        # With no word of the snapshot and none of the focus model, the tool knows no shown tab: `not_run`.
+        letters, _, _ = self.letters(CHORD, {"t2": "x"}, builder=Builder(store=False))
+        self.assertEqual(letters.case("three-key", 0).get("not_run"), "the pane shows no tab that the app names, not the tab t2, after its select")
 
     def test_the_3_keys_in_the_page_window_and_the_first_new_tabs_field(self):
         letters, builder, app = self.letters(CHORD, {"t2": "x"})

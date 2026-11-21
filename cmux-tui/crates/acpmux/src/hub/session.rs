@@ -183,6 +183,8 @@ pub struct Session {
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     /// When the person left it and the recap made meanwhile (`away_recap.rs`).
     pub(super) away: StdMutex<super::away_recap::Away>,
+    /// Whether a person started the running turn, and the summary request (`rolling_summary.rs`).
+    pub(super) rolling: StdMutex<super::rolling_summary::Rolling>,
     /// The person's corrections and the prompt coach's offer (`prompt_coach.rs`).
     pub(super) coach: StdMutex<crate::prompt_coach::Coach>,
     /// The turn `finish_turn` took and has not ended yet: a shutdown settles it if its end does
@@ -523,6 +525,11 @@ pub struct Session {
     /// What asked for the agent the next wake starts (`idle.rs` `wake_cause`): `typing`, `prompt`,
     /// else a request that needs the agent.
     pub(super) wake_cause: StdMutex<Option<&'static str>>,
+    /// Whom the agent's next start is for (`host_level.rs` `for_a_person`): 0 not known (the
+    /// chat's creator decides), 1 a person (their prompt, typing or open), 2 no person (another
+    /// agent's message or acpmux's own prompt). A start for no person asks Claude Code for no
+    /// next-prompt suggestions.
+    pub(super) start_for: std::sync::atomic::AtomicU8,
     /// The last start refused because its harness cannot keep the chat's policy, while nothing it
     /// depends on changed (`policy_mode.rs` `RefusalLatch`): no wake or request starts it again.
     pub(super) policy_refusal: super::policy_mode::RefusalLatch,

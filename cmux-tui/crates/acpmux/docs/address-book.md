@@ -9,7 +9,7 @@ should offer it for codex too! ..." (and for the other harnesses people use).
 
 ## Names
 
-- A session acpmux starts has its acpmux name (`acpmux new -n NAME`).
+- A session started through the front door has its agent name (`cmux agent new -n NAME`).
 - A session acpmux did not start registers one from its own shell: `cmux agent register NAME`
   (`src/hub/register.rs`). That works for a Claude Code session (desktop or terminal). The daemon
   finds the session from the kernel's process tree of the caller: the nearest Claude Code process
@@ -22,7 +22,7 @@ should offer it for codex too! ..." (and for the other harnesses people use).
   one-time code into that inbox with the session's own token (only a genuine session accepts it,
   and only its model reads it), and the session finishes with `cmux agent register NAME --code CODE`
   within ten minutes. Otherwise `register.unproven`. An unregistered Claude Code chat's own
-  `cmux agent send` (no `--from`, no `ACPMUX_FROM`, not in an acpmux session, with the inbox
+  `cmux agent send` (no `--from`, no `ACPMUX_FROM`, not in an cmux agent session, with the inbox
   variables set) takes the first step itself (`src/cli/reply_address.rs`, `auto`), under
   `claude-desktop-<first 8 of CLAUDE_CODE_SESSION_ID>` (`claude-vscode-`, `claude-code-`), and
   says on stderr that the receiver cannot reply until the chat runs the `--code` line it gets.
@@ -57,9 +57,9 @@ should offer it for codex too! ..." (and for the other harnesses people use).
   daemon's sessions. Bench round 6 (Claude Code 2.1.322): with that messaging on, an acpmux agent
   sent to another with `SendMessage`, the receiver (another permission class) held it silently,
   and `ListAgents` listed a session of another acpmux daemon. acpmux's PreToolUse gate refuses a
-  `SendMessage` to an acpmux session or a cross-session address, with the `cmux agent send` command
+  `SendMessage` to an cmux agent session or a cross-session address, with the `cmux agent send` command
   that delivers it. A message Claude Code still holds (a profile that turned the messaging back
-  on, or a Claude Code that ignores the switch) is in `heldMessages` and `acpmux pending`, in
+  on, or a Claude Code that ignores the switch) is in `heldMessages` and `cmux agent pending`, in
   memory only (a daemon restart forgets it). The switch is undocumented in Claude Code; the
   model probe (`src/live_models/mod.rs`) sets it too. If Claude Code renames it, the gate's
   refusal and `pending` still work; only the cross-daemon peer list comes back.
