@@ -264,9 +264,10 @@ impl Events {
                 event.list_seq = rows.stamp(key, gone);
             }
             event.peer_batch = true;
-            let _ = self.tx.send(event);
+            let _ = self.broadcast(event);
         }
-        let _ = self.tx.send(HubEvent {
+        // Routed as every send is (`server/interest.rs`): a watcher hears the batch.
+        let _ = self.broadcast(HubEvent {
             session_id: String::new(),
             record: Arc::new(EventRecord {
                 seq: 0,
