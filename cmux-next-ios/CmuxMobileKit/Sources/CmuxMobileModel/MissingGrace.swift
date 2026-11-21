@@ -4,7 +4,7 @@ import Foundation
 /// the Mac's list. A link drop and relink can publish a workspace with tabs missing for a few
 /// seconds, so the tab must stay missing on a connected Mac past `grace` first (the same idea as
 /// the tab selection's hold). While the link is down the clock does not run.
-public struct MissingGrace<ID: Hashable>: Sendable {
+public struct MissingGrace<ID: Hashable & Sendable>: Sendable {
     public static var defaultGrace: Duration { .seconds(10) }
 
     private var since: [ID: ContinuousClock.Instant] = [:]
