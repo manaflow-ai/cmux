@@ -2,7 +2,7 @@
 //! past its bound disconnected with a typed reason, and replies counted like every other line.
 
 use super::Message;
-use super::outbound::{OVERRUNS, TOTAL_HELD, start_bounded, start_limited};
+use super::outbound::{OVERRUNS, TOTAL_HELD, TOTAL_OVERRUNS, start_bounded, start_limited};
 use serde_json::{Value, json};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -180,12 +180,14 @@ async fn past_the_daemon_wide_bound_a_reader_over_its_fair_share_is_disconnected
     let (big, _) = start_limited(&scope, None, t1, OWN, total, FAIR, Duration::ZERO);
     let (other, _) = start_limited(&scope, None, t2, OWN, total, FAIR, Duration::ZERO);
     let (small, _) = start_limited(&scope, None, t3, OWN, total, FAIR, Duration::ZERO);
+    let cuts = TOTAL_OVERRUNS.load(Ordering::Relaxed);
     let mut queued = 0;
     while big.push(note(queued)) {
         queued += 1;
         assert!(queued * 200 < OWN, "the daemon-wide bound never tripped");
     }
     assert!(big.is_closed(), "the reader over its share is disconnected");
+    assert!(TOTAL_OVERRUNS.load(Ordering::Relaxed) > cuts, "counted as a daemon-wide cut");
     // Another reader holding the rest of the bound, then one under its share: still served.
     let mut n = 0;
     while other.push(note(n)) {

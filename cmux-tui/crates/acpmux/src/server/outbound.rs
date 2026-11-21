@@ -107,6 +107,10 @@ pub(crate) static TOTAL_HELD: AtomicUsize = AtomicUsize::new(0);
 /// Connections ended because their reader fell [`OUTBOUND_BYTE_BOUND`] behind, since the daemon
 /// started (`daemon status`, `gauges.queues.overruns`).
 pub(crate) static OVERRUNS: AtomicU64 = AtomicU64::new(0);
+/// Of [`OVERRUNS`], those the daemon-wide bound made ([`TOTAL_BYTE_BOUND`]: a stalled reader over
+/// its fair share), not the connection's own (`gauges.queues.totalOverruns`). The GUI disconnect
+/// detector reads the split (cmuxterm-hq `docs/handbook/gui-chat-loses-its-agent-session.md`).
+pub(crate) static TOTAL_OVERRUNS: AtomicU64 = AtomicU64::new(0);
 
 /// Why a connection's queue ended it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -293,6 +297,9 @@ impl Shared {
                 }
             );
             OVERRUNS.fetch_add(1, Ordering::Relaxed);
+            if !own {
+                TOTAL_OVERRUNS.fetch_add(1, Ordering::Relaxed);
+            }
             state.overrun = Some(overrun);
             let in_channel = state.sent_bytes;
             state.set_held(in_channel);
