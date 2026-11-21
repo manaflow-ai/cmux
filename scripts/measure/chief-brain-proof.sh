@@ -94,10 +94,10 @@ if [[ "$brain" == hermes ]]; then
   export UV_PYTHON_INSTALL_DIR="$work/uv-python" UV_CACHE_DIR="$work/uv-cache"
   # Hermes refuses wheel builds ("distributed via the shell installer, Docker image, or Nix"):
   # a checkout at the release commit, synced from its own uv.lock (every dependency pinned),
-  # the way its developer setup runs it.
+  # the way its developer setup runs it. Its lock supports only Python 3.14 (uv installs it here).
   git clone -q --filter=blob:none https://github.com/NousResearch/hermes-agent "$work/hermes-src"
   git -C "$work/hermes-src" checkout -q "$hermes_commit"
-  (cd "$work/hermes-src" && "$work/uv-aarch64-apple-darwin/uv" sync -q --frozen --python 3.12 --extra acp)
+  (cd "$work/hermes-src" && "$work/uv-aarch64-apple-darwin/uv" sync -q --frozen --python 3.14 --extra acp)
   ln -s "$work/hermes-src/.venv/bin/hermes" "$work/home/.local/bin/hermes"
   echo "BRAIN-BIN hermes $("$work/home/.local/bin/hermes" --version 2>&1 | head -1)"
   "$work/home/.local/bin/hermes" acp --check || { echo "BRAIN hermes acp --check failed" >&2; exit 1; }

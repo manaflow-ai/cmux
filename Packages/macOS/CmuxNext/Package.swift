@@ -53,7 +53,7 @@ import PackageDescription
 //   CmuxNextHomeEngine -> AgentPane, Actions, Cloud, Compat, Daemon, Design, Home, HomeModel, Icons, Wakeups,
 //     CmuxHomeCore, CmuxHomeRender, CmuxAgentQuestion (Home sources, Chief host and migration, Home strings; the App
 //     supplies HomeService over AppServices)
-//   CmuxNextDaemonService -> Daemon, Actions, AgentPane, Apps, Compat, Control, Layout, Wakeups
+//   CmuxNextDaemonService -> Daemon, Actions, AgentPane, Apps, Compat, Control, Layout, Wakeups, WindowRules (Update When Idle)
 //     (DaemonService: one machine's daemon connection, command funnels, launch snapshot; FrameBatcher;
 //     the Refusals and Cloud strings it shows; no AppServices; the App sets its launch-mark hook)
 //   CmuxNextFocusUI -> Actions, Design (AppKit overlays of keys: the shortcut hint overlay and capture
@@ -191,7 +191,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: bd79f93545221502be3729354e30bcb38fd818d0a97cb42af3a387a264812695
+// app-ffi-pin-checksum: 3c41717f227faf8c22f88a83dd35d9464fa1a4b8e1fa959cbc06bd44ed9356d9
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -962,6 +962,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextHomeEngineTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextDesign",
                 "CmuxNextDictation",
@@ -1011,6 +1012,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextFiles",
                 "CmuxNextLayout",
                 "CmuxNextWakeups",
+                "CmuxNextWindowRules",
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
             ],
             resources: [
