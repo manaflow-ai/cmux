@@ -888,6 +888,8 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-91
       fast_tier: ${{ steps.route.outputs.fast_tier }}
       ffi_repin: ${{ steps.route.outputs.ffi_repin }}
+      # Whether a pull request reaches fast-tier-cargo (scripts/ci/fast_tier_cargo_route.py); empty otherwise.
+      fast_tier_cargo: ${{ steps.route.outputs.fast_tier_cargo }}
       scheme: ${{ steps.route.outputs.scheme }}
       generated: ${{ steps.route.outputs.generated }}
       swift: ${{ steps.route.outputs.swift }}
@@ -1150,6 +1152,13 @@ jobs:
             echo "own_tui=false" >> "$GITHUB_OUTPUT"
           else
             echo "own_tui=true" >> "$GITHUB_OUTPUT"
+          fi
+          # Leo, 2026-11-21: "id rather we simply cut shit now and revisit later." A pull request runs fast-tier-cargo
+          # only when its change reaches a cargo or script entry of the fast tier (2.94% of pull request runner-minutes,
+          # 0.06% of heads with it as their only own red over 11-13..19: cmuxterm-hq#16094). Any failure reads as reached.
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            python3 -I scripts/ci/fast_tier_cargo_route.py --changed-files "$changed" --labels "$labels" \
+              --github-output "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY" || echo "fast_tier_cargo=true" >> "$GITHUB_OUTPUT"
           fi
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-359
@@ -3694,8 +3703,8 @@ jobs:
 
   # Why: docs/ci/cmux-next-workflow-notes.md#note-205
   fast-tier-cargo:
-    needs: [push-head-preflight]
-    if: ${{ !cancelled() && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) }}
+    needs: [push-head-preflight, path_route]
+    if: ${{ !cancelled() && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && (github.event_name != 'pull_request' || needs.path_route.outputs.fast_tier_cargo != 'false') }}
     name: cmux-next fast tier (cargo)
     concurrency:
       group: ${{ github.event_name == 'push' && format('cmux-next-push-{0}-fast-tier-cargo', github.ref) || format('cmux-next-run-{0}-fast-tier-cargo', github.run_id) }}
