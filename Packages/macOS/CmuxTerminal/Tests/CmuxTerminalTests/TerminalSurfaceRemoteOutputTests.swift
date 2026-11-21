@@ -115,68 +115,6 @@ struct TerminalSurfaceRemoteOutputTests {
     }
 
     @Test
-    func remoteOutputDoesNotBlockTheMainActorOnNativeParser() async {
-        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
-        let runtimeSurfaceBits = UInt(bitPattern: runtimeSurface)
-        let fixture = await MainActor.run {
-            RemoteOutputFixture(surface: makeSurface(runtimeSurfaceBits: runtimeSurfaceBits))
-        }
-        defer {
-            releaseBlockingProcessOutput()
-            resetBlockingProcessOutput()
-        }
-
-        beginBlockingProcessOutput(
-            UnsafeMutableRawPointer(bitPattern: runtimeSurfaceBits)!
-        )
-        let outputTask = Task { @MainActor in
-            fixture.processOutput()
-        }
-
-        let started = await Task.detached {
-            waitUntilProcessOutputStarted()
-        }.value
-        #expect(started)
-
-        let mainActorMarker = AsyncStream<Void>.makeStream()
-        let mainActorMarkerTask = Task { @MainActor in
-            mainActorMarker.continuation.yield()
-            mainActorMarker.continuation.finish()
-        }
-        let mainActorStayedResponsive = await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                var iterator = mainActorMarker.stream.makeAsyncIterator()
-                return await iterator.next() != nil
-            }
-            group.addTask {
-                do {
-                    try await Task.sleep(for: .seconds(5))
-                    return false
-                } catch {
-                    return false
-                }
-            }
-            let result = await group.next() ?? false
-            // Finish the stream before the group scope waits for its children;
-            // otherwise a blocked main actor leaves the marker waiter alive
-            // after the deadline and the test cannot release the stub.
-            mainActorMarker.continuation.finish()
-            group.cancelAll()
-            return result
-        }
-        #expect(mainActorStayedResponsive)
-
-        #expect(!processOutputWasCalledOnMainThread())
-        releaseBlockingProcessOutput()
-        _ = await outputTask.value
-        _ = await mainActorMarkerTask.value
-        await MainActor.run {
-            fixture.releaseSurface()
-        }
-        runtimeSurface.deallocate()
-    }
-
-    @Test
     @MainActor
     func automaticClipboardWritesRequireLocalExecOwnership() {
         let local = makeSurface(runtimeSurfaceBits: UInt(bitPattern: UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)))
@@ -257,7 +195,7 @@ struct TerminalSurfaceRemoteOutputTests {
     }
 
     @MainActor
-    private func makeSurface(
+    fileprivate func makeSurface(
         runtimeSurfaceBits: UInt,
         ioMode: TerminalSurfaceIOMode = .exec,
         isRemoteTerminal: Bool = false,
@@ -306,4 +244,71 @@ struct TerminalSurfaceRemoteOutputTests {
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
         return surface
     }
+}
+
+// These tests and native retirement tests share the process-wide parser gate.
+// Keep every test that arms that gate in one serialized suite.
+extension TerminalSurfaceTeardownCallbackLifetimeTests {
+    @Test
+    func remoteOutputDoesNotBlockTheMainActorOnNativeParser() async {
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        let runtimeSurfaceBits = UInt(bitPattern: runtimeSurface)
+        let fixture = await MainActor.run {
+            RemoteOutputFixture(surface: TerminalSurfaceRemoteOutputTests().makeSurface(runtimeSurfaceBits: runtimeSurfaceBits))
+        }
+        defer {
+            releaseBlockingProcessOutput()
+            resetBlockingProcessOutput()
+        }
+
+        beginBlockingProcessOutput(
+            UnsafeMutableRawPointer(bitPattern: runtimeSurfaceBits)!
+        )
+        let outputTask = Task { @MainActor in
+            fixture.processOutput()
+        }
+
+        let started = await Task.detached {
+            waitUntilProcessOutputStarted()
+        }.value
+        #expect(started)
+
+        let mainActorMarker = AsyncStream<Void>.makeStream()
+        let mainActorMarkerTask = Task { @MainActor in
+            mainActorMarker.continuation.yield()
+            mainActorMarker.continuation.finish()
+        }
+        let mainActorStayedResponsive = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                var iterator = mainActorMarker.stream.makeAsyncIterator()
+                return await iterator.next() != nil
+            }
+            group.addTask {
+                do {
+                    try await Task.sleep(for: .seconds(5))
+                    return false
+                } catch {
+                    return false
+                }
+            }
+            let result = await group.next() ?? false
+            // Finish the stream before the group scope waits for its children;
+            // otherwise a blocked main actor leaves the marker waiter alive
+            // after the deadline and the test cannot release the stub.
+            mainActorMarker.continuation.finish()
+            group.cancelAll()
+            return result
+        }
+        #expect(mainActorStayedResponsive)
+
+        #expect(!processOutputWasCalledOnMainThread())
+        releaseBlockingProcessOutput()
+        _ = await outputTask.value
+        _ = await mainActorMarkerTask.value
+        await MainActor.run {
+            fixture.releaseSurface()
+        }
+        runtimeSurface.deallocate()
+    }
+
 }
