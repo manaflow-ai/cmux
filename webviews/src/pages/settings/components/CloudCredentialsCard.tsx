@@ -10,11 +10,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { Disclosure } from "../../../ui/Disclosure";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../ui/Tabs";
-import {
-  CLOUD_CREDENTIALS_PROVIDERS,
-  setupSteps,
-  type CloudCredentialsProvider,
-} from "../cloudCredentials";
+import { CLOUD_CREDENTIALS_PROVIDERS, setupSteps, type CloudCredentialsProvider } from "../cloudCredentials";
 import { useStore } from "../context";
 import type { CloudCredentialsInfo, CloudCredentialsState } from "../ops";
 import { t } from "../strings";

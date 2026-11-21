@@ -41,9 +41,7 @@ test("the card shows the team's issuer URLs and fills every cloud's steps with t
     expect(steps.textContent).toContain(provider === "aws" ? info.issuer.replace(/^https:\/\//, "") : info.issuer);
     expect(steps.querySelector('[data-credentials-step="machine"]')!.textContent).toContain("/run/cmux-oidc/token");
   }
-  expect(element.querySelector('[data-credentials-steps="aws"]')!.textContent).toContain(
-    `team:${info.team}:machine:*`,
-  );
+  expect(element.querySelector('[data-credentials-steps="aws"]')!.textContent).toContain(`team:${info.team}:machine:*`);
   page.unmount();
 });
 

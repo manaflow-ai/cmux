@@ -103,7 +103,10 @@ export function setupSteps(provider: CloudCredentialsProvider, info: CloudCreden
             2,
           )}\nEOF`,
         },
-        { where: "machine", code: `${audienceStep(audience)}\nvault write auth/jwt/login role=cmux jwt=@${TOKEN_FILE}` },
+        {
+          where: "machine",
+          code: `${audienceStep(audience)}\nvault write auth/jwt/login role=cmux jwt=@${TOKEN_FILE}`,
+        },
       ];
     case "generic":
       return [
