@@ -38,6 +38,8 @@ export interface WireListing {
   app: string;
   name: string;
   summary: string;
+  /** One line on what the person gets (en); absent from an older owner or an app with none. */
+  tagline?: string | null;
   publisher: string;
   tier: AppTier;
   version: string;
@@ -56,7 +58,7 @@ export interface WireDetail extends WireListing {
   versions?: AppVersion[];
   repository?: string;
   screenshots?: string[];
-  /** The manifest's contributions; the owner's `catalog.get` does not send them yet. */
+  /** Where the app shows up (`{kind, title}`); absent from an older owner. */
   contributes?: AppContribution[];
   /** Absent for an app with no `deploy` block. */
   deploy?: AppDeploy | null;
@@ -108,6 +110,7 @@ export function fromListing(listing: WireListing): CatalogApp {
     id: listing.app,
     name: listing.name,
     description: listing.summary,
+    tagline: textOrUndefined(listing.tagline),
     publisher: listing.publisher,
     // Verification is the tier's job on this wire; first-party and verified both show as verified.
     publisher_verified: listing.tier !== "unverified",
@@ -124,7 +127,13 @@ export function fromListing(listing: WireListing): CatalogApp {
     hidden: listing.install?.hidden,
     hide_only: listing.hide_only,
     shelf: listing.shelf ?? "store",
+    failed: typeof listing.install?.failure === "string" && listing.install.failure.trim() !== "",
   };
+}
+
+/** A non-blank string, trimmed; anything else (null, absent, a number) is undefined. */
+function textOrUndefined(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
 }
 
 function wireIcon(icon: WireIcon): AppIconRef | undefined {
@@ -148,7 +157,9 @@ export function fromDetail(detail: WireDetail): AppDetail {
     scopes: detail.scopes ?? [],
     versions: detail.versions ?? [],
     repository: detail.repository,
-    screenshots: detail.screenshots ?? [],
+    screenshots: Array.isArray(detail.screenshots)
+      ? detail.screenshots.filter((path): path is string => typeof path === "string" && path !== "")
+      : [],
     contributes: contributionsFrom(detail.contributes),
     deploy: deployFrom(detail.deploy),
   };
