@@ -110,6 +110,21 @@ class ChangedPackageSelection(unittest.TestCase):
     def test_a_change_outside_packages_selects_nothing(self) -> None:
         self.assertEqual(lane_select([".github/workflows/cmux-next.yml", "docs/ci/notes.md"]), ([], []))
 
+    def test_an_unreadable_selection_selects_no_package(self) -> None:
+        # The cd2c93ec review's F1: a failed selection read as the package "unknown", which ran the lane.
+        module = route_module()
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            for case in ("no lane script", "no PACKAGES list"):
+                with self.subTest(case=case):
+                    shutil.rmtree(root / "scripts", ignore_errors=True)
+                    (root / "scripts/ci").mkdir(parents=True)
+                    shutil.copy2(ROOT / "scripts/ci/select_package_tests.py", root / "scripts/ci")
+                    if case == "no PACKAGES list":
+                        (root / module.PACKAGE_LANE).write_text("#!/bin/bash\n", encoding="utf-8")
+                    self.assertEqual(module.lane_packages(root, [LIVE_CODE_SOURCE]), ())
+                    self.assertEqual(module.outputs(module.Route())["swift_packages"], "")
+
     def test_a_lane_package_turns_on_the_fast_tier(self) -> None:
         module = route_module()
         result = module.Route(lane_packages=("CmuxLiveCode",))
@@ -128,15 +143,15 @@ class WorkflowWiring(unittest.TestCase):
 
     def test_both_fast_tier_jobs_run_the_lane_on_it(self) -> None:
         self.assertNotIn("package-tests-fleet", self.jobs, "the lane runs in the fast tier, not a job of its own")
-        for name, needle in (("fast-tier-fleet", "--script scripts/ci/package-test-lane.sh --ref \"$REF\" \\\n"
-                                                 "                --arg=run --arg=--event=pull_request"),
-                             ("fast-tier", "bash scripts/ci/package-test-lane.sh run --event pull_request")):
+        for name, needles in (("fast-tier-fleet", ("--arg=run --arg=--event=pull_request", 'judge 3 "package-test-lane.sh')),
+                              ("fast-tier", ("bash scripts/ci/package-test-lane.sh run --event pull_request",))):
             with self.subTest(job=name):
                 steps = [step for step in self.jobs[name]["steps"]
                          if step.get("env", {}).get("SWIFT_PACKAGES") == "${{ needs.path_route.outputs.swift_packages }}"]
                 self.assertEqual(len(steps), 1, f"{name} reads no swift_packages")
-                self.assertIn(needle, steps[0]["run"])
-                self.assertIn('-n "$SWIFT_PACKAGES"', steps[0]["run"])
+                for needle in needles:
+                    self.assertIn(needle, steps[0]["run"])
+                self.assertIn('-n "${SWIFT_PACKAGES:-}"', steps[0]["run"])
 
 
 if __name__ == "__main__":

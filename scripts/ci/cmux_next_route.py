@@ -557,7 +557,7 @@ class Route:
     hot_only: bool = False
     hot_layers: dict[str, list[str]] = field(default_factory=dict)
     # package-test-lane.sh's packages this pull request reaches (lane_packages): the fast tier runs the lane on them.
-    # ("unknown",) when the lane's selection could not be read: the lane then selects from the diff itself.
+    # Only real package names: an empty or unreadable selection is (), never a placeholder (#49163, cd2c93ec F1).
     lane_packages: tuple[str, ...] = ()
 
     def everything(self, reason: str) -> None:
@@ -1525,7 +1525,8 @@ def lane_packages(root: Path, changed: list[str]) -> tuple[str, ...]:
     """The PACKAGES of package-test-lane.sh that `changed` reaches, by the lane's own selection
     (select_package_tests.py --routed-inputs-only --skip-absent). ci.yml's macos job skips feat-cmux-next pull
     requests (static-preflight's next-line split), so the fast tier is where their package tests run. () when no
-    routed input changed; ("unknown",) when the selection cannot be read, so the lane still runs (fail open)."""
+    routed input changed, and () with a warning when the selection cannot be read: a placeholder such as "unknown"
+    would read as a package and run the lane on nothing (the cd2c93ec review's F1)."""
     try:
         name = "_cmux_next_route_select_package_tests"
         spec = importlib.util.spec_from_file_location(name, root / "scripts/ci/select_package_tests.py")
@@ -1537,10 +1538,12 @@ def lane_packages(root: Path, changed: list[str]) -> tuple[str, ...]:
         body = re.search(r"^\s*PACKAGES=\(\n(.*?)\n\s*\)", (root / PACKAGE_LANE).read_text(encoding="utf-8"), re.S | re.M)
         listed = [line.split("#")[0].strip() for line in body.group(1).splitlines() if line.split("#")[0].strip()]
         present = select.package_dirs(root)
-        return tuple(select.select(root, [package for package in listed if package in present], candidates))
-    except (Exception, SystemExit) as error:  # noqa: BLE001 - any unreadable selection runs the lane
-        print(f"package-test-lane.sh's selection could not be read ({error}): the lane selects itself", file=sys.stderr)
-        return ("unknown",)
+        picked = select.select(root, [package for package in listed if package in present], candidates)
+        return tuple(package for package in picked if package in present)
+    except (Exception, SystemExit) as error:  # noqa: BLE001 - an unreadable selection selects no package
+        print(f"::warning title=package-test-lane.sh selection::could not be read ({error}): no package selected",
+              file=sys.stderr)
+        return ()
 
 
 def swift_filter(result: Route) -> str:
