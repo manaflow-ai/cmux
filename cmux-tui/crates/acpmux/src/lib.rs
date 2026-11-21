@@ -302,6 +302,7 @@ pub mod subsession_worktree;
 pub mod suggestion_gate;
 pub(crate) mod supervise;
 pub mod tailnet;
+pub mod task_list;
 #[cfg(unix)]
 #[path = "daemon/term_sender.rs"]
 pub(crate) mod term_sender;

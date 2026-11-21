@@ -138,6 +138,7 @@ import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
+import { hatPlanOf } from "./chatTaskList";
 import { goalHatPlace } from "./goalHat.experiment";
 import { githubFolder, githubFolderRepo } from "./githubRepos";
 import { StyleSwitch } from "./newtab/StyleSwitch";
@@ -3356,8 +3357,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         : undefined,
     [snapshot.isWorking, quick, childRows, turnRowsShown],
   );
-  const hatEarlier = planInHat && !hatPlanRow && earlierPlanRow !== undefined;
-  const hatPlanSource = hatPlanRow?.plan ?? (hatEarlier ? earlierPlanRow.plan : undefined);
+  // The chat's task list across its turns (acpmux `taskList`, chatTaskList.ts): between turns the hat
+  // shows it while steps are left, and a running turn without a list of its own shows it when the
+  // transcript no longer holds the earlier list (a long chat paged it out), or when the Chief keeps it.
+  const tasksInHat = subagentTray && !pinnedPlan && !sessionStatus && !quick && !childRows;
+  const hatTasks = tasksInHat
+    ? hatPlanOf({
+        working: snapshot.isWorking,
+        live: hatPlanRow?.plan,
+        earlier: earlierPlanRow?.plan,
+        list: snapshot.summary?.taskList,
+      })
+    : undefined;
+  const hatEarlier = hatTasks?.earlier ?? false;
+  const hatKept = hatTasks?.kept ?? false;
+  const hatPlanSource = hatTasks?.plan;
   // The list's entries hold while a step's state does not change, so streamed text never redraws the hat.
   const hatPlanKept = useRef<readonly AcpmuxPlanEntry[] | undefined>(undefined);
   const hatPlan = sameEntries(hatPlanKept.current, hatPlanSource)
@@ -6815,6 +6829,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             enters={trayEnters}
             plan={hatPlan}
             planEarlier={hatEarlier}
+            planKept={hatKept}
             onTuck={trayPlacement === "tray" ? tuckTray : undefined}
             tuckSide={trayHandle}
             onHold={setHatHeld}
@@ -12831,7 +12846,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             <TrayPullTab
               chat={shownSessionId}
               {...pullTabCounts(trayList, waitingAgents)}
-              working={hatPlan !== undefined && hatPlan.length > 0}
+              working={hatPlan !== undefined && hatPlan.length > 0 && !hatKept}
               side={trayHandle}
             />
           ) : (

@@ -172,6 +172,12 @@ pub struct SessionSummary {
     pub preview: Option<String>,
     /// One sidebar line; null before the first prompt.
     pub last_message: Option<LastMessage>,
+    /// What is done and what is next across the chat's turns (`task_list.rs`): its harness's
+    /// latest plan (TodoWrite, update_plan) or the list its agent or Chief keeps
+    /// (`_acpmux/task_list/set`); null until one is written. Absent from a peer on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub task_list: Option<crate::task_list::TaskListSummary>,
     pub queued: u64,
     /// Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update
     /// that installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from
