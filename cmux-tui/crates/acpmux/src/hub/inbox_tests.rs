@@ -934,9 +934,9 @@ async fn an_opened_thread_names_its_senders_plainly_for_the_transcript() {
 
 /// The lane-gh broker's relay of a lane VM's message, as a chat on another machine logged it
 /// (2026-11-21): a peer daemon's forward of an agent's message with no class. It woke the idle chat
-/// as a turn of its own, which ended with no tool call (cmuxterm-hq#15820); about 134 of 482
-/// no-op wake turns in 48 h were such forwards, alone or joined in a digest. Now the inbox takes
-/// it and, unclassified, it is an FYI: it waits for the next notice and wakes no one.
+/// as a turn of its own, which ended with no tool call (cmuxterm-hq#15820); about 84 of 482
+/// no-op wake turns in 48 h were such forwards. Now the inbox takes it and, unclassified, it is
+/// an FYI: it waits for the next notice and wakes no one.
 #[test]
 fn a_peers_forward_of_an_unclassified_relay_message_goes_to_the_inbox_and_wakes_no_one() {
     let provenance = json!({

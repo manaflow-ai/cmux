@@ -329,10 +329,10 @@ pub(super) enum Unsend {
 /// pair's release), which never set `PromptOptions::inbox`.
 ///
 /// A peer's forward kept the queue until 2026-11-21, so a message from another machine never met
-/// the inbox's classes: each one woke an idle chat as a turn of its own, and those that came
-/// while it was busy went in after it as one digest turn ("N messages from other agents arrived
-/// while you were busy"). Of 482 no-op wake turns in 48 h across the fleet (a turn that made no
-/// tool call), about 134 were such forwards, nearly all sent with no class (cmuxterm-hq#15820).
+/// the inbox's classes: each one woke an idle chat as a turn of its own, or, if it came while
+/// the chat was busy, went in after that turn. Of 482 no-op wake turns in 48 h across the fleet
+/// (a turn that made no tool call), about 84 were single forwards sent with no class
+/// (cmuxterm-hq#15820).
 /// In the inbox, an unclassified one is an FYI that waits for the next notice; a block or a
 /// question still wakes the chat at once, and the session that started it or first gave it work
 /// still sends a prompt of its own (`Hub::inbox_route`).
