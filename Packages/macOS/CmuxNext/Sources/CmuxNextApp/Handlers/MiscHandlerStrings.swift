@@ -31,6 +31,10 @@ enum MiscHandlerStrings {
     static var terminalChatBusy: String { String(localized: "handlers.misc.failed.terminalChatBusy", defaultValue: "This chat is still working. Switch when its turn ends.", table: "MiscHandlers", bundle: .module) }
     static var terminalChatStopFailed: String { String(localized: "handlers.misc.failed.terminalChatStopFailed", defaultValue: "The chat could not stop, so no terminal resumes its session.", table: "MiscHandlers", bundle: .module) }
     static var terminalChatNoPane: String { String(localized: "handlers.misc.failed.terminalChatNoPane", defaultValue: "The chat stopped, but its workspace has no pane for the terminal.", table: "MiscHandlers", bundle: .module) }
+    /// Toggle Terminal and Chat's row on a terminal running an agent session (the pane's ⋮, the tab's right-click).
+    static var terminalChatSwitchToChat: String { String(localized: "handlers.misc.terminalChat.switchToChat", defaultValue: "Switch to Chat", table: "MiscHandlers", bundle: .module) }
+    /// Toggle Terminal and Chat's row on a chat a terminal runs.
+    static var terminalChatSwitchToTerminal: String { String(localized: "handlers.misc.terminalChat.switchToTerminal", defaultValue: "Switch to Terminal", table: "MiscHandlers", bundle: .module) }
     static var terminalChatHarness: String { String(localized: "handlers.misc.failed.terminalChatHarness", defaultValue: "Only Claude Code and Codex sessions can open as a chat.", table: "MiscHandlers", bundle: .module) }
     /// A Simulator shortcut (Home, Rotate, Appearance, Software Keyboard) with no phone tab focused.
     static var noPhoneTab: String { String(localized: "handlers.misc.failed.noPhoneTab", defaultValue: "No phone tab is focused.", table: "MiscHandlers", bundle: .module) }
@@ -38,7 +42,7 @@ enum MiscHandlerStrings {
     static var noTerminal: String { String(localized: "handlers.misc.failed.noTerminal", defaultValue: "No terminal tab is focused.", table: "MiscHandlers", bundle: .module) }
     /// A shortcut the key window's kind does not support (`WindowKeyTable`).
     static var notInThisWindow: String { String(localized: "handlers.misc.unavailable.windowKind", defaultValue: "Not available in this window.", table: "MiscHandlers", bundle: .module) }
-    static var noPane: String { String(localized: "handlers.misc.failed.noPane", defaultValue: "No pane is focused.", table: "MiscHandlers", bundle: .module) }
+    static var noPane: String { String(localized: "handlers.misc.failed.noPane", defaultValue: "Click a tab first, then try again.", table: "MiscHandlers", bundle: .module) }
     /// The sheet that asks for a terminal's resume command (Set/Edit Resume Command).
     /// A pane verb on a pane still opening (`PaneNotReady`, P0 2026-10-30): it was not sent.
     static var paneNotReady: String { String(localized: "handlers.misc.failed.paneNotReady", defaultValue: "This pane is still opening; try again in a moment.", table: "MiscHandlers", bundle: .module) }

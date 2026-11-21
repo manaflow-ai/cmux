@@ -6,15 +6,15 @@ by who is calling, not by what is possible.
 
 | You are | Start an agent for a task | Talk to it, wait | Show it to the person |
 | --- | --- | --- | --- |
-| A script, a person, or an agent with a shell | `acpmux new -n NAME --worktree REPO[@BASE] --prompt-file F --report-to ME -d` | `acpmux send`, `acpmux wait`, `acpmux last` | Optional `--group G` on the same command (runs `cmux agent open`) |
-| An agent inside acpmux that wants a child of another harness, from its shell | `acpmux run --parent $ACPMUX_SESSION_ID -m codex PROMPT` (prints its reply), or `acpmux new --parent ... -d` | as below: it is the same sub-session | it lists under the parent's chat |
+| A script, a person, or an agent with a shell | `cmux agent new -n NAME --worktree REPO[@BASE] --prompt-file F --report-to ME -d` | `cmux agent send`, `cmux agent wait`, `cmux agent last` | Optional `--group G` on the same command (runs `cmux agent open`) |
+| An agent inside acpmux that wants a child of another harness, from its shell | `acpmux run --parent $ACPMUX_SESSION_ID -m codex PROMPT` (prints its reply), or `cmux agent new --parent ... -d` | as below: it is the same sub-session | it lists under the parent's chat |
 | An agent inside acpmux that wants a child (`cmux-subsessions` MCP) | `start_session {prompt, name, worktree: true}`, or `{prompt, fork: true}` for a fork of its own chat with its history | `send_message`, `wait_for_sessions`, `get_session` | `app_agent_open {session, group}` through the cmux MCP |
 | The cmux app or an agent with the cmux MCP | the app's own New Chat, or one of the two above | the chat pane | `app_agent_open` (`cmux agent open SESSION [--group G]`), or a tab of a pane: `app_agent_open_tab` (`cmux agent open-tab SESSION --target PANE`) |
 
-## The launcher: `acpmux new`
+## The launcher: `cmux agent new`
 
 ```bash
-acpmux new -n gui/composer \
+cmux agent new -n gui/composer \
   --worktree ~/Projects/cmux@origin/feat-cmux-next \
   --prompt-file ~/briefs/composer.md \
   --report-to my-mac/coordinator \
@@ -74,7 +74,7 @@ path, a second run, a name with `/`) the launcher already checks:
 # lane.sh NAME BRIEF [REPORT_TO]: one lane from the team's base, reporting to
 # REPORT_TO (default: the session running this, when an agent runs it).
 to=${3:-$ACPMUX_SESSION_NAME}
-exec acpmux new -n "$1" -m claude --policy approve-all -d \
+exec cmux agent new -n "$1" -m claude --policy approve-all -d \
   --worktree ~/Projects/cmux@origin/feat-cmux-next --prompt-file "$2" \
   ${to:+--report-to "$to"}
 ```
@@ -86,7 +86,7 @@ brief on that machine): `--worktree` works over the local socket only.
 
 - `acpmux ensure NAME` is get-or-create without a prompt or worktree; the
   launcher's `--reuse` is the same rule with both.
-- A hand-written spawn script (`git worktree add` + `acpmux new` + `acpmux
+- A hand-written spawn script (`git worktree add` + `cmux agent new` + `acpmux
   send`): it is the launcher without the checks. Wrap the launcher instead.
 - `start_session` for long-lived lanes: a sub-session is a child of the
-  calling session and is listed under it; start a lane with `acpmux new`.
+  calling session and is listed under it; start a lane with `cmux agent new`.
