@@ -6,7 +6,7 @@
   --acpmux-cols-line: var(--ui-line, color-mix(in srgb, var(--agent-text) 11%, transparent));
   /* The rail and the settings column stand apart from the models by a quiet fill, not a vertical rule
      (David Beyer 2026-11-20: "I hate those vertical lines"). Horizontal rules stay where they end a row. */
-  --acpmux-cols-side-fill: color-mix(in srgb, var(--agent-text) 4%, transparent);
+  --acpmux-cols-side-fill: var(--ds-surface-card);
   --acpmux-cols-pad: var(--ui-popup-padding, 4px);
   --acpmux-cols-inline: var(--ui-row-padding-inline, 8px);
   --acpmux-cols-rail-width: 3.6923em;

@@ -1107,6 +1107,15 @@ export function NewTabScreen(props: Props) {
   // at the next row.
   const firstDrawn = promptLeads(rows, harness) ? 1 : 0;
   const drawnRows = rows.length - firstDrawn;
+  // The arrows' next row. With the prompt's row hidden, it and "no row" are one stop, the prompt
+  // (-1, which keeps ↑ and ↓ for a multi-line prompt's caret): ↓ from it reaches the first drawn row
+  // and ↓ from the last row comes back to it; ↑ from the first drawn row comes back to it in one press.
+  const stepRows = (from: number, by: 1 | -1) => {
+    if (!firstDrawn) return stepSelection(from, by, rows.length);
+    if (from < firstDrawn) return by === 1 ? firstDrawn : rows.length - 1;
+    if (by === 1) return from + 1 < rows.length ? from + 1 : -1;
+    return from - 1 < firstDrawn ? -1 : from - 1;
+  };
   // What Return does when it is not the prompt (a command, an address, a tab, a search): said beside
   // Send before Return is pressed (David Beyer 2026-11-20 typed words that ran as a shell command), the
   // same row submit takes (screenModel returnRow).
@@ -1749,7 +1758,7 @@ export function NewTabScreen(props: Props) {
       // From the last row, with none open, and Shift-Tab always, focus moves on, so the keyboard
       // can leave the field.
       event.preventDefault();
-      pick(stepSelection(current, 1, rows.length));
+      pick(stepRows(current, 1));
       return;
     }
     // Until the arrows pick a row (the top row typing lights is not a pick), a prompt of several
@@ -1757,9 +1766,10 @@ export function NewTabScreen(props: Props) {
     // take them from the caret's first (↑) or last (↓) line. Once a row is picked, the arrows step
     // the suggestion rows.
     const step = kept < 0 && movesCaretInPrompt(event, state, input) ? undefined : listStep(event);
-    if (step && rows.length) {
+    // Only drawn rows take the arrows: a prompt whose one row is its own hidden Ask keeps them for the caret.
+    if (step && drawnRows) {
       event.preventDefault();
-      pick(stepSelection(current, step, rows.length));
+      pick(stepRows(current, step));
     } else if (step && dismissed !== undefined && text) {
       // Down or Up on closed suggestions opens them again.
       event.preventDefault();

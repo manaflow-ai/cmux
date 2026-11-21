@@ -128,6 +128,12 @@ async function openMachines(button: HTMLElement) {
   await act(async () => item!.click());
 }
 
+/// The Down presses from the field to drawn row `index`: one more while no row is lit, as when the prompt
+/// leads with no row of its own (David Beyer 2026-11-20).
+function downsTo(index: number) {
+  return index + (document.querySelector(".nt-row.is-selected") ? 0 : 1);
+}
+
 function promptValue(field = container.querySelector<MarkdownFieldElement>(".nt-field")) {
   return (field?.acpmuxMarkdownField?.plainText() ?? "").replace(/\n$/, "");
 }
@@ -157,7 +163,8 @@ test.each(["minimal", "default"] as const)("%s home offers creation only as matc
     const index = rows.findIndex((row) => row.textContent?.includes(translateNewTab(`create.${kind}`)));
     expect(index).toBeGreaterThanOrEqual(0);
     if (kind !== "chat") continue;
-    for (let i = 0; i < index; i++) await press(field, "ArrowDown");
+    const downs = downsTo(index);
+    for (let i = 0; i < downs; i++) await press(field, "ArrowDown");
     await press(field, "Enter");
   }
   expect(asks.length).toBe(1);
@@ -233,7 +240,8 @@ test.each(["terminal", "browser", "chat"] as const)(
       (row) => row.dataset.type === "create" && row.textContent?.includes(translateNewTab(`create.${kind}`)),
     );
     expect(index).toBeGreaterThanOrEqual(0);
-    for (let i = 0; i < index; i++) await press(field, "ArrowDown");
+    const downs = downsTo(index);
+    for (let i = 0; i < downs; i++) await press(field, "ArrowDown");
     await press(field, "Enter");
     expect(creates).toEqual(kind === "chat" ? [] : [kind]);
     expect(asks.length).toBe(kind === "chat" ? 1 : 0);
@@ -856,7 +864,7 @@ test("Return navigates the page's tab and Option-Return asks for a new tab besid
 // A last pick names the chip's harness before acpmux lists its harnesses (or when that read failed
 // and nothing has read again), so the chip read "Opus 5.5" over a list with no Ask row, and Return
 // took the prompt to Google. Whatever the chip names, Return asks.
-test("with a remembered pick and no catalog, the Ask row leads and Return asks instead of searching", async () => {
+test("with a remembered pick and no catalog, Return asks instead of searching", async () => {
   const asked: string[] = [];
   const searched: string[] = [];
   saved.set("localStorage", scope.localStorage);
@@ -878,7 +886,8 @@ test("with a remembered pick and no catalog, the Ask row leads and Return asks i
     field.acpmuxMarkdownField!.type("look at the ios connection failures");
   });
   const rows = [...document.querySelectorAll(".nt-row")].map((row) => row.textContent ?? "");
-  expect(rows[0]).toContain("Claude Code");
+  // The prompt is Return's with no row of its own (David Beyer 2026-11-20); the web search is a row.
+  expect(document.querySelector('.nt-row[data-type="ask"]')).toBeNull();
   expect(rows.some((row) => row.includes("Search the web"))).toBe(true);
   await press(field, "Enter");
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -2278,6 +2287,11 @@ test("Down from the prompt highlights the first drawn row, Up goes back to the p
   expect(rows()[0]!.querySelector(".nt-row-return"), "Return's keycap on it").toBeTruthy();
   await press(field, "ArrowUp");
   expect(document.querySelector(".nt-row.is-selected"), "back on the prompt").toBeNull();
+  // The prompt is one stop: one more Up wraps to the last drawn row, and Down from it comes back.
+  await press(field, "ArrowUp");
+  expect(rows().at(-1)!.classList.contains("is-selected"), "the last drawn row").toBe(true);
+  await press(field, "ArrowDown");
+  expect(document.querySelector(".nt-row.is-selected"), "the prompt again").toBeNull();
   await press(field, "Enter");
   expect(asks.map((ask) => ask[1])).toEqual(["fix the failing test"]);
   expect(searches).toEqual([]);
