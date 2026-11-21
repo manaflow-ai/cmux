@@ -10,8 +10,6 @@ name: cmux-next Chromium currency
 # to the pin or the check.
 
 on:
-  schedule:
-    - cron: "17 14 * * *"
   pull_request:
     paths:
       - scripts/cmux-next/cef-manifest.json

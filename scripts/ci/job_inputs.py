@@ -7,6 +7,7 @@ affect should not run; for that each job has to say what it reads. A job of a wo
 feat-cmux-next starts (pull_request or pull_request_target, with no branch filter or one that takes feat-cmux-next)
 is declared by the first of these that names it:
 
+  pull-request-skip  scripts/ci/affected-jobs.json pull_request_skip: a pull request skips it unless labeled full-ci.
   fast-check-inputs  scripts/ci/fast-check-inputs.json (fast_check_route.py): the job skips a diff outside its inputs.
   affected-jobs      scripts/ci/affected-jobs.json (affected_jobs.py): the same, for the workflows that list it.
   pr-router          pr-router.yml calls it, and scripts/ci/pr_router.json lists the callee's `affects`.
@@ -48,7 +49,7 @@ FAST_CHECK = "scripts/ci/fast-check-inputs.json"
 AFFECTED = "scripts/ci/affected-jobs.json"
 PR_ROUTER = "scripts/ci/pr_router.json"
 PR_ROUTER_WORKFLOW = ".github/workflows/pr-router.yml"
-SOURCES = ("fast-check-inputs", "affected-jobs", "pr-router", "tooling-steps", "path-route", "workflow-paths",
+SOURCES = ("pull-request-skip", "fast-check-inputs", "affected-jobs", "pr-router", "tooling-steps", "path-route", "workflow-paths",
            "always")
 UNDECLARED_WHY = "undeclared: runs on every pull request until its inputs are declared (added by job_inputs.py fix)"
 ALWAYS_DOC = [
@@ -227,6 +228,8 @@ def runs_on_pull_requests(job: dict, events: list[str] = list(EVENTS)) -> bool:
 
 def classify(root: Path, wf: str, workflow: dict, job_id: str, maps: dict) -> str | None:
     job = workflow.get("jobs", {}).get(job_id) or {}
+    if job_id in (maps["affected"].get("pull_request_skip", {}).get("workflows", {}).get(wf, {}) or {}):
+        return "pull-request-skip"
     if job_id in maps["fast"].get("workflows", {}).get(wf, {}):
         return "fast-check-inputs"
     if job_id in (maps["affected"].get("workflows", {}).get(wf, {}) or {}).get("jobs", {}):

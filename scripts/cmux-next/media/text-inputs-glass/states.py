@@ -9,46 +9,51 @@ A tour holds at most 30 steps (tour.py), so this writes one state per input and 
     python3 scripts/cmux-next/media/text-inputs-glass/states.py OUT
     cmux-ci capture SHA --state OUT/chief-art.json --mac --display-scale 2 --whole-host   # then --job JOB for the rest
 
-The app is activated (debug.text_field key) so carets, selections and focus rings draw as a person sees them:
+The app launches activated (the shot steps are CuaDriver shot objects) and debug.text_field key makes its window key, so carets, selections and focus rings draw as a person sees them:
 a whole capture mini, never a shared one. Fields are driven by debug.text_field (native) and debug.page select / type /
 blur (web).
 """
-import json, sys
+import json, re, sys
 TEXT = "Liquid Glass inputs"
 SEL = (7, 12)  # "Glass"
 def rpc(method, params=None, **kw):
     return {"rpc": {"method": method, "params": params or {}}, **kw}
 def cmux(*argv, **kw):
     return {"cmux": list(argv), **kw}
-def step(title, body=None, wait=1.2, shot=True, optional=None):
+def step(title, body=None, wait=1.2, shot="", optional=None):
     s = {"title": title}
     if body: s.update(body)
     s["wait"] = wait
-    if not shot: s["shot"] = False
+    # A shot object (a CuaDriver display shot of the window, back as shots/NAME.png) also makes pr-capture launch the
+    # app activated, so the window is key and carets, selections and focus rings draw as a person sees them.
+    if shot:
+        s["shot"] = {"name": "-".join(re.findall(r"[a-z0-9]+", f"{title.split(']')[0]} {shot}".lower()))[:32], "with_popups": True, "dismiss": False}
+    else:
+        s["shot"] = False
     if optional: s["optional"] = optional
     return s
 
 def native_states(label, focus, tag, opt=None):
     """idle (nothing focused), focused empty (placeholder + caret), typed (caret at end), selection."""
     return [
-        step(f"{tag} {label}: idle, empty", rpc("debug.text_field", {"blur": True}), optional=opt),
+        step(f"{tag} {label}: idle, empty", rpc("debug.text_field", {"blur": True}), shot="idle", optional=opt),
         step(f"{label} focus", focus, shot=False, wait=0.8, optional=opt),
-        step(f"{tag} {label}: focused, empty (placeholder, caret)", rpc("debug.text_field", {"text": ""}), optional=opt),
-        step(f"{tag} {label}: typed text, caret at the end", rpc("debug.text_field", {"text": TEXT}), optional=opt),
-        step(f"{tag} {label}: selection", rpc("debug.text_field", {"from": SEL[0], "to": SEL[1]}), optional=opt),
+        step(f"{tag} {label}: focused, empty (placeholder, caret)", rpc("debug.text_field", {"text": ""}), shot="empty", optional=opt),
+        step(f"{tag} {label}: typed text, caret at the end", rpc("debug.text_field", {"text": TEXT}), shot="typed", optional=opt),
+        step(f"{tag} {label}: selection", rpc("debug.text_field", {"from": SEL[0], "to": SEL[1]}), shot="select", optional=opt),
         step(f"{label}: clear", rpc("debug.text_field", {"text": ""}), shot=False, wait=0.3, optional=opt),
         step(f"{label}: release the keyboard", rpc("debug.text_field", {"blur": True}), shot=False, wait=0.3, optional=opt),
     ]
 
 def web_states(label, page, selector, tag, focus=None, opt=None):
     p = lambda **kw: {"page": page, **({"selector": selector} if selector else {}), **kw}
-    out = [step(f"{tag} {label}: idle, empty", rpc("debug.page", p(action="blur", clear=True)), optional=opt)]
+    out = [step(f"{tag} {label}: idle, empty", rpc("debug.page", p(action="blur", clear=True)), shot="idle", optional=opt)]
     if focus: out.append(step(f"{label} focus", focus, shot=False, wait=0.8, optional=opt))
     out += [
-        step(f"{tag} {label}: focused, empty (placeholder, caret)", rpc("debug.page", p(action="select", **{"from": 0, "to": 0})), optional=opt),
+        step(f"{tag} {label}: focused, empty (placeholder, caret)", rpc("debug.page", p(action="select", **{"from": 0, "to": 0})), shot="empty", optional=opt),
         step(f"{label}: type", rpc("debug.page", p(action="type", text=TEXT)), shot=False, wait=0.3, optional=opt),
-        step(f"{tag} {label}: typed text, caret at the end", rpc("debug.page", p(action="select", **{"from": len(TEXT)})), optional=opt),
-        step(f"{tag} {label}: selection", rpc("debug.page", p(action="select", **{"from": SEL[0], "to": SEL[1]})), optional=opt),
+        step(f"{tag} {label}: typed text, caret at the end", rpc("debug.page", p(action="select", **{"from": len(TEXT)})), shot="typed", optional=opt),
+        step(f"{tag} {label}: selection", rpc("debug.page", p(action="select", **{"from": SEL[0], "to": SEL[1]})), shot="select", optional=opt),
         step(f"{label}: clear", rpc("debug.page", p(action="blur", clear=True)), shot=False, wait=0.3, optional=opt),
     ]
     return out
@@ -119,7 +124,7 @@ for name, group in GROUPS.items():
     for backdrop in ("art", "plain"):
         steps = [step("Launch", wait=4, shot=False)]
         for mode in ("light", "dark"):
-            steps.append(step(mode, rpc("debug.appearance", {"mode": mode}), shot=False, wait=2))
+            steps.append(step(mode, rpc("debug.text_field", {"appearance": mode}), shot=False, wait=2))
             steps += group(f"[{backdrop} {mode}]")
         state = {"title": f"Text inputs on Liquid Glass: {name}, {backdrop} backdrop, light and dark, 2x (idle, focused empty, typed, selection)",
                  "launch_args": ["--showcase"], "displayScale": 2, "wholeHost": True,

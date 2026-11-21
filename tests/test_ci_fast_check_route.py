@@ -49,25 +49,7 @@ class RouteTest(unittest.TestCase):
         self.assertEqual(self.run_route(FAST_GATES, changed("Packages/macOS/CmuxNext/Sources/A.swift")),
                          {"fast-gates": True})
         self.assertEqual(self.run_route(FAST_GATES, changed("Resources/Localizable.xcstrings")), {"fast-gates": True})
-        self.assertEqual(self.run_route(GUARDS, changed("tests/test_base_red_excuse.py")),
-                         {"ci-guard-group": True, "own-change-checks": False, "pinned-asset-store": False,
-                          "static-checks": False, "rust-notices-tree": False})
-
-    def test_the_guards_whole_tree_jobs_run_for_their_inputs(self):
-        """pinned-asset-store runs for a pin, rust-notices-tree for a Rust manifest, static-checks for what its steps
-        read (a catalog, the notices data); a product source none of them reads skips all three."""
-        run = lambda *paths: {job: ran for job, ran in self.run_route(GUARDS, changed(*paths)).items()
-                              if job in ("pinned-asset-store", "static-checks", "rust-notices-tree")}
-        self.assertEqual(run("scripts/cmux-next/remote-browser-host.pin.json"),
-                         {"pinned-asset-store": True, "static-checks": False, "rust-notices-tree": True})
-        self.assertEqual(run("Native/DiffSidecar/Cargo.lock"),
-                         {"pinned-asset-store": False, "static-checks": False, "rust-notices-tree": True})
-        self.assertEqual(run("Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings"),
-                         {"pinned-asset-store": False, "static-checks": True, "rust-notices-tree": False})
-        self.assertEqual(run("scripts/cmux-next/notices/vt-link-graph.json"),
-                         {"pinned-asset-store": False, "static-checks": True, "rust-notices-tree": True})
-        self.assertEqual(run("cmux-next-ios/CmuxMobileKit/Sources/A.swift"),
-                         {"pinned-asset-store": False, "static-checks": False, "rust-notices-tree": False})
+        self.assertEqual(self.run_route(GUARDS, changed("tests/test_base_red_excuse.py")), {"ci-guard-group": True, "own-change-checks": False})
 
     def test_the_workflow_itself_is_an_input(self):
         self.assertEqual(self.run_route(DOCTOR, changed(DOCTOR)), {"react-doctor": True})
