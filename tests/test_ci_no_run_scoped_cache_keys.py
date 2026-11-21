@@ -48,7 +48,9 @@ SETUP_ZIG = "mlugg/setup-zig@"
 
 # Workflows whose schedule runs main's copy: a change here reaches production only through a
 # twin PR against main, so they keep setup-zig's cache until that lands.
-SETUP_ZIG_ON_MAIN: dict[str, str] = {}
+SETUP_ZIG_ON_MAIN: dict[str, str] = {
+    "cloud-journey-prod.yml": "its schedule runs main's copy; the fix lands with a Main-Twin PR",
+}
 
 ALLOWED: dict[str, str] = {
     "ci-web.yml: Save the duration manifest":

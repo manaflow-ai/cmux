@@ -101,13 +101,16 @@ jobs:
       - name: Set up cmux-tui Rust
         if: env.SELECTED == 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
-      - name: Set up Zig for Ghostty
+      - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
         if: env.SELECTED == 'true'
-        uses: ./.github/actions/setup-ghostty-zig
-      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: echo "version=$(bash ./scripts/ghostty-zig-version.sh)" >> "$GITHUB_OUTPUT"
+      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         if: env.SELECTED == 'true'
-        uses: ./.github/actions/zig-global-cache
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         if: env.SELECTED == 'true'
         with:
@@ -255,11 +258,14 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev pkg-config
       - name: Set up cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
-      - name: Set up Zig for Ghostty
+      - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
-        uses: ./.github/actions/setup-ghostty-zig
-      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
-        uses: ./.github/actions/zig-global-cache
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: echo "version=$(bash ./scripts/ghostty-zig-version.sh)" >> "$GITHUB_OUTPUT"
+      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
       - name: Build the shipped Linux cmux-tui
         id: build-cmux-tui
         working-directory: cmux-tui

@@ -32,6 +32,13 @@ WORKFLOW_DIR = ROOT / ".github" / "workflows"
 ACTION = ROOT / ".github" / "actions" / "setup-ghostty-zig" / "action.yml"
 ACTION_USE = "uses: ./.github/actions/setup-ghostty-zig"
 
+# A scheduled workflow runs main's copy, so a change here never reaches its
+# schedule; it converts with a Main-Twin PR against main (the prepush gate's
+# "Scheduled workflows match main's" rule). Until then it keeps its inline pair.
+MAIN_SCHEDULED: dict[str, str] = {
+    "cloud-journey-prod.yml": "its schedule runs main's copy; converts with a Main-Twin PR",
+}
+
 SETUP_ZIG = re.compile(r"^\s*(?:-\s+)?uses:\s*mlugg/setup-zig@")
 STEP_START = re.compile(r"^(\s*)-\s")
 VERSION_LINE = re.compile(r"^\s*version:\s*(.+?)\s*$")
@@ -126,6 +133,8 @@ def main() -> int:
         failures.append(f"missing {ACTION.relative_to(ROOT)}")
     users = 0
     for path in sorted(WORKFLOW_DIR.glob("*.y*ml")):
+        if path.name in MAIN_SCHEDULED:
+            continue
         text = path.read_text(encoding="utf-8")
         failures.extend(inline_setups(str(path.relative_to(ROOT)), text))
         users += text.count(ACTION_USE)
