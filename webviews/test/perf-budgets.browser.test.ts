@@ -5,12 +5,17 @@
 // slow commit and a long frame. The page is served by the webviews dev server (vite.config.ts), so
 // the budgets come in the way `cmux live` brings them: its plugin injects them as the first script.
 //
+// Each bad case hits its budget on purpose, so the file takes those hits out of the browser test gate
+// (support/perfBudgetGate.ts) rather than failing on them; perf-budget-gate.browser.test.ts shows
+// the gate failing a file that does not.
+//
 // Real Chromium from Playwright (layout-shift and long-animation-frame are Chromium's); CI fails the
 // file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import type { PerfBudgetClass, PerfBudgetViolation } from "../src/devkit/perfBudgets";
+import { claimPerfBudgetHits } from "./support/perfBudgetGate";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -60,6 +65,7 @@ await requireBrowserLane("perf-budgets.browser.test.ts", async () => {
       handle?.flush();
       return handle?.violations ?? null;
     });
+    await claimPerfBudgetHits(page);
     await page.close();
     expect(violations).not.toBeNull();
     return { violations: violations!, warnings };

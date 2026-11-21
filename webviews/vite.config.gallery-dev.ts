@@ -18,7 +18,7 @@ import type { PluginOption } from "vite-plus";
 import base from "./vite.config";
 import { galleryHost, galleryModules } from "./dev-server/galleryHost";
 import { galleryLive } from "./dev-server/galleryLive";
-import { cmuxDevServer, diffWorkerEntry, galleryOptimizeDeps } from "./dev-server/plugins";
+import { cmuxDevServer, diffWorkerEntry, galleryOptimizeDeps, perfBudgetsDevEntry } from "./dev-server/plugins";
 
 const webviewsRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(webviewsRoot, "..");
@@ -27,8 +27,14 @@ if (!/^\/([a-z0-9._-]+\/)+$/i.test(urlBase)) throw new Error(`CMUX_GALLERY_BASE 
 const publicPort = Number(process.env.CMUX_GALLERY_PUBLIC_PORT) || undefined;
 const allowedHosts = (process.env.CMUX_GALLERY_ALLOWED_HOSTS ?? "").split(",").filter(Boolean);
 
-/** `bun run dev`'s surfaces, which this server leaves out. */
-const devServerPlugins = new Set(cmuxDevServer().map((plugin) => plugin.name));
+/** `bun run dev`'s surfaces, which this server leaves out; the runtime perf budgets stay, so a
+ *  gallery page warns in the console as it does under `cmux live` (dev-server/plugins.ts). */
+const keep = perfBudgetsDevEntry().name;
+const devServerPlugins = new Set(
+  cmuxDevServer()
+    .map((plugin) => plugin.name)
+    .filter((name) => name !== keep),
+);
 const named = (plugin: PluginOption): plugin is { name: string } =>
   Boolean(plugin && typeof plugin === "object" && "name" in plugin);
 const plugins = [base.plugins ?? []].flat(Infinity as 1) as PluginOption[];
