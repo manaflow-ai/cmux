@@ -1,3 +1,4 @@
+import "../shared/desktop";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createRoot } from "react-dom/client";
 import { SkillsPage } from "./SkillsPage";
