@@ -75,8 +75,10 @@ jobs:
   report:
     name: Sync the iOS UI nightly issue
     # Only a whole-target dispatch run on main; ios_ui_nightly.py checks the
-    # run again and ignores anything else.
-    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.path == '.github/workflows/test-ios.yml' && startsWith(github.event.workflow_run.display_title, 'iOS tests · main · simulator · cmuxUITests · ') }}
+    # run again and ignores anything else. Only a failure or a success can
+    # change the issue, so only those queue: a newer queued report replaces a
+    # waiting one, and a cancelled run must not replace a waiting failure.
+    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.path == '.github/workflows/test-ios.yml' && startsWith(github.event.workflow_run.display_title, 'iOS tests · main · simulator · cmuxUITests · ') && (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'success') }}
     # Report jobs serialize: two completed nightlies must not both open a red
     # issue (#44421). The recheck in ios_ui_nightly.py still covers a race that
     # predates this queue.
