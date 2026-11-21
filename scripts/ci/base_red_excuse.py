@@ -2323,6 +2323,33 @@ def unplaced_head_evidence(repo: str, job: dict, github) -> UnplacedSignature:
     return unplaced_signature(job, github.log(repo, job))
 
 
+# A red job whose log names no failing test, error line or crash is compared by its failed steps alone (Leo, 2026-11-21
+# ~03:45Z: "clearly we need to be hitting a 10x improvement in not running useless jobs"; the coordinator's rule: "a
+# red job with no parsable test name is excused when the same job (same name, same failing step) is red on the base
+# run"). cmuxterm-hq docs/ci/bottleneck-and-skip-candidates-2026-11-21.md: 3,765 PR heads were red only from base over
+# 11-13..19, and a refused inherited red makes its owner push again. Excused only when the base verdict failed exactly
+# the same steps (name and conclusion, counted: failed_step_keys) and names no failing test, error line, crash or
+# unnamed test either: a base that names a failure the head does not print is another failure, never this one.
+STEP_ONLY_WHY = "its log names no failing test or error line, so only its failed steps identify it"
+
+
+def step_only_verdict(name: str, why: str, head: UnplacedSignature, found: UnplacedSignature, where: str) -> str:
+    """The audit line for red NAME whose whole-log signature HEAD names no failing test or error line, when FOUND (the
+    red base verdict at WHERE) failed the same steps and names nothing either; else Refused saying why not."""
+    nothing = f"'{name}': {why}, and its log names no failing test or error line"
+    if head.crashes or head.unnamed:
+        raise Refused(f"{nothing}, but it crashed or reports tests it does not name; never compared by step alone")
+    if found.tests or found.errors or found.crashes or found.unnamed:
+        said = sorted(found.tests) or sorted(found.errors) or sorted(found.crashes) or list(found.unnamed)
+        raise Refused(f"{nothing}, while {where} names its failure ({'; '.join(said)[:300]}); a red naming nothing "
+                      "is not that one")
+    if head.steps != found.steps:
+        raise Refused(f"{nothing}; compared by step alone, its failed steps ({step_keys_text(head.steps)}) are not "
+                      f"{where}'s ({step_keys_text(found.steps)})")
+    return (f"excused '{name}': {STEP_ONLY_WHY}: the same failed steps ({step_keys_text(head.steps)[:300]}), as "
+            f"often each, as {where}, which names no failing test or error line either")
+
+
 def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, found: UnplacedSignature,
                      base_run: dict, *, why: str | None = None) -> str:
     """The audit line for an unplaced red job NAME whose whole-log signature HEAD is FOUND's, the newest red base
@@ -2333,8 +2360,11 @@ def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, f
     if not head.steps:
         raise Refused(f"'{name}': {why}, and it names no failed step; nothing is compared with the base")
     if not head.tests and not head.errors:
-        raise Refused(f"'{name}': {why}, and its log names no failing test or error line; nothing to "
-                      "compare with the base")
+        # A red that names nothing (a setup step such as `Select JDK 17` exiting 1, a shell check that prints no
+        # FAIL line) is the base's when the base verdict failed the very same steps and names nothing either
+        # (STEP_ONLY_WHY): its failed steps are its whole identity, as the Chromium step's is. cmux#48480 was refused
+        # three times for 'seven-language live conformance', red at 'Select JDK 17' on feat-cmux-next too.
+        return step_only_verdict(name, why, head, found, where)
     for side, said in (("its", head.unnamed), (f"{where}'s", found.unnamed)):
         if said:
             raise Refused(f"'{name}': {why}; compared whole, {side} log reports more failed tests than it names "

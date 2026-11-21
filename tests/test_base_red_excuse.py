@@ -12396,9 +12396,21 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "error lines are not .*more on this head: .*New.swift"):
             self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, base + [negative], base))
 
-    def test_a_red_that_names_nothing_is_refused(self):
+    def test_48480_a_red_that_names_nothing_is_excused_by_the_same_failed_step_on_base(self):
+        # cmux#48480: 'seven-language live conformance' failed at 'Select JDK 17' on the head and on feat-cmux-next,
+        # and neither log names a test or error line; refused three times as "nothing to compare".
+        said = self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, ["just output"], ["just output"]))
+        self.assertIn("only its failed steps identify it", said)
+        self.assertIn("swift test (macOS) (failure)", said)
+
+    def test_a_red_that_names_nothing_is_refused_by_another_step_or_a_base_that_names_its_failure(self):
+        other = UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, ["just output"], ["just output"])
+        other.jobs[2]["steps"][2]["name"] = "xcodebuild test (iOS simulator)"
         with self.assertRaisesRegex(excuse.Refused, "names no failing test or error line"):
-            self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, ["just output"], ["just output"]))
+            self.judge(other)
+        named = ["✘ Test reconnectsAfterSleep() failed after 2.100 seconds with 1 issue."]
+        with self.assertRaisesRegex(excuse.Refused, "names no failing test or error line"):
+            self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, ["just output"], named))
 
     def test_the_scripts_echo_is_never_a_red(self):
         # The runner echoes each step's script: a `::error::` the script could print is not one it did.
