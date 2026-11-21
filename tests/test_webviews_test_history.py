@@ -865,8 +865,11 @@ class BaseCheckAdmission(unittest.TestCase):
             with self.subTest(early=early):
                 self.assertTrue(self.admitted(early=early))
 
+    def test_completed_head_failures_still_start_a_replay(self):
+        self.assertTrue(self.admitted(head="failure"))
+
     def test_missing_required_work_never_starts_a_replay(self):
-        for result in ("failure", "cancelled", "skipped"):
+        for result in ("cancelled", "skipped"):
             with self.subTest(result=result):
                 self.assertFalse(self.admitted(head=result))
                 self.assertFalse(self.admitted(scope=result))

@@ -1009,8 +1009,9 @@ jobs:
   react-apps-base-check:
     needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-early]
     # Early results are optional: their timeout/skip must not trigger implicit success().
-    # Missing early artifacts already fall back to replay; only the scope and head are required.
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.result == 'success' && needs.react-apps-check-shard.result == 'success' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    # Missing early artifacts already fall back to replay. A completed red head shard still uploads its results,
+    # so it must not suppress the base verdict. Only skipped or cancelled head work is absent.
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.result == 'success' && needs.react-apps-check-shard.result != 'skipped' && needs.react-apps-check-shard.result != 'cancelled' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # 55: the base replay and the head re-run of up to 25 files each (13 files took about 6 minutes alone). The base's
     # replays after the first share what is left of it (the compare step's JOB_TIMEOUT_MINUTES and REPLAY_RESERVE).
