@@ -43,7 +43,7 @@ Layers (each one only on files the push changes under Packages/macOS/CmuxNext, c
                dialogs, opaque glass (tree-sitter, so comments, strings and `case .alert` never match); not the
                visible-only-* rules, which the visible-only scanner ratchets per file
   swiftformat  --lint with scripts/cmux-next/lint/swiftformat.conf; local only: the pre-push hook and a plain
-               local run, never --base/--head, --commits or GitHub Actions (no new CI gate, lead 2026-10-27)
+               local run, never --base/--head, --commits or GitHub Actions (lead 2026-10-27, made under the 2026-10-23 no-new-CI rule, since lifted)
   rustfmt      changed cmux-tui/**/*.rs through the pinned rustfmt (cmux-tui/rustfmt.toml); local only, like
                swiftformat; a file the base already left unformatted does not block
   swiftlint    swift-syntax rules only (scripts/cmux-next/lint/swiftlint.yml), no SourceKit
@@ -139,7 +139,7 @@ the installed one (main's CI has none today); a reviewed `// crash-allow: <reaso
 no baseline to record it in.
 
 Also on every local run (the hook and a plain run; never --commits, never under GitHub Actions, so CI
-gains no gate; Lawrence 2026-10-23): "Guardrails" (guardrails.py, plans/cmux-next/codebase-health.md):
+gains no gate; Lawrence 2026-10-23, since lifted): "Guardrails" (guardrails.py, plans/cmux-next/codebase-health.md):
 refuses NEW unjustified @unchecked Sendable / nonisolated(unsafe) (the crash ratchet's class and escape, which
 its per-module count cannot see before a push), DispatchQueue.main.async, ObservableObject/@Published, store
 references in list rows, generic classes with an implicit deinit, waiting action binds, detached tasks without a
@@ -370,7 +370,7 @@ FALLBACKS_SCRIPT = "scripts/cmux-next/check-single-host-fallbacks.py"
 FALLBACKS_DECLARATION = ".github/single-host-fallbacks.json"
 # A Rust port that stops at step A: a C ABI function with no Swift caller (cmuxterm-hq
 # docs/architecture/consolidation-2026-11-12.md: 0 of 28 cmux-daemon-conn-core functions called). Local only, like
-# the workflow parse (CLAUDE.md: no new CI gates); the fast gates' --advisory pass names it as a warning.
+# the workflow parse (the 2026-10-23 no-new-CI rule, since lifted); the fast gates' --advisory pass names it as a warning.
 PORT_DRIFT_CHECK = "Port drift (ffi_caller_ratchet.py: every exported cmux-tui C function has a Swift caller)"
 PORT_DRIFT_SCRIPT = SCRIPTS + "/ffi_caller_ratchet.py"
 PORT_DRIFT_HEADER = re.compile(r"^cmux-tui/crates/[^/]+/include/[^/]+\.h$")
@@ -378,12 +378,14 @@ PORT_DRIFT_NAME = re.compile(r"\b(?:cmux|acpmux)_\w+")
 PORT_DRIFT_TIP = "refs/remotes/origin/feat-cmux-next"  # drift already here is not a push's (port_drift)
 # The production journey's schedule registers from main, so main's copy of this workflow is what runs; only the
 # scripts come from feat-cmux-next. cmux#43781's --preclaim-login sat on feat-cmux-next's copy and never reached
-# production until cmux#43866 synced main's. Local only (CLAUDE.md: no new CI gates; Lawrence, 2026-10-23).
+# production until cmux#43866 synced main's. Local only (Lawrence's 2026-10-23 no-new-CI rule, since lifted).
 #
 # Every scheduled workflow is held the same way (cmuxterm-hq docs/investigations/2026-11-18-boneheaded-designs.md
 # section 10: thirteen scheduled files existed only here and never fired, and all 33 on both branches differed): a push
 # that changes a workflow with a `schedule:` is refused when main has no copy of it (the schedule never fires) or when
 # its jobs or crons now differ from main's, unless a pushed commit names the main twin in a `Main-Twin:` trailer.
+# A file whose main copy is another workflow under the same path (other job names or triggers before the push:
+# classic's nightly.yml beside NEXT's) has no twin to open: only its crons are held (cmux#44131).
 # NO_MAIN_TWIN lists the scheduled files that stay here on purpose, each with why.
 MAIN_TWIN_CHECK = "Scheduled workflows match main's (a schedule runs main's copy)"
 MAIN_TWIN_FILE = ".github/workflows/cloud-journey-prod.yml"  # compared whether or not it has a schedule
@@ -1973,6 +1975,24 @@ def _twin_shape(text: str) -> tuple[str, tuple[str, ...]]:
     return _journey_jobs(text), crons
 
 
+def _twin_identity(text: str) -> tuple[frozenset[str], frozenset[str]]:
+    """A workflow's job ids and trigger names. Two copies of one path that differ here are two workflows, not one
+    that drifted: main's nightly.yml is classic's build (18 jobs) and feat-cmux-next's is NEXT's (52), so a change to
+    one has no counterpart in the other to open as a twin."""
+    def section(key: str) -> tuple[str, str]:
+        found = re.search(rf"^['\"]?{key}['\"]?:[ \t]*(.*)$", text, re.MULTILINE)
+        if not found:
+            return "", ""
+        rest = text[found.end():]
+        end = re.search(r"^\S", rest, re.MULTILINE)
+        return found.group(1).split("#")[0].strip(), rest[:end.start() if end else len(rest)]
+
+    inline, body = section("on")
+    triggers = re.findall(r"[a-z_]+", inline) if inline else re.findall(r"^  ([a-z_]+):", body, re.MULTILINE)
+    _, jobs = section("jobs")
+    return frozenset(re.findall(r"^  ([A-Za-z0-9_-]+):", jobs, re.MULTILINE)), frozenset(triggers)
+
+
 def _cut_from_main(repo: Path, head: str, main_ref: str) -> bool:
     """True when HEAD is a branch off main, by git objects alone: feat-cmux-next has the CmuxNext app entry and HEAD
     does not, or the commit where HEAD left main is not on feat-cmux-next (main_based's test, without a head tree)."""
@@ -1999,7 +2019,9 @@ def main_twin_drift(repo: Path, base: str, head: str, main_ref: str = MAIN_TWIN_
     section 10). For each workflow the push changes that has a `schedule:` (here or on main; MAIN_TWIN_FILE always):
     a file main has no copy of is refused unless NO_MAIN_TWIN lists it; a file whose jobs or crons differ from main's
     is refused, unless the push left them as base had them or a pushed commit that changes the file names the main
-    twin PR in a `Main-Twin:` trailer. A push when main cannot be read passes (local only: not a CI gate)."""
+    twin PR in a `Main-Twin:` trailer. A file whose main copy was already another workflow before the push (other
+    job ids or triggers, _twin_identity) is held by its crons only, like a main dispatcher: no twin of a job change
+    can exist there. A push when main cannot be read passes (local only: not a CI gate)."""
     names = [n for n in git(repo, "diff", "--name-only", "--no-renames", base, head, "--", MAIN_TWIN_DIR,
                             check=False).decode(errors="replace").split()
              if n.endswith((".yml", ".yaml")) and "/" not in n[len(MAIN_TWIN_DIR):]]
@@ -2038,13 +2060,16 @@ def main_twin_drift(repo: Path, base: str, head: str, main_ref: str = MAIN_TWIN_
                             f"{MAIN_TWIN_HINT}")
             continue
         shape = _twin_shape(ours)
-        if re.search(rf"gh workflow run {re.escape(Path(name).name)}\b[^\n]*--ref feat-cmux-next", main):
+        other = before is not None and _twin_identity(before) != _twin_identity(main)
+        if other or re.search(rf"gh workflow run {re.escape(Path(name).name)}\b[^\n]*--ref feat-cmux-next", main):
             # main's copy is a dispatcher (cmux-next-ios-kit.yml's shape): its cron starts this file on
-            # feat-cmux-next, so this copy's jobs are what run; only the crons must agree.
+            # feat-cmux-next, so this copy's jobs are what run; only the crons must agree. The same when main's copy
+            # is another workflow (other): no twin of a job change can exist in it, but a cron edit still never fires.
             crons = shape[1]
             if not crons or crons == _twin_shape(main)[1] or (before is not None and crons == _twin_shape(before)[1]):
                 continue
-            problems.append(f"{name}: its crons {list(crons)} differ from {main_ref}'s dispatcher "
+            problems.append(f"{name}: its crons {list(crons)} differ from {main_ref}'s "
+                            f"{'copy (another workflow under this path)' if other else 'dispatcher'} "
                             f"{list(_twin_shape(main)[1])}, which is what fires. {MAIN_TWIN_HINT}")
             continue
         if shape == _twin_shape(main) or (before is not None and shape == _twin_shape(before)):
@@ -2056,7 +2081,8 @@ def main_twin_drift(repo: Path, base: str, head: str, main_ref: str = MAIN_TWIN_
 
 # A job with no timeout-minutes runs for GitHub's 6 h default when it hangs; a job-level always() with no !cancelled()
 # still queues on a cancelled run and holds its group on a label with no free runner (boneheaded-designs section 11).
-# Local only, like the twin check (CLAUDE.md: no new CI gates); tests/test_ci_workflow_job_bounds.py is the manual check.
+# Local only, like the twin check (the 2026-10-23 no-new-CI rule, since lifted); tests/test_ci_workflow_job_bounds.py is the
+# manual check.
 JOB_BOUNDS_CHECK = "Workflow jobs are bounded (a timeout-minutes; no always() on a cancelled run)"
 JOB_BOUNDS_ALLOW = ".github/workflow-job-bounds.json"
 
@@ -2989,13 +3015,13 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         markers = conflict_markers(repo, base, head)
         if markers:
             reserved.append((CONFLICT_CHECK, markers))
-    # Local only, like the highlights (CLAUDE.md: no new CI gates): CI's "Lint every workflow" step (actionlint, on
+    # Local only, like the highlights (the 2026-10-23 no-new-CI rule, since lifted): CI's "Lint every workflow" step (actionlint, on
     # every pull request and every feat-cmux-next and main push) is the backstop. Here it meets a direct commit first.
     if highlights_layer if only is None else "workflows" in only:
         broken = workflow_problems(repo, base, head, restrict)
         if broken:
             reserved.append((WORKFLOW_CHECK, broken))
-    # Local only, like the workflow parse (CLAUDE.md: no new CI gates): ci-guards.yml runs the checker --advisory.
+    # Local only, like the workflow parse (the 2026-10-23 no-new-CI rule, since lifted): ci-guards.yml runs the checker --advisory.
     if (highlights_layer if only is None else "single-host-fallbacks" in only) and restrict is None:
         undeclared = single_host_fallback_problems(repo, base, head, trusted_scripts)
         if undeclared:
@@ -3006,34 +3032,34 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         drift = cargo_lock_drift(repo, base, head, trusted_scripts)
         if drift:
             reserved.append((CARGO_LOCK_CHECK, drift))
-    # Local only (CLAUDE.md: no new CI gates): git objects only, seconds, and only when a Cargo.lock changes.
+    # Local only (the 2026-10-23 no-new-CI rule, since lifted): git objects only, seconds, and only when a Cargo.lock changes.
     if highlights_layer if only is None else "new-crate-versions" in only:
         added = new_crate_versions(repo, base, head, trusted_scripts)
         if added:
             reserved.append((NEW_VERSIONS_CHECK, added))
-    # Local only (CLAUDE.md: no new CI gates): git objects only, keys only, and only when a settings file changes. Not
+    # Local only (the 2026-10-23 no-new-CI rule, since lifted): git objects only, keys only, and only when a settings file changes. Not
     # in gate_own's runs over the ranges a merge does not own (RESTRICT): this is not a debt check, so those runs have
     # nothing to take off. A merge push's own run already compares with the merged base's exports (#43022's shape).
     if (highlights_layer if only is None else "settings-export-keys" in only) and restrict is None:
         drift = settings_export_keys(repo, base, head, trusted_scripts)
         if drift:
             reserved.append((SETTINGS_KEYS_CHECK, drift))
-    # Local only, like SwiftFormat (CLAUDE.md: no new CI gates).
+    # Local only, like SwiftFormat (the 2026-10-23 no-new-CI rule, since lifted).
     if highlights_layer if only is None else "redefinitions" in only:
         redefined = test_redefinition_problems(repo, base, head, trusted_scripts, restrict)
         if redefined:
             reserved.append((REDEFINITION_CHECK, redefined))
-    # Local only, like the workflow parse (CLAUDE.md: no new CI gates): the fast gates' --advisory pass warns.
+    # Local only, like the workflow parse (the 2026-10-23 no-new-CI rule, since lifted): the fast gates' --advisory pass warns.
     if (highlights_layer if only is None else "port-drift" in only) and restrict is None:
         drift = port_drift(repo, base, head, trusted_scripts)
         if drift:
             reserved.append((PORT_DRIFT_CHECK, drift))
-    # Local only, like the workflow parse (CLAUDE.md: no new CI gates): hq's NOW names a standing difference.
+    # Local only, like the workflow parse (the 2026-10-23 no-new-CI rule, since lifted): hq's NOW names a standing difference.
     if (highlights_layer if only is None else "main-twin" in only) and restrict is None:
         drift = main_twin_drift(repo, base, head)
         if drift:
             reserved.append((MAIN_TWIN_CHECK, drift))
-    # Local only, like the twin check (CLAUDE.md: no new CI gates).
+    # Local only, like the twin check (the 2026-10-23 no-new-CI rule, since lifted).
     if (highlights_layer if only is None else "job-bounds" in only) and restrict is None:
         unbounded = job_bounds_drift(repo, base, head)
         if unbounded:
@@ -3054,7 +3080,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         unreviewed = crash_allow_unreviewed(repo, base, head)
         if unreviewed:
             reserved.append((CRASH_ALLOW_CHECK, unreviewed))
-    # Local only, like SwiftFormat (CLAUDE.md: no new CI gates): CI's release-notary test stays the backstop.
+    # Local only, like SwiftFormat (the 2026-10-23 no-new-CI rule, since lifted): CI's release-notary test stays the backstop.
     if highlights_layer if only is None else "highlights" in only:
         t0 = time.monotonic()
         bad = highlight_problems(repo, base, head, trusted_scripts, restrict)
@@ -3062,7 +3088,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
             log(f"  {time.monotonic() - t0:5.2f}s  {HIGHLIGHTS_CHECK}")
         if bad:
             reserved.append((HIGHLIGHTS_CHECK, bad))
-    # Local only, like the highlights (CLAUDE.md: no new CI gates): NOW's whats_new count is the backstop.
+    # Local only, like the highlights (the 2026-10-23 no-new-CI rule, since lifted): NOW's whats_new count is the backstop.
     if highlights_layer if only is None else "pictures" in only:
         missing = picture_problems(repo, base, head, restrict)
         if missing:
@@ -3142,11 +3168,12 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
             jobs["ast-grep (scripts/cmux-next/lint/ast-grep-rules)"] = ("fn", ast_grep, ensure_tool(lock, "ast-grep"),
                                                                        lint / "sgconfig.yml", sources)
         # Local only (lead 2026-10-27): CI and the merge-time gates (fast gates, car guards: --base/--head; pushes:
-        # --commits) never refused a SwiftFormat finding, and must not start to (CLAUDE.md: no new CI gates).
+        # --commits) never refused a SwiftFormat finding, and must not start to (lead 2026-10-27; the
+        # 2026-10-23 no-new-CI rule it cited was lifted 2026-11-18, and changing this is a separate decision).
         if swift and (swiftformat_layer if only is None else "swiftformat" in only):
             jobs["SwiftFormat --lint"] = ("fn", swiftformat, ensure_tool(lock, "swiftformat"),
                                           lint / "swiftformat.conf", swift)
-        # Local only, like SwiftFormat (lead 2026-11-05: PRs merge before CI's fmt check ends; no new CI gate).
+        # Local only, like SwiftFormat (lead 2026-11-05: PRs merge before CI's fmt check ends; no new CI gate, a 2026-10-23 rule since lifted).
         rust = [p for p in changed if p.startswith(RUST_SCOPE) and p.endswith(".rs")]
         if rust and (swiftformat_layer if only is None else "rustfmt" in only):
             rust_root = rust_workspace_root(repo, head, absolute(Path(tmp)))
@@ -3398,7 +3425,7 @@ def guardrails(repo: Path, ranges: list, started) -> bool:
         return False
 
 
-# The perf cron's unit tests (scripts/cmux-next/perf-cron.py) never run on CI (Lawrence 2026-10-23: no new CI tests;
+# The perf cron's unit tests (scripts/cmux-next/perf-cron.py) never run on CI (Lawrence 2026-10-23: no new CI tests, lifted 2026-11-18;
 # the owner runs them), and the hook never runs them either: they are the push's own code. When a push changes the
 # cron or its tests, the gate names them and the command to run them (perf_cron_tests).
 PERF_CRON_PATHS = ("scripts/cmux-next/perf-cron", "scripts/cmux-next/tests/test_perf_cron")
@@ -3409,7 +3436,7 @@ def perf_cron_tests(repo: Path, ranges: list) -> None:
 
     They are that head's own code, and the hook never runs code the push controls (docs/contributor-verification.md,
     trust boundary: a pushed branch may be a contributor's). Running the reviewed copy of the tests would still import
-    the pushed perf-cron.py. CI does not run them either (no new CI tests), so the person runs them on code they
+    the pushed perf-cron.py. CI does not run them either (the 2026-10-23 no-new-CI rule, since lifted), so the person runs them on code they
     trust, with the command printed here. RANGES are push_range.OwnRange values: a path counts when it changes over
     the base and since the head of every range the push does not own. Never refuses the push."""
     for own in ranges:
@@ -3534,9 +3561,8 @@ Never --no-verify: CI names every commit that adds a violation (step "Pushed com
 # The five layers below never run on CI otherwise, so a push that skipped the hook landed what they would have
 # refused and nobody saw it. Here they run on the same range and each finding is a `::warning file=,line=` annotation
 # plus a row in the step summary. They never change the exit code: the step passes or fails exactly as it did
-# without them. AGENTS.md / CLAUDE.md: "Never add CI gates, perf-gate rows or budgets, CI jobs or steps, or CI
-# tests" (Lawrence 2026-10-23: "not to add gates/tests in CI, but you have to run them yourself"): this is no gate,
-# no job and no step; it is advisory, as fleet-test-compile.yml is ("It gates nothing"). The hook stays the gate.
+# without them. It was built advisory under the 2026-10-23 "no new CI" rule (lifted 2026-11-18): no gate, no job
+# and no step, as fleet-test-compile.yml is ("It gates nothing"). The hook stays the gate.
 ADVISORY_ARCH = "arch ratchet"
 ADVISORY_GUARDRAILS = "guardrails line rules"
 ADVISORY_SWIFTFORMAT = "SwiftFormat"

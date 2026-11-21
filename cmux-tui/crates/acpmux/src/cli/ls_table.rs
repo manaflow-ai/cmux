@@ -452,9 +452,16 @@ pub fn render_counted(
                 .and_then(|rest| rest.strip_prefix('/'))
                 .unwrap_or(name);
             let width = if view.wide { 24 } else { 32 };
-            let mut cells = vec![match handle {
-                Some(handle) => format!("{handle} · {}", short(bare, width)),
-                None => short(name, width),
+            let mut cells = vec![match (alias(row), handle) {
+                // The alias already says the task ("Ruby dot startup-speedups"): it is the whole name.
+                (Some(alias), _)
+                    if alias.to_ascii_lowercase().contains(&bare.to_ascii_lowercase()) =>
+                {
+                    short(&alias, width + 12)
+                }
+                (Some(alias), _) => format!("{} · {}", short(&alias, 24), short(bare, width)),
+                (None, Some(handle)) => format!("{handle} · {}", short(bare, width)),
+                (None, None) => short(name, width),
             }];
             if with_host {
                 cells.push(host(row).or(own.as_deref()).unwrap_or("-").to_owned());
@@ -521,3 +528,17 @@ pub fn render_counted(
 #[cfg(test)]
 #[path = "ls_table_tests.rs"]
 mod tests;
+
+/// A session's `session.alias` tag as people say it, which every acpmux key also routes by
+/// (`hub/key_route.rs`). A tag the lane-gh broker wrote in its word alphabet carries its spaces
+/// as `+` ("Logan+dot+chats-going-blank"); it reads with spaces again.
+pub(crate) fn alias(row: &Value) -> Option<String> {
+    let raw = row.get("tags")?.get("session.alias")?.as_str()?.trim();
+    let text = if raw.contains('+') && !raw.contains(char::is_whitespace) {
+        raw.replace('+', " ")
+    } else {
+        raw.to_owned()
+    };
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!text.is_empty()).then_some(text)
+}
