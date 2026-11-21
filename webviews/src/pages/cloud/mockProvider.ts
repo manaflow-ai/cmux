@@ -6,6 +6,7 @@
 import { isPageError, pageError, type PageClient, type PageHandler } from "../shared/pageClient";
 import { SAMPLE_FS_MACHINES, sampleAccount, sampleMachines, sampleSnapshots } from "./mockData";
 import { joinPath } from "./files";
+import { isTraceId, type StartTrace, type StartTraceList } from "./startTraces";
 import { MockEdge, MockFiles, notFound, only } from "./mockEdge";
 import {
   ACTION_RUN,
@@ -54,6 +55,8 @@ const READS = new Set<string>([
   CloudOps.fsStat,
   CloudOps.fsRead,
   CloudOps.portList,
+  CloudOps.startTraceList,
+  CloudOps.startTraceGet,
 ]);
 
 /** Server ops for origin `user` only (`Kind::UserOnly`): the page must send them as native actions. */
@@ -133,6 +136,9 @@ export class MockCloudProvider implements PageClient {
   liftingPlan: string | null = null;
   /** No machine image is configured yet: create and restore answer `no_snapshot_configured`. */
   noSnapshotConfigured = false;
+  /** The Cloud start traces the server answers (DEV and NIGHTLY); null: not served, as a release
+   * build answers, so the page shows no start timings. */
+  startTraces: { list: StartTraceList; traces: StartTrace[] } | null = null;
   /**
    * The plan's machines cap (paused ones count), when set: a create past it answers `quota_exceeded`
    * with `details.resource: "machines"` and `details.free_up` (`freeUp`, the platform's pick).
@@ -507,6 +513,21 @@ export class MockCloudProvider implements PageClient {
     if (this.unsupported.has(op)) throw pageError("cmux.cloud.unknown_op", `${op} is not a Cloud op`);
     const a = this.account;
     switch (op) {
+      case CloudOps.startTraceList: {
+        if (!this.startTraces) throw pageError("cmux.cloud.unknown_op", `${op} is not a Cloud op`);
+        only(p, ["since_ms", "limit"]);
+        const limit = typeof p.limit === "number" ? p.limit : 50;
+        const list = this.startTraces.list;
+        return structuredClone({ ...list, traces: list.traces.slice(0, limit) });
+      }
+      case CloudOps.startTraceGet: {
+        if (!this.startTraces) throw pageError("cmux.cloud.unknown_op", `${op} is not a Cloud op`);
+        only(p, ["trace"]);
+        if (!isTraceId(p.trace)) throw pageError("cmux.cloud.invalid_args", "trace must match ^[A-Za-z0-9_-]{8,80}$");
+        const one = this.startTraces.traces.find((each) => each.trace === p.trace);
+        if (!one) throw pageError("cmux.cloud.start_trace.not_found", "no start trace with this id");
+        return structuredClone(one);
+      }
       case AccountOps.signOut:
         this.signedIn = false;
         return { ok: true };

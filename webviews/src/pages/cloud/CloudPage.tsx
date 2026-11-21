@@ -13,9 +13,27 @@ import { MigrationBanner, PlanNotice, SpendCapBanner } from "./Notices";
 import type { CloudStore } from "./store";
 import { Storefront } from "./Storefront";
 import { errorText, L } from "./strings";
+import { StartTimings } from "./StartTimings";
+import type { StartTraceSnapshot, StartTraceStore } from "./startTraceStore";
 
-export function CloudPage({ store, strings }: { store: CloudStore; strings: Strings }) {
+const NO_TIMINGS: StartTraceSnapshot = { available: false, loading: false };
+const noSubscribe = () => () => undefined;
+
+export function CloudPage({
+  store,
+  strings,
+  timings,
+}: {
+  store: CloudStore;
+  strings: Strings;
+  /** Cloud start timings (DEV and NIGHTLY): shown only once their first read answered. */
+  timings?: StartTraceStore;
+}) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const timingsSnap = useSyncExternalStore(
+    timings?.subscribe ?? noSubscribe,
+    timings?.getSnapshot ?? (() => NO_TIMINGS),
+  );
   const { t } = strings;
   // The near-cap banner's dismissal, kept across the storefront and the machine list (Notices.tsx).
   const [capNearHidden, setCapNearHidden] = useState(false);
@@ -42,10 +60,26 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
   const loading = !snap.auth || (snap.loading && snap.rows.length === 0);
   const loadingShown = useLoadingShown(loading);
   const signedIn = !!snap.auth?.signedIn && snap.connection === "connected";
-  const storefront = signedIn && (snap.view === "get" || (!snap.loading && snap.rows.length === 0));
+  // The start timings are a view only where the server serves them (DEV and NIGHTLY).
+  const timingsShown = signedIn && !!timings && timingsSnap.available === true;
+  const timingsView = timingsShown && snap.view === "timings";
+  const storefront = signedIn && !timingsView && (snap.view === "get" || (!snap.loading && snap.rows.length === 0));
+  const timingsSwitch = timingsShown ? (
+    <button
+      type="button"
+      className="cloud-button cloud-view-switch cloud-timings-switch"
+      aria-pressed={timingsView}
+      onClick={() => {
+        store.setView(timingsView ? "machines" : "timings");
+        if (!timingsView) void timings!.refresh();
+      }}
+    >
+      {t(L.timingsEntry)}
+    </button>
+  ) : null;
   // The header switches between the list and the storefront once the team has a machine.
   const viewSwitch =
-    signedIn && snap.rows.length > 0 ? (
+    signedIn && snap.rows.length > 0 && !timingsView ? (
       <button
         type="button"
         className="cloud-button cloud-view-switch"
@@ -82,6 +116,7 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
     // `!snap.auth` again so the rest of the body reads it as set.
     if (!snap.auth || loading)
       return loadingShown ? <div className="cloud-message cloud-loading">{t(L.loading)}</div> : null;
+    if (timingsView) return <StartTimings store={timings!} strings={strings} />;
     // Signed out, with no machines yet, or at `#/get`: the storefront (Storefront.tsx).
     if (!snap.auth.signedIn || storefront)
       return (
@@ -172,7 +207,12 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
     <div className="cloud-page">
       <header className="cloud-header">
         <h1 className="cloud-title">{t(L.title)}</h1>
-        {viewSwitch}
+        {(viewSwitch || timingsSwitch) && (
+          <span className="cloud-header-actions">
+            {timingsSwitch}
+            {viewSwitch}
+          </span>
+        )}
       </header>
       {snap.error && snap.connection !== "disconnected" && snap.connection !== "failed" && (
         <div className="cloud-error" role="alert">

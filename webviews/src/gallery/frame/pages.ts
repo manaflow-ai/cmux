@@ -10,6 +10,7 @@ import { sampleApps, MockAppsProvider } from "../../pages/apps/mockProvider";
 import type { PortForward } from "../../pages/cloud/ops";
 import { CloudOps, ACTION_RUN as CLOUD_ACTION_RUN, PAGE_COMMAND as CLOUD_PAGE_COMMAND } from "../../pages/cloud/ops";
 import { MockCloudProvider } from "../../pages/cloud/mockProvider";
+import { sampleTraceList, sampleTraces } from "../../pages/cloud/startTraceFixtures";
 import { CodeRouterOps } from "../../pages/coderouter/types";
 import { MockCodeRouterProvider } from "../../pages/coderouter/mockProvider";
 import { ACTION_RUN as CHANGELOG_ACTION_RUN, ChangelogOps } from "../../pages/changelog/types";
@@ -387,6 +388,10 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   if (state.retentionForbidden) provider.retentionForbidden = true;
   if (state.spendCap) provider.spendCap = { ...state.spendCap };
   if (state.memberBudget) provider.memberBudget = { ...state.memberBudget };
+  if (state.startTraces) {
+    const now = Date.now();
+    provider.startTraces = { list: sampleTraceList(now), traces: sampleTraces(now) };
+  }
   const operations = pageOps(provider, [...Object.values(CloudOps), CLOUD_ACTION_RUN, CLOUD_PAGE_COMMAND], {
     mode: state.mode === "normal" ? undefined : state.mode,
     firstOperation: CloudOps.authStatus,

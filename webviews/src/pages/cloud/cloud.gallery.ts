@@ -375,5 +375,18 @@ export default cloudPageEntry({
       machines,
       snapshots,
     },
+    "start-timings-entry": {
+      note: "DEV and NIGHTLY: the server serves start traces, so the header shows Start timings beside the storefront switch.",
+      startTraces: true,
+      machines,
+      snapshots,
+    },
+    "start-timings": {
+      note: "DEV and NIGHTLY: #/timings, the newest Cloud start as a waterfall with the day's p50 and p95.",
+      startTraces: true,
+      hash: "#/timings",
+      machines,
+      snapshots,
+    },
   },
 });
