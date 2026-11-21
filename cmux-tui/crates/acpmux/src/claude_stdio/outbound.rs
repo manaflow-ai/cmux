@@ -117,6 +117,9 @@ impl Translator {
                         // Claude Code echoes the line with this uuid when it reads it.
                         let uuid = uuid::Uuid::now_v7().to_string();
                         let line = json!({"type": "user", "uuid": uuid, "message": {"role": "user", "content": content}});
+                        // Suggestions only after a person's own turn (`prompt_suggestions.rs`):
+                        // the pause line goes ahead of the prompt.
+                        let pause = self.suggestion_turn(&p, &uuid);
                         // A new prompt of the hub's: no carried turn waits for one any more.
                         self.clear_carry().await;
                         self.in_turn.store(true, Ordering::SeqCst);
@@ -136,7 +139,7 @@ impl Translator {
                             .map(|(k, _)| k.clone())
                             .collect();
                         pending.insert(id.to_string(), Pending::Prompt);
-                        Outbound::Lines(vec![line])
+                        Outbound::Lines(pause.into_iter().chain([line]).collect())
                     }
                     method::SESSION_SET_MODE => {
                         let mode =

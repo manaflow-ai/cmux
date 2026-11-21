@@ -107,6 +107,8 @@ impl Hub {
         closed: &mut tokio::sync::watch::Receiver<bool>,
     ) {
         while let Some(item) = next_inbound(rx, stop, closed, &session.inbound_tx).await {
+            // An agent's stream allocates without any request: its pages go back once it stops.
+            cmux_tui_platform::malloc_quiet_trim::note_activity();
             match item {
                 Inbound::Notification {
                     method: m,
