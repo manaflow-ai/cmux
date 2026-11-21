@@ -212,6 +212,43 @@ fn an_agent_cli_terminal_reaches_a_hybrid_viewer_as_cell_deltas() {
     disconnect_client(&mux, viewer.client, false);
 }
 
+/// The cursor reaches the phone as over the PTY: a move that changes no cell is a frame of
+/// its own, and a hidden cursor still says where it is (the phone places typed text, pans to
+/// the cursor's column and keeps its row in view by it). Before, a full-screen program that
+/// only moved its cursor sent nothing, and a hidden cursor went to the phone as 0,0.
+#[test]
+fn the_cursor_reaches_the_viewer_when_only_it_moves_and_while_it_is_hidden() {
+    let (mux, surface) = terminal("hybrid-cursor", Some("codex"));
+    surface.inject_output_for_test(b"codex> one\r\n> ");
+    let viewer = viewer(&mux, true);
+    viewer.attach(&mux, &surface, json!({}));
+    let mut skipped = Vec::new();
+    let first = viewer.next("agent-cli-frame", &mut skipped);
+    let mut phone = Phone::new(&first);
+    phone.apply(&first);
+    let cursor = |event: &Value| {
+        (event["cursor_x"].clone(), event["cursor_y"].clone(), event["cursor_visible"].clone())
+    };
+    assert_eq!(cursor(&first), (json!(2), json!(1), json!(true)));
+
+    // Hidden and moved: no cell changes.
+    surface.inject_output_for_test(b"\x1b[?25l\x1b[1;5H");
+    let moved = viewer.next("agent-cli-frame", &mut skipped);
+    assert_eq!(moved["base"], first["frame"], "a frame of its own");
+    assert_eq!(cursor(&moved), (json!(4), json!(0), json!(false)), "{moved}");
+    phone.apply(&moved);
+    let mac_cursor = surface.try_with_terminal(|term| term.cursor_position()).unwrap();
+    assert_eq!(phone.term.cursor_position(), mac_cursor);
+    assert_eq!(phone.text(), screen_text(&surface));
+
+    // Shown again where it is.
+    surface.inject_output_for_test(b"\x1b[?25h");
+    let shown = viewer.next("agent-cli-frame", &mut skipped);
+    assert_eq!(cursor(&shown), (json!(4), json!(0), json!(true)), "{shown}");
+    assert!(!skipped.iter().any(|event| event == "output"), "no PTY bytes: {skipped:?}");
+    disconnect_client(&mux, viewer.client, false);
+}
+
 #[test]
 fn a_dropped_viewer_resumes_from_its_last_frame_without_a_keyframe() {
     let (mux, surface) = terminal("hybrid-resume", Some("codex"));

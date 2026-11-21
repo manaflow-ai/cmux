@@ -77,6 +77,15 @@ pub fn frame_bytes(frame: &Frame, rows: u16, cursor: Cursor) -> Option<Vec<u8>> 
     if frame.base.is_none() {
         out.push_str("\x1b[H\x1b[2J");
     }
+    if delta.shift != 0 {
+        // A scroll moves the frame's rows: its own scroll region first (DECSTBM; it homes the
+        // cursor). The viewer's terminal may be taller than the frame (the phone's mirror) and
+        // keeps whatever region it last had: the phone's own rows, or its whole mirror after a
+        // resize. A line feed on the frame's last row then only moved the cursor, and the rows
+        // the frame did not rewrite stayed where they were (#45266: the pixel matrix's opencode
+        // and Codex stills under load).
+        let _ = write!(out, "\x1b[1;{rows}r");
+    }
     match delta.shift {
         0 => {}
         up if up > 0 => {
@@ -215,7 +224,7 @@ mod tests {
         let delta = Delta { seq: 0, at_ms: 0, shift: 2, spans: vec![] };
         let frame = Frame { frame: 2, base: Some(1), data: delta.encode() };
         let text = String::from_utf8(frame_bytes(&frame, 32, Cursor::default()).unwrap()).unwrap();
-        assert!(text.contains("\x1b[32;1H\n\n"), "{text:?}");
+        assert!(text.contains("\x1b[1;32r\x1b[32;1H\n\n"), "{text:?}");
         assert!(!text.contains("\x1b[2J"));
     }
 }
