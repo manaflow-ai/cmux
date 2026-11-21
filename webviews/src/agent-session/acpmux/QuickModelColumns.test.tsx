@@ -646,28 +646,13 @@ test("a picked model keeps the chat's level when it has it, else takes its recom
   await click(tab("Codex"));
   // The chat is on Medium: Sol has no Medium, so it takes its recommended Low.
   await click(row("Sol"));
-  expect(levels()).toEqual([
-    { name: "Low", checked: true },
-    { name: "High", checked: false },
-  ]);
   expect(calls.picks[0]).toMatchObject({ id: "codex-Sol", effort: "low" });
   // Astra has Medium: it keeps it.
+  await click(chip());
+  await click(tab("Codex"));
   await click(row("Astra"));
-  expect(levels().find((level) => level.checked)?.name).toBe("Medium");
   expect(calls.picks).toHaveLength(2);
   expect(calls.picks[1]).toMatchObject({ id: "codex-Astra", effort: "medium" });
-});
-
-test("a level picked on one model carries to the next model clicked", async () => {
-  const calls = await openMenu();
-  await click(tab("Codex"));
-  await click(row("Sol"));
-  const high = [...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "High")!;
-  await click(high);
-  // Astra has High: it takes the level just picked, not the chat's Medium or its own default.
-  await click(row("Astra"));
-  expect(levels().find((level) => level.checked)?.name).toBe("High");
-  expect(calls.picks.at(-1)).toMatchObject({ id: "codex-Astra", effort: "high" });
 });
 
 test("a chat on Ultracode carries Extra High to a model that has it", async () => {
@@ -702,6 +687,7 @@ test("a Claude Code model shown but not picked lists Ultracode, and its pick lan
   await click(ultracode);
   expect(calls.picks.at(-1)).toMatchObject({ id: "claude-Sonnet", effort: "ultracode" });
   // A harness that does not offer it lists none, Extra High or not.
+  await click(chip());
   await click(tab("Codex"));
   await press("ArrowDown");
   await press("ArrowDown");
@@ -709,25 +695,21 @@ test("a Claude Code model shown but not picked lists Ultracode, and its pick lan
   expect(levels().map((level) => level.name)).not.toContain("Ultracode");
 });
 
-test("another model, then a level, then Fast each land at once, the level kept with Fast", async () => {
+test("Fast, then a level of another model each land at once, the level kept with Fast", async () => {
   const calls = await openMenu();
   await click(tab("Codex"));
-  await click(row("Sol"));
+  // Fast on Sol, the tab's shown model, lands it with Fast and keeps the menu open.
+  await click(fastSwitch());
+  expect(calls.open).toBe(true);
   const high = [...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "High")!;
   await click(high);
-  await click(fastSwitch());
-  expect(levels()).toEqual([
-    { name: "Low", checked: false },
-    { name: "High", checked: true },
-  ]);
   expect(calls.picks.map((pick) => [pick.id, pick.effort, !!pick.fast])).toEqual([
-    ["codex-Sol", "low", false],
-    ["codex-Sol", "high", false],
+    ["codex-Sol", undefined, true],
     ["codex-Sol", "high", true],
   ]);
-  // Return on the picked model only closes: it lands nothing again.
-  await press("Enter");
-  expect(calls.picks).toHaveLength(3);
+  // The level closed the menu; it lands nothing again.
+  expect(calls.open).toBe(false);
+  expect(calls.picks).toHaveLength(2);
 });
 
 test("a tab without the running model shows its first model's catalog levels", async () => {
@@ -789,7 +771,8 @@ test("the chat's tab listing other models but not the running one toggles the se
   expect(calls.fast).toEqual([true]);
   await click([...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "High")!);
   expect(calls.efforts).toEqual(["high"]);
-  await press("Enter");
+  // The level closed the menu and landed no model.
+  expect(calls.open).toBe(false);
   expect(calls.picks).toHaveLength(0);
 });
 
@@ -857,10 +840,8 @@ test("a level picked by hand under a search does not outlast the menu: the same 
   expect(checked()).toBe("High");
   const low = [...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "Low")!;
   await click(low);
-  expect(checked()).toBe("Low");
-  // Escape clears the search, then closes the menu; the chip opens it again.
-  await press("Escape");
-  await press("Escape");
+  // The pick lands Low and closes the menu; the chip opens it again.
+  expect(calls.picks.at(-1)).toMatchObject({ id: "codex-Sol", effort: "low" });
   expect(calls.open).toBe(false);
   await act(async () => document.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
   await settle();
