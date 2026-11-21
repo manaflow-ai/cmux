@@ -633,6 +633,13 @@ UNRESCUED_WORKFLOW_PATHS = {
         "feat-cmux-next's checks-mac job (setup=kernel-free, cmux#46651) names a literal glaeda-side-light label on "
         "every attempt, so a re-run would not move it; a run no mini starts stays queued until the cmux-ci "
         "client's fallback moves it to the build fleet",
+    ".github/workflows/docs-only-fallback.yml":
+        "feat-cmux-next only; on a pull request of over 300 changed files or a full-ci/dev-build label it calls ci.yml "
+        "and the guard workflows inside its own run, whose owned route comes from ci.yml's portable placement; a "
+        "person re-runs the pull request's checks, and the next push supersedes the run",
+    ".github/workflows/measure-swift-typecheck.yml":
+        "feat-cmux-next only; type-checks scripts/measure/*.swift on a Mac when a pull request touches them, on the "
+        "light side lane only on attempt 1 while vars.CI_PR_POOL_OWNED is 1; a re-run takes the paid macOS pool",
     ".github/workflows/seed-derived-data.yml":
         "a cache seed on the trusted pool that nothing waits on; the next main push seeds again from the newest "
         "earlier seed",
