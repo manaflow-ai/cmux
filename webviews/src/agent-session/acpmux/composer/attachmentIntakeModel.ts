@@ -135,6 +135,8 @@ export type PendingAttachment = {
   id: string;
   name: string;
   image: boolean;
+  /// The browser already knows the file's byte count before the host returns its path.
+  fileSize?: number;
   /// A movie (videoAttachments.ts isVideoName): its tile is the square the video's poster will
   /// fill, loading or failed, never a long strip with its name.
   video?: boolean;
@@ -185,6 +187,7 @@ export function imageShape(size: { width: number; height: number } | undefined):
 
 /// How long a pasted image's tile is held unseen for its header (sizeFromHeader): a few bytes of a file
 /// in memory, read in a frame or two (the page's first read of one can take a few frames).
+// motion-allow: a header read timeout, not a motion
 const HEADER_WAIT_MS = 120;
 
 /// Reads `file`'s pixel size from its header and answers it to `done`: when the header answers, or
@@ -370,9 +373,13 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// The staged chips now, for an upload to see that its chip was removed (its x, or a send).
   const stagedNow = useRef<readonly ComposerAttachment[]>([]);
   stagedNow.current = attachments;
-  /// The chips a render has staged: one not yet rendered is not gone, only not drawn yet.
-  const everStaged = useRef(new Set<string>());
-  for (const attachment of attachments) everStaged.current.add(attachment.id);
+  /// The chips a commit has drawn: one not yet drawn is not gone, only not drawn yet. Kept from the
+  /// layout phase, so before that commit's passive effects (the cleanup effect below), and never from
+  /// a render React threw away without committing it (an interrupted transition, a suspended one).
+  const everDrawn = useRef(new Set<string>());
+  useLayoutEffect(() => {
+    for (const attachment of attachments) everDrawn.current.add(attachment.id);
+  }, [attachments]);
   /// Each intake chip's place in paste order (its gesture, then its file), so a chip ready first
   /// still lands where it was pasted, across batches too.
   const places = useRef(new Map<string, number>());
@@ -441,32 +448,41 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     // The chat the gesture was made in, its upload and its paths, as the gesture's own task had them.
     const current = chat?.options ?? live.current.options;
     const batch = { scope: current.scope };
+    const linkImages = !current.allowImages && Boolean((dropped && current.localPaths) || (uploads && current.upload));
     // In the paste's or drop's own task, so React draws them before the next frame.
-    const shown: PendingAttachment[] = files.map((file) => ({
-      id: again ?? crypto.randomUUID(),
-      name: file.name,
-      image: isImageFile(file),
-      ...(isVideoName(file.name) ? { video: true } : {}),
-      ...(!isMadeFile(file) && (isImageFile(file) || isVideoName(file.name)) ? { sizing: true } : {}),
-      scope: batch.scope,
-    }));
+    const shown: PendingAttachment[] = files.map((file) => {
+      const video = isVideoName(file.name);
+      const image = isImageFile(file) && (video || !linkImages);
+      return {
+        id: again ?? crypto.randomUUID(),
+        name: file.name,
+        image,
+        ...(!image && !video && !isMadeFile(file) ? { fileSize: file.size } : {}),
+        ...(video ? { video: true } : {}),
+        ...(!isMadeFile(file) && (image || video) ? { sizing: true } : {}),
+        scope: batch.scope,
+      };
+    });
     // Each image's own picture, on its tile while the tile still loads.
     files.forEach((file, index) => {
-      const id = shown[index]!.id;
+      const { id, image, video, sizing } = shown[index]!;
+      if (!image && !video) return;
       // A video's shape from its header, the one read its chip takes too (intakeFiles.ts).
-      const video = Boolean(shown[index]!.sizing) && !isMadeFile(file) && isVideoName(file.name);
       // One that may show its own picture is held for it, not only for its header.
-      const waits = !video && Boolean(shown[index]!.sizing) && mayShowAtOnce(file);
+      const waits = !video && Boolean(sizing) && mayShowAtOnce(file);
       // timeout: a picture that does not come in time must not hold its tile unseen.
       const deadline = waits ? setTimeout(() => sized(id, undefined), PICTURE_WAIT_MS) : undefined;
-      if (video) void videoShapeOf(file).then((videoShape) => shaped(id, videoShape));
-      else if (shown[index]!.sizing) sizeFromHeader(file, (size) => sized(id, size, waits));
       // A capture the page makes (Attach Screenshot) has no bytes yet: its shape once it has.
-      else if (isMadeFile(file) && isImageFile(file))
-        void file.file.then(
-          (made) => sizeFromHeader(made, (size) => size && sized(id, size)),
-          () => {},
-        );
+      if (isMadeFile(file)) {
+        if (image)
+          void file.file.then(
+            (made) => sizeFromHeader(made, (size) => size && sized(id, size)),
+            () => {},
+          );
+      } else if (sizing) {
+        if (video) void videoShapeOf(file).then((videoShape) => shaped(id, videoShape));
+        else sizeFromHeader(file, (size) => sized(id, size, waits));
+      }
       void instantPreview(file).then((preview) => {
         clearTimeout(deadline);
         // No picture: the tile shows as it would have once its header answered.
@@ -668,7 +684,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
               return chipRemoved({
                 chip,
                 stagedHere: staged.has(chip),
-                everDrawn: everStaged.current.has(chip),
+                everDrawn: everDrawn.current.has(chip),
                 pastedIn: batch.scope,
                 showing: live.current.options.scope,
                 strip: stagedNow.current,
@@ -893,12 +909,12 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     originalMissed(id, intakeErrorText(error, live.current.t));
   });
   /// An image no longer in the strip has no Retry to show: its original's file and failure go. Only one
-  /// a render staged (`everStaged`): this effect runs after its commit's paint, and an original that
-  /// failed in between belongs to a chip whose staging no render has drawn yet, which is not gone
+  /// a commit drew (`everDrawn`): this effect runs after its commit's paint, and an original that
+  /// failed in between belongs to a chip whose staging no commit has drawn yet, which is not gone
   /// (the same race as inlineAttachments.tsx `drawnLoading`).
   useEffect(() => {
     const left = [...originals.current.keys()].filter(
-      (id) => everStaged.current.has(id) && !attachments.some((chip) => chip.id === id),
+      (id) => everDrawn.current.has(id) && !attachments.some((chip) => chip.id === id),
     );
     for (const id of left) originals.current.delete(id);
     if (left.length)
@@ -938,10 +954,31 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       if (Array.isArray(once)) return void attach(once, uploads, kind);
       const { options } = live.current;
       const made = { scope: options.scope, options };
+      // The native record belongs to this drop. Ask for its full batch before a later drop can
+      // replace it while we compare the images.
+      const dropPaths = kind === "drop" ? options.localPaths?.(kind, files).catch(() => undefined) : undefined;
       setTwinReads((reads) => [...reads, made]);
-      void once.then((files) => {
+      void once.then((kept) => {
         setTwinReads((reads) => reads.filter((read) => read !== made));
-        return attach(files, uploads, kind, false, made);
+        if (!dropPaths) return attach(kept, uploads, kind, false, made);
+        return attach(kept, uploads, kind, false, {
+          ...made,
+          options: {
+            ...options,
+            // Keep the returned paths aligned with the surviving files.
+            localPaths: async () => {
+              const paths = await dropPaths;
+              if (paths?.length !== files.length) return undefined;
+              if (kept.length === files.length) return paths;
+              let next = 0;
+              return paths.filter((_, index) => {
+                if (files[index] !== kept[next]) return false;
+                next += 1;
+                return true;
+              });
+            },
+          },
+        });
       });
     };
     const paste = (event: ClipboardEvent) => {

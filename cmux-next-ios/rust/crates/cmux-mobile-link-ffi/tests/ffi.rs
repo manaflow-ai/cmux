@@ -70,7 +70,7 @@ async fn round_trip(transport: Transport) {
             block_udp: false,
             video_lane: false,
             webrtc_media: false,
-            ultra_on_cellular: false,
+            ultra: cmux_mobile_link::UltraSetting::Off,
         },
         Some(recorder.clone() as Arc<dyn LinkObserver>),
     )
@@ -154,7 +154,7 @@ async fn wireguard_relay_only_rides_turn() {
                 block_udp: false,
                 video_lane: false,
                 webrtc_media: false,
-                ultra_on_cellular: false,
+                ultra: cmux_mobile_link::UltraSetting::Off,
             },
             Some(recorder.clone() as Arc<dyn LinkObserver>),
         )
@@ -202,7 +202,7 @@ async fn wireguard_relay_only_without_turn_fails_fast() {
             block_udp: true,
             video_lane: false,
             webrtc_media: false,
-            ultra_on_cellular: false,
+            ultra: cmux_mobile_link::UltraSetting::Off,
         },
         None,
     )
@@ -240,7 +240,7 @@ async fn a_refused_token_is_typed_unauthorized() {
                 block_udp: false,
                 video_lane: false,
                 webrtc_media: false,
-                ultra_on_cellular: false,
+                ultra: cmux_mobile_link::UltraSetting::Off,
             },
             None,
         )
@@ -276,7 +276,7 @@ async fn webrtc_relay_only_without_turn_fails_fast() {
             block_udp: false,
             video_lane: false,
             webrtc_media: false,
-            ultra_on_cellular: false,
+            ultra: cmux_mobile_link::UltraSetting::Off,
         },
         None,
     )
@@ -304,7 +304,7 @@ fn request(server: &FakeSignaling, device_id: &str, mac_id: &str) -> ConnectRequ
         block_udp: false,
         video_lane: false,
         webrtc_media: false,
-        ultra_on_cellular: false,
+        ultra: cmux_mobile_link::UltraSetting::Off,
     }
 }
 

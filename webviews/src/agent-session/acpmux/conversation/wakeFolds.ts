@@ -61,7 +61,3 @@ export function readWakeFolds(value: unknown, session: string | undefined): Pane
     }
   return { expanded: new Set(ids(folds.expanded)), opened: new Set(ids(folds.opened)), viewToggles };
 }
-
-/// A composer holds a draft a hidden-chat release keeps its page for (`holdsDraft`): typed text, or chips.
-export const composerHoldsDraft = (text: string, attachments: readonly unknown[]): boolean =>
-  text.trim() !== "" || attachments.length > 0;

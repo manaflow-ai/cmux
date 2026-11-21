@@ -44,7 +44,7 @@ import Testing
         NSApp.appearance = NSAppearance(named: appearance)
         defer { NSApp.appearance = appLook }
         try Data("{}".utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let affordance: ChiefPetUploadAffordance = switch variant {

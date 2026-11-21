@@ -110,7 +110,7 @@ public struct AgentVoiceBar: View {
                     .frame(width: 36, height: 36)
                     .background(session.isMuted ? Color.cmuxMobileAccent.opacity(0.18) : Color.cmuxMobileFill, in: .circle)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .accessibilityLabel(session.isMuted ? AgentVoiceText.unmute : LiveCallText.mute)
             .accessibilityIdentifier("voiceMode.mute")
             closeButton
@@ -127,7 +127,7 @@ public struct AgentVoiceBar: View {
                 .frame(width: 36, height: 36)
                 .background(Color.red, in: .circle)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityLabel(AgentVoiceText.end)
         .accessibilityIdentifier("voiceMode.end")
     }

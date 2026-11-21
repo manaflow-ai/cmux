@@ -20,6 +20,9 @@ export type CmuxLinkPlace = {
 
 /// The host event that replaces the list (pageHost.ts).
 export const LINK_PLACES_EVENT = "linkPlaces";
+/// The host event with the places renamed since its last push (an agent's title spinner renames its
+/// tab several times a second): only those, never the whole list again (AgentPaneLinkPlaces.swift).
+export const LINK_PLACES_CHANGED_EVENT = "linkPlacesChanged";
 /// Longest title a pushed field keeps.
 const MAX_TEXT = 256;
 /// The most places one push keeps: past it the rest stay plain links.
@@ -59,6 +62,25 @@ export function setLinkPlaces(value: unknown): void {
   version += 1;
   for (const listener of listeners) listener();
 }
+
+/// Takes the renamed places of a `linkPlacesChanged` push: each place the list holds gets its new
+/// name, in place, in O(renamed). One the list does not hold (past `MAX_PLACES`, or come since the last
+/// whole push, which the host sends whole) is left out. Listeners hear it only when a place changed.
+export function updateLinkPlaces(value: unknown): void {
+  let changed = false;
+  for (const place of parseLinkPlaces(value).values()) {
+    const held = places.get(place.id);
+    if (!held || samePlace(held, place)) continue;
+    places.set(place.id, place);
+    changed = true;
+  }
+  if (!changed) return;
+  version += 1;
+  for (const listener of listeners) listener();
+}
+
+const samePlace = (a: CmuxLinkPlace, b: CmuxLinkPlace) =>
+  a.kind === b.kind && a.title === b.title && a.host === b.host && a.workspace === b.workspace;
 
 /// The place `id` names, or undefined.
 export function linkPlace(id: string): CmuxLinkPlace | undefined {
