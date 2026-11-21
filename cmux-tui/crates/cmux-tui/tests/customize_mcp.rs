@@ -217,8 +217,28 @@ fn customize_use_returns_with_the_looks_views_loaded() {
     let dir = PathBuf::from(format!("/tmp/cmux-cv-{}-{stamp}", std::process::id()));
     std::fs::create_dir_all(dir.join("rt")).unwrap();
     std::fs::write(dir.join("cmux-next.json"), "{}\n").unwrap();
-    let look = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../examples/customize-demo/looks/claude.json");
+    // A look shaped like the demo's: its New Tab page is its own view.
+    let app = json!({
+        "manifestVersion": 2,
+        "id": "local/customize",
+        "name": "Look",
+        "version": "1.0.0",
+        "engines": {"cmux": "^2.0"},
+        "runtime": {"main": "main.js"},
+        "implements": {"cmux.newtab/1": {"export": "renderHome", "title": "Look"}},
+    });
+    let look = dir.join("look.json");
+    let profile = json!({
+        "cmuxProfile": 1,
+        "name": "look",
+        "created_ms": 0,
+        "settings": {"tabs.newTabApp": "local/customize"},
+        "files": {
+            "customize/cmux-app.json": serde_json::to_string_pretty(&app).unwrap(),
+            "customize/main.js": "export function renderHome() { return null; }\n",
+        },
+    });
+    std::fs::write(&look, profile.to_string()).unwrap();
 
     let paths = cmux(&dir).args(["customize", "paths", "--json"]).output().unwrap();
     let paths: Value = serde_json::from_slice(&paths.stdout).unwrap();
