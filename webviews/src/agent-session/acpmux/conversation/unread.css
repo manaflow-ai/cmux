@@ -93,13 +93,15 @@
   height: 0;
 }
 @media (prefers-reduced-motion: no-preference) {
+  /* Exit before move (exitLead.ts): the read line's words and rule are gone over the exit lead, and
+     its height shrinks only after, so no text is drawn while the rows under it travel. */
   .cv-since__rule,
   .cv-since__tag,
   .cv-since__lead {
-    transition: opacity var(--agent-motion-calm) var(--agent-ease-out);
+    transition: opacity var(--cv-exit-lead) var(--cv-exit-ease, ease-out); /* motion-allow: the exit lead, half the quick step (exitLead.ts) */
   }
   .cv-since__menu {
-    transition: height var(--agent-motion-calm) var(--agent-ease-out);
+    transition: height var(--agent-motion-calm) var(--agent-ease-out) var(--cv-exit-lead); /* motion-allow: delayed by the exit lead (exitLead.ts) */
   }
 }
 /* The app's motion gate: with motion off or reduced the read line goes in one step. */
