@@ -743,7 +743,10 @@ wire_op! {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudSurgeCreateParams {}
+pub struct CloudSurgeCreateParams {
+    pub count: i64,
+    pub ttl_seconds: i64,
+}
 
 wire_errors! {
     /// The error codes cloud.surge.create declares.
@@ -777,7 +780,10 @@ wire_op! {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudSurgePreviewParams {}
+pub struct CloudSurgePreviewParams {
+    pub count: i64,
+    pub ttl_seconds: i64,
+}
 
 wire_errors! {
     /// The error codes cloud.surge.preview declares.
@@ -888,15 +894,4 @@ pub struct CloudVmEventEmitParams {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudVmEventEmitResult {
     pub delivered: bool,
-}
-
-wire_errors! {
-    /// The error codes cloud.vm.event.emit declares.
-    CloudVmEventEmitError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        CloudRateLimited = "cloud.rate_limited",
-        ValidationInvalid = "validation.invalid",
-    }
 }

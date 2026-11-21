@@ -4,17 +4,6 @@
 #[allow(unused_imports)]
 use super::*;
 
-wire_enum! {
-    ConnectionStatus {
-        Pending = "pending",
-        Active = "active",
-        NeedsReauth = "needs_reauth",
-        Error = "error",
-        Revoked = "revoked",
-        Expired = "expired",
-    }
-}
-
 /// conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair).
 pub type ConversationId = String;
 
@@ -892,4 +881,24 @@ pub struct HomeThreadSummary {
     pub resolved_by: Option<ParticipantId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_at: Option<Timestamp>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Host {
+    pub id: HostId,
+    pub name: String,
+    pub platform: Platform,
+    pub owner_user: UserId,
+    pub enrolled_by: InstallId,
+    pub enrolled_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<HostKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wg_public_key: Option<WgPublicKey>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network: Option<ServerNetworkState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orphaned: Option<HostOrphaned>,
 }

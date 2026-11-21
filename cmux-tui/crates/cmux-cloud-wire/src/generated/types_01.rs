@@ -748,12 +748,6 @@ pub struct CloudSurgeReceipt {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudSurgeRequest {
-    pub count: i64,
-    pub ttl_seconds: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudSurgeSlot {
     pub index: i64,
     pub status: CloudSurgeSlotStatus,
@@ -898,3 +892,14 @@ pub struct ConnectionResources {
 
 /// One integration connection (a provider account linked to a team).
 pub type ConnectionId = String;
+
+wire_enum! {
+    ConnectionStatus {
+        Pending = "pending",
+        Active = "active",
+        NeedsReauth = "needs_reauth",
+        Error = "error",
+        Revoked = "revoked",
+        Expired = "expired",
+    }
+}

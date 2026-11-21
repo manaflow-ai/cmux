@@ -4,6 +4,13 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedAdoptCancelResult {
+    pub cancelled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item: Option<FeedItem>,
+}
+
 wire_errors! {
     /// The error codes feed.adopt.cancel declares.
     FeedAdoptCancelError {

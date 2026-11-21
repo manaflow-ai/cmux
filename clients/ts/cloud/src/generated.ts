@@ -414,11 +414,6 @@ export type CloudSurgeReceipt = {
   readonly slots: ReadonlyArray<CloudSurgeSlot>
 }
 
-export type CloudSurgeRequest = {
-  readonly count: number
-  readonly ttl_seconds: number
-}
-
 export type CloudSurgeSlot = {
   readonly index: number
   readonly status: "created" | "queued" | "refused"
@@ -2321,12 +2316,18 @@ export interface CloudOps {
   }
   /** Request an expiring burst through the team's Cloud provider. Each slot reports whether its create was accepted. Agent principals are refused; the client asks a person first. */
   readonly "cloud.surge.create": {
-    readonly params: Readonly<Record<string, never>>
+    readonly params: {
+      readonly count: number
+      readonly ttl_seconds: number
+    }
     readonly result: CloudSurgeReceipt
   }
   /** Estimate a bounded Cloud capacity burst at the current running list rate and report whether the team can request it. */
   readonly "cloud.surge.preview": {
-    readonly params: Readonly<Record<string, never>>
+    readonly params: {
+      readonly count: number
+      readonly ttl_seconds: number
+    }
     readonly result: CloudSurgePreview
   }
   /** Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The HTTP request has no idempotency key; event_id is the stable replay key: a duplicate event_id and payload replays the original result, while reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine). */

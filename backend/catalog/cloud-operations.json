@@ -2607,25 +2607,6 @@
         }
       }
     },
-    "CloudSurgeRequest": {
-      "kind": "object",
-      "fields": {
-        "count": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "int64"
-          }
-        },
-        "ttl_seconds": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "int64"
-          }
-        }
-      }
-    },
     "CloudSurgeSlot": {
       "kind": "object",
       "fields": {
@@ -36396,6 +36377,20 @@
       "params": {
         "selectors": {},
         "fields": {
+          "count": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "ttl_seconds": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -36454,29 +36449,25 @@
       "docs": "Request an expiring burst through the team's Cloud provider. Each slot reports whether its create was accepted. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
-        "$ref": "#/$defs/CloudSurgeRequest",
-        "$defs": {
-          "CloudSurgeRequest": {
-            "type": "object",
-            "properties": {
-              "count": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 8
-              },
-              "ttl_seconds": {
-                "type": "integer",
-                "minimum": 300,
-                "maximum": 3600
-              }
-            },
-            "required": [
-              "count",
-              "ttl_seconds"
-            ],
-            "additionalProperties": true
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8
+          },
+          "ttl_seconds": {
+            "type": "integer",
+            "minimum": 300,
+            "maximum": 3600
           }
-        }
+        },
+        "required": [
+          "count",
+          "ttl_seconds"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
       },
       "output_json_schema": {
         "$ref": "#/$defs/CloudSurgeReceipt",
@@ -36578,7 +36569,22 @@
       ],
       "params": {
         "selectors": {},
-        "fields": {},
+        "fields": {
+          "count": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "ttl_seconds": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
         "extra": false
       },
       "result": {
@@ -36620,29 +36626,25 @@
       "docs": "Estimate a bounded Cloud capacity burst at the current running list rate and report whether the team can request it.",
       "since": "cloud-1",
       "input_json_schema": {
-        "$ref": "#/$defs/CloudSurgeRequest",
-        "$defs": {
-          "CloudSurgeRequest": {
-            "type": "object",
-            "properties": {
-              "count": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 8
-              },
-              "ttl_seconds": {
-                "type": "integer",
-                "minimum": 300,
-                "maximum": 3600
-              }
-            },
-            "required": [
-              "count",
-              "ttl_seconds"
-            ],
-            "additionalProperties": true
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8
+          },
+          "ttl_seconds": {
+            "type": "integer",
+            "minimum": 300,
+            "maximum": 3600
           }
-        }
+        },
+        "required": [
+          "count",
+          "ttl_seconds"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
       },
       "output_json_schema": {
         "$ref": "#/$defs/CloudSurgePreview",
