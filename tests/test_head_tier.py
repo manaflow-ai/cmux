@@ -182,7 +182,6 @@ GATED = {
     "measure-swift-typecheck.yml": "pull_request",
     "relay-tls.yml": "pull_request",
     "signing-keychain-macos.yml": "pull_request",
-    "terminal-hang-diagnostics.yml": "pull_request",
     "test-ios.yml": "pull_request",
 }
 # backend-migrations applies a migration when a person adds the `backend:apply-migrations` label, draft or not.
