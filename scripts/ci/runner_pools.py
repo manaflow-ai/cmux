@@ -75,7 +75,12 @@ pool's first member only, one of the owned Mac fleet's Linux VM labels (OWNED_EP
 VM clone, so it is ephemeral too), so a job reading it can never land on an owned Mac, whoever started it (a fork's
 pull request included; a job reading such a pool sends a fork's pull request to a Blacksmith label before it).
 An owned Linux member is a small fleet: once its oldest queued job has waited BLACKSMITH_STALL_MINUTES, running or
-not, it is marked dead (label_evidence()) and the pool takes its Blacksmith members until that queue drains. Owned Macs come first through a picker's output (the routing order: owned Macs, then
+not, it is marked full (label_evidence()) and the pool takes its Blacksmith members until that queue drains. It is
+preferred whenever it has room, so a full mark lasts no longer than the evidence for it: a fresh reading of idle
+runners on it (the snapshot's `gates`, owned_idle()) or an empty queue (owned_drained()) clears it at once, and with no fresh evidence
+at all (the App key out, no snapshot) it expires at DEAD_TTL like any mark (reconcile()). Unknown means owned, never
+Blacksmith: Leo, 2026-11-21, "do we TRULY not have enough? ... is the controller still bottled? if it is, we must
+manually go". Owned Macs come first through a picker's output (the routing order: owned Macs, then
 Blacksmith macOS), never through a pool, and signing jobs move through the signing picker. A pool
 that must run GitHub-hosted (npm and PyPI provenance accept only GitHub's OIDC) says
 `"hosted": true` with its reason; no other pool may name a GitHub-hosted label.
@@ -171,6 +176,9 @@ HOSTED = re.compile(r"^(?:ubuntu|macos|windows)(?:-[\w.-]+)?$")
 # overflows to Blacksmith once its queue waits (label_evidence()). Leo, 2026-11-19: "dont we have linux vms set up
 # on everybody yet? we shuold" ... "on the fleet".
 OWNED_EPHEMERAL_LINUX = frozenset(pr_runner_pool.OWNED_EPHEMERAL_LINUX)
+# A fleet gate reading (the janitor snapshot's `gates`, queue_janitor.fleet_gates()) older than this says nothing about
+# idle runners: queue_janitor.FLEET_GATES_STALE_S, the staleness every reader of it applies.
+OWNED_IDLE_MAX_AGE = dt.timedelta(seconds=300)
 
 
 def owned_ephemeral(label: object) -> bool:
@@ -592,6 +600,55 @@ def _labels(joined: object) -> set[str]:
     return {part.strip() for part in re.split(r"[,+]", joined) if part.strip()}
 
 
+def owned_idle(snapshot: Mapping[str, Any] | None, *, now: dt.datetime) -> set[str]:
+    """The owned Linux VM labels (OWNED_EPHEMERAL_LINUX) a fresh fleet gate reading shows idle runners on.
+
+    The snapshot's `gates` (queue_janitor.fleet_gates(), copied from CI_FLEET_GATES) counts, per owned label, the
+    runners whose listener is up and idle (`listening`): a job queued there can start now, so the label is not full,
+    whatever its queue waited. A reading older than OWNED_IDLE_MAX_AGE, from the future, or out of shape says nothing.
+    It is read from a truncated snapshot too: it comes from the fleet, not from the janitor's partial run list."""
+    gates = snapshot.get("gates") if isinstance(snapshot, Mapping) else None
+    labels = gates.get("labels") if isinstance(gates, Mapping) else None
+    if not isinstance(labels, Mapping):
+        return set()
+    found = set()
+    for label, row in labels.items():
+        if not owned_ephemeral(label) or not isinstance(row, Mapping):
+            continue
+        when = parse_time(row.get("as_of")) or parse_time(gates.get("as_of"))
+        listening = row.get("listening")
+        if when is None or not (dt.timedelta(minutes=-1) <= now - when <= OWNED_IDLE_MAX_AGE):
+            continue
+        if isinstance(listening, int) and not isinstance(listening, bool) and listening > 0:
+            found.add(label)
+    return found
+
+
+def owned_drained(snapshot: Mapping[str, Any] | None, *, now: dt.datetime) -> set[str]:
+    """The owned Linux VM labels (OWNED_EPHEMERAL_LINUX) with no job queued in a fresh, complete janitor snapshot.
+
+    Such a label has room, so a full mark on it clears on this pass (main() hands these in as served), not at
+    DEAD_TTL: a full mark never outlives the queue that made it. A label the snapshot does not list has nothing queued
+    or running among the in-flight runs. A truncated, stale or undated snapshot says nothing."""
+    if not isinstance(snapshot, Mapping) or pr_runner_pool.snapshot_truncated(snapshot):
+        return set()
+    generated = parse_time(snapshot.get("generated_at"))
+    loads = snapshot.get("pools")
+    if generated is None or not (dt.timedelta(minutes=-1) <= now - generated <= SNAPSHOT_MAX_AGE) \
+            or not isinstance(loads, Mapping):
+        return set()
+    found = set()
+    for label in OWNED_EPHEMERAL_LINUX:
+        load = loads.get(label)
+        try:
+            waiting = int(load.get("queued") or 0) if isinstance(load, Mapping) else 0
+        except (TypeError, ValueError):
+            continue
+        if not waiting:
+            found.add(label)
+    return found
+
+
 def started_nothing_while_queued(snapshot: Mapping[str, Any], label: str, load: Mapping[str, Any],
                                  oldest_minutes: float, generated: dt.datetime) -> bool:
     """Whether a stalled label (its oldest queued job waited BLACKSMITH_STALL_MINUTES) is dead, not busy:
@@ -624,8 +681,10 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
     were marked dead, which squeezed every Linux pool onto 2 vCPU. A probe's start always counts."""
     dead: set[str] = set()
     started: set[str] = set()
-    # Owned Linux VM labels whose queue waited the stall cutoff: full, whatever they started (below).
+    # Owned Linux VM labels whose queue waited the stall cutoff: full, whatever they started (below), unless a fresh
+    # fleet reading shows an idle runner there (owned_idle()).
     full: set[str] = set()
+    idle: set[str] = set()
     stalls: set[str] = set()
     notes: list[str] = []
     if isinstance(health, Mapping):
@@ -651,12 +710,14 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
         # Its queue counts are partial, so they decide nothing; its starts are still starts. On 2026-11-18 at 14:14Z
         # dropping them sent every Linux pool to the 2 vCPU release valve while 4 and 8 vCPU kept starting jobs.
         started |= recently_started(snapshot, now=now)
-        notes.append(f"{pr_runner_pool.snapshot_truncated(snapshot)}; only its recent starts count")
+        idle = owned_idle(snapshot, now=now)
+        notes.append(f"{pr_runner_pool.snapshot_truncated(snapshot)}; only its recent starts and idle owned runners count")
     elif generated is not None:
         dead |= stalls
         stalls = set()
         age = max(0.0, (now - generated).total_seconds() / 60)
         started |= recently_started(snapshot, now=now)
+        idle = owned_idle(snapshot, now=now)
         for label, load in (snapshot.get("pools") or {}).items():
             if not (isinstance(label, str) and (EPHEMERAL.match(label) or owned_ephemeral(label))
                     and isinstance(load, Mapping)):
@@ -688,6 +749,11 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
     if stalls - started:
         notes.append(f"probe stalled on {', '.join(sorted(stalls - started))} with no fresh janitor snapshot to tell a "
                      "dead size from a full vCPU cap; no new dead mark")
+    # An owned label with an idle runner has room: never full, never dead, and its mark clears.
+    if idle:
+        notes.append(f"idle owned runners on {', '.join(sorted(idle))}; not full")
+    full -= idle
+    started |= idle
     # A label both started and stalled in one pass (two probes, or a probe and a stale queue) started. A full owned
     # Linux label is dead though it starts jobs: its starts clear the mark only once its queue no longer waits.
     return (dead - started) | full, started - full, notes
@@ -748,8 +814,10 @@ def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
         seen = parse_time(since)
         if seen is not None and now - seen < DEAD_TTL:
             marks[label] = since
-        elif seen is not None and known_now is not None and label not in known_now:
-            # No fresh evidence about this label: it stays dead rather than taking jobs again on a guess.
+        elif seen is not None and known_now is not None and label not in known_now and not owned_ephemeral(label):
+            # No fresh evidence about this Blacksmith label: it stays dead rather than taking jobs again on a guess.
+            # An owned label's mark expires instead (unknown means owned, never Blacksmith): on 2026-11-21 the App
+            # key that reads the janitor snapshot was out until 08:05Z, so no pass had evidence about anything.
             marks[label] = since
             lines.append(f"{label}: dead mark past {DEAD_TTL} kept; no fresh evidence about it this pass")
         else:
@@ -890,6 +958,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                           "judging on the probe alone")
     health = _health(switch, env)
     dead, started, notes = label_evidence(health, snapshot, now=now)
+    # An owned label whose queue drained has room again (owned_drained()): its full mark clears now.
+    started |= owned_drained(snapshot, now=now) - dead
     for note in notes:
         print(note)
     value, lines = reconcile(current, pools, dead_now=dead, served_now=started, now=now,

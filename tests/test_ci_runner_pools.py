@@ -446,6 +446,121 @@ class Evidence(unittest.TestCase):
             self.assertTrue(notes)
 
 
+class OwnedPreferred(unittest.TestCase):
+    """An owned Linux member is taken whenever it has room; Blacksmith is overflow nothing waits on.
+
+    Leo, 2026-11-21 (CI queue median 13 min, 174 queued, while owned pool runners sat idle): "do we TRULY not have
+    enough? ... is the controller still bottled? if it is, we must manually go"."""
+
+    OWNED = "glaeda-linux-arm64"
+    FLEET_POOLS = {"linux": {"why": "x", "members": ["cmux-fleet-linux-x64", "blacksmith-4vcpu-ubuntu-2404",
+                                                    "blacksmith-16vcpu-ubuntu-2404"]}}
+
+    def snapshot(self, now, *, queued, oldest, listening=None, gates_age=dt.timedelta(minutes=1)):
+        snapshot = dict(copy.deepcopy(RECORDED), generated_at=runner_pools.iso(now - dt.timedelta(minutes=1)))
+        snapshot["pools"][self.OWNED] = {"queued": queued, "running": 2, "reserved_queued": 0,
+                                         "oldest_queued_minutes": oldest}
+        snapshot["label_started"] = {self.OWNED: runner_pools.iso(now - dt.timedelta(minutes=1))}
+        if listening is not None:
+            as_of = runner_pools.iso(now - gates_age)
+            snapshot["gates"] = {"version": 1, "as_of": as_of, "labels": {self.OWNED: {
+                "listening": listening, "busy": 2, "held_offline": {"total": 0, "units": 0, "cpu": 0, "livelock": 0,
+                                                                    "other": 0},
+                "down": 0, "unreported": 0, "queued": queued, "oldest_queued_s": oldest * 60, "as_of": as_of}}}
+        return snapshot
+
+    def test_the_idle_reading_is_as_fresh_as_the_janitor_demands(self) -> None:
+        import queue_janitor
+        self.assertEqual(runner_pools.OWNED_IDLE_MAX_AGE, dt.timedelta(seconds=queue_janitor.FLEET_GATES_STALE_S))
+
+    def test_idle_owned_runners_are_not_full(self) -> None:
+        # Its queue waited the cutoff, but a fresh fleet reading shows idle runners: the jobs can start now.
+        snapshot = self.snapshot(NOW, queued=6, oldest=12, listening=3)
+        dead, started, notes = runner_pools.label_evidence(None, snapshot, now=NOW)
+        self.assertNotIn(self.OWNED, dead)
+        self.assertIn(self.OWNED, started)
+        self.assertIn(f"idle owned runners on {self.OWNED}; not full", notes)
+        pools = runner_pools.load_pools()
+        marked = {runner_pools.DEAD_KEY: {self.OWNED: runner_pools.iso(NOW - dt.timedelta(minutes=5))},
+                  "linux_owned_small": "blacksmith-2vcpu-ubuntu-2404"}
+        value, _ = runner_pools.reconcile(marked, pools, dead_now=dead, served_now=started, now=NOW,
+                                          covered=runner_pools.evidence_covers(None, snapshot, pools, now=NOW))
+        self.assertEqual(value["linux_owned_small"], self.OWNED)
+        self.assertNotIn(self.OWNED, value[runner_pools.DEAD_KEY])
+        # A truncated snapshot's queue decides nothing, but its idle reading still counts.
+        truncated = dict(snapshot, truncated=True, listed=1000, total=3186)
+        dead, started, _ = runner_pools.label_evidence(None, truncated, now=NOW)
+        self.assertNotIn(self.OWNED, dead)
+        self.assertIn(self.OWNED, started)
+
+    def test_a_stale_or_empty_idle_reading_leaves_a_full_label_full(self) -> None:
+        for listening, age in ((3, dt.timedelta(minutes=10)), (0, dt.timedelta(minutes=1))):
+            with self.subTest(listening=listening, age=age):
+                snapshot = self.snapshot(NOW, queued=6, oldest=12, listening=listening, gates_age=age)
+                dead, started, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
+                self.assertIn(self.OWNED, dead)
+                self.assertNotIn(self.OWNED, started)
+
+    def test_a_drained_queue_clears_the_mark_now(self) -> None:
+        # Marked full five minutes ago (inside DEAD_TTL); the next snapshot lists nothing queued there.
+        pools = runner_pools.load_pools()
+        marked = {runner_pools.DEAD_KEY: {self.OWNED: runner_pools.iso(NOW - dt.timedelta(minutes=5))},
+                  "linux_owned_small": "blacksmith-2vcpu-ubuntu-2404"}
+        for snapshot in (self.snapshot(NOW, queued=0, oldest=0), fresh_snapshot(NOW)):
+            with self.subTest(listed=self.OWNED in snapshot["pools"]):
+                self.assertEqual(runner_pools.owned_drained(snapshot, now=NOW), {self.OWNED})
+                switch = Main.Switch()
+                with contextlib.redirect_stdout(io.StringIO()) as out:
+                    self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": json.dumps(marked)},
+                                                       api=Main.Api(snapshot), switch=switch, now=NOW), 0)
+                value = json.loads(dict(switch.writes)["RUNNER_POOLS"])
+                self.assertEqual(value["linux_owned_small"], self.OWNED)
+                self.assertNotIn(self.OWNED, value[runner_pools.DEAD_KEY])
+                self.assertIn(f"{self.OWNED}: started a job; it takes jobs again", out.getvalue())
+        # Still waiting, a stale snapshot, or a truncated one: no room shown, the mark holds until DEAD_TTL.
+        for snapshot in (self.snapshot(NOW, queued=6, oldest=12),
+                         dict(fresh_snapshot(NOW), generated_at=runner_pools.iso(NOW - dt.timedelta(hours=2))),
+                         dict(fresh_snapshot(NOW), truncated=True, listed=1000, total=3186)):
+            self.assertEqual(runner_pools.owned_drained(snapshot, now=NOW), set())
+
+    def test_with_the_app_key_out_an_old_owned_mark_expires_and_a_blacksmith_mark_stays(self) -> None:
+        # 2026-11-21: the key that reads the janitor snapshot was out until 08:05Z, and the probe had no fresh health.
+        class KeyOut:
+            def snapshot(self, *, now):
+                raise RuntimeError("HTTP 401: the App key is not valid")
+
+        old = runner_pools.iso(NOW - dt.timedelta(minutes=40))
+        live = json.dumps({"_dead": {self.OWNED: old, "blacksmith-12vcpu-macos-26": old}, "_updated": old,
+                           "linux_owned_small": "blacksmith-2vcpu-ubuntu-2404",
+                           "macos_26_large": "blacksmith-6vcpu-macos-26"})
+        switch = Main.Switch()
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": live}, api=KeyOut(), switch=switch, now=NOW), 0)
+        value = json.loads(dict(switch.writes)["RUNNER_POOLS"])
+        self.assertEqual(value["linux_owned_small"], self.OWNED)
+        self.assertNotIn(self.OWNED, value[runner_pools.DEAD_KEY])
+        self.assertIn(f"{self.OWNED}: dead mark expired; it may take jobs again", out.getvalue())
+        # Blacksmith keeps its rule: unknown stays unknown.
+        self.assertEqual(value[runner_pools.DEAD_KEY], {"blacksmith-12vcpu-macos-26": old})
+        self.assertEqual(value["macos_26_large"], "blacksmith-6vcpu-macos-26")
+
+    def test_the_linux_pool_returns_to_the_gcp_fleet_label_on_no_evidence(self) -> None:
+        # The same rule for an owned x64 lead (feat-cmux-next's copy leads pools.linux with cmux-fleet-linux-x64).
+        from unittest import mock
+        old = runner_pools.iso(NOW - dt.timedelta(minutes=40))
+        with mock.patch.object(runner_pools, "OWNED_EPHEMERAL_LINUX",
+                               runner_pools.OWNED_EPHEMERAL_LINUX | {"cmux-fleet-linux-x64"}):
+            current = {runner_pools.DEAD_KEY: {"cmux-fleet-linux-x64": old}, "linux": "blacksmith-4vcpu-ubuntu-2404"}
+            value, lines = runner_pools.reconcile(current, self.FLEET_POOLS, dead_now=(), served_now=(), now=NOW,
+                                                  covered=set())
+            self.assertEqual(value["linux"], "cmux-fleet-linux-x64")
+            self.assertIn("pools.linux: blacksmith-4vcpu-ubuntu-2404 -> cmux-fleet-linux-x64", lines)
+            # Inside DEAD_TTL the mark still holds: the fleet was full a moment ago.
+            recent = {runner_pools.DEAD_KEY: {"cmux-fleet-linux-x64": runner_pools.iso(NOW - dt.timedelta(minutes=5))}}
+            held, _ = runner_pools.reconcile(recent, self.FLEET_POOLS, dead_now=(), served_now=(), now=NOW, covered=set())
+            self.assertEqual(held["linux"], "blacksmith-4vcpu-ubuntu-2404")
+
+
 class Reconcile(unittest.TestCase):
     def run_once(self, current, dead=(), served=(), now=NOW):
         return runner_pools.reconcile(current, POOLS, dead_now=dead, served_now=served, now=now)
