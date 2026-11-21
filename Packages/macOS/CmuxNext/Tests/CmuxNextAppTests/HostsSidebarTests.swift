@@ -11,7 +11,7 @@ import Testing
 @MainActor
 struct HostsSidebarTests {
     @Observable @MainActor
-    private final class LabsFlag {
+    fileprivate final class LabsFlag {
         var value = false
     }
 
