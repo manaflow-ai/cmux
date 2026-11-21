@@ -1133,6 +1133,23 @@ mod tests {
         assert_eq!(e.tail, ["Both branches merged.", "Gates are green."]);
     }
 
+    /// Lawrence, 2026-11-20: a Chief reply's push banner said its raw Markdown (a before/after table read
+    /// "| | Before | After ||---|…"). The banner says its words, as the apps preview the same reply.
+    #[test]
+    fn a_chief_reply_push_says_its_words_not_its_markdown() {
+        let mut c = Classifier::default();
+        let preview = "**Done.** See [PR 12](https://github.com/manaflow-ai/cmux/pull/12).\n\n| | Before | After |\n|---|---|---|\n| Light | ![b](/tmp/b.png) | ![a](/tmp/a.png) |";
+        let reply = json!({"sessionId":"ct2","harness":"claude","preview":preview,
+            "tags":{"cmux.chief":"c39c6f72","cmux.chief.role":"turn"},"lastTurn":{"turnId":"b","status":"completed"}});
+        let e = c.handle_at(&turn_msg(reply), Instant::now()).unwrap();
+        assert_eq!(e.kind, "chief");
+        assert_eq!(e.body.as_deref(), Some("Done. See PR 12. Table: Before / After"));
+        let pictures = json!({"sessionId":"ct3","harness":"claude","preview":"![before](/tmp/a.png)\n![after](/tmp/b.png)",
+            "tags":{"cmux.chief":"d00dfeed","cmux.chief.role":"turn"},"lastTurn":{"turnId":"c","status":"completed"}});
+        let e = c.handle_at(&turn_msg(pictures), Instant::now()).unwrap();
+        assert_eq!(e.body.as_deref(), Some("2 images"));
+    }
+
     #[test]
     fn a_session_in_a_workspace_tab_names_the_workspace_and_tab() {
         let places = Arc::new(Places::default());
