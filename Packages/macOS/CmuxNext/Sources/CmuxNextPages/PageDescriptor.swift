@@ -230,6 +230,8 @@ public extension PageDescriptor {
                   "server.addServer",
                   // Machines > Add Device… opens the one Add Device card (add-device-DESIGN.md).
                   "device.add",
+                  // Labs preview in Devices: reuse the remote host picker and workspace group.
+                  "remote.newGroup",
                   // Agents > Computer Use card (ComputerUseSetup).
                   "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording", "palette.computerUse.restart",
                   // Settings › Computer Use › Saved Approvals (the person's own forget / always / never).
@@ -239,6 +241,7 @@ public extension PageDescriptor {
                   // A search no setting matches: Ask cmux to do this opens the Customize chat with the words.
                   "customize.open"])
             .union(settingsSectionActions),
+        gestureActions: ["remote.newGroup"],
         dynamicPrefixes: ["backdrop", "museum", "icon", "symbol", "symbol-bold"], ownsSearchField: true, acceptsFirstMouse: false)
 
     /// The App Store page (react-pages.md 3). Install, update, Remove, `set` and allowing a scope pass
