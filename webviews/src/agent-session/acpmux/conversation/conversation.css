@@ -3592,14 +3592,14 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   padding-block: 0;
 }
 /* The folded label uses the same row height as tools; full thought text keeps its padding. The
-   button is as wide as what it draws (its glyph, words and chevron), not the row: the words light
-   under the pointer only, and the empty line after them is no hover (Lucas, 2026-11-06: a thought
-   opened under the pointer stayed white after the pointer moved off its words). */
+   button spans the row, as a tool's and a command's do, so a click anywhere along the line opens it
+   (Leo, 2026-11-21: "inconsistent clicks (thought)": a button as wide as its words took a click on
+   them and dropped one on the empty line after them, 136 of 800 px). The words still draw the
+   same; only the hit target is the row. */
 .cv-thought.is-toggle {
   display: flex;
   align-items: center;
   gap: var(--cv-tool-gap);
-  width: fit-content;
   max-width: 100%;
   padding-block: 0;
 }
