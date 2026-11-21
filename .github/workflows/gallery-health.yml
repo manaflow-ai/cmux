@@ -4,8 +4,9 @@ name: gallery health
 # reports ready, crashes the renderer, or whose play cannot reach it fails this check unless
 # scripts/gallery-matrix/broken-allowlist.json names it with why. On a pull request, a red state that is red the
 # same way on the base it merged with is the base's: the check warns on it and passes (base reds
-# are warnings, not failures). A crash, a cut-short render, or no base result still fails. A pull request, and each push to
-# feat-cmux-next, renders the entries it touches (touched.ts; everything for a global stylesheet or
+# are warnings, not failures). A crash, a cut-short render, or no base result still fails. Since 2026-11-21 the shards
+# render on a pull request only with the full-ci label (the health job's note below); each push to
+# feat-cmux-next renders the entries it touches (touched.ts; everything for a global stylesheet or
 # a change to the checker). Both run only when a path the gallery render reads changes (the list
 # below; tests/test_ci_gallery_health_merge_ref.py keeps it in step with touched.ts and with the
 # files the gallery imports from outside webviews/). The workflow-level filter is safe because no
@@ -259,7 +260,7 @@ jobs:
   # ref). Pull requests only: a push's base is the tip it replaced, which its shards resolve themselves.
   base-gallery:
     name: base gallery
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'full-ci') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 15
     steps:
@@ -333,8 +334,15 @@ jobs:
           # of this name already exists: without this the upload fails and the rerun goes red.
           overwrite: true
 
+  # After merge only (each push to feat-cmux-next, and the nightly dispatch), and on a pull request only with the
+  # full-ci label. Leo, 2026-11-21: "id rather we simply cut shit now and revisit later." Over 11-13..19 these 16
+  # shards were 9.7% of pull request runner-minutes and the only real red on 3.07% of the heads that ran them (each
+  # shard alone 0.0-0.3%; cmuxterm-hq docs/ci/bottleneck-and-skip-candidates-2026-11-21.md). A push renders what it
+  # touched against the tip it replaced, so a red there is the push's, and cmuxterm-hq's base-red watch reads this
+  # workflow's push runs (tools/fleet-reconcilers/base_red_watch.py PUSH_WORKFLOWS): it names the first red commit's
+  # PR and pages the base-reds lane. The pull_request trigger stays, so a skipped run still reports.
   health:
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'full-ci') }}
     # The 16 vCPU pool (its next member is 32 vCPU when 16 starts nothing): a shard's render is CPU-bound, about
     # three quarters of each case is the stage's page loading and mounting in a fresh renderer, and on 4 vCPU the
     # four workers held the CPU at 91% (#41952's shards: per-case p50 1.0-1.6 s against 583 ms alone, render 4-6

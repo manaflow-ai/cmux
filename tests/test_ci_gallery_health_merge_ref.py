@@ -137,6 +137,19 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertEqual(shards, list(range(len(shards))))
         self.assertIn(f"--shard-count {len(shards)} ", step("Render the gallery and judge it")["run"])
 
+    def test_the_shards_render_after_merge_and_on_full_ci_pull_requests_only(self) -> None:
+        # 9.7% of pull request runner-minutes at 3.07% miss over 11-13..19 (cmuxterm-hq
+        # docs/ci/bottleneck-and-skip-candidates-2026-11-21.md): each feat-cmux-next push and the nightly dispatch render,
+        # a pull request only with full-ci. The pull_request trigger stays, so the skipped run reports.
+        workflow = workflow_jobs.document(WORKFLOW)
+        full_ci = "contains(github.event.pull_request.labels.*.name, 'full-ci')"
+        for name in ("health", "base-gallery"):
+            with self.subTest(job=name):
+                self.assertIn(full_ci, workflow["jobs"][name]["if"])
+        self.assertTrue(workflow["jobs"]["health"]["if"].startswith("${{ github.event_name != 'pull_request' || "))
+        self.assertIn("pull_request", triggers())
+        self.assertEqual(triggers()["push"]["branches"], ["feat-cmux-next"])
+
     def test_every_health_run_may_render(self) -> None:
         # health.ts refuses to render without CMUX_GALLERY_IN_VM=1 and writes no verdict; the base replay
         # first ran without it, so no base result ever existed and every red failed (review of #27100).
