@@ -676,7 +676,7 @@ def test_bootstrap_tokens_are_isolated_from_package_code() -> None:
         assert f"needs.decisions.outputs.{output} == 'true'" in crates_publish
 
     assert "!cancelled()" in crates_publishes["publish-sidebar"]
-    assert "always()" in crates_verify
+    assert "!cancelled()" in crates_verify
     assert "needs.publish-sdk.result" not in crates_verify
     assert "needs.publish-sidebar.result" not in crates_verify
     assert "fail-fast: false" in crates_verify
@@ -2046,7 +2046,7 @@ def test_relay_attestations_survive_a_skipped_windows_build() -> None:
     # run 32935658524).
     for job_anchor in ("  verify-linux-packages:", "  attest-npm-packages:"):
         section = text.split(job_anchor, 1)[1].split("runs-on:", 1)[0]
-        assert "always() &&" in section
+        assert "!cancelled() &&" in section
         assert "needs.package.result == 'success'" in section
 
 
@@ -2499,7 +2499,7 @@ def test_feat_tip_adopts_missing_commit_manifest_and_cdn_gate_is_final():
     assert "rebuilding this tip" not in preflight
     detector = workflow_job(artifacts, "verify-cdn-publication")
     assert "needs: [tree-preflight, publish, publish-tree, adopt-commit-manifest]" in detector
-    assert "always()" in detector
+    assert "!cancelled()" in detector
     assert "verify_cmux_tui_publication.py" in detector
     script = (ROOT / "scripts/ci/verify_cmux_tui_publication.py").read_text()
     assert "https://files.cmux.com/cmux-tui/{sha}/manifest.json" in script
