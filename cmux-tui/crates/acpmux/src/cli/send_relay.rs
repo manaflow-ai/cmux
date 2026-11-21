@@ -155,7 +155,8 @@ pub(crate) fn listed_refusal(key: &str, row: Value) -> AppError {
         Code::NoSession,
         "no_session",
         format!(
-            "{key:?} is {target}, which only the send relay lists (sendRelay.lsArgv): this daemon has no link to read or attach to it; prompt it with `acpmux send {target} MESSAGE`, which the send relay delivers"
+            "{key:?} is {target}, which only the send relay lists (sendRelay.lsArgv): this daemon has no link to read or attach to it; prompt it with `{} send {target} MESSAGE`, which the send relay delivers",
+            crate::cli::entry::program()
         ),
     )
     .with_data(json!({"via": VIA, "target": target, "row": row}))

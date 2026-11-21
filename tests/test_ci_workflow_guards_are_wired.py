@@ -81,6 +81,12 @@ UNWIRED: set[str] = {
     # lane = "manual" (no new CI tests, CLAUDE.md). It checks pool reads against .github/runners.json and that
     # copy against main's; run it by hand when a pool read or the pools change. Exit: as below.
     "tests/test_ci_runner_pools_copy.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). Both read every workflow only
+    # as data: a job whose need runs past a skipped ancestor has a status function in its if (tree-owner-wait,
+    # runs 44818589673, 44834489171), and a fleet-reachable job sources ensure-gh-attestation.sh before
+    # `gh attestation` (#48350). Run them by hand when a job's needs/if or a gh attestation step changes. Exit: as below.
+    "tests/test_ci_needs_skip_propagation.py",
+    "tests/test_ci_gh_attestation_has_gh.py",
     # lane = "manual" (no new CI tests, CLAUDE.md). It reads workflows and scripts only as data: which callers
     # read reload.sh's App path after --build-only without --keep-app. Run it after adding such a caller. Exit: as below.
     "tests/test_reload_build_only_app_path_readers.py",
@@ -98,6 +104,12 @@ UNWIRED: set[str] = {
     # as data (each routed job's needs and if, and its declared inputs in scripts/ci/fast-check-inputs.json); run
     # it by hand when fast_check_route.py, that map or a routed workflow changes. Exit: as below.
     "tests/test_ci_fast_check_route.py",
+    # lane = "manual": no new CI tests (AGENTS.md:214, Lawrence 2026-10-23). Both read the workflows only as data
+    # (the receipt jobs' verifier calls; each pull-request job's same-tree reuse or denial in
+    # scripts/ci/same_tree_reuse.json); run them by hand when ci_receipt.py, same_tree_reuse.py, its map or a
+    # covered workflow changes. Exit: as below.
+    "tests/test_ci_receipt.py",
+    "tests/test_same_tree_reuse.py",
     # Both are lane = "manual" in tests/test-execution.toml: CLAUDE.md forbids adding CI tests (Lawrence
     # 2026-10-23: "not to add gates/tests in CI, but you have to run them yourself"). Each reads a workflow
     # only as data (a fixture nightly.yml; cmux-next.yml for stamp readers). Exit: wire it here if that

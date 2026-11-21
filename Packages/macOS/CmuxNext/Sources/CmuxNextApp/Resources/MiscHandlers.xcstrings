@@ -2234,127 +2234,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No pane is focused."
+            "value": "Click a tab first, then try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォーカスされたペインがありません。"
+            "value": "先にタブをクリックしてから、もう一度お試しください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا يوجد جزء مركّز عليه."
+            "value": "انقر على علامة تبويب أولًا، ثم حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nijedan panel nije fokusiran."
+            "value": "Prvo kliknite karticu, pa pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen rude har fokus."
+            "value": "Klik først på en fane, og prøv så igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kein Teilfenster ist fokussiert."
+            "value": "Klicke zuerst auf einen Tab und versuche es dann erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No hay ningún panel enfocado."
+            "value": "Haz clic primero en una pestaña y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucun volet n’est actif."
+            "value": "Cliquez d’abord sur un onglet, puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nessun pannello attivo."
+            "value": "Fai prima clic su una scheda, poi riprova."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "គ្មានផ្ទាំងកំពុងផ្ដោតទេ។"
+            "value": "ចុចផ្ទាំងមួយជាមុនសិន រួចសាកល្បងម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "포커스된 분할 창이 없습니다."
+            "value": "먼저 탭을 클릭한 다음 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen rute er fokusert."
+            "value": "Klikk på en fane først, og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Żaden panel nie jest aktywny."
+            "value": "Najpierw kliknij kartę, a potem spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhum painel está focado."
+            "value": "Clique em uma aba primeiro e tente de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нет активной панели."
+            "value": "Сначала щёлкните вкладку, затем повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่มีบานหน้าต่างที่โฟกัสอยู่"
+            "value": "คลิกแท็บก่อน แล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odakta bölme yok."
+            "value": "Önce bir sekmeye tıklayın, sonra yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Немає активної панелі."
+            "value": "Спершу клацніть вкладку, потім спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không có khung nào đang được tập trung."
+            "value": "Hãy bấm vào một thẻ trước, rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "没有聚焦的窗格。"
+            "value": "请先点按一个标签页，然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "沒有聚焦的窗格。"
+            "value": "請先點按一個分頁，然後再試一次。"
           }
         }
       }
@@ -18813,6 +18813,78 @@
             "state": "translated",
             "value": "앱을 지정하세요 (app_id)."
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navedite aplikaciju (app_id)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angiv appen (app_id)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indica l’app (app_id)."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សូមបញ្ជាក់កម្មវិធី (app_id)។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angi appen (app_id)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podaj aplikację (app_id)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Informe o app (app_id)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Укажите приложение (app_id)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระบุแอป (app_id)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uygulamayı belirtin (app_id)."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Укажіть застосунок (app_id)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hãy chỉ định ứng dụng (app_id)."
+          }
         }
       }
     },
@@ -18872,10 +18944,213 @@
             "state": "translated",
             "value": "결정은 always 또는 never여야 합니다."
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odluka mora biti always ili never."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Beslutningen skal være always eller never."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La decisione deve essere always o never."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការសម្រេចត្រូវតែជា always ឬ never។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avgjørelsen må være always eller never."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Decyzja musi mieć wartość always lub never."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A decisão deve ser always ou never."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Решение должно быть always или never."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การตัดสินใจต้องเป็น always หรือ never"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karar always veya never olmalıdır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рішення має бути always або never."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quyết định phải là always hoặc never."
+          }
         }
       }
     },
-    "screenShare.chat.unavailable": {"comment":"Screen sharing from the chat machine row in Session Info.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"مشاركة الشاشة غير متاحة لجهاز هذه المحادثة. افتح الأجهزة للتحقق من اتصاله."}},"bs":{"stringUnit":{"state":"translated","value":"Dijeljenje ekrana nije dostupno za računar ovog razgovora. Otvorite Računari da provjerite vezu."}},"da":{"stringUnit":{"state":"translated","value":"Skærmdeling er ikke tilgængelig for denne chats maskine. Åbn Maskiner for at kontrollere forbindelsen."}},"de":{"stringUnit":{"state":"translated","value":"Die Bildschirmfreigabe ist für den Rechner dieses Chats nicht verfügbar. Öffne Rechner, um die Verbindung zu prüfen."}},"en":{"stringUnit":{"state":"translated","value":"Screen sharing is not available for this chat’s machine. Open Machines to check its connection."}},"es":{"stringUnit":{"state":"translated","value":"No se puede compartir la pantalla del equipo de este chat. Abre Equipos para comprobar su conexión."}},"fr":{"stringUnit":{"state":"translated","value":"Le partage d’écran n’est pas disponible pour la machine de cette conversation. Ouvrez Machines pour vérifier sa connexion."}},"it":{"stringUnit":{"state":"translated","value":"La condivisione schermo non è disponibile per il computer di questa chat. Apri Computer per verificarne la connessione."}},"ja":{"stringUnit":{"state":"translated","value":"このチャットのマシンでは画面共有を利用できません。「マシン」を開いて接続を確認してください。"}},"km":{"stringUnit":{"state":"translated","value":"ការចែករំលែកអេក្រង់មិនមានសម្រាប់ម៉ាស៊ីននៃការជជែកនេះទេ។ បើកម៉ាស៊ីនដើម្បីពិនិត្យការតភ្ជាប់។"}},"ko":{"stringUnit":{"state":"translated","value":"이 채팅의 컴퓨터에서는 화면 공유를 사용할 수 없습니다. 컴퓨터를 열어 연결을 확인하세요."}},"nb":{"stringUnit":{"state":"translated","value":"Skjermdeling er ikke tilgjengelig for maskinen i denne chatten. Åpne Maskiner for å kontrollere tilkoblingen."}},"pl":{"stringUnit":{"state":"translated","value":"Udostępnianie ekranu jest niedostępne dla komputera tego czatu. Otwórz Komputery, aby sprawdzić połączenie."}},"pt-BR":{"stringUnit":{"state":"translated","value":"O compartilhamento de tela não está disponível para a máquina desta conversa. Abra Máquinas para verificar a conexão."}},"ru":{"stringUnit":{"state":"translated","value":"Демонстрация экрана недоступна для компьютера этого чата. Откройте «Компьютеры», чтобы проверить подключение."}},"th":{"stringUnit":{"state":"translated","value":"ไม่สามารถแชร์หน้าจอของเครื่องสำหรับแชตนี้ได้ เปิดเครื่องเพื่อตรวจสอบการเชื่อมต่อ"}},"tr":{"stringUnit":{"state":"translated","value":"Bu sohbetin makinesi için ekran paylaşımı kullanılamıyor. Bağlantısını kontrol etmek için Makineler’i açın."}},"uk":{"stringUnit":{"state":"translated","value":"Спільний доступ до екрана недоступний для комп’ютера цього чату. Відкрийте «Комп’ютери», щоб перевірити з’єднання."}},"vi":{"stringUnit":{"state":"translated","value":"Không thể chia sẻ màn hình của máy trong cuộc trò chuyện này. Mở Máy để kiểm tra kết nối."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"此聊天所在的机器无法共享屏幕。请打开“机器”检查连接。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"此聊天所在的機器無法共享螢幕。請開啟「機器」檢查連線。"}}}},
+    "screenShare.chat.unavailable": {
+      "comment": "Screen sharing from the chat machine row in Session Info.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مشاركة الشاشة غير متاحة لجهاز هذه المحادثة. افتح الأجهزة للتحقق من اتصاله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dijeljenje ekrana nije dostupno za računar ovog razgovora. Otvorite Računari da provjerite vezu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skærmdeling er ikke tilgængelig for denne chats maskine. Åbn Maskiner for at kontrollere forbindelsen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Bildschirmfreigabe ist für den Rechner dieses Chats nicht verfügbar. Öffne Rechner, um die Verbindung zu prüfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen sharing is not available for this chat’s machine. Open Machines to check its connection."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede compartir la pantalla del equipo de este chat. Abre Equipos para comprobar su conexión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le partage d’écran n’est pas disponible pour la machine de cette conversation. Ouvrez Machines pour vérifier sa connexion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La condivisione schermo non è disponibile per il computer di questa chat. Apri Computer per verificarne la connessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットのマシンでは画面共有を利用できません。「マシン」を開いて接続を確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចែករំលែកអេក្រង់មិនមានសម្រាប់ម៉ាស៊ីននៃការជជែកនេះទេ។ បើកម៉ាស៊ីនដើម្បីពិនិត្យការតភ្ជាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅의 컴퓨터에서는 화면 공유를 사용할 수 없습니다. 컴퓨터를 열어 연결을 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjermdeling er ikke tilgjengelig for maskinen i denne chatten. Åpne Maskiner for å kontrollere tilkoblingen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępnianie ekranu jest niedostępne dla komputera tego czatu. Otwórz Komputery, aby sprawdzić połączenie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O compartilhamento de tela não está disponível para a máquina desta conversa. Abra Máquinas para verificar a conexão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Демонстрация экрана недоступна для компьютера этого чата. Откройте «Компьютеры», чтобы проверить подключение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถแชร์หน้าจอของเครื่องสำหรับแชตนี้ได้ เปิดเครื่องเพื่อตรวจสอบการเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbetin makinesi için ekran paylaşımı kullanılamıyor. Bağlantısını kontrol etmek için Makineler’i açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спільний доступ до екрана недоступний для комп’ютера цього чату. Відкрийте «Комп’ютери», щоб перевірити з’єднання."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể chia sẻ màn hình của máy trong cuộc trò chuyện này. Mở Máy để kiểm tra kết nối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天所在的机器无法共享屏幕。请打开“机器”检查连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天所在的機器無法共享螢幕。請開啟「機器」檢查連線。"
+          }
+        }
+      }
+    },
     "handlers.misc.failed.terminalChatNotAgentTab": {
       "extractionState": "manual",
       "localizations": {
