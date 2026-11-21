@@ -324,7 +324,7 @@ mod owner_keepers {
         // owners outlived their app by 2 to 34 days. The owner held a stream
         // to each host, so no host's no-client grace ever started, and the
         // live hosts kept the owner. Here the day is 2 s and the hosts'
-        // orphan grace 2 s (a normal install's is a week): the owner stops,
+        // orphan grace 2 s (a normal install's is 10 minutes): the owner stops,
         // and each host with no peer left ends by itself.
         let owner = Owner::ensure_with(
             "unattended",

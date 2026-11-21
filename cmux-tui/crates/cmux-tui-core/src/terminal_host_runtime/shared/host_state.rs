@@ -208,14 +208,15 @@ pub(crate) fn record_root_removed() -> bool {
 }
 
 /// How long a host serves no client before it ends its terminal in every
-/// build, normal installs included: no cmux has shown the terminal for a
-/// week, so no daemon will adopt it again (a renamed tag's or a deleted
-/// build's record directory). A running daemon keeps a stream to every host
-/// it adopted. The holder's `cmux_holder::ABANDONED_GRACE` is the same week;
-/// the holder builds only on Unix, so this host-side copy stands on its own.
-/// Leo, 2026-11-09, on 35 terminal processes, some weeks old: "well those
-/// need to get auto cleaned up...".
-pub(crate) const ABANDONED_HOST_GRACE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+/// build, normal installs included. A replacement daemon has this bounded
+/// window to adopt the host after its owner dies. A running daemon keeps a
+/// stream to every host it adopted, so active terminals are unaffected.
+/// Keep this aligned with `cmux_holder::ABANDONED_GRACE`.
+///
+/// Leo, 2026-11-21: a dead owner must not leave terminal hosts behind for
+/// days. Ten minutes matches the existing DEV/staging orphan window while
+/// leaving enough time for a restart on a loaded machine.
+pub(crate) const ABANDONED_HOST_GRACE: Duration = Duration::from_secs(10 * 60);
 
 /// Whether a stray `SIGTERM` may end an orphaned host: only in a build with
 /// an orphan grace of its own, or once its record directory is gone. A
