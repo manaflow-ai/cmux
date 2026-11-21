@@ -306,7 +306,7 @@ impl Hub {
 
     /// The command that titles a chat on `harness`, or None (none applies,
     /// or `titles.generate` is off).
-    async fn title_command(&self, harness: &str) -> Option<tokio::process::Command> {
+    pub(super) async fn title_command(&self, harness: &str) -> Option<tokio::process::Command> {
         // Never the shared temp dir or the daemon's folder: Claude Code runs
         // `rg --files --hidden` over its cwd at start, and one titler per
         // finished chat over all of `$TMPDIR` pegged the Mac's CPU.
@@ -443,7 +443,11 @@ impl Hub {
         title
     }
 
-    fn apply_generated_title(self: &Arc<Self>, session: &Arc<Session>, title: Option<String>) {
+    pub(super) fn apply_generated_title(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        title: Option<String>,
+    ) {
         let (title, retry) = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.title_asking = false;
@@ -490,9 +494,20 @@ fn request(prompt: &str, reply: &str, first: bool) -> String {
 }
 
 /// Run a title command with the request on stdin; its cleaned first line.
-async fn run(mut cmd: tokio::process::Command, request: &str) -> Option<String> {
+pub(super) async fn run(cmd: tokio::process::Command, request: &str) -> Option<String> {
+    clean(&run_command(cmd, request, TIMEOUT).await?)
+}
+
+/// Run a one-shot command (in its own process group) with `request` on stdin; its whole
+/// stdout when it exits 0 within `timeout`, else None (the group is killed at the timeout).
+/// Shared with `rolling_summary.rs`.
+pub(super) async fn run_command(
+    mut cmd: tokio::process::Command,
+    request: &str,
+    timeout: Duration,
+) -> Option<String> {
     cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
-    let mut child = cmd.spawn().map_err(|e| tracing::debug!("title command: {e}")).ok()?;
+    let mut child = cmd.spawn().map_err(|e| tracing::debug!("one-shot command: {e}")).ok()?;
     let pid = child.id();
     let mut stdin = child.stdin.take()?;
     let mut stdout = child.stdout.take()?;
@@ -505,7 +520,7 @@ async fn run(mut cmd: tokio::process::Command, request: &str) -> Option<String> 
         let status = child.wait().await.ok()?;
         status.success().then_some(out)
     };
-    let Ok(out) = tokio::time::timeout(TIMEOUT, answer).await else {
+    let Ok(out) = tokio::time::timeout(timeout, answer).await else {
         // The command runs in its own group (a wrapper's children too): end it
         // all while its leader, not yet reaped, still holds the group's id.
         #[cfg(unix)]
@@ -517,12 +532,12 @@ async fn run(mut cmd: tokio::process::Command, request: &str) -> Option<String> 
         drop(child);
         return None;
     };
-    clean(&out?)
+    out
 }
 
 /// The title in a model's answer: its first line without quotes, a
 /// `Title:` label or trailing punctuation, at most 6 words and 60 chars.
-fn clean(out: &str) -> Option<String> {
+pub(super) fn clean(out: &str) -> Option<String> {
     let line = out.lines().map(str::trim).find(|l| !l.is_empty())?;
     let line = line.strip_prefix("Title:").unwrap_or(line);
     let quotes: &[char] = &['"', '\'', '`', '*', '“', '”', '‘', '’'];

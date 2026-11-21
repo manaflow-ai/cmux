@@ -57,6 +57,8 @@ ALLOWED: dict[str, str] = {
         "a few kB of test durations; the next run restores the newest by prefix",
     "indexnow.yml: Save submitted URLs":
         "a few kB of submitted URLs, one scheduled job; the next run restores the newest by prefix",
+    "base-coalesce.yml: Record this tip as tested":
+        "a 41-byte marker per tip a coalesced run started on (one a window); the next push finds the newest by prefix",
     "cmux-next-web.yml: Record this push as the last covered one":
         "an empty marker per feat-cmux-next push that the next push reads to coalesce",
     "cmux-next.yml: Save the DEV compile cache (Blacksmith)":
@@ -216,6 +218,11 @@ def per_ref_saves() -> list[str]:
                     if save_if.strip().lower() == "false":
                         continue
                     condition += f" {save_if}"
+                # A same-tree receipt (scripts/ci/same_tree_reuse.py) is one JSON file of a few hundred bytes,
+                # keyed by the tree it vouches for: it cannot crowd the 10 GB store, and the same pull request's
+                # re-runs and re-pushes of that tree are what read it.
+                if str(inputs.get("path", "")).startswith(".same-tree/"):
+                    continue
                 # A composite that takes its condition from an input leaves the ref to its callers.
                 if base_only or BASE_REF.search(condition) or (composite and "inputs." in condition):
                     continue

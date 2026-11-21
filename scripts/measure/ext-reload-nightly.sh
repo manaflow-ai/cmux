@@ -2,8 +2,9 @@
 # Extension hot reload proven on a published cmux NEXT NIGHTLY, on a fleet Mac with a console session
 # (measurement only): the NIGHTLY DMG from the feed is copied into a side instance (its own bundle id, data,
 # daemon and customize folder; the Mac's own apps are untouched) and launched, then
-# scripts/measure/ext-reload-nightly.py runs the NIGHTLY read-back (ext dev --once --json on
-# examples/extensions/activity, a one-line save, ext shot --json's scene changes) and edit-repaint.py's
+# scripts/measure/ext-reload-nightly.py runs the NIGHTLY read-back (ext dev left watching
+# examples/extensions/activity, a one-line save, then reads only: the watcher reloads on its own and the
+# daemon's loaded copy and open views show the edit; no ext shot, no --once) and edit-repaint.py's
 # customize, rows, pane, command and shortcut cases in read-back mode, 10 rounds each.
 #   cmux-ci run --class exclusive --label measure --display \
 #     --script scripts/measure/ext-reload-nightly.sh --ref <sha> [--arg=dmg=URL] [--arg=rounds=N] \
@@ -55,6 +56,7 @@ hdiutil detach "$mnt" >/dev/null; mnt=""
 app="$("$side" path "$name")"
 "$side" launch "$name" >&2 || exit 3
 python3 scripts/measure/ext-reload-nightly.py --app "$app" --pid-file "$CMUX_SIDE_ROOT/$name/pid" \
+  --control-socket "$("$side" socket "$name")" \
   --customize "$CMUX_SIDE_ROOT/$name/customize" --config "$CMUX_SIDE_ROOT/$name/config/cmux-next.json" \
   --rounds "$rounds" --out "$out" 2>&1 | tee "$out/run.log"
 status=${PIPESTATUS[0]}

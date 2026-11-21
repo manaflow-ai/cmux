@@ -31,9 +31,14 @@ public struct MacScreenActions {
     /// - Parameter paletteRows: Adds a root palette provider: one "Screen Sharing: <device>" row per device.
     public func bind(into registry: ActionRegistry, paletteRows: ((AsyncPaletteProvider) -> Void)? = nil) {
         paletteRows?(pages.paletteProvider(registry: registry))
+        // Screen Sharing ▸: the machines to view, one click each (MacScreenPickerMenu).
+        registry.rowSubmenus["macScreen.open"] = { [weak registry] target, machineID in
+            guard let registry else { return nil }
+            return MacScreenPickerMenu(pages: pages, registry: registry).menu(target: target, machineID: machineID)
+        }
         registry.bindEffect("macScreen.open", effect: { invocation in
             if let target = invocation.target, target.kind != .pane && target.kind != .tab { return .refused(Self.noPane) }
-            do { try open({ try Self.record(invocation, pages: pages) }, invocation, Self.isPerson(invocation)) }
+            do { try open({ try Self.record(invocation, pages: pages) }, invocation, Self.connects(invocation)) }
             catch { refusal(error) }
             return .done
         })
@@ -84,7 +89,7 @@ public struct MacScreenActions {
         guard let value = invocation["device"] else { return MacScreenRecord(macID: nil) }
         guard let text = value.stringValue else { throw ActionFailure(message: missingDevice(among: devices)) }
         let id = try deviceID(named: text, among: devices)
-        return pages.record(forDevice: id, requesting: isPerson(invocation) ? .view : nil)
+        return pages.record(forDevice: id, requesting: connects(invocation) ? .view : nil)
     }
 
     /// The hub id `text` names: an id as is (listed or not, as before names resolved), else the one device whose
@@ -100,6 +105,10 @@ public struct MacScreenActions {
             guard !wanted.isEmpty else { continue }
             let matches = devices.filter { key($0.name) == wanted }
             if matches.count == 1, let match = matches.first { return match.id }
+            // One name, several registrations (a reinstall, an old hub record): the one that is online and shares
+            // is the one a person means; only when that does not single one out is the name ambiguous.
+            let live = matches.filter { $0.online && $0.macScreenShared }
+            if matches.count > 1, live.count == 1, let match = live.first { return match.id }
             if matches.count > 1 {
                 throw ActionFailure(message: String(format: L.t("macScreen.actions.ambiguousDevice", "More than one device is named “%@”: %@. Pass the id of the one to open."), name, listed(matches)))
             }
@@ -154,6 +163,20 @@ public struct MacScreenActions {
 
     private static func isPerson(_ invocation: ActionInvocation) -> Bool {
         invocation.origin == .user && !invocation.viaControlSocket && ActionRunScope.isPersonsAction()
+    }
+
+    /// The opened tab connects to view at once, the way a person's open does: a person opened it, or the caller
+    /// asked with `autoconnect` (default off), so `cmux action run macScreen.open --device X --autoconnect` reaches
+    /// the hub with no Connect click. Both gates take it: the requested scope (`record(forDevice:requesting:)`) and
+    /// the confirmed record `makeHubPane` resumes it on. Leo, 2026-11-16: "At least like Linux to Mac".
+    static func connects(_ invocation: ActionInvocation) -> Bool {
+        isPerson(invocation) || autoconnects(invocation)
+    }
+
+    /// `autoconnect: true`, as the CLI sends a bare `--autoconnect`, or `"true"` (`--autoconnect=true`, `--arg`).
+    static func autoconnects(_ invocation: ActionInvocation) -> Bool {
+        guard let value = invocation["autoconnect"] else { return false }
+        return value.boolValue ?? (value.stringValue?.lowercased() == "true")
     }
     private static var noPane: String { L.t("macScreen.actions.noPane", "Choose a pane or tab to open Screen Sharing.") }
     private static var noViewer: String { L.t("macScreen.actions.noViewer", "Choose a Screen Sharing tab to stop viewing.") }

@@ -57,6 +57,7 @@ hdiutil detach "$mnt" >/dev/null; mnt=""
 app="$("$side" path "$name")"
 "$side" launch "$name" >&2 || exit 3
 python3 scripts/measure/ext-rows-nightly.py --app "$app" --pid-file "$CMUX_SIDE_ROOT/$name/pid" \
+  --control-socket "$("$side" socket "$name")" \
   --customize "$CMUX_SIDE_ROOT/$name/customize" --out "$out" ${rows:+--rows "$rows"} 2>&1 | tee "$out/run.log"
 status=${PIPESTATUS[0]}
 "$side" stop "$name" >&2 || true

@@ -417,7 +417,7 @@ def side_relaunch(ctx: Ctx, between=None) -> dict:
     stop = subprocess.run([str(SIDE), "stop", name], capture_output=True, text=True, env=env, timeout=120)
     done = between() if between else None
     launch = subprocess.run([str(SIDE), "launch", name], capture_output=True, text=True, env=env, timeout=180)
-    ctx.control, ctx.daemon = attach_copy(ctx.app, ctx.cli, ctx.pid_file)
+    ctx.control, ctx.daemon = attach_copy(ctx.app, ctx.cli, ctx.pid_file, ctx.control)
     return {"stop": stop.returncode, "between": done, "launch": launch.returncode,
             "launch_err": launch.stderr[-400:]}
 
@@ -540,11 +540,11 @@ def raw_cli_for(cli: Path, work: Path) -> Path:
     return link
 
 
-def attach_copy(app: Path, cli: Path, pid_file: Path) -> tuple[str, str]:
+def attach_copy(app: Path, cli: Path, pid_file: Path, socket_hint: str | None = None) -> tuple[str, str]:
     """The running copy's control socket and daemon socket, the daemon started by a workspace with a terminal."""
     app_pid = int(pid_file.read_text().strip())
     control = reload_nightly.wait_until("the copy's control socket", time.monotonic() + 120,
-                                        lambda: control_socket(app_pid))
+                                        lambda: control_socket(app_pid, socket_hint))
     reload_nightly.bench.rpc_at(control, "action.run", {"action": "workspace.newAtBottom"}, timeout=30)
     reload_nightly.bench.rpc_at(control, "action.run", {"action": "newSurface"}, timeout=30)
     daemon = reload_nightly.wait_until("the copy's daemon", time.monotonic() + 180,
@@ -574,7 +574,7 @@ def main() -> int:
         app = Path(args.app)
         cli = (app / reload_nightly.hot.BIN / "cmux").resolve()
         receipt |= {"app": str(app), "app_commit": reload_nightly.hot.app_commit(app)}
-        control, daemon = attach_copy(app, cli, Path(args.pid_file))
+        control, daemon = attach_copy(app, cli, Path(args.pid_file), args.control_socket)
     elif args.cli and args.daemon_socket:
         cli, daemon, control = Path(args.cli).resolve(), args.daemon_socket, args.control_socket
     else:
