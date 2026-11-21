@@ -12100,7 +12100,7 @@ def clippy_dead_variant(at, line, column=5, variant="RootEntries", path="crates/
         "")]
 
 
-def clippy_log(job, step, *blocks, summary=("lib",), scope="acpmux", base_red=(), base="c9fd1c9ebd40"):
+def clippy_log(job, step, *blocks, summary=("lib",), scope="acpmux", base_red=(), base="c9fd1c9ebd40", new_scope=False):
     """A clippy step's log: its errors (BLOCKS, from clippy_dead_variant), cargo's summaries, then what
     .github/scripts/cmux-tui-clippy-changed.py prints after them (its scope and each red file outside the diff)."""
     lines = [f"2026-11-12T11:38:{n:02d}.0000000Z     Checking crate-{n} v0.1.0 "
@@ -12109,9 +12109,14 @@ def clippy_log(job, step, *blocks, summary=("lib",), scope="acpmux", base_red=()
         lines += block
     lines += [f"2026-11-12T11:44:0{n}.7339343Z error: could not compile `acpmux` ({kind}) due to {len(blocks)} "
               f"previous error{'s' if len(blocks) > 1 else ''}" for n, kind in enumerate(summary)]
-    lines.append(f"2026-11-12T11:44:10.0000000Z ##[error]clippy -D warnings failed for {scope}; run `cargo clippy "
-                 f"--locked --keep-going -p {scope} --all-targets -- -D warnings` in cmux-tui and fix each lint (an "
-                 "allow needs a comment saying why)")
+    if new_scope:
+        lines.append(f"2026-11-20T11:44:10.0000000Z ##[error]clippy found compile errors in {scope}; run `cargo clippy "
+                     f"--locked --keep-going -p {scope} --all-targets --message-format=json -- --cap-lints warn` in "
+                     "cmux-tui and fix each error (lints alone never fail this check)")
+    else:
+        lines.append(f"2026-11-12T11:44:10.0000000Z ##[error]clippy -D warnings failed for {scope}; run `cargo clippy "
+                     f"--locked --keep-going -p {scope} --all-targets -- -D warnings` in cmux-tui and fix each lint (an "
+                     "allow needs a comment saying why)")
     lines += [f"2026-11-12T11:44:11.0000000Z ##[error]cmux-tui/{path} is red and this change does not touch it: most "
               f"likely the base {base} already fails here (last changed on the base by {base[:8]} some commit). Then "
               "fix it on the base branch in its own pull request and update this one once that lands" for path in base_red]
@@ -12188,6 +12193,12 @@ class CompileErrorsAreComparedBySignature(unittest.TestCase):
         coded = excuse.compile_errors(["error[E0425]: cannot find value `x` in this scope",
                                        "  --> crates/a/src/lib.rs:3:9"], job)
         self.assertEqual(coded.located, {("E0425", "crates/a/src/lib.rs", "cannot find value `x` in this scope")})
+        # The wrapper's scope line since lints stopped failing it (2026-11-20) is read like the old one: never an error.
+        new = excuse.compile_errors(excuse.test_reds.lines_of(clippy_log("j", "s", clippy_dead_variant(1, 61),
+                                                                         new_scope=True)), job)
+        self.assertEqual(new.other, ())
+        self.assertEqual(new.located, excuse.compile_errors(excuse.test_reds.lines_of(clippy_log(
+            "j", "s", clippy_dead_variant(1, 61))), job).located)
 
     def test_an_error_only_the_pr_prints_is_its_own(self):
         mine = [clippy_dead_variant(45, 61), clippy_dead_variant(50, 12, variant="Fresh",
