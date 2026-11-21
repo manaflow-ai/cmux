@@ -144,20 +144,39 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
         public var models: [Model] = []
         public var efforts: [String] = []
         public var speeds: [String] = []
+        /// What `/` lists in a Chief composer (optchat-chief engine_control.rs `offered.skills`);
+        /// empty from an older brain.
+        public var skills: [Skill] = []
 
-        public init(models: [Model] = [], efforts: [String] = [], speeds: [String] = []) {
+        /// One listed skill: `source` is `chief`, `claude` or `plugin:<plugin>`.
+        public struct Skill: Decodable, Sendable, Equatable {
+            public var name: String
+            public var description: String
+            public var source: String
+
+            public init(name: String, description: String, source: String) {
+                self.name = name
+                self.description = description
+                self.source = source
+            }
+        }
+
+        public init(models: [Model] = [], efforts: [String] = [], speeds: [String] = [], skills: [Skill] = []) {
             self.models = models
             self.efforts = efforts
             self.speeds = speeds
+            self.skills = skills
         }
 
-        enum CodingKeys: String, CodingKey { case models, efforts, speeds }
+        enum CodingKeys: String, CodingKey { case models, efforts, speeds, skills }
 
         public init(from decoder: any Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             models = try c.decodeIfPresent([Model].self, forKey: .models) ?? []
             efforts = try c.decodeIfPresent([String].self, forKey: .efforts) ?? []
             speeds = try c.decodeIfPresent([String].self, forKey: .speeds) ?? []
+            // One malformed row drops the list, never the engine report.
+            skills = (try? c.decodeIfPresent([Skill].self, forKey: .skills)) ?? []
         }
     }
 
