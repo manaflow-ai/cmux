@@ -259,6 +259,10 @@ class TabManager: ObservableObject {
     /// on subscribe — the `Published.Publisher` semantics those call sites
     /// were written against.
     let workspaceGroupsPublisher = CurrentValueSubject<[WorkspaceGroup], Never>([])
+    /// Change signal shared by this window's custom sidebars (main sidebar,
+    /// right sidebar and sidebar panes), so they rebuild on data changes
+    /// instead of once a second (issue #46725).
+    lazy var customSidebarDataChangeMonitor = CustomSidebarDataChangeMonitor(tabManager: self)
     /// Set by `restoreSessionSnapshot` to suppress side-effects (like auto-
     /// expanding a group on focus) that would mutate restored state mid-restore.
     private var isRestoringSessionSnapshot: Bool = false

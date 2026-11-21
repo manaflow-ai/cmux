@@ -4,6 +4,7 @@ import Bonsplit
 import CMUXAgentLaunch
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxNotifications
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSidebarInterpreterClient
@@ -79,6 +80,9 @@ struct RightSidebarPanelView: View {
     /// Live data context for the Custom mode's JS/Swift sidebar (built by the
     /// window's ContentView, which owns the unread model this view never sees).
     let customSidebarDataContext: (Date) -> [String: SwiftValue]
+    /// The unread model `customSidebarDataContext` reads, so unread changes
+    /// re-render the Custom mode sidebar (issue #46725).
+    var customSidebarUnread: SidebarUnreadModel? = nil
 
     @State private var modeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOrControl) { window in
         guard let responder = window.firstResponder else { return false }
@@ -503,10 +507,17 @@ struct RightSidebarPanelView: View {
     private var customSidebarPanel: some View {
         if let name = fileExplorerState.customSidebarName,
            let fileURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forName: name) {
-            TimelineView(.periodic(from: .now, by: 1)) { timeline in
+            // Rebuilds once a second only when the sidebar reads `clock`,
+            // otherwise on data changes (issue #46725).
+            CustomSidebarLiveDataReader(
+                fileURL: fileURL,
+                monitor: tabManager.customSidebarDataChangeMonitor,
+                unreadSource: customSidebarUnread,
+                build: { clockDate, _ in customSidebarDataContext(clockDate) }
+            ) { dataContext in
                 CustomSidebarSurface(
                     fileURL: fileURL,
-                    dataContext: customSidebarDataContext(timeline.date),
+                    dataContext: dataContext,
                     dispatch: makeCmuxSidebarActionDispatch(),
                     contentInsets: CustomSidebarContentInsets(top: 8, bottom: 8),
                     rendersInProcess: customSidebarRenderer == .inProcess,
