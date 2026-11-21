@@ -6853,6 +6853,14 @@
           "group": "Developer Tools"
         },
         {
+          "key": "labs.askLedger",
+          "title": "Your Asks",
+          "help": "Keep your chat requests on this Mac and link them to pull requests in History. Takes effect after cmux restarts.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
           "key": "labs.liveCode",
           "title": "Live Code",
           "help": "Swift changes you compile apply to the running app. Takes effect after cmux restarts.",

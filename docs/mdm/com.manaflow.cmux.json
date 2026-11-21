@@ -3630,6 +3630,12 @@
       "title" : "Connect iMessage",
       "type" : "boolean"
     },
+    "labs.askLedger" : {
+      "default" : false,
+      "description" : "Keep your chat requests on this Mac and link them to pull requests in History. Takes effect after cmux restarts.",
+      "title" : "Your Asks",
+      "type" : "boolean"
+    },
     "labs.liveCode" : {
       "default" : false,
       "description" : "Swift changes you compile apply to the running app. Takes effect after cmux restarts.",
