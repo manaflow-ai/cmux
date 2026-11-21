@@ -297,6 +297,27 @@ async function readGuest(vm: Vm, file: string): Promise<string> {
   return new TextDecoder().decode(await vm.fs.readFile(file));
 }
 
+/** The fewest pixels on a screenshot's long edge for it to count as the display (cmux-computer-use sends at most 1456). */
+export const MIN_SCREENSHOT_EDGE = 1024;
+
+/**
+ * Whether a `WxH` screenshot shows the whole `WxH` display: the same size (cmux-cua), or the display scaled down
+ * whole (cmux-computer-use scales its long edge to at most 1456 px) with the same aspect, to rounding, and a long
+ * edge of at least MIN_SCREENSHOT_EDGE. A crop, a window-sized shot or a thumbnail does not.
+ */
+export function screenshotShowsDisplay(dims: string, display: string): boolean {
+  const parse = (v: string) => /^(\d+)x(\d+)$/u.exec(v)?.slice(1).map(Number) as [number, number] | undefined;
+  const shot = parse(dims);
+  const screen = parse(display);
+  if (!shot || !screen) return false;
+  const [w, h] = shot;
+  const [dw, dh] = screen;
+  if (w === dw && h === dh) return true;
+  const long = Math.max(w, h);
+  if (long < MIN_SCREENSHOT_EDGE || w > dw || h > dh) return false;
+  return w >= h ? Math.abs(h - (w * dh) / dw) <= 1 : Math.abs(w - (h * dw) / dh) <= 1;
+}
+
 type Checker = (name: string, ok: boolean, detail: string) => void;
 
 /** Copies a PNG from the machine into the out dir and checks it. */
@@ -308,7 +329,8 @@ async function pngCheck(vm: Vm, check: Checker, result: ProbeResult, outDir: str
     result.files.push(file);
     const png = bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
     const dims = png ? `${bytes.readUInt32BE(16)}x${bytes.readUInt32BE(20)}` : "";
-    check(`${name}-screenshot`, png && bytes.length > 2000 && (size === undefined || dims === size), `${bytes.length} bytes, ${png ? "PNG" : "not a PNG"}, ${dims}${size && dims !== size ? ` (the display is ${size})` : ""}`);
+    const fits = size === undefined || screenshotShowsDisplay(dims, size);
+    check(`${name}-screenshot`, png && bytes.length > 2000 && fits, `${bytes.length} bytes, ${png ? "PNG" : "not a PNG"}, ${dims}${size && dims !== size ? ` (the display is ${size}${fits ? ", scaled down whole" : ""})` : ""}`);
   } catch (error) {
     check(`${name}-screenshot`, false, String(error).slice(0, 200));
   }
@@ -474,6 +496,19 @@ export function computerUseWorkerCommand(): string {
   ].join("; ");
 }
 
+/** The worker runs, its display and AT-SPI units are active, and its env points at that display and bus, headless. */
+function workerStartedByComputerUse(w: Record<string, string>, bus: string): boolean {
+  return (
+    w["worker-pid"] !== "none" &&
+    w[`worker-unit-${DISPLAY_UNIT}`] === "active" &&
+    w[`worker-unit-${A11Y_UNIT}`] === "active" &&
+    w["worker-env-DISPLAY"] === AGENT_DISPLAY &&
+    w["worker-env-XAUTHORITY"] === AGENT_XAUTHORITY &&
+    w["worker-env-CMUX_CU_HEADLESS"] === "1" &&
+    w["worker-env-DBUS_SESSION_BUS_ADDRESS"] === bus
+  );
+}
+
 /**
  * CU_SERVER's machine checks: the first call started the display, its AT-SPI bus and the worker on it,
  * headless; the worker cannot gain privileges and finds the refusing sudo/apt first (role cua-video
@@ -484,7 +519,7 @@ async function computerUseChecks(vm: Vm, check: Checker, ffmpegInstalled: string
   const bus = `unix:path=/run/cmux-agent-a11y-${AGENT_DISPLAY.slice(1)}/bus`;
   check(
     "display-and-worker-started-by-computer-use",
-    w["worker-pid"] !== "none" && w[`worker-unit-${DISPLAY_UNIT}`] === "active" && w[`worker-unit-${A11Y_UNIT}`] === "active" && w["worker-env-DISPLAY"] === AGENT_DISPLAY && w["worker-env-XAUTHORITY"] === AGENT_XAUTHORITY && w["worker-env-CMUX_CU_HEADLESS"] === "1" && w["worker-env-DBUS_SESSION_BUS_ADDRESS"] === bus,
+    workerStartedByComputerUse(w, bus),
     JSON.stringify({ worker: w["worker-pid"], display: w[`worker-unit-${DISPLAY_UNIT}`], a11y: w[`worker-unit-${A11Y_UNIT}`], DISPLAY: w["worker-env-DISPLAY"], headless: w["worker-env-CMUX_CU_HEADLESS"], bus: w["worker-env-DBUS_SESSION_BUS_ADDRESS"] }),
   );
   const report = await readGuest(vm, `${PROBE_DIR}/mcp-${CU_SERVER}.json`).then((t) => JSON.parse(t) as { tools: string[]; calls: Array<{ name: string; text: string }> }).catch(() => null);

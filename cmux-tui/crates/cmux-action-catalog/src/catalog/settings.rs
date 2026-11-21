@@ -1071,6 +1071,19 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "debug.envSecretsPlayground",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.envSecretsPlayground", "Environment Secrets Playground"),
+        keywords: &["environment", "variables", "secrets", "env", "cloud", "keys", "hosts", "playground", "variants", "debug"],
+        category: "settings",
+        symbol: "key.horizontal",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::VARIANT.optional(), args::STATE.optional(), args::DARK.optional()],
+        cli_name: "action debug-env-secrets-playground",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
         id: "debug.sidebarStatesPlayground",
         group: GROUP,
         title: t("ActionCatalog", "action.debug.sidebarStatesPlayground", "Sidebar States Playground"),

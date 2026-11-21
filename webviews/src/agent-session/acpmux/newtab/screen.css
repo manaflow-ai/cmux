@@ -1222,7 +1222,8 @@
   border: 0;
   border-radius: var(--ds-radius-popup);
   background: none;
-  color: var(--agent-soft);
+  /* A starter is a button's label: the muted ink, which holds 4.5:1 (--agent-soft is a hint tier). */
+  color: var(--agent-muted);
   font: inherit;
   font-size: var(--text-control);
   letter-spacing: var(--text-control--letter-spacing);
