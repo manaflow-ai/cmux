@@ -870,8 +870,7 @@ mod fencing_tests {
         assert!(!tool_runs(&doing, &[("r".into(), asked.clone())]), "it waits on the person");
         doing.open_tools.insert("t-2".into());
         assert!(tool_runs(&doing, &[("r".into(), asked)]), "another call runs beside it");
-        let mut past = super::super::activity::TurnActivity::default();
-        past.open_past_cap = 1;
+        let past = super::super::activity::TurnActivity { open_past_cap: 1, ..Default::default() };
         assert!(tool_runs(&past, &[]), "a call past the id cap runs");
     }
 
