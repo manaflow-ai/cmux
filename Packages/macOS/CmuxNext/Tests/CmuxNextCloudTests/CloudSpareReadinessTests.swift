@@ -200,9 +200,9 @@ import Testing
     }
 
     /// 2026-11-21: every Cloud start ran its route check's one command on the machine (1.9 and 2.5 s of two starts on a
-    /// warm spare). The spare's report is read once it is keyed, under the daemon run that holds the key, and given to
-    /// the start of the same scope and run.
-    @Test func aKeyedSparesRouteReportIsReadOnceForItsScopeAndRun() async {
+    /// warm spare). The spare's report is read once it is keyed, under the daemon run that holds the key, and given
+    /// once, to the start of the same scope and run that claims it.
+    @Test func aKeyedSparesRouteReportIsReadOnceAndTakenOnce() async {
         let world = World()
         var dependencies = world.dependencies(), reads: [String] = []
         dependencies.route = { machine in
@@ -215,41 +215,67 @@ import Testing
         readiness.prime("vm_spare", team: "team_a")
         await readiness.settled("vm_spare")
         #expect(reads == ["vm_spare"])
-        #expect(readiness.routeReport("vm_spare", scope: ["user_a", "team_a"], instance: "run-1") == "report-1")
-        // Another prime (the next activation's warm) reads nothing again.
+        #expect(readiness.holdsRouteReport("vm_spare"))
+        // Another prime (the next activation's warm) reads nothing again while one is held.
         readiness.prime("vm_spare", team: "team_a")
         await readiness.settled("vm_spare")
         #expect(reads == ["vm_spare"])
-        // Another machine has none.
-        #expect(readiness.routeReport("vm_other", scope: ["user_a", "team_a"], instance: "run-1") == nil)
-        // A new daemon run (a restart since) is not the run the report was read under: dropped, never given again.
-        #expect(readiness.routeReport("vm_spare", scope: ["user_a", "team_a"], instance: "run-2") == nil)
-        #expect(readiness.routeReport("vm_spare", scope: ["user_a", "team_a"], instance: "run-1") == nil, "the stale report is dropped")
+        // Another machine has none; the spare's goes to the start that claims it, and to no start after it: a chat on
+        // the machine can change what the report says.
+        #expect(readiness.takeRouteReport("vm_other", scope: ["user_a", "team_a"], instance: "run-1") == nil)
+        #expect(readiness.takeRouteReport("vm_spare", scope: ["user_a", "team_a"], instance: "run-1") == "report-1")
+        #expect(readiness.takeRouteReport("vm_spare", scope: ["user_a", "team_a"], instance: "run-1") == nil)
+        #expect(!readiness.holdsRouteReport("vm_spare"))
     }
 
-    @Test func aRouteReportIsNotGivenToAnotherScopeASignedOutOneOrPastItsKeep() async {
-        for scope in [["user_b", "team_a"], ["user_a", "team_b"], [nil, nil], [], ["", "team_a"]] as [CloudSpareReadiness.Scope] {
+    /// A report is this app's last keyed run's, for the scope it was read in, and at most as old as a link made ahead:
+    /// a start of another scope, a signed-out one, one under another daemon run or one past the keep gets none, and
+    /// the report is gone for the starts after it too.
+    @Test func aRouteReportIsNotGivenToAnotherScopeAnotherRunOrPastItsKeep() async {
+        let mine: CloudSpareReadiness.Scope = ["user_a", "team_a"]
+        let others: [(CloudSpareReadiness.Scope, String?)] = [(["user_b", "team_a"], "run-1"), (["user_a", "team_b"], "run-1"), ([nil, nil], "run-1"),
+                                                              ([], "run-1"), (["", "team_a"], "run-1"), (mine, "run-2"), (mine, nil)]
+        for (scope, run) in others {
             let world = World()
             var dependencies = world.dependencies()
             dependencies.route = { _ in "report-1" }
             let readiness = CloudSpareReadiness(dependencies)
             readiness.prime("vm_spare", team: "team_a")
             await readiness.settled("vm_spare")
-            #expect(readiness.routeReport("vm_spare", scope: scope, instance: "run-1") == nil, "\(scope)")
-            #expect(readiness.routeReport("vm_spare", scope: ["user_a", "team_a"], instance: "run-1") == nil, "dropped for \(scope)")
+            #expect(readiness.takeRouteReport("vm_spare", scope: scope, instance: run) == nil, "\(scope) \(run ?? "no run")")
+            #expect(readiness.takeRouteReport("vm_spare", scope: mine, instance: "run-1") == nil, "gone after \(scope) \(run ?? "no run")")
         }
+        for (past, expected) in [(Duration.seconds(-1), "report-1" as String?), (.zero, nil)] {
+            let world = World()
+            var dependencies = world.dependencies()
+            dependencies.route = { _ in "report-1" }
+            let readiness = CloudSpareReadiness(dependencies)
+            var clock = ContinuousClock.now
+            readiness.now = { clock }
+            readiness.prime("vm_spare", team: "team_a")
+            await readiness.settled("vm_spare")
+            clock = clock.advanced(by: CloudSpareReadiness.linkKept + past)
+            #expect(readiness.holdsRouteReport("vm_spare") == (expected != nil))
+            #expect(readiness.takeRouteReport("vm_spare", scope: mine, instance: "run-1") == expected)
+        }
+    }
+
+    /// A report past its keep, or read under a daemon run that is no longer the keyed one, is read again by the next
+    /// prime that finds the spare keyed.
+    @Test func aRouteReportThatNoLongerFitsIsReadAgain() async {
         let world = World()
-        var dependencies = world.dependencies()
-        dependencies.route = { _ in "report-1" }
+        var dependencies = world.dependencies(), reads = 0
+        dependencies.route = { _ in reads += 1; return "report-\(reads)" }
         let readiness = CloudSpareReadiness(dependencies)
         var clock = ContinuousClock.now
         readiness.now = { clock }
         readiness.prime("vm_spare", team: "team_a")
         await readiness.settled("vm_spare")
-        clock = clock.advanced(by: CloudSpareReadiness.linkKept - .seconds(1))
-        #expect(readiness.routeReport("vm_spare", scope: ["user_a", "team_a"], instance: "run-1") == "report-1")
-        clock = clock.advanced(by: .seconds(1))
-        #expect(readiness.routeReport("vm_spare", scope: ["user_a", "team_a"], instance: "run-1") == nil)
+        clock = clock.advanced(by: CloudSpareReadiness.linkKept)
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(reads == 2)
+        #expect(readiness.takeRouteReport("vm_spare", scope: ["user_a", "team_a"], instance: "run-1") == "report-2")
     }
 
     /// A spare that was not keyed (its daemon busy or not up) has no run to read a report under: no command runs there.
@@ -262,7 +288,7 @@ import Testing
         readiness.prime("vm_spare", team: "team_a")
         await readiness.settled("vm_spare")
         #expect(reads == 0)
-        #expect(readiness.routeReport("vm_spare", scope: ["user_a", "team_a"], instance: "run-1") == nil)
+        #expect(readiness.takeRouteReport("vm_spare", scope: ["user_a", "team_a"], instance: "run-1") == nil)
     }
 
     /// A read that gave no report (the command failed, the service was down) is not asked again on every app
@@ -277,7 +303,7 @@ import Testing
         readiness.prime("vm_spare", team: "team_a")
         await readiness.settled("vm_spare")
         #expect(reads == 1)
-        #expect(readiness.routeReport("vm_spare", scope: ["user_a", "team_a"], instance: "run-1") == nil)
+        #expect(!readiness.holdsRouteReport("vm_spare"))
         answer = "report-1"
         readiness.prime("vm_spare", team: "team_a")
         await readiness.settled("vm_spare")
@@ -286,7 +312,7 @@ import Testing
         readiness.prime("vm_spare", team: "team_a")
         await readiness.settled("vm_spare")
         #expect(reads == 2)
-        #expect(readiness.routeReport("vm_spare", scope: ["user_a", "team_a"], instance: "run-1") == "report-1")
+        #expect(readiness.takeRouteReport("vm_spare", scope: ["user_a", "team_a"], instance: "run-1") == "report-1")
     }
 
     /// A report whose read ran across a new daemon run, an account switch or a reset is not that run's or that
@@ -308,10 +334,23 @@ import Testing
             readiness = made
             made.prime("vm_spare", team: "team_a")
             await made.settled("vm_spare")
+            #expect(!made.holdsRouteReport("vm_spare"), "\(change)")
             for (scope, run) in [(["user_a", "team_a"], "run-1"), (["user_a", "team_a"], "run-2"), (["user_b", "team_b"], "run-1")] {
-                #expect(made.routeReport("vm_spare", scope: scope, instance: run) == nil, "\(change): \(scope) \(run)")
+                #expect(made.takeRouteReport("vm_spare", scope: scope, instance: run) == nil, "\(change): \(scope) \(run)")
             }
         }
+    }
+
+    /// A reset (Cloud turned off, signed out, another account) forgets a report read ahead.
+    @Test func aResetForgetsTheRouteReport() async {
+        let world = World()
+        var dependencies = world.dependencies()
+        dependencies.route = { _ in "report-1" }
+        let readiness = CloudSpareReadiness(dependencies)
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        readiness.reset()
+        #expect(readiness.takeRouteReport("vm_spare", scope: ["user_a", "team_a"], instance: "run-1") == nil)
     }
 
     /// With no route read supplied (an app that reads none ahead), a prime keys and links as before.
@@ -320,7 +359,7 @@ import Testing
         readiness.prime("vm_spare", team: "team_a")
         await readiness.settled("vm_spare")
         #expect(readiness.isKeyed("vm_spare", scope: ["user_a", "team_a"], instance: "run-1"))
-        #expect(readiness.routeReport("vm_spare", scope: ["user_a", "team_a"], instance: "run-1") == nil)
+        #expect(readiness.takeRouteReport("vm_spare", scope: ["user_a", "team_a"], instance: "run-1") == nil)
     }
 
     @Test func theClaimedSpareSessionTakesItsLinkOnce() async {

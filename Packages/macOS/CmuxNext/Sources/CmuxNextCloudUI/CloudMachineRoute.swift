@@ -144,10 +144,12 @@ public struct CloudMachineRoute: Sendable {
     /// of its own keeps own). Refusing every machine with a login on it ended those starts with "holds its own provider
     /// sign-in" (cmux#45773). A machine whose agent service is down is still refused.
     ///
-    /// `ahead`: the machine's report as ``report()`` read it before this start (a warm spare's, ``CloudSpareReadiness``),
-    /// given only while the agent service run it was read under still serves the machine. A report that says the chat
-    /// starts (``startsAhead(_:agent:carriesConnection:)``) is the check: no command runs on the machine now (1.9 to
-    /// 2.5 s of every start, 2026-11-21). Any other one is read again, so a refusal is always the machine's answer now.
+    /// `ahead`: the machine's report as ``report()`` read it before this start (a warm spare's, ``CloudSpareReadiness``,
+    /// which gives it to one start only, while the agent service run this app last keyed is the one it was read under).
+    /// A report that says the chat starts (``startsAhead(_:agent:carriesConnection:)``) is the check: no command runs
+    /// on the machine now (1.9 to 2.5 s of every start, 2026-11-21). Any other one is read again, so a refusal is always
+    /// the machine's answer now. The app does not see a restart it did not make: an agent service that went down since
+    /// the read ends the start at the chat's own start instead of here.
     public func prepare(serves: @MainActor () -> Bool = { true }, carriesConnection: Bool = false, family: String? = nil, ahead: String? = nil,
                         _ update: @escaping @Sendable () async -> Void) async throws {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
@@ -237,12 +239,17 @@ public struct CloudMachineRoute: Sendable {
             "codex": ["CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "CHATGPT_ACCESS_TOKEN"],
         ]
 
-        /// `family`'s reading of the machine's output; nil for no report (as Rust's `report`: the last JSON object line
-        /// that names `agents`) or a family the report does not name.
-        public static func read(_ stdout: String, family: String) -> Agent? {
-            let report = stdout.split(whereSeparator: \.isNewline).reversed().lazy.compactMap { line in
+        /// The report in the machine's output, as Rust's `report` finds it: the last JSON object line that names `agents`.
+        static func report(in stdout: String) -> [String: Any]? {
+            stdout.split(whereSeparator: \.isNewline).reversed().lazy.compactMap { line in
                 (try? JSONSerialization.jsonObject(with: Data(line.trimmingCharacters(in: .whitespaces).utf8))) as? [String: Any]
             }.first { $0["agents"] != nil }
+        }
+
+        /// `family`'s reading of the machine's output; nil for no report (``report(in:)``) or a family the report
+        /// does not name.
+        public static func read(_ stdout: String, family: String) -> Agent? {
+            let report = report(in: stdout)
             guard let report, let agents = report["agents"] as? [String: Any], let agent = agents[family] as? [String: Any] else { return nil }
             let logins = (report["login_files"] as? [[String: Any]] ?? []).contains { $0["agent"] as? String == family }
             let variables = Set(report["credential_env"] as? [String] ?? []).intersection(credentialVariables[family] ?? []).isEmpty == false
@@ -317,20 +324,28 @@ public struct CloudMachineRoute: Sendable {
     }
 
     /// What Rust answers about `stdout`, the output of the report's command, and `family`'s ``Agent`` in it.
-    nonisolated static func judged(_ stdout: String, family: String?) async -> (verdict: Verdict, agent: Agent?) {
+    static func judged(_ stdout: String, family: String?) async -> (verdict: Verdict, agent: Agent?) {
         let verdict = CloudStartCore().call("cloud_machine_route", Request(stdout: stdout), as: Reply.self)?.verdict ?? .invalid
         return (verdict, await agentReading(stdout, family: family))
     }
 
     /// The machine's report now, for a later start's check (``prepare(serves:carriesConnection:family:ahead:_:)``): the
-    /// command's output when it holds a report (``isReport(_:)``), else nil (the command failed, the machine does not
-    /// run, its software predates the report, or its agent service is down: nothing worth keeping). Never starts the
-    /// machine, whatever start this route was made with.
+    /// command's output when it holds a report (``isReport(_:)``) that says its agent service runs, else nil (the
+    /// command failed, the machine does not run, its software predates the report, or its agent service is down:
+    /// nothing a start could go on by). Never starts the machine, whatever start this route was made with.
     public func report() async -> String? {
         guard let command = CloudStartCore().call("cloud_machine_route", Request(stdout: nil), as: Reply.self)?.command,
               let stdout = try? await plain(command, Self.timeoutMs).stdout else { return nil }
         let verdict = CloudStartCore().call("cloud_machine_route", Request(stdout: stdout), as: Reply.self)?.verdict
-        return verdict.map(Self.isReport) == true ? stdout : nil
+        guard verdict.map(Self.isReport) == true, await Self.serviceRuns(stdout) else { return nil }
+        return stdout
+    }
+
+    /// Whether the report in `stdout` says the machine's agent service runs (`daemon.running`), read off the main actor
+    /// as ``agentReading(_:family:)``. Rust names a login before a service that is down (``Verdict/holdsCredential``),
+    /// so the verdict alone does not say.
+    @concurrent nonisolated static func serviceRuns(_ stdout: String) async -> Bool {
+        (Agent.report(in: stdout)?["daemon"] as? [String: Any])?["running"] as? Bool == true
     }
 
     /// A verdict Rust read off a report the machine printed: never the answers for no report at all

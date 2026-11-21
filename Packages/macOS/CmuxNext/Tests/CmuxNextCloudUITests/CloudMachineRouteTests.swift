@@ -288,14 +288,18 @@ import Testing
         #expect(!CloudMachineRoute.startsAhead(.holdsCredential, agent: down, carriesConnection: true))
     }
 
-    /// What is kept from a read ahead: the output when it holds a report, nothing when the machine printed none, its
-    /// agent service is down with nothing else to say, or the command could not run. It never starts the machine.
-    @Test func theReportToKeepIsARealOne() async {
+    /// What is kept from a read ahead: the output when it holds a report whose agent service runs, nothing when the
+    /// machine printed none, its agent service is down (also on a machine that holds a login, which Rust names first),
+    /// or the command could not run. It never starts the machine.
+    @Test func theReportToKeepIsARealOneWhoseServiceRuns() async {
         let report = Self.unrouted()
         #expect(await Self.machine(printing: report).report() == report)
+        let signedIn = Self.unrouted(variables: ["CLAUDE_CODE_OAUTH_TOKEN"])
+        #expect(await Self.machine(printing: signedIn).report() == signedIn)
         #expect(await Self.machine(printing: "").report() == nil)
         #expect(await Self.machine(printing: "no report\n").report() == nil)
         #expect(await Self.machine(printing: Self.unrouted(running: false)).report() == nil)
+        #expect(await Self.machine(printing: Self.unrouted(variables: ["CLAUDE_CODE_OAUTH_TOKEN"], running: false)).report() == nil)
         let machine = StoppedMachine(report: report)
         #expect(await CloudMachineRoute(exec: { _, _ in try await machine.exec() }, start: { await machine.start() }).report() == nil)
         #expect(await machine.starts == 0, "a read ahead never starts a machine")
