@@ -21,6 +21,9 @@ final class NativeNewTabRowView: NSView {
     private(set) var selected = false
     /// Runs the row, as a click on it does.
     var activate: @MainActor () -> Void = {}
+    /// Decoded favicon images, keyed by their data URL. The first paint decodes once; later ranking passes only
+    /// look up the fixed-size image, so typing never repeats image decoding for an already-seen site.
+    private static let faviconImages = NSCache<NSString, NSImage>()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -72,9 +75,14 @@ final class NativeNewTabRowView: NSView {
 
     private static func image(for content: NativeNewTabRowContent) -> NSImage? {
         if let icon = content.icon, let comma = icon.firstIndex(of: ","), icon[icon.index(after: comma)...].hasPrefix("base64,"),
+           let cached = faviconImages.object(forKey: icon as NSString) {
+            return cached
+        }
+        if let icon = content.icon, let comma = icon.firstIndex(of: ","), icon[icon.index(after: comma)...].hasPrefix("base64,"),
            let data = Data(base64Encoded: String(icon[icon.index(after: comma)...].dropFirst(7))),
            let image = NSImage(data: data) {
             image.size = NSSize(width: 16, height: 16)
+            faviconImages.setObject(image, forKey: icon as NSString)
             return image
         }
         return NSImage.packOverride(forSymbol: content.symbol, pointSize: NSFont.systemFontSize)
