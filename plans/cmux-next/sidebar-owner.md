@@ -1,5 +1,15 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-20 (feat-cmux-next-48355-spaces-off): Sidebar-Look: user, 2026-11-20
+  (https://github.com/manaflow-ai/cmux/issues/48355): "i just dont want to see the spaces and dont want the ability to
+  create new spaces. in general we have one view per window and that doesn't change". `sidebar.showSpaces` defaults to
+  false: the footer draws no space dots and no "+" (the hidden state that already existed, now the default), and the
+  band's right-click offers Show Spaces. While it is off the list's two-finger swipe and mouse wheel page no spaces
+  (`SidebarSpacePaging.pagesSpaces`; a swipe begun before settles back), the window never switches space
+  (`WindowManager.switchProfile`), and every space action is off (`installSpacesGate`). Nothing else in the sidebar
+  moves: each window keeps its view, rows, groups and pins, and New Window and tear-off keep their own view.
+  Regression: `SpacesOffKeepsCurrentSpaceTests`, `SidebarBandHideTests`.
+
 - 2026-11-20 (a-ws-row-colors, gallery): Sidebar-Look: Lawrence, 2026-11-20: "make many versions of 'colors' we
   need this to be better". The Sidebar States Playground (Debug menu) gains a "Workspace colors" sheet: the real
   `WorkspaceRowView` with a picked color in twelve looks (quiet pill, the former full stripe, hairline on the edge,
