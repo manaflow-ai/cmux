@@ -118,7 +118,7 @@ const ALIASES: [(&str, &str); 7] = [
 static MODELS: std::sync::LazyLock<Vec<(String, String)>> = std::sync::LazyLock::new(|| {
     let mut models: Vec<(String, String)> =
         ALIASES.iter().map(|(id, name)| (id.to_string(), name.to_string())).collect();
-    let catalog = crate::catalog::schema::parse(crate::catalog::BUNDLED.as_bytes());
+    let catalog = crate::catalog::schema::parse(crate::catalog::BUNDLED.inflate().as_bytes());
     let releases =
         catalog.iter().flat_map(|catalog| &catalog.harnesses).filter(|h| h.id == "claude");
     for model in releases.flat_map(|harness| &harness.models) {
@@ -570,6 +570,9 @@ pub struct Translator {
     pub prompt_suggestions: AtomicBool,
     /// Whether this process asked Claude Code for prompt suggestions at `initialize`.
     suggestions_offered: AtomicBool,
+    /// Whether Claude Code's suggestions are paused now, as acpmux last told it
+    /// (`set_prompt_suggestions_paused`): the chat's pick, or a turn no person started.
+    suggestions_paused: AtomicBool,
     /// This chat's `RECAP_OPTION`: `default`, `on` or `off`.
     recap: Mutex<&'static str>,
     in_turn: AtomicBool,
@@ -794,6 +797,7 @@ impl Translator {
             fast: Mutex::new(false),
             prompt_suggestions: AtomicBool::new(true),
             suggestions_offered: AtomicBool::new(false),
+            suggestions_paused: AtomicBool::new(false),
             recap: Mutex::new("default"),
             in_turn: AtomicBool::new(false),
             turn_output: AtomicBool::new(false),
