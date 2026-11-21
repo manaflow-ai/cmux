@@ -160,10 +160,12 @@ extension ActionRegistry {
     /// refused, so the page shows its notice instead of the app's beep; an
     /// editor that fails after it starts opening is not reported back.
     @discardableResult
-    public func openAgentFile(path: String, target: AgentPaneFileTarget, pane: String, machineID: String? = nil) -> Bool {
+    public func openAgentFile(path: String, target: AgentPaneFileTarget, pane: String, machineID: String? = nil, line: Int? = nil) -> Bool {
+        var arguments: [String: ActionValue] = ["path": .string(path), "where": .string(target.rawValue)]
+        if let line { arguments["line"] = .int(line) }
         let invocation = ActionInvocation(
             target: ActionTargetRef(kind: .pane, id: pane),
-            arguments: ["path": .string(path), "where": .string(target.rawValue)]
+            arguments: arguments
         ).onMachine(machineID)
         var performed = false
         let refusal = reportingRefusal { performed = perform(.fileOpen, invocation: invocation) }

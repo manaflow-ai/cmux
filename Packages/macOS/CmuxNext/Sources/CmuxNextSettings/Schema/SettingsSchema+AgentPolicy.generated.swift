@@ -25,7 +25,7 @@ extension SettingsSchema {
 
     /// Keys an agent may set and reset.
     public static let agentSettableKeys: Set<String> = [
-        "window.titlebar",
+        "agentPane.links.openCitationsInEditor", "window.titlebar",
         "shortcuts.showModifierHoldHints",
         // Whether the window offers the Customize Inspector and right-click Customize…: looks only, and off is the default.
         "customize.fromTheApp",
