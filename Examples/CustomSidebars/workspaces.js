@@ -100,6 +100,7 @@ function visibleRowIds() {
 }
 
 function handleRowClick(w, payload) {
+  finishEditing();
   const id = w.id;
   if (payload && payload.cmd) {
     if (multiSelected.has(id)) multiSelected.delete(id);
@@ -146,7 +147,56 @@ function displayTitle(w) {
 // Double-click a row/header (or its Rename menu item) to edit in place.
 // Editing swaps the entry's key, so the keyed reconciler remounts the row as
 // an editor; Return commits through workspace(.group).rename, Escape cancels.
-const [editingId, setEditingId] = signal(null);
+//
+// The host commits a focused editor when it loses focus, but an editor can
+// mount without keyboard focus (for example when the click that opened it
+// also moved focus to a terminal). Nothing reaches such an editor, so the
+// template ends the edit itself, like Finder and the built-in sidebar:
+// - a tap elsewhere in the sidebar (row, header, chevron) commits what was
+//   typed, or leaves the name alone if nothing was typed;
+// - a selection change from outside the sidebar (Cmd+1...9, another window)
+//   cancels it.
+const [editingId, setEditingIdRaw] = signal(null);
+let editDraft = null;    // latest text from onEdit
+let editSelected = null; // selected workspace when the edit started
+let editStale = false;   // ended by a selection change; reset by setEditingId
+
+const currentSelectionId = () => selectOverride ?? data.selectedId();
+
+function setEditingId(id) {
+  // An edit a selection change ended still holds its id in the signal;
+  // clear it so reopening the same row is a real change and remounts.
+  if (editStale && id && editingId() === id) setEditingIdRaw(null);
+  editDraft = null;
+  editStale = false;
+  editSelected = id ? currentSelectionId() : null;
+  setEditingIdRaw(id);
+}
+
+function activeEditingId() {
+  const id = editingId();
+  if (!id || editStale) return null;
+  if (currentSelectionId() !== editSelected) {
+    editStale = true;
+    return null;
+  }
+  return id;
+}
+
+function finishEditing() {
+  const id = activeEditingId();
+  if (!id) return;
+  const name = (editDraft ?? "").trim();
+  setEditingId(null);
+  if (!name) return;
+  if (id.startsWith("h:")) {
+    cmux("workspace.group.rename", { group_id: id.slice(2), name });
+  } else {
+    titleOverride.set(id, name);
+    setTitleTick(titleTick() + 1);
+    cmux("workspace.action", { action: "rename", workspace_id: id, title: name });
+  }
+}
 
 // --- optimistic collapse -----------------------------------------------------
 const collapseOverride = new Map();
@@ -163,6 +213,7 @@ function isCollapsed(g) {
 }
 
 function toggleCollapse(g) {
+  finishEditing();
   const next = !isCollapsed(g);
   collapseOverride.set(g.id, next);
   setCollapseTick(collapseTick() + 1);
@@ -186,7 +237,7 @@ const memberRowsOf = (id) => {
 const flatEntries = computed(() => {
   const ws = visibleWorkspaces();
   const groups = new Map((data.groups() ?? []).map((g) => [g.id, g]));
-  const editing = editingId();
+  const editing = activeEditingId();
   const wsEntry = (w, groupId) => ({
     kind: "ws",
     id: w.id + (editing === w.id ? ":edit" : ""),
@@ -475,6 +526,7 @@ function workspaceEditRow(w, entry) {
   return HStack({ spacing: 8 }, [
     TextField(() => w()?.title ?? "", {
       placeholder: "Workspace name",
+      onEdit: (t) => { editDraft = t; },
       onSubmit: (t) => {
         const title = (t ?? "").trim();
         if (title) {
@@ -526,7 +578,10 @@ function groupHeader(groupId) {
     .frame({ maxWidth: "infinity" })
     .fixed()
     .block("h:" + groupId)
-    .onTap(() => selectWorkspace(anchor()?.id))
+    .onTap(() => {
+      finishEditing();
+      selectWorkspace(anchor()?.id);
+    })
     .onDoubleTap(() => setEditingId("h:" + groupId))
     .contextMenu([
       Button("Rename Group", () => setEditingId("h:" + groupId)),
@@ -550,6 +605,7 @@ function groupEditRow(groupId) {
       .frame({ width: 14, height: 16 }),
     TextField(() => g()?.name ?? "", {
       placeholder: "Group name",
+      onEdit: (t) => { editDraft = t; },
       onSubmit: (t) => {
         const name = (t ?? "").trim();
         if (name) cmux("workspace.group.rename", { group_id: groupId, name });
