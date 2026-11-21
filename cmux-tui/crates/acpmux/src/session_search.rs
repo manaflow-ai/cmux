@@ -215,6 +215,10 @@ pub(crate) struct MessageHit {
     pub snippet: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub turn_time: Option<String>,
+    /// One session's search with `withTurnTime: true`: the opening prompt's time, ms since the
+    /// epoch (`turnStartedAt`, what `cli/search_all.rs` reads).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn_started_at: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -267,8 +271,10 @@ pub(crate) fn search_messages(
                 at: entry.at,
                 role: entry.role,
                 snippet: snippet(&flat, at),
-                turn_time: (view != TextView::Session || query.with_turn_time)
+                turn_time: (view != TextView::Session)
                     .then(|| crate::clock_text::iso(turn_at.unwrap_or(entry.at))),
+                turn_started_at: (view == TextView::Session && query.with_turn_time)
+                    .then(|| turn_at.unwrap_or(entry.at)),
             });
         }
     };
