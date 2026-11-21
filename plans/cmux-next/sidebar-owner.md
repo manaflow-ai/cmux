@@ -1,5 +1,15 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-20 (a-sidebar-pin-hover): Sidebar-Look: David Beyer, 2026-11-20 call (via Lawrence): pinning by drag and
+  drop is awkward. A hovered workspace row shows a pin beside its more button at every density, not only an expanded
+  pinned row (cx-13w3): an outline pin (Pin workspace) on an unpinned row, a filled pin (Unpin workspace) on a pinned
+  one (`WorkspaceRowView.layoutPin`, `applyPin`; `SidebarIconButton.iconStyle`). A pinned workspace's tile shows the
+  filled Unpin left of its more button (`SidebarItemRowView+HoverActions`). Both run Pin/Unpin Workspace through
+  `SidebarModel.workspacePin`, the action the right-click menu (already first under Rename), the palette and the CLI
+  run. No row draws a pin at rest, so Leo's 2026-10-21 "no empty pin symbol by default" still holds at rest; the
+  hover pin reverses only its hover half. Drag still pins. Regression: `SidebarHoverPinTests`,
+  `SidebarTrailingColumnTests.anExpandedRowOffersItsPinOnHoverOnly`.
+
 - 2026-11-19 (lane/needs-you-glow): Sidebar-Look: Leo, 2026-11-19, on eight new features: "all of them" and "some of
   them maybe just as customizations lol if it affects default looks". "Needs you" as motion, off by default: with
   `notifications.attention.mark` `glow` (default `badge`, no change), a workspace row that waits for the person (an
