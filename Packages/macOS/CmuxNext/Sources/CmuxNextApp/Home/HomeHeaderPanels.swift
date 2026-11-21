@@ -64,8 +64,8 @@ enum HomeHeaderPanels {
             return memory.isShown(in: window)
         })
 
-    /// The cluster's buttons for `context` (only the ``HomeHeaderPanel/alwaysShown`` ones while Debug
-    /// Settings > Home > Home header panel toggles is off): an observable read, so a watch redraws them when any panel opens or closes.
+    /// The cluster's buttons for `context` (none while Debug Settings > Home > Home header panel toggles is
+    /// off): an observable read, so a watch redraws them when any panel opens or closes.
     static func items(_ context: HomeHeaderPanelContext, panels: [HomeHeaderPanel] = all,
                       enabled: Bool = HomeTunables.headerPanelToggles.value) -> [HomeHeaderPanelItem] {
         let registry = context.services.registry
