@@ -99,7 +99,7 @@ public final class AgentPaneModel {
     /// A new chat's Sandboxed send (`sandbox.run`, hq#3367): the App runs one task on a throwaway
     /// Cloud VM behind Labs and answers the page's reply (the receipt, or a typed refusal). Nil: no
     /// sandboxes in this app. `incognito` is ``sendIsIncognito``'s answer as the send was issued.
-    @ObservationIgnored public var onSandboxRun: (@MainActor (_ task: String, _ agent: String?, _ key: String, _ incognito: Bool) async -> [String: Any])?
+    @ObservationIgnored public var onSandboxRun: (@MainActor (_ task: String, _ agent: String?, _ key: String, _ connection: String?, _ incognito: Bool) async -> [String: Any])?
     /// Whether this pane's tab is in an incognito window now, as the App knows it. Read when a
     /// Sandboxed send is issued, before its send line drains: the tab may close during that wait
     /// (#31109). Nil: taken as incognito.
@@ -744,7 +744,7 @@ public final class AgentPaneModel {
         case .chatsPage(let query): return await respondToChatsPage(query)
         case .environment(let request): return await request.reply(store: startFolders.environments, newTabPage: newTab != nil && sessionId == nil)
         // A new chat's send elsewhere spends Cloud time: the Send's own gesture (``AgentPaneHandOff``).
-        case .sandboxRun(let task, let agent, let key): return await AgentPaneHandOff(model: self).sandbox(task: task, agent: agent, key: key)
+        case .sandboxRun(let task, let agent, let key, let connection): return await AgentPaneHandOff(model: self).sandbox(task: task, agent: agent, key: key, connection: connection)
         case .cloudSignIn(let key): return await signInToCloud(key: key)
         case .cloudSetUp(let key, let action, let family): return await setUpCloud(key: key, action: action, family: family)
         // Starts nothing and needs no gesture: it only withdraws a pending sign-in's kept click.

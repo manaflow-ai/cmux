@@ -11,20 +11,26 @@ struct AgentPaneSandboxRunTests {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
 
-    @MainActor private final class Runs { var tasks: [String] = [] }
+    @MainActor private final class Runs {
+        var tasks: [String] = []
+        var connections: [String?] = []
+    }
     @MainActor private final class Seen { var startAllowed: Bool? }
 
     private static func pane(_ runs: Runs, sessionId: String? = nil) -> AgentPaneModel {
         let model = AgentPaneModel(host: NoHost(), sessionId: sessionId)
-        model.onSandboxRun = { task, _, _, _ in
+        model.onSandboxRun = { task, _, _, connection, _ in
             runs.tasks.append(task)
+            runs.connections.append(connection)
             return AgentPaneReply.success(["receipt": ["status": "succeeded"], "runId": "run-1"])
         }
         return model
     }
 
-    private static func run(_ task: String) -> AgentPaneRequest {
-        AgentPaneRequest(body: ["method": "sandbox.run", "params": ["task": task, "agent": "claude", "key": UUID().uuidString]])
+    private static func run(_ task: String, connection: String? = nil) -> AgentPaneRequest {
+        var params: [String: Any] = ["task": task, "agent": "claude", "key": UUID().uuidString]
+        if let connection { params["connection"] = connection }
+        return AgentPaneRequest(body: ["method": "sandbox.run", "params": params])
     }
 
     @Test func aNewChatsSendWithAGestureRunsTheTask() async {
@@ -34,6 +40,14 @@ struct AgentPaneSandboxRunTests {
         let reply = await model.respond(to: Self.run("list the TODOs"))
         #expect(reply["ok"] as? Bool == true)
         #expect(runs.tasks == ["list the TODOs"])
+    }
+
+    @Test func aSelectedConnectionReachesTheSandboxRunner() async {
+        let runs = Runs()
+        let model = Self.pane(runs)
+        model.transport.gestures.record()
+        _ = await model.respond(to: Self.run("use my connection", connection: "personal-1"))
+        #expect(runs.connections == ["personal-1"])
     }
 
     @Test func noGestureAStartedChatOrAnEmptyTaskRunsNothing() async {
@@ -175,7 +189,7 @@ struct AgentPaneSandboxRunTests {
         // Through the pane: no start while the App's runner runs, and the gate opens once it answers.
         let model = AgentPaneModel(host: NoHost(), sessionId: nil)
         let seen = Seen()
-        model.onSandboxRun = { [replacements = model.transport.replacements] _, _, _, _ in
+        model.onSandboxRun = { [replacements = model.transport.replacements] _, _, _, _, _ in
             seen.startAllowed = replacements.sending(method: "session/new", connection: 9)
             return AgentPaneReply.success(["receipt": ["status": "succeeded"]])
         }
@@ -236,7 +250,7 @@ struct AgentPaneSandboxRunTests {
                 defer { window.closed = true } // the tab closes right after the send is issued
                 return window.closed || window.incognito
             }
-            model.onSandboxRun = { _, _, _, incognito in
+            model.onSandboxRun = { _, _, _, _, incognito in
                 window.seen.append(incognito)
                 return AgentPaneReply.success(["receipt": ["status": "succeeded"]])
             }
@@ -247,7 +261,7 @@ struct AgentPaneSandboxRunTests {
         // A pane the App never told is taken as incognito.
         let untold = AgentPaneModel(host: NoHost(), sessionId: nil)
         let window = Window()
-        untold.onSandboxRun = { _, _, _, incognito in
+        untold.onSandboxRun = { _, _, _, _, incognito in
             window.seen.append(incognito)
             return AgentPaneReply.success(["receipt": ["status": "succeeded"]])
         }

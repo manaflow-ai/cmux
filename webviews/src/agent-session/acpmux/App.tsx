@@ -5030,8 +5030,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   /// A Sandboxed send: text only, by an agent a sandbox runs. A page-side refusal comes back as its
   /// code (the prompt stays where it was typed); false: nothing was sent.
-  const startSandbox = (text: string, attachmentCount: number, harness: string | undefined): string | boolean =>
-    sandboxPageRefusal(attachmentCount, harness) ?? sandbox.send(text, sandboxAgent(harness));
+  const startSandbox = (
+    text: string,
+    attachmentCount: number,
+    harness: string | undefined,
+    connection?: string,
+  ): string | boolean =>
+    sandboxPageRefusal(attachmentCount, harness) ?? sandbox.send(text, sandboxAgent(harness), connection);
   /// Cloud picked (cloudRun.ts): the first send goes to the host, which opens the chat on a Cloud
   /// machine and closes this tab. False keeps the prompt in the composer meanwhile; a string is a
   /// refusal said here, also while Cloud is picked but not offered now (as `sandboxPickedNotOffered`).
@@ -12967,7 +12972,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 return false;
               }
               if (sandboxing) {
-                const started = startSandbox(text, chips?.length ?? 0, composerSnapshot.summary?.harness);
+                const started = startSandbox(
+                  text,
+                  chips?.length ?? 0,
+                  composerSnapshot.summary?.harness,
+                  composerSnapshot.summary?.route,
+                );
                 if (typeof started !== "string") return started;
                 // Refused here: the chat view says why and the composer keeps the prompt.
                 sandbox.refuse(text, started);
@@ -13952,7 +13962,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                         },
                         onSandbox: (harness: string, text: string, attachments: ComposerAttachment[]) => {
                           // Only a run this tab can make goes: a Sandboxed pick left over once a session opened here is refused.
-                          const started = sandboxing ? startSandbox(text, attachments.length, harness) : sandboxNotNow;
+                          const started = sandboxing
+                            ? startSandbox(text, attachments.length, harness, composerSnapshot.summary?.route)
+                            : sandboxNotNow;
                           if (started !== false) newTabSandboxSent.current = true;
                           if (typeof started !== "string") return started;
                           heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
