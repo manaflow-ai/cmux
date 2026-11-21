@@ -68,7 +68,14 @@ final class SidebarFooterBand {
         // The row's leading item (the profile avatar): the Search button mirrors its inset.
         guard let host, let first = items.min(by: { ($0.frame.minY, $0.frame.minX) < ($1.frame.minY, $1.frame.minX) }) else { return nil }
         let line = items.filter { abs($0.frame.minY - first.frame.minY) < 0.5 }
-        let frame = host.convert(first.frame, from: host.footerRegion)
+        // The item's drawn view, not its layout slot: since #44449 (every density Default scaled) the slot's middle sat
+        // a point under the avatar at Compact and Comfortable, and the Search button left the avatar's line by 1.5 pt.
+        let id: LayoutItemID? = switch first.kind {
+        case .tile(let tile, _), .chip(let tile, _): tile
+        default: nil
+        }
+        let frame = id.flatMap { host.footerRegion.itemView($0) }.map { host.convert($0.frame, from: $0.superview) }
+            ?? host.convert(first.frame, from: host.footerRegion)
         let maxX = line.map { host.convert($0.frame, from: host.footerRegion).maxX }.max() ?? frame.maxX
         return (frame, maxX)
     }
