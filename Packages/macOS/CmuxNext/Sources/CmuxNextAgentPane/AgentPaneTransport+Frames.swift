@@ -32,6 +32,8 @@ extension AgentPaneTransport {
         /// held anything else (R1).
         var ticket: String?
         var otherMeta = false
+        /// The names of those other `_meta` keys, for the refusal's log line (never their values).
+        var otherMetaKeys: [String] = []
         var pick: AgentPaneGesturePick?
         var sessionId: String?
         var needsGesture = false
@@ -420,9 +422,8 @@ extension AgentPaneTransport {
             if let ticket = facts.ticket {
                 if facts.otherMeta {
                     _ = gestures.redeem(ticket, connection: id, pick: nil)
-                    let otherKeys = (Self.param("_meta", box) as? [String: Any])?.keys.map { $0 } ?? []
                     let decision = Self.intentInvalid(.gestureMeta, method: facts.method, requestID: facts.pageID, session: facts.sessionId,
-                                                      cause: "gesture ticket with other _meta keys \(AgentPaneRefusalLog.names(otherKeys))")
+                                                      cause: "gesture ticket with other _meta keys \(AgentPaneRefusalLog.names(facts.otherMetaKeys))")
                     return Self.refuse(decision, socket: socket)
                 }
                 // B2: only set_mode, set_config_option, a prompt held for the trust answer (its

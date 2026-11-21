@@ -30,6 +30,17 @@ struct AgentPaneRefusalLogTests {
         #expect(AgentPaneRefusalLog.names([long]) == "[" + String(repeating: "x", count: 64) + "…]")
     }
 
+    @Test func aTicketWithOtherMetaNamesThoseKeysFromThePagesOwnFrame() {
+        let ticket = AcpmuxPaneMethods.gestureTicketKey
+        let prompt: [String: Any] = ["method": "session/prompt", "params": [
+            "sessionId": "s", "_meta": [ticket: "t", "acpmux": ["promptId": "p"], "zeta": 1, "alpha": "secret"],
+        ]]
+        #expect(AcpmuxPaneMethods.takeGestureTicket(prompt).otherMeta)
+        #expect(AcpmuxPaneMethods.otherMetaKeys(prompt) == ["alpha", "zeta"])
+        let mode: [String: Any] = ["method": "session/set_mode", "params": ["_meta": [ticket: "t", "acpmux": [:]]]]
+        #expect(AcpmuxPaneMethods.otherMetaKeys(mode) == ["acpmux"])
+    }
+
     @Test func anAnswerToNoPendingQuestionSaysSoWithoutItsText() {
         let frame: [String: Any] = ["method": "_acpmux/permission_respond", "params": [
             "sessionId": "s", "permissionId": "p", "optionId": "o", "answers": ["Which color?": "secret answer"],

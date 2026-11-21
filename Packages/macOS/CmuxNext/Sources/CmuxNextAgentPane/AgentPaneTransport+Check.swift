@@ -155,6 +155,10 @@ extension AgentPaneTransport {
             frame = stripped
             facts.ticket = ticket
             facts.otherMeta = otherMeta
+            if otherMeta {
+                // Read from the page's own `_meta`, before any strip (the gesture_meta log line).
+                facts.otherMetaKeys = AcpmuxPaneMethods.otherMetaKeys(object)
+            }
             if ticket != nil {
                 facts.pick = AgentPaneGesturePick(method: method, params: params)
                 facts.sessionId = params["sessionId"] as? String
