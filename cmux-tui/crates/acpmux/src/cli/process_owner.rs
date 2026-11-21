@@ -75,6 +75,8 @@ pub struct Marks {
     pub session_name: Option<String>,
     pub host_nonce: Option<String>,
     pub task_mark: Option<String>,
+    /// The acpmux home its daemon runs in (`ACPMUX_HOME`, which the daemon gives what it starts).
+    pub home: Option<String>,
 }
 
 impl Marks {
@@ -91,6 +93,7 @@ impl Marks {
             session_name: get(SESSION_NAME),
             host_nonce: get(agent_host::HOST_MARK),
             task_mark: get(crate::bg_run::TASK_MARK),
+            home: get("ACPMUX_HOME"),
         }
     }
     fn any(&self) -> bool {
@@ -259,6 +262,13 @@ fn under_the_daemon(proc: &tree::Started, table: &[tree::Started], daemon: Optio
     false
 }
 
+/// Whether `home` (a process's `ACPMUX_HOME`) is the home this command reads.
+fn same_home(home: Option<&str>) -> bool {
+    let Some(home) = home else { return false };
+    let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    canon(Path::new(home)) == canon(&crate::config::home())
+}
+
 /// The pid `<acpmux home>/daemon.pid` names.
 fn daemon_pid() -> Option<u32> {
     std::fs::read_to_string(crate::config::home().join("daemon.pid")).ok()?.trim().parse().ok()
@@ -297,7 +307,15 @@ fn own(proc: &tree::Started, table: &[tree::Started], caller: Option<&str>) -> O
     let host = marks
         .as_ref()
         .and_then(|m| m.host_nonce.as_deref().map(|n| host_liveness(m.session_id.as_deref(), n)));
-    let verdict = judge(marks.as_ref(), caller, runner, host);
+    let mut verdict = judge(marks.as_ref(), caller, runner, host);
+    // Host locks and records are read in this home only: a session of another home on this
+    // machine (a dev build, a second daemon) has none here, so its processes would read as left
+    // behind. Unless the process names this home, its host is not known.
+    if verdict == Verdict::LeftBehind
+        && !marks.as_ref().is_some_and(|m| same_home(m.home.as_deref()))
+    {
+        verdict = Verdict::Unknown;
+    }
     Owned { proc: proc.clone(), marks, verdict, argv }
 }
 
@@ -528,6 +546,7 @@ mod tests {
             session_name: Some("n".to_owned()),
             host_nonce: nonce.map(str::to_owned),
             task_mark: task.map(str::to_owned),
+            home: None,
         }
     }
 
@@ -632,7 +651,15 @@ mod tests {
     }
 
     #[test]
-    fn a_host_whose_lock_is_gone_from_every_place_is_dead() {
+    fn only_a_process_of_this_home_can_be_left_behind() {
+        let here = crate::config::home();
+        assert!(same_home(here.to_str()));
+        assert!(!same_home(None));
+        assert!(!same_home(Some("/nonexistent/other-acpmux-home")));
+    }
+
+    #[test]
+    fn a_host_whose_lock_is_gone_from_every_place_of_this_home_is_dead() {
         // A session id no host ever had: no record, no lock anywhere.
         assert_eq!(host_liveness(Some("no-such-session-0000"), "00ff"), Liveness::Dead);
         assert_eq!(host_liveness(None, "00ff"), Liveness::Unknown);
