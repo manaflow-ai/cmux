@@ -121,7 +121,7 @@ impl LinkProfile {
 
 /// Which of the phone's two paths a connection takes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Path {
+enum Route {
     /// Phone and Mac on one network: the shaper's own address.
     Lan,
     /// Through the internet (a relay): [`Shaper::open_internet_path`].
@@ -194,8 +194,8 @@ struct Link {
 
 impl Link {
     /// Whether connection `index` on `path` delivers nothing (an old address, a dead path).
-    fn silent(&self, index: u64, path: Path) -> bool {
-        index < self.orphaned_below || (path == Path::Internet && self.internet_down)
+    fn silent(&self, index: u64, path: Route) -> bool {
+        index < self.orphaned_below || (path == Route::Internet && self.internet_down)
     }
 
     /// When a segment sent at `sent` arrives: its serialization, the delay, jitter, loss and a
@@ -327,7 +327,7 @@ impl Shaper {
             scope,
             trace: trace.clone(),
         };
-        shaper.accept(listener, upstream, Path::Lan);
+        shaper.accept(listener, upstream, Route::Lan);
         Ok(shaper)
     }
 
@@ -338,11 +338,11 @@ impl Shaper {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
         self.trace.note(format!("shaper internet path {addr}"));
-        self.accept(listener, upstream, Path::Internet);
+        self.accept(listener, upstream, Route::Internet);
         Ok(addr)
     }
 
-    fn accept(&self, listener: TcpListener, upstream: SocketAddr, path: Path) {
+    fn accept(&self, listener: TcpListener, upstream: SocketAddr, path: Route) {
         let (link, counting, epoch) =
             (self.link.clone(), self.counting.clone(), self.epoch.clone());
         let weak = Arc::downgrade(&self.scope);
@@ -457,7 +457,7 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 async fn connection(
     near: TcpStream,
     upstream: SocketAddr,
-    path: Path,
+    path: Route,
     index: u64,
     seed: u64,
     link: Arc<Mutex<Link>>,
@@ -465,7 +465,7 @@ async fn connection(
     epoch: watch::Receiver<u64>,
 ) {
     // A dead internet path refuses at once (the router answers; the uplink behind it is out).
-    if path == Path::Internet && lock(&link).internet_down {
+    if path == Route::Internet && lock(&link).internet_down {
         return;
     }
     let ready = lock(&link).connect_at(Instant::now());
@@ -506,7 +506,7 @@ async fn direction(
     mut from: tokio::net::tcp::OwnedReadHalf,
     mut to: tokio::net::tcp::OwnedWriteHalf,
     down: bool,
-    path: Path,
+    path: Route,
     index: u64,
     mut rng: Rng,
     link: Arc<Mutex<Link>>,
