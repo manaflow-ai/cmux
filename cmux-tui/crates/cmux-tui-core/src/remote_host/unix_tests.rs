@@ -72,6 +72,18 @@ fn app_permissions_show_in_status_and_never_reach_config_or_the_switches() {
 }
 
 #[test]
+fn nothing_turned_on_says_computer_use_is_off_never_cmux_remote() {
+    // A Mac without cmux Remote (NIGHTLY) showed "cmux Remote is off: turn on Computer Use
+    // (Upstream driver) ...": a product it does not carry, and a driver setting that is gone.
+    let supervisor = super::RemoteHostSupervisor::default();
+    let reason = supervisor.call("computer_use.endpoint", json!({})).unwrap_err();
+    assert_eq!(reason, "Computer Use is off. Turn it on in Settings > Computer Use.");
+    // computer_use_command.rs reads "is off" as the off state.
+    assert!(reason.contains("is off"));
+    assert!(!reason.contains("cmux Remote") && !reason.contains("Upstream"));
+}
+
+#[test]
 fn screen_identity_rejects_missing_malformed_and_wrong_shape_values() {
     for status in [
         json!({}),

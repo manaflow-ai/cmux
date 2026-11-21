@@ -19,6 +19,10 @@ struct Run {
     offset: Option<u64>,
 }
 
+/// The queue capacity an idle terminal may keep; a burst's goes once parsed.
+const IDLE_QUEUE_BYTES: usize = 4 * 1024;
+const IDLE_QUEUE_RUNS: usize = 16;
+
 #[derive(Default)]
 struct SinkState {
     /// Bytes for the parser, in order. The first `in_flight` of them were
@@ -156,6 +160,14 @@ impl SinkState {
             if run.len == 0 {
                 self.runs.pop_front();
             }
+        }
+        // An idle terminal keeps no queue: a burst's capacity goes once it
+        // is parsed, not for the terminal's life.
+        if self.bytes.is_empty() && self.bytes.capacity() > IDLE_QUEUE_BYTES {
+            self.bytes = VecDeque::new();
+        }
+        if self.runs.is_empty() && self.runs.capacity() > IDLE_QUEUE_RUNS {
+            self.runs = VecDeque::new();
         }
     }
 
