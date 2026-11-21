@@ -954,6 +954,11 @@ public final class AgentPaneModel {
         case .toolCard(let card, let action, let value): return AgentPaneToolCard.respond(card: card, action: action, value: value, in: self)
         case .computerUsePreview(let action): return AgentPaneComputerUsePreview.respond(action, in: self)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)
+        // A pushed native drop's file of a chat on another machine: put there from its path (``putDropped(token:name:)``).
+        case .uploadStage(.begin(let name, _, let token?, nil)) where AgentPaneDroppedPaths.isPutToken(token):
+            return await putDropped(token: token, name: name)
+        case .uploadStage(.cancel(let token)) where AgentPaneDroppedPaths.isPutToken(token):
+            return cancelDroppedPut(token)
         case .uploadStage(let stage):
             // A chat with no session yet (a new chat, the New Tab page) stages too: its stager says
             // whether it can take one. Refusing it as unsupported told the page this host is too old
