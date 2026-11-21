@@ -6,10 +6,13 @@
 //! writes the answer into its records. Every rule is pure: the same request always answers the
 //! same view, and a request the daemon would refuse answers `null` (the intent shows nothing).
 //!
-//! The layout shapes are the daemon's wire shapes (`type`, `pane`, `split`, `split_id`, `dir`,
-//! `ratio`, `a`, `b`, `panes`, `expanded`; columns `id`, `width`, `layout`, `dock`, `rows`),
-//! so the app encodes its snapshots as it decodes them. One JSON operation (`optimistic` of
-//! `cmux_layout_reducer_json`) answers every request, tagged by `op`.
+//! A split, dock or pane removal sends no whole screen: the app finds the target's node in each
+//! tree with a generic walk and sends those nodes ([`Spot`]) and a few counts ([`Facts`]); the
+//! answer is a [`Patch`] the app splices into its trees and columns, keeping every untouched
+//! subtree. Request and answer stay the same size however large the layout is (a New Row's row
+//! chain excepted). The node shapes are the daemon's wire shapes (`type`, `pane`, `split`,
+//! `split_id`, `dir`, `ratio`, `a`, `b`, `panes`, `expanded`). One JSON operation (`optimistic`
+//! of `cmux_layout_reducer_json`) answers every request, tagged by `op`.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -54,7 +57,9 @@ pub enum Node {
         panes: Vec<u64>,
         expanded: u64,
     },
-    /// A node type this client does not know: kept as it is.
+    /// A node type this client does not know. Its own fields are dropped, as the app's
+    /// `LayoutNode.unknown` drops them when it decodes the daemon's tree; the node keeps its
+    /// place, so a split or a removal elsewhere in the tree leaves it there.
     #[serde(other)]
     Unknown,
 }
@@ -62,11 +67,6 @@ pub enum Node {
 impl Node {
     fn leaf(pane: u64) -> Self {
         Node::Leaf { pane }
-    }
-
-    /// An unnamed split (the compat trees the daemon keeps beside columns and rows).
-    fn pair(dir: Dir, a: Node, b: Node) -> Self {
-        Node::Split { split: None, split_id: None, dir, ratio: 0.5, a: Box::new(a), b: Box::new(b) }
     }
 
     /// Whether `pane` is one of this tree's panes.
@@ -99,63 +99,186 @@ impl Node {
     }
 }
 
-/// One row of a column (`rows-v1`): `height` in permille.
+/// The node the app's walk found in one tree: the first node, depth-first through splits only,
+/// that the request's match names (a split's `a` before its `b`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Row {
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SpotNode {
+    Leaf {
+        pane: u64,
+    },
+    Split {
+        /// The daemon's handle.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        split: Option<u64>,
+        /// The split's last pane in depth-first order (`divider_insert::last_pane`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        last_pane: Option<u64>,
+    },
+    Stack {
+        panes: Vec<u64>,
+        expanded: u64,
+    },
+}
+
+/// One tree's found node: the screen's tree (`column` absent), a column's (`row` absent) or a
+/// column's row's, indexed as the request's screen holds them. `root`: the node is the tree.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Spot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub row: Option<usize>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub root: bool,
+    /// None when the tree holds no such node.
+    pub node: Option<SpotNode>,
+}
+
+/// What a rule reads of the screen besides the found nodes; each op sends what its rule reads.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Facts {
+    /// The screen's tree already holds the request's `leaf`.
+    pub leaf_placed: bool,
+    /// The screen has a zoomed pane.
+    pub zoomed: bool,
+    /// The screen's column count.
+    pub columns: usize,
+    /// The screen's panes count (the records' `panes`).
+    pub panes: usize,
+    /// The target's index in the screen's panes.
+    pub target_index: Option<usize>,
+    /// The screen's tree holds the target.
+    pub in_screen: bool,
+    /// The first column whose tree holds the target.
+    pub column: Option<usize>,
+    /// The first and last index in the screen's panes of a pane that column's tree holds (the
+    /// screen's tree when it has no columns).
+    pub span: Option<[usize; 2]>,
+    /// That column's row count.
+    pub rows: usize,
+    /// The first of that column's rows whose tree holds the target.
+    pub row: Option<usize>,
+    /// Every column's dock `edge`, in column order (columns without one skipped).
+    pub dock_edges: Vec<String>,
+}
+
+/// A node of an answer's new trees. `held`, `screen`, `column` and `row` name trees the app
+/// already holds, so the answer never repeats them.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Part {
+    Leaf {
+        pane: u64,
+    },
+    /// A new split, with no daemon handle yet.
+    Split {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        split_id: Option<String>,
+        dir: Dir,
+        ratio: f64,
+        a: Box<Part>,
+        b: Box<Part>,
+    },
+    Stack {
+        panes: Vec<u64>,
+        expanded: u64,
+    },
+    /// The spot's node as it was (spot edits only).
+    Held,
+    /// The screen's tree as it was before the patch.
+    Screen,
+    /// The edited column's tree as it was before this edit (column `change` only).
+    Column,
+    /// The edited column's row `row` as it was before this edit (column `change` only).
+    Row {
+        row: usize,
+    },
+}
+
+impl Part {
+    /// An unnamed split (the compat trees the daemon keeps beside columns and rows).
+    fn pair(dir: Dir, a: Part, b: Part) -> Self {
+        Part::Split { split_id: None, dir, ratio: 0.5, a: Box::new(a), b: Box::new(b) }
+    }
+
+    fn named(split_id: &str, dir: Dir, ratio: f64, a: Part, b: Part) -> Self {
+        Part::Split {
+            split_id: Some(split_id.to_owned()),
+            dir,
+            ratio,
+            a: Box::new(a),
+            b: Box::new(b),
+        }
+    }
+}
+
+/// An edit of the request's spot `spot`: its node becomes `node`, or goes when none (its parent
+/// split becomes the parent's other side, as it is).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SpotEdit {
+    pub spot: usize,
+    pub node: Option<Part>,
+}
+
+/// A row an inserted column comes with.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RowPart {
     pub id: u64,
     pub height: i64,
-    pub layout: Node,
+    pub layout: Part,
 }
 
-/// One column of a screen (`viewport-splits-v1`); `dock` is the daemon's dock record as sent.
+/// An edit of a column's rows; `at` indexes the rows as the edits before it left them.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Column {
-    pub id: u64,
-    pub width: f64,
-    pub layout: Node,
+#[serde(tag = "edit", rename_all = "snake_case")]
+pub enum RowEdit {
+    Insert { at: usize, id: u64, height: i64, layout: Part },
+    Remove { at: usize },
+}
+
+/// An edit of the screen's columns; `at` indexes the columns as the edits before it left them.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "edit", rename_all = "snake_case")]
+pub enum ColumnEdit {
+    Insert {
+        at: usize,
+        id: u64,
+        width: f64,
+        layout: Part,
+        /// The request's dock record.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dock: Option<Value>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        rows: Vec<RowPart>,
+    },
+    Remove {
+        at: usize,
+    },
+    Change {
+        at: usize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        layout: Option<Part>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        rows: Vec<RowEdit>,
+    },
+}
+
+/// A split's, dock's or removal's answer. The app applies every `spots` edit (indices are the
+/// request's), then `layout` (the screen's new tree), then `columns` in order. `pane_at`: where
+/// the provisional pane goes in the screen's panes (used only when the records do not hold the
+/// daemon's pane).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Patch {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub spots: Vec<SpotEdit>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dock: Option<Value>,
-    #[serde(default)]
-    pub rows: Vec<Row>,
-}
-
-impl Column {
-    fn plain(id: u64, width: f64, layout: Node) -> Self {
-        Column { id, width, layout, dock: None, rows: Vec::new() }
-    }
-
-    fn dock_edge(&self) -> Option<&str> {
-        self.dock.as_ref()?.get("edge")?.as_str()
-    }
-}
-
-/// What the rules read of a screen: its tree, its columns, its zoomed pane and its panes'
-/// order (the records' `panes`).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Screen {
-    pub layout: Node,
-    #[serde(default)]
-    pub columns: Vec<Column>,
-    #[serde(default)]
-    pub zoomed_pane: Option<u64>,
-    #[serde(default)]
-    pub panes: Vec<u64>,
-}
-
-/// A screen's new tree and columns.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Shown {
-    pub layout: Node,
-    pub columns: Vec<Column>,
-}
-
-/// A split's, column's or row's answer: the new tree and columns, and where the provisional
-/// pane goes in the screen's panes (used only when the records do not hold the daemon's pane).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Placed {
-    pub layout: Node,
-    pub columns: Vec<Column>,
-    pub pane_at: usize,
+    pub layout: Option<Part>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub columns: Vec<ColumnEdit>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_at: Option<usize>,
 }
 
 /// New Column (`new-pane-right` with client-minted ids).
@@ -214,9 +337,10 @@ pub enum PlaceKind {
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Request {
     /// A split, New Column or New Row of `target`, showing `leaf` (the provisional pane, or the
-    /// daemon's pane under the split's public id before its layout places it).
+    /// daemon's pane under the split's public id before its layout places it). `spots`: the
+    /// screen's tree first, then each column whose tree holds `target` and each of its rows
+    /// that does, matched by split `around` when set, else by leaf `target`.
     Split {
-        screen: Screen,
         target: u64,
         dir: Dir,
         ratio: f64,
@@ -230,14 +354,22 @@ pub enum Request {
         /// `target`, instead of splitting `target` alone (Insert New at a divider).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         around: Option<u64>,
+        /// `split-before-v1` (Split Left, Split Up): `leaf` is the split's first side and is
+        /// listed before `target` in the screen's panes.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        before: bool,
+        facts: Facts,
+        spots: Vec<Spot>,
     },
     /// Insert New at the divider of split `split` in `layout` (the tree holding it): the split
     /// request to send and the divider's new ratio (`divider_insert`).
     InsertAtDivider { layout: Node, split: u64 },
     /// A lone tab docked into a new leading column holding `leaf`.
-    Dock { screen: Screen, leaf: u64, column: ColumnSpec, dock: Value },
-    /// A pane taken out of the visible records (a creation the person closed first).
-    RemovePane { screen: Screen, pane: u64 },
+    Dock { leaf: u64, column: ColumnSpec, dock: Value, facts: Facts },
+    /// A pane taken out of the visible records (a creation the person closed first). `spots`:
+    /// the screen's tree first, then each column whose tree holds `pane` and each of its rows
+    /// that does, matched by the leaf or stack holding `pane`.
+    RemovePane { pane: u64, spots: Vec<Spot> },
     /// `move-tab`'s final index in the target pane.
     MoveTab { same_pane: bool, from: usize, index: i64, target_count: usize },
     /// A workspace move or regroup; `groups` is every workspace's group in daemon order.
@@ -291,30 +423,31 @@ pub fn respond(request: &Request) -> Value {
         value.map_or(Value::Null, |v| serde_json::to_value(v).unwrap_or(Value::Null))
     }
     match request {
-        Request::Split { screen, target, dir, ratio, leaf, split_id, column, row, around } => {
-            json(match around {
-                Some(around) => {
-                    split_around_target(screen, *around, *target, *dir, *ratio, *leaf, split_id)
-                }
-                None => split(
-                    screen,
-                    *target,
-                    *dir,
-                    *ratio,
-                    *leaf,
-                    split_id,
-                    column.as_ref(),
-                    row.as_ref(),
-                ),
-            })
+        Request::Split {
+            target,
+            dir,
+            ratio,
+            leaf,
+            split_id,
+            column,
+            row,
+            around,
+            before,
+            facts,
+            spots,
+        } => {
+            let tree =
+                SplitTree { target: *target, dir: *dir, ratio: *ratio, leaf: *leaf, split_id };
+            let how = SplitHow { column: column.as_ref(), row: row.as_ref(), around: *around };
+            json(split(&tree, how, *before, facts, spots))
         }
         Request::InsertAtDivider { layout, split } => {
             json(crate::divider_insert::plan(layout, *split))
         }
-        Request::Dock { screen, leaf, column, dock } => {
-            json(dock_column(screen, *leaf, column, dock))
+        Request::Dock { leaf, column, dock, facts } => {
+            json(dock_column(*leaf, column, dock, facts))
         }
-        Request::RemovePane { screen, pane } => json(remove_pane(screen, *pane)),
+        Request::RemovePane { pane, spots } => json(remove_pane(*pane, spots)),
         Request::MoveTab { same_pane, from, index, target_count } => {
             json(move_tab(*same_pane, *from, *index, *target_count))
         }
@@ -339,15 +472,32 @@ pub fn split_leaf(
     new: u64,
     split_id: &str,
 ) -> Option<Node> {
+    split_leaf_as(node, target, dir, ratio, new, split_id, false)
+}
+
+/// [`split_leaf`], with `new` as the split's first side when `before` (`split {before: true}`,
+/// Split Left and Split Up).
+pub fn split_leaf_as(
+    node: &Node,
+    target: u64,
+    dir: Dir,
+    ratio: f64,
+    new: u64,
+    split_id: &str,
+    before: bool,
+) -> Option<Node> {
     match node {
-        Node::Leaf { pane } if *pane == target => Some(Node::Split {
-            split: None,
-            split_id: Some(split_id.to_owned()),
-            dir,
-            ratio,
-            a: Box::new(Node::leaf(target)),
-            b: Box::new(Node::leaf(new)),
-        }),
+        Node::Leaf { pane } if *pane == target => {
+            let (a, b) = if before { (new, target) } else { (target, new) };
+            Some(Node::Split {
+                split: None,
+                split_id: Some(split_id.to_owned()),
+                dir,
+                ratio,
+                a: Box::new(Node::leaf(a)),
+                b: Box::new(Node::leaf(b)),
+            })
+        }
         Node::Split { split, split_id: id, dir: d, ratio: r, a, b } => {
             let rebuilt = |a: Node, b: Node| Node::Split {
                 split: *split,
@@ -357,10 +507,11 @@ pub fn split_leaf(
                 a: Box::new(a),
                 b: Box::new(b),
             };
-            if let Some(a2) = split_leaf(a, target, dir, ratio, new, split_id) {
+            if let Some(a2) = split_leaf_as(a, target, dir, ratio, new, split_id, before) {
                 return Some(rebuilt(a2, (**b).clone()));
             }
-            split_leaf(b, target, dir, ratio, new, split_id).map(|b2| rebuilt((**a).clone(), b2))
+            split_leaf_as(b, target, dir, ratio, new, split_id, before)
+                .map(|b2| rebuilt((**a).clone(), b2))
         }
         _ => None,
     }
@@ -395,87 +546,97 @@ pub fn removing(pane: u64, node: &Node) -> Option<Node> {
     }
 }
 
-/// Where the new pane goes in the screen's panes: right after `target` (at the end when the
-/// target is not listed).
-fn after_target(panes: &[u64], target: u64) -> usize {
-    let at = panes.iter().position(|p| *p == target).map_or(panes.len(), |i| i + 1);
-    at.min(panes.len())
+/// Where the new pane goes in the screen's panes: right after the target, or at it when
+/// `before` (the daemon lists a screen's panes in its layout's order); at the end when the
+/// target is not listed.
+fn pane_at(facts: &Facts, before: bool) -> usize {
+    let at = facts.target_index.map_or(facts.panes, |i| if before { i } else { i + 1 });
+    at.min(facts.panes)
+}
+
+/// The plain split a `split` request asks for: `target` split along `dir` at `ratio`, showing
+/// `leaf` under public id `split_id`.
+pub struct SplitTree<'a> {
+    pub target: u64,
+    pub dir: Dir,
+    pub ratio: f64,
+    pub leaf: u64,
+    pub split_id: &'a str,
+}
+
+/// Which split a `split` request makes: New Column (`column`), New Row (`row`), around the
+/// whole split `around`, else a plain split of the target.
+#[derive(Clone, Copy, Default)]
+pub struct SplitHow<'a> {
+    pub column: Option<&'a ColumnSpec>,
+    pub row: Option<&'a RowSpec>,
+    pub around: Option<u64>,
 }
 
 /// A split of `target` (`split_kind.rs`: the target's column tree and row tree take it too),
-/// New Column (`column`) or New Row (`row`). None when cmux-tui would refuse it.
-#[allow(clippy::too_many_arguments)]
+/// New Column (`column`), New Row (`row`), or a split around the whole split `around`
+/// (`split-around-v1`, Insert New at a divider: cmux-tui's `split_around` wraps it, `leaf`
+/// after it). `before` (`split-before-v1`) shows `leaf` as a plain split's first side and lists
+/// it before `target`. None when cmux-tui would refuse it, or when the screen's tree already
+/// places `leaf` (the daemon's layout placed its pane: the split has nothing left to show, and
+/// showing it again would list the pane twice).
+///
+/// Every column tree and row tree that holds `target` takes the split; one that cannot (the
+/// split `around` is not in it with `target` as its last pane) shows nothing. Around a split,
+/// a screen with columns keeps its compat tree as it is when that tree does not name `around`.
 pub fn split(
-    screen: &Screen,
-    target: u64,
-    dir: Dir,
-    ratio: f64,
-    leaf: u64,
-    split_id: &str,
-    column: Option<&ColumnSpec>,
-    row: Option<&RowSpec>,
-) -> Option<Placed> {
-    if let Some(column) = column {
-        return new_column(screen, target, leaf, column);
+    tree: &SplitTree<'_>,
+    how: SplitHow<'_>,
+    before: bool,
+    facts: &Facts,
+    spots: &[Spot],
+) -> Option<Patch> {
+    let SplitTree { target, dir, ratio, leaf, split_id } = *tree;
+    if facts.leaf_placed {
+        return None;
     }
-    if let Some(row) = row {
-        return new_row(screen, target, leaf, split_id, row);
+    if let Some(column) = how.column {
+        return new_column(leaf, column, facts);
     }
-    let layout = split_leaf(&screen.layout, target, dir, ratio, leaf, split_id)?;
-    let mut columns = Vec::with_capacity(screen.columns.len());
-    for column in &screen.columns {
-        if !column.layout.contains(target) {
-            columns.push(column.clone());
-            continue;
-        }
-        let mut column = column.clone();
-        column.layout = split_leaf(&column.layout, target, dir, ratio, leaf, split_id)?;
-        for row in &mut column.rows {
-            if row.layout.contains(target) {
-                row.layout = split_leaf(&row.layout, target, dir, ratio, leaf, split_id)?;
-            }
-        }
-        columns.push(column);
+    if let Some(row) = how.row {
+        return new_row(target, leaf, split_id, row, facts, spots);
     }
-    Some(Placed { layout, columns, pane_at: after_target(&screen.panes, target) })
-}
-
-/// A split of `target` around the whole split `around` (`split-around-v1`, Insert New at a
-/// divider): every tree that holds `around` (the screen's, its column's, its row's) wraps it, as
-/// cmux-tui's `split_around` does. None when no tree holds `around` with `target` as its last pane.
-fn split_around_target(
-    screen: &Screen,
-    around: u64,
-    target: u64,
-    dir: Dir,
-    ratio: f64,
-    leaf: u64,
-    split_id: &str,
-) -> Option<Placed> {
-    use crate::divider_insert::split_around;
-    let wrap = |node: &Node| split_around(node, around, target, dir, ratio, leaf, split_id);
-    let mut placed = false;
-    let layout = match wrap(&screen.layout) {
-        Some(layout) => {
-            placed = true;
-            layout
+    let takes = |spot: &Spot| match (&spot.node, how.around) {
+        (Some(SpotNode::Split { split, last_pane }), Some(around)) => {
+            *split == Some(around) && *last_pane == Some(target)
         }
-        None => screen.layout.clone(),
+        (Some(SpotNode::Leaf { pane }), None) => *pane == target,
+        _ => false,
     };
-    let mut columns = screen.columns.clone();
-    for column in &mut columns {
-        if let Some(wrapped) = wrap(&column.layout) {
-            column.layout = wrapped;
-            placed = true;
-        }
-        for row in &mut column.rows {
-            if let Some(wrapped) = wrap(&row.layout) {
-                row.layout = wrapped;
-                placed = true;
-            }
+    let node = match how.around {
+        Some(_) => Part::named(split_id, dir, ratio, Part::Held, Part::Leaf { pane: leaf }),
+        None if before => Part::named(
+            split_id,
+            dir,
+            ratio,
+            Part::Leaf { pane: leaf },
+            Part::Leaf { pane: target },
+        ),
+        None => Part::named(
+            split_id,
+            dir,
+            ratio,
+            Part::Leaf { pane: target },
+            Part::Leaf { pane: leaf },
+        ),
+    };
+    let mut edits = Vec::with_capacity(spots.len());
+    for (at, spot) in spots.iter().enumerate() {
+        if takes(spot) {
+            edits.push(SpotEdit { spot: at, node: Some(node.clone()) });
+        } else if at > 0 || how.around.is_none() || facts.columns == 0 {
+            return None;
         }
     }
-    placed.then(|| Placed { layout, columns, pane_at: after_target(&screen.panes, target) })
+    if spots.is_empty() {
+        return None;
+    }
+    Some(Patch { spots: edits, pane_at: Some(pane_at(facts, before)), ..Patch::default() })
 }
 
 /// New Column (`new-pane-right`, cmux-tui `new_pane_right`): a column holding `leaf` right after
@@ -483,32 +644,47 @@ fn split_around_target(
 /// its width (R3b). A split-tree screen becomes its tree at full width and the new column, as the
 /// daemon wraps its root in a viewport split. A zoomed split-tree screen has nothing to open
 /// beside.
-fn new_column(screen: &Screen, target: u64, leaf: u64, spec: &ColumnSpec) -> Option<Placed> {
-    let mut columns = screen.columns.clone();
-    if columns.is_empty() {
-        if screen.zoomed_pane.is_some() {
+fn new_column(leaf: u64, spec: &ColumnSpec, facts: &Facts) -> Option<Patch> {
+    let mut columns = Vec::with_capacity(2);
+    let index = if facts.columns == 0 {
+        if facts.zoomed || !facts.in_screen {
             return None;
         }
-        columns.push(Column::plain(spec.handle | SIBLING_BIT, 1.0, screen.layout.clone()));
-    }
-    let index = columns.iter().position(|c| c.layout.contains(target))?;
-    let anchor = columns.get(index)?.layout.pane_ids();
-    columns.insert(
-        if spec.left { index } else { index + 1 },
-        Column::plain(spec.handle, spec.width, Node::leaf(leaf)),
-    );
+        columns.push(ColumnEdit::Insert {
+            at: 0,
+            id: spec.handle | SIBLING_BIT,
+            width: 1.0,
+            layout: Part::Screen,
+            dock: None,
+            rows: Vec::new(),
+        });
+        0
+    } else {
+        facts.column?
+    };
+    columns.push(ColumnEdit::Insert {
+        at: if spec.left { index } else { index + 1 },
+        id: spec.handle,
+        width: spec.width,
+        layout: Part::Leaf { pane: leaf },
+        dock: None,
+        rows: Vec::new(),
+    });
     let layout = if spec.left {
-        Node::pair(Dir::Right, Node::leaf(leaf), screen.layout.clone())
+        Part::pair(Dir::Right, Part::Leaf { pane: leaf }, Part::Screen)
     } else {
-        Node::pair(Dir::Right, screen.layout.clone(), Node::leaf(leaf))
+        Part::pair(Dir::Right, Part::Screen, Part::Leaf { pane: leaf })
     };
-    let panes = &screen.panes;
-    let at = if spec.left {
-        panes.iter().position(|p| anchor.contains(p)).unwrap_or(0)
-    } else {
-        panes.iter().rposition(|p| anchor.contains(p)).map_or(panes.len(), |i| i + 1)
+    let at = match (spec.left, facts.span) {
+        (true, span) => span.map_or(0, |[first, _]| first),
+        (false, span) => span.map_or(facts.panes, |[_, last]| last + 1),
     };
-    Some(Placed { layout, columns, pane_at: at.min(panes.len()) })
+    Some(Patch {
+        layout: Some(layout),
+        columns,
+        pane_at: Some(at.min(facts.panes)),
+        ..Patch::default()
+    })
 }
 
 /// New Row (`new-row`, cmux-tui `new_row_with_options_as`): a row holding `leaf` right below the
@@ -516,89 +692,163 @@ fn new_column(screen: &Screen, target: u64, leaf: u64, spec: &ColumnSpec) -> Opt
 /// column without rows gets its tree as its first row (1000), as the daemon does. The column's
 /// `layout` stays the compat chain of its rows.
 fn new_row(
-    screen: &Screen,
     target: u64,
     leaf: u64,
     split_id: &str,
     spec: &RowSpec,
-) -> Option<Placed> {
-    if screen.zoomed_pane.is_some() {
+    facts: &Facts,
+    spots: &[Spot],
+) -> Option<Patch> {
+    if facts.zoomed {
         return None;
     }
-    let first_handle = spec.handle | SIBLING_BIT;
-    let mut columns = screen.columns.clone();
-    if columns.is_empty() {
-        columns.push(Column::plain(first_handle | ROW_COLUMN_BIT, 1.0, screen.layout.clone()));
-    }
-    let index = columns.iter().position(|c| c.layout.contains(target))?;
-    let column = columns.get_mut(index)?;
-    let mut rows = if column.rows.is_empty() {
-        vec![Row { id: first_handle, height: 1000, layout: column.layout.clone() }]
+    let first = spec.handle | SIBLING_BIT;
+    let new = || Part::Leaf { pane: leaf };
+    let column = if facts.columns == 0 {
+        if !facts.in_screen {
+            return None;
+        }
+        ColumnEdit::Insert {
+            at: 0,
+            id: first | ROW_COLUMN_BIT,
+            width: 1.0,
+            layout: Part::pair(Dir::Down, Part::Screen, new()),
+            dock: None,
+            rows: vec![
+                RowPart { id: first, height: 1000, layout: Part::Screen },
+                RowPart { id: spec.handle, height: spec.height, layout: new() },
+            ],
+        }
     } else {
-        column.rows.clone()
+        let at = facts.column?;
+        if facts.rows == 0 {
+            ColumnEdit::Change {
+                at,
+                layout: Some(Part::pair(Dir::Down, Part::Column, new())),
+                rows: vec![
+                    RowEdit::Insert { at: 0, id: first, height: 1000, layout: Part::Column },
+                    RowEdit::Insert { at: 1, id: spec.handle, height: spec.height, layout: new() },
+                ],
+            }
+        } else {
+            let row = facts.row?;
+            let mut parts: Vec<Part> = (0..facts.rows).map(|row| Part::Row { row }).collect();
+            parts.insert(row + 1, new());
+            let mut parts = parts.into_iter();
+            let head = parts.next()?;
+            let chain = parts.fold(head, |chain, next| Part::pair(Dir::Down, chain, next));
+            ColumnEdit::Change {
+                at,
+                layout: Some(chain),
+                rows: vec![RowEdit::Insert {
+                    at: row + 1,
+                    id: spec.handle,
+                    height: spec.height,
+                    layout: new(),
+                }],
+            }
+        }
     };
-    let at = rows.iter().position(|r| r.layout.contains(target))?;
-    rows.insert(at + 1, Row { id: spec.handle, height: spec.height, layout: Node::leaf(leaf) });
-    let mut chain: Option<Node> = None;
-    for next in &rows {
-        chain = Some(match chain {
-            None => next.layout.clone(),
-            Some(chain) => Node::pair(Dir::Down, chain, next.layout.clone()),
-        });
+    let mut patch =
+        Patch { columns: vec![column], pane_at: Some(pane_at(facts, false)), ..Patch::default() };
+    match spots.first() {
+        Some(Spot { node: Some(SpotNode::Leaf { pane }), .. }) if *pane == target => {
+            let node = Part::named(split_id, Dir::Down, 0.5, Part::Leaf { pane: target }, new());
+            patch.spots.push(SpotEdit { spot: 0, node: Some(node) });
+        }
+        _ => patch.layout = Some(Part::pair(Dir::Down, Part::Screen, new())),
     }
-    let chain = chain?;
-    column.layout = chain;
-    column.rows = rows;
-    let layout = split_leaf(&screen.layout, target, Dir::Down, 0.5, leaf, split_id)
-        .unwrap_or_else(|| Node::pair(Dir::Down, screen.layout.clone(), Node::leaf(leaf)));
-    Some(Placed { layout, columns, pane_at: after_target(&screen.panes, target) })
+    Some(patch)
 }
 
 /// A lone tab docked into a new column (`move-tab-to-column {dock}`): the column holding `leaf`
 /// leads the screen's columns (cmux-tui's `commit_tab_drag` puts a left dock first). A zoomed
 /// screen, or one with a dock on that edge already, waits for the daemon's layout:
-/// `reduce_column_dock` there moves the old holder, which this view does not show.
-pub fn dock_column(screen: &Screen, leaf: u64, spec: &ColumnSpec, dock: &Value) -> Option<Shown> {
-    let edge = dock.get("edge").and_then(Value::as_str);
-    if screen.zoomed_pane.is_some() || screen.columns.iter().any(|c| c.dock_edge() == edge) {
+/// `reduce_column_dock` there moves the old holder, which this view does not show. None too when
+/// the screen's tree already places `leaf` (the daemon's layout placed the dock's pane). A dock
+/// with no edge is taken by any column without a dock edge.
+pub fn dock_column(leaf: u64, spec: &ColumnSpec, dock: &Value, facts: &Facts) -> Option<Patch> {
+    let taken = match dock.get("edge").and_then(Value::as_str) {
+        Some(edge) => facts.dock_edges.iter().any(|e| e == edge),
+        None => facts.columns > facts.dock_edges.len(),
+    };
+    if facts.leaf_placed || facts.zoomed || taken {
         return None;
     }
-    let mut columns = screen.columns.clone();
-    if columns.is_empty() {
-        columns.push(Column::plain(spec.handle | SIBLING_BIT, 1.0, screen.layout.clone()));
+    let mut columns = Vec::with_capacity(2);
+    if facts.columns == 0 {
+        columns.push(ColumnEdit::Insert {
+            at: 0,
+            id: spec.handle | SIBLING_BIT,
+            width: 1.0,
+            layout: Part::Screen,
+            dock: None,
+            rows: Vec::new(),
+        });
     }
-    let mut docked = Column::plain(spec.handle, spec.width, Node::leaf(leaf));
-    docked.dock = Some(dock.clone());
-    columns.insert(0, docked);
-    Some(Shown { layout: Node::pair(Dir::Right, Node::leaf(leaf), screen.layout.clone()), columns })
+    columns.push(ColumnEdit::Insert {
+        at: 0,
+        id: spec.handle,
+        width: spec.width,
+        layout: Part::Leaf { pane: leaf },
+        dock: Some(dock.clone()),
+        rows: Vec::new(),
+    });
+    let layout = Part::pair(Dir::Right, Part::Leaf { pane: leaf }, Part::Screen);
+    Some(Patch { layout: Some(layout), columns, ..Patch::default() })
 }
 
 /// The screen without `pane` (a creation the person closed before the daemon made it): a column
 /// or row that is only this pane goes with it. None when the pane is the whole screen tree, or
 /// a column or row tree it is in cannot lose it: it stays shown until its close.
-pub fn remove_pane(screen: &Screen, pane: u64) -> Option<Shown> {
-    let layout = removing(pane, &screen.layout)?;
-    let alone = Node::leaf(pane);
-    let mut columns = Vec::with_capacity(screen.columns.len());
-    for column in screen.columns.iter().filter(|c| c.layout != alone) {
-        if !column.layout.contains(pane) {
-            columns.push(column.clone());
+pub fn remove_pane(pane: u64, spots: &[Spot]) -> Option<Patch> {
+    let mut patch = Patch::default();
+    // Column index, whether it goes, and the rows it loses.
+    let mut columns: Vec<(usize, bool, Vec<usize>)> = Vec::new();
+    for (at, spot) in spots.iter().enumerate() {
+        let Some(node) = &spot.node else { continue };
+        if let Some(column) = spot.column {
+            if columns.iter().any(|(c, goes, _)| *c == column && *goes) {
+                continue;
+            }
+            let alone = spot.root && matches!(node, SpotNode::Leaf { .. });
+            if alone {
+                match spot.row {
+                    None => columns.push((column, true, Vec::new())),
+                    Some(row) => match columns.iter_mut().find(|(c, _, _)| *c == column) {
+                        Some((_, _, rows)) => rows.push(row),
+                        None => columns.push((column, false, vec![row])),
+                    },
+                }
+                continue;
+            }
+        }
+        let rest = match node {
+            SpotNode::Leaf { .. } => Vec::new(),
+            SpotNode::Stack { panes, .. } => panes.iter().copied().filter(|p| *p != pane).collect(),
+            SpotNode::Split { .. } => continue,
+        };
+        let edit = match (node, rest.first()) {
+            (SpotNode::Stack { expanded, .. }, Some(first)) => Some(Part::Stack {
+                expanded: if *expanded == pane { *first } else { *expanded },
+                panes: rest,
+            }),
+            _ if spot.root => return None,
+            _ => None,
+        };
+        patch.spots.push(SpotEdit { spot: at, node: edit });
+    }
+    columns.sort_unstable_by_key(|c| std::cmp::Reverse(c.0));
+    for (at, goes, mut rows) in columns {
+        if goes {
+            patch.columns.push(ColumnEdit::Remove { at });
             continue;
         }
-        let mut column = column.clone();
-        column.layout = removing(pane, &column.layout)?;
-        let mut rows = Vec::with_capacity(column.rows.len());
-        for row in column.rows.iter().filter(|r| r.layout != alone) {
-            let mut row = row.clone();
-            if row.layout.contains(pane) {
-                row.layout = removing(pane, &row.layout)?;
-            }
-            rows.push(row);
-        }
-        column.rows = rows;
-        columns.push(column);
+        rows.sort_unstable_by_key(|r| std::cmp::Reverse(*r));
+        let rows = rows.into_iter().map(|at| RowEdit::Remove { at }).collect();
+        patch.columns.push(ColumnEdit::Change { at, layout: None, rows });
     }
-    Some(Shown { layout, columns })
+    Some(patch)
 }
 
 /// `move-tab` to display `index` of a pane holding `target_count` tabs (the moving one too when

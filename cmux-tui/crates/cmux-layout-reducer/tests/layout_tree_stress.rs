@@ -5,10 +5,12 @@
 //! - the reducer ([`cmux_layout_reducer::apply`]) the daemon runs to validate a
 //!   tab move, split, close or row resize, on screens of 1, 50 and 500 panes, and
 //!   with 500 or 5000 more panes in other workspaces the command never touches;
-//! - the `optimistic` JSON round trip the app pays per split or pane close
-//!   (`cmux_layout_reducer_json`, operation `optimistic`): parse the request,
-//!   answer, encode, on balanced trees of 1, 64 and 512 panes and on degenerate
-//!   chains of depth 50, 200 and 500.
+//! - the `optimistic` JSON round trip the app pays per split, New Column, New
+//!   Row or pane close (`cmux_layout_reducer_json`, operation `optimistic`):
+//!   parse the request, answer, encode, on balanced trees of 1, 64 and 512 panes
+//!   and on degenerate chains of depth 50, 200 and 500. The request is what the
+//!   app's walks build from the whole screen (`support/optimistic_app.rs`): the
+//!   found nodes and facts, never the trees.
 //!
 //! The timing sweep runs only when asked: `CMUX_STRESS=1`, or a `cargo test`
 //! filter naming `layout_tree_stress_sweep`. It prints one `STRESS-LAYOUT-TREE`
@@ -19,11 +21,15 @@ use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::time::Instant;
 
-use cmux_layout_reducer::optimistic::{self, Dir, Node, Request, Screen};
+#[path = "support/optimistic_app.rs"]
+mod optimistic_app;
+
+use cmux_layout_reducer::optimistic::{self, Dir, Node, Patch, Request};
 use cmux_layout_reducer::{
     Column, Edge, LayoutOp, LayoutOpKind, LayoutState, Row, Screen as LayoutScreen, TabContent,
     Workspace, apply,
 };
+use optimistic_app::{Built, Screen};
 use serde_json::{Value, json};
 
 // ---------------------------------------------------------------------------
@@ -217,7 +223,7 @@ fn chain(panes: &[u64], id: &mut u64) -> Node {
 
 /// A strip screen of one column holding `tree` (the daemon keeps the compat tree beside it).
 fn screen(tree: Node, panes: Vec<u64>) -> Screen {
-    let column = optimistic::Column {
+    let column = optimistic_app::Column {
         id: 1 << 50,
         width: 1.0,
         layout: tree.clone(),
@@ -237,25 +243,29 @@ fn tree_screen(shape: &str, size: usize) -> Screen {
     screen(tree, panes)
 }
 
-/// The app's per-command optimistic requests on `screen`: split the deepest pane, close it.
-fn optimistic_requests(screen: &Screen) -> Vec<(&'static str, Vec<u8>)> {
+/// The app's per-command optimistic requests on `screen`, built by its walks: split the deepest
+/// pane, New Column and New Row beside it, close it.
+fn optimistic_built(screen: &Screen) -> Vec<(&'static str, Built)> {
     let deepest = *screen.panes.last().expect("a pane");
-    let split = Request::Split {
-        screen: screen.clone(),
-        target: deepest,
-        dir: Dir::Down,
-        ratio: 0.5,
-        leaf: (1 << 62) | 1,
-        split_id: "split_new".into(),
-        column: None,
-        row: None,
-        around: None,
-    };
-    let remove = Request::RemovePane { screen: screen.clone(), pane: deepest };
-    vec![
-        ("split", serde_json::to_vec(&split).expect("encode")),
-        ("remove_pane", serde_json::to_vec(&remove).expect("encode")),
-    ]
+    let leaf = (1u64 << 62) | 1;
+    let split = json!({"op": "split", "target": deepest, "dir": "down", "ratio": 0.5,
+        "leaf": leaf, "split_id": "split_new"});
+    let mut column = split.clone();
+    column["column"] = json!({"handle": leaf, "width": 0.5});
+    let mut row = split.clone();
+    row["row"] = json!({"handle": leaf, "height": 300});
+    let remove = json!({"op": "remove_pane", "pane": deepest});
+    [("split", split), ("column", column), ("row", row), ("remove_pane", remove)]
+        .into_iter()
+        .map(|(name, intent)| (name, optimistic_app::request(screen, &intent).expect(name)))
+        .collect()
+}
+
+fn optimistic_requests(screen: &Screen) -> Vec<(&'static str, Vec<u8>)> {
+    optimistic_built(screen)
+        .into_iter()
+        .map(|(name, built)| (name, serde_json::to_vec(&built.request).expect("encode")))
+        .collect()
 }
 
 /// What `cmux_layout_reducer_json` does for `optimistic`: parse, answer, encode.
@@ -334,8 +344,11 @@ fn layout_tree_stress_sweep() {
         ("balanced", 1),
         ("balanced", 64),
         ("balanced", 512),
+        ("chain", 2),
         ("chain", 50),
+        ("chain", 64),
         ("chain", 200),
+        ("chain", 256),
         ("chain", 500),
     ] {
         let screen = tree_screen(shape, size);
@@ -426,13 +439,13 @@ fn reducer_command_work_is_at_most_linear_in_the_layout() {
     }
 }
 
-/// The optimistic round trip allocates in proportion to the tree it must
-/// answer (the wire shape is the whole screen), never to tree size times depth:
-/// allocations per pane stay flat from a 50-pane chain to a 500-pane chain.
+/// The optimistic round trip costs the same however large the tree is: the request carries the
+/// found nodes and facts, the answer a patch, so a 500-pane chain allocates what a 50-pane one
+/// does (the whole-screen shape took 986 us for New Column at 64 panes and grew with every pane).
 #[test]
-fn optimistic_round_trip_work_is_linear_in_the_tree() {
-    for name in ["split", "remove_pane"] {
-        let per_pane = |shape: &str, size: usize| {
+fn optimistic_round_trip_work_does_not_grow_with_the_tree() {
+    for name in ["split", "column", "row", "remove_pane"] {
+        let work = |shape: &str, size: usize| {
             let screen = tree_screen(shape, size);
             let request = optimistic_requests(&screen)
                 .into_iter()
@@ -441,33 +454,38 @@ fn optimistic_round_trip_work_is_linear_in_the_tree() {
                 .1;
             let (allocs, answer) = allocations(|| round_trip(&request));
             answer.unwrap_or_else(|e| panic!("{name} {shape} {size}: {e}"));
-            allocs as f64 / size as f64
+            (allocs, request.len())
         };
-        let (chain_small, chain_large) = (per_pane("chain", 50), per_pane("chain", 500));
-        assert!(
-            chain_large <= chain_small * 1.5,
-            "{name}: {chain_small:.1} allocations per pane on a 50-chain, {chain_large:.1} on a 500-chain"
-        );
-        let (balanced_small, balanced_large) =
-            (per_pane("balanced", 64), per_pane("balanced", 512));
-        assert!(
-            balanced_large <= balanced_small * 1.5,
-            "{name}: {balanced_small:.1} per pane at 64 balanced, {balanced_large:.1} at 512"
-        );
+        for (shape, small, large) in [("chain", 50, 500), ("balanced", 64, 512)] {
+            let (at_small, at_large) = (work(shape, small), work(shape, large));
+            assert!(
+                at_large.0 <= at_small.0 + 4 && at_large.1 <= at_small.1 + 16,
+                "{name}: (allocations, request bytes) {at_small:?} on a {small}-pane {shape}, \
+                 {at_large:?} on a {large}-pane {shape}"
+            );
+        }
     }
 }
 
 /// A screen split into a chain deeper than serde_json's default nesting limit
-/// (128) still gets its optimistic view: the request parses and answers.
+/// (128) still gets its optimistic view: the request answers and its patch
+/// spliced into the screen shows the new pane, or hides the closed one.
 #[test]
 fn optimistic_answers_a_chain_deeper_than_the_json_nesting_limit() {
     for size in [127, 128, 300, 500] {
         let screen = tree_screen("chain", size);
-        for (name, request) in optimistic_requests(&screen) {
+        let deepest = *screen.panes.last().expect("a pane");
+        for (name, built) in optimistic_built(&screen) {
+            let request = serde_json::to_vec(&built.request).expect("encode");
             let answer = round_trip(&request)
                 .unwrap_or_else(|e| panic!("{name} on a {size}-pane chain: {e}"));
             let answer: Value = optimistic::parse_value(&answer).expect("answer parses");
             assert!(!answer.is_null(), "{name} on a {size}-pane chain answered null");
+            let patch: Patch = serde_json::from_value(answer).expect("patch");
+            let view = optimistic_app::splice(&screen, &built, &patch);
+            let shown = view.layout.contains((1 << 62) | 1);
+            let kept = view.layout.contains(deepest);
+            assert_eq!((shown, kept), (name != "remove_pane", name != "remove_pane"), "{name}");
         }
     }
 }
@@ -476,7 +494,7 @@ fn optimistic_answers_a_chain_deeper_than_the_json_nesting_limit() {
 /// stack overflow of the app.
 #[test]
 fn optimistic_refuses_absurd_nesting() {
-    let mut deep = String::from(r#"{"op":"remove_pane","pane":1,"screen":{"layout":"#);
+    let mut deep = String::from(r#"{"op":"insert_at_divider","split":1,"layout":"#);
     for _ in 0..200_000 {
         deep.push_str(
             r#"{"type":"split","dir":"right","ratio":0.5,"a":{"type":"leaf","pane":1},"b":"#,
