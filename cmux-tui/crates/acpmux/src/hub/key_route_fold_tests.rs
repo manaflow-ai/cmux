@@ -56,7 +56,9 @@ async fn session_alias_routes_with_the_same_case_prefix_and_separator_rules() {
         hub.key_route("ruby dot startup-speedups").unwrap().as_deref(),
         Some("lanevm-7/0199aaaa-1111")
     );
-    assert_eq!(hub.key_route("ruby").unwrap().as_deref(), Some("lanevm-7/0199aaaa-1111"));
+    // A prefix of a peer's alias names nothing, as a prefix of a peer's name never did
+    // (`key_candidates`): a short key never reaches another machine's chat nobody named.
+    assert_eq!(hub.key_route("ruby").unwrap(), None);
     assert_eq!(
         hub.key_route("ruby_dot_startup-speedups").unwrap().as_deref(),
         Some("lanevm-7/0199aaaa-1111")
