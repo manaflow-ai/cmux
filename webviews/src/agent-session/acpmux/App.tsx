@@ -558,6 +558,7 @@ import { ChatHeaderInlineStatus, ChatHeaderStatus } from "./header/ChatHeaderSta
 import { ChatHeaderTools } from "./header/ChatHeaderTools";
 import { HEADER_ACTIONS, guardedChatMenu, menuGroups, type ChatMenuItem } from "./header/chatHeaderToolsModel";
 import { ThreadTitle } from "./header/ThreadTitle";
+import { ChatSummaryLine } from "./header/ChatSummaryLine";
 import { deleteChatRow, moveMachineRow } from "./header/chatRows";
 import { moveToTerminal, terminalMoveRow, TERMINAL_SWITCH_ACTION, terminalSwitchRow } from "./header/terminalMoveRow";
 import { headerState, setHeaderState, useHeaderState, headerBreadcrumb } from "./header/headerState";
@@ -848,6 +849,7 @@ import {
   withStartedSessions,
 } from "./started/startedSessions";
 import { experimentArm } from "../../experiments/experiment";
+import { setExperimentSwitches } from "../../experiments/switches";
 import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 import { holdWebSwap, pageEditHold, pageReleaseHold } from "../../pages/shared/webSwap";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
@@ -944,6 +946,9 @@ declare global {
       /// Claude Code desktop's in-session status (the live plan card) on or off: the
       /// Debug Settings toggle `agent.sessionStatus`, off by default (sessionStatus.ts).
       applySessionStatus?(on: boolean): void;
+      /// Settings > Advanced > Experiments: every `experiments.*` switch as one object
+      /// (`{"glassToolbarGroups": true}`), each off by default (experiments/switches.ts).
+      applyExperiments?(value: unknown): void;
       /// Session `sessionId`'s avatar was set or removed in some pane: ask for it again (agentAvatar.ts).
       agentAvatarChanged?(sessionId: string): void;
       /// Suggested tasks on or off (Settings > Suggest Follow-Up Tasks, on by default, or the Debug
@@ -8324,6 +8329,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       applySessionStatus(on) {
         setSessionStatus(on === true);
       },
+      applyExperiments(value) {
+        setExperimentSwitches(value);
+      },
       agentAvatarChanged(sessionId) {
         if (typeof sessionId === "string") agentAvatarChanged(sessionId);
       },
@@ -14280,12 +14288,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 >
                   <ChatHeaderStatus status={header.status} detail={header.detail}>
                     {!inTabRow && !showNewTab && snapshot.sessionId && (
-                      <ThreadTitle
-                        key={snapshot.sessionId}
-                        title={chatName}
-                        onRename={renameFromTitle}
-                        trail={titleTrail}
-                      />
+                      <span className="acpmux-header-status-content">
+                        <ThreadTitle
+                          key={snapshot.sessionId}
+                          title={chatName}
+                          onRename={renameFromTitle}
+                          trail={titleTrail}
+                        />
+                        {/* Where the chat stands and its next action (header/ChatSummaryLine.tsx). */}
+                        <ChatSummaryLine summary={snapshot.summary?.rollingSummary} />
+                      </span>
                     )}
                   </ChatHeaderStatus>
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
@@ -14310,7 +14322,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       />
                     )}
                     {/* No title in the tab row: the pane's tab already names the chat (Leo, 2026-11-01). */}
-                    {inTabRow && <ChatHeaderInlineStatus status={header.status} detail={header.detail} />}
+                    {inTabRow && (
+                      <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
+                        {!showNewTab && snapshot.sessionId ? (
+                          <ChatSummaryLine summary={snapshot.summary?.rollingSummary} inline />
+                        ) : undefined}
+                      </ChatHeaderInlineStatus>
+                    )}
                     <ChatHeaderTools
                       chat={snapshot.sessionId}
                       nativeRowTools={{
@@ -14378,6 +14396,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                               })
                           : undefined
                       }
+                      // The glass toolbar's search chip (Settings > Advanced > Experiments): the palette's chats page.
+                      onSearch={showAllChats}
                       onTerminal={(mode) => runSplitAction(HEADER_ACTIONS.terminal, localCwd, mode)}
                       onSplitDown={(mode) => runSplitAction(HEADER_ACTIONS.splitDown, localCwd, mode)}
                       onBrowser={(mode) => runSplitAction(HEADER_ACTIONS.browser, undefined, mode)}
