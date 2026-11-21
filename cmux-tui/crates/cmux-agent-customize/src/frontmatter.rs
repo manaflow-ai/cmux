@@ -22,9 +22,14 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
     let end = body
         .match_indices("\n---")
         .map(|(at, _)| at)
-        .find(|&at| matches!(body[at + 4..].chars().next(), None | Some('\n' | '\r' | ' ' | '\t')))
+        .find(|&at| {
+            matches!(
+                body.get(at + 4..).unwrap_or_default().chars().next(),
+                None | Some('\n' | '\r' | ' ' | '\t')
+            )
+        })
         .or_else(|| body.starts_with("---").then_some(0))?;
-    let block = &body[..end];
+    let block = body.get(..end)?;
     let docs = YamlLoader::load_from_str(block).ok()?;
     let map = match docs.into_iter().next() {
         Some(Yaml::Hash(map)) => map,

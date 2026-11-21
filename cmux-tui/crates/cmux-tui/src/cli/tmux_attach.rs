@@ -226,15 +226,16 @@ impl Parser {
             return Event::Other;
         }
         let (name, rest) = match line.iter().position(|byte| *byte == b' ') {
-            Some(space) => (&line[..space], &line[space + 1..]),
+            Some(space) => line.split_at(space),
             None => (line, &[][..]),
         };
+        let rest = rest.get(1..).unwrap_or_default();
         match name {
             b"%output" => {
                 let space = rest.iter().position(|byte| *byte == b' ').unwrap_or(rest.len());
                 let value = rest.get(space + 1..).unwrap_or_default();
                 Event::Output {
-                    pane: String::from_utf8_lossy(&rest[..space]).into_owned(),
+                    pane: String::from_utf8_lossy(rest.get(..space).unwrap_or(rest)).into_owned(),
                     bytes: unescape(value),
                 }
             }
@@ -252,9 +253,9 @@ impl Parser {
 fn unescape(value: &[u8]) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(value.len());
     let mut index = 0;
-    while index < value.len() {
+    while let Some(&byte) = value.get(index) {
         let octal = value.get(index + 1..index + 4).filter(|digits| {
-            value[index] == b'\\' && digits.iter().all(|digit| (b'0'..=b'7').contains(digit))
+            byte == b'\\' && digits.iter().all(|digit| (b'0'..=b'7').contains(digit))
         });
         match octal {
             Some(digits) => {
@@ -263,7 +264,7 @@ fn unescape(value: &[u8]) -> Vec<u8> {
                 index += 4;
             }
             None => {
-                bytes.push(value[index]);
+                bytes.push(byte);
                 index += 1;
             }
         }
@@ -426,7 +427,7 @@ fn stream<'scope>(
                 Typed::Bytes(bytes) => {
                     let (send, detached) = detach.scan(&bytes);
                     if send > 0 {
-                        gateway.send(&send_keys(&pane.id, &bytes[..send]));
+                        gateway.send(&send_keys(&pane.id, bytes.get(..send).unwrap_or(&bytes)));
                     }
                     if detached {
                         drop(raw);
@@ -497,7 +498,7 @@ fn watch_keys(fd: i32, stop: &AtomicBool, typed: &Sender<Typed>) {
             let _ = typed.send(Typed::Closed);
             return;
         }
-        let bytes = buffer[..read as usize].to_vec();
+        let Some(bytes) = buffer.get(..read as usize).map(<[u8]>::to_vec) else { return };
         if typed.send(Typed::Bytes(bytes)).is_err() {
             return;
         }
