@@ -1,9 +1,9 @@
 {
   "cmuxProfile": 1,
-  "name": "t3-code-app",
-  "description": "Looks like T3 Code: a violet-black page, threads by project in a separate sidebar, lavender ink, a pink accent and card panes.",
+  "name": "violet-app",
+  "description": "A desktop coding app look: a violet-black page, threads by project in a separate sidebar, lavender ink, a pink accent and card panes.",
   "settings": {
-    "appearance.themeFile": "t3-code-app",
+    "appearance.themeFile": "violet-app",
     "sidebar.groupBy": "folder",
     "sidebar.sessionTree": true,
     "sidebar.groupHeader.background": "sections",

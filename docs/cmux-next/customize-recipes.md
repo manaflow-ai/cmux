@@ -329,17 +329,17 @@ cmux customize use ~/.local/state/cmux/customize/recipes/codex-app.json
 
 Or ask: "make cmux look like the Codex app"
 
-### Like T3 Code
+### A violet coding app
 
 A violet-black page, threads by project in a separate sidebar, lavender ink, a pink accent and card
-panes. It ships its theme file (`themes/t3-code-app.json`) and chat stylesheet
+panes. It ships its theme file (`themes/violet-app.json`) and chat stylesheet
 (`agent-pane/theme.css`); the colors are matched by eye, not measured.
 
 ```sh
-cmux customize use ~/.local/state/cmux/customize/recipes/t3-code-app.json
+cmux customize use ~/.local/state/cmux/customize/recipes/violet-app.json
 ```
 
-Or ask: "make cmux look like T3 Code"
+Or ask: "make cmux look like a violet desktop coding app"
 
 ## For agents and scripts
 
