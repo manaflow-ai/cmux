@@ -927,6 +927,10 @@ POOL_SETTINGS_ENV = {
 # `gates_error`) as full for a job queued over 3 minutes. The snapshot itself can be a sweep interval old, so a
 # reading in it is often minutes old already; a workflow that can read ${{ vars.CI_FLEET_GATES }} gets it fresher.
 FLEET_GATES_VERSION = 1
+# The dashboard's reading versions this reader takes. Version 2 (cmuxterm-hq#16097, 2026-11-21) only adds a top-level
+# `disk` inventory beside `labels`, which this cut drops; refusing it left every glaeda label read as full from 05:00Z.
+# The cut below is still written as FLEET_GATES_VERSION, the shape the snapshot's readers know.
+FLEET_GATES_READ_VERSIONS = (1, 2)
 FLEET_GATES_STALE_S = 300
 FLEET_GATES_COUNTS = ("listening", "busy", "down", "unreported", "queued", "oldest_queued_s")
 FLEET_GATES_HELD = ("total", "units", "cpu", "livelock", "other")
@@ -944,8 +948,9 @@ def fleet_gates(raw: str | None) -> tuple[dict[str, Any] | None, str | None]:
         data = json.loads(raw or "")
     except ValueError as error:
         return None, f"CI_FLEET_GATES is not JSON ({error})"
-    if not isinstance(data, dict) or data.get("version") != FLEET_GATES_VERSION:
-        return None, f"CI_FLEET_GATES is not version {FLEET_GATES_VERSION}"
+    version = data.get("version") if isinstance(data, dict) else None
+    if isinstance(version, bool) or version not in FLEET_GATES_READ_VERSIONS:
+        return None, f"CI_FLEET_GATES is not a version this reader takes {FLEET_GATES_READ_VERSIONS}"
 
     def stamp(value: Any) -> str | None:
         when = parse_time(value) if isinstance(value, str) and value.endswith("Z") else None
