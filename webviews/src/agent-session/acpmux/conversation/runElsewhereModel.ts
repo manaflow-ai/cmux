@@ -2,12 +2,35 @@
 // person connected, at the same commit with the same changes, and streams its output back under
 // the row. acpmux does the work (`_acpmux/run_elsewhere/plan|start`, cmux-tui
 // crates/acpmux/src/run_elsewhere.rs); this module holds what the rows share: when the chip
-// shows, the client the rows call, and one small store of each row's run, keyed by tool call, so
+// is asked about (acpmux decides whether it shows: `RunOffer`), the client the rows call, and one small store of each row's run, keyed by tool call, so
 // a run's change re-renders only its own row.
 import { createContext, useSyncExternalStore } from "react";
 
-/** How long a command runs before the chip offers to move it. */
+/** How long a command runs before its row asks acpmux whether to offer moving it. */
 export const RUN_ELSEWHERE_AFTER_MS = 20_000;
+
+/** How often a running row asks again while acpmux says no: a build that was fetching may start
+ * to compute. */
+export const RUN_ELSEWHERE_RECHECK_MS = 15_000;
+
+/** Whether acpmux offers a running command a bigger machine (`_acpmux/run_elsewhere/plan` with
+ * `offerOnly`, cmux-tui crates/acpmux/src/run_elsewhere.rs `offer`): only one that computes (its
+ * session busy across cores, or a build or test), never one that waits on the network or a timer.
+ * `why` says which. */
+export interface RunOffer {
+  show: boolean;
+  why: string;
+  busyCores?: number;
+  /** The answer will not change: the row asks no more (an acpmux too old to judge). */
+  final?: boolean;
+}
+
+/** The offer in a `_acpmux/run_elsewhere/plan {offerOnly}` reply. An acpmux older than the offer
+ * answers a whole plan without one (the web UI can be newer than its daemon: cmux Live, a hot
+ * apply): it judges nothing, so nothing is offered and the row does not ask again. */
+export function offerFromReply(reply: { offer?: RunOffer } | null | undefined): RunOffer {
+  return reply?.offer ?? { show: false, why: "", final: true };
+}
 
 /** One machine acpmux knows: connected and reached by ssh (`ok`), or why not. */
 export interface RunMachine {
@@ -54,6 +77,7 @@ export interface RunOutput {
 /** The daemon calls a run makes; App.tsx binds them to the pane's client and chat. */
 export interface RunElsewhereClient {
   plan(command: string): Promise<RunPlan>;
+  offer(command: string): Promise<RunOffer>;
   start(command: string, machine: string, digest: string, sendSecrets: string[]): Promise<{ id: string }>;
   output(taskId: string, fromByte: number): Promise<RunOutput>;
   stop(taskId: string): Promise<unknown>;
@@ -87,6 +111,8 @@ let hostRelays = true;
  * relays the run's requests at all. */
 export class RunElsewhereStore {
   private runs = new Map<string, RunState>();
+  /** Each row's last answer from acpmux, so a row shown again (scrolled back) does not ask anew. */
+  private offers = new Map<string, RunOffer>();
   private listeners = new Map<string, Set<() => void>>();
   private relayListeners = new Set<() => void>();
   /** A chat opened after the host refused starts knowing it. */
@@ -108,6 +134,14 @@ export class RunElsewhereStore {
   subscribeRelays(listener: () => void): () => void {
     this.relayListeners.add(listener);
     return () => this.relayListeners.delete(listener);
+  }
+
+  offer(toolCallId: string): RunOffer | undefined {
+    return this.offers.get(toolCallId);
+  }
+
+  setOffer(toolCallId: string, offer: RunOffer) {
+    this.offers.set(toolCallId, offer);
   }
 
   get(toolCallId: string): RunState | undefined {

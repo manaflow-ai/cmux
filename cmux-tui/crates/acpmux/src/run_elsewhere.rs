@@ -108,19 +108,245 @@ pub fn command_refusal(command: &str) -> Option<String> {
 /// The program each simple command of a pipeline or list starts with, past `VAR=value`
 /// assignments, `env`, `time`, `nice` and `exec`, without a leading path (`/usr/bin/vim`: `vim`).
 fn programs(command: &str) -> Vec<String> {
-    let mut out = Vec::new();
+    simple_commands(command)
+        .into_iter()
+        .filter_map(|words| words.first().map(|first| base_name(first)))
+        .collect()
+}
+
+/// The words of each simple command of a pipeline or list, from its program on (past `VAR=value`
+/// assignments, `env`, `time`, `nice`, `exec`, `command`, `then` and `do`).
+fn simple_commands(command: &str) -> Vec<Vec<&str>> {
     let parts = command.split(['|', ';', '&', '\n', '(', ')', '`']).chain(command.split("$("));
-    for part in parts {
-        let mut words = part.split_whitespace().skip_while(|w| {
-            (w.contains('=') && !w.starts_with('='))
-                || matches!(*w, "env" | "time" | "nice" | "exec" | "command" | "then" | "do")
-        });
-        if let Some(first) = words.next() {
-            let name = first.rsplit('/').next().unwrap_or(first);
-            out.push(name.trim_matches(['"', '\'']).to_owned());
+    parts
+        .map(|part| {
+            part.split_whitespace()
+                .skip_while(|w| {
+                    (w.contains('=') && !w.starts_with('='))
+                        || matches!(
+                            *w,
+                            "env" | "time" | "nice" | "exec" | "command" | "then" | "do"
+                        )
+                })
+                .map(|w| w.trim_matches(['"', '\'']))
+                .collect::<Vec<_>>()
+        })
+        .filter(|words| !words.is_empty())
+        .collect()
+}
+
+/// `word` without a leading path or quotes (`/usr/bin/vim`: `vim`).
+fn base_name(word: &str) -> String {
+    let word = word.trim_matches(['"', '\'']);
+    word.rsplit('/').next().unwrap_or(word).to_owned()
+}
+
+/// Busy cores, measured over the session's process tree, from which any command is offered a
+/// bigger machine: well past the one core a single-threaded script or an idle agent can keep busy.
+pub const BUSY_CORES: f64 = 1.5;
+/// Busy cores under which even a build or test is not offered: it is waiting (on a lock, a
+/// download, a test's sleep), and a bigger machine would wait as long.
+pub const IDLE_CORES: f64 = 0.5;
+/// The span the CPU time is measured over before the chip is offered.
+pub const OFFER_WINDOW: Duration = Duration::from_secs(2);
+
+/// What a command's words say about where its time goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shape {
+    /// A build or test: compilers and test runners keep every core busy.
+    Build,
+    /// It waits on another machine (GitHub, a CI pool, a download) or a timer: a bigger machine
+    /// waits as long.
+    Wait,
+    /// Nothing known: only its measured CPU time decides.
+    Other,
+}
+
+/// Programs whose time goes to the network or a timer.
+const WAITS: &[&str] = &[
+    "gh",
+    "glaeda-gh",
+    "glaeda",
+    "merge_hold",
+    "git-fetch-once",
+    "cmux-ci",
+    "reach",
+    "curl",
+    "wget",
+    "http",
+    "xh",
+    "sleep",
+    "wait",
+    "ping",
+    "nc",
+    "dig",
+    "nslookup",
+    "aws",
+    "gcloud",
+    "gsutil",
+    "kubectl",
+    "ssh",
+    "scp",
+    "rsync",
+];
+
+/// Programs that build or test whatever their first argument is.
+const BUILDS: &[&str] = &[
+    "xcodebuild",
+    "make",
+    "gmake",
+    "ninja",
+    "rustc",
+    "cc",
+    "gcc",
+    "g++",
+    "clang",
+    "clang++",
+    "tsc",
+    "vitest",
+    "jest",
+    "pytest",
+    "nextest",
+    "gradle",
+    "gradlew",
+    "mvn",
+];
+
+/// Interpreters: the script they run names the work (`python3 tools/merge_hold.py`).
+const INTERPRETERS: &[&str] =
+    &["python", "python3", "node", "bash", "sh", "zsh", "uv", "deno", "ruby", "perl"];
+
+/// The program of a simple command, the script an interpreter runs in its place, without its
+/// extension (`python3 tools/merge_hold.py explain`: `merge_hold`), and the words after it.
+fn program_and_args<'a>(words: &[&'a str]) -> (String, Vec<&'a str>) {
+    let mut name = base_name(words.first().copied().unwrap_or(""));
+    let mut rest: Vec<&str> = words.iter().skip(1).copied().collect();
+    if INTERPRETERS.contains(&name.as_str()) {
+        // `uv run x.py`: past `run`; `python3 -u x.py`: past its flags.
+        let skip = rest.iter().take_while(|w| w.starts_with('-') || **w == "run").count();
+        if let Some(script) = rest.get(skip).copied().filter(|w| !w.starts_with('-')) {
+            let script = base_name(script);
+            name = script.split('.').next().unwrap_or(&script).to_owned();
+            rest = rest.split_off(skip.saturating_add(1).min(rest.len()));
         }
     }
-    out
+    (name, rest)
+}
+
+/// What one simple command's words say about it.
+fn simple_shape(words: &[&str]) -> Shape {
+    let (program, args) = program_and_args(words);
+    let sub = args.iter().find(|w| !w.starts_with('-')).copied().unwrap_or("");
+    let program = program.as_str();
+    if WAITS.contains(&program) || (program == "tail" && args.contains(&"-f")) {
+        return Shape::Wait;
+    }
+    match program {
+        "git" if matches!(sub, "fetch" | "pull" | "push" | "clone" | "ls-remote") => Shape::Wait,
+        "cargo" => match sub {
+            "fetch" | "update" | "search" | "login" | "publish" => Shape::Wait,
+            _ => Shape::Build,
+        },
+        "swift" | "zig" | "go" | "bazel" | "bazelisk" | "dotnet" => {
+            if matches!(sub, "build" | "test" | "run" | "vet" | "bench") {
+                Shape::Build
+            } else {
+                Shape::Other
+            }
+        }
+        "cmake" if args.contains(&"--build") => Shape::Build,
+        "bun" | "npm" | "pnpm" | "yarn" | "npx" | "bunx" => {
+            // `bun test`, `npm run build`, `pnpm -r typecheck`; an install waits on downloads.
+            let task = if sub == "run" {
+                args.iter().filter(|w| !w.starts_with('-')).nth(1).copied().unwrap_or("")
+            } else {
+                sub
+            };
+            if matches!(task, "install" | "i" | "ci" | "add" | "update" | "upgrade" | "publish") {
+                Shape::Wait
+            } else if ["test", "build", "typecheck", "tsc", "vitest", "jest", "lint", "check"]
+                .iter()
+                .any(|w| task.contains(w))
+            {
+                Shape::Build
+            } else {
+                Shape::Other
+            }
+        }
+        "pip" | "pip3" | "brew" | "apt" | "apt-get" | "docker"
+            if matches!(sub, "install" | "pull" | "push" | "update" | "upgrade") =>
+        {
+            Shape::Wait
+        }
+        _ if BUILDS.contains(&program) => Shape::Build,
+        // A repository's own script named for the work (`./scripts/test.sh`, `ci/build-all`).
+        _ if words.first().is_some_and(|w| w.contains('/'))
+            && ["build", "test", "bench", "compile"].iter().any(|w| program.contains(w)) =>
+        {
+            Shape::Build
+        }
+        _ => Shape::Other,
+    }
+}
+
+/// What `command`'s words say about it: a build or test when any of its simple commands is one
+/// (`cargo build && gh pr create` spends its time in the build), else waiting when any waits.
+pub fn shape(command: &str) -> Shape {
+    let shapes: Vec<Shape> = simple_commands(command).iter().map(|w| simple_shape(w)).collect();
+    if shapes.contains(&Shape::Build) {
+        Shape::Build
+    } else if shapes.contains(&Shape::Wait) {
+        Shape::Wait
+    } else {
+        Shape::Other
+    }
+}
+
+/// Whether a running command is offered a bigger machine, and why (the chip's tooltip, and the
+/// answer to "why is this here").
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Offer {
+    pub show: bool,
+    pub why: String,
+    /// The cores its session's processes kept busy over [`OFFER_WINDOW`], when they could be read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub busy_cores: Option<f64>,
+}
+
+/// The offer for `command`, with `busy_cores` its session's measured CPU time per second (None
+/// where it cannot be read: Linux, a remote harness). A bigger machine helps only a command that
+/// computes: one waiting on the network, a timer or a lock is never offered, whatever it is.
+pub fn offer(command: &str, busy_cores: Option<f64>) -> Offer {
+    let answer = |show: bool, why: String| Offer { show, why, busy_cores };
+    if let Some(why) = command_refusal(command) {
+        return answer(false, format!("it stays here: {why}"));
+    }
+    let shape = shape(command);
+    if shape == Shape::Wait {
+        return answer(
+            false,
+            "it waits on the network or a timer; a bigger machine would wait as long".into(),
+        );
+    }
+    match busy_cores {
+        Some(c) if c >= BUSY_CORES => answer(true, format!("it keeps {c:.1} cores busy")),
+        Some(c) if shape == Shape::Build && c >= IDLE_CORES => {
+            answer(true, format!("a build or test, using {c:.1} cores"))
+        }
+        None if shape == Shape::Build => answer(true, "a build or test".into()),
+        Some(c) => answer(
+            false,
+            format!("it uses {c:.1} cores; a bigger machine would not make it faster"),
+        ),
+        None => answer(false, "not a build or test, and its CPU use cannot be read here".into()),
+    }
+}
+
+/// Cores busy between two reads of a tree's CPU time `between` apart.
+pub fn busy_cores(cpu_ms_before: u64, cpu_ms_after: u64, between: Duration) -> f64 {
+    let ms = between.as_millis().max(1) as f64;
+    cpu_ms_after.saturating_sub(cpu_ms_before) as f64 / ms
 }
 
 /// Whether `path` is named like a secret: an env file (not its example), a key or certificate

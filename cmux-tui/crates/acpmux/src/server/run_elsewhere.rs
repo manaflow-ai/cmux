@@ -1,5 +1,8 @@
 //! "Run on a bigger machine" (`run_elsewhere.rs`): `_acpmux/run_elsewhere/plan {sessionId,
-//! command, cwd?}` says whether a chat's command may run on another machine, which connected
+//! command, offerOnly: true}` says whether a running command is worth offering at all
+//! (`{offer: {show, why, busyCores?}}`, `run_elsewhere::offer`: it computes, by its session's
+//! measured CPU time over `OFFER_WINDOW` and its shape; one waiting on the network never is), and
+//! the chat row shows the chip only on `show`. Without `offerOnly` it says whether a chat's command may run on another machine, which connected
 //! machines can take it and exactly what would go (the base commit, every changed file, the
 //! secret-looking ones left out, the untracked ones that stay); `_acpmux/run_elsewhere/start
 //! {sessionId, command, cwd?, peer, digest, sendSecrets?}` starts it as a background task of the
@@ -69,6 +72,11 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
     }
     let command = str_param(params, "command")
         .ok_or_else(|| RpcError::invalid_params("command is required"))?;
+    if m == method::MUX_RUN_ELSEWHERE_PLAN
+        && params.get("offerOnly").and_then(Value::as_bool).unwrap_or(false)
+    {
+        return Ok(json!({ "offer": offer(&session, command).await }));
+    }
     let cwd = str_param(params, "cwd").filter(|c| !c.is_empty()).map(PathBuf::from);
     let cwd = cwd.unwrap_or(meta.cwd.clone());
     let plan = re::plan(&cwd).await;
@@ -143,6 +151,28 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
         "sent": plan.files.len().saturating_sub(left_out.len()),
         "leftOut": left_out,
     }))
+}
+
+/// Whether `command`, running in `session` now, is worth a bigger machine: its words alone when
+/// they settle it (one that stays here or waits on the network is never measured), else the CPU
+/// time its session's process tree uses over [`re::OFFER_WINDOW`].
+async fn offer(session: &crate::hub::Session, command: &str) -> re::Offer {
+    if re::command_refusal(command).is_some() || re::shape(command) == re::Shape::Wait {
+        return re::offer(command, None);
+    }
+    let Some((pid, before)) = session.harness_tree_cpu_ms().await else {
+        return re::offer(command, None);
+    };
+    let started = std::time::Instant::now();
+    tokio::time::sleep(re::OFFER_WINDOW).await;
+    // The same harness at both reads: a restart in between measures nothing.
+    let busy = match session.harness_tree_cpu_ms().await {
+        Some((again, after)) if again == pid => {
+            Some(re::busy_cores(before, after, started.elapsed()))
+        }
+        _ => None,
+    };
+    re::offer(command, busy)
 }
 
 /// The run's script, readable only by this user, in `<ACPMUX_HOME>/run-elsewhere/`; the task

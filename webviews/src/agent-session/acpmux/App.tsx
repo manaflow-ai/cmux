@@ -672,6 +672,8 @@ import { type PreviewChips, PreviewChipsContext, previewsOf } from "./conversati
 import {
   type RunElsewhere,
   RunElsewhereContext,
+  offerFromReply,
+  type RunOffer,
   type RunOutput,
   type RunPlan,
   RunElsewhereStore,
@@ -6506,6 +6508,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       store: new RunElsewhereStore(),
       client: {
         plan: (command) => call<RunPlan>((c) => c.planRunElsewhere(runChat, command)),
+        offer: (command) =>
+          call<{ offer?: RunOffer }>((c) => c.offerRunElsewhere(runChat, command)).then(offerFromReply),
         start: (command, machine, digest, send) =>
           call<{ task: { id: string } }>((c) => c.startRunElsewhere(runChat, command, machine, digest, send)).then(
             (r) => r.task,
