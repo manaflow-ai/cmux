@@ -95,7 +95,8 @@ export function attachedComputerUse(servers: readonly RecordedServer[]): { name:
 
 /**
  * Problems with the `cmux` server of the default launch: acpmux (#48374) serves it from the daemon's
- * MCP gateway as loopback HTTP (`/mcp/<session>/tools`); a stdio `cmux` from the tool dir is also right
+ * MCP gateway as loopback HTTP (`/mcp/<session>`, or its `/tools` and `/tools/<server>` endpoints, mcp_gateway.rs);
+ * a stdio `cmux` from the tool dir is also right
  * (an acpmux without the gateway). Empty when it is attached one of those ways.
  */
 export function gatewayProblems(servers: readonly RecordedServer[]): string[] {
@@ -110,7 +111,7 @@ export function gatewayProblems(servers: readonly RecordedServer[]): string[] {
   }
   const problems: string[] = [];
   if (!["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)) problems.push(`cmux url ${cmux.url} is not loopback`);
-  if (!/^\/mcp\/[^/]+\/tools$/.test(url.pathname)) problems.push(`cmux url ${cmux.url} is not a gateway tool endpoint`);
+  if (!/^\/mcp\/[^/]+(\/tools(\/[^/]+)?)?$/.test(url.pathname)) problems.push(`cmux url ${cmux.url} is not a gateway tool endpoint`);
   return problems;
 }
 
