@@ -219,6 +219,16 @@ extension TerminalController {
         )
     }
 
+    nonisolated func controlSidebarAcknowledgeScopedShellState(
+        scope: ControlSidebarPanelScope,
+        stateRawValue: String
+    ) -> ControlSidebarShellStateAdmission {
+        controlScheduleScopedShellActivityStateWithAdmission(
+            scope: scope,
+            stateRawValue: stateRawValue
+        )
+    }
+
     /// Admits and schedules a shell-state mutation from either socket API.
     ///
     /// Lifecycle validation and the dedupe compare-and-set execute while the
@@ -227,14 +237,22 @@ extension TerminalController {
     /// that replacement. The logical `(surface, shellActivity)` key keeps
     /// exactly one pending mutation regardless of caller-supplied UUIDs;
     /// delivery validates the generation again after any intervening respawn.
-    @discardableResult
     nonisolated func controlScheduleScopedShellActivityState(
         scope: ControlSidebarPanelScope,
         stateRawValue: String
     ) -> Bool {
+        controlScheduleScopedShellActivityStateWithAdmission(
+            scope: scope,
+            stateRawValue: stateRawValue
+        ) == .accepted
+    }
+
+    private nonisolated func controlScheduleScopedShellActivityStateWithAdmission(
+        scope: ControlSidebarPanelScope,
+        stateRawValue: String
+    ) -> ControlSidebarShellStateAdmission {
         guard let state = PanelShellActivityState(rawValue: stateRawValue) else {
-            // Unreachable: the coordinator only forwards a value this app produced.
-            return false
+            return .rejected
         }
         let fastPathState = socketFastPathState
         let registry = GhosttyApp.terminalSurfaceRegistry
@@ -245,26 +263,33 @@ extension TerminalController {
             guard let currentTerminalLifecycleID = registry.terminalLifecycleID(
                       surfaceID: scope.panelID
                   ) else {
-                return false
+                return .staleLifecycle
             }
             admittedTerminalLifecycleID = currentTerminalLifecycleID
         }
-        return TerminalMutationBus.shared.enqueueReplacingMainActorMutation(
+        var admission = ControlSidebarShellStateAdmission.rejected
+        let enqueued = TerminalMutationBus.shared.enqueueReplacingMainActorMutation(
             replaceKey: .shellActivity(surfaceId: scope.panelID),
             admitting: {
                 guard registry.isCurrentSurface(
                     id: scope.panelID,
                     terminalLifecycleID: admittedTerminalLifecycleID
                 ) else {
+                    admission = .staleLifecycle
                     return false
                 }
-                return fastPathState.shouldPublishShellActivity(
+                guard fastPathState.shouldPublishShellActivity(
                     workspaceId: scope.workspaceID,
                     panelId: scope.panelID,
                     terminalLifecycleID: admittedTerminalLifecycleID,
                     relayConnectionID: scope.remoteRelayConnectionID,
                     state: state.rawValue
-                )
+                ) else {
+                    admission = .alreadyCurrent
+                    return false
+                }
+                admission = .accepted
+                return true
             }
         ) { [weak self] in
             guard let self else { return }
@@ -277,6 +302,7 @@ extension TerminalController {
                 remoteRelayConnectionID: scope.remoteRelayConnectionID
             )
         }
+        return enqueued ? .accepted : admission
     }
 
     nonisolated func controlSidebarInvalidTerminalLifecycleIDError() -> String {
