@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 import sys
+import tempfile
 import textwrap
 import unittest
 from pathlib import Path
@@ -65,10 +67,41 @@ TEST_FAILED = textwrap.dedent("""\
     """)
 
 NO_CONSOLE_WARNING = (
-    "No logged-in console user (or no passwordless sudo) on this runner; running in the current bootstrap. "
-    "XCTest will fail here if this runner has no GUI session."
+    "No logged-in console user on this runner; running in the current bootstrap. "
+    "GUI XCTest requires an active console login."
 )
 GUI_TOKEN_UNAVAILABLE = "Could not take this Mac's gui token for the app-host tests (take-gui exited 1)."
+CONSOLE_WRAPPER = ROOT / "scripts/ci/run-in-console-session.sh"
+
+
+def run_console_wrapper_without_console_user(*command: str, exit_status: int = 65,
+                                            capture: bool = False) -> subprocess.CompletedProcess[str]:
+    """scripts/ci/run-in-console-session.sh on a runner whose console belongs to root.
+
+    `{launcher}` in the command names a stand-in run-app-host-xcodebuild.sh that
+    prints a line without a newline and exits `exit_status`. With `capture`, the
+    wrapper runs the way CI's app-host steps do, through run-and-capture.sh.
+    """
+    with tempfile.TemporaryDirectory() as shims:
+        stat = Path(shims) / "stat"
+        stat.write_text("#!/bin/sh\necho root\n", encoding="utf-8")
+        stat.chmod(0o755)
+        launcher = Path(shims) / "run-app-host-xcodebuild.sh"
+        launcher.write_text(f"#!/bin/sh\nprintf 'Testing failed:'\nexit {exit_status}\n", encoding="utf-8")
+        launcher.chmod(0o755)
+        env = {key: value for key, value in os.environ.items()
+               if not key.startswith("CMUX_APP_HOST_") and key != "CMUX_CI_FILE_CAPTURE_ACTIVE"}
+        env.update(PATH=f"{shims}{os.pathsep}{env.get('PATH', '')}", RUNNER_TEMP=shims)
+        args = [arg.replace("{launcher}", str(launcher)) for arg in command]
+        if not capture:
+            env["CMUX_CI_FILE_CAPTURE_ACTIVE"] = "1"
+        return subprocess.run(["/bin/bash", str(CONSOLE_WRAPPER), *args], env=env,
+                              capture_output=True, text=True, timeout=60, check=False)
+
+
+def failure_annotations(stderr: str) -> list[str]:
+    """The `::error::` workflow commands a step printed, as its failure annotations read."""
+    return [line.removeprefix("::error::") for line in stderr.splitlines() if line.startswith("::error::")]
 
 PARAMETERIZED_TEST_FAILED = (
     "2026-09-27T10:40:00.0000000Z ✘ Test mapsConnectionClosedStartupFailureToRetryableStatus(_:) recorded an issue "
@@ -193,6 +226,41 @@ class SignatureTests(unittest.TestCase):
     def test_a_gui_token_failure_is_read_from_its_failure_annotation(self) -> None:
         result = cf.classify_text("", [GUI_TOKEN_UNAVAILABLE])
         self.assertEqual((result["verdict"], result["signature"]), (cf.MACHINE, "gui-token-unavailable"))
+
+    def test_a_gui_test_command_failing_without_a_console_user_is_the_machine(self) -> None:
+        # Every test of the shard failed because the runner had no GUI session;
+        # the wrapper's failure annotation is the only cause (#15395).
+        run = run_console_wrapper_without_console_user("{launcher}")
+        self.assertEqual(run.returncode, 65)
+        self.assertIn(f"::warning::{NO_CONSOLE_WARNING}", run.stderr)
+        annotations = failure_annotations(run.stderr)
+        self.assertEqual(len(annotations), 1, run.stderr)
+        result = cf.classify_text(TEST_FAILED, annotations)
+        self.assertEqual((result["verdict"], result["signature"]), (cf.MACHINE, "no-console-user"))
+        self.assertIn(annotations[0], result["evidence"])
+        log = f"##[warning]{NO_CONSOLE_WARNING}\n{TEST_FAILED}##[error]{annotations[0]}\n"
+        self.assertEqual(self.verdict(log), (cf.MACHINE, "no-console-user"))
+
+    def test_the_no_console_user_failure_reaches_the_log_through_run_and_capture(self) -> None:
+        # CI's app-host steps run the wrapper under run-and-capture.sh, which
+        # streams the capture file to stdout: the line the runner parses.
+        run = run_console_wrapper_without_console_user("{launcher}", capture=True)
+        self.assertEqual(run.returncode, 65, run.stderr)
+        output = run.stdout + run.stderr
+        self.assertEqual(len(failure_annotations(output)), 1, output)
+        self.assertEqual(self.verdict(output.replace("::error::", "##[error]")), (cf.MACHINE, "no-console-user"))
+
+    def test_a_gui_test_command_passing_without_a_console_user_leaves_no_failure(self) -> None:
+        run = run_console_wrapper_without_console_user("{launcher}", exit_status=0)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn(f"::warning::{NO_CONSOLE_WARNING}", run.stderr)
+        self.assertEqual(failure_annotations(run.stderr), [])
+
+    def test_another_command_failing_without_a_console_user_keeps_its_plain_exit(self) -> None:
+        # Cleanup and CLI tests do not need a GUI session: their failure stays theirs.
+        run = run_console_wrapper_without_console_user("sh", "-c", "exit 3")
+        self.assertEqual(run.returncode, 3)
+        self.assertEqual(failure_annotations(run.stderr), [])
 
     def test_an_ambiguous_console_warning_does_not_outweigh_test_failures(self) -> None:
         log = f"##[warning]{NO_CONSOLE_WARNING}\n{TEST_FAILED}"
