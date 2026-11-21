@@ -20,6 +20,7 @@ mod apps {
     fn samples() -> Vec<PathBuf> {
         let mut dirs = Vec::new();
         for folder in ["samples/apps", "examples/extensions"] {
+            // affected-reads: samples/apps examples/extensions
             let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..").join(folder);
             dirs.extend(
                 std::fs::read_dir(&root)
