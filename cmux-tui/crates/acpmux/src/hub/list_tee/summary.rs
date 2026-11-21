@@ -27,6 +27,8 @@ const EXTRA_KEYS: &[&str] = &[
     "pullRequests",
     "usageWarnings",
     "lastMessage",
+    // The chat's task list, counts and lines only (`task_list.rs`): the row's "3/7" and its step.
+    "taskList",
     "lane",
     "turn",
     "tags",
@@ -135,6 +137,10 @@ fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
         values.insert("status".into(), Value::String(status.to_owned()));
     }
     retain(values.get_mut("lastMessage"), &["role", "text"]);
+    retain(
+        values.get_mut("taskList"),
+        &["source", "done", "total", "current", "next", "updatedAt"],
+    );
     retain(values.get_mut("lane"), &["state", "since", "error", "step", "title", "requiresOpen"]);
     retain(
         values.get_mut("turn"),
@@ -185,6 +191,8 @@ fn shrinkable(key: &str) -> bool {
             | "waitingPrompt"
             | "activity"
             | "planStep"
+            | "current"
+            | "next"
             | "error"
             | "stuckError"
             | "cwd"
