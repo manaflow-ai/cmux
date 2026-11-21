@@ -212,7 +212,8 @@ pub fn apply(
     cmux_config: bool,
 ) {
     if cmux_config && !argv.iter().any(|a| a.starts_with("model_provider=")) && !argv.is_empty() {
-        // After the subcommand: codex drops an override before it (`codex_config_index`).
+        // After the profile's own overrides (`codex_config_index`); the launch keeps them all before
+        // the subcommand (`harness_limits::codex_args`).
         let at = crate::agent_credentials::codex_config_index(argv);
         for (i, a) in OWN_PROVIDER_ARGS.iter().enumerate() {
             argv.insert(at + i, (*a).to_owned());

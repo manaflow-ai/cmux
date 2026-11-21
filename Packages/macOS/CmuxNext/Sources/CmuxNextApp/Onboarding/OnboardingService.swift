@@ -9,6 +9,8 @@ import CmuxNextCompat
 import CmuxNextCookieImport
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextImportCards
 import CmuxNextOnboarding
 import CmuxNextSettings
@@ -18,7 +20,7 @@ import os
 /// browser-data import offer, the default-app registry and the imported
 /// data, and feeds imported history to the omnibar at launch. First-run onboarding
 /// (windows, Set Up cmux card, history page) is off unless `--onboarding`
-/// (``AppEnvironment/skipsOnboarding``): launches go straight to the main window. The one-time classic migration adds classic's workspaces
+/// (``AppEnvironment/launchSteps``): launches go straight to the main window. The one-time classic migration adds classic's workspaces
 /// to the restored windows (classic-migration-DESIGN.md).
 @MainActor
 final class OnboardingService {
@@ -144,11 +146,11 @@ final class OnboardingService {
         }
     }
 
-    /// First-run routing only, once per app channel (an upgrade is no first run). Never when ``AppEnvironment/skipsOnboarding``
+    /// First-run routing only, once per app channel (an upgrade is no first run). Never when ``AppEnvironment/launchSteps``
     /// (showcase, capture builds): their captures are fresh homes, and the page over Home parks the workspace their seed fills.
     func showHistoryAtFirstRun(isFirstRun: Bool, defaults: UserDefaults = .standard) {
         let key = OnboardingWindowPresenter.historyShownKey
-        guard !services.environment.skipsOnboarding, !defaults.bool(forKey: key) else { return }
+        guard !services.environment.launchSteps.skipsFirstRun, !defaults.bool(forKey: key) else { return }
         if isFirstRun {
             // On top: launch can replace its first Home pane. Consume only once shown. The
             // mark tells the fresh-home launch smoke this page covers Home on purpose.
@@ -165,14 +167,16 @@ final class OnboardingService {
     }
 
     /// Home's Set Up cmux card (``FirstRunSetup``): what a first run offers, in place of the first-run windows.
-    private(set) lazy var setup = FirstRunSetup(skipsOnboarding: services.environment.skipsOnboarding)
+    private(set) lazy var setup = FirstRunSetup(skipsOnboarding: services.environment.launchSteps.skipsFirstRun)
 
-    /// A first run starts Home's Set Up cmux card, which offers the agents, the chat history (when found), the
-    /// account and the command line in one place: the Agents window and the CLI toast count as shown, and
-    /// Bring your history opens from the card's row. Otherwise Agents, then Bring your history
-    /// (``OnboardingWindowPresenter/showFirstRunSteps``); never when ``AppEnvironment/skipsOnboarding``.
+    /// Meet Chief (``ChiefOnboarding``): a fresh install's first look at Chief, on the empty Chief chat.
+    private(set) lazy var chief = ChiefOnboarding(defaults: .standard, settings: HomeChiefOnboardingSettings { [weak services] in services?.settings },
+                                                  skipsOnboarding: services.environment.launchSteps.skipsFirstRun)
+
+    /// The launch's steps (``AppEnvironment/launchSteps``): with onboarding on, a first run starts Home's Set Up cmux card
+    /// (the Agents window and the CLI toast count as shown), else Agents, then Bring your history (``OnboardingWindowPresenter/showFirstRunSteps``).
     func showFirstRunSteps(isFirstRun: Bool) async {
-        guard !services.environment.skipsOnboarding else { return }
+        guard await presenter.showLaunchSteps(services.environment.launchSteps, agentTools: agentTools) else { return }
         let route = setup.route(isFirstRun: isFirstRun, replacedKeys: [CLIInstallHandlers.offeredAtLaunchKey], screenReader: NSWorkspace.shared.isVoiceOverEnabled)
         if route == .startCard { DebugTimings.markLaunch("first_run.setup_card_shown") }
         // The cmux Tools question comes at launch whatever owns the first run, for an existing
