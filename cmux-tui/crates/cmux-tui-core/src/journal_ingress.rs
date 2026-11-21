@@ -1895,6 +1895,52 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    /// A stalled disk kept the workspace registry held past the writer's
+    /// deadline on a Cloud VM ("waiting for the workspace registry journal
+    /// writer: mutex deadline expired"). The writer then stopped for good:
+    /// for hours every later journal write failed with the same timeout,
+    /// though the registry was free again. A stall fails only the batch that
+    /// waited through it.
+    #[test]
+    fn a_registry_stall_past_the_deadline_fails_only_the_batch_that_waited() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-registry-stall-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux =
+            Mux::open_persistent("journal-registry-stall", crate::SurfaceOptions::default(), &root)
+                .unwrap();
+        let locked_mux = mux.clone();
+        let (entered, entered_receiver) = sync_channel(1);
+        let (release, release_receiver) = sync_channel(1);
+        let blocker = std::thread::spawn(move || {
+            locked_mux.hold_workspace_registry_for_test(entered, release_receiver);
+        });
+        entered_receiver.recv().unwrap();
+
+        let error = mux.flush_terminal_journal().unwrap_err();
+        assert!(format!("{error:#}").contains("timed out"), "{error:#}");
+        release.send(()).unwrap();
+        blocker.join().unwrap();
+
+        mux.flush_terminal_journal()
+            .expect("a terminal journal fence after the registry stall must commit");
+        mux.journal_local_frontend_event(FrontendJournalEvent::Resize {
+            event_id: "event_registry_stall_after".into(),
+            frontend_projection_id: public_id("projection", 7, FrontendProjectionPublicId::parse),
+            generation: "frontend_generation_1".into(),
+            cols: 100,
+            rows: 30,
+            cell_width: 8,
+            cell_height: 16,
+        })
+        .expect("a durable journal event after the registry stall must commit");
+        assert!(!mux.daemon_shutdown_requested());
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn producer_deadline_prevents_a_late_transaction_commit() {
         let root = std::env::temp_dir().join(format!(
