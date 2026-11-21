@@ -89,9 +89,9 @@ import UIKit
     func forcedDisconnect() async throws -> (Numbers, Recording, TerminalModel) {
         let daemon = FakeTerminalDaemon()
         daemon.afterAttach = nil
-        // The page has its grid before the attach: a first attach tries twice,
-        // with the grid beside identify, then in series (TerminalAttachPlan).
-        daemon.failNextAttaches = 2
+        // One refused attach, with the grid beside identify or in series: an
+        // "unknown surface" is the attach's own failure (TerminalAttachPlan).
+        daemon.failNextAttaches = 1
         let link = MockMacLink { service, line in daemon.respond(service, line) }
         let inner = DaemonTerminalSession(surface: 7) {
             DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))

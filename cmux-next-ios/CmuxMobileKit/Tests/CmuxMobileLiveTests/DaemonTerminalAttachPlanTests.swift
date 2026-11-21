@@ -71,12 +71,12 @@ import Testing
         #expect(attaches(daemon).count == 1)
     }
 
-    /// Falling back: a refused attach (here the Mac's "unknown surface") is
-    /// tried again in series, after identify.
+    /// Falling back: an attach refused for a field it sent (here a lane older
+    /// than `replay_history_rows`) is tried again in series, after identify.
     @Test func aRefusedPipelinedAttachFallsBackToTheAttachInSeries() async throws {
         let daemon = FakeTerminalDaemon()
         daemon.initialSize = true
-        daemon.failNextAttaches = 1
+        daemon.laneRefusesHistoryRows = true
         let session = session(daemon)
         defer { session.stop() }
         var events: [TerminalSessionEvent] = []
@@ -87,6 +87,26 @@ import Testing
         #expect(daemon.writes.count >= 2 && daemon.writes[1] == ["attach-surface"], "\(daemon.writes)")
         #expect(attaches(daemon).last?["cols"] as? Int == 54)
         #expect(events.contains(.connection(.attached)))
+    }
+
+    /// An attach refused for its surface ("unknown surface": a Mac host that
+    /// just restarted) is a failed attach, as in series: one attach-surface a
+    /// try, no second one in series behind it, and the retry attaches.
+    @Test func anUnknownSurfaceIsOneFailedAttachNotAFallback() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.initialSize = true
+        daemon.failNextAttaches = 1
+        let session = session(daemon)
+        session.reattachBackoff = []
+        defer { session.stop() }
+        session.start { _ in }
+        session.resize(columns: 54, rows: 42)
+        try await waitUntil { if case .failed = session.connectionState { true } else { false } }
+        #expect(attaches(daemon).count == 1, "\(daemon.writes)")
+        #expect(!session.isAttached)
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        #expect(attaches(daemon).count == 2)
     }
 
     /// A hidden terminal claims no size, and a reattach first asks where the

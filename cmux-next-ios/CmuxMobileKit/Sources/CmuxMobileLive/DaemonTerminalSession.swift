@@ -509,6 +509,12 @@ public final class DaemonTerminalSession: TerminalSession {
         tailProbe = nil
     }
 
+    /// An attach refused because the Mac does not know the surface (its
+    /// error says "unknown surface N"), not for a field it sent.
+    static func refusesSurface(_ error: String) -> Bool {
+        error.hasPrefix("unknown surface")
+    }
+
     /// Attaches again after a dropped link. A no-op while attached or
     /// attaching, before `start`, and after the surface ended.
     public func reconnect() {
@@ -792,6 +798,14 @@ public final class DaemonTerminalSession: TerminalSession {
                 guard let error = Self.error(in: reply), error.contains("replay_history_rows") else { return reply }
                 tailReplay = false
                 return try await send(historyRows: nil)
+            }
+            // A pipelined attach refused for its surface ("unknown surface": a
+            // Mac host that just restarted) failed as an attach, not for its
+            // grid or fields: the attach in series would hear the same. It goes
+            // to the retry like any failed attach, one attach a try, keeping
+            // the last frame (termqa D3).
+            if let pipelined, let error = Self.error(in: pipelined.reply), Self.refusesSurface(error) {
+                throw LinkError(code: "attach", message: error)
             }
             // The Mac took the pipelined attach: its replay is already held.
             let pipelinedReply = pipelined.flatMap { Self.error(in: $0.reply) == nil ? $0 : nil }
