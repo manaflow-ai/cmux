@@ -69,6 +69,7 @@ export const ROW_LEVELS: {
     "appearance.backgroundOpacity": "more",
     "appearance.inactiveWindowDim": "more",
     "appearance.wallpaperTint": "more",
+    "appearance.wallpaperLighting": "more",
     "appearance.displayBackgrounds": "hidden",
     "appearance.displayBackgroundRotations": "hidden",
     "appearance.statusIndicator.animation": "more",
