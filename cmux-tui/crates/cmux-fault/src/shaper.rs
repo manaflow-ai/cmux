@@ -146,13 +146,10 @@ impl ProfileFile {
         Self::parse(&text)
     }
 
-    /// The shipped profiles. A file that does not parse gives none (and says why on stderr);
-    /// the crate's tests look its profiles up by name, so they fail on it.
+    /// The profiles that ship in the crate. A file that does not parse gives no profiles, so every
+    /// lookup names the missing row; `every_profile_parses_and_names_its_source` keeps the shipped file parsing.
     pub fn builtin() -> Self {
-        Self::parse(PROFILES_JSON).unwrap_or_else(|error| {
-            eprintln!("cmux-fault: {error}");
-            Self { version: 0, profiles: Vec::new() }
-        })
+        Self::parse(PROFILES_JSON).unwrap_or(Self { version: 0, profiles: Vec::new() })
     }
 
     pub fn get(&self, name: &str) -> Option<&LinkProfile> {
