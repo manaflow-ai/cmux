@@ -13,21 +13,13 @@ import Testing
         StatusReport(id: "status:entry", source: .explicit, state: state, label: label)
     }
 
-    @Test(arguments: [StatusIndicatorState.error, .success])
-    func finishedRowStatesClearAfterTheyAreSeen(_ state: StatusIndicatorState) {
+    @Test(arguments: [StatusIndicatorState.error, .waiting, .success, .busy(progress: nil), .paused(progress: nil), .working])
+    func everyRowStateClearsAfterItIsSeen(_ state: StatusIndicatorState) {
         let store = SidebarStatusSeenStore()
         let report = Self.report(state)
         #expect(store.visible([report], workspaceID: Self.workspace).count == 1)
         store.markSeen([report], workspaceID: Self.workspace)
         #expect(store.visible([report], workspaceID: Self.workspace).isEmpty)
-    }
-
-    @Test(arguments: [StatusIndicatorState.waiting, .busy(progress: nil), .paused(progress: nil), .working])
-    func liveRowStatesStayAfterTheyAreSeen(_ state: StatusIndicatorState) {
-        let store = SidebarStatusSeenStore()
-        let report = Self.report(state)
-        store.markSeen([report], workspaceID: Self.workspace)
-        #expect(store.visible([report], workspaceID: Self.workspace) == [report])
     }
 
     @Test func aReportThatWentAwayIsForgotten() {
