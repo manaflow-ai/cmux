@@ -1500,6 +1500,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/browser_workspace_source_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/browser_workspaces",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/secret_request",
       "params": true,
       "result": true

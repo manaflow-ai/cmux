@@ -1493,6 +1493,8 @@ async fn dispatch_request_with_identity(
             }
             Ok(view)
         }
+        super::browser_workspaces::SET => hub.person.browser_workspaces.set(conn, &params),
+        super::browser_workspaces::READ => hub.person.browser_workspaces.read(conn).await,
         method::MUX_WORKSPACE_ROOTS_SET if conn.is_person() => {
             hub.person.set_workspace_roots(&params)
         }

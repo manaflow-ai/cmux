@@ -1,3 +1,4 @@
+import type { BrowserWorkspaces } from "./browser/workspaces";
 import type { ChatTaskList } from "./chatTaskList";
 import { experimentArm } from "../../experiments/experiment";
 import { permissionCardHeight } from "./permissions/cardHeight";
@@ -1270,6 +1271,7 @@ export type AcpmuxSnapshot = {
   /// Monotonic structural revision for the subagent list; usage-only updates do not change it.
   subagentStructureVersion?: number;
   sessions: AcpmuxSessionEntry[];
+  browserWorkspaces?: BrowserWorkspaces;
   /// Who else has a shared chat open and who of them types (multiplayer/participants.ts).
   presence?: ChatPresence;
   /// A Fork Conversation acpmux has not answered yet, since when (Unix ms): the line above the
