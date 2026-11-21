@@ -37,6 +37,19 @@ impl Env {
         );
         // launchd has no com.cmux.server loaded here.
         runner.answer_always("launchctl print", Output { code: Some(113), ..Output::default() });
+        // Every unit systemd is asked about is stopped.
+        runner.answer_always(
+            "--property=ActiveState",
+            Output { code: Some(0), stdout: b"inactive\n".to_vec(), ..Output::default() },
+        );
+        runner.answer_always(
+            "--property=ControlGroup,TasksCurrent",
+            Output {
+                code: Some(0),
+                stdout: b"ControlGroup=\nTasksCurrent=[not set]\n".to_vec(),
+                ..Output::default()
+            },
+        );
         Env {
             tmp: tempfile::tempdir().unwrap(),
             runner,
