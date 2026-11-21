@@ -235,6 +235,26 @@ fn say(msg: &str) {
     eprintln!("cmux vm runner: {msg}");
 }
 
+/// Resolves on SIGINT or SIGTERM (Ctrl-C elsewhere) with the signal's name.
+async fn interrupted() -> &'static str {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        if let Ok(mut term) = signal(SignalKind::terminate()) {
+            return tokio::select! {
+                _ = tokio::signal::ctrl_c() => "SIGINT",
+                _ = term.recv() => "SIGTERM",
+            };
+        }
+    }
+    let _ = tokio::signal::ctrl_c().await;
+    "SIGINT"
+}
+
+/// Exit code of a run stopped by a signal (128 + SIGINT).
+pub const INTERRUPTED: i32 = 130;
+
+/// `new`, stopped cleanly by SIGINT or SIGTERM: a VM it already holds is parked, and it exits 130.
 async fn new(
     args: &Args,
     env: &dyn Fn(&str) -> Option<String>,
@@ -243,18 +263,72 @@ async fn new(
     let fs = freestyle_client(env)?;
     let jit = jit_client(args, env)?;
     let client = http::client().map_err(|e| e.0)?;
-    let owner = owner_of(args, Some(&jit), &client).await?;
-    let group_id = jit.group_id(&client, &args.group).await?;
-    let req = Request { owner: owner.clone(), labels: args.labels.clone(), size: args.size };
     let log = |m: &str| say(m);
     let fleet = Fleet { client: &client, fs: &fs, pacing: Pacing::default(), log: &log };
+    let held: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+    let outcome = {
+        let run = new_until_done(args, &fleet, &jit, &held, &mut *out);
+        tokio::pin!(run);
+        tokio::select! {
+            r = &mut run => Ok(r),
+            sig = interrupted() => Err(sig),
+        }
+    };
+    let sig = match outcome {
+        Ok(r) => return r,
+        Err(sig) => sig,
+    };
+    let vm = held.lock().ok().and_then(|g| g.clone());
+    let parked = match &vm {
+        Some(id) => {
+            say(&format!("{sig}: parking {id}"));
+            park_vm(&fleet, id).await
+        }
+        None => {
+            say(&format!(
+                "{sig}: stopped before a VM was ready; `cmux vm runner ls` shows any it left"
+            ));
+            false
+        }
+    };
+    if args.json {
+        let _ = writeln!(
+            out,
+            "{}",
+            json!({"ok": false, "interrupted": sig, "vm_id": vm, "parked": parked})
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "interrupted ({sig}); vm {} parked: {parked}",
+            vm.as_deref().unwrap_or("-")
+        );
+    }
+    Ok(INTERRUPTED)
+}
+
+async fn new_until_done(
+    args: &Args,
+    fleet: &Fleet<'_>,
+    jit: &Jit,
+    held: &std::sync::Mutex<Option<String>>,
+    out: &mut dyn std::io::Write,
+) -> Result<i32, String> {
+    let client = fleet.client;
+    let owner = owner_of(args, Some(jit), client).await?;
+    let group_id = jit.group_id(client, &args.group).await?;
+    say(&format!(
+        "owner {owner}, group {} ({group_id}); looking for a parked runner VM",
+        args.group
+    ));
+    let req = Request { owner: owner.clone(), labels: args.labels.clone(), size: args.size };
     // A paused VM is taken only when GitHub holds no record of its last runner (a paused guest may still hold a live
     // listener, or a job); a stopped one is clean after `reset`. The roster is read lazily, once.
     let gh = GitHub { token: jit.token.expose().to_owned(), org: args.org.clone(), group_id };
     let vms = fleet.runner_vms().await?;
     let paused_names: std::collections::HashSet<String> =
         if vms.iter().any(|v| v.state == "paused" && v.owner == owner) {
-            match gh.roster(&client).await {
+            match gh.roster(client).await {
                 Ok(roster) => roster.into_iter().map(|r| r.name).collect(),
                 // The roster is unreadable: no paused VM is taken.
                 Err(_) => vms.iter().map(|v| v.name.clone()).collect(),
@@ -264,13 +338,16 @@ async fn new(
         };
     let prepared =
         fleet.make_or_resume(&req, &|v: &RunnerVm| !paused_names.contains(&v.name)).await?;
+    if let Ok(mut g) = held.lock() {
+        *g = Some(prepared.vm_id.clone());
+    }
     say(&format!(
         "{} {} prepared; registering {}",
         if prepared.reused { "resumed" } else { "made" },
         prepared.vm_id,
         prepared.name
     ));
-    let minted = match jit.mint(&client, &prepared.name, group_id, &args.labels).await {
+    let minted = match jit.mint(client, &prepared.name, group_id, &args.labels).await {
         Ok(m) => m,
         Err(e) => {
             fleet.power_off(&prepared.vm_id, "no JIT config").await;
@@ -281,6 +358,13 @@ async fn new(
         fleet.power_off(&prepared.vm_id, "runner did not start").await;
         return Err(e);
     }
+    say(&format!(
+        "runner {} ({}) started on {}, labels {}",
+        prepared.name,
+        minted.runner_id,
+        prepared.vm_id,
+        args.labels.join(",")
+    ));
     let mut report = json!({
         "ok": true,
         "vm_id": prepared.vm_id,
@@ -297,8 +381,8 @@ async fn new(
     let mut code = 0;
     if args.wait {
         let (wait, c) = wait_for_job(
-            &fleet,
-            &jit,
+            fleet,
+            jit,
             &prepared.vm_id,
             &prepared.name,
             minted.runner_id,
@@ -360,12 +444,21 @@ async fn wait_for_job(
     let mut record = None;
     let mut seen_online = false;
     let mut busy = false;
+    let started = Instant::now();
+    let mut last_said = started;
+    say(&format!("waiting for {name} to come online and take one job (up to {timeout_s}s)"));
     let state = loop {
         match jit.runner(fleet.client, runner_id).await {
             Ok(None) => break if seen_online || busy { "done" } else { "runner_offline" },
             Ok(Some(r)) => {
-                seen_online |= r["status"] == "online";
-                busy = r["busy"].as_bool().unwrap_or(false);
+                let online = r["status"] == "online";
+                let now_busy = r["busy"].as_bool().unwrap_or(false);
+                if let Some(news) = wait_news(seen_online, busy, online, now_busy) {
+                    say(&format!("{name}: {news} after {}s", started.elapsed().as_secs()));
+                    last_said = Instant::now();
+                }
+                seen_online |= online;
+                busy = now_busy;
             }
             Err(e) => say(&format!("runner status: {e}")),
         }
@@ -374,12 +467,30 @@ async fn wait_for_job(
             && let Ok(r) = fleet.exec(vm, "cat /tmp/fsr-job", None, 20_000).await
         {
             record = runner::parse_job_record(&r.stdout);
+            if let Some(rec) = &record {
+                say(&format!(
+                    "{name}: job {} of run {} in {}",
+                    rec.job, rec.run_id, rec.repository
+                ));
+            }
         }
         if Instant::now() >= deadline {
             break "timeout";
         }
+        if last_said.elapsed() >= Duration::from_secs(60) {
+            let what = if busy {
+                "running its job"
+            } else if seen_online {
+                "online, idle"
+            } else {
+                "not online yet"
+            };
+            say(&format!("{name}: {what}, {}s", started.elapsed().as_secs()));
+            last_said = Instant::now();
+        }
         tokio::time::sleep(poll).await;
     };
+    say(&format!("{name}: {state} after {}s", started.elapsed().as_secs()));
     let mut job = Value::Null;
     if let Some(rec) = &record
         && state == "done"
@@ -396,8 +507,24 @@ async fn wait_for_job(
         job = json!({"repository": rec.repository, "run_id": rec.run_id, "run_attempt": rec.run_attempt, "name": rec.job});
     }
     // The guest powers itself off after its job. An idle runner that timed out is parked here; one mid-job is left.
-    let parked = if state == "timeout" && busy { false } else { park_vm(fleet, vm).await };
+    let parked = if state == "timeout" && busy {
+        say(&format!("{vm}: left running, its job is still going"));
+        false
+    } else {
+        say(&format!("parking {vm}"));
+        park_vm(fleet, vm).await
+    };
     (json!({"state": state, "job": job, "parked": parked}), if state == "timeout" { 3 } else { 0 })
+}
+
+/// What changed in a runner between two polls, worth a line on stderr.
+fn wait_news(was_online: bool, was_busy: bool, online: bool, busy: bool) -> Option<&'static str> {
+    match (was_busy, busy) {
+        (false, true) => Some("took a job"),
+        (true, false) => Some("job finished"),
+        _ if online && !was_online => Some("online, waiting for a job"),
+        _ => None,
+    }
 }
 
 /// Parks a running VM (the guest powers off); true once it reads stopped or paused.
@@ -530,4 +657,20 @@ async fn park(
         }
     }
     Ok(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wait_news;
+
+    #[test]
+    fn wait_news_names_each_change_once() {
+        assert_eq!(wait_news(false, false, true, false), Some("online, waiting for a job"));
+        assert_eq!(wait_news(true, false, true, true), Some("took a job"));
+        assert_eq!(wait_news(false, false, true, true), Some("took a job"));
+        assert_eq!(wait_news(true, true, true, false), Some("job finished"));
+        assert_eq!(wait_news(true, false, true, false), None);
+        assert_eq!(wait_news(true, true, true, true), None);
+        assert_eq!(wait_news(false, false, false, false), None);
+    }
 }
