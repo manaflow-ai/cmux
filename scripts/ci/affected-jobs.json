@@ -39,7 +39,7 @@
           "inputs": [
             "scripts/cmux-next/run-v2-gates.sh", "scripts/cmux-next/v2-gates.d/",
             "scripts/ci/cargo_test_verdict.py", "scripts/ci/git_tree.py", "scripts/ci/test_reds.py",
-            "tests/test_cargo_test_verdict.py"
+            "tests/test_cargo_test_verdict.py", ".github/actions/cache-restore/", ".github/actions/cache-save/"
           ]
         },
         "acpmux-sim": {
@@ -178,7 +178,8 @@
         "packages": "1 run on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 30 job-minutes",
         "consumers": "1 run on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 24 job-minutes",
         "rust-msrv": "1 run on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 14 job-minutes",
-        "code-mode": "15 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 26 job-minutes"
+        "code-mode": "15 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 26 job-minutes",
+        "conformance": "154 runs on 36 merged pull requests (11-21 14:29-17:00Z, live feed), 148 of them with contract skipped; 5 of 282 merged commits touched its inputs; 0.05% of heads it alone caught (CI 10x, cmux#48480); 2,303 job-minutes"
       },
       ".github/workflows/swift-linux-packages.yml": {
         "swift-linux-packages": "10 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 178 job-minutes"
