@@ -12,7 +12,7 @@ struct FlushLog {
     pending: Arc<Mutex<Vec<u8>>>,
 }
 
-impl std::io::Write for FlushLog {
+impl Write for FlushLog {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.pending.lock().unwrap().extend_from_slice(bytes);
         Ok(bytes.len())
