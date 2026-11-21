@@ -1625,12 +1625,15 @@ fn run_on_worker(
         return refuse(writer, id, Refusal::NotTrusted);
     }
     // A teammate (a bound proxy author) never answers the host's asks: an allow
-    // would run a tool on the owner's machine (design section 7). Nor does it say it types or
-    // views yet: acpmux would count that as the owner's own presence. A link guest's typing and
-    // view carry its author.
+    // would run a tool on the owner's machine (design section 7). Without presence it does not
+    // say it types or views either. A link guest's typing and view carry its author.
     let guest = attachment.author.as_ref().is_some_and(proxy::is_guest);
     // A Cloud team member's typing and view carry its own author (acpmux presence), like a guest's.
     let member = attachment.author.as_ref().is_some_and(proxy::is_member);
+    // A tailnet teammate whose bind asked for presence (`labs.chatMultiplayer`, design
+    // chat-multiplayer phase 1b) types and views as its own author too; without it, as before.
+    let teammate_presence =
+        attachment.author.is_some() && !guest && !member && attachment.wants_presence();
     // Only the owner answers an ask or decides a held prompt (acpmux refuses an author too).
     if attachment.author.is_some()
         && matches!(
@@ -1643,7 +1646,8 @@ fn run_on_worker(
         return refuse(writer, id, if member { Refusal::OwnerOnly } else { Refusal::NotTrusted });
     }
     if attachment.author.is_some()
-        && (!(guest || member) || matches!(&command, AgentSessionCommand::Permission(_)))
+        && (!(guest || member || teammate_presence)
+            || matches!(&command, AgentSessionCommand::Permission(_)))
         && matches!(
             &command,
             AgentSessionCommand::Permission(_)
