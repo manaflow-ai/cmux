@@ -209,6 +209,8 @@ impl HttpHub {
         let req = agent
             .request(method, &url)
             .set("Authorization", &format!("Bearer {}", self.token()?));
+        // The hub is cmux Cloud's: a dev build's Chiefs meet only in its own space.
+        let req = crate::build_space::apply(req, &crate::build_space::process())?;
         let res = match body {
             Some(b) => req.send_json(b.clone()),
             None => req.call(),
@@ -622,7 +624,7 @@ fn bridge_cli(
     use crate::cloud::auth::{self, InstallFile, InstallTokens, TokenSource, UreqHttp};
     let file = InstallFile::load(install)?;
     let api = file.api_base_url.trim_end_matches('/').to_owned();
-    let http: Arc<dyn crate::cloud::auth::Http> = Arc::new(UreqHttp);
+    let http: Arc<dyn crate::cloud::auth::Http> = Arc::new(UreqHttp::new());
     let tokens = InstallTokens::new(file, http.clone());
     if list {
         let lease = tokens.mint(None)?;

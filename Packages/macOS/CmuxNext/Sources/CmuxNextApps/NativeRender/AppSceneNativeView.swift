@@ -19,12 +19,18 @@ final class AppSceneNativeView: NSView {
     let bundleDirectory: URL?
     /// Runs after a redraw that may have changed ``preferredHeight(width:)``.
     var onContentSizeChange: (() -> Void)?
+    /// The root takes the view's whole bounds (a widget tile), not its own height.
+    var fillsBounds = false {
+        didSet { if fillsBounds != oldValue { needsLayout = true } }
+    }
     private var views: [String: AppSceneNodeNSView] = [:]
     private var rootView: AppSceneNodeNSView?
     /// The failed or disconnected mount's row (plain words, Copy Error, Details).
     private let failure: AppFailureNSView
     /// Under a kept view whose app's last save did not load.
     private let reloadMarker = AppSceneReloadMarkerView()
+    /// The clock this scene's host-ticking Texts (`date`) tick on: one deadline per second for the mount.
+    let clock = AppSceneClock()
     private var drawnRevision = -1
     private var drawnStatus: AppSceneModel.Status?
     private var drawnReloadFailure: String?
@@ -178,7 +184,7 @@ final class AppSceneNativeView: NSView {
         case .slider: AppSceneSliderNSView(id: id, node: node)
         case .textField: AppSceneTextFieldNSView(id: id, node: node)
         case .progressView: AppSceneProgressNSView(id: id, node: node)
-        case .circle, .capsule, .rectangle, .roundedRectangle: AppSceneShapeNSView(id: id, node: node)
+        case .circle, .capsule, .rectangle, .roundedRectangle, .line: AppSceneShapeNSView(id: id, node: node)
         case .zStack: AppSceneZStackNSView(id: id, node: node)
         case .vStack, .lazyVStack, .group, .forEach, .reorderable, .hStack: AppSceneStackNSView(id: id, node: node)
         }
@@ -209,8 +215,12 @@ final class AppSceneNativeView: NSView {
             failure.frame = CGRect(x: 0, y: 0, width: bounds.width, height: ceil(failure.height(width: bounds.width)))
         }
         guard let rootView else { return }
-        let width = min(rootView.naturalWidth ?? bounds.width, bounds.width)
-        rootView.frame = CGRect(x: 0, y: 0, width: width, height: rootView.height(width: width))
+        if fillsBounds {
+            rootView.frame = bounds
+        } else {
+            let width = min(rootView.naturalWidth ?? bounds.width, bounds.width)
+            rootView.frame = CGRect(x: 0, y: 0, width: width, height: rootView.height(width: width))
+        }
         if !reloadMarker.isHidden {
             reloadMarker.frame = CGRect(x: 0, y: rootView.frame.maxY, width: bounds.width, height: reloadMarker.height)
         }
