@@ -28,7 +28,11 @@ import CmuxNextWakeupsTestSupport
     /// The blur only averages what is under the tooltip, so the worst a backdrop can do is pure
     /// black or pure white: over both, the text keeps 4.5:1, on the glass and on the opaque
     /// Reduce Transparency fallback. Every theme's tint is glass, never the opaque fill in
-    /// disguise, and these themes' text reads on it as the theme draws it.
+    /// disguise, and these themes' text reads on it as the theme draws it, unless no glass tint
+    /// can carry the theme's own text: then the ink is that text walked toward its extreme
+    /// (`TooltipSurface.legible`). Solarized light's text is one since the lighter light-theme row
+    /// fills (21f9d43e937, #39956) left its derived text at #596C73, which misses 4.5:1 over the
+    /// densest white tint on black.
     @Test func theTextKeepsFourAndAHalfToOneOverBlackAndWhite() {
         let black = ThemeRGB(hex: 0x000000)
         let white = ThemeRGB(hex: 0xFFFFFF)
@@ -37,7 +41,16 @@ import CmuxNextWakeupsTestSupport
             let tokens = ThemeTokens.derive(from: input)
             let surface = TooltipSurface(tokens, lift: ChromeTunables.opaqueOverlayLift.value)
             let name = "\(input.background) \(tokens.isDark ? "dark" : "light")"
-            #expect(surface.ink == tokens.textPrimary.withAlpha(1), "\(name): the ink moved off the theme's text")
+            let themeInk = tokens.textPrimary.withAlpha(1)
+            if surface.ink != themeInk {
+                let fill = tokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value)
+                let lightInk = themeInk.relativeLuminance >= fill.relativeLuminance
+                let pole: ThemeRGB = lightInk ? .white : .black
+                #expect(TooltipSurface.tintAlpha(fill: lightInk ? .black : .white, ink: themeInk) == nil,
+                        "\(name): the ink moved off the theme's text though a glass tint carries it")
+                #expect((1...100).contains { themeInk.mixed(toward: pole, Double($0) / 100) == surface.ink },
+                        "\(name): the ink \(surface.ink) is not the theme's text walked toward its extreme")
+            }
             #expect(surface.tint.alpha >= TooltipSurface.minimumTintAlpha
                 && surface.tint.alpha <= TooltipSurface.maximumTintAlpha, "\(name): the tint is \(surface.tint.alpha)")
             // Native, and as pages get them (`--cmux-tooltip-ink` and `-tint`, 8-bit channels): Codex
