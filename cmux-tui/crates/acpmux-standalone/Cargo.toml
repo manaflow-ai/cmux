@@ -34,3 +34,8 @@ hub-carrier = ["acpmux/hub-carrier"]
 
 [lints]
 workspace = true
+
+# The Linux musl builds' allocator (src/main.rs): the libc these link supplies a
+# malloc whose 64 KB slabs are never returned or shared between size classes.
+[target.'cfg(all(target_os = "linux", target_env = "musl"))'.dependencies]
+mimalloc = { version = "0.1", default-features = false }

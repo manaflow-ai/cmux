@@ -12,6 +12,12 @@
 //! search path, never the default search order (no current directory, no
 //! PATH).
 
+// The Linux musl builds' allocator, as acpmux-standalone's (its main.rs says
+// why). Not with `dhat-heap`, whose allocator the library sets.
+#[cfg(all(target_os = "linux", target_env = "musl", not(feature = "dhat-heap")))]
+#[global_allocator]
+static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[cfg(not(all(windows, feature = "windows-thin-exe")))]
 fn main() -> std::process::ExitCode {
     cmux_tui::main()
