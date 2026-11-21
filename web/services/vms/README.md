@@ -419,9 +419,12 @@ To investigate one failure: take the reference id, query Axiom `['cmux-prod-otel
 
 ## GitHub operations
 
-Cloud VM migrations are exposed as a manual GitHub Action, `Cloud VM DB migration`.
+Cloud VM migrations and smoke checks are exposed as manual GitHub Actions:
 
-It uses these GitHub Environments:
+- `Cloud VM DB migration`
+- `Cloud VM smoke`
+
+They use these GitHub Environments:
 
 - `cloud-vm-staging`
 - `cloud-vm-production`
