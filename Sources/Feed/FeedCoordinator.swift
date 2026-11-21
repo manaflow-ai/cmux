@@ -624,7 +624,12 @@ final class FeedCoordinator: @unchecked Sendable {
     func retirePendingDecisionsSuperseded(by event: WorkstreamEvent) -> Bool {
         guard Self.supersedesPendingDecisions(event) else { return false }
         var retiredDecision = false
-        for (reply, itemID) in waiterRegistry.supersede(by: event) {
+        // A Stop keeps the timed-out requests: one that leaves background
+        // work running keeps the attention, so the next hook still has to
+        // resolve it.
+        let superseded = waiterRegistry.supersede(by: event,
+            retiringHandedOff: event.hookEventName != .stop)
+        for (reply, itemID) in superseded.pending {
             retiredDecision = true
             cancelNotification(requestId: reply.requestID)
             concludeAttentionOnMain(reply.target)
@@ -640,6 +645,17 @@ final class FeedCoordinator: @unchecked Sendable {
             )
             expireTimedOutItem(itemID)
             waiterRegistry.cleanupStored(requestID: reply.requestID, groupID: reply.groupID)
+        }
+        // A request the Feed timed out on went back to the agent's own prompt,
+        // and this later hook shows it was answered there. Its card, banner and
+        // overlay already ended at the timeout; only the journal still holds
+        // its attention. A SessionEnd only drops the requests, since the
+        // journal ends the session itself.
+        let endsSession = event.hookEventName == .sessionEnd
+        for (requestID, request) in superseded.handedOff where !endsSession {
+            notificationJournal.observeFeed(AgentFeedSemanticInput(event: request,
+                agentKey: Self.lifecycleStatusKey(forSource: request.source),
+                requestID: requestID, resolvesRequest: true))
         }
         return retiredDecision
     }

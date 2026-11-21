@@ -2185,6 +2185,7 @@
 		FEE012340000000000000005 /* FeedSidebarUITestRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE012340000000000000006 /* FeedSidebarUITestRecorder.swift */; };
 		FEED0000000000000000F009 /* FeedSidebarUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F008 /* FeedSidebarUITests.swift */; };
 		FEED0000000000000000F00F /* FeedTextEditorDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F00E /* FeedTextEditorDebugWindowController.swift */; };
+		E1A3FF1BA54F861C7A75E6B7 /* FeedTimedOutRequestJournalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5002C45201C6FC1B8956E5E /* FeedTimedOutRequestJournalTests.swift */; };
 		4CD85A694DB56017AB81D9B0 /* FeedWaiterRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B29BA503AF85868C6325335B /* FeedWaiterRegistry.swift */; };
 		330A15CE33CDB525DE207F7F /* FeedWaiterRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B74E6D94323FE9C5804E0B4 /* FeedWaiterRegistryTests.swift */; };
 		10200F1E0000000000000007 /* FileContentChangeCoordinator+Entry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10200F1E0000000000000008 /* FileContentChangeCoordinator+Entry.swift */; };
@@ -6893,6 +6894,7 @@
 		FEE012340000000000000006 /* FeedSidebarUITestRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/UITests/FeedSidebarUITestRecorder.swift"; sourceTree = "<group>"; };
 		FEED0000000000000000F008 /* FeedSidebarUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedSidebarUITests.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F00E /* FeedTextEditorDebugWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedTextEditorDebugWindowController.swift; sourceTree = "<group>"; };
+		C5002C45201C6FC1B8956E5E /* FeedTimedOutRequestJournalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FeedTimedOutRequestJournalTests.swift"; sourceTree = "<group>"; };
 		B29BA503AF85868C6325335B /* FeedWaiterRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FeedWaiterRegistry.swift"; sourceTree = "<group>"; };
 		7B74E6D94323FE9C5804E0B4 /* FeedWaiterRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedWaiterRegistryTests.swift; sourceTree = "<group>"; };
 		10200F1E0000000000000008 /* FileContentChangeCoordinator+Entry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/FileContentChangeCoordinator+Entry.swift"; sourceTree = "<group>"; };
@@ -14353,6 +14355,7 @@
 				4189B3FB78ACEE79AE12B1AA /* ChiefDisabledHomeTests.swift */,
 				2E93DBA33C7287FE3D7FA1BB /* NotificationPopoverRowLayoutTests.swift */,
 				C0C7EE23B232921D28CA56FD /* NotificationsPopoverDrawnRowsTests.swift */,
+				C5002C45201C6FC1B8956E5E /* FeedTimedOutRequestJournalTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -19026,6 +19029,7 @@
 				FEED49850000000000000001 /* FeedEventClassificationTests.swift in Sources */,
 				FEEDC1A50000000000000003 /* FeedEventClassifier.swift in Sources */,
 				FEEDC0DEC0DEC0DEC0DE0003 /* FeedJumpResolverTests.swift in Sources */,
+				E1A3FF1BA54F861C7A75E6B7 /* FeedTimedOutRequestJournalTests.swift in Sources */,
 				330A15CE33CDB525DE207F7F /* FeedWaiterRegistryTests.swift in Sources */,
 				10200F1E0000000000000003 /* FileContentObserverTransferTests.swift in Sources */,
 				713341E6979D0C6102E25549 /* FileDropOverlayDragCompletionTests.swift in Sources */,
