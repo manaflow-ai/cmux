@@ -185,7 +185,10 @@ impl Hub {
                                 .unwrap_or_else(|e| e.into_inner()) = v.as_str().map(str::to_owned);
                         }
                     }
-                    ModeWrite::ConfigOptions(v) => m.config_options = Some(v.into()),
+                    // The daemon's own suggestions off is no pick of the chat's (`host_level.rs`).
+                    ModeWrite::ConfigOptions(v) => {
+                        m.config_options = Some(self.unpaused_options(session, v).into())
+                    }
                 }
             }
             if settles {
