@@ -4528,13 +4528,14 @@ class IOSWiring(unittest.TestCase):
                                                  "compile_seconds", "package_seconds", "upload_seconds"})
 
         seed = jobs["ios-simulator-cache-seed"]
-        # A fork pull request takes GitHub-hosted (the persistent pool registers every Blacksmith label); otherwise the
-        # bounded LINUX_RUNNER pick (4, 8, 16 or 32 vCPU, else 4; 8 since #31031), so a
+        # A fork pull request takes GitHub-hosted (the persistent pool registers every Blacksmith label); otherwise our
+        # one-job repair JIT VM (unless CI_JIT_SKIP_FLEET is 1), then the bounded LINUX_RUNNER pick (4, 8, 16 or 32 vCPU, else 4; 8 since #31031), so a
         # 4 vCPU stall moves it and no variable value reaches a reused machine.
         self.assertEqual(seed["runs-on"],
                          "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == "
                          "'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && "
-                         "'ubuntu-24.04' || contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\","
+                         "'ubuntu-24.04' || vars.CI_JIT_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || "
+                         "contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\","
                          "\"blacksmith-8vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\",\"blacksmith-32vcpu-ubuntu-2404\"]'), "
                          "vars.LINUX_RUNNER) "
                          "&& vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
