@@ -125,6 +125,7 @@ public:
     [[nodiscard]] Result<ConversationLiveResult> conversation_live(const ConversationLiveRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> conversation_live_publish(const ConversationLivePublishRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationOpResult> conversation_op(const ConversationOpRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> conversation_question_decision(const ConversationQuestionDecisionRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationRunResult> conversation_run(const ConversationRunRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationRunAppendResult> conversation_run_append(const ConversationRunAppendRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationRunsResult> conversation_runs(const ConversationRunsRequest& request, RequestOptions options = {});

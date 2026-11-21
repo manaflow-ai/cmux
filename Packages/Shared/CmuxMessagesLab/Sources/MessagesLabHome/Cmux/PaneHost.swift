@@ -369,6 +369,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// cmux: where the user's changes go (the HomeStore adapter).
     weak var intents: ChatIntents?
     var approvalDecision: ((PartRef, Bool) -> Void)?
+    /// A question card's option or Send (HomeQuestionRowProvider).
+    var questionAction: ((PartRef, HomeQuestionRowProvider.Target) -> Void)?
     /// A failed-turn card's button (HomeTurnFailureRowProvider): Retry, Copy error or Details.
     var turnFailureAction: ((PartRef, HomeTurnFailureRowProvider.Action) -> Void)?
     /// cmux: a click on an app link (`URL.isCmuxAppLink`): the host runs it; nil opens nothing.
@@ -848,12 +850,15 @@ final class ChatController: NSObject, NSTextViewDelegate {
     // MARK: Clicks
 
     var approvalPress: ApprovalTarget?
+    var questionPress: QuestionTarget?
 
     func mouseDown(at p: CGPoint, _ e: NSEvent) {
         // cmux: the hovered picture's save button (HomeMediaSaveHover) takes its own press.
         if picker == nil, e.clickCount == 1, pressSaveHover(at: p) { return }
         approvalPress = picker == nil ? approvalTarget(at: p) : nil
         if approvalPress != nil { return }
+        questionPress = picker == nil ? questionTarget(at: p) : nil
+        if questionPress != nil { return }
         if let tv = demo?.compose.textView.view, demo?.compose.fieldRect.contains(p) == true { window?.makeFirstResponder(tv); return }
         linkPress = nil
         linkDragTaken = false
@@ -875,7 +880,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
     }
     func mouseDragged(at p: CGPoint, _ e: NSEvent) {
-        if approvalPress != nil { return }
+        if approvalPress != nil || questionPress != nil { return }
         // cmux: a link pressed and moved past the selection's slop goes to the host as a link drag
         // (a split or pane drop zone); it then owns the gesture, so no selection, click or hold here.
         if linkDragTaken { return }
@@ -913,6 +918,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if let pressed = approvalPress {
             approvalPress = nil
             if approvalTarget(at: p) == pressed { _ = approvalClicked(at: p) }
+            return
+        }
+        if let pressed = questionPress {
+            questionPress = nil
+            if questionTarget(at: p) == pressed { _ = questionClicked(at: p) }
             return
         }
         if linkDragTaken {

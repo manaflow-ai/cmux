@@ -1,0 +1,111 @@
+{
+ "about": "Canonical JSON (acpmux approvers::canonical_json): keys in UTF-8 byte order, no whitespace, only \", \\ and control characters escaped (\\b \\f \\n \\r \\t, else \\u00xx). Rust and Swift both check these bytes. No floats: the app refuses a fractional number and prints a whole one as an integer.",
+ "cases": [
+  {
+   "name": "escapes",
+   "value": {
+    "q": "say \"hi\" \\ there",
+    "ctl": "\b\f\n\r\t\u0000\u0001\u001f",
+    "raw": "\u007f / \u2028 \u2029 </script>"
+   },
+   "canonical": "{\"ctl\":\"\\b\\f\\n\\r\\t\\u0000\\u0001\\u001f\",\"q\":\"say \\\"hi\\\" \\\\ there\",\"raw\":\"\u007f / \u2028 \u2029 </script>\"}",
+   "sha256": "454ac0117e8b3e24ec29f1ca5cafc9d443e830e9757bd2410306b6afd6cebf13"
+  },
+  {
+   "name": "unicode",
+   "value": {
+    "nfc": "caf\u00e9",
+    "nfd": "cafe\u0301",
+    "cjk": "\u4f60\u597d",
+    "emoji": "\ud83d\ude00\ud83d\udc4d\ud83c\udffd",
+    "rtl": "\u05e9\u05dc\u05d5\u05dd",
+    "zwj": "\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67"
+   },
+   "canonical": "{\"cjk\":\"\u4f60\u597d\",\"emoji\":\"\ud83d\ude00\ud83d\udc4d\ud83c\udffd\",\"nfc\":\"caf\u00e9\",\"nfd\":\"cafe\u0301\",\"rtl\":\"\u05e9\u05dc\u05d5\u05dd\",\"zwj\":\"\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67\"}",
+   "sha256": "fa4265efd70262a97bc6b2bc7f61b6173cb2b37f2794a270230911dc20325bc8"
+  },
+  {
+   "name": "key byte order",
+   "value": {
+    "b": 1,
+    "a": 2,
+    "aa": 3,
+    "B": 4,
+    "_": 5,
+    "\u00e9": 6,
+    "z": 7,
+    "\ud83d\ude00": 8,
+    "\uff21": 9,
+    "": 10,
+    "a\u0000": 11
+   },
+   "canonical": "{\"\":10,\"B\":4,\"_\":5,\"a\":2,\"a\\u0000\":11,\"aa\":3,\"b\":1,\"z\":7,\"\u00e9\":6,\"\uff21\":9,\"\ud83d\ude00\":8}",
+   "sha256": "fbac90a6b5534ba002acfede661f4f42169f2343e7545d1e7cec27cd794a182d"
+  },
+  {
+   "name": "nested request",
+   "value": {
+    "toolCall": {
+     "_meta": {
+      "acpmux": {
+       "question": {
+        "harness": "chief",
+        "items": [
+         {
+          "id": "q0",
+          "prompt": "Which auth \u2014 \u201cbest\u201d?\n",
+          "multiSelect": true,
+          "allowsOther": false,
+          "options": [
+           {
+            "id": "oauth",
+            "label": "OAuth \u2713"
+           },
+           {
+            "id": "keys",
+            "label": "API \"keys\""
+           }
+          ]
+         }
+        ]
+       }
+      }
+     },
+     "title": "Ask"
+    },
+    "options": [
+     {
+      "optionId": "answer",
+      "kind": "allow_once",
+      "name": "Answer"
+     },
+     {
+      "optionId": "skip",
+      "kind": "reject_once",
+      "name": "Skip"
+     }
+    ],
+    "sessionId": "sess_mux"
+   },
+   "canonical": "{\"options\":[{\"kind\":\"allow_once\",\"name\":\"Answer\",\"optionId\":\"answer\"},{\"kind\":\"reject_once\",\"name\":\"Skip\",\"optionId\":\"skip\"}],\"sessionId\":\"sess_mux\",\"toolCall\":{\"_meta\":{\"acpmux\":{\"question\":{\"harness\":\"chief\",\"items\":[{\"allowsOther\":false,\"id\":\"q0\",\"multiSelect\":true,\"options\":[{\"id\":\"oauth\",\"label\":\"OAuth \u2713\"},{\"id\":\"keys\",\"label\":\"API \\\"keys\\\"\"}],\"prompt\":\"Which auth \u2014 \u201cbest\u201d?\\n\"}]}}},\"title\":\"Ask\"}}",
+   "sha256": "a9f3f0dfab77fdd097b588f5ac51835472692d1f1bd7aa1eb9fa39c3d3b323b8"
+  },
+  {
+   "name": "scalars",
+   "value": [
+    null,
+    true,
+    false,
+    0,
+    -1,
+    9007199254740993,
+    -9223372036854775808,
+    [],
+    {},
+    ""
+   ],
+   "canonical": "[null,true,false,0,-1,9007199254740993,-9223372036854775808,[],{},\"\"]",
+   "sha256": "1f342636eb74fb9b7818e3b210848fb0d69fddb3bc5d26ea3e8183279f128563"
+  }
+ ]
+}
