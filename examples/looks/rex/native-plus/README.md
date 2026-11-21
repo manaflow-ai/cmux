@@ -6,8 +6,7 @@ remain compatible with builds that do not know `tabs.plusMenu`.
 Install from this PR branch after opening a build containing its code:
 
 ```sh
-git clone --single-branch --branch lane/rex-native-plus-menu https://github.com/manaflow-ai/cmux.git cmux-native-plus
-cmux setup install ./cmux-native-plus/examples/looks/rex/native-plus
+cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/native-plus@lane/rex-native-plus-menu
 ```
 
 The setup and standalone `profile.json` both set:
@@ -33,4 +32,4 @@ menu; it does not install that launcher or offer arbitrary per-row machine IDs.
 
 The adjacent chevron and right-click menu still use `contextMenus.layouts.newTab`.
 Option-click, keyboard actions, screen-bar + and button visibility are unchanged.
-See [the behavior specification](../../../../docs/cmux-next/design/native-plus-menu.md).
+See [the behavior specification](../../../../../docs/cmux-next/design/native-plus-menu.md).
