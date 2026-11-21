@@ -33,8 +33,10 @@ class RenderTests(unittest.TestCase):
         self.cfg = v.load_jsonc(ROOT / "backend/apps/api/wrangler.jsonc")
 
     def test_api_alone_drops_remote_only_bindings(self):
-        out = v.render_api_config(self.cfg, "t1", "https://h:4799", with_platform=False)
-        dev = out["env"]["development"]
+        dev = v.render_api_config(self.cfg, "t1", "https://h:4799", with_platform=False)
+        self.assertNotIn("env", dev)  # flat: wrangler dev runs it with no --env
+        self.assertEqual(dev["name"], v.API_DEV_NAME)
+        self.assertEqual(dev["main"], self.cfg["main"])  # inherited from the top level
         self.assertNotIn("ai", dev)
         self.assertNotIn("services", dev)
         self.assertNotIn("triggers", dev)
@@ -44,16 +46,16 @@ class RenderTests(unittest.TestCase):
         self.assertIn("ai", self.cfg["env"]["development"])  # the input is not mutated
 
     def test_api_with_platform_keeps_platform_names(self):
-        dev = v.render_api_config(self.cfg, "t1", "https://h:4799", with_platform=True)["env"]["development"]
+        dev = v.render_api_config(self.cfg, "t1", "https://h:4799", with_platform=True)
         self.assertEqual([s["service"] for s in dev["services"]], [v.PLATFORM_DEV_NAME])
         self.assertTrue([b for b in dev["durable_objects"]["bindings"] if b.get("script_name") == v.PLATFORM_DEV_NAME])
 
     def test_platform_points_at_local_api(self):
-        cfg = {"env": {"development": {"vars": {"API_ORIGIN": "https://x", "CMUX_AUTH_JWKS_URL": "https://x/jwks", "OTHER": "1"},
+        cfg = {"main": "src/index.ts", "env": {"development": {"vars": {"API_ORIGIN": "https://x", "CMUX_AUTH_JWKS_URL": "https://x/jwks", "OTHER": "1"},
                                        "services": [{"binding": "CMUX_API", "service": v.API_DEV_NAME}, {"binding": "R", "service": "cmux-remote-relay-development"}],
                                        "durable_objects": {"bindings": [{"name": "A", "class_name": "A"}, {"name": "B", "class_name": "B", "script_name": "elsewhere"}]},
                                        "routes": [{"pattern": "x"}], "triggers": {"crons": ["*"]}}}}
-        dev = v.render_platform_config(cfg, "https://h:4799")["env"]["development"]
+        dev = v.render_platform_config(cfg, "https://h:4799")
         self.assertEqual(dev["vars"]["API_ORIGIN"], "https://h:4799")
         self.assertEqual(dev["vars"]["CMUX_AUTH_JWKS_URL"], "https://h:4799/.well-known/jwks.json")
         self.assertEqual([s["binding"] for s in dev["services"]], ["CMUX_API"])
@@ -63,23 +65,117 @@ class RenderTests(unittest.TestCase):
 
 
 class PortTests(unittest.TestCase):
-    def test_highest_free_port_skips_classic_serve_listening_and_ours(self):
-        serve = {"TCP": {str(v.PORT_MAX): {}}, "Web": {}}
-        port = v.pick_port("t", None, taken_by_us={v.PORT_MAX - 1}, classic={v.PORT_MAX - 2}, serve=serve, listening={v.PORT_MAX - 3})
-        self.assertEqual(port, v.PORT_MAX - 4)
+    """A stack holds three consecutive ports: its API at the base, then the mobile Worker and the device hub."""
 
-    def test_previous_port_kept_when_still_ours(self):
-        serve = {"TCP": {"4700": {}}, "Web": {"h:4700": {"Handlers": {"/": {"Proxy": "http://127.0.0.1:4700"}}}}}
-        self.assertEqual(v.pick_port("t", 4700, set(), set(), serve, {4700}), 4700)
+    def test_highest_free_triple_skips_classic_serve_listening_and_ours(self):
+        top = v.PORT_MAX - 2  # the highest base whose three ports fit the range
+        self.assertEqual(v.pick_port("t", None, set(), set(), {"TCP": {}, "Web": {}}, set()), top)
+        # One port of the top triple taken on any account moves the whole stack below it.
+        for taken, port in (({"taken_by_us": {v.PORT_MAX}}, v.PORT_MAX), ({"classic": {v.PORT_MAX - 1}}, v.PORT_MAX - 1),
+                            ({"listening": {v.PORT_MAX - 2}}, v.PORT_MAX - 2), ({"serve": {"TCP": {str(v.PORT_MAX): {}}, "Web": {}}}, v.PORT_MAX)):
+            args = {"taken_by_us": set(), "classic": set(), "serve": {"TCP": {}, "Web": {}}, "listening": set(), **taken}
+            base = v.pick_port("t", None, **args)
+            self.assertEqual(base, port - 3, taken)  # the highest triple that leaves the taken port out
+            self.assertEqual(v.stack_ports(base), [base, base + 1, base + 2])
+            self.assertNotIn(port, v.stack_ports(base))
 
-    def test_previous_port_dropped_when_a_classic_stack_took_it(self):
-        serve = {"TCP": {"4700": {}}, "Web": {"h:4700": {"Handlers": {"/": {"Proxy": "http://127.0.0.1:8478"}}}}}
+    def test_previous_ports_kept_when_all_still_ours(self):
+        own = {"Handlers": {"/": {"Proxy": "http://127.0.0.1:4700"}}}
+        serve = {"TCP": {"4700": {}, "4701": {}, "4702": {}}, "Web": {f"h:{p}": own for p in (4700, 4701, 4702)}}
+        self.assertEqual(v.pick_port("t", 4700, set(), set(), serve, {4700, 4701, 4702}), 4700)
+
+    def test_previous_ports_dropped_when_a_classic_stack_took_one(self):
+        classic = {"Handlers": {"/": {"Proxy": "http://127.0.0.1:8478"}}}
+        serve = {"TCP": {"4702": {}}, "Web": {"h:4702": classic}}
         self.assertNotEqual(v.pick_port("t", 4700, set(), set(), serve, set()), 4700)
-        self.assertNotEqual(v.pick_port("t", 4700, set(), {4700}, {"TCP": {}, "Web": {}}, set()), 4700)
+        self.assertNotEqual(v.pick_port("t", 4700, set(), {4701}, {"TCP": {}, "Web": {}}, set()), 4700)
+
+    def test_previous_ports_dropped_when_another_of_our_stacks_holds_one(self):
+        self.assertNotEqual(v.pick_port("t", 4700, {4702}, set(), {"TCP": {}, "Web": {}}, set()), 4700)
 
 
-    def test_previous_port_dropped_when_another_of_our_stacks_holds_it(self):
-        self.assertNotEqual(v.pick_port("t", 4700, {4700}, set(), {"TCP": {}, "Web": {}}, set()), 4700)
+class StackWorkersTests(unittest.TestCase):
+    """All three Workers a dev build talks to run in the stack, behind the front Worker."""
+
+    def test_mobile_worker_runs_its_dev_env_without_crons(self):
+        cfg = v.load_jsonc(ROOT / "cmux-next-ios/backend/wrangler.jsonc")
+        dev = v.render_mobile_config(cfg)
+        self.assertEqual(dev["name"], "cmux-mobile-api-dev")
+        self.assertEqual(dev["main"], "src/index.ts")
+        self.assertEqual(dev["vars"]["ENVIRONMENT"], "dev")  # serves dev build spaces (index.ts DEV_SPACE_ENVIRONMENTS)
+        self.assertNotIn("triggers", dev)
+        self.assertEqual([h["binding"] for h in dev["hyperdrive"]], ["PS_MYSQL"])  # run.sh's Vitess string, as the API's
+        self.assertNotIn("env", dev)
+
+    def test_device_hub_signals_on_the_stacks_own_hub_origin(self):
+        cfg = v.load_wrangler_config(ROOT / "workers/device-hub/wrangler.toml")
+        dev = v.render_hub_config(cfg, "https://h:4702")
+        self.assertEqual(dev["name"], "cmux-device-hub-dev")
+        self.assertEqual(dev["vars"]["PUBLIC_BASE_URL"], "https://h:4702")
+        self.assertIn("454ecd03-1db2-4050-845e-4ce5b0cd9895", dev["vars"]["STACK_PROJECT_IDS"])  # dev builds' Stack project
+        self.assertEqual(dev["compatibility_flags"], cfg["compatibility_flags"])
+        self.assertEqual({b["class_name"] for b in dev["durable_objects"]["bindings"]}, {"UserDO", "SessionDO"})
+
+    def test_an_environment_never_inherits_top_level_bindings(self):
+        cfg = {"name": "w", "main": "m.ts", "vars": {"TOP": "1"}, "kv_namespaces": [{"binding": "K"}],
+               "env": {"dev": {"vars": {"DEV": "1"}, "triggers": {"crons": ["*"]}}}}
+        dev = v.flatten_env(cfg, "dev")
+        self.assertEqual(dev, {"main": "m.ts", "vars": {"DEV": "1"}, "name": "w-dev"})
+        with self.assertRaises(v.Refused):
+            v.flatten_env(cfg, "development")
+
+    def test_front_routes_each_port_to_its_worker_and_names_the_stacks_origins(self):
+        origins = v.stack_origins("vm.tail.ts.net", 4700)
+        self.assertEqual(origins, {"api": "https://vm.tail.ts.net:4700", "mobile": "https://vm.tail.ts.net:4701",
+                                   "hub": "https://vm.tail.ts.net:4702"})
+        routes = v.front_routes("VM.tail.ts.net", 4700)
+        self.assertEqual(routes, {"vm.tail.ts.net:4700": "api", "vm.tail.ts.net:4701": "mobile", "vm.tail.ts.net:4702": "hub",
+                                  "127.0.0.1:4700": "api"})
+        names = {"api": v.API_DEV_NAME, "mobile": "cmux-mobile-api-dev", "hub": "cmux-device-hub-dev"}
+        cc = dict(v.FALLBACK_CLIENT_CONFIG)
+        front = v.render_front_config(names, routes, origins, cc)
+        self.assertEqual({s["binding"]: s["service"] for s in front["services"]},
+                         {"API": v.API_DEV_NAME, "MOBILE": "cmux-mobile-api-dev", "HUB": "cmux-device-hub-dev"})
+        self.assertEqual(json.loads(front["vars"]["WDEV_ORIGINS"]), origins)
+        self.assertEqual(json.loads(front["vars"]["WDEV_ROUTES"]), routes)
+        # The client-config the front answers is the API's with the stack's three origins over it.
+        for key in ("api_origin", "mobile_origin", "device_hub_origin"):
+            self.assertIn(f"config.{key} = origins.", v.FRONT_JS)
+        self.assertIn('url.pathname === "/v1/client-config"', v.FRONT_JS)
+
+    def test_entry_wrapper_reexports_classes_and_never_constants(self):
+        source = ROOT.joinpath("cmux-next-ios/backend/src/index.ts").read_text()
+        cfg = v.render_mobile_config(v.load_jsonc(ROOT / "cmux-next-ios/backend/wrangler.jsonc"))
+        names = v.entry_exports(source, cfg)
+        self.assertIn("TeamHub", names)
+        self.assertIn("ConnectivityAlertDesk", names)
+        self.assertIn("CloudAttentionPush", names)  # a WorkerEntrypoint declared in the main module
+        self.assertNotIn("BUILD_SPACE_HEADER", names)  # workerd refuses a non-class export of an auxiliary Worker
+        self.assertNotIn("spaceOf", names)
+        api = v.entry_exports(ROOT.joinpath("backend/apps/api/src/index.ts").read_text(),
+                              v.render_api_config(v.load_jsonc(ROOT / "backend/apps/api/wrangler.jsonc"), "t", "https://h:1", False))
+        self.assertIn("UserDO", api)
+        self.assertIn("AutomationRunWorkflow", api)
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            (project / "src").mkdir()
+            (project / "src/index.ts").write_text("export const X_Y = 1\nexport class Hub {}\nexport default {}\n")
+            out = v.write_entry_wrapper(project, {"main": "src/index.ts", "durable_objects": {"bindings": [{"class_name": "Hub"}]}})
+            self.assertEqual(out["main"], "wdev-entry.generated.ts")
+            wrapper = (project / "wdev-entry.generated.ts").read_text()
+            self.assertIn('export { default } from "./src/index.ts"', wrapper)
+            self.assertIn('export { Hub } from "./src/index.ts"', wrapper)
+            self.assertNotIn("X_Y", wrapper)
+
+    def test_run_sh_runs_every_config_with_no_env(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            (d / "secrets").mkdir()
+            (d / "secrets/mysql.url").write_text("mysql://u:p@h/db")
+            body = v.render_run_sh(d, "/bin", 4700, "abc", Path("/w/wrangler"), ["-c", "front.json", "-c", "api.json", "-c", "mobile.json"])
+        self.assertNotIn("--env", body)
+        self.assertIn("-c front.json -c api.json -c mobile.json", body)
+        self.assertIn("CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_PS_MYSQL=", body)
 
 
 class RegistryTests(unittest.TestCase):
@@ -101,6 +197,11 @@ class RegistryTests(unittest.TestCase):
         for tag, state, port in (("a", "starting", 4799), ("b", "failed", 4798), ("c", "reaped", 4797), ("d", "running", 4796)):
             v.write_entry({"tag": tag, "state": state, "port": port})
         self.assertEqual(v.ports_held("d"), {4799, 4798})
+
+    def test_ports_held_counts_every_port_of_a_three_worker_stack(self):
+        v.write_entry({"tag": "a", "state": "running", "port": 4790, "ports": [4790, 4791, 4792]})
+        v.write_entry({"tag": "b", "state": "running", "port": 4780})  # an entry from before: one port
+        self.assertEqual(v.ports_held("x"), {4790, 4791, 4792, 4780})
 
     def test_young_preparing_entry_is_left_alone(self):
         v.write_entry({"tag": "p", "state": "preparing", "last_up_at": 1000})
@@ -212,7 +313,7 @@ class ReviewFixTests(unittest.TestCase):
         v.registry_lock = lambda: (_ for _ in ()).throw(AssertionError("registry lock taken inside publish"))
         v.serve_config = lambda: {"TCP": {}, "Web": {}}
         v.classic_ports = lambda: {4799}
-        self.assertFalse(v.publish(4799))
+        self.assertFalse(v.publish([4797, 4798, 4799], 4797))  # one port of the stack is a classic stack's
         self.assertEqual(held, [])
 
     def test_reaper_pass_has_a_timeout(self):

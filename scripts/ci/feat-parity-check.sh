@@ -294,11 +294,18 @@ fi
 # change is compared with (the pull request's base tip; its merge base with HEAD when the
 # checkout can reach it), and runs its workflow job's own commands.
 required_base() { # BASE: fetch it when the checkout lacks it, then print the merge base (or BASE)
+  # A pool step's checkout comes from the controller, so its origin may not serve BASE (the pull
+  # request's base tip, usually not an ancestor of HEAD): the public repository is the second source.
   local base="$1" depth=()
   [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=200)
   git -C "$root" cat-file -e "$base^{commit}" 2>/dev/null \
     || git -C "$root" fetch --quiet --no-tags ${depth[@]+"${depth[@]}"} origin "$base" 2>/dev/null \
-    || echo "base: cannot fetch $base" >&2
+    || git -C "$root" fetch --quiet --no-tags ${depth[@]+"${depth[@]}"} https://github.com/manaflow-ai/cmux.git "$base" 2>/dev/null \
+    || true
+  if ! git -C "$root" cat-file -e "$base^{commit}" 2>/dev/null; then
+    echo "error: base $base is not in this checkout and neither origin nor github.com/manaflow-ai/cmux served it" >&2
+    return 1
+  fi
   git -C "$root" merge-base "$base" HEAD 2>/dev/null || echo "$base"
 }
 if [[ "$mode" == clippy-changed ]]; then
