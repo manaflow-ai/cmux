@@ -2,12 +2,20 @@
 // fragment so it never reaches the HTTP server. Only this origin can receive either proof.
 import { followBrowserTheme } from "../../guest/theme";
 import { setNativeHost } from "../native";
+import { installBrowserNavigation, type BrowserChatRoute } from "../../browser/routes";
 
 export function isBrowserPane(url: URL): boolean {
   return (
     (url.protocol === "https:" || url.protocol === "http:") &&
     (url.pathname === "/app/" || url.pathname === "/app/index.html")
   );
+}
+
+/** `acpmux web --app` mints a token that admits only `/app/ws` (ws_auth::browser_app_token). */
+export function browserSocketURL(launch: URL): URL {
+  const endpoint = new URL("/app/ws", launch.origin);
+  endpoint.protocol = launch.protocol === "https:" ? "wss:" : "ws:";
+  return endpoint;
 }
 
 export function installBrowserHost(): void {
@@ -28,8 +36,7 @@ export function installBrowserHost(): void {
     launch.hash = fragment.toString();
     history.replaceState(history.state, "", launch);
   }
-  const endpoint = new URL("/", launch.origin);
-  endpoint.protocol = launch.protocol === "https:" ? "wss:" : "ws:";
+  const endpoint = browserSocketURL(launch);
   document.documentElement.dataset.cmuxBrowserPane = "";
   document.title = "cmux NEXT";
   followBrowserTheme();
@@ -64,4 +71,12 @@ export function installBrowserHost(): void {
         throw new Error(`This browser does not support ${method}.`);
     }
   });
+  // Back, Forward and in-page chat links select through the pane's own chat.select. The first
+  // route rides the handshake's sessionId, so a route read before the pane mounts is not replayed.
+  installBrowserNavigation(selectBrowserRoute);
+}
+
+function selectBrowserRoute(route: BrowserChatRoute | undefined): void {
+  const select = window.cmuxAcpmuxActions?.["chat.select"];
+  if (route && select) void Promise.resolve(select({ sessionId: route.session })).catch(() => undefined);
 }
