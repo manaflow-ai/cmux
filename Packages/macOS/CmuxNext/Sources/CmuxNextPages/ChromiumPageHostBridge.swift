@@ -47,6 +47,9 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     private var draining = false
     /// Number of messages answered (tests wait on it).
     public private(set) var answered = 0
+    /// The host's pushes into the page since it was made: scripts, `Runtime.evaluate` batches and their bytes, each
+    /// batch JSON-parsed by Chromium on the main thread (`debug.page` state's `pushes`; the many-chats bench reads it).
+    public private(set) var pushes = (scripts: 0, batches: 0, bytes: 0)
     /// Binding calls waiting for their parse off the main actor, in arrival order.
     private var inbox: AsyncStream<String>.Continuation?
     private var reading: Task<Void, Never>?
@@ -197,7 +200,11 @@ public final class ChromiumPageHostBridge: PageHostBridge {
             // Everything queued so far goes in one round trip (a streaming reply queues one push per
             // frame); scripts queued while it runs go in the next.
             let batch = takeBatch()
-            _ = try? await page.devTools("Runtime.evaluate", params: ["expression": Self.batch(batch), "silent": true])
+            let expression = Self.batch(batch)
+            pushes.scripts += batch.count
+            pushes.batches += 1
+            pushes.bytes += expression.utf8.count
+            _ = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "silent": true])
         }
     }
 
