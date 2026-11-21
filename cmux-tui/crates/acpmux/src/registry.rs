@@ -387,6 +387,7 @@ pub const RESERVED_IDS: &[&str] = &[
     "grok",
     "cursor",
     "hermes",
+    "openclaw",
     "aider",
 ];
 

@@ -289,6 +289,12 @@ fn await_socket(socket: &Path, wait: Duration) -> Result<(), String> {
     }
 }
 
+/// The acpmux home this host's daemon uses (its socket's), where the
+/// machine's MCP connections live too (cmux-mcp-connect `shared`).
+pub fn home() -> PathBuf {
+    daemon_home(&socket_path())
+}
+
 fn daemon_home(socket: &Path) -> PathBuf {
     let user = std::env::var_os("HOME")
         .map(PathBuf::from)
@@ -353,6 +359,18 @@ impl Started {
         let _ = child.try_wait();
         stopped
     }
+}
+
+/// The daemon this process started, while it still runs: its pid and the
+/// binary it ran. Its child, never reaped while it runs, so the pid names it
+/// alone (`acpmux_peer`: a not-dumpable daemon hides its executable on Linux).
+pub fn started_daemon() -> Option<(u32, PathBuf)> {
+    let mut starts = starts();
+    let started = starts.started.as_mut()?;
+    if started.gone() {
+        return None;
+    }
+    Some((started.child.id(), started.bin.clone()))
 }
 
 /// The starts of this process: in flight, done, and whether it stops.

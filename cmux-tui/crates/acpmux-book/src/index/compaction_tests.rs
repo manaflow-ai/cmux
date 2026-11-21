@@ -39,6 +39,26 @@ fn rotation_keeps_arrivals_in_the_new_generation_across_restart() {
 }
 
 #[test]
+fn compaction_writes_a_bound_cold_kin_sidecar() {
+    let dir = tempdir().unwrap();
+    let mut index = SummaryIndex::new();
+    let mut parent = row("parent", 1);
+    parent.state = "closed".to_owned();
+    let parent_key = parent.key();
+    index = index.apply(1, parent);
+    let mut child = row("child", 0);
+    child.state = "closed".to_owned();
+    child.parent = Some(parent_key);
+    index = index.apply(2, child);
+
+    let result =
+        Compaction::new(dir.path().to_owned(), 0, index.seq()).run(Arc::new(index)).unwrap();
+    let table = dir.path().join("index.snap.kin");
+    assert!(table.is_file());
+    assert!(result.snapshot.has_kin_table());
+}
+
+#[test]
 fn an_uninstalled_rotation_is_recovered_from_both_generations() {
     let dir = tempdir().unwrap();
     let log_path = dir.path().join("index.log");
@@ -55,6 +75,33 @@ fn an_uninstalled_rotation_is_recovered_from_both_generations() {
     assert_eq!(restored.seq(), second.seq);
     let names: Vec<_> = restored.merged_rows().map(|row| row.unwrap().chat_id.clone()).collect();
     assert_eq!(names, ["first", "second"]);
+}
+
+#[test]
+fn compaction_skips_a_corrupt_middle_snapshot_row() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("index.snap");
+    let mut index = SummaryIndex::new();
+    for (id, activity) in [("first", 3), ("corrupt", 2), ("last", 1)] {
+        let mut row = Summary::new(id);
+        row.last_activity = activity;
+        index = index.apply(index.seq() + 1, row);
+    }
+    SortedSnapshot::write(&path, &index).unwrap();
+    let mut bytes = fs::read(&path).unwrap();
+    let first_len =
+        u32::from_le_bytes(bytes.get(4096..4100).unwrap().try_into().unwrap()) as usize + 12;
+    let middle = 4096 + first_len;
+    *bytes.get_mut(middle + 8).unwrap() ^= 0x01;
+    fs::write(&path, bytes).unwrap();
+
+    let disk = DiskSnapshot::open(&path).unwrap().unwrap();
+    let captured = SummaryIndex::from_disk(Some(disk), 1);
+    let result =
+        Compaction::new(dir.path().to_owned(), 0, captured.seq()).run(Arc::new(captured)).unwrap();
+    let names: Vec<_> = result.snapshot.rows().map(|row| row.unwrap().chat_id.clone()).collect();
+    assert_eq!(names, ["first", "last"]);
+    assert_eq!(result.skipped_snapshot_rows, 1);
 }
 
 #[test]
@@ -100,7 +147,7 @@ fn a_partial_snapshot_stage_is_ignored_until_the_atomic_rename() {
         0,
         None,
         job.covered_generation(),
-        Vec::new(),
+        SnapshotMeta::default(),
         captured.merged_rows(),
     )
     .unwrap();
@@ -191,7 +238,7 @@ fn a_thousand_failed_compactions_reuse_one_empty_generation_and_clean_their_stag
     }
     let result = log.rotate(1).unwrap().run(captured).unwrap();
     log.compacted(result.covered_generation, result.seq);
-    assert_eq!(file_names(dir.path()), ["index.log.2", "index.snap"]);
+    assert_eq!(file_names(dir.path()), ["index.log.2", "index.snap", "index.snap.kin"]);
     drop(log);
     let mut log = IndexLog::open(dir.path().join("index.log")).unwrap();
     assert_eq!(log.next_seq(), 1);
@@ -226,7 +273,7 @@ fn failed_initial_rotation_can_retry_without_another_append() {
     fs::remove_dir(&obstruction).unwrap();
     let result = log.rotate(1).unwrap().run(captured).unwrap();
     log.compacted(result.covered_generation, result.seq);
-    assert_eq!(file_names(dir.path()), ["index.log.2", "index.snap"]);
+    assert_eq!(file_names(dir.path()), ["index.log.2", "index.snap", "index.snap.kin"]);
 }
 
 #[test]
@@ -241,7 +288,7 @@ fn a_failed_snapshot_rename_cleans_every_staging_file() {
     assert_eq!(file_names(dir.path()), ["index.log.1", "index.log.2", "index.snap"]);
     fs::remove_dir(&obstruction).unwrap();
     assert!(log.rotate(1).unwrap().run(captured).is_ok());
-    assert_eq!(file_names(dir.path()), ["index.log.2", "index.snap"]);
+    assert_eq!(file_names(dir.path()), ["index.log.2", "index.snap", "index.snap.kin"]);
 }
 
 #[test]
@@ -344,7 +391,7 @@ fn compaction_drops_remote_closed_rows_left_in_an_older_snapshot() {
         0,
         None,
         0,
-        Vec::new(),
+        SnapshotMeta::default(),
         std::iter::once(Ok(Arc::new(legacy))),
     )
     .unwrap();
@@ -382,9 +429,89 @@ fn retry_cleans_stages_left_by_a_temporary_cleanup_failure_without_restart() {
     log.compacted(result.covered_generation, result.seq);
     assert_eq!(result.cleanup_errors, 0);
     assert_eq!(log.generation(), 2);
-    assert_eq!(file_names(dir.path()), ["index.log.2", "index.snap", "index.snap.stage.notes"]);
+    assert_eq!(
+        file_names(dir.path()),
+        ["index.log.2", "index.snap", "index.snap.kin", "index.snap.stage.notes"]
+    );
     assert_eq!(fs::read(&unrelated).unwrap(), b"not owned by the compactor");
     let rows: Vec<_> = result.snapshot.rows().map(|row| row.unwrap().chat_id.clone()).collect();
     assert_eq!(rows, ["kept"]);
     assert_eq!(result.snapshot.seq(), 1);
+}
+
+#[test]
+fn failed_table_install_still_installs_compaction() {
+    let dir = tempdir().unwrap();
+    // A read-only/obstructed optional destination must not fail snapshot install.
+    let obstruction = dir.path().join("index.snap.kin");
+    fs::create_dir(&obstruction).unwrap();
+    let mut summary = row("kept", 1);
+    summary.state = "closed".to_owned();
+    summary.parent = Some(RowKey::new("local", "root"));
+    let captured = Arc::new(SummaryIndex::new().apply(1, summary));
+    let result = Compaction::new(dir.path().to_owned(), 0, 1).run(captured).unwrap();
+    assert_eq!(result.snapshot.len(), 1);
+    assert!(!result.snapshot.has_kin_table());
+    assert_eq!(result.snapshot.rows().next().unwrap().unwrap().chat_id, "kept");
+    let reopened = DiskSnapshot::open(dir.path().join("index.snap")).unwrap().unwrap();
+    assert_eq!(reopened.len(), 1);
+    assert!(!reopened.has_kin_table());
+    assert_eq!(file_names(dir.path()), ["index.snap", "index.snap.kin"]);
+}
+
+#[test]
+fn failed_table_write_preserves_the_snapshot_and_existing_destination() {
+    let dir = tempdir().unwrap();
+    let snapshot = dir.path().join("index.snap");
+    let table = dir.path().join("index.snap.kin");
+    fs::write(&table, b"existing file not owned by writer").unwrap();
+    let mut summary = row("kept", 1);
+    summary.state = "closed".to_owned();
+    summary.parent = Some(RowKey::new("local", "root"));
+    SortedSnapshot::write_stream_generation_with_table(StreamGeneration {
+        path: &snapshot,
+        seq: 1,
+        log_offset: 0,
+        log_name: None,
+        covered_generation: 0,
+        meta: SnapshotMeta::default(),
+        rows: [Ok(Arc::new(summary))],
+        table_path: Some(&table),
+    })
+    .unwrap();
+    let reopened = DiskSnapshot::open(&snapshot).unwrap().unwrap();
+    assert_eq!(reopened.len(), 1);
+    assert!(!reopened.has_kin_table());
+    assert_eq!(fs::read(&table).unwrap(), b"existing file not owned by writer");
+}
+
+#[test]
+fn startup_reclaims_only_the_numeric_kin_spill_namespace() {
+    let dir = tempdir().unwrap();
+    let owned = dir.path().join("index.snap.stage.7.kin.work");
+    fs::create_dir(&owned).unwrap();
+    fs::create_dir(owned.join("acpmux-kin-interrupted")).unwrap();
+    fs::write(owned.join("acpmux-kin-interrupted/0"), b"run").unwrap();
+    let unrelated = dir.path().join("index.snap.stage.notes.kin.work");
+    fs::create_dir(&unrelated).unwrap();
+    let _log = IndexLog::open(dir.path().join("index.log")).unwrap();
+    assert!(!owned.exists());
+    assert!(unrelated.is_dir());
+}
+
+#[test]
+fn failed_table_write_still_installs_compaction() {
+    let dir = tempdir().unwrap();
+    let obstruction = dir.path().join("index.snap.stage.1.kin");
+    fs::create_dir(&obstruction).unwrap();
+    let mut summary = row("kept", 1);
+    summary.state = "closed".to_owned();
+    summary.parent = Some(RowKey::new("local", "root"));
+    let captured = Arc::new(SummaryIndex::new().apply(1, summary));
+    let result = Compaction::new(dir.path().to_owned(), 0, 1).run(captured).unwrap();
+    assert_eq!(result.snapshot.len(), 1);
+    assert!(!result.snapshot.has_kin_table());
+    assert_eq!(result.cleanup_errors, 1);
+    assert!(obstruction.is_dir());
+    assert_eq!(DiskSnapshot::open(dir.path().join("index.snap")).unwrap().unwrap().len(), 1);
 }

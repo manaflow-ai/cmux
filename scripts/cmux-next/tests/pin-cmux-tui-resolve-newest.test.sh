@@ -86,10 +86,11 @@ resolve() { # [env...] -> stdout+stderr in $out, exit in $status
 }
 
 # The tip and the next cmux-tui commit are unusable; the published tree wins at once.
+# A wait would sleep a whole 600 s poll; a loaded Mac takes about 21 s to resolve without one.
 started=$SECONDS
-resolve
+resolve CMUX_TUI_TREE_POLL_SECONDS=600
 [[ "$status" == 0 ]] || fail "resolve-newest-published failed (exit $status):" "$out" "$err"
-(( SECONDS - started < 20 )) || fail "the resolver waited $((SECONDS - started))s; it must not wait for the tip's tree"
+(( SECONDS - started < 300 )) || fail "the resolver waited $((SECONDS - started))s; it must not wait for the tip's tree"
 grep -qx "commit=$published" <<<"$out" || fail "expected commit=$published (newest published tree), got:" "$out" "$err"
 grep -qx "key=$(key "$published")" <<<"$out" || fail "expected the published tree's key, got:" "$out"
 grep -qx "source_commit=$published" <<<"$out" || fail "expected source_commit=$published, got:" "$out"

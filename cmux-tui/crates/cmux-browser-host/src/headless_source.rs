@@ -32,8 +32,80 @@ struct SessionFilter {
     tabs: HashSet<String>,
 }
 
-pub struct HeadlessSource {
+/// One running Chromium and the driver on it; a crashed one is replaced
+/// (`crate::headless_relaunch`).
+pub(crate) struct Live {
     pub(crate) driver: CdpDriver,
+    // Last: the browser stops after the driver let go of it.
+    chromium: HeadlessChromium,
+}
+
+impl std::ops::Deref for Live {
+    type Target = CdpDriver;
+    fn deref(&self) -> &CdpDriver {
+        &self.driver
+    }
+}
+
+impl Live {
+    /// Launches Chromium (on the profile of the `dead` one, after a crash)
+    /// and takes it over; its events go to the source `me` names.
+    pub(crate) fn start(
+        options: &crate::cdp::pipe::HeadlessOptions,
+        agent_source: Arc<str>,
+        me: &Arc<std::sync::OnceLock<Weak<HeadlessSource>>>,
+        dead: Option<&Live>,
+    ) -> Result<Live, DriverError> {
+        let chromium = match dead {
+            Some(dead) => dead.chromium.relaunch(options),
+            None => HeadlessChromium::launch(options),
+        }
+        .map_err(|e| DriverError::closed(format!("engine_unavailable: headless: {e}")))?;
+        let sink_me = me.clone();
+        let driver = CdpDriver::attach_browser(
+            chromium.connection().clone(),
+            agent_source,
+            Arc::new(move |event: DriverEvent| {
+                if let Some(source) = sink_me.get().and_then(Weak::upgrade) {
+                    source.publish(event);
+                }
+            }),
+        )?;
+        driver.save_downloads_in(chromium.downloads_dir())?;
+        // Headless: no person can see an Open panel, every tab intercepts.
+        driver.intercept_all_choosers(options.headless);
+        // Chromium opens a start tab; it is no session's tab, so sessions
+        // start with none (headless Chromium keeps running without tabs). A
+        // headful browser keeps it: its window is the person's, and new tabs
+        // need a window to open in ("Failed to open a new tab" without one).
+        let start_tabs =
+            if options.headless { driver.call("tabs.list", &json!({})).ok() } else { None };
+        if let Some(Value::Array(tabs)) = start_tabs {
+            for tab in tabs {
+                if let Some(target) = tab["targetId"].as_str() {
+                    let _ = driver.call("tabs.close", &json!({"targetId": target}));
+                }
+            }
+        }
+        Ok(Live { driver, chromium })
+    }
+}
+
+pub struct HeadlessSource {
+    /// The running browser (replaced after a crash).
+    pub(crate) live: Mutex<Arc<Live>>,
+    /// What a relaunch needs: the launch options and the page agent.
+    pub(crate) options: crate::cdp::pipe::HeadlessOptions,
+    pub(crate) agent_source: Arc<str>,
+    /// This source, for the event sink and hooks of a relaunched browser.
+    pub(crate) me: Arc<std::sync::OnceLock<Weak<HeadlessSource>>>,
+    /// One relaunch at a time, and how the last one went.
+    pub(crate) relaunches: Mutex<crate::headless_relaunch::Relaunches>,
+    /// The browser a relaunch is reopening tabs in: its events are not the
+    /// sessions' yet.
+    pub(crate) reopening: Mutex<Option<Arc<Live>>>,
+    /// Tab ids across relaunches (`crate::headless_relaunch`).
+    pub(crate) ids: Mutex<crate::headless_relaunch::TabIds>,
     pub(crate) profile: String,
     subscribers: Subscribers,
     next_subscriber: AtomicU64,
@@ -62,8 +134,6 @@ pub struct HeadlessSource {
     /// The browser runs headless: nobody sees its tabs (a headful one is a
     /// Cloud user's window). Sessions learn it as the `headless` capability.
     headless: bool,
-    // Last: the browser stops after the driver let go of it.
-    _browser: HeadlessChromium,
 }
 
 /// A fetch's id on the shared driver: the session's own id with the
@@ -79,40 +149,18 @@ impl HeadlessSource {
         agent_source: Arc<str>,
         profile: &str,
     ) -> Result<Arc<HeadlessSource>, DriverError> {
-        let browser = HeadlessChromium::launch(options)
-            .map_err(|e| DriverError::closed(format!("engine_unavailable: headless: {e}")))?;
-        let subscribers: Subscribers = Arc::default();
         let me: Arc<std::sync::OnceLock<Weak<HeadlessSource>>> = Arc::default();
-        let sink_me = me.clone();
-        let driver = CdpDriver::attach_browser(
-            browser.connection().clone(),
-            agent_source,
-            Arc::new(move |event: DriverEvent| {
-                if let Some(source) = sink_me.get().and_then(Weak::upgrade) {
-                    source.publish(event);
-                }
-            }),
-        )?;
-        driver.save_downloads_in(browser.downloads_dir())?;
-        // Headless: no person can see an Open panel, every tab intercepts.
-        driver.intercept_all_choosers(options.headless);
-        // Chromium opens a start tab; it is no session's tab, so sessions
-        // start with none (headless Chromium keeps running without tabs). A
-        // headful browser keeps it: its window is the person's, and new tabs
-        // need a window to open in ("Failed to open a new tab" without one).
-        let start_tabs =
-            if options.headless { driver.call("tabs.list", &json!({})).ok() } else { None };
-        if let Some(Value::Array(tabs)) = start_tabs {
-            for tab in tabs {
-                if let Some(target) = tab["targetId"].as_str() {
-                    let _ = driver.call("tabs.close", &json!({"targetId": target}));
-                }
-            }
-        }
+        let live = Live::start(options, agent_source.clone(), &me, None)?;
         let source = Arc::new(HeadlessSource {
-            driver,
+            live: Mutex::new(Arc::new(live)),
+            options: options.clone(),
+            agent_source,
+            me: me.clone(),
+            relaunches: Mutex::default(),
+            reopening: Mutex::default(),
+            ids: Mutex::default(),
             profile: profile.to_owned(),
-            subscribers,
+            subscribers: Subscribers::default(),
             next_subscriber: AtomicU64::new(1),
             leases: Mutex::default(),
             filters: Mutex::default(),
@@ -126,27 +174,60 @@ impl HeadlessSource {
             policies: Mutex::default(),
             egress: options.egress_listener,
             headless: options.headless,
-            _browser: browser,
         });
         let _ = me.set(Arc::downgrade(&source));
-        let weak = Arc::downgrade(&source);
-        source.driver.set_popup_hook(Some(Arc::new(move |popup: &str, opener: &str| {
+        source.install_popup_hook(&source.driver());
+        Ok(source)
+    }
+
+    /// The running browser's driver.
+    pub(crate) fn driver(&self) -> Arc<Live> {
+        self.live.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    /// A driver call under the sessions' tab ids (`crate::headless_relaunch`).
+    pub(crate) fn call(&self, method: &str, params: &Value) -> Result<Value, DriverError> {
+        let mut result =
+            self.on_live(method, params, |driver, params| driver.call(method, params))?;
+        self.ids().to_stable(&mut result);
+        Ok(result)
+    }
+
+    /// Tells the source of each popup `driver` sees.
+    pub(crate) fn install_popup_hook(self: &Arc<Self>, driver: &CdpDriver) {
+        let weak = Arc::downgrade(self);
+        driver.set_popup_hook(Some(Arc::new(move |popup: &str, opener: &str| {
             if let Some(source) = weak.upgrade() {
-                source.adopt_popup(popup, opener);
+                let (popup, opener) = {
+                    let ids = source.ids();
+                    (ids.stable(popup).to_owned(), ids.stable(opener).to_owned())
+                };
+                source.adopt_popup(&popup, &opener);
             }
         })));
-        Ok(source)
     }
 
     /// True while a session is attached or a tab (a kept one) is open: the
     /// browser must stay (D3).
+    /// A crashed browser's tabs count: the next call reopens them.
     pub fn in_use(&self) -> bool {
         !self.subscribers.lock().unwrap_or_else(PoisonError::into_inner).is_empty()
-            || matches!(self.driver.call("tabs.list", &json!({})), Ok(Value::Array(tabs)) if !tabs.is_empty())
+            || matches!(self.driver().call("tabs.list", &json!({})), Ok(Value::Array(tabs)) if !tabs.is_empty())
     }
 
     pub fn is_open(&self) -> bool {
-        self.driver.is_open()
+        self.driver().is_open()
+    }
+
+    /// The running Chromium's process id (tests stop it by its own pid).
+    pub fn browser_pid(&self) -> Option<u32> {
+        self.driver().chromium.pid()
+    }
+
+    /// Launches the browser again if it died, with its tabs; false when it
+    /// cannot start.
+    pub fn relaunch_if_closed(&self) -> bool {
+        self.live_or_relaunch().is_ok()
     }
 
     /// Installs the combined filter: a request of a tab is refused when a
@@ -156,20 +237,29 @@ impl HeadlessSource {
     /// filter. A popup of a driven tab is its opener's sessions' from its
     /// first request (`adopt_popup`).
     fn sync_filter(self: &Arc<Self>) {
+        self.sync_filter_on(&self.driver());
+    }
+
+    /// `sync_filter` on `driver` (a relaunched browser's, before it reopens
+    /// the tabs).
+    pub(crate) fn sync_filter_on(self: &Arc<Self>, driver: &CdpDriver) {
         let any = !self.filters.lock().unwrap_or_else(PoisonError::into_inner).is_empty();
         if !any {
-            self.driver.set_request_filter(None);
+            driver.set_request_filter(None);
             return;
         }
         let weak: Weak<HeadlessSource> = Arc::downgrade(self);
-        self.driver.set_request_filter(Some(Arc::new(move |request: &RequestInfo<'_>| {
+        driver.set_request_filter(Some(Arc::new(move |request: &RequestInfo<'_>| {
             let Some(source) = weak.upgrade() else {
-                return Some("the headless browser closed".to_owned());
+                return Some(crate::headless_relaunch::CLOSED.to_owned());
             };
             let owner = source
-                .driver
+                .driver()
                 .shell_fetch_id(request.target)
                 .and_then(|id| id.strip_prefix('s')?.split_once('/')?.0.parse::<u64>().ok());
+            // The sessions name a reopened tab by the id they know.
+            let target = source.ids().stable(request.target).to_owned();
+            let request = &RequestInfo { target: &target, url: request.url, kind: request.kind };
             let filters: Vec<RequestFilter> = {
                 let filters = source.filters.lock().unwrap_or_else(PoisonError::into_inner);
                 let driving: Vec<RequestFilter> = filters
@@ -223,7 +313,7 @@ impl HeadlessSource {
         // Headful: a tab a session drives intercepts its file choosers. On
         // every call: the first (tabs.open) can come before the driver
         // knows the tab; the driver does nothing once it is on.
-        self.driver.set_tab_choosers(target, true);
+        self.driver().set_tab_choosers(&self.real_id(target), true);
         let changed = self
             .filters
             .lock()
@@ -239,11 +329,12 @@ impl HeadlessSource {
 impl HeadlessSource {
     /// A tab's URL ("" when the tab is gone).
     fn tab_url(&self, target: &str) -> String {
-        let Ok(Value::Array(tabs)) = self.driver.call("tabs.list", &json!({})) else {
+        let Ok(Value::Array(tabs)) = self.driver().call("tabs.list", &json!({})) else {
             return String::new();
         };
+        let target = self.real_id(target);
         tabs.iter()
-            .find(|tab| tab["targetId"] == target)
+            .find(|tab| tab["targetId"] == target.as_str())
             .and_then(|tab| tab["url"].as_str())
             .unwrap_or("")
             .to_owned()
@@ -268,15 +359,19 @@ impl HeadlessSource {
             // The clock is injected at Activity's API (its tests pass times).
             .drove(target, Instant::now());
         for (tab, throttled) in changes {
-            self.driver.set_tab_throttled(&tab, throttled);
+            self.driver().set_tab_throttled(&self.real_id(&tab), throttled);
         }
     }
 
     /// Delivers a driver event (on the driver's event thread, which may call
     /// the driver): to one session, to every session, or, when no session
     /// takes a dialog or download, the host answers it and logs it (D2).
-    fn publish(&self, event: DriverEvent) {
+    pub(crate) fn publish(&self, mut event: DriverEvent) {
         use crate::headless_routes::{Route, unrouted_entry};
+        if self.answer_while_reopening(&event) {
+            return;
+        }
+        self.ids().to_stable(&mut event.payload);
         let sinks: Vec<(u64, EventSink)> =
             self.subscribers.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let attached = |session: u64| sinks.iter().any(|(s, _)| *s == session);
@@ -284,6 +379,7 @@ impl HeadlessSource {
             && let Some(target) = event.payload.get("targetId").and_then(Value::as_str)
         {
             self.driven.lock().unwrap_or_else(PoisonError::into_inner).remove(target);
+            self.ids().closed(target);
             self.activity.lock().unwrap_or_else(PoisonError::into_inner).closed(target);
             // A closed tab takes its automation lease with it (as the app's
             // tab.gone does): the table stays bounded.
@@ -315,15 +411,16 @@ impl HeadlessSource {
                     // beforeunload too: the page stays.
                     "dialog" => {
                         let dialog = event.payload.get("dialogId").cloned().unwrap_or(Value::Null);
-                        let _ = self.driver.call(
+                        let real = self.real_id(target.as_str().unwrap_or(""));
+                        let _ = self.driver().call(
                             "dialog.respond",
-                            &json!({"targetId": target, "dialogId": dialog, "accept": false}),
+                            &json!({"targetId": real, "dialogId": dialog, "accept": false}),
                         );
                         "dismissed"
                     }
                     "download" if event.name == "download.started" => {
                         let id = event.payload.get("downloadId").cloned().unwrap_or(Value::Null);
-                        let _ = self.driver.call("download.cancel", &json!({"downloadId": id}));
+                        let _ = self.driver().call("download.cancel", &json!({"downloadId": id}));
                         "cancelled"
                     }
                     "download" => "dropped",
@@ -331,9 +428,10 @@ impl HeadlessSource {
                     _ => {
                         let chooser =
                             event.payload.get("chooserId").cloned().unwrap_or(Value::Null);
-                        let _ = self.driver.call(
+                        let real = self.real_id(target.as_str().unwrap_or(""));
+                        let _ = self.driver().call(
                             "filechooser.respond",
-                            &json!({"targetId": target, "chooserId": chooser, "cancel": true}),
+                            &json!({"targetId": real, "chooserId": chooser, "cancel": true}),
                         );
                         "cancelled"
                     }
@@ -367,8 +465,10 @@ impl HeadlessSource {
 pub struct SharedHeadless(pub Arc<HeadlessSource>);
 
 impl TabSource for SharedHeadless {
+    /// A crashed browser is launched again with its tabs: closed only when
+    /// it cannot start.
     fn closed_reason(&self) -> Option<String> {
-        (!self.0.driver.is_open()).then(|| "the headless browser closed".to_owned())
+        (!self.0.relaunch_if_closed()).then(|| crate::headless_relaunch::CLOSED.to_owned())
     }
 
     fn subscribe(&self, sink: EventSink) -> u64 {
@@ -388,7 +488,7 @@ impl TabSource for SharedHeadless {
 
     /// The browser's tabs; every tab of the profile shares its data store.
     fn tab_rows(&self, _engine: &str) -> Vec<TabRow> {
-        let Ok(Value::Array(tabs)) = self.0.driver.call("tabs.list", &json!({})) else {
+        let Ok(Value::Array(tabs)) = self.0.call("tabs.list", &json!({})) else {
             return Vec::new();
         };
         tabs.iter()
@@ -414,7 +514,7 @@ impl TabSource for SharedHeadless {
     }
 
     fn tab_engine(&self, target_id: &str) -> Option<String> {
-        let Ok(Value::Array(tabs)) = self.0.driver.call("tabs.list", &json!({})) else {
+        let Ok(Value::Array(tabs)) = self.0.call("tabs.list", &json!({})) else {
             return None;
         };
         tabs.iter().any(|tab| tab["targetId"] == target_id).then(|| "headless".to_owned())
@@ -454,7 +554,7 @@ impl TabSource for SharedHeadless {
     }
 
     fn call(&self, method: &str, params: &Value) -> Result<Value, DriverError> {
-        self.0.driver.call(method, params)
+        self.0.call(method, params)
     }
 
     fn opened(&self, session: u64, target_id: &str) {
@@ -516,7 +616,7 @@ impl TabSource for SharedHeadless {
                 "net.fetch: a fetch with no tab is not supported in an incognito session; pass the targetId of one of its tabs",
             )));
         }
-        Some(self.0.driver.call(method, &params))
+        Some(self.0.call(method, &params))
     }
 
     fn tab_call(&self, call: &TabCall<'_>) -> Result<Reply, DriverError> {
@@ -632,13 +732,13 @@ impl TabSource for SharedHeadless {
         // leaves the tab).
         let left = self.0.routes().session_ended(session);
         for (target, dialog) in left.dialogs {
-            let _ = self.0.driver.call(
+            let _ = self.0.call(
                 "dialog.respond",
                 &json!({"targetId": target, "dialogId": dialog, "accept": false}),
             );
         }
         for (target, chooser) in left.choosers {
-            let _ = self.0.driver.call(
+            let _ = self.0.call(
                 "filechooser.respond",
                 &json!({"targetId": target, "chooserId": chooser, "cancel": true}),
             );
@@ -656,9 +756,10 @@ impl TabSource for SharedHeadless {
             left
         };
         for target in left {
-            let _ = self.0.driver.release_held_input(&target);
+            let real = self.0.real_id(&target);
+            let _ = self.0.driver().release_held_input(&real);
             // Headful: the person's Open panel again.
-            self.0.driver.set_tab_choosers(&target, false);
+            self.0.driver().set_tab_choosers(&real, false);
         }
         let removed = self
             .0
@@ -673,7 +774,7 @@ impl TabSource for SharedHeadless {
     }
 
     fn capabilities(&self, _engine: &str) -> Vec<&'static str> {
-        let mut capabilities = self.0.driver.capabilities();
+        let mut capabilities = self.0.driver().capabilities();
         // Incognito tabs (private data P1, headless_configure.rs).
         capabilities.push("incognito");
         // Tabs nobody sees: the REPL's agent pointer skips the human path
@@ -697,9 +798,11 @@ impl SharedHeadless {
         }
         if call.raw {
             // Script values keep the page's key order (a9 raw_value).
-            return self.0.driver.call_reply_announced(call.method, &params, &mut || {});
+            return self.0.on_live(call.method, &params, |driver, params| {
+                driver.call_reply_announced(call.method, params, &mut || {})
+            });
         }
-        self.0.driver.call(call.method, &params).map(Reply::Value)
+        self.0.call(call.method, &params).map(Reply::Value)
     }
 }
 
@@ -714,7 +817,9 @@ pub fn browser_for(
     launch: impl FnOnce() -> Result<Arc<HeadlessSource>, DriverError>,
 ) -> Result<Arc<HeadlessSource>, DriverError> {
     let mut map = browsers.lock().unwrap_or_else(PoisonError::into_inner);
-    if let Some(source) = map.get(profile).filter(|source| source.is_open()) {
+    // A crashed browser comes back with its tabs; a new one only when it
+    // cannot start again.
+    if let Some(source) = map.get(profile).filter(|source| source.relaunch_if_closed()) {
         return Ok(source.clone());
     }
     let source = launch()?;

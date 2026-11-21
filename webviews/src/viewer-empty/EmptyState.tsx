@@ -1,5 +1,5 @@
 // The shared layout of the viewer empty states (diff without a repository, markdown without a
-// file): a centered column with a title, a line of help, the primary action, the recent items and
+// file): a centered column with a title, the primary action, the recent items and
 // a drop target over the whole page. DiffEmptyState and MarkdownEmptyState own the host calls.
 import { useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Listbox } from "../ui/Listbox";
@@ -13,7 +13,6 @@ import { relativeTime } from "./time";
 export interface EmptyStateProps {
   kind: "diff" | "markdown" | "editor";
   title: string;
-  subtitle: string;
   /** The text over the page while something is dragged onto it. */
   dropText: string;
   onDrop(item: DroppedItem): void;
@@ -22,7 +21,7 @@ export interface EmptyStateProps {
   children: ReactNode;
 }
 
-export function EmptyState({ kind, title, subtitle, dropText, onDrop, error, children }: EmptyStateProps) {
+export function EmptyState({ kind, title, dropText, onDrop, error, children }: EmptyStateProps) {
   const [dragging, setDragging] = useState(false);
   const depth = useRef(0);
   const enter = (event: DragEvent<HTMLDivElement>) => {
@@ -57,7 +56,6 @@ export function EmptyState({ kind, title, subtitle, dropText, onDrop, error, chi
     >
       <div className="ve-column">
         <h1 className="ve-title">{title}</h1>
-        <p className="ve-subtitle">{subtitle}</p>
         {children}
         {error ? (
           <p className="ve-error" role="alert">

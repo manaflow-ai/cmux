@@ -132,7 +132,13 @@ await requireBrowserLane("send-stream-motion.test.ts", async () => {
       // move is where the rows in view paint (sendStreamMotionReport `paintedMove`): the fold slides
       // each row from where it was drawn, so the thread's own box can shift while nothing on screen
       // does (the tools turn: the thread 48.57 px in one frame, every row in view under 0.5 px).
-      expect(report.jumpPx.max).toBeLessThanOrEqual(MAX_FRAME_PX);
+      // The reader's own prompt landing (the `send` step, and a steer's `steer` step) is the one move
+      // that lands at once (Leo, 2026-11-11: "that slow settle animation is just so bad. Like, just
+      // do it."): the motion scale's send step is 0. Every other step keeps the bound.
+      const sendSteps = new Set(["send", "steer"]);
+      const steps = Object.entries(report.byPhase).filter(([phase]) => !sendSteps.has(phase));
+      expect(steps.length).toBeGreaterThan(0);
+      expect(Object.fromEntries(steps.filter(([, step]) => step.maxPx > MAX_FRAME_PX))).toEqual({});
       // And at the turn's end, row by row, the thread's shift plus the row's own layout move plus the
       // fold's offset on it nets within a line: the fold's offsets cover the shift, and a fold that
       // stopped covering it moves every row by the whole shift (turn-end-net-move.test.ts).
