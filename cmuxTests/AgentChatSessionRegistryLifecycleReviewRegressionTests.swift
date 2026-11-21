@@ -187,6 +187,88 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
     }
 
     @MainActor
+    @Test func programStatusSettlementEndsTheSurfacesWorkingTurn() throws {
+        let registry = AgentChatSessionRegistry()
+        let surfaceID = UUID().uuidString
+        let otherSurfaceID = UUID().uuidString
+        func hook(_ name: WorkstreamEvent.HookEventName, session: String, source: String = "claude",
+                  surface: String, at seconds: TimeInterval) {
+            registry.noteHookEvent(WorkstreamEvent(
+                sessionId: session,
+                hookEventName: name,
+                source: source,
+                workspaceId: UUID().uuidString,
+                surfaceId: surface,
+                ppid: 123,
+                receivedAt: Date(timeIntervalSince1970: seconds)
+            ))
+        }
+        // A turn interrupted with Esc: no Stop after the prompt and tool call.
+        // The interrupted tool's failure can arrive after the edge.
+        let interrupted = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        hook(.userPromptSubmit, session: interrupted, surface: surfaceID, at: 10)
+        hook(.preToolUse, session: interrupted, surface: surfaceID, at: 12)
+        hook(.postToolUseFailure, session: interrupted, surface: surfaceID, at: 21)
+        // Another surface, and another agent on this one, are not settled.
+        let elsewhere = "5b1f8a8e-3c55-4c8e-9a1e-0e9a2b7d6c41"
+        hook(.userPromptSubmit, session: elsewhere, surface: otherSurfaceID, at: 10)
+        let codex = "0199a7c2-1d3e-7f4a-8b5c-6d7e8f9a0b1c"
+        hook(.userPromptSubmit, session: codex, source: "codex", surface: surfaceID, at: 10)
+
+        registry.noteTurnSettledFromProgramStatus(
+            surfaceID: surfaceID,
+            source: "claude",
+            at: Date(timeIntervalSince1970: 20)
+        )
+
+        let settled = try #require(registry.record(sessionID: interrupted))
+        #expect(settled.state == .idle)
+        #expect(!settled.hasHookLifecycleState)
+        #expect(settled.lastActivityAt == Date(timeIntervalSince1970: 21))
+        #expect(registry.record(sessionID: elsewhere)?.state == .working(since: Date(timeIntervalSince1970: 10)))
+        #expect(registry.record(sessionID: codex)?.state == .working(since: Date(timeIntervalSince1970: 10)))
+    }
+
+    @MainActor
+    @Test func programStatusSettlementLeavesLaterActivityAndQuestions() throws {
+        let registry = AgentChatSessionRegistry()
+        let resumedSurfaceID = UUID().uuidString
+        let askingSurfaceID = UUID().uuidString
+        func hook(_ name: WorkstreamEvent.HookEventName, session: String, surface: String,
+                  toolName: String? = nil, at seconds: TimeInterval) {
+            registry.noteHookEvent(WorkstreamEvent(
+                sessionId: session,
+                hookEventName: name,
+                source: "claude",
+                workspaceId: UUID().uuidString,
+                surfaceId: surface,
+                toolName: toolName,
+                ppid: 123,
+                receivedAt: Date(timeIntervalSince1970: seconds)
+            ))
+        }
+        // A turn that began after the settled edge is a new one.
+        let resumed = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        hook(.userPromptSubmit, session: resumed, surface: resumedSurfaceID, at: 10)
+        hook(.stop, session: resumed, surface: resumedSurfaceID, at: 15)
+        hook(.userPromptSubmit, session: resumed, surface: resumedSurfaceID, at: 30)
+        // A question waits on the person, not on a turn.
+        let asking = "5b1f8a8e-3c55-4c8e-9a1e-0e9a2b7d6c41"
+        hook(.preToolUse, session: asking, surface: askingSurfaceID, toolName: "AskUserQuestion", at: 10)
+
+        for surfaceID in [resumedSurfaceID, askingSurfaceID] {
+            registry.noteTurnSettledFromProgramStatus(
+                surfaceID: surfaceID,
+                source: "claude",
+                at: Date(timeIntervalSince1970: 20)
+            )
+        }
+
+        #expect(registry.record(sessionID: resumed)?.state == .working(since: Date(timeIntervalSince1970: 30)))
+        #expect(registry.record(sessionID: asking)?.state == .needsInput(since: Date(timeIntervalSince1970: 10)))
+    }
+
+    @MainActor
     @Test func relaunchOnlyPlaceholderCannotBecomeResumeSessionIdentity() {
         #expect(!AgentChatTranscriptService.isValidResumeSessionID(""))
         #expect(!AgentChatTranscriptService.isValidResumeSessionID("  \n"))

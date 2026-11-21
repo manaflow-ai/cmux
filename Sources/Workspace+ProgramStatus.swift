@@ -287,6 +287,13 @@ extension Workspace {
         } else {
             setAgentLifecycle(key: key, panelId: panelId, lifecycle: .idle)
         }
+        // Custom sidebars read `agents[].status` from the agent chat registry,
+        // which otherwise moves to idle only on a Stop hook.
+        TerminalController.shared.agentChatTranscriptService?.noteTurnSettledFromProgramStatus(
+            surfaceID: panelId.uuidString,
+            source: source,
+            at: edge
+        )
         setStatusEntry(
             SidebarStatusEntry(
                 key: key,
