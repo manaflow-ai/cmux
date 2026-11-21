@@ -15,7 +15,7 @@ import {
   type AttachmentIntakeOptions,
 } from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
 import { intakeFiles, type IntakeEvents } from "../src/agent-session/acpmux/composer/intakeFiles";
-import { UPLOAD_RETRY_INPUT_WAIT_MS } from "../src/agent-session/acpmux/composer/uploadRetry";
+import { UPLOAD_AUTO_RETRIES, UPLOAD_RETRY_DELAY_MS } from "../src/agent-session/acpmux/composer/uploadRetry";
 import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
@@ -295,12 +295,12 @@ test("an image whose original was not saved shows Retry in a local chat too, and
   expect(host.querySelector(".acpmux-attachment-original-retry")).not.toBeNull();
   act(() => root!.render(<Harness options={options("cloud", false)} handle={handle} />));
   // An upload that should never start has no event to wait for. Under fake timers every try again
-  // a listener could arm (zero-delay after the input, or the timed one) fires at once, and the act
-  // after it runs what that started, so an upload that starts on its own is in `uploads` here.
+  // a timer could arm fires at once, and the act after it runs what that started, so an upload
+  // that starts on its own is in `uploads` here.
   jest.useFakeTimers();
   for (const type of ["keydown", "pointerdown"]) document.dispatchEvent(new dom.window.Event(type, { bubbles: true }));
   try {
-    act(() => void jest.advanceTimersByTime(UPLOAD_RETRY_INPUT_WAIT_MS));
+    act(() => void jest.advanceTimersByTime(UPLOAD_RETRY_DELAY_MS * 2 ** UPLOAD_AUTO_RETRIES));
   } finally {
     jest.useRealTimers();
   }

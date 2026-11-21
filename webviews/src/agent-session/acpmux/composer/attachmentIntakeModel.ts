@@ -937,7 +937,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     void intake([file], source.uploads, undefined, id);
   });
   retryRef.current = retry;
-  // A try again still waiting (its timer, its key and click listeners) goes with the composer.
+  // A try again still waiting (its timer) goes with the composer.
   useEffect(
     () => () => {
       for (const { stop } of autoRetries.current.values()) stop();
