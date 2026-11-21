@@ -72,6 +72,25 @@ import Testing
         #expect(service(["CMUX_NEXT_CLOUD_BACKEND": "default"], defaults)?.source == .build)
     }
 
+    /// A tag's stack serves its API, mobile Worker and device hub on three consecutive ports of one tailnet
+    /// host (scripts/cmux-next/cloud-dev-stack.sh), so the one API origin the hand-off passes names all three.
+    /// The shared development deployment and previews keep the build's own services.
+    @Test func aTagStackNamesItsOwnMobileWorkerAndHubOnTheNextPorts() throws {
+        let defaults = try defaults()
+        let chosen = try #require(service(["CMUX_NEXT_CLOUD_BACKEND": stack], defaults))
+        #expect(chosen.mobileAPI?.absoluteString == "https://cmux-dev-backend-1.tail137216.ts.net:3851")
+        #expect(chosen.deviceHub?.absoluteString == "https://cmux-dev-backend-1.tail137216.ts.net:3852")
+        // Kept for a plain relaunch (no launch variables), with the same services.
+        let kept = try #require(CloudBackendOverride.resolve(environment: [:], defaults: defaults))
+        #expect(kept.mobileAPI == chosen.mobileAPI && kept.deviceHub == chosen.deviceHub)
+        for shared in ["dev", "preview-12", "https://cmux-dev-backend-1.tail137216.ts.net"] {
+            let other = try #require(CloudBackendOverride.allowed(shared))
+            let override = CloudBackendOverride(url: other, source: .launch)
+            #expect(override.mobileAPI == nil && override.deviceHub == nil, "\(shared) keeps the build's own services")
+        }
+        #expect(CloudBackendOverride(url: URL(string: build)!, source: .build).mobileAPI == nil)
+    }
+
     /// Release, TestFlight and App Store builds (no DEBUG) read only Info.plist: no launch value, no
     /// kept value, no rig value, and they store nothing.
     @Test func aBuildWithoutDebugIgnoresEveryOverride() throws {

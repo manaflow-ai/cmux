@@ -107,6 +107,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         )],
     ),
     (
+        "process start",
+        &[(
+            "From an agent chat's shell: run a dev server as a task that outlives hibernation",
+            "acpmux process start --description 'dev server' -- 'npm run dev'",
+        )],
+    ),
+    (
         "process background",
         &[
             (
