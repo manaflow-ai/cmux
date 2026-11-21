@@ -288,7 +288,11 @@ jobs:
     # run publishes another name and never answers for `backend migrations applied`.
     name: ${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next' && 'backend migrations metadata edit (ignored)' || 'backend migrations applied' }}
     needs: [plan, apply-production]
-    if: ${{ always() && !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next') }}
+    # A plan that succeeded with no migration change starts no gate VM either: a job skipped by its `if:` keeps
+    # this name and reports success for the required check, the verdict the job gave there after a ~25 s VM
+    # (main's copy since #48999; this copy still started one for every PR head into feat-cmux-next, 11-21).
+    # Every other plan result (failure, cancelled) or a migration change runs it.
+    if: ${{ always() && !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next') && !(needs.plan.result == 'success' && needs.plan.outputs.migrations != 'true') }}
     # merge_group runs this file from the queue commit (PR content), so it never gets an
     # environment or secrets (the environments allow only main and feat-cmux-next); the queue
     # only admits PRs whose pull_request_target gate passed. Fork PRs never get secrets here.
