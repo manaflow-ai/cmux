@@ -24,7 +24,16 @@ import { currentChatMetrics } from "../chatDisplay";
 import { EXIT_EASING, exitLeadMs } from "./exitLead";
 import { cssTimeMs, foldMs } from "./fold";
 import { ARRIVAL_FRAME_LINES } from "./followChase";
-import { boxOf, clippedBottom, clippedBottomOf, coverClip, ghostOf, type CoverPath } from "./turnFold";
+import {
+  boxOf,
+  clippedBottom,
+  clippedBottomOf,
+  coverClip,
+  drawnInk,
+  ghostOf,
+  HIDDEN_INK,
+  type CoverPath,
+} from "./turnFold";
 import { ACTIVITY_LINE, LIVE_THINKING, WORKED, WORKING } from "./turns";
 import { isLineRow, type AcpmuxRow } from "../model";
 
@@ -101,9 +110,6 @@ type Drawn = {
   hidden?: boolean;
 };
 
-/// Under this drawn opacity a row counts as not drawn at the swap (`Drawn.hidden`).
-const HIDDEN_INK = 0.5;
-
 /// A clip that hides `bottom` px of a row's bottom and nothing past its other edges (tailGlide.ts's).
 const clipBottom = (bottom: number) => `inset(-4096px -4096px ${bottom}px -4096px)`;
 
@@ -125,12 +131,6 @@ export type TurnEndFold = {
 };
 
 const mounted = (thread: HTMLElement) => thread.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]");
-
-/// The opacity a row draws with now, its running animations' included (1 where unreadable).
-function drawnInk(node: HTMLElement): number {
-  const ink = Number.parseFloat(node.ownerDocument.defaultView?.getComputedStyle(node).opacity ?? "");
-  return Number.isFinite(ink) ? ink : 1;
-}
 
 /// Reads the rows `thread` draws now, before `after` replaces them: undefined when the fold would
 /// not show (no motion, or the running turn's line is not drawn, the turn's end out of view).
