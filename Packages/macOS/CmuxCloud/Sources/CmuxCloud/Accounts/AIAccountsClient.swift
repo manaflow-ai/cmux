@@ -2,7 +2,7 @@ import CmuxAuthRuntime
 import CmuxControlSocket
 import Foundation
 
-enum AIAccountsClientError: Error, CustomStringConvertible {
+public enum AIAccountsClientError: Error, CustomStringConvertible {
     case notSignedIn
     case sessionRefreshFailed
     case httpStatus(Int, String)
