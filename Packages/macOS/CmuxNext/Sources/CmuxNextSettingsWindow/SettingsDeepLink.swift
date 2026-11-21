@@ -10,17 +10,23 @@ public struct SettingsDeepLink: Equatable, Sendable {
     /// A cmux.json key path, or another name `SettingsAnchor(key:)`
     /// knows; nil when absent or blank.
     public var setting: String?
+    /// A page-only place (`#/settings/personalization?focus=card.customizeDoctor`, the customize
+    /// doctor's toast) that no section or setting names; only a `#/settings/` route is read.
+    /// In-process callers only: the action catalog declares no `route` argument.
+    public var route: String?
 
-    public init(section: SettingsSection? = nil, setting: String? = nil) {
+    public init(section: SettingsSection? = nil, setting: String? = nil, route: String? = nil) {
         self.section = section
         self.setting = setting
+        self.route = route
     }
 
-    /// Reads `section` (an unknown name is ignored, as before) and
-    /// `setting` (trimmed; blank is none).
+    /// Reads `section` (an unknown name is ignored, as before), `setting` (trimmed; blank is
+    /// none) and `route` (a `#/settings/` route, else none).
     public init(_ invocation: ActionInvocation) {
         section = Self.text(invocation["section"]).flatMap(SettingsSection.init(rawValue:))
         setting = Self.text(invocation["setting"])
+        route = Self.text(invocation["route"]).flatMap { $0.hasPrefix("#/settings/") ? $0 : nil }
     }
 
     /// Settings > Appearance's page route, on its background picker when `background` (Change

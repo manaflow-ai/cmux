@@ -45,7 +45,7 @@ puts the change into a side copy and writes before and after screenshots, a vide
 (`hot-verify.py plan --source dir:. --app APP` first says whether it needs a build).
 
 `cmux customize library status` says which layers are on, `library refresh` pulls each one's newest build (a fork's only when you run `use` again), and
-`library off --all` turns every code layer off. Rust hot-apply into a Developer ID NIGHTLY takes the
+`library off --all` turns every code layer off, and `cmux customize doctor` lists every layer left on and every customization file that does not load, is skipped, overrides another or sits in the wrong folder, as the app's notice does. Rust hot-apply into a Developer ID NIGHTLY takes the
 tree's Team-signed copy, which CI publishes a few minutes after the tree; until then it is held back. Agents follow the same loop through the
 [cmux-hot-loop skill](../../skills/cmux-hot-loop/SKILL.md). Which layers swap, why, and how often each applies:
 cmuxterm-hq [docs/design/cmux-next-hot-swap-layers.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/design/cmux-next-hot-swap-layers.md)

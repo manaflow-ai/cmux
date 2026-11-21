@@ -14,6 +14,7 @@
 
 mod ask;
 mod dir;
+mod doctor;
 mod expire;
 mod library;
 mod pr;
@@ -55,6 +56,8 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
   cmux customize profiles                     The saved profiles
   cmux customize recipes [--open]             Ready-made changes to try with `use` (--open: the guide, in cmux)
   cmux customize library [VERB]               Everything you applied, kept as layers: list|status|on|off|order|export|import|remove
+  cmux customize doctor                       What changes your customization unexpectedly: stale layers, broken,
+                                              shadowed, leftover or misplaced files, unknown keys, values off their default; `fix ID ...`, `recover`
 
 If a layer broke cmux (no app needed, with cmux quit too):
   cmux customize library status               Which layers are on, in one line (also in `cmux version`)
@@ -105,6 +108,7 @@ const VERBS: &[&str] = &[
     "keep",
     "revert",
     "library",
+    "doctor",
     "paths",
     "brief",
     "check",
@@ -171,6 +175,7 @@ pub(super) enum Request {
         open: bool,
     },
     Library(library::Request),
+    Doctor(doctor::Request),
     Paths,
     Schema {
         section: Option<Section>,
@@ -227,6 +232,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
         },
         "try" | "try-on" => try_of(rest),
         "library" | "lib" => library::parse(rest).map(Request::Library),
+        "doctor" | "dr" => doctor::parse(rest).map(Request::Doctor),
         "paths" => none(Request::Paths),
         "apply" => Ok(Request::Apply { note: (!rest.is_empty()).then(|| rest.join(" ")) }),
         "rollback" | "undo" | "switch" => match rest {
@@ -640,6 +646,7 @@ pub(super) fn execute(
         Request::Profiles => Answer::Profiles(customize.profiles()?),
         Request::Recipes { open } => recipes(customize, open, chat)?,
         Request::Library(request) => library::execute(customize, request, origin, now_ms)?,
+        Request::Doctor(request) => doctor::execute(customize, request, origin, now_ms)?,
         Request::Paths => Answer::Paths(customize.roots().clone()),
         Request::Schema { section, format } => Answer::Schema(Schema::current(), section, format),
     })

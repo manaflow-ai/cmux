@@ -99,6 +99,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var liveCode = CmuxConfigSnapshot.liveCodeDefault
     /// `customize.fromTheApp`: the Customize Inspector (hold Option) and right-click Customize…; off when unset.
     public var customizeFromTheApp = CmuxConfigSnapshot.customizeFromTheAppDefault
+    /// `customize.doctorNotice`: the toast naming a file or layer that changes the setup (`CustomizeDoctorNotice`); on when unset.
+    public var customizeDoctorNotice = CmuxConfigSnapshot.customizeDoctorNoticeDefault
     /// `labs.agentCustomization`: Settings shows and edits Claude Code's and Codex's own MCP servers, skills and commands (`cmux agent-config`); off when unset.
     public var agentCustomization = CmuxConfigSnapshot.agentCustomizationDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`, `browser.freezeHiddenTabs`.
@@ -389,6 +391,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(Self.parseLabsToggle(root, path: machineJoinPath, fallback: machineJoinDefault), \.machineJoin)
         snapshot.take(Self.parseLabsToggle(root, path: liveCodePath, fallback: liveCodeDefault), \.liveCode)
         snapshot.take(Self.parseLabsToggle(root, path: customizeFromTheAppPath, fallback: customizeFromTheAppDefault), \.customizeFromTheApp)
+        snapshot.take(Self.parseLabsToggle(root, path: customizeDoctorNoticePath, fallback: customizeDoctorNoticeDefault), \.customizeDoctorNotice)
         snapshot.take(Self.parseLabsToggle(root, path: agentCustomizationPath, fallback: agentCustomizationDefault), \.agentCustomization)
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
         snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
