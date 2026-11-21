@@ -53,7 +53,14 @@ public enum TerminalSessionChoice {
         macName: String?,
         programName: String
     ) -> any TerminalSession {
-        if let live { return live }
+        if let live {
+            #if os(iOS)
+            // The phone re-wraps the Mac's terminal at its own width; the Mac
+            // keeps its size (Settings → Terminal → Fit to Phone resizes it).
+            if TerminalProjectingSession.isEnabled { return TerminalProjectingSession(inner: live) }
+            #endif
+            return live
+        }
         #if DEBUG
         if mockDataEnabled {
             // A Codex-like inline TUI streaming history (reproduction harness).
