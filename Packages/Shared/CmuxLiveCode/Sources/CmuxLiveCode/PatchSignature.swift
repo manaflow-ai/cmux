@@ -10,22 +10,31 @@
 // validation on it (hardened runtime, no disable-library-validation entitlement): dyld then maps
 // only code of the app's own team, whatever file it opens, and this check is the early refusal with
 // a reason. A team's app without it refuses every patch.
+#if os(macOS)
 import Foundation
 import Security
 
-nonisolated enum PatchSignature {
-    /// Who signed the running app, from its own code signature.
-    enum AppSigner: Equatable, Sendable {
-        /// Signed by this team (its ten-character ID).
-        case team(String)
-        /// Unsigned or ad hoc: the signature names no team.
-        case noTeam
-        /// Signed by a team, but library validation is off, so a patch swapped in after the check
-        /// would load: every patch is refused.
-        case unprotected(team: String, why: String)
-        /// The app's own signature could not be read: every patch is refused.
-        case unreadable(String)
-    }
+/// Who signed the running app, from its own code signature.
+public enum LiveCodeSigner: Equatable, Sendable {
+    /// Signed by this team (its ten-character ID).
+    case team(String)
+    /// Unsigned or ad hoc: the signature names no team.
+    case noTeam
+    /// Signed by a team, but library validation is off, so a patch swapped in after the check
+    /// would load: every patch is refused.
+    case unprotected(team: String, why: String)
+    /// The app's own signature could not be read: every patch is refused.
+    case unreadable(String)
+
+    /// The running app's signer, from its own code signature (SecCodeCopySelf) and the kernel's
+    /// status of this process.
+    public static func running() -> LiveCodeSigner { PatchSignature.runningSigner() }
+}
+
+/// The patch check itself, internal to the engine: a caller reads the app's signer with
+/// `LiveCodeSigner.running()` and hands it to `LiveEngine`.
+enum PatchSignature {
+    typealias AppSigner = LiveCodeSigner
 
     /// Throws unless `path` is validly signed by `app`'s team, or, for an app with no team, validly
     /// signed at all. Off the main thread: it reads and hashes the file.
@@ -66,8 +75,6 @@ nonisolated enum PatchSignature {
         }
     }
 
-    /// The running app's signer, from its own code signature (SecCodeCopySelf) and the kernel's
-    /// status of this process.
     static func runningSigner() -> AppSigner {
         var running: SecCode?
         var code: SecStaticCode?
@@ -106,3 +113,4 @@ nonisolated enum PatchSignature {
         return .team(team)
     }
 }
+#endif
