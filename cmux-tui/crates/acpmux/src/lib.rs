@@ -317,11 +317,11 @@ mod test_exec;
 mod test_hooks_tree;
 #[cfg(test)]
 mod test_stack;
-pub mod test_tampering;
-pub(crate) mod test_tampering_restore;
 /// Another crate's tests' daemon (`test-support`; row 7c's `cmux-tui-core` gates). Never shipped.
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub mod test_support;
+pub mod test_tampering;
+pub(crate) mod test_tampering_restore;
 pub(crate) mod time_breakdown;
 pub(crate) mod tool_env;
 pub mod tools_mcp;

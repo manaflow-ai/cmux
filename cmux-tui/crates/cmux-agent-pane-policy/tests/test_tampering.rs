@@ -1,7 +1,7 @@
 //! Restore reaches the daemon only for this pane's session and durable evidence IDs.
+use cmux_agent_pane_policy::Refusal;
 use cmux_agent_pane_policy::check::{Checked, FrameState, PaneScope, check_frame};
 use cmux_agent_pane_policy::gesture::PermissionOptions;
-use cmux_agent_pane_policy::Refusal;
 use serde_json::{Map, Value, json};
 
 struct Scope;
@@ -76,7 +76,10 @@ fn restore_cannot_supply_filesystem_content_or_authority() {
     ] {
         let mut params = target();
         params[key] = value;
-        assert!(matches!(check(params), Checked::Refuse { refused, .. }
-            if refused.refusal == Refusal::IntentInvalid), "unexpectedly allowed {key}");
+        assert!(
+            matches!(check(params), Checked::Refuse { refused, .. }
+            if refused.refusal == Refusal::IntentInvalid),
+            "unexpectedly allowed {key}"
+        );
     }
 }
