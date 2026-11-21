@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use super::{
     Parsed, Reads, Route, Start, TAKES_VALUE, USAGE, cloud_words, global_words, here_preflight,
-    here_wait, here_words, in_environment, names_cloud, new_args, parse, parse_with, peer_words,
-    pick_target, read_setting, route, route_or_joined, route_start, setting_stream, start_words,
+    here_wait, here_words, in_environment, new_args, parse, parse_with, peer_words, pick_target,
+    read_setting, route, route_or_joined, route_start, setting_stream, start_words,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -311,6 +311,43 @@ fn a_cloud_chat_takes_an_environment_and_auto_is_none() {
     assert!(in_environment(&here, Route::Here).is_err());
     assert!(parse(&words(&["--environment", " ", "go"]), None).is_err());
     assert!(USAGE.contains("--environment ENV"));
+}
+
+/// Leo, 2026-11-20: "PLUS ALL THE FUCKIGN COMMANDS ABOUT FUCKING CLOUD". `cmux chat --on cloud --repo URL` was
+/// refused ("--repo starts a chat here in a clone"): a Cloud chat in a GitLab or GitHub repository took
+/// `cloud new-machine --repo`, `cmux vm ls` for its id and `cloud start-chat --target --cwd ~/work/NAME`. Now
+/// `--on cloud` and `--on vm:new` with `--repo` make one new machine that clones it, decided before any VM is
+/// read, and `cloud start-chat --repo` starts the chat in the clone.
+#[test]
+fn a_cloud_chat_takes_a_repository_on_a_new_machine() {
+    let reads = Reads {
+        catalog: || -> Result<Value, Value> { panic!("no catalog read") },
+        signed_in: || true,
+        cloud_machines: || -> Result<Value, Value> { panic!("no VM is looked at") },
+        peers: unread_peers,
+    };
+    let picked =
+        start(&["--on", "cloud", "--repo", "https://gitlab.com/group/sub/project@v2", "go"]);
+    assert_eq!(route_start(&picked, reads), Ok(Route::Cloud(Machine::New)));
+    let cloud = cloud_words(&picked, &Machine::New).unwrap();
+    assert_eq!(
+        cloud,
+        words(&["--prompt", "go", "--repo", "https://gitlab.com/group/sub/project@v2"])
+    );
+    let super::super::cloud_start_chat::Parsed::Run(request) =
+        super::super::cloud_start_chat::parse(&cloud, || Ok(String::new())).unwrap()
+    else {
+        panic!("help")
+    };
+    assert_eq!(request.cwd.as_deref(), Some("/home/cmux/work/project"));
+    assert_eq!(request.machine, Machine::New);
+    // GitHub's short form goes as it is.
+    let github = start(&["--on", "vm:new", "--repo", "acme/api", "go"]);
+    assert_eq!(
+        cloud_words(&github, &Machine::New).unwrap(),
+        words(&["--prompt", "go", "--repo", "acme/api"])
+    );
+    assert!(USAGE.contains("~/work/NAME"));
 }
 
 /// Before, `cmux chat --prompt X --wait` here was refused ("--wait and --timeout wait for a Cloud
@@ -856,10 +893,6 @@ fn a_chat_here_takes_a_repository() {
     assert!(TAKES_VALUE.contains(&"--repo"));
     // The local start matrix reads the usage block for `[--repo` (hq local_chat_probe.py takes_repo).
     assert!(USAGE.split("\n\n").next().unwrap().contains("[--repo URL]"));
-    for on in ["cloud", "vm", "vm:new", "vm:dev"] {
-        assert!(names_cloud(on), "{on}");
-    }
-    assert!(!names_cloud("here") && !names_cloud("studio-mac"));
     // Checked before anything is cloned: a bad wait, and `agents chat new`'s own refusals.
     assert!(here_preflight(&start(&["--repo", "o/n", "hi"])).is_ok());
     assert!(here_preflight(&start(&["--repo", "o/n", "--wait", "--timeout", "0", "hi"])).is_err());
