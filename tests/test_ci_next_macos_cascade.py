@@ -2947,12 +2947,13 @@ class BlacksmithPrRescue(unittest.TestCase):
         for inputs in (*NOT_A_PULL_DISPATCH, {**same_tree, "same_tree_status_sha": "c" * 40},
                        {**same_tree, "same_tree_state": "failed"}):
             self.assertFalse(evaluate(step["if"], {**context, "inputs": inputs}), inputs)
+        active_placement = placement["if"].replace("!cancelled()", "true")
         for inputs in ({}, same_tree):
             context["inputs"] = inputs
             context["github"]["triggering_actor"] = "a-person"
-            self.assertFalse(evaluate(placement["if"], context))
+            self.assertFalse(evaluate(active_placement, context))
             context["github"]["triggering_actor"] = RERUN_BOT
-            self.assertTrue(evaluate(placement["if"], context))
+            self.assertTrue(evaluate(active_placement, context))
             for label in (SMALL, LARGE, SIDE):
                 context["vars"]["RUNNER_POOLS"] = json.dumps({"macos_26": label})
                 self.assertEqual(bool(evaluate(step["if"], context)), label != SIDE)
