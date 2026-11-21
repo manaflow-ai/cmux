@@ -17,7 +17,7 @@ pub const SESSION_BINARY: &str = ".local/bin/cmux-tui";
 pub fn valid_session_name(session: &str) -> bool {
     let bytes = session.as_bytes();
     (1..=64).contains(&bytes.len())
-        && !matches!(bytes[0], b'.' | b'-')
+        && !matches!(bytes.first(), Some(b'.' | b'-'))
         && bytes.iter().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
 }
 
@@ -47,9 +47,11 @@ pub fn parse_session_unit(text: &str) -> Option<SessionUnit> {
         .lines()
         .filter_map(|l| l.trim().strip_prefix("<string>")?.strip_suffix("</string>"))
         .collect();
-    let at = strings.windows(4).position(|w| w[1..] == ["daemon", "start", "--session"])?;
+    let at = strings
+        .windows(4)
+        .position(|w| w.get(1..) == Some(&["daemon", "start", "--session"][..]))?;
     let session = strings.get(at + 4)?;
-    let binary = strings[at];
+    let binary = *strings.get(at)?;
     (valid_session_name(session) && binary.starts_with('/') && !binary.contains('&'))
         .then(|| SessionUnit { binary: binary.to_owned(), session: (*session).to_owned() })
 }
