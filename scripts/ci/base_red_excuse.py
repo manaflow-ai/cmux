@@ -1138,6 +1138,24 @@ OTHER_REPO_ROLLUPS = {
 # checks each entry against the workflows. Its verdict is read only when the PR run's own workflow has none at or
 # after the merge-base.
 BASE_WORKFLOW_FOR = {("feat-cmux-next", "ci.yml", "web"): "cmux-next-web.yml"}
+# The post-merge batch tier (2026-11-21, cmux#48662): per-push base workflows move onto cmux-next-post-merge.yml,
+# which every ~2 h calls each suite of .github/post-merge-batch.json whose paths changed, as a caller job named by the
+# suite key, so the base's check of job J of suite S is 'S / J'. A workflow that moved there drops its own
+# `push: feat-cmux-next`, so its own base runs go stale and every red on a PR was refused as having no verdict at or
+# after its merge-base. batch_check maps a PR's red job to its batch check from the manifest alone, so a new suite is
+# covered by its entry, with no change here: a run of the suite's own workflow (J is 'J' on the PR, 'S / J' on the
+# base), or of a pull-request caller whose job calls the suite's workflow (ci.yml's `web` calls ci-web.yml: 'web / J'
+# on the PR, 'S / J' on the base). Read before BASE_WORKFLOW_FOR, and like it only when the PR's own workflow has no
+# verdict at or after the merge-base. A suite skipped in the newest batch run has no verdict there (base_verdicts
+# passes it over for the previous batch run where it ran). The manifest is the one beside this script, else the
+# base's (land-judge and the lane broker run a `git archive` of scripts/ci alone).
+POST_MERGE_WORKFLOW = "cmux-next-post-merge.yml"
+POST_MERGE_MANIFEST = ".github/post-merge-batch.json"
+POST_MERGE_MANIFEST_FILE = WORKFLOWS.parent / "post-merge-batch.json"
+POST_MERGE_BASES = frozenset({"feat-cmux-next"})
+# A post-merge batch probe run (cmux-next-post-merge.yml's run-name 'probe <suite> <job> at <sha>') tests one job of
+# an older commit while its head_sha is the tip it was dispatched from: never a base verdict for that tip.
+POST_MERGE_PROBE_TITLE = "probe "
 # A workflow no base push or schedule runs gets its base verdict from a dispatch on the base tip (2026-11-07).
 # nightly-next-cua-signed-host.yml runs on pull requests that touch it and on a schedule, but a schedule fires only
 # from the default branch, where the file was not yet registered, so feat-cmux-next never had a run of it: every red
@@ -1373,7 +1391,7 @@ MATRIX_NAME = re.compile(r"([^$]*[^$ ]) \(\$\{\{ *matrix\.(\w+) *\}\}\)")
 def _check_matcher(job_id: str, job: dict, where: str) -> dict:
     """How the Actions jobs of JOB (id JOB_ID in a workflow) are named: {"exact": [...], "prefixes": [...]}. A job
     with no `name:` is named by its id; a called workflow's jobs are '<name> / <its job>'; a matrix job whose
-    name holds no expression gets ' (<values>)' after it; a name may hold an expression only as a last
+    name holds no expression gets ' (<values>)' after it, as does one named over a computed include; a name may hold an expression only as a last
     ' / ${{ ... }}' segment. Any other shape is refused."""
     name = job.get("name", job_id)
     if not isinstance(name, str) or not name.strip() or name != name.strip():
@@ -1388,6 +1406,11 @@ def _check_matcher(job_id: str, job: dict, where: str) -> dict:
         elif (isinstance(matrix, dict) and set(matrix) == {"include"} and isinstance(matrix["include"], list)
               and all(isinstance(row, dict) and key in row for row in matrix["include"])):
             values = [row[key] for row in matrix["include"]]
+        elif (isinstance(matrix, dict) and set(matrix) == {"include"} and isinstance(matrix["include"], str)
+              and matrix["include"].strip().startswith("${{") and "uses" not in job):
+            # A computed include ('react-apps-check (${{ matrix.shard }})' over the shards a pull request reaches,
+            # #48561): its values are known only at run time, but Actions still names each job '<name> (<value>)'.
+            return {"exact": [], "prefixes": [f"{one.group(1)} ("]}
         if (not values or "uses" in job
                 or not all(isinstance(v, (str, int)) and not isinstance(v, bool) and str(v) for v in values)):
             raise Refused(f"{where}: job {job_id}'s name {name!r} is not one matrix key over fixed values")
@@ -4940,7 +4963,12 @@ def kept_run_jobs(repo: str, run: dict) -> list[dict] | None:
 def search_cut(job_reads: dict, name: str, *workflows) -> int | None:
     """The job lists read before the cap cut a base search for job NAME in any of WORKFLOWS short, or None when none
     was cut."""
-    cut = [job_reads[(SEARCH_CUT, workflow, name)] for workflow in workflows
+    return search_cut_any(job_reads, *((workflow, name) for workflow in workflows))
+
+
+def search_cut_any(job_reads: dict, *searches: tuple) -> int | None:
+    """search_cut over SEARCHES, each (workflow, the check name searched for there: a batch suite's differs)."""
+    cut = [job_reads[(SEARCH_CUT, workflow, name)] for workflow, name in searches
            if workflow is not None and (SEARCH_CUT, workflow, name) in job_reads]
     return max(cut) if cut else None
 
@@ -5277,6 +5305,8 @@ PACKAGE_JOBS = {
                   # which reads the bundle rule from cmux-agent-pane-policy; its `testing` feature adds cmux-scope
                   "cmux-tui/crates/cmux-build-space/", "cmux-tui/crates/cmux-agent-pane-policy/",
                   "cmux-tui/crates/cmux-scope/", "cmux-tui/crates/cmux-unix-socket/",
+                  # cmux-next-ios/rust names the phone's message preview words (cmux-message-preview, d1024754)
+                  "cmux-tui/crates/cmux-message-preview/",
                   # cmux-agent-pane-policy's bundle rule tests read the shared build-identity vectors
                   "schemas/build-identity/",
                   # cmux-wg's smoltcp is the vendored copy ([patch.crates-io] in cmux-next-ios/rust)
@@ -5984,13 +6014,13 @@ def prior_base_verdict(repo: str, workflow, name: str, merge_base: str, when: st
 def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, view: "FailedView | Unplaced",
                           workflow_info: dict, base_run: dict, base_job: dict, github, *,
                           base_jobs: dict, run_reads: dict, others: list[dict], evidence: "Evidence",
-                          suites: SuiteChecks | None = None, base_workflow=None) -> str:
+                          suites: SuiteChecks | None = None, base_workflow=None, base_name=None) -> str:
     """The audit line for red head JOB (VIEW: its failed_view; WORKFLOW_INFO: its run) when each of its failing steps
     is fixed on base by the rule above, BASE_RUN and BASE_JOB being the base's newest verdict for it, from
-    BASE_WORKFLOW (the head's own workflow when None; a BASE_WORKFLOW_FOR caller's otherwise, whose runs then give the
-    merge-base's verdict too, #41104's review F2). OTHERS: the head's red jobs; one of NAME in another workflow makes
-    the job's identity unknown. Its failures must also be the merge-base verdict's: each failing step's test ids and
-    `file:line` compiler errors (a continue-on-error check's: the job's file error annotations) among that run's, so a
+    BASE_WORKFLOW (the head's own workflow when None; a base caller's otherwise, whose runs then give the merge-base's
+    verdict too, #41104's review F2, under BASE_NAME: a batch suite's check name). OTHERS: the head's red jobs; one of
+    NAME in another workflow makes the job's identity unknown. Its failures must also be the merge-base verdict's:
+    each failing step's test ids and `file:line` compiler errors (a continue-on-error check's: the job's file error annotations) among that run's, so a
     new failure in a step red at the merge-base is never excused (#41117's review F1). Raises Refused with why not."""
     workflow = workflow_info.get("workflow_id")
     base_workflow = workflow if base_workflow is None else base_workflow
@@ -6023,7 +6053,8 @@ def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, 
         raise Refused(f"{base}'s newest verdict for it, run {base_run['id']}, {stale}, not at or after the merge-base")
     if not re.fullmatch(r"\d{4}-\d\d-\d\dT[\d:]+Z", when):
         raise Refused(f"the merge-base {merge_base[:12]} came back without its commit time")
-    prior = prior_base_verdict(repo, base_workflow, name, merge_base, when, github, base_jobs, evidence, suites)
+    prior = prior_base_verdict(repo, base_workflow, name if base_name is None else base_name, merge_base, when,
+                               github, base_jobs, evidence, suites)
     if prior is None:
         raise Refused(f"no {base} verdict for it at or before the merge-base {merge_base[:12]} shows the red was the "
                       f"base's (of the {STEP_PRIOR_RUNS} newest runs created before it, read the job lists of up to "
@@ -7366,20 +7397,97 @@ def list_base_runs(repo: str, base: str, workflow, github, base_runs: dict) -> N
     base_runs[workflow] = sorted(
         (run for run in (listed.get("workflow_runs") if isinstance(listed, dict) else None) or []
          if isinstance(run, dict) and run.get("event") not in ("pull_request", "pull_request_target")
-         and run.get("conclusion") != "skipped"),
+         and run.get("conclusion") != "skipped" and not post_merge_probe(run)),
         key=lambda run: run.get("created_at") or "", reverse=True)
 
 
-def base_caller(repo: str, base: str, run: dict, name: str) -> str | None:
-    """The workflow file that runs job NAME on pushes to BASE when RUN's own workflow (a pull-request-only caller of
-    the same reusable workflow) does not (BASE_WORKFLOW_FOR); None for any other job, base, repo or unread workflow
-    path."""
+def post_merge_probe(run: dict) -> bool:
+    """Whether RUN is a post-merge batch probe (POST_MERGE_PROBE_TITLE), which is no base verdict."""
+    return (str(run.get("path") or "").startswith(f".github/workflows/{POST_MERGE_WORKFLOW}")
+            and (run.get("display_title") or "").startswith(POST_MERGE_PROBE_TITLE))
+
+
+@once_per_judgement("batch-suites", lambda repo, base, github: (repo, base))
+def batch_suites(repo: str, base: str, github) -> dict[str, dict]:
+    """The post-merge batch suites (POST_MERGE_MANIFEST's `suites`, each with a `workflow` file) BASE's batch runs
+    call: the manifest beside this script, else BASE's own (source_text_if_present); {} for another repo or base, or
+    when neither reads, so a red is judged by its own workflow alone, as before."""
+    if repo != HOME_REPO or base not in POST_MERGE_BASES:
+        return {}
+    try:
+        if POST_MERGE_MANIFEST_FILE.is_file():
+            text = POST_MERGE_MANIFEST_FILE.read_text()
+        elif hasattr(github, "blob_if_present"):
+            text = source_text_if_present(repo, base, POST_MERGE_MANIFEST, github)
+        else:
+            text = None
+        suites = json.loads(text).get("suites") if text else None
+    except (OSError, ValueError, AttributeError, Refused):
+        return {}
+    if not isinstance(suites, dict):
+        return {}
+    return {key: suite for key, suite in suites.items()
+            if isinstance(key, str) and isinstance(suite, dict) and isinstance(suite.get("workflow"), str)}
+
+
+@functools.lru_cache(maxsize=None)
+def _local_workflow_jobs(file: str) -> dict:
+    return _workflow(yaml_module(), lambda name: (WORKFLOWS / name).read_text(), file)[1]
+
+
+def workflow_jobs(repo: str, base: str, file: str, github) -> dict:
+    """Workflow FILE's `jobs:`: the one beside this script, else BASE's (workflow_doc); {} when unread."""
+    try:
+        if (WORKFLOWS / file).is_file():
+            return _local_workflow_jobs(file)
+        if not hasattr(github, "blob"):
+            return {}
+        doc = workflow_doc(repo, base, f".github/workflows/{file}", github)
+    except Refused:
+        return {}
+    jobs = doc.get("jobs") if isinstance(doc, dict) else None
+    return jobs if isinstance(jobs, dict) else {}
+
+
+def batch_check(repo: str, base: str, file: str, name: str, github) -> str | None:
+    """The check name BASE's post-merge batch runs give PR job NAME of workflow FILE (POST_MERGE_WORKFLOW's rule):
+    'S / NAME' when FILE is suite S's workflow; 'S / J' when NAME is 'P / J' and FILE's job checked as 'P / ...'
+    calls S's workflow; None when no suite runs it."""
+    suites = batch_suites(repo, base, github)
+    for key, suite in sorted(suites.items()):
+        if suite["workflow"] == file:
+            return f"{key} / {name}"
+    callees = {f"./.github/workflows/{suite['workflow']}": key for key, suite in suites.items()}
+    if " / " not in name or not callees:
+        return None
+    for job_id, job in workflow_jobs(repo, base, file, github).items():
+        key = callees.get(job.get("uses")) if isinstance(job, dict) else None
+        if key is None:
+            continue
+        try:
+            prefixes = _check_matcher(str(job_id), job, f".github/workflows/{file}")["prefixes"]
+        except Refused:
+            continue
+        for prefix in prefixes:
+            if name.startswith(prefix):
+                return f"{key} / {name.removeprefix(prefix)}"
+    return None
+
+
+def base_caller(repo: str, base: str, run: dict, name: str, github=None) -> tuple[str, str] | None:
+    """(workflow file, check name) of the base's verdict for job NAME when RUN's own workflow no longer runs it on
+    BASE: the post-merge batch tier's (batch_check), else the workflow that runs the same called job on pushes to
+    BASE (BASE_WORKFLOW_FOR, a pull-request-only caller of the same reusable workflow) under NAME itself; None for any
+    other job, base, repo or unread workflow path."""
     path = run.get("path") if isinstance(run, dict) else None
     if repo != HOME_REPO or not isinstance(path, str) or not path.startswith(".github/workflows/"):
         return None
     file = path.removeprefix(".github/workflows/").split("@", 1)[0]
-    return next((caller for (branch, pr_file, job_id), caller in BASE_WORKFLOW_FOR.items()
-                 if branch == base and pr_file == file and name.startswith(f"{job_id} / ")), None)
+    if (check := batch_check(repo, base, file, name, github)) is not None:
+        return POST_MERGE_WORKFLOW, check
+    caller = next((caller for (branch, pr_file, job_id), caller in BASE_WORKFLOW_FOR.items()
+                   if branch == base and pr_file == file and name.startswith(f"{job_id} / ")), None)
+    return None if caller is None else (caller, name)
 
 
 def base_dispatch(repo: str, base: str, run: dict, runs: list[dict], github, now: datetime | None = None) -> str | None:
@@ -7810,7 +7918,8 @@ def web_test_verdict(repo: str, base: str, name: str, job: dict, head_log: str, 
             except Refused as why:
                 raise Refused(f"'{name}': the log of its head shard '{sibling.get('name') or shard}', where its tests' "
                               f"errors are printed, could not be read: {str(why)[:300]}") from None
-    workflow = base_caller(repo, base, workflow_info, name) or workflow_info["workflow_id"]
+    # A web shard is checked under its own name on the base (the batch suite `web` is the caller job `web`).
+    workflow = (base_caller(repo, base, workflow_info, name, github) or (workflow_info["workflow_id"],))[0]
     green: list[dict] = []
     unread: list[str] = []  # why a base log could not be read, named in the refusal
 
@@ -7872,7 +7981,7 @@ def cut_short_web_verdict(repo: str, base: str, name: str, job: dict, github, ru
     if test_reds.classify_web_cut_short(head_log, (), name, base) is None:
         return None  # no red file: nothing to compare, and no base run is read
     workflow_info = rest_run(repo, job["run_id"], github, run_reads)
-    workflow = base_caller(repo, base, workflow_info, name) or workflow_info.get("workflow_id")
+    workflow = (base_caller(repo, base, workflow_info, name, github) or (workflow_info.get("workflow_id"),))[0]
     if workflow is None:
         return None
     green: list[dict] = []
@@ -8132,7 +8241,7 @@ class Evidence:
         found = self.github.json(f"repos/{self.repo}/actions/workflows/{workflow}/runs?branch={self.base}&{query}"
                                  f"&per_page={per_page}")
         return [run for run in (found.get("workflow_runs") if isinstance(found, dict) else None) or []
-                if self.allows(run)]
+                if self.allows(run) and not post_merge_probe(run)]
 
     def dispatches(self, workflow) -> list[dict]:
         """The base's workflow_dispatch runs of WORKFLOW (every status, so a first run's same-tree run is seen while
@@ -8532,17 +8641,19 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             audit.append(f"base for '{name}': {base} is open PR #{parent.number}'s head {parent.head[:12]}; its "
                          "checks there are the base verdicts below")
         base_run, base_job = next(verdicts, (None, None))
-        base_workflow = workflow  # the workflow whose run gives the base verdict
-        if ((caller := base_caller(repo, base, workflow_info, name)) is not None
-                and (base_run is None or before_merge_base(repo, base, sha, base_run, github, evidence))):
-            # The PR run's workflow has no base verdict at or after the merge-base: the workflow that runs the same
-            # called job on base pushes may (BASE_WORKFLOW_FOR). Its verdict decides only when it is at or after the
-            # merge-base, or when the PR's workflow has none at all; else the stale one below refuses as before.
-            pushed = base_verdicts(repo, caller, name, github, evidence, base_jobs, job_reads, suites)
+        base_workflow, base_name = workflow, name  # the workflow whose run gives the base verdict, and its check
+        caller, caller_name = base_caller(repo, base, workflow_info, name, github) or (None, name)
+        if caller is not None and (base_run is None or before_merge_base(repo, base, sha, base_run, github, evidence)):
+            # The PR run's workflow has no base verdict at or after the merge-base: the post-merge batch tier's suite
+            # that runs it (batch_check), or the workflow that runs the same called job on base pushes, may
+            # (BASE_WORKFLOW_FOR). Its verdict decides only when it is at or after the merge-base, or when the PR's
+            # workflow has none at all; else the stale one below refuses as before.
+            pushed = base_verdicts(repo, caller, caller_name, github, evidence, base_jobs, job_reads, suites)
             pushed_run, pushed_job = next(pushed, (None, None))
             if pushed_run is not None and (
                     base_run is None or before_merge_base(repo, base, sha, pushed_run, github, evidence) is None):
-                base_run, base_job, verdicts, base_workflow = pushed_run, pushed_job, pushed, caller
+                base_run, base_job, verdicts = pushed_run, pushed_job, pushed
+                base_workflow, base_name = caller, caller_name
         # A quota-only red with no red base verdict to share is Infra (github_quota_only); a red base verdict keeps
         # its comparison below, which may excuse it as the base's.
         quota = github_quota_only(view) if base_run is None or base_job.get("conclusion") != "failure" else None
@@ -8561,7 +8672,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 continue
             # Every workflow searched: the PR run's, and the base caller's (searched whenever it has one here, since
             # the PR run's workflow gave no verdict), not only the one that gave a verdict (#47687's review F1).
-            if (cut := search_cut(job_reads, name, workflow, caller)) is not None:
+            if (cut := search_cut_any(job_reads, (workflow, name), (caller, caller_name))) is not None:
                 raise Refused(cut_refusal(name, base, cut))
             dispatch = base_dispatch(repo, base, workflow_info, evidence.runs(workflow), github)
             raise Refused(f"'{name}': no {base} run of its workflow has a verdict for it to compare with "
@@ -8584,7 +8695,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             return fixed_on_base_by_step(repo, base, sha, name, job, view, workflow_info, base_run, base_job, github,
                                          base_jobs=base_jobs, run_reads=run_reads,
                                          others=jobs, evidence=evidence, suites=suites,
-                                         base_workflow=base_workflow)
+                                         base_workflow=base_workflow, base_name=base_name)
         if base_job.get("conclusion") != "failure":
             try:
                 audit.append(fixed_on_base(repo, base, sha, name, view, base_run, github, evidence))
@@ -8688,7 +8799,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                             # Out of verdicts because the cap cut the search, with older runs unread (#47971's review
                             # F1, as the placed window's F3): an older red matching the whole head may be among them.
                             if (run is None and read < BASE_WINDOW
-                                    and (cut := search_cut(job_reads, name, workflow, base_workflow)) is not None):
+                                    and (cut := search_cut_any(job_reads, (workflow, name),
+                                                               (base_workflow, base_name))) is not None):
                                 raise Refused(f"{cut_refusal(name, base, cut)}; the newest so far: "
                                               f"{mismatch}") from None
                             # Last, so it pre-empts no excuse: a refusal that says the base ran and passed the check
@@ -8758,7 +8870,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                         or (newest and created(run) and newest - created(run) > timedelta(hours=BASE_WINDOW_HOURS))):
                     # Out of verdicts because the cap cut the search, with older runs unread (#47687's review F3):
                     # an older matching red may be among them, so not a verdict either way.
-                    cut = (search_cut(job_reads, name, workflow, base_workflow)
+                    cut = (search_cut_any(job_reads, (workflow, name), (base_workflow, base_name))
                            if run is None and read < BASE_WINDOW else None)
                     if aside is not None:  # the step-A pin rule set its red aside: judged as before
                         if cut is not None:
