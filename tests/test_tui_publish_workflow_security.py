@@ -230,14 +230,12 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     # default branch's workflow file, so a trigger here never ran.
     assert "pull_request_target" not in triggers
     push_trigger = triggers["push"]
-    # Every branch of this repository (forks never push here). Docs-only
-    # commits cannot publish a distinct runtime tree, so GitHub filters those
-    # pushes before tree-preflight; mixed commits still enter the workflow.
-    assert push_trigger.get("branches") == ["**"]
+    # Every branch of this repository but lane/** (forks never push here;
+    # lane trees have no nightly or release consumer). Docs-only commits
+    # cannot publish a distinct runtime tree, so GitHub filters those pushes
+    # before tree-preflight; mixed commits still enter the workflow.
+    assert push_trigger.get("branches") == ["**", "!lane/**"]
     assert push_trigger.get("paths-ignore") == ["cmux-tui/docs/**"]
-    retry = workflow_triggers(workflow("cmux-tui-artifacts-retry.yml"))
-    assert set(retry) == {"workflow_run"}
-    assert retry["workflow_run"]["workflows"] == ["cmux-tui artifacts"]
     preflight = workflow_job(artifacts, "tree-preflight")
     assert "runs-on:" in preflight and "ubuntu" in preflight
     assert "cmux_tui_tree_key.py" in preflight
@@ -281,7 +279,7 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "scripts/ci/cmux-next-daemon-test-packages.sh" in daemon
 
     # A run cannot rerun itself while it is in progress (403 "This workflow
-    # is already running"); cmux-tui-artifacts-retry.yml retries completed
+    # is already running"); main's cmux-tui-artifacts-retry.yml retries completed
     # failed runs (policy: tests/test_cmux_tui_artifacts_retry.py).
     assert "/rerun" not in (ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text()
     assert "publish-pr-tree" not in artifacts
@@ -2770,7 +2768,7 @@ def test_pending_red_names_the_word_base_red_watch_skips():
     assert others and not any(word in line for line in others)
 
 
-def sweep_world(run_status: str, *, adopts: bool = True, manifest: int = 404, attempt: int = 1):
+def sweep_world(run_status: str, *, adopts: bool = True, manifest: int = 404, attempt: int = 1, coalesced: bool = False):
     import cmux_tui_manifest_sweep as sweeper
 
     rev = "a" * 40
@@ -2779,8 +2777,35 @@ def sweep_world(run_status: str, *, adopts: bool = True, manifest: int = 404, at
     result = sweeper.sweep(
         [rev], adopts=lambda r: adopts, status=lambda url: statuses.get(url, 404),
         find_run=lambda r: {"id": 77, "status": run_status, "run_attempt": attempt},
-        rerun=lambda run_id: reruns.append(run_id) or True)
+        rerun=lambda run_id: reruns.append(run_id) or True, coalesced=lambda run_id: coalesced)
     return result, reruns
+
+
+def test_sweep_skips_a_coalesced_run():
+    # A later push of a coalesce window built no tree by design: a re-run of it is wasted.
+    import cmux_tui_manifest_sweep as sweeper
+
+    (rerun_commits, problems), reruns = sweep_world("completed", coalesced=True)
+    assert (rerun_commits, problems, reruns) == ([], [], [])
+    skipped = [{"name": "coalesce / coalesce", "conclusion": "success"}, {"name": "cmux-tui tree preflight", "conclusion": "skipped"}]
+    assert sweeper.is_coalesced(skipped)
+    assert not sweeper.is_coalesced([{"name": "coalesce / coalesce", "conclusion": "success"}, {"name": "cmux-tui tree preflight", "conclusion": "success"}])
+    assert not sweeper.is_coalesced([{"name": "cmux-tui tree preflight", "conclusion": "skipped"}])  # no coalesce job: not coalesced
+
+
+def test_coalesce_saves_records_only_on_a_first_attempt():
+    # A re-run whose -t-SHA record was lost must not claim the current wall-clock window.
+    text = (ROOT / ".github/workflows/base-coalesce.yml").read_text()
+    for step in ("Claim this window", "Record this tip as tested"):
+        block = text.split(f"- name: {step}\n", 1)[1].split("\n      - name:", 1)[0]
+        assert "steps.decide.outputs.save == 'true' && github.run_attempt == '1'" in block, step
+
+
+def test_cmux_next_base_tier_run_falls_back_to_the_newest_published_tree():
+    # The base tier probes a tip a coalesced push never built: it takes the newest published tree.
+    text = workflow("cmux-next.yml")
+    fallbacks = [line for line in text.splitlines() if line.strip().startswith("CMUX_TUI_TREE_BASE_FALLBACK:") and "own_tui" in line]
+    assert len(fallbacks) == 2 and all("inputs.base_tier == true" in line for line in fallbacks), fallbacks
 
 
 def test_sweep_reruns_a_deferred_run_that_was_in_progress_at_publish():
@@ -2805,6 +2830,8 @@ def test_sweep_runs_after_the_markers_on_every_feat_push_without_waiting():
     assert "fetch-depth: 41" in job
     script = (ROOT / "scripts/ci/cmux_tui_manifest_sweep.py").read_text()
     assert "sleep" not in script and "time.sleep" not in script
+    # One job, not the whole run (2026-11-21: a whole-run re-run of a feat push re-ran this sweep too).
+    assert "handoff.rerun_manifest(" in script and '"run", "rerun", str(run_id)' not in script
     # The re-run's own workflow must carry the adopt job the sweep looks for.
     assert "\n  adopt-commit-manifest:\n" in artifacts
 
