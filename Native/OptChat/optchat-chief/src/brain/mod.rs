@@ -22,6 +22,7 @@
 //! `Settings::turn_limit`.
 
 mod approvals;
+mod background;
 mod chief_inbox;
 pub use chief_inbox::name as chief_inbox_name;
 mod children;
@@ -47,10 +48,9 @@ pub mod redescribe;
 mod replies;
 mod reply_ledger;
 mod rights_gate;
-pub use rights_gate::RightsCtx;
-mod screen;
 pub use outcome_ledger::{UNTOLD_TAG, UNTOLD_WAIT};
 pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
+pub use rights_gate::RightsCtx;
 mod send;
 mod side;
 mod spawn_text;
@@ -139,6 +139,13 @@ pub enum Input {
     SteersWithdrawn {
         key: String,
         all: bool,
+    },
+    /// The deadline found a person's steer of turn `key` unread and asked
+    /// acpmux to move the turn's running work to the background
+    /// (`steer.rs`): whether something moved.
+    SteerBackgrounded {
+        key: String,
+        moved: bool,
     },
     TurnEnded {
         key: String,
@@ -704,9 +711,6 @@ pub struct Settings {
     /// (chief_inbox.rs): how another Chief on this Mac or a lane reaches it
     /// with `acpmux_send`. None: no such session (tests, a Cloud Chief).
     pub chief_inbox: Option<String>,
-    /// `$MUX_HOME/optchat/screen` (Share Screen with Chief, `screen_share.rs`):
-    /// its inbox becomes a note at each turn start. None: not read.
-    pub screen_share: Option<PathBuf>,
 }
 
 /// The longest a turn waits for view lines that are still building
@@ -923,6 +927,15 @@ pub struct Brain {
     /// The turn (its key) whose unread steers are being taken back now:
     /// no new steer goes into it (`steer.rs`).
     withdrawing: Option<String>,
+    /// The turn (its key) whose running work the steer deadline asked to
+    /// move to the background, once a turn (`steer.rs`).
+    backgrounded: Option<String>,
+    /// The turn (its key) whose running work did move to the background
+    /// (`steer.rs`): its session must outlive the turn (`background.rs`).
+    moved: Option<String>,
+    /// Turn sessions that are not kept but still run moved work: followed
+    /// until their background turn ends, then ended (`background.rs`).
+    draining: Vec<background::Draining>,
     steer_seq: u64,
     /// A draft could not be published (logged once).
     draft_failed: bool,
@@ -1111,6 +1124,12 @@ pub struct Brain {
     /// The idempotency keys of this run's `send` calls (send.rs): a repeat
     /// of one in the same turn is a noop even after the owner took it.
     sent_keys: std::collections::HashSet<String>,
+    /// Messages the owner refused and the outbox dropped (outbox.rs) that the
+    /// Chief has not been told of yet: `send` reports them (send.rs).
+    refused: Vec<outbox::Refused>,
+    /// `send` keys the outbox merged into an earlier entry (pacing::coalesce):
+    /// absorbed key -> the key it went under, until that `send` answers.
+    merged_sends: HashMap<String, String>,
     /// The running turn was ended by the Chief's own `stop` or `sleep`
     /// (wakes.rs): its final text is not posted, and it is no failure.
     tool_stopped: bool,
@@ -1139,6 +1158,9 @@ pub struct Brain {
     last_memory_block: Option<String>,
     /// The running wake run (memory.rs), when the turn is one.
     wake_run: Option<memory::WakeRunState>,
+    /// The planned time (ms) of each wake note queued (a follow-up's or
+    /// sleep's time, a check-in slot), by its text, for `scheduled_at`.
+    wake_planned: std::collections::HashMap<String, i64>,
     /// A wake run whose turn was cut: its resume turn goes on as it.
     cut_wake_run: Option<memory::WakeRunState>,
     /// This Chief's measured $/token rates and when they were read.
@@ -1151,6 +1173,9 @@ pub struct Brain {
     /// false): its work may have run, so the try that ends the row is never
     /// treated as one that did not start.
     cut_ran: bool,
+    /// Refused turns in a row (`TurnOutcome::refused`): each refused reply says how many, so no two
+    /// in a row post the same text (first-run findings row 8). Any other ended turn resets it.
+    refused_in_row: u32,
     /// While set, an adopted turn session still runs and no turn starts; at
     /// this time it is folded and ended anyway (`children::adopt_orphans`).
     orphan_wait: Option<Instant>,
@@ -1234,6 +1259,9 @@ impl Brain {
             steering: Vec::new(),
             steer_left: None,
             withdrawing: None,
+            backgrounded: None,
+            moved: None,
+            draining: Vec::new(),
             steer_seq: 0,
             draft_failed: false,
             run_failed: false,
@@ -1313,6 +1341,8 @@ impl Brain {
             newest_seq: 0,
             reacted: std::collections::HashSet::new(),
             sent_keys: std::collections::HashSet::new(),
+            refused: Vec::new(),
+            merged_sends: HashMap::new(),
             tool_stopped: false,
             denial_stopped: None,
             unanswered: Vec::new(),
@@ -1325,10 +1355,12 @@ impl Brain {
             last_memory_block: None,
             wake_run: None,
             cut_wake_run: None,
+            wake_planned: std::collections::HashMap::new(),
             rates: None,
 
             cuts: 0,
             cut_ran: false,
+            refused_in_row: 0,
             resume_at: None,
             orphan_wait: None,
             upstream_backoff: turns::UPSTREAM_RESUME_BACKOFF.to_vec(),
@@ -1681,6 +1713,7 @@ impl Brain {
             Input::Run(update) => self.turn_run(*update),
             Input::Steered { id, result } => self.steered(id, result),
             Input::SteersWithdrawn { key, all } => self.steers_withdrawn(&key, all),
+            Input::SteerBackgrounded { key, moved } => self.steer_backgrounded(&key, moved),
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, *outcome),
             Input::Notice { key, text } => self.notice(key, text),
             Input::CompactorStatus(status) => self.compactor_status(status),

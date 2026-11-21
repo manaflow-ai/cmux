@@ -26,7 +26,6 @@ const FIXTURES: Record<Fixture, SetupState> = {
       { id: "claude", name: "Claude Code", state: "signedOut" },
       { id: "codex", name: "Codex", state: "missing" },
     ],
-    history: { done: false },
     account: { signedIn: false },
     cli: "other",
     classic: { workspaces: 27, saved: "1 minute ago" },
