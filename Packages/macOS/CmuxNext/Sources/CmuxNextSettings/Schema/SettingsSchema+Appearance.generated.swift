@@ -109,6 +109,12 @@ extension AgentGlowSetting {
     public nonisolated static let fallback = false
 }
 
+extension PreviousGlassSetting {
+    /// `appearance.previousGlass`: Web pages only: on sends glassLevels "previous" with the web theme (WebTheme), data-glass-levels="previous" on <html>, and webviews ui/glass/glass.css (PREVIOUS GLASS) restores the glass numbers from before the one glass system (design/glass-system.md, cmux#48174). Off (default) draws the one glass system.
+    public nonisolated static let configPath = ["appearance", "previousGlass"]
+    public nonisolated static let fallback = false
+}
+
 extension ExperimentalAppearanceSetting {
     /// `appearance.experimentalControls`.
     public nonisolated static let configPath = ["appearance", "experimentalControls"]
@@ -179,7 +185,7 @@ extension UIScaleSetting {
 extension InterfaceSizeSetting {
     /// `appearance.metrics.chromeFontSize`.
     public nonisolated static let configPath = ["appearance", "metrics", "chromeFontSize"]
-    public nonisolated static let range: ClosedRange<Double> = 10...16
+    public nonisolated static let range: ClosedRange<Double> = 10...20
     public nonisolated static let placeholder: Double = 12
 }
 
