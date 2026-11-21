@@ -95,20 +95,11 @@ fn wait_marker(marker: &Path, lines: &[&str]) {
     }
 }
 
-fn run_server_op(
-    f: &Fixture,
-    app: &str,
-    op: &str,
-) -> Result<Value, super::super::supervisor::ApiError> {
+fn run_server_op(f: &Fixture, app: &str, op: &str) -> Result<Value, ApiError> {
     run_server_op_as(f, app, op, Origin::User)
 }
 
-fn run_server_op_as(
-    f: &Fixture,
-    app: &str,
-    op: &str,
-    origin: Origin,
-) -> Result<Value, super::super::supervisor::ApiError> {
+fn run_server_op_as(f: &Fixture, app: &str, op: &str, origin: Origin) -> Result<Value, ApiError> {
     let (tx, rx) = channel();
     f.supervisor
         .run(run_request(app, op, None, origin, None), Box::new(move |r| tx.send(r).unwrap()));
@@ -347,7 +338,7 @@ fn js_and_external_servers_are_off_until_the_person_approves_them() {
         json!({ "value": "go" })
     );
     f.set("revoke", "acme/json", Origin::User, |o| {
-        o.grant = Some(("server:execute".into(), false))
+        o.grant = Some(("server:execute".into(), false));
     })
     .unwrap();
     assert_eq!(code("acme/json", "acme.json.go"), "apps.server_unapproved");
@@ -514,7 +505,7 @@ fn run_with(
     args: Value,
     origin: Origin,
     idempotency_key: Option<&str>,
-) -> Result<Value, super::super::supervisor::ApiError> {
+) -> Result<Value, ApiError> {
     let (tx, rx) = channel();
     let mut request = run_request(app, op, idempotency_key.map(str::to_string), origin, None);
     request.args = args;
