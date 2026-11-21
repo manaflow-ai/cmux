@@ -6,6 +6,16 @@ extension AgentPaneDisplaySettingsSchema {
         let group = SettingsText.keyed("settings.group.agentChat", "Agent Chat")
         return [
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.thinkingShimmerBandPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.thinking.shimmerBand", "Shimmer Width"),
+                help: SettingsText.keyed("settings.agentPane.display.thinking.shimmerBand.help", "The width of the shimmer's light band. 0 uses half the line."),
+                kind: .number(SettingNumber(AgentPaneDisplaySettingsSchema.thinkingShimmerBandRange, step: 4, unit: .points, placeholder: AgentPaneDisplaySettingsSchema.thinkingShimmerBandPlaceholder)),
+                default: .number(AgentPaneDisplaySettingsSchema.thinkingShimmerBandDefault),
+                keywords: ["agent", "chat", "acp", "display", "thinking", "shimmer", "band", "width", "animation", "claude"]
+            ),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.thinkingJumpButtonPath,
                 section: .appearance,
                 group: group,

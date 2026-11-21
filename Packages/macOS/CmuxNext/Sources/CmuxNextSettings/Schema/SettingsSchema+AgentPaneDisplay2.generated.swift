@@ -46,6 +46,26 @@ extension AgentPaneDisplaySettingsSchema {
                 keywords: ["agent", "chat", "acp", "display", "reading", "plan", "task", "tasks", "todo", "checklist", "pin", "pinned", "list", "progress"]
             ),
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.environmentCardPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.environmentCard", "Environment Card"),
+                help: SettingsText.keyed("settings.agentPane.display.environmentCard.help", "A card at the chat's top right with its changes, branch, commit and pull request."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.environmentCardDefault),
+                keywords: ["agent", "chat", "display", "environment", "card", "panel", "changes", "branch", "worktree", "commit", "push", "pull", "request", "git", "codex"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.changesPillPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.changesPill", "Changes Pill"),
+                help: SettingsText.keyed("settings.agentPane.display.changesPill.help", "A pill over the composer with how many files the chat changed."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.changesPillDefault),
+                keywords: ["agent", "chat", "display", "changes", "pill", "files", "changed", "diff", "composer", "codex"]
+            ),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.finishSoundPath,
                 section: .appearance,
                 group: group,
@@ -363,16 +383,6 @@ extension AgentPaneDisplaySettingsSchema {
                 kind: .number(SettingNumber(AgentPaneDisplaySettingsSchema.thinkingShimmerPeriodRange, step: 50, unit: .milliseconds, placeholder: AgentPaneDisplaySettingsSchema.thinkingShimmerPeriodPlaceholder)),
                 default: .number(AgentPaneDisplaySettingsSchema.thinkingShimmerPeriodDefault),
                 keywords: ["agent", "chat", "acp", "display", "thinking", "shimmer", "speed", "period", "duration", "animation", "claude"]
-            ),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.thinkingShimmerBandPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.thinking.shimmerBand", "Shimmer Width"),
-                help: SettingsText.keyed("settings.agentPane.display.thinking.shimmerBand.help", "The width of the shimmer's light band. 0 uses half the line."),
-                kind: .number(SettingNumber(AgentPaneDisplaySettingsSchema.thinkingShimmerBandRange, step: 4, unit: .points, placeholder: AgentPaneDisplaySettingsSchema.thinkingShimmerBandPlaceholder)),
-                default: .number(AgentPaneDisplaySettingsSchema.thinkingShimmerBandDefault),
-                keywords: ["agent", "chat", "acp", "display", "thinking", "shimmer", "band", "width", "animation", "claude"]
             ),
         ]
     }

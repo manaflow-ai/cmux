@@ -109,7 +109,6 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
-  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -118,13 +117,14 @@ import {
   useSessionAdoption,
   type SessionAdoption,
   withHandshakeNewTab,
+  useLostSharedPart,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {
   heldPick,
-  withCloudStartFolder,
-  withDraftFolder,
   shownCloudStartPick,
+  withDraftFolder,
+  withCloudStartFolder,
   withCloudStartPick,
 } from "./newtab/draftFolder";
 import {
@@ -141,7 +141,7 @@ import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from ".
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { hatPlanOf } from "./chatTaskList";
 import { goalHatPlace } from "./goalHat.experiment";
-import { githubFolder, githubFolderRepo } from "./githubRepos";
+import { githubFolderRepo, githubFolder } from "./githubRepos";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "./newtab/templates";
@@ -588,8 +588,6 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
@@ -598,6 +596,8 @@ import {
   heldPromptShown,
   cloudPickExtras,
   composerCloudStartFolder,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
   pageOnOtherMachine,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
@@ -632,11 +632,17 @@ import {
   registerChatDisplayHost,
   useChatDisplay,
   useChatMinimap,
+  useChangesPillOn,
   useChatPinnedPlan,
+  useEnvironmentCardOn,
   useFeatureTipsOn,
   useTrayHandle,
   useTrayTucked,
 } from "./chatDisplay";
+import { ChangesPill, EnvironmentCard } from "./session-info/EnvironmentCard";
+import { environmentCardFits, useCardBranch, usePaneWidth } from "./session-info/environmentCardModel";
+import { useChangeCounts } from "./session-info/changeCounts";
+import { usePullRequestAction } from "../../diff-viewer/PullRequestAction";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { wrapOutputRow } from "./header/transcriptViewRow";
 import { presentationRow } from "./header/presentationRow";
@@ -851,11 +857,11 @@ import { holdWebSwap, pageEditHold, pageReleaseHold } from "../../pages/shared/w
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import {
   SandboxTab,
+  newTabRunModeRows,
   sandboxAgent,
   sandboxPageRefusal,
   sandboxRetryable,
   type RunMode,
-  newTabRunModeRows,
 } from "./sandboxRun";
 import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
@@ -12114,6 +12120,44 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const previewShown = computerUsePreview !== null && previewRoom && !quick && !inspectorOpen;
   const sessionInfoPushes = useChatDisplay().sessionInfo === "push";
   const previewBeside = previewShown && !(sessionInfo.shown && sessionInfoPushes);
+  // The Environment card and the changes pill (session-info/EnvironmentCard.tsx), off by default: a
+  // look turns them on. The card takes the chat's top right only when the gutter beside the column
+  // holds it, and gives the place to Session Info and the computer use preview, which sit there too.
+  const environmentCardOn = useEnvironmentCardOn();
+  const changesPillOn = useChangesPillOn();
+  const chatLook = useChatDisplay();
+  const environmentCardRoom = environmentCardFits(usePaneWidth(), chatLook.width, chatLook.fullWidth);
+  const environmentCardShown =
+    environmentCardOn &&
+    environmentCardRoom &&
+    !quick &&
+    !inspectorOpen &&
+    !showNewTab &&
+    !sessionInfo.shown &&
+    !previewShown &&
+    Boolean(snapshot.sessionId);
+  const environmentKey = `${snapshot.sessionId ?? ""}\u0000${snapshot.isWorking ? "working" : "idle"}`;
+  const environmentChanges = useChangeCounts(
+    readChanges,
+    (environmentCardShown || changesPillOn) && Boolean(snapshot.sessionId) && chatCwd !== undefined,
+    environmentKey,
+  );
+  const environmentBranch = useCardBranch(localCwd ?? chatCwd, readFolderStatus, environmentCardShown, environmentKey);
+  // Create pull request: the host's git.pullRequest for a chat on this Mac (it pushes the branch and
+  // opens the pull request), as the changes view's Create PR runs it.
+  const environmentPullRequestSource = useMemo(
+    () =>
+      localCwd
+        ? {
+            diff: () => Promise.reject(new Error("unused")),
+            pullRequest: () => directClient.current?.gitPullRequest() ?? Promise.reject(new Error()),
+          }
+        : undefined,
+    // A new chat or folder is a new source, so a reply for the old one is dropped.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- directClient is a ref
+    [localCwd, snapshot.sessionId],
+  );
+  const environmentPullRequest = usePullRequestAction(environmentPullRequestSource);
   // The VS Code Minimap's room at the column's right (chatMinimap/paint.ts minimapReserve), on the same
   // terms as the preview's: Session Info's push pins the column itself. The transcript keeps it only in
   // a chat wide enough.
@@ -12952,6 +12996,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           ))}
         {goalAtFoot && goalNode}
         {statusCardOpen && <HarnessStatusCard summary={snapshot.summary} onDismiss={() => setStatusCardOpen(false)} />}
+        {/* "1 file changed +2 -2" (session-info/EnvironmentCard.tsx), off by default: a look turns it on. */}
+        {changesPillOn && !quick && <ChangesPill changes={environmentChanges} onOpen={() => toggleChanges("open")} />}
         {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
         <ImageViewerContext.Provider value={openImage}>
           <Composer
@@ -14508,6 +14554,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   preview={previewShown ? computerUsePreview : null}
                   onClose={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "close" }))}
                 />
+                {environmentCardShown && (
+                  <EnvironmentCard
+                    branch={environmentBranch}
+                    changes={environmentChanges}
+                    onOpenChanges={() => toggleChanges("open")}
+                    onCommitOrPush={localCwd ? () => openChangesTab.current() : undefined}
+                    pullRequest={environmentPullRequest}
+                  />
+                )}
                 {underHeader.watching && snapshot.summary?.watching && !snapshot.liveTakeOver && (
                   <WatchBanner
                     family={snapshot.summary.watching}
