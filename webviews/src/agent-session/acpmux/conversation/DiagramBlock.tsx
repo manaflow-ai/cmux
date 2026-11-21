@@ -16,6 +16,7 @@ import { copyText } from "./clipboard";
 import { chartSpec } from "./chartSpec";
 import { CodeBlock } from "./CodeBlock";
 import { Check, SaveTray } from "./icons";
+import { useUnsettledHeight } from "./unsettledHeights";
 const libraries = new DiagramLibraries((name) => new URL(`__lib/${name}.js`, document.baseURI).href);
 
 export function DiagramBlock({ lang, code, actions }: { lang: string; code: string; actions?: ReactNode }) {
@@ -31,6 +32,9 @@ export function DiagramBlock({ lang, code, actions }: { lang: string; code: stri
   const mode = language === "mermaid" ? "mermaid" : language === "vega" ? "vega" : "vega-lite";
   const label = language === "chart" ? "chart" : mode;
   const spec = useMemo(() => (language === "chart" ? (chartSpec(code) ?? code) : code), [language, code]);
+  // Until it is drawn (or refused) the chart's frame is not at the chart's height: an opening chat
+  // waits for it (unsettledHeights.ts).
+  useUnsettledHeight(!drawn && !failure && !showCode);
 
   useEffect(() => {
     const target = chart.current;
