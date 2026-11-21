@@ -955,9 +955,29 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       const { options } = live.current;
       const made = { scope: options.scope, options };
       setTwinReads((reads) => [...reads, made]);
-      void once.then((files) => {
+      void once.then((kept) => {
         setTwinReads((reads) => reads.filter((read) => read !== made));
-        return attach(files, uploads, kind, false, made);
+        const localPaths = options.localPaths;
+        if (kind !== "drop" || !localPaths || kept.length === files.length)
+          return attach(kept, uploads, kind, false, made);
+        return attach(kept, uploads, kind, false, {
+          ...made,
+          options: {
+            ...options,
+            // The host matches a native drop once against its full list. Keep the paths aligned
+            // with the surviving files, including folders whose bytes the page cannot read.
+            localPaths: async (kind) => {
+              const paths = await localPaths(kind, files);
+              if (paths?.length !== files.length) return undefined;
+              let next = 0;
+              return paths.filter((_, index) => {
+                if (files[index] !== kept[next]) return false;
+                next += 1;
+                return true;
+              });
+            },
+          },
+        });
       });
     };
     const paste = (event: ClipboardEvent) => {
