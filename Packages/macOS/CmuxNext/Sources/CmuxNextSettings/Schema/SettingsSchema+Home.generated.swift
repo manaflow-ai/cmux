@@ -54,6 +54,9 @@ extension HomeChiefPetSetting {
 }
 
 extension ChiefDockSetting {
+    /// `home.chiefDock.sidePanel`: On: every window keeps the Chief docked as a side panel at the Dock Edge beside the workspace it shows (never over Home), and the sidebar's Chief row opens it there. Off by default: the Chief floats only on Cmd-I (David Beyer's feedback, 2026-11-20).
+    public nonisolated static let sidePanelPath = ["home", "chiefDock", "sidePanel"]
+    public nonisolated static let sidePanelDefault = false
     /// `home.chiefDock.edge`: Left: most people keep the Chief on the left.
     public nonisolated static let edgePath = ["home", "chiefDock", "edge"]
     public nonisolated static let edgeDefault = "left"
@@ -245,10 +248,20 @@ nonisolated enum HomeSettingsSchema {
         ]
     }
 
-    /// The Chief panel (user 2026-11-06): the edge the Chief docks at when the person docks it, and whether a link clicked in the Chief opens its workspace with the Chief floating over it.
+    /// The Chief panel (user 2026-11-06): whether every window keeps it as a side panel, the edge the Chief docks at when the person docks it, and whether a link clicked in the Chief opens its workspace with the Chief floating over it.
     static var chiefDockRows: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.chiefDock", "Chief Dock")
         return [
+            SettingDescriptor(
+                ChiefDockSetting.sidePanelPath,
+                section: .home,
+                group: group,
+                title: SettingsText.keyed("settings.home.chiefDockSidePanel", "Chief in Side Panel"),
+                help: SettingsText.keyed("settings.home.chiefDockSidePanel.help", "Keeps the Chief docked beside every workspace. Cmd-I hides or shows it."),
+                kind: .toggle,
+                default: .bool(ChiefDockSetting.sidePanelDefault),
+                keywords: ["chief", "dock", "side", "panel", "sidebar", "pane", "window", "docked", "always", "home"]
+            ),
             SettingDescriptor(
                 ChiefDockSetting.edgePath,
                 section: .home,

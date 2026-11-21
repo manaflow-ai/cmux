@@ -35,6 +35,9 @@ export interface NativeRowTool {
   text?: string;
   menu?: NativeRowMenuItem[];
   contextMenu?: NativeRowMenuItem[];
+  /// The glass toolbar experiment asks the host to draw this native control on its chrome glass.
+  /// Omitted when the experiment is off so the default payload remains unchanged.
+  glass?: boolean;
 }
 export interface NativeRowMenuItem {
   id: string;
@@ -426,6 +429,7 @@ export function nativeRowToolBindings(
   extras?: NativeRowExtras,
   t: Translate = translate,
   menuKeys = createNativeMenuKeys(),
+  glass = false,
 ): RowToolBinding[] {
   const key = menuKeys();
   const bindings: RowToolBinding[] = [
@@ -457,11 +461,13 @@ export function nativeRowToolBindings(
         label: boundedNativeText(label, id),
         enabled: !!run,
         toggled: pressed === true,
+        ...(glass ? { glass: true } : {}),
       },
       run,
     })),
   ];
-  return fitNativeRowMenus(fitMenus(bindings.slice(0, NATIVE_MAX_TOOLS)));
+  const result = fitNativeRowMenus(fitMenus(bindings.slice(0, NATIVE_MAX_TOOLS)));
+  return glass ? result.map((binding) => ({ ...binding, tool: { ...binding.tool, glass: true } })) : result;
 }
 function findMenuItem(items: readonly NativeRowMenuItem[] | undefined, id: string): NativeRowMenuItem | undefined {
   for (const item of items ?? []) {
