@@ -172,7 +172,7 @@ Follows Ardia's `docs/perf/vs-browsers.md` so the numbers compare:
 ## Chrome parity (`suite=parity`)
 
 The CHROME PARITY BENCH (m91): one table of cmux NEXT against the host's own Google Chrome stable for every
-interaction a person feels, each light and under load, at 120 Hz. It is a bench, never a CI gate or perf-gate row.
+interaction a person feels, each light and under load, at 120 Hz. It is a bench, not a CI gate or perf-gate row.
 
 ```
 cmux-ci run --class exclusive --display --measurement --target-worker cmux22 \
