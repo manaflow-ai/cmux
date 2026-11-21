@@ -74,6 +74,11 @@
     "glaeda-trusted-next-nightly"
   ],
   "variables": {
+    "CI_OVERFLOW_MAC": {
+      "fallback": "an overflow switch, not a host: unset (the default), every own-branch Mac job that needs only a plain Mac with Xcode 26.6 takes cmux-mac, the label on the 60 shared Mac runners (vars.CI_OVERFLOW_MAC || 'cmux-mac'); an operator or the watchdog sets it to a bare Blacksmith macOS label only during an outage of those runners and deletes it after, which puts new runs back on cmux-mac",
+      "after_minutes": 5,
+      "note": "docs/design/ci-v2.md, \"Blacksmith is a switch, not a route\". Leo, 2026-11-21: \"unfuck the labels. idk why you guys named them such stupid things in the first place\" (ask c-ab6690acae)."
+    },
     "CI_RELEASE_PIN_SLOT": {
       "fallback": "an off switch, not a host: unset sends app-ffi-release's build to glaeda-nightly-std-xcode-26.6, one nightly slot runner on every owned std mini (not one host); `off` restores the promote pool, vars.CI_SIDE_LANE_RUNNER and Blacksmith routes after it",
       "after_minutes": 5
