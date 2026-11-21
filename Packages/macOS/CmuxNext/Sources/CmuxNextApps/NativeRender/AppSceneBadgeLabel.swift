@@ -14,7 +14,6 @@ final class AppSceneBadgeLabel: NSView {
         label.maximumNumberOfLines = 1
         // One line, always: a long label truncates rather than wrapping.
         label.lineBreakMode = .byTruncatingTail
-        label.cell?.wraps = false
         addSubview(label)
         isHidden = true
     }
