@@ -850,6 +850,7 @@ async fn cell_chat_prompt_behind_bulk_downstream() {
         Duration::from_millis(1500).saturating_sub(sent.elapsed() + Duration::from_millis(400)),
     )
     .await;
+    rig.toxic.resume_downstream();
     // Now the phone drains. The flood arrives whole and in order.
     let mut pending = Vec::new();
     let mut got = 0usize;
@@ -860,7 +861,10 @@ async fn cell_chat_prompt_behind_bulk_downstream() {
                 other => {
                     println!(
                         "NETCOND-ERROR phone channel ended after {got} frames: {:?}",
-                        other.map(|e| matches!(e, ChannelEvent::Closed(_)))
+                        other.map(|e| match e {
+                            ChannelEvent::Closed(info) => format!("closed {}: {}", info.code, info.reason),
+                            _ => "data".into(),
+                        })
                     );
                     break;
                 }
