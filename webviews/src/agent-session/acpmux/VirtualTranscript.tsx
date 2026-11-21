@@ -738,16 +738,6 @@ function arrivedAtTail(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]
   return false;
 }
 
-/// The newest prompt's row id (a user row that is no line), or undefined: the turn the room the reader
-/// came back to is kept for (`readerRoom`). Reads back from the end to that prompt only.
-function newestPromptId(rows: readonly AcpmuxRow[]): string | undefined {
-  for (let index = rows.length - 1; index >= 0; index--) {
-    const row = rows[index]!;
-    if (row.kind === "user" && !isLineRow(row)) return row.id;
-  }
-  return undefined;
-}
-
 /// Whether a pass brought a sent prompt (a new user row that is no line). It lands at once with what
 /// came in the same pass (its live line, a reply already there); tool rows and the reply that land in
 /// the send's window after it are the turn's and chase. O(1): inspect bounded windows at the append
@@ -3716,14 +3706,15 @@ function TranscriptView({
   /// The room kept under the last row (`room` below) as of the last placement pass.
   const heldRoom = useRef(dockRoom);
   /// The room the reader scrolled back down to (`readerKept` below): what the room held while they were
-  /// scrolled up, kept under the last row once the view follows again, with the newest prompt it was
-  /// kept under. Cut back to the stack's room there, it moved every row in view down by what was cut
-  /// (Leo, 2026-11-20: "And then like we cut it out. We cut out the extra space. And so that is the
-  /// jump."). It stays, a scroll away, until a send, Jump to latest or the next prompt's turn.
-  /// `extra` is the room over the stack's (`followedRoom`), so the lift and the floor work on it as
-  /// they do without it; the rows grown since `rows` (the content's height then) fill it, so a reply
-  /// streaming on writes into it and moves nothing.
-  const readerRoom = useRef<{ extra: number; rows: number; prompt: string | undefined } | undefined>(undefined);
+  /// scrolled up, kept under the last row once the view follows again. Cut back to the stack's room
+  /// there, it moved every row in view down by what was cut (Leo, 2026-11-20: "And then like we cut it
+  /// out. We cut out the extra space. And so that is the jump."). It stays, a scroll away, until a
+  /// send or Jump to latest gives the stack its room, or the rows that come in (the reply, the next
+  /// prompt and its turn) fill it: never cut while the view follows.
+  /// `extra` is what is left of the room over the stack's (`followedRoom`) as of the last pass, and
+  /// `rows` the content's height then: the rows grown since fill it, so a reply streaming on writes
+  /// into it and moves nothing. Rows that shrink (a fold, a wider window) leave it as it was.
+  const readerRoom = useRef<{ extra: number; rows: number } | undefined>(undefined);
   /// Whether the last placement pass followed the latest row (true at mount: a chat opened at its end
   /// was not scrolled back down to).
   const followedBefore = useRef(true);
@@ -4477,14 +4468,14 @@ function TranscriptView({
     !roomGiven.current &&
     heldRoom.current > followedRoom + 0.5;
   const before = following && !sessionSwitched && followedBefore.current ? readerRoom.current : undefined;
-  // The newest prompt is read only while a keep starts or holds: O(1) otherwise.
-  const keptPrompt = arrived || before ? newestPromptId(rows) : undefined;
-  const readerKept = arrived
-    ? { extra: heldRoom.current - followedRoom, rows: rowsNow, prompt: keptPrompt }
-    : before && before.prompt === keptPrompt && before.extra - Math.max(0, rowsNow - before.rows) > 0.5
-      ? before
-      : undefined;
-  const readerExtra = readerKept ? readerKept.extra - Math.max(0, rowsNow - readerKept.rows) : 0;
+  // What is left of it: the rows grown since the last pass fill it, and it ends once they have.
+  const left = arrived
+    ? heldRoom.current - followedRoom
+    : before
+      ? before.extra - Math.max(0, rowsNow - before.rows)
+      : 0;
+  const readerKept = left > 0.5 ? { extra: left, rows: rowsNow } : undefined;
+  const readerExtra = readerKept?.extra ?? 0;
   const room = sessionSwitched || following ? followedRoom + readerExtra : heldRoom.current;
   const rowsHeight = measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + room;
   // The content's end without the room a collapse left (`foldRoom`), which it is released against.

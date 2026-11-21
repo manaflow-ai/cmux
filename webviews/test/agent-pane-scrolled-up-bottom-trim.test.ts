@@ -238,13 +238,34 @@ await requireBrowserLane("agent-pane-scrolled-up-bottom-trim.test.ts", async () 
           await settle(page);
           const typed = await view(page);
           const dropped = Math.max(0, movedDown(later, typed));
+          // Then, over the room kept, a prompt sent from another client lands and its reply streams:
+          // the rows fill the room or rise, and none drops (the room is never cut while following).
+          const comes: PapercutStep[] = [
+            ["mux", "user_message", { text: "A prompt from the phone", promptId: "p-far", turnId: "turn-p-far" }],
+            ["mux", "turn_started", {}],
+            say("Picking that up from the phone. "),
+            say("The parser change is in and its tests pass. "),
+            say("Nothing else moved."),
+            ["mux", "turn_result", { status: "completed" }],
+          ];
+          let streamed = typed;
+          let fell = 0;
+          for (const [dir, kind, msg] of comes) {
+            pane.record(kind, msg, dir);
+            const after = await view(page, 3);
+            fell = Math.max(fell, movedDown(streamed, after));
+            streamed = after;
+          }
+          await settle(page);
+          fell = Math.max(fell, movedDown(streamed, await view(page)));
           const moved = steps.filter(([, extra]) => Math.abs(extra) > 1);
           const total = moved.reduce((sum, [, extra]) => sum + Math.abs(extra), 0) + Math.abs(idle);
           console.log(
             `bottom-trim ${engine} "${each.name}": px moved under the view ${total.toFixed(1)} ` +
               `(steps ${JSON.stringify(moved)}, at rest ${idle.toFixed(1)}); room under the last row: ` +
               `at the latest row before ${rest.room.toFixed(1)}, on reaching the end ${atEnd!.room.toFixed(1)}, ` +
-              `at rest ${later.room.toFixed(1)}; composer grown: rows dropped ${dropped.toFixed(1)}; ${steps.length} steps`,
+              `at rest ${later.room.toFixed(1)}; composer grown: rows dropped ${dropped.toFixed(1)}; ` +
+              `a prompt and its reply after: rows dropped ${fell.toFixed(1)}; ${steps.length} steps`,
           );
           expect({
             engine,
@@ -252,7 +273,8 @@ await requireBrowserLane("agent-pane-scrolled-up-bottom-trim.test.ts", async () 
             moved,
             idle: Math.abs(idle) > 1 ? idle : 0,
             dropped: dropped > 1 ? dropped : 0,
-          }).toEqual({ engine, case: each.name, moved: [], idle: 0, dropped: 0 });
+            fell: fell > 1 ? fell : 0,
+          }).toEqual({ engine, case: each.name, moved: [], idle: 0, dropped: 0, fell: 0 });
           await page.close();
         } finally {
           await pane.close();
