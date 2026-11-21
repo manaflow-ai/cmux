@@ -139,6 +139,13 @@ public struct WorkspacesList: View {
     var inbox: WorkspaceInbox {
         // Rows a busy Mac changed in place since the last inbox: the memo updates those alone.
         let changed = inboxMemo.revision.flatMap { since in store.rowsChanged(since: since).map { (since, $0) } }
+        #if DEBUG
+        let (whole, patches) = (inboxMemo.wholeBuilds, inboxMemo.patches)
+        defer {
+            ListApplyProbe.shared.count("ws.inbox.whole", inboxMemo.wholeBuilds - whole)
+            ListApplyProbe.shared.count("ws.inbox.patch", inboxMemo.patches - patches)
+        }
+        #endif
         return inboxMemo.inbox(WorkspaceInbox.Memo.Input(scope: scope, macs: macs, workspaces: store.workspaces,
                                                          workspacesRevision: store.workspacesRevision, query: query,
                                                          context: WorkspaceInbox.Context(pending: store.pendingWorkspaceIDs, seenAt: store.seenAt,
@@ -175,6 +182,9 @@ public struct WorkspacesList: View {
     private var listShowsPlaceholder: Bool { inbox.isLoading && inbox.folds.isEmpty }
 
     public var body: some View {
+        #if DEBUG
+        let _ = ListApplyProbe.shared.count("ws.list.body")
+        #endif
         groupDialogs(page)
     }
 
@@ -523,8 +533,14 @@ public struct WorkspacesList: View {
             model.version = version
             model.patchedItems = items
             model.patchedMoves = moved
+            #if DEBUG
+            ListApplyProbe.shared.count("ws.model.patch")
+            #endif
             return true
         }) {
+            #if DEBUG
+            ListApplyProbe.shared.count("ws.model.whole")
+            #endif
             var model = buildListModel(inbox, input)
             model.version = version
             return model
@@ -1120,6 +1136,9 @@ struct WorkspaceListRow: View, Equatable {
     nonisolated static func == (a: Self, b: Self) -> Bool { a.model == b.model }
 
     var body: some View {
+        #if DEBUG
+        let _ = ListApplyProbe.shared.count("ws.row.body")
+        #endif
         let ws = model.workspace
         let host = host
         Button {

@@ -20,5 +20,25 @@ public final class ListApplyProbe {
     public func applied(_ list: String) {
         onApply?(list)
     }
+
+    /// Named counts the list rig logs once a second and resets (cells configured, heights
+    /// measured, inbox builds and updates, list body passes): what each live tick costs.
+    public private(set) var counts: [String: Int] = [:]
+    /// Set by the rig: the counts are kept only while it measures.
+    public var counting = false
+
+    public func count(_ name: String, _ by: Int = 1) {
+        guard counting else { return }
+        counts[name, default: 0] += by
+    }
+
+    /// The counts so far, then zero.
+    public func takeCounts() -> [String: Int] {
+        defer { counts = [:] }
+        return counts
+    }
+
+    /// Set by the rig: one slow apply's details (the list, its ms and what it did).
+    public var onSlowApply: (@MainActor (_ line: String) -> Void)?
 }
 #endif

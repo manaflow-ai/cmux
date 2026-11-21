@@ -277,12 +277,18 @@ final class WorkspacesListCell: UICollectionViewCell {
 
     override func preferredLayoutAttributesFitting(_ attributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
         let width = attributes.size.width
+        #if DEBUG
+        ListApplyProbe.shared.count("ws.cell.fit")
+        #endif
         if let key, let heights, let height = heights.height(key, width: width) {
             let fitted = attributes.copy() as? UICollectionViewLayoutAttributes ?? attributes
             fitted.size = CGSize(width: width, height: height)
             return fitted
         }
         let fitted = super.preferredLayoutAttributesFitting(attributes)
+        #if DEBUG
+        ListApplyProbe.shared.count("ws.cell.measure")
+        #endif
         if let key, let heights { heights.store(key, width: width, height: fitted.size.height) }
         return fitted
     }
@@ -322,6 +328,8 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
     private var shownVersion = 0
     private var pendingItems: Set<String>?
     private var pendingMoves: Set<String> = []
+    private var lastMovedCount = 0
+    private var lastWasPatched = false
     /// Passes that moved a patched model's moved items alone (tests).
     private(set) var movedApplyCount = 0
     /// Applies that kept the row being read in place (tests).
@@ -384,6 +392,9 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
     /// Fills a cell with its item's current value, and remembers what it shows.
     private func configure(_ cell: WorkspacesListCell, _ id: String) {
         guard let item = items[id], let actions else { return }
+        #if DEBUG
+        ListApplyProbe.shared.count("ws.cell.configure")
+        #endif
         cell.heights = heights
         cell.key = WorkspacesHeightCache.Key(id: id, item: item)
         if case let .row(model) = item {
@@ -458,11 +469,18 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
     private func applyPending() {
         applyScheduled = false
         applyPasses += 1
+        #if DEBUG
+        let started = CACurrentMediaTime()
+        let configured = reconfigureCount
+        defer { noteApply(started: started, configuredBefore: configured) }
+        #endif
         heights.textSize = collectionView?.traitCollection.preferredContentSizeCategory ?? .large
         guard let next = pending, let dataSource else { return }
         pending = nil
         let changedItems = pendingItems
         let movedItems = pendingMoves
+        lastMovedCount = movedItems.count
+        lastWasPatched = changedItems != nil
         pendingItems = nil
         pendingMoves = []
         shownVersion = next.version
@@ -559,6 +577,27 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         // snapshot re-solved the whole list's layout for each change.
         reconfigureShown(plan.reconfigure)
     }
+
+    #if DEBUG
+    private func noteApply(started: CFTimeInterval, configuredBefore: Int) {
+        let probe = ListApplyProbe.shared
+        probe.count("ws.apply")
+        probe.count("ws.apply.redrawn", reconfigureCount - configuredBefore)
+        layoutIfNeededForProbe()
+        let ms = (CACurrentMediaTime() - started) * 1000
+        if ms > 4 {
+            probe.onSlowApply?(String(format: "ws-apply ms=%.1f redrawn=%d moved=%d patched=%d whole_items=%d sections=%d",
+                                      ms, reconfigureCount - configuredBefore, lastMovedCount, lastWasPatched ? 1 : 0,
+                                      items.count, shownSections.count))
+        }
+    }
+
+    /// The layout the apply leaves (the cells it invalidated measure now), inside its timing.
+    private func layoutIfNeededForProbe() {
+        guard ListApplyProbe.shared.counting else { return }
+        collectionView?.layoutIfNeeded()
+    }
+    #endif
 
     /// The item ids the list shows in `section`, in order (tests).
     func shownItemIDs(inSection section: String) -> [String] {

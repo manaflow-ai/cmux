@@ -35,6 +35,8 @@ final class ListStressRig: NSObject {
     /// `CMUX_MOBILE_LIST_PAN=1`: the passes pan sideways (the diff's unwrapped code).
     private var horizontal: Bool { settings.pans }
     private var live: Task<Void, Never>?
+    /// The live rig's last tick and the row it changed (a slow apply names them).
+    private var liveTick: (tick: Int, row: String) = (0, "")
     /// `CMUX_MOBILE_LIST_FLOOD=N`: the fake busy Mac on the real live path.
     private var flood: LiveFloodRig?
     let log = Logger(subsystem: "dev.cmux.mobile", category: "frames")
@@ -332,8 +334,16 @@ final class ListStressRig: NSObject {
     private func startLive() {
         guard let hz = settings.liveHz, hz > 0 else { return }
         let store = shell.store
-        live = Task { @MainActor in
+        // What each tick costs, by name, once a second; and any slow list apply with its tick.
+        let probe = ListApplyProbe.shared
+        probe.counting = true
+        probe.onSlowApply = { [weak self, log] line in
+            let tick = self?.liveTick ?? (0, "")
+            log.notice("FRAMELOG list-stress slow \(line, privacy: .public) tick=\(tick.tick, privacy: .public) row=\(tick.row, privacy: .public)")
+        }
+        live = Task { @MainActor [weak self] in
             var tick = 0
+            var second = CACurrentMediaTime()
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1 / hz))
                 tick += 1
@@ -342,6 +352,12 @@ final class ListStressRig: NSObject {
                 let index = (tick * 7) % next.count
                 next[index].lastActivityAt = Date()
                 next[index].isWorking.toggle()
+                self?.liveTick = (tick, next[index].id)
+                if CACurrentMediaTime() - second >= 1 {
+                    second = CACurrentMediaTime()
+                    let counts = probe.takeCounts().sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
+                    log.notice("FRAMELOG list-stress live-second tick=\(tick, privacy: .public) \(counts, privacy: .public)")
+                }
                 store.workspaces = next
             }
         }
