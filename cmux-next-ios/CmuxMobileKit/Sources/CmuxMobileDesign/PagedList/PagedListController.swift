@@ -377,6 +377,14 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     private var committedFrame: CGRect?
     private var passFrame: CGRect?
     private var commitWatch: PagedListCommitWatch?
+    /// The committed-frame measure's detail (DEBUG, while `shiftDetail` is set): the offset moves
+    /// noted since the last committed frame, and the last frames' drawn rows: per frame, the reader
+    /// row's top and the next row's top in the window, the offset, and what the scroll and the
+    /// list's own moves (the spring's slide) explained. A steady slide moves both rows by what it
+    /// explains; a jump moves them by more, for a frame.
+    private var commitTrail: [String] = []
+    private var drawnFrames: [String] = []
+    private var committedFrames = 0
     /// What the scroll explains since the last sample, and the corrections UIKit still owes.
     private var ledger = PagedListShiftLedger()
     /// Counts every offset move the scroll explains (the finger, a fling, the list's own slide): a
@@ -1025,10 +1033,20 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         querying -= 1
         let offsetY = collectionView.contentOffset.y
         let frame = listFrame
+        let explainedNow = ledger.committedExplained
+        committedFrames += 1
+        if probe.shiftDetail != nil {
+            let nextY = current?.next.flatMap { windowY(of: $0, bottom: current?.bottom ?? false) }
+            drawnFrames.append(String(format: "#%d[read=%.1f next=%.1f off=%.1f expl=%+.1f spring=%d %@]", committedFrames,
+                                      current?.windowY ?? .nan, nextY ?? .nan, offsetY, explainedNow, spring.isRunning ? 1 : 0,
+                                      commitTrail.joined(separator: ",")))
+            if drawnFrames.count > 6 { drawnFrames.removeFirst(drawnFrames.count - 6) }
+        }
         defer {
             committedSample = current.map { ShiftSample(id: $0.id, next: $0.next, gap: $0.gap, bottom: $0.bottom, windowY: $0.windowY, width: width, offsetY: offsetY) }
             committedFrame = frame
             ledger.resetCommitted()
+            commitTrail.removeAll(keepingCapacity: true)
         }
         guard let last = committedSample, abs(last.width - width) < 0.5,
               let indexPath = dataSource.indexPath(for: last.id), let now = windowY(of: last.id, bottom: last.bottom) else { return }
@@ -1039,7 +1057,8 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         report(shift)
         if abs(shift) > 0.5, let detail = probe.shiftDetail {
             detail(shift, shiftDetail(at: "commit", moved: now - last.windowY, explained: ledger.committedExplained,
-                                      offset: offsetY - last.offsetY, frame: frame))
+                                      offset: offsetY - last.offsetY, frame: frame)
+                + " frames=" + drawnFrames.joined(separator: " "))
         }
     }
 
@@ -1059,9 +1078,12 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// One offset move or layout correction for the probe's detail: its kind, the move, and `^` when
     /// it came inside another scroll callback.
     private func note(_ kind: String, _ delta: CGFloat) {
-        guard probe?.shiftDetail != nil, trail.count < 24 else { return }
+        guard probe?.shiftDetail != nil else { return }
         let nested = kind.hasPrefix("A") ? scrollDepth > 0 : scrollDepth > 1
-        trail.append("\(kind)\(nested ? "^" : "")\(String(format: "%+.1f", delta))")
+        let entry = "\(kind)\(nested ? "^" : "")\(String(format: "%+.1f", delta))"
+        if commitTrail.count < 32 { commitTrail.append(entry) }
+        guard trail.count < 24 else { return }
+        trail.append(entry)
     }
 
     /// The row the measure follows: the one the list keeps still. The one being read (its top), or,
