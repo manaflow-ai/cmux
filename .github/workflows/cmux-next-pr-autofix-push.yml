@@ -47,7 +47,7 @@ jobs:
     name: push the PR autofix repairs
     if: >-
       github.repository == 'manaflow-ai/cmux'
-      && vars.CMUX_PR_AUTOFIX_PUSH != '0'
+      && (vars.CMUX_PR_AUTOFIX_PUSH || '1') != '0'
       && github.event.workflow_run.path == '.github/workflows/cmux-next-pr-autofix.yml'
       && github.event.workflow_run.event == 'pull_request'
       && github.event.workflow_run.conclusion == 'success'
@@ -57,7 +57,7 @@ jobs:
     # The environment that holds CMUX_PR_AUTOFIX_APP_ID/KEY. This job runs from main (workflow_run), so its
     # deployment, if GitHub logs one, is on main's commit, never on the pull request.
     environment: cmux-pr-autofix
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for a pull request branch; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for a pull request branch; ephemeral Blacksmith VM
     timeout-minutes: 10
     permissions:
       actions: read

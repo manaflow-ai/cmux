@@ -2375,3 +2375,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_required_gate_label.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_write_token_jit_label.py"
+lane = "linux-guard"
