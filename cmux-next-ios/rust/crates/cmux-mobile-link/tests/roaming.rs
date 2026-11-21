@@ -586,11 +586,19 @@ async fn blackout(dark: Duration, network_changed: bool) -> Blackout {
             }
         })
     };
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    // The worst moment: just before the phone's next keepalive ping (one
+    // interval after its last pong), so the link's keepalive deadline is
+    // closest to the start of the blackout.
+    let mut rtt = connected.link.rtt();
+    rtt.borrow_and_update();
+    let interval = LinkConfig::default().keepalive.unwrap();
+    tokio::time::timeout(interval + Duration::from_secs(5), rtt.changed()).await.unwrap().unwrap();
+    tokio::time::sleep(interval.saturating_sub(Duration::from_millis(100))).await;
     assert_eq!(wireguard::simulate_blackout(Some(&session_id), true, true), 1);
     tokio::time::sleep(dark).await;
     let back = Instant::now();
-    assert_eq!(wireguard::simulate_blackout(Some(&session_id), true, false), 1);
+    // 0 once the session is gone (the link closed in the dark).
+    wireguard::simulate_blackout(Some(&session_id), true, false);
     if network_changed {
         let session_id = session_id.clone();
         tokio::spawn(async move { wireguard::roam_session(&session_id, true).await });
