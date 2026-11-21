@@ -58,6 +58,11 @@ PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
             "scripts/cmux-next/chromium-objc-contract.json",
             "scripts/import-apple-developer-id-intermediates.sh",
             "scripts/prune_nightly_release_assets.py",
+            # The cmux-tui tree key's build recipe, named one by one on push; a pull request admits each through
+            # .github/workflows/**, scripts/cmux-next/**, scripts/ci/** and Resources/** (below).
+            ".github/workflows/cmux-tui-build-package.yml", "Resources/cmux-cli-path/**",
+            "Resources/theme-files/**", "scripts/ci/stage-agent-detector.sh",
+            "scripts/cmux-next/cmux-tui-build-profiles.json",
             # Files the app build or its packaging reads (cmux_next_route.py NATIVE_SCRIPT_INPUTS): pull
             # requests admit them through scripts/ci/** and scripts/cmux-next/**, which pushes do not take.
             "scripts/ci/cmux_tui_tree_key.py", "scripts/ci/fleet-rust-cache.sh",

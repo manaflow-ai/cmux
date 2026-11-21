@@ -17,6 +17,12 @@ on:
       - scripts/ci/cmux_tui_artifacts_retry.py
       - tests/test_cmux_tui_artifacts_retry.py
       - tests/test_mac_live_delivery.py
+      # What test_mac_live_delivery.py reads through tests/runs_on_labels.py.
+      - tests/runs_on_labels.py
+      - tests/workflow_jobs.py
+      - tests/test_ci_fleet_rule_lints.py
+      - tests/fleet-rule-allowlist.json
+      - scripts/ci/gh_expressions.py
       - scripts/ci/repair-nightly-appcast-content-types.py
   workflow_dispatch:
 

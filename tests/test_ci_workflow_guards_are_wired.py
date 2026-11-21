@@ -45,6 +45,18 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
+    # lane = "manual" in tests/test-execution.d/other.toml (no new CI tests, CLAUDE.md). Proves cmux Files (dev) never
+    # reaches a shipped build; it needs macOS ditto and codesign, and reads the workflows only as data. Run it by hand on
+    # a fleet Mac when the embed phase, FilesHost or the pin changes. Exit: as below.
+    "tests/test_files_host_dev_only.py",
+    # lane = "manual" in tests/test-execution.d/other.toml (no new CI tests, CLAUDE.md). Pins run_ci_guards.py
+    # --affected's per-diff guard step selection; it reads the workflows as data. Run it by hand when
+    # scripts/ci/guard_step_inputs.py or run_ci_guards.py changes. Exit: as below.
+    "tests/test_guard_step_inputs.py",
+    # lane = "manual" in tests/test-execution.d/nightly.toml (no new CI tests, CLAUDE.md). Checks the nightly health
+    # gate's verdicts; it reads nightly-next-health.yml only as data. Run it by hand when nightly_next_health.py or
+    # that workflow changes. Exit: as below.
+    "tests/test_nightly_next_health.py",
     # lane = "manual" in tests/test-execution.d/app.toml (no new CI tests, CLAUDE.md). It checks that the app FFI release's Linux control jobs take the nightly lane's reserved label first, never the bulk route alone; it reads app-ffi-repin.yml and app-ffi-release.yml only as data. Run it by hand
     # when those workflows change. Exit: as below.
     "tests/test_app_ffi_release_linux_route.py",

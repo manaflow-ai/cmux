@@ -24,6 +24,9 @@ on:
       - "cmux-tui/crates/acpmux/**"
       - "cmux-tui/Cargo.lock"
       - ".github/workflows/acpmux-sim-sweep.yml"
+      # A README or notes file alone starts nothing here (tests/test_ci_docs_only_prs.py); no build reads them.
+      - "!**/README.md"
+      - "!**/COORDINATION.md"
   pull_request:
     branches:
       - feat-cmux-next
