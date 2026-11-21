@@ -522,7 +522,7 @@ export const SURGE_REQUEST_CAP = 8
 export const SurgeRequest = Schema.Struct({
   count: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: SURGE_REQUEST_CAP })),
   ttl_seconds: Schema.Int.check(Schema.isBetween({ minimum: 300, maximum: 3600 })),
-}).annotate({ identifier: "CloudSurgeRequest" })
+})
 export type SurgeRequest = typeof SurgeRequest.Type
 
 const SurgePreview = Schema.Struct({
