@@ -57,7 +57,7 @@ async function RequestPricing({
     params,
     headersList,
     snapshot: unknownPlan,
-    goPlanEnabled: false,
+    goPlanEnabled: isGoPlanEnabled(),
     pending: true,
   };
   const personalize = (
@@ -109,7 +109,7 @@ async function isSignedOut(): Promise<boolean> {
 const pricingState = cache(async () => {
   const snapshot = await currentPlanSnapshot();
   // Plus is offered to every visitor, paid subscribers included.
-  const goPlanEnabled = await isGoPlanEnabled(snapshot.userId);
+  const goPlanEnabled = isGoPlanEnabled(snapshot.userId);
   return { snapshot, goPlanEnabled };
 });
 
