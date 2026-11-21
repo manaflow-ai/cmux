@@ -283,6 +283,21 @@ const TASKS: &[Task] = &[
         prompt: "Start me a chat on cmux Cloud and show me it works: run `cmux whoami`; if I am signed out, run `cmux login` and wait while I finish it in the browser. Then run `cmux chat --on vm --harness HARNESS --prompt 'Say hello in one sentence.' --wait --json` (HARNESS is claude or codex) and show me its reply, then `cmux chat send SESSION_ID 'Say it once more, shorter.' --wait` with the answer's session_id. If a start is refused for a Cloud plan, a model connection or GitHub, tell me the one card or Settings page that fixes it and run it again once I have. Tell me how long each step took, and that `cmux vm pause NAME` or `cmux vm rm NAME --yes` stops the machine.",
     },
     Task {
+        id: "cloud_session",
+        summary: "Work in cmux Cloud: start an agent there, move a chat over and bring it back",
+        setup: None,
+        check: &["cmux cloud diagnostics", "cmux cloud list-machines"],
+        apply: &[
+            "cmux cloud start-session --target machine:ID --agent AGENT --from-folder FOLDER",
+            "cmux cloud move",
+            "cmux cloud bring-back",
+        ],
+        person: Some(
+            "signing in to cmux in the browser, and saying yes to a machine that costs money",
+        ),
+        prompt: "Get me working in cmux Cloud from this folder: run `cmux cloud diagnostics`; if it says I am signed out, run `cmux login` and tell me to finish it in the browser. Run `cmux cloud list-machines`; if I have none, run `cmux setup cloud-machine` and tell me which card to click (it costs money every hour it runs). Then run `cmux cloud start-session --target machine:<id> --agent AGENT --from-folder .` with that machine's id from the list (or the one you just made), and give me the chat it opens. To move a chat I already have, run `cmux cloud move` in it; to bring it back to this Mac, `cmux cloud bring-back`. If a step fails, show me its error and the command to retry; never guess.",
+    },
+    Task {
         id: "tailnet",
         summary: "Serve this machine to the person's other machines over Tailscale",
         setup: Some("cmux setup tailnet [--owner LOGIN] [--dry-run]"),

@@ -49,7 +49,7 @@ extension SidebarSectionsSetting {
     public nonisolated static let groupByDefault: SidebarGroupBy = .none
     /// `sidebar.showSpaces`.
     public nonisolated static let showSpacesPath = ["sidebar", "showSpaces"]
-    public nonisolated static let showSpacesDefault = true
+    public nonisolated static let showSpacesDefault = false
     /// `sidebar.showProfileControl`.
     public nonisolated static let showProfileControlPath = ["sidebar", "showProfileControl"]
     public nonisolated static let showProfileControlDefault = true
@@ -98,6 +98,9 @@ extension SidebarSectionsSetting {
     /// `sidebar.relativeTimestamps`.
     public nonisolated static let relativeTimestampsPath = ["sidebar", "relativeTimestamps"]
     public nonisolated static let relativeTimestampsDefault = false
+    /// `sidebar.settleFinished`: Seen, finished agent chats fold behind a Settled (N) row at the end of their list (SidebarLayout+DoneFold); the rule is Rust's (cmux-layout-reducer settle). Off by default; the Studio look turns it on.
+    public nonisolated static let settleFinishedPath = ["sidebar", "settleFinished"]
+    public nonisolated static let settleFinishedDefault = false
     /// `sidebar.showColors`.
     public nonisolated static let showColorsPath = ["sidebar", "showColors"]
     public nonisolated static let showColorsDefault = true

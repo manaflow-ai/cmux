@@ -135,6 +135,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `2h`, as the Codex app and T3 Code label chats), not its time. Off by default: today's changes
     /// show their time, as before.
     public var relativeTimestamps = false
+    /// `sidebar.settleFinished`: an agent chat whose last turn finished and that the person has read folds into a
+    /// "Settled (N)" row at the end of its list until its next turn, question or failure (the rule is Rust's,
+    /// `cmux-layout-reducer` `settle`). Off by default; the Studio look turns it on.
+    public var settleFinished = false
     /// `sidebar.showColors`: the sidebar draws workspace and group colors. Off draws none (a
     /// workspace's swatch goes, its symbol or emoji stays; a group draws as one with no color)
     /// and keeps every stored color (Lawrence 2026-10-22: "need to be able to remove all

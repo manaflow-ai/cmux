@@ -32,6 +32,14 @@ const NAMES: Record<GlyphKind, string> = {
   workspace: "workspace",
 };
 
+/// The cmux pack icon a suggestion row draws (a create row's by its kind), for Send's glyph when
+/// Return takes that row.
+export function rowGlyphName(row: ScreenRow): string {
+  if (row.type === "create") return NAMES[row.kind === "chat" ? "agent" : row.kind];
+  if (row.type === "action") return NAMES.action;
+  return NAMES[row.type];
+}
+
 export function RowGlyph({ kind, icon }: { kind: GlyphKind; icon?: string }) {
   if (icon)
     return (
