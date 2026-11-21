@@ -400,16 +400,23 @@ function Columns({
     const top = list.getBoundingClientRect().top - list.scrollTop;
     const slots = new Map<string, number>();
     const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-    for (const row of list.querySelectorAll<HTMLElement>("[data-flip]")) {
+    const rows = [...list.querySelectorAll<HTMLElement>("[data-flip]")];
+    // Read every row's slot first, then write: one layout, not one per row.
+    const places = rows.map((row) => row.getBoundingClientRect().top - top);
+    const moved: [HTMLElement, number][] = [];
+    rows.forEach((row, at) => {
       const key = row.dataset.flip ?? "";
-      const slot = row.getBoundingClientRect().top - top;
+      const slot = places[at]!;
       slots.set(key, slot);
       const was = flipSlots.current.get(key);
-      // A move on this render only: a row already gliding keeps its own animation's end state.
-      if (was === undefined || reduced || Math.abs(was - slot) < 0.5) continue;
-      row.style.setProperty("--flip-dy", `${was - slot}px`);
+      if (was !== undefined && !reduced && Math.abs(was - slot) >= 0.5) moved.push([row, was - slot]);
+    });
+    for (const [row, dy] of moved) {
+      row.style.setProperty("--flip-dy", `${dy}px`);
       row.removeAttribute("data-flipping");
-      void row.offsetWidth;
+    }
+    if (moved.length > 0) void list.offsetWidth;
+    for (const [row] of moved) {
       row.setAttribute("data-flipping", "");
       row.addEventListener("animationend", () => row.removeAttribute("data-flipping"), { once: true });
     }
