@@ -445,6 +445,8 @@ export function NewTabScreen(props: Props) {
   const newProjectMade = useRef<{ name: string; folder: string }>(undefined);
   const originalLocation = useRef((location ?? "").replace(/\r\n?/g, "\n"));
   const [commandActive, setCommandActive] = useState(0);
+  /// The `/word` the arrows chose a row at: Return picks that row while the word and the list stay.
+  const [commandArrowedAt, setCommandArrowedAt] = useState<string>();
   const [commandDismissed, setCommandDismissed] = useState<string>();
   /// The `/word` the field's caret ends (MarkdownField `onSlash`), as in the chat composer.
   const [commandTrigger, setCommandTrigger] = useState<SlashTrigger>();
