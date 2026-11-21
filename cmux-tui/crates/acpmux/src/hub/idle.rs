@@ -442,6 +442,8 @@ impl Hub {
     pub fn wake_for(self: &Arc<Self>, session: &Arc<Session>, web: bool, cause: &'static str) {
         // Use: a chat being typed into or opened does not hibernate meanwhile.
         self.touch(session);
+        // A person's: the agent it starts suggests next prompts (`host_level.rs`).
+        session.start_for.store(super::host_level::FOR_A_PERSON, Ordering::SeqCst);
         // The person asked for it: what a daemon start held in its protected folder goes on.
         self.release_protected_hold(session);
         let stops = session.stops.load(Ordering::SeqCst);
