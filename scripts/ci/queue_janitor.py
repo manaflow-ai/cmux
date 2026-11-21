@@ -293,6 +293,9 @@ MAX_JOB_PAGES = 3
 # 2026-10-30 queue needed), JOB_LISTING_WORKERS at a time: one at a time took 0.5 s a request, and
 # 1,100 of them would not fit the workflow's 10 minutes. Runs past the cap leave the listing truncated.
 MAX_JOB_LISTINGS = 2000
+# The read token's installation budget a sweep never spends below (GitHub.read_token_floor_reached()): the Linux runner
+# scaler mints JIT runners on the same glaeda-route installation and holds its own creates below 1,600 left.
+READ_TOKEN_FLOOR = 3000
 JOB_LISTING_WORKERS = 6
 GRAPHQL_BATCH = 25
 # A read that meets a 5xx or a dropped connection is made again after each of these delays (seconds),
@@ -4604,6 +4607,8 @@ class GitHub:
         # Another App's token for the sweep's GET reads (READ_TOKEN, use_read_token()), or "": every request then
         # goes on `token`, as before.
         self.read_token = ""
+        # The read token's installation budget a sweep leaves for its other users (read_token_floor_reached()).
+        self.read_token_floor = 0
         self.headers = {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
@@ -4619,6 +4624,20 @@ class GitHub:
         too) is made again on `token`, and the rest of the sweep reads there, as before this split."""
         if read_token and read_token not in (self._token, self.fallback_token):
             self.read_token = read_token
+
+    def read_token_floor_reached(self) -> bool:
+        """Whether the read token's installation has read_token_floor calls or fewer left this hour, as its newest
+        response said. That installation (glaeda-route, 164690637) also pays the Linux runner scaler's JIT creates:
+        at 23:10-23:18Z on 2026-11-20 one sweep listed 5,617 in-flight runs (about 57 run pages and its 2,000 job
+        listings) and left it at 872 of 5000, and at 00:24Z the scaler read 0 of 5000 with 396 lane-build and 200 gate
+        creates waiting. So under the floor the sweep stops (RateLimited, an infra skip) instead of spending the rest,
+        and it does not move those reads onto cmux-bot's installation either."""
+        limits = self.rate_limits.get("core (read token)")
+        if not self.read_token or not self.read_token_floor or not limits:
+            return False
+        if "reset" in limits and time.time() >= limits["reset"]:
+            return False
+        return limits["remaining"] <= self.read_token_floor
 
     def request(self, method: str, path: str, body: Any | None = None, *, app_only: bool = False) -> Any:
         """One API call. A read (GET, or a GraphQL query) that meets a 5xx or a dropped connection is
@@ -4647,6 +4666,14 @@ class GitHub:
             headers["Content-Type"] = "application/json"
         # A GET goes on the read token while there is one (use_read_token()); writes, GraphQL and app_only never do.
         read_token = self.read_token if method == "GET" and not app_only else ""
+        if read_token and self.read_token_floor_reached():
+            left = self.rate_limits["core (read token)"]["remaining"]
+            limited = RateLimited(f"{method} {path.split('?')[0]} not sent: the read token's installation has {left} "
+                                  f"calls left, at or under the {self.read_token_floor} the sweep leaves for the "
+                                  "runner scaler (READ_TOKEN_FLOOR)")
+            with self._count_lock:
+                self.rate_limited = self.rate_limited or str(limited)
+            raise limited
         if read_token:
             headers["Authorization"] = f"Bearer {read_token}"
         request = urllib.request.Request(API + path, data=data, headers=headers, method=method)
@@ -5206,6 +5233,10 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     # backed-up queue no longer drains the cmux-bot installation every other workflow and reconciler shares.
     if os.environ.get("READ_TOKEN") and hasattr(github, "use_read_token"):
         github.use_read_token(os.environ["READ_TOKEN"])
+        # READ_TOKEN_FLOOR: the calls an hour the sweep leaves on the read token's installation (glaeda-route), which
+        # the runner scaler's JIT creates and about 30 workflows' mints share (read_token_floor_reached()).
+        if hasattr(github, "read_token_floor"):
+            github.read_token_floor = env_int("READ_TOKEN_FLOOR", READ_TOKEN_FLOOR)
     now = utc_now()
     linux_only = linux_only_workflow_paths(args.workflows_dir)
     branch_linux_only = branch_linux_only_paths(args.branch_workflows)
