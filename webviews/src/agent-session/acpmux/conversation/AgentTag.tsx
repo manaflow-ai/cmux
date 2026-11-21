@@ -18,6 +18,7 @@ export function AgentTag({
   attributes,
   hover,
   ref,
+  announce,
   ...trigger
 }: {
   name: ReactNode;
@@ -31,6 +32,8 @@ export function AgentTag({
   hover?: SessionHoverTrigger;
   /// A hover card trigger's ref (ui/Tooltip.tsx).
   ref?: Ref<HTMLElement>;
+  /// A plain tag whose name is the row's only spoken copy (a read-only line): screen readers read it.
+  announce?: boolean;
 } & Omit<HTMLAttributes<HTMLElement>, "onClick" | "title" | "className">) {
   const classes = `cv-agent-tag${className ? ` ${className}` : ""}`;
   if (onClick) {
@@ -63,7 +66,7 @@ export function AgentTag({
       className={`${classes} is-plain`}
       title={title}
       data-interactive=""
-      aria-hidden="true"
+      aria-hidden={announce ? undefined : "true"}
     >
       {name}
     </span>

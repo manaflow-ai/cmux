@@ -288,12 +288,12 @@ function DoneLine({
           ...(compact && { "data-report-look": "compact" }),
         }}
       >
-        {/* No control itself: only its name opens the view (the chip below). */}
+        {/* No control itself: only its name opens the view (the chip below). Its text, the name
+            included, is what assistive tech reads; a generic div's aria-label is not announced. */}
         <div
           className="cv-tool cv-bgtask cv-subagent-done cv-agent-activity__control"
           data-state={waiting ? "retrying" : agent.state}
           {...(agent.stopReason && { "data-reason": agent.stopReason })}
-          aria-label={whole}
         >
           <span className="cv-tool__icon">
             <AgentIdentity
@@ -327,6 +327,8 @@ function DoneLine({
               <SubagentChipPreview agent={agent} name={name}>
                 <AgentTag
                   name={name}
+                  // A read-only line has no button: its plain chip is the name's one spoken copy.
+                  announce
                   ariaLabel={localReport ? name : openLabel}
                   onClick={localReport ? () => setReportOpen((value) => !value) : open && (() => open(agent.id))}
                   attributes={
