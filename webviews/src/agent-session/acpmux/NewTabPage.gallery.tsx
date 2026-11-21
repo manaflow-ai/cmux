@@ -195,9 +195,17 @@ const escapeClear: Play = async (ctx) => {
 const folderChooser: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-project-button" });
   await ctx.waitFor(() => ctx.document.querySelector('[role="combobox"]') !== null);
-  await ctx.type("relay", { role: "combobox", name: "Search projects" });
+  await ctx.type("relay", { role: "combobox", name: "Search folders or type a path" });
   await ctx.press("Enter");
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-project-button")?.textContent?.includes("relay"));
+};
+
+// A refused terminal open: the note says what did not open, Retry, and the host's words under Details.
+const openRefused: Play = async (ctx) => {
+  await typePrompt(ctx, "npm run build");
+  await ctx.click({ selector: ".acpmux-newtab .acpmux-send" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-newtab-failed"));
+  await ctx.click({ selector: ".acpmux-newtab-failed details summary" });
 };
 
 // New Tab always lands on the page and offers no default-kind toggle (cx-39b5r, #20127).
@@ -317,6 +325,15 @@ export default componentEntry<Props>({
           ...projects,
         ],
       },
+    },
+    "open-refused": {
+      note: "A terminal the host refused to open says so in plain words, with Retry and the host's words under Details.",
+      props: {
+        ...base,
+        initialKind: "terminal",
+        onSubmit: () => Promise.reject(new Error("tab.open: transport.gesture_required (no user gesture within 5 s)")),
+      },
+      play: openRefused,
     },
     "switch-kinds": {
       note: "The Terminal, Browser, and Agent buttons switch the page without losing the field.",

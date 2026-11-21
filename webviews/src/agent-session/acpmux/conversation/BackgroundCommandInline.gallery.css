@@ -1,0 +1,47 @@
+/* Gallery-only arms of agent-pane.background-command-inline (BackgroundCommandInline.gallery.tsx). */
+.bg-command-inline {
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 24px;
+  color: var(--cv-text);
+  font-family: var(--cv-font, var(--font-ui));
+}
+.bg-command-inline__prose {
+  margin: 16px 0;
+  line-height: 22px;
+}
+/* The stage stacks its rows in flow; the transcript places each one itself. */
+.bg-command-inline .acpmux-row {
+  position: relative;
+  left: auto;
+  right: auto;
+  min-height: 0;
+  padding-bottom: 0;
+}
+/* The edge arms: the running row's mark, hidden in the shipped row, drawn at its trailing edge. */
+.bg-command-inline:is([data-look="edge-spinner"], [data-look="edge-dot"])
+  .cv-command__bg-state[data-state="running"]::before {
+  content: "";
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+.bg-command-inline[data-look="edge-spinner"] .cv-command__bg-state[data-state="running"]::before {
+  border: 1.5px solid var(--cv-text-dim);
+  border-top-color: transparent;
+  animation: cmux-spin var(--cmux-spinner-period) linear infinite;
+}
+.bg-command-inline[data-look="edge-dot"] .cv-command__bg-state[data-state="running"]::before {
+  background: radial-gradient(circle, var(--cv-text-dim) 3px, transparent 3.5px);
+}
+/* The removed count line, as conversation.css drew it (.cv-bgstatus). */
+.bg-command-inline__before {
+  display: flex;
+  align-items: center;
+  min-height: var(--cv-tool-row-height);
+  padding-inline-start: var(--cv-tool-text-inset);
+  color: var(--cv-activity-text);
+  line-height: 20px;
+  white-space: nowrap;
+}

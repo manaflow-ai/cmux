@@ -35,6 +35,41 @@ import Testing
         #expect(await nightly.reads == 1)
     }
 
+    @Test func aSessionAdoptedFromThisAppsOwnEarlierStoreIsNotShared() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let earlier = CountingSource(ImportedTokenPair(accessToken: "access-e", refreshToken: "refresh-e"))
+        let store = ImportingTokenStore(primary: FileStackTokenStore(directory: directory),
+                                        sources: [{ await earlier.read() }], sharesSessions: false)
+
+        #expect(await store.getStoredRefreshToken() == "refresh-e")
+        // This app's own session: a sign-out revokes it on the server.
+        #expect(await store.isShared(refreshToken: "refresh-e") == false)
+    }
+
+    @Test func aSignOutAlsoForgetsThisAppsOwnEarlierStore() async throws {
+        let directory = try makeDirectory()
+        let earlierDirectory = try makeDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+            try? FileManager.default.removeItem(at: earlierDirectory)
+        }
+        let earlier = FileStackTokenStore(directory: earlierDirectory)
+        await earlier.setTokens(accessToken: "access-e", refreshToken: "refresh-e")
+        func launch() -> ImportingTokenStore {
+            ImportingTokenStore(primary: FileStackTokenStore(directory: directory), sources: [{
+                ImportedTokenPair(accessToken: await earlier.getStoredAccessToken(), refreshToken: await earlier.getStoredRefreshToken())
+            }], sharesSessions: false, forgetSources: { await earlier.clearTokens() })
+        }
+
+        let first = launch()
+        #expect(await first.getStoredRefreshToken() == "refresh-e")
+        await first.clearTokens()
+        // The next launch finds the person signed out, not the session they signed out of.
+        #expect(await launch().getStoredRefreshToken() == nil)
+        #expect(await earlier.getStoredRefreshToken() == nil)
+    }
+
     @Test func aStoreWithItsOwnSessionNeverReadsASource() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

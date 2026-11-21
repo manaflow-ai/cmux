@@ -4,7 +4,7 @@
 import { type Translate, translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { SHORTCUT_ACTIONS } from "../shortcuts";
-import type { ChatMenuChild, ChatMenuItem } from "./ChatHeaderTools";
+import type { ChatMenuChild, ChatMenuItem } from "./chatHeaderToolsModel";
 import { sliceWhole } from "../../../ui/wholeChars";
 
 export function copyRow(

@@ -12,11 +12,13 @@ import { setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
 import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import { configureQuickActions } from "../src/agent-session/acpmux/header/quickActions";
-import { useSessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
 import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { NeedsYouButton } from "../src/agent-session/acpmux/needsYou/NeedsYou";
 import { SummaryButton } from "../src/agent-session/acpmux/summary/SummaryButton";
 import { activity, chat, tool } from "../src/gallery/fixtures/acpmux";
+import { settleReact } from "./support/domTeardown";
+import { SESSION_INFO } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -63,6 +65,7 @@ afterEach(async () => {
   resetSessionInfoState();
   configureQuickActions({});
   setHeaderState({ inspector: false, pullRequest: null });
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -148,7 +151,7 @@ function fingerprint(container: HTMLElement, calls: string[]): string {
     states,
     lit,
     popups,
-    sessionInfo: !!document.querySelector("aside.acpmux-session-info"),
+    sessionInfo: !!document.querySelector(SESSION_INFO),
   });
 }
 

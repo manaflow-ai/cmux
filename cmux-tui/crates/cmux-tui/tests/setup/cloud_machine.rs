@@ -235,7 +235,7 @@ fn cmux_setup_cloud_machine_makes_one_with_the_persons_ok_and_never_a_second() {
     let signed_out = world.follow(&fix);
     assert_eq!(signed_out["state"], "needs_user", "{signed_out}");
     assert_eq!(signed_out["user_action"]["kind"], "sign_in", "{signed_out}");
-    assert_eq!(signed_out["user_action"]["command"], "cmux cloud sign-in");
+    assert_eq!(signed_out["user_action"]["command"], "cmux login");
     app.signed_in.store(true, Ordering::SeqCst);
 
     let planned = world.json(&["setup", "cloud-machine", "--dry-run"]);
@@ -264,10 +264,7 @@ fn cmux_setup_cloud_machine_makes_one_with_the_persons_ok_and_never_a_second() {
     assert_eq!(made["machine"], machine, "{made}");
     assert_eq!(made["inferred"], Value::Null, "{made}");
     let undo = made["undo"].as_str().expect("a change names its undo").to_owned();
-    assert_eq!(
-        undo,
-        format!("cmux cloud kill-machine --target machine:vm-2 --confirm && {FORGET}")
-    );
+    assert_eq!(undo, format!("cmux vm kill-machine --target vm:vm-2 --confirm && {FORGET}"));
     assert_eq!(app.cards(), 2);
 
     // A rerun reads the machine it made, in the same shape, and asks nothing.
@@ -322,14 +319,14 @@ fn cmux_setup_cloud_machine_waits_for_a_slow_creation_instead_of_a_second() {
     let looked = world.json(&["setup", "cloud-machine", "--dry-run"]);
     assert_eq!(looked["state"], "planned", "a dry run claimed a change: {looked}");
     assert_eq!(looked["before"], Value::Null, "{looked}");
-    let undo = format!("cmux cloud kill-machine --target machine:vm-9 --confirm && {FORGET}");
+    let undo = format!("cmux vm kill-machine --target vm:vm-9 --confirm && {FORGET}");
     assert_eq!(looked["undo"], undo, "{looked}");
     let made = world.follow(&rerun);
     assert_eq!(made["state"], "changed", "{made}");
     assert_eq!((&made["machine"]["id"], &made["inferred"]), (&json!("vm-9"), &Value::Null));
     assert_eq!(
         made["undo"],
-        format!("cmux cloud kill-machine --target machine:vm-9 --confirm && {FORGET}")
+        format!("cmux vm kill-machine --target vm:vm-9 --confirm && {FORGET}")
     );
     assert_eq!(world.follow(&rerun)["state"], "ok");
     assert_eq!(app.cards(), 1);
@@ -390,7 +387,7 @@ fn cmux_setup_cloud_machine_decides_nothing_off_a_list_cmux_has_not_loaded() {
     assert_eq!(other["before"], json!({"id": "vm-1", "status": "gone"}), "{other}");
     assert_eq!(other["machine"]["id"], "mine", "{other}");
     let note = other["note"].as_str().expect("a paused machine names its resume");
-    assert!(note.contains("cmux cloud resume-machine --target machine:mine"), "{note}");
+    assert!(note.contains("cmux vm resume-machine --target vm:mine"), "{note}");
     assert_eq!(app.cards(), 1);
 
     // The person's machine failed: removing it is theirs to say.

@@ -29,7 +29,6 @@ enum DebugShowcase {
             pane.openAgentTab(seed: seed, select: focus) { [weak services] key in services?.showcase.agentTabs[paneKey] = key }
             if focus, let nsWindow = window.window { WindowActivation.show(nsWindow, .focus) }
         }
-        services.feed.startIfSignedIn()
         // Onto a terminal, never a page tab (the Home dock, Settings) or an agent chat: an unread
         // marker on the Home dock rang its pane and dotted its tab in every scene capture, though
         // no reply had happened. With no terminal the notifications go to the ledger alone.
@@ -42,7 +41,6 @@ enum DebugShowcase {
             "pane": .string(pane.paneKey),
             // Null while the store has not yet committed a new agent tab.
             "agent_tab": services.showcase.agentTabs[pane.paneKey].map(CmuxNextSettings.JSONValue.string) ?? .null,
-            "feed_items": .number(Double(services.feed.model.confirmed.count)),
             "daemon_workspaces": .number(Double(services.daemon.store.workspaces.count)),
             "window_workspaces": .number(Double(services.windows.registry.members(of: window.state.id).count)),
             "focused": .bool(params["focus"]?.boolValue == true),

@@ -135,6 +135,12 @@ extension WorkspaceCreator {
         return grouper.groups(on: macID).filter { !used.contains($0.id) }
     }
 
+    /// Every group `macID` lists to the phone, empty or not (what ``emptyGroups(on:)`` picks from):
+    /// a cache of the list keys on it, since a group made or deleted on the Mac moves no revision here.
+    public func listedGroups(on macID: String) -> [MacWorkspaceGroup] {
+        grouper?.groups(on: macID) ?? []
+    }
+
     /// Delete Group for a group with no workspaces (the members' path needs a member).
     public func deleteEmptyGroup(_ group: MacWorkspaceGroup, on macID: String) {
         guard let grouper, rights(onMac: macID).group else { return }

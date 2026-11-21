@@ -4,7 +4,7 @@ import { conversation as homeConversation } from "@cmux/home-core"
 import type { Principal } from "@cmux/ownership"
 import { authenticate } from "./auth.ts"
 import { principalForOwner } from "./team-select.ts"
-import type { AttachmentAccess, DownloadAccess } from "./conversation-do.ts"
+import type { DownloadAccess } from "./conversation-do.ts"
 import type { Env } from "./env.ts"
 import { derivedReady, PART_RENEW_MS, randomId, slotKeys, type UploadSlot } from "./home-attachment-store.ts"
 import { completionFailure, hashInto, ResumableSha256, streamInto, streamPartInto } from "./home-attachment-stream.ts"
@@ -56,35 +56,8 @@ const isFail = (v: unknown): v is Fail => typeof v === "object" && v !== null &&
 
 type Image = homeConversation.DerivedImage
 type Variant = homeConversation.DerivedVariant
-interface ConversationAttachments {
-  attachmentAccess(entity: string, actor: string, hash: string): Promise<AttachmentAccess>
-  createUploadSlot(entity: string, actor: string, quotaUser: string, meta: { hash: string; byte_count: number; mime_type: string; derived?: Image }, mode: UploadSlot["mode"], id: string): Promise<UploadSlot | null>
-  uploadSlot(entity: string, id: string, mode: UploadSlot["mode"], consume: boolean, actor?: string): Promise<UploadSlot | null>
-  completingSlot(entity: string, id: string, mode: UploadSlot["mode"], actor: string): Promise<UploadSlot | null>
-  derivedSlot(entity: string, id: string): Promise<UploadSlot | null>
-  settleDerived(entity: string, id: string, etag: string | null): Promise<void>
-  settleSlot(entity: string, id: string): Promise<void>
-  setMultipartUpload(entity: string, id: string, uploadId: string, objectKey?: string): Promise<boolean>
-  queueMultipartAbort(entity: string, objectKey: string, uploadId: string): Promise<void>
-  dropUploadSlot(entity: string, id: string): Promise<void>
-  claimMultipartPart(entity: string, id: string, part: number, before: string | null): Promise<{ ok: true; claim: string } | { ok: false; busy: boolean }>
-  releaseMultipartPart(entity: string, id: string, claim: string): Promise<void>
-  renewMultipartPart(entity: string, id: string, claim: string): Promise<boolean>
-  recordMultipartPart(entity: string, id: string, part: number, etag: string, before: string | null, after: string, claim: string): Promise<boolean>
-  multipartEtags(entity: string, id: string): Promise<Array<string>>
-  leaseDirect(entity: string, id: string): Promise<UploadSlot | null>
-  advanceDirect(entity: string, id: string, before: string | null, after: string): Promise<boolean>
-  reopenMultipart(entity: string, id: string): Promise<boolean>
-  commitAttachment(entity: string, slotId: string, etag?: string, objectId?: string): Promise<{ ok: true; state: "stored" | "exists"; object_key: string; derived?: Image } | { ok: false; code: "auth.forbidden" | "archived" | "slot_gone" }>
-  downloadAccess(entity: string, actor: string, by: { hash: string } | { object_id: string }, at?: { message_id: string; part_index: number }): Promise<DownloadAccess | "forbidden">
-}
-interface UserAttachments {
-  takeAttachmentQuota(e: string, key: string, bytes: number): Promise<{ ok: true } | { ok: false; code: string; window: string; retry_after_ms: number }>
-  recordAttachmentStorage(e: string, key: string, bytes: number): Promise<void>
-  refundAttachmentQuota(e: string, key: string): Promise<void>
-}
-const conversationOf = (env: Env, id: string) => env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id)) as unknown as ConversationAttachments
-const userOf = (env: Env, user: string) => env.USER_DO.get(env.USER_DO.idFromName(user)) as unknown as UserAttachments
+const conversationOf = (env: Env, id: string) => env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id))
+const userOf = (env: Env, user: string) => env.USER_DO.get(env.USER_DO.idFromName(user))
 
 const configured = (env: Env): Fail | null =>
   env.HOME_ATTACHMENTS && env.HOME_ATTACHMENT_KEY && env.HOME_ATTACHMENT_KEY.length >= 32 ? null : { status: 503, code: "home.not_configured", message: "attachments are not configured on this deployment" }

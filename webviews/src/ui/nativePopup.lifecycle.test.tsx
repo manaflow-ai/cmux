@@ -111,7 +111,8 @@ test("an opening refusal survives descriptor changes", async () => {
   await act(async () => {
     h.shows[0]!.resolve({ shown: false });
   });
-  expect(h.dismissed).toEqual([undefined]);
+  // A show the host never drew says so, so an owner with a page fallback can keep its menu open.
+  expect(h.dismissed).toEqual(["refused"]);
 });
 
 test("a prior opening refusal cannot dismiss a reopened popup", async () => {
@@ -195,4 +196,16 @@ test("explicit applied acknowledgments preserve normalized and rejected values",
   expect(h.updates.at(-1)!.search).toMatchObject({ value: "", editSequence: 7 });
   h.render(true, "Normalized", { search: { ...search, value: "RAW", editSequence: 8 } });
   expect(h.updates.at(-1)!.search).toMatchObject({ value: "RAW", editSequence: 8 });
+});
+
+test("under a trackpad pinch the popup opens beside its anchor where it shows on the zoomed page", () => {
+  // Codex review of cmux#41936 (F1): a declarative native popup sent its anchor's layout box, so under a
+  // pinch the App's menu opened at the unzoomed spot (Leo, 2026-11-12: "it doesn't follow").
+  const popup = harness();
+  Object.defineProperty(dom!.window, "visualViewport", {
+    value: { scale: 2, offsetLeft: 10, offsetTop: 100 },
+    configurable: true,
+  });
+  popup.render(true);
+  expect(popup.shows[0]?.model.anchor).toEqual({ left: -20, top: -200, right: 20, bottom: -160 });
 });

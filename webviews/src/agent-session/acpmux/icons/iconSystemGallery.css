@@ -1,0 +1,76 @@
+/* Gallery fixture only: the same sizes, rows and quiet colour roles as the transcript. */
+.icon-system-gallery {
+  display: grid;
+  align-content: start;
+  gap: var(--ds-space-5);
+  padding: var(--ds-space-5);
+  color: var(--ds-color-fg);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.icon-system-heading h2 {
+  margin: 0;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: var(--weight-emphasis);
+}
+.icon-system-heading p {
+  margin: var(--ds-space-2) 0 0;
+  color: var(--ds-color-muted);
+  font-size: var(--text-detail);
+}
+.icon-system-scales {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-5);
+}
+.icon-system-scale {
+  display: grid;
+  gap: var(--ds-space-2);
+}
+.icon-system-scale h3 {
+  margin: 0;
+  font-size: var(--text-detail);
+  font-weight: var(--weight-emphasis);
+}
+.icon-system-pair {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+  min-height: var(--ds-control-row);
+}
+.icon-system-sample {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  color: inherit;
+}
+.icon-system-gallery[data-look="heavier-comparison"]
+  .icon-system-sample
+  svg
+  [stroke="currentColor"] {
+  vector-effect: non-scaling-stroke;
+  stroke-width: var(--icon-comparison-stroke);
+}
+.icon-system-transcript {
+  display: grid;
+  align-content: start;
+}
+.icon-system-tool {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--cv-tool-row-height);
+  color: var(--ds-color-muted);
+}
+.icon-system-transcript p {
+  margin: var(--ds-space-4) 0 var(--ds-space-2);
+}
+.icon-system-footer {
+  display: flex;
+  align-items: center;
+  min-height: var(--grid-transcript-footer-control, var(--ds-control-primary));
+  color: var(--ds-color-muted);
+}

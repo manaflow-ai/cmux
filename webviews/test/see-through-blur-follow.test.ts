@@ -11,11 +11,19 @@
 // test says.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { attachSeeThroughBlur, UNDER_ATTRIBUTE } from "../src/ui/glass/seeThroughBlur";
+import {
+  attachSeeThroughBlur,
+  KEEPS_UNDERLAY_ATTRIBUTE,
+  OVER_ATTRIBUTE,
+  UNDER_ATTRIBUTE,
+} from "../src/ui/glass/seeThroughBlur";
 
-const dom = new JSDOM("<!doctype html><div id=layer><div id=rows></div><div id=card></div></div>", {
-  pretendToBeVisual: true,
-});
+const dom = new JSDOM(
+  "<!doctype html><div id=layer><div id=rows></div><div id=card></div><div id=positioner><div id=popup></div></div></div>",
+  {
+    pretendToBeVisual: true,
+  },
+);
 const win = dom.window as unknown as Window & typeof globalThis & Record<string, unknown>;
 const queued = new Map<number, FrameRequestCallback>();
 let lastFrame = 0;
@@ -96,4 +104,64 @@ test("a transition on the surface still follows until it settles", async () => {
   } finally {
     detach();
   }
+});
+
+// A hover card's popup is placed by its positioner (Base UI writes the positioner's inline style, on
+// scroll too), not by its own style: the hole follows the positioner. A card on a page with nothing
+// it can blur (the changelog's pull request cards) keeps its underlay.
+const positioner = document.getElementById("positioner")!;
+const popup = document.getElementById("popup")!;
+popup.getBoundingClientRect = () => {
+  const y = Number(/translate\([^,]+,\s*([-\d.]+)px/.exec(positioner.style.transform)?.[1] ?? 0);
+  return rect(40, y, 300, 120);
+};
+positioner.style.transform = "translate(40px, 100px)";
+
+test("a popup moved by its positioner's inline style moves its hole with it", async () => {
+  const detach = attachSeeThroughBlur(popup, () => [rows]);
+  try {
+    await frames();
+    expect(holeTop()).toBe(100);
+    positioner.style.transform = "translate(40px, 180px)";
+    await frames();
+    expect(holeTop()).toBe(180);
+  } finally {
+    detach();
+  }
+});
+
+test("a surface with nothing it can blur keeps its underlay", async () => {
+  const detach = attachSeeThroughBlur(popup, () => []);
+  try {
+    await frames();
+    expect(popup.hasAttribute(OVER_ATTRIBUTE)).toBe(false);
+  } finally {
+    detach();
+  }
+});
+
+// A short pane's Session Info reaches down over the composer, which no filter may blur: the card keeps
+// its underlay there, and says so, so the App's glass drawn under the page does not clear it (glass.css).
+test("a surface over an element it may not blur says it keeps its underlay, until it moves off", async () => {
+  const dock = document.createElement("div");
+  document.getElementById("layer")!.append(dock);
+  dock.getBoundingClientRect = () => rect(0, 500, 800, 100);
+  card.style.transform = "translate3d(40px, 420px, 0)";
+  const detach = attachSeeThroughBlur(card, () => [rows], { keepUnderlayOver: () => [dock] });
+  try {
+    await frames();
+    expect(card.hasAttribute(KEEPS_UNDERLAY_ATTRIBUTE)).toBe(true);
+    expect(card.hasAttribute(OVER_ATTRIBUTE)).toBe(false);
+    card.style.transform = "translate3d(40px, 100px, 0)";
+    await frames();
+    expect(card.hasAttribute(KEEPS_UNDERLAY_ATTRIBUTE)).toBe(false);
+    expect(card.hasAttribute(OVER_ATTRIBUTE)).toBe(true);
+    card.style.transform = "translate3d(40px, 420px, 0)";
+    await frames();
+  } finally {
+    detach();
+    dock.remove();
+    card.style.transform = "translate3d(40px, 0px, 0)";
+  }
+  expect(card.hasAttribute(KEEPS_UNDERLAY_ATTRIBUTE)).toBe(false);
 });

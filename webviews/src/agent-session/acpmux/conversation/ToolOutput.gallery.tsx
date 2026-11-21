@@ -26,9 +26,24 @@ const open: Play = async (ctx) => {
   await ctx.click({ selector: "button.cv-tool" });
   await ctx.waitFor(() => ctx.document.querySelector(".cv-tool-output-card"));
 };
-const expand: Play = async (ctx) => {
+/// Opens the call and scrolls its rendered result to the end of its box: the last line shows whole
+/// and the bottom fade is gone (moreBelow.ts). Past eight lines a result scrolls in its box, with no
+/// Show all row under it.
+const scrolled: Play = async (ctx) => {
   await open(ctx);
-  await ctx.click({ selector: ".cv-output-more" });
+  const body = ctx.document.querySelector<HTMLElement>(".cv-tool-output__markdown")!;
+  body.scrollTop = body.scrollHeight;
+  await ctx.waitFor(() => !body.hasAttribute("data-more-below"));
+};
+/// Opens the call with its output's long lines folded back under their start. Output opens aligned
+/// (blockWrap.ts), so a state about a wrapped line turns Wrap lines on itself instead of leaning on
+/// the default: the one long line wraps past the viewport and scrolls in its eight-row box.
+const openWrapped: Play = async (ctx) => {
+  await open(ctx);
+  const body = () => ctx.document.querySelector(".cv-tool-output");
+  if (body()?.getAttribute("data-wrap") !== "true")
+    await ctx.click({ selector: '.cv-tool-output__actions button[aria-label="Wrap lines"]' });
+  await ctx.waitFor(() => body()?.getAttribute("data-wrap") === "true");
 };
 
 export default componentEntry<Props>({
@@ -74,19 +89,23 @@ export default componentEntry<Props>({
   height: 760,
   variants: {
     collapsed: { props, note: "The tool row at rest. Public-safe sample data." },
-    compact: { props, play: open, note: "Rendered Markdown in the compact viewport, with scroll and Show all." },
-    expanded: { props, play: expand, note: "All source lines are available in the larger scrollable viewport." },
+    compact: { props, play: open, note: "Rendered Markdown in the compact viewport, scrolling in its box." },
+    scrolled: {
+      props,
+      play: scrolled,
+      note: "The rendered result scrolled to the end of its box: its last line whole, the bottom edge hard.",
+    },
     raw: {
       props,
       play: async (ctx) => {
-        await expand(ctx);
+        await open(ctx);
         await ctx.click({ selector: ".cv-tool-output__raw" });
       },
       note: "The same complete result as monospace source.",
     },
     "mcp-markdown": {
       props: { ...props, mcp: true },
-      note: "An opened MCP call whose response is Markdown: the same rendered, scrollable body with Show all and Raw.",
+      note: "An opened MCP call whose response is Markdown: the same rendered body, scrolling in its box, with Raw.",
     },
     json: {
       props: { output: JSON.stringify({ ok: true, nodes: ["reader", "viewer"], count: 2 }), kind: "fetch" },
@@ -98,8 +117,8 @@ export default componentEntry<Props>({
     },
     "wrapped-line": {
       props: { output: "Long result: ".repeat(180) },
-      play: open,
-      note: "One source line wraps beyond the viewport; it still offers Show all 1 line.",
+      play: openWrapped,
+      note: "One source line, Wrap lines on, wraps past eight rows; it scrolls in its box, with no Show all row.",
     },
   },
 });

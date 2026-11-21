@@ -45,7 +45,7 @@ struct CmdWOnReplacedStandInTests {
 
             // The reply's turn, as AgentTabStore.open runs it: the selection waits for the store's tab
             // (moveSelection), then the reply names it and it replaces the stand-in in the records.
-            pane.pendingSelectSurface = made.surface
+            pane.pendingSelect.surface = made.surface
             ProvisionalTab.created(transaction, surface: made.surface, in: store)
             store.noteSettledAtNextSnapshot(transaction)
             #expect(store.tab(id: standIn.id) == nil, "the store still lists the stand-in")
@@ -85,7 +85,7 @@ struct CmdWOnReplacedStandInTests {
                          transaction: transaction)
             pane.selectWhenReported(surface: standIn.surface)
             try #require(pane.stripModel.selectedID?.rawValue == standIn.id, "the stand-in is not selected")
-            pane.pendingSelectSurface = made.surface
+            pane.pendingSelect.surface = made.surface
             ProvisionalTab.created(transaction, surface: made.surface, in: store)
             store.noteSettledAtNextSnapshot(transaction)
             try #require(pane.stripModel.selectedID?.rawValue == standIn.id,
@@ -119,7 +119,7 @@ struct CmdWOnReplacedStandInTests {
             pane.selectWhenReported(surface: standIn.surface)
             pane.stripModel.tabs.removeAll { $0.id.rawValue == madeID }
             try #require(pane.stripModel.selectedID?.rawValue == standIn.id && !pane.orderedIDs.contains { $0.rawValue == madeID })
-            pane.pendingSelectSurface = made.surface
+            pane.pendingSelect.surface = made.surface
             ProvisionalTab.created(transaction, surface: made.surface, in: store)
             store.noteSettledAtNextSnapshot(transaction)
 

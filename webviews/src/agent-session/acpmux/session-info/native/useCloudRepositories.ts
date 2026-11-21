@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { loadAttachedCloudRepos, type AttachedCloudRepo, type PendingCloudRepo } from "../CloudRepositoryPicker";
+import { loadAttachedCloudRepos, type AttachedCloudRepo, type PendingCloudRepo } from "../cloudRepositoryPickerModel";
 import type { NativeInfoRect } from "./model";
 
 /// The same repository route as EnvironmentSection. Closing the panel or changing chats retires its read.

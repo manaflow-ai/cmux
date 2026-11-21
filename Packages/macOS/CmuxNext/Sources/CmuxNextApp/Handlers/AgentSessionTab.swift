@@ -26,15 +26,8 @@ enum AgentSessionTab {
         guard !session.isEmpty else { throw ActionFailure(message: MiscHandlerStrings.sessionRequired) }
         var host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         let services = context.services
-        // A peer's chat opens as the session this Mac's acpmux mirrors (the tab binds here, never there).
-        if let peer = host, !peer.hasPrefix(ChiefHomeAcpmux.hostPrefix), peer != services.agentTabs.localHost {
-            switch AgentLaneStore.shared.lanes.values.peerSession(session, on: peer) {
-            case .session(let mirrored): (session, host) = (mirrored, nil)
-            case .unknownSession: throw ActionFailure(message: MiscHandlerStrings.noPeerSession(session, peer))
-            case .ambiguous: throw ActionFailure(message: MiscHandlerStrings.ambiguousPeerSession(session, peer))
-            case .notAPeer: break // the tab's host check refuses it with its own reason
-            }
-        }
+        // This Mac's chat by acpmux's id, a peer's as the session this Mac mirrors (AgentLaneStore.tabSession).
+        do { (session, host) = try AgentLaneStore.shared.tabSession(session, host: host, localHost: services.agentTabs.localHost) } catch { throw ActionFailure(message: error.description) }
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let shows = invocation.allowsViewChange
         if let shown = services.agentTabs.tab(showing: session, host: host) {
@@ -51,9 +44,7 @@ enum AgentSessionTab {
             throw ActionFailure(message: refusal.message)
         }
         let logger = daemon.logger
-        let workspace = services.machines.allWorkspaces.first { candidate, _ in
-            candidate.screens.contains { $0.panes.contains { $0 === pane } }
-        }?.0
+        let workspace = daemon.store.location(of: pane)?.workspace
         // The run answers the new tab's ids (`cmux agents chat new`, #23026), as New Agent Chat's
         // script runs do, so the caller can find the chat it put there.
         context.registry.track(result: Task { @MainActor in

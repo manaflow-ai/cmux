@@ -26,11 +26,11 @@ final class RowBadgeView: NSView {
     private(set) var look = Look.corner
     /// The glyph's side: the static glyphs' 10 pt box, so their 1x pixel art draws as drawn.
     static let glyphSide: CGFloat = 10
-    /// Every mark but a dot (the spinner, the red warning, the orange needs-you marks) draws in one
+    /// Every mark but a dot (the spinner, the red warning, the yellow needs-you marks) draws in one
     /// 14 pt box centered in its cell, so the marks read at one size on one column. Leo 2026-11-01:
     /// "a bigger red warn symbol", like ChatGPT (the 14 pt box draws the info ring at about 13 pt),
     /// then "and every icon is still fucking small". The cell, its center and the row's spacing
-    /// stay fixed; every dot, blue or orange, paints `SidebarStyle.statusDotSize` (Lawrence msg 19696).
+    /// stay fixed; every dot, blue or yellow, paints `SidebarStyle.statusDotSize` (Lawrence msg 19696).
     static var markSide: CGFloat { SidebarStyle.statusMarkSide }
     /// A working or loading spinner draws smaller than the other marks: the row's status glyph size
     /// (`SidebarStyle.statusGlyphSize`, 10 pt compact, 12 comfortable), the box the shared indicator takes
@@ -90,7 +90,9 @@ final class RowBadgeView: NSView {
         states.isEmpty ? 0 : cellSide + CGFloat(states.count - 1) * step
     }
 
-    func configure(_ states: [StatusIndicatorState], look: Look) {
+    /// - Parameter settles: The row's work just finished (``WorkspaceRowBadges/settles(from:to:)``):
+    ///   each done glyph plays its one-shot settle (``StatusIndicatorView/settle()``).
+    func configure(_ states: [StatusIndicatorState], look: Look, settles: Bool = false) {
         guard states != self.states || look != self.look else { return }
         (self.states, self.look) = (states, look)
         while glyphs.count < states.count {
@@ -102,7 +104,7 @@ final class RowBadgeView: NSView {
             rings.append(ring)
             chips.append(chip)
             let glyph = StatusIndicatorView()
-            glyph.usesStatusColors = true // blue unread, orange attention, red error (Lawrence msg 11983)
+            glyph.usesStatusColors = true // blue unread, yellow attention, red error (Lawrence msg 11983)
             glyph.ignoresScaleSetting = true
             addSubview(glyph)
             glyphs.append(glyph)
@@ -115,6 +117,7 @@ final class RowBadgeView: NSView {
             rings[index].isHidden = !shown || look == .plain || bare
             chips[index].isHidden = !shown || look != .stack || bare
             glyph.configure(shown ? states[index] : .idle)
+            if settles, shown, states[index] == .success { glyph.settle() }
         }
         isHidden = states.isEmpty
         needsLayout = true
@@ -149,7 +152,7 @@ final class RowBadgeView: NSView {
                 disc(rings[index], around: center, side: cellSide, z: z - 2)
                 disc(chips[index], around: center, side: cellSide - 2 * ring, z: z - 1)
             }
-            // Every dot (blue unread, orange needs you) paints the one status dot diameter in its box.
+            // Every dot (blue unread, yellow needs you) paints the one status dot diameter in its box.
             glyphs[index].dotDiameter = SidebarStyle.statusDotSize
             glyphs[index].frame = glyph
             glyphs[index].layer?.zPosition = z

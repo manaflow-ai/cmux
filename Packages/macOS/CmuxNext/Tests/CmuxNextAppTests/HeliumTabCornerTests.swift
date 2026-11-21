@@ -28,7 +28,10 @@ import Testing
 
     private func reset() { load(nil, density: .compact) }
 
-    /// Every tab pill and the strip's + have Helium's 8 pt circular corners, at every density.
+    /// Every tab pill and the strip's + have Helium's circular corners, at every density. Their radius
+    /// is the one concentric tab radius: Helium's 8 pt until Lawrence 2026-11-05 ("default roundness
+    /// is too round now", "default roundness should be omnibar roundness") moved the outer default
+    /// to the omnibar's 8 pt, so a tab nested the corner padding inside it is 6 pt.
     @Test(arguments: Density.allCases)
     func tabsHaveHeliumsCorners(density: Density) throws {
         defer { reset() }
@@ -36,10 +39,13 @@ import Testing
         let scene = TabConcentricCornerTests.scene()
         defer { scene.window.close() }
         for cell in scene.strip.cells.values {
-            #expect(cell.backgroundLayer.cornerRadius == Metrics.heliumTabCornerRadius, "\(density): \(cell.backgroundLayer.cornerRadius) pt")
+            #expect(cell.backgroundLayer.cornerRadius == Metrics.tabCornerRadius, "\(density): \(cell.backgroundLayer.cornerRadius) pt")
+            // Lawrence 2026-11-11, "same roundness as chrome": Chromium's 8 on a 30 pt tab, at each height, unless the
+            // density sets the browser's own tab corner (Helium's 8 at Default, Chrome's 10 at Comfortable).
+            let corner = Metrics.tokens.tokens["tabCornerRadius"].map { CGFloat($0) } ?? Metrics.chromeRowCornerRadius(height: Metrics.tabHeight)
+            #expect(cell.backgroundLayer.cornerRadius == corner, "\(density): the density's tab corner")
             #expect(cell.backgroundLayer.cornerCurve == .circular, "\(density): Helium's tab is a circular-arc SkRRect, not a squircle")
         }
-        #expect(Metrics.heliumTabCornerRadius == 8)
     }
 
     // The pane card's 14 pt corner in a real window: `MainPaneWindowCornerTests`.

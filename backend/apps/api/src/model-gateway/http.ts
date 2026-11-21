@@ -6,7 +6,6 @@ import { Credits, CreditsLive, creditsRequired, maxCallCostUsd, payerTeam, type 
 import type { Env } from "../env.ts"
 import { claudeRoute, HAIKU, isClaude, meteredOwner, offers, OPUS, SONNET } from "./routes.ts"
 import { verifyRunToken, type RunGrant } from "./run-token.ts"
-import type { LedgerAnswer, LedgerOp } from "./run-ledger.ts"
 
 /**
  * The model gateway over HTTP (PROTOCOL.md `model/stream` for brains and agents outside the Worker:
@@ -135,7 +134,7 @@ export const gatewayMessages = async (env: Env, who: Who, request: Request, ctx?
   const maxCost = maxCallCostUsd(model.cost, text.length, maxTokens)
   // A run token: its run must still run, and this call's maximum price must fit its spend cap.
   const g = who.grant
-  const ledger = g ? (env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(`${g.chief}/${g.conversation}`)) as unknown as { runToken(run: string, jti: string, cap: number, o: LedgerOp): Promise<LedgerAnswer> }) : null
+  const ledger = g ? (env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(`${g.chief}/${g.conversation}`))) : null
   if (g && ledger) {
     const a = await ledger.runToken(g.run, g.jti, g.cap_usd, { op: "hold", usd: maxCost, agent: g.agent }).catch(() => null)
     if (!a) return err(503, "overloaded_error", "the run could not be checked; retry")
@@ -162,7 +161,7 @@ export const gatewayMessages = async (env: Env, who: Who, request: Request, ctx?
     return run(env, Credits.use((c) => c.settle(h, usd))).then(() => undefined, (e: unknown) => console.warn(JSON.stringify({ msg: "model_gateway.settle_failed", request: request_id, error: String(e).slice(0, 200) })))
   }
   const route = claudeRoute(env)
-  const holder = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(HOLDER)) as unknown as { claudeAuth(): Promise<string>; claudeInvalidate(): Promise<void> }
+  const holder = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(HOLDER))
   const dropped: Array<string> = []
   const fetchRoute = signedFetch(() => claudeAuthFor(env, () => holder), () => (forgetClaudeAuth(), holder.claudeInvalidate()), { log: (w) => void dropped.push(w), forwardBetas: true, auth: route.auth, models: route.models, effortBody: route.effortBody, ...(env.CHIEF_BRAIN_CLAUDE_SERVICE_KEY ? { key: env.CHIEF_BRAIN_CLAUDE_SERVICE_KEY } : {}), ...(env.CHIEF_BRAIN_CACHE_TTL ? { ttl: env.CHIEF_BRAIN_CACHE_TTL } : {}) })
   let res: Response

@@ -72,7 +72,8 @@ const checkSpacing =
   async (ctx) => {
     const rect = (selector: string) => ctx.find({ selector }).getBoundingClientRect();
     const footer = (suffix: string) => `[data-row-id="spacing-footer-${suffix}"] .cv-turn-actions`;
-    const chip = (suffix: string) => `[data-row-id="spacing-received-${suffix}"] .cv-disclosure__toggle`;
+    const chip = (suffix: string) =>
+      `[data-row-id="spacing-received-${suffix}"] :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)`;
     const measure = () => ["a", "b"].map((suffix) => rect(chip(suffix)).top - rect(footer(suffix)).bottom);
     await ctx.waitFor(() => ctx.document.querySelector(chip("b")));
     await ctx.scroll({ selector: ".acpmux-scroll" }, "bottom");
@@ -130,7 +131,7 @@ export default componentEntry<SpacingProps>({
   area: "Agent pane",
   height: 700,
   pane: true,
-  covers: ["agent-session/acpmux/App.tsx#VirtualTranscript"],
+  covers: ["agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript"],
   load: async () => TranscriptSpacing,
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
   variants: {

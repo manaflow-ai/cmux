@@ -112,7 +112,7 @@ await requireBrowserLane("transcript-received-line.test.ts", async () => {
       };
       const actions = [...document.querySelectorAll<HTMLElement>(".cv-turn-actions")].filter(shown)[0];
       const glyph = actions && [...actions.querySelectorAll("button svg")].find(shown)?.getBoundingClientRect();
-      const receivedRow = [...document.querySelectorAll(".cv-received > .cv-disclosure__line")].find(shown) ?? null;
+      const receivedRow = [...document.querySelectorAll(".cv-received > .cv-agentmsg__line")].find(shown) ?? null;
       const runRow = [...document.querySelectorAll("button[data-message-run]")].find(shown) ?? null;
       const tag = receivedRow?.querySelector(".cv-received__sender");
       const tagBox = tag?.querySelector(".cv-agent-tag")?.getBoundingClientRect();
@@ -142,6 +142,11 @@ await requireBrowserLane("transcript-received-line.test.ts", async () => {
     const page = await browser.newPage({
       viewport: { width: 1200, height: 1100 },
       deviceScaleFactor: 2,
+    });
+    // Leo's capture of a Claude chat, as Claude's in-place runs draw it (claudeTurnFold.experiment.ts
+    // arm "runs"); by default a finished Claude turn folds under Worked for (Codex parity).
+    await page.addInitScript(() => {
+      globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "claude-turn-fold": "runs" };
     });
     const port = (vite!.httpServer!.address() as { port: number }).port;
     try {
@@ -192,7 +197,7 @@ await requireBrowserLane("transcript-received-line.test.ts", async () => {
       const got = await of(theme);
       expect(got.sender!.text).toBe("merge-timeout · lane-vm-01");
       // Its message's "merge-timeout:" signature is out: the line names the sender once.
-      expect(got.received!.text).toContain("lane-vm-01please deploy");
+      expect(got.received!.text).toContain("lane-vm-01 please deploy");
     });
     test(`the sender's tag stays inside its line, clear of the run's line (${theme.file})`, async () => {
       const got = await of(theme);

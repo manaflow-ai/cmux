@@ -152,10 +152,11 @@ impl InputRouter {
         }
     }
 
-    /// After `event` changed `window`'s focus: link hints end when the
-    /// window's keys no longer go to their page, and window hints end on the
-    /// person's own focus move (a click, a drag) in their window.
-    pub(super) fn session_after_focus(&mut self, window: &Arc<str>, event: &FocusEvent) {
+    /// After `event` (none: a topology report) changed `window`'s focus: link
+    /// hints end when the window's keys no longer go to their page, and window
+    /// hints end on the person's own focus move (a click, a drag) in their
+    /// window.
+    pub(super) fn session_after_focus(&mut self, window: &Arc<str>, event: Option<&FocusEvent>) {
         let Some(session) = &self.session else { return };
         if session.window != *window {
             return;
@@ -164,9 +165,9 @@ impl InputRouter {
             SessionKind::LinkHints { tab } => {
                 self.aim(window).as_ref() != Some(&Sink::Content(tab.clone()))
             }
-            SessionKind::WindowHints => {
+            SessionKind::WindowHints => event.is_some_and(|event| {
                 is_user_move(event) || matches!(event, FocusEvent::DragBegan { .. })
-            }
+            }),
             SessionKind::Recorder => false,
         };
         if left {

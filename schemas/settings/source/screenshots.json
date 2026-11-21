@@ -19,7 +19,7 @@
           },
           "help": {
             "key": "settings.screenshots.findTools.help",
-            "text": "The Screenshots pane also shows the folders of screenshot apps it finds, such as CleanShot X, Shottr and Kap."
+            "text": "Also shows the folders of apps like CleanShot X and Shottr."
           },
           "kind": "toggle",
           "default": true,
@@ -41,7 +41,7 @@
           },
           "help": {
             "key": "settings.screenshots.folders.help",
-            "text": "The Screenshots pane also shows the pictures and videos in these folders. Use full paths or ~/ paths."
+            "text": "Also shows the pictures and videos in these folders."
           },
           "kind": "folder_list",
           "default": [],

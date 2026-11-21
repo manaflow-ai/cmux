@@ -16,6 +16,14 @@ public nonisolated struct AutoArchiveStrings {
         String(localized: "autoArchive.toast.archived", defaultValue: "Archived \(count) idle workspaces", bundle: .module)
     }
 
+    /// The undo step of Archive Other Workspaces, Archive Workspaces Above or Below.
+    static var archiveWorkspacesTitle: String { text("autoArchive.byHand.undoTitle", "Archive Workspaces") }
+
+    /// The toast after a hand archive of several rows (plural variations in the catalog).
+    static func archivedByHand(_ count: Int) -> String {
+        String(localized: "autoArchive.byHand.toast", defaultValue: "Archived \(count) workspaces", bundle: .module)
+    }
+
     /// "1 idle workspace" / "2 idle workspaces" (plural variations in the catalog): the Archive button says the
     /// action, so the title fits the sidebar's width.
     static func cardQuestion(_ count: Int) -> String {

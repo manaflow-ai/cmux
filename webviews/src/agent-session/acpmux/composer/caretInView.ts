@@ -1,5 +1,6 @@
 import { Plugin } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
+import { growthHoldsTop } from "./fieldGrowth";
 
 // The prompt's caret stays in view when the draft rewraps under it (https://github.com/manaflow-ai/cmux/issues/28672).
 // ProseMirror scrolls the caret into view when a transaction asks for it, against the layout of
@@ -64,6 +65,9 @@ export function caretInView(margin: number): Plugin {
           width = nextWidth;
           height = nextHeight;
           if (first || away || !view.hasFocus()) return;
+          // A line typed keeps the text's top on the field's moving edge (fieldGrowth.ts): the
+          // caret's line comes into view with it.
+          if (growthHoldsTop(scroller)) return;
           revealCaret(view, scroller, margin);
         });
         observer.observe(view.dom);

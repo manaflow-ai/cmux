@@ -3,7 +3,7 @@
  * Test-mode Stripe catalog for usage billing (cx-y79zh S3, plans/cmux-next/usage-billing.md).
  * Idempotent: finds each object first and creates only what is missing.
  *
- *   STRIPE_USAGE_KEY=<sk_test_...> bun backend/scripts/stripe-usage-catalog.ts [--check]
+ *   STRIPE_USAGE_KEY=<sk_test_...> bun backend/scripts/stripe-usage-catalog.ts [--set=v1|v2|e2e] [--check]
  *
  * - Meters, aggregation `last` (the reconcile worker sends levels, never deltas):
  *   `cmux_ai_usage` (the period's whole AI usage level, per-team prices) and
@@ -13,13 +13,22 @@
  *   per team: graduated, lookup key `cmux-ai-usage-<plan>-incl<N>-<set>`, the first N units at 0,
  *   then 1.00 USD per unit; per seat: flat 1.00 USD per unit, lookup key
  *   `cmux-ai-usage-<plan>-seat<N>-<set>` (the sync subtracts N x seats). One unit = one USD of AI
- *   usage at our cost (pass-through, Lawrence 2026-10-13).
+ *   usage at our cost (pass-through, Lawrence 2026-10-13). Under set v2 the model overage is billed at list + 10%
+ *   (Leo 2026-11-09): the sync sends a level that already carries the markup (billing-catalog.ts billedLevelMicros),
+ *   so the prices are the same 1.00 USD per unit and no new object is needed; only the nickname and the
+ *   price_version metadata of a v2 price made here name the markup.
  *
  * Refuses any live key: live objects are Lawrence's step. Prints object ids and settings only.
  */
-import { INCLUDED_MODES, USAGE_PRICE_SETS, USAGE_PRODUCT_ID as PRODUCT_ID, usageMeterEvent, usageModesOf, usagePriceLookupKey, type IncludedMode, type UsagePriceSet } from "../apps/api/src/billing-catalog.ts"
-// --set e2e: the end-to-end price set (1 USD included), test mode only like everything here.
-const SET: UsagePriceSet = process.argv.includes("--set=e2e") ? "e2e" : "v1"
+import { INCLUDED_MODES, overageModelMarkup, USAGE_PRICE_SET_NAMES, usagePriceVersion, USAGE_PRICE_SETS, USAGE_PRODUCT_ID as PRODUCT_ID, usageMeterEvent, usageModesOf, usagePriceLookupKey, type IncludedMode, type UsagePriceSet } from "../apps/api/src/billing-catalog.ts"
+// --set=<name>: the price set to make (billing-catalog.ts USAGE_PRICE_SETS: v1 by default, v2 Team 25 USD per
+// seat, e2e 1 USD included), test mode only like everything here.
+const setArg = process.argv.find((a) => a.startsWith("--set="))?.slice("--set=".length) ?? "v1"
+if (!(USAGE_PRICE_SET_NAMES as ReadonlyArray<string>).includes(setArg)) {
+  console.error(`stripe-usage-catalog: --set must be one of ${USAGE_PRICE_SET_NAMES.join(", ")}`)
+  process.exit(2)
+}
+const SET = setArg as UsagePriceSet
 const INCLUDED_USD = USAGE_PRICE_SETS[SET]
 const key = process.env.STRIPE_USAGE_KEY ?? ""
 const check = process.argv.includes("--check")
@@ -70,6 +79,8 @@ for (const mode of INCLUDED_MODES) {
 let product = await api("GET", `/v1/products/${PRODUCT_ID}`)
 if (!product && !check) product = await api("POST", "/v1/products", { id: PRODUCT_ID, name: "cmux AI usage", description: "AI model usage above your plan's included amount, at cost." }, `product-${PRODUCT_ID}-v1`)
 
+// The pricing a price of this set names: pass-through, or the model overage markup in percent (v2: 110).
+const PRICING = { nickname: overageModelMarkup(SET) === 1 ? "pass-through" : `models above included at list x ${overageModelMarkup(SET)}`, version: usagePriceVersion(SET) }
 const prices: Record<string, any> = {}
 for (const plan of Object.keys(INCLUDED_USD) as Array<keyof typeof INCLUDED_USD>) for (const mode of usageModesOf(plan)) {
   const meter = meters[mode]
@@ -85,13 +96,13 @@ for (const plan of Object.keys(INCLUDED_USD) as Array<keyof typeof INCLUDED_USD>
       product: PRODUCT_ID,
       currency: "usd",
       lookup_key: lookup,
-      nickname: `AI usage, ${plan}, ${INCLUDED_USD[plan]} USD included ${mode === "per_seat" ? "per seat" : "per team"}, pass-through ${SET}`,
+      nickname: `AI usage, ${plan}, ${INCLUDED_USD[plan]} USD included ${mode === "per_seat" ? "per seat" : "per team"}, ${PRICING.nickname} ${SET}`,
       "recurring[interval]": "month",
       "recurring[usage_type]": "metered",
       "recurring[meter]": meter.id,
       "metadata[plan]": plan,
       "metadata[included_mode]": mode,
-      "metadata[price_version]": `ai-passthrough-${SET}`
+      "metadata[price_version]": PRICING.version
     }
     price = mode === "per_seat"
       ? await api("POST", "/v1/prices", { ...common, billing_scheme: "per_unit", unit_amount_decimal: "100" }, `price-${lookup}`)

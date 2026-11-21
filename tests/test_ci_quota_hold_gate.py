@@ -54,7 +54,8 @@ GATE = "vars.CI_QUOTA_HOLD != '1'"
 # completion and that the nightly must not compete with during the hold.
 HOLD_GATED: dict[str, tuple[str, ...]] = {
     "gallery-advisory.yml": (),
-    "pr-checks.yml": ("link", "size", "ui-review"),
+    "cmux-next-hot-verify.yml": ("plan",),
+    "pr-checks.yml": ("link", "swift-logic", "size", "ui-review"),
 }
 
 # Optional pull request workflows that skip drafts and run on ready_for_review.
@@ -66,11 +67,12 @@ HOLD_GATED: dict[str, tuple[str, ...]] = {
 DRAFT_SKIPPED: dict[str, tuple[str, ...]] = {
     "cmux-next-fast-gates.yml": (),
     "gallery-advisory.yml": (),
-    "pr-checks.yml": ("link", "size", "ui-review"),
+    "cmux-next-hot-verify.yml": ("plan",),
+    "pr-checks.yml": ("link", "swift-logic", "size", "ui-review"),
 }
 # Checks a merger reads as a pass when skipped; they must never skip drafts.
 NEVER_DRAFT_SKIPPED = (
-    "pr-capture-check.yml",
+    "pr-body-checks.yml",  # its pr-capture-check job
 )
 DRAFT = "!github.event.pull_request.draft"
 PR_EVENTS = ("pull_request", "pull_request_target")

@@ -7,12 +7,6 @@ struct PhoneAdmissionStoreTests {
     static let phone = MobileHostPairRequest(phoneDeviceID: String(repeating: "a", count: 64), name: "Phone",
                                              identityKey: String(repeating: "a", count: 64), approvalKey: "", transport: .iroh)
 
-    @Test func unwiredAdmissionRefusesEveryPhone() async {
-        let gate = PhoneAccessGate()
-        #expect(await !gate.admits(Self.phone))
-        #expect(!gate.stillAllows(Self.phone))
-    }
-
     @Test func persistenceAndUserOwnership() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -39,6 +33,9 @@ struct PhoneAdmissionStoreTests {
         await #expect(throws: (any Error).self) {
             try await store.change(for: "one", generation: generation) { $0.approve(Self.phone, at: Date()) }
         }
+        // The person's own sign-out forgets the phones (a session that ends by itself keeps them:
+        // CmuxNextMobileHostTests' PairedPhonesStayTrustedTests).
+        store.forgetForSignOut()
         store.select(userID: nil)
         #expect(store.current == nil && !store.trusts(Self.phone))
         store.select(userID: "one")

@@ -8,6 +8,8 @@
 // so the reading is strict: a card only where the agent really asked one tagged question with
 // answers to click, and never for ordinary prose.
 
+import { quoteMarkdown } from "./selectionReplyModel";
+
 /// One answer button: what it sends as the person's reply, and the pane's own words for it when the
 /// card made the answer up (Yes and Not now for a yes-or-no question), which it draws instead.
 export type NextStepOption = { label: string; key?: "recap.yes" | "recap.notNow" };
@@ -32,7 +34,7 @@ export type NextStepAsk = {
   rest: string;
 };
 
-const TAGS = ["taste", "outward", "irreversible", "physical", "for you"];
+const TAGS = ["taste", "outward", "irreversible", "physical", "check-in", "for you"];
 // A line that starts with the tag, after an optional list marker or bold: `- **[outward]** ...`.
 const TAGGED = new RegExp(
   String.raw`^\s{0,3}(?:[-*+]\s+|\d{1,2}[.)]\s+)?(?:\*\*|__)?\[(${TAGS.join("|")})\](?:\*\*|__)?:?\s+(.+?)\s*$`,
@@ -127,12 +129,51 @@ export function nextStepAsk(text: string | undefined): NextStepAsk | undefined {
   return { tag, question, ...(detail && { detail }), options, rest };
 }
 
-/// The answer the person gave: the option their next prompt chose (case and outer space aside),
-/// else that prompt's first line, so a typed answer reads too.
+/// The option a prompt picked (case and outer space aside, and its quote of the ask, `answerOf`):
+/// what a click on the card sends, or the same words typed. Undefined for any other prompt, which leaves the card answerable.
+export function pickedAnswer(ask: NextStepAsk, reply: string): string | undefined {
+  const said = answerOf(ask.question, reply).trim().toLowerCase();
+  return ask.options.find((option) => option.label.toLowerCase() === said)?.label;
+}
+
+/// The answer the person gave: the option their prompt chose, else that prompt's first line, so a
+/// typed answer reads too.
 export function chosenAnswer(ask: NextStepAsk, reply: string): string {
-  const said = reply.trim();
-  const picked = ask.options.find((option) => option.label.toLowerCase() === said.toLowerCase());
-  if (picked) return picked.label;
-  const first = said.split("\n")[0]!.trim();
+  const picked = pickedAnswer(ask, reply);
+  if (picked) return picked;
+  const first = answerOf(ask.question, reply).trim().split("\n")[0]!.trim();
   return first.length > 120 ? `${first.slice(0, 119)}…` : first;
+}
+
+/// What a reply to an ask quotes: who asked and the question, as one line ("Claude Code: Should I
+/// open a PR?"). Leo, 2026-11-08, on a bare "Not now" bubble: "wait this thing should've shown that
+/// it was a reply to an ask from you". `asker` is the chat's agent; without one the question alone.
+export function askQuote(question: string, asker?: string): string {
+  const who = asker?.trim();
+  return who ? `${who}: ${question}` : question;
+}
+
+/// The prompt an answer to an ask sends: the ask quoted as Quote in Reply quotes a selection
+/// (selectionReplyModel.ts `quoteMarkdown`: `> ` lines, then a blank line), then the answer. The
+/// bubble draws it as every quoted reply draws (a muted bar over the reply), the agent reads which
+/// ask it answers, and every surface that shows the prompt shows the quote with it.
+export function answerPrompt(question: string, answer: string, asker?: string): string {
+  return question.trim() ? `${quoteMarkdown(askQuote(question, asker))}${answer}` : answer;
+}
+
+/// A prompt's reply without its quote of `question` (`answerPrompt`): the words the person gave,
+/// whoever the quote names as asking. A prompt that quotes nothing, or something else, is itself.
+export function answerOf(question: string, reply: string): string {
+  if (!question || !/^\s{0,3}>/.test(reply)) return reply;
+  const lines = reply.split("\n");
+  let end = 0;
+  while (end < lines.length && /^\s{0,3}>/.test(lines[end]!)) end += 1;
+  const quoted = lines
+    .slice(0, end)
+    .map((line) => line.replace(/^\s{0,3}> ?/, ""))
+    .join("\n")
+    .trim();
+  const asked = question.trim();
+  if (quoted !== asked && !quoted.endsWith(`: ${asked}`)) return reply;
+  return lines.slice(end).join("\n").trim();
 }

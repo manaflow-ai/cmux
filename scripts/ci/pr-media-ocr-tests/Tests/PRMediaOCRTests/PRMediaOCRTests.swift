@@ -34,13 +34,46 @@ struct PRMediaOCRTests {
 
     /// A band that reads no text is named on stderr: in the light r3fc frame of 8e8f5f70 the bottom band (the card
     /// "Did you know? Command Palette ...") reads nothing on macOS 27, so the read is partial, and a negative frame check
-    /// must not trust it (scripts/journeys/driver.py `unread_bands`). Band 3 (empty terminal rows there) is named too.
+    /// must not trust it (scripts/journeys/driver.py `unread_bands`). Band 3 (empty terminal rows there) shows no ink: it
+    /// is named blank, not unread (review 2 of #35282, note 1).
     @Test func aBandThatReadsNothingIsNamed() async throws {
         let read = try await Reader.shared.read("8e8f5f70-r3fc-light")
         #expect(read.status == 0, "the reader exited \(read.status): \(read.stderr)")
-        let named = read.stderr.range(of: #"lines in 4 bands; no text in bands? ([0-9]+, )*4\n"#, options: .regularExpression)
-        #expect(named != nil, "band 4 is not named: \(read.stderr)")
+        #expect(read.stderr.contains("lines in 4 bands; blank band 3; no text in band 4\n"),
+                "band 3 is not named blank and band 4 unread: \(read.stderr)")
         #expect(!read.lines.contains { $0.contains("Command Palette") }, "band 4 read after all: \(read.lines)")
+    }
+
+    /// A band read whose silent bands show no ink is complete: in 15a9a010's r3fg frame bands 2 and 3 (empty terminal
+    /// rows) read nothing on macOS 27, and they are named blank, never unread, so a negative check may hold on that read.
+    /// In the 53-frame corpus of review 2 of #35282 band 3 read nothing in all 30 band reads and showed no ink in all of
+    /// them; the 10 silent bands with ink were the card's band 4.
+    @Test func blankBandsAreNotUnread() async throws {
+        let read = try await Reader.shared.read("15a9a010-r3fg-light")
+        #expect(read.status == 0, "the reader exited \(read.status): \(read.stderr)")
+        #expect(read.stderr.contains("lines in 4 bands; blank bands 2, 3\n"), "bands 2 and 3 are not named blank: \(read.stderr)")
+        #expect(!read.stderr.contains("no text in band"), "a blank band is named unread: \(read.stderr)")
+    }
+
+    /// Faint ink is ink: the same r3fg frame with a grid of 2 x 2 px dots 30 below the white of band 3 (no glyph: Vision
+    /// reads nothing there). Band 3 shows ink, so it is unread, never blank: a `lacks` check must not hold on a read that
+    /// cannot see what band 3 shows (review of #36046, finding 1: a threshold of 48 named text of contrast 50 or less
+    /// blank; the blank bands of the 53-frame corpus differ by 9 at most).
+    @Test func faintInkIsNotBlank() async throws {
+        let read = try await Reader.shared.read("15a9a010-r3fg-light-faint-dots")
+        #expect(read.status == 0, "the reader exited \(read.status): \(read.stderr)")
+        #expect(read.stderr.contains("lines in 4 bands; blank band 2; no text in band 3\n"),
+                "band 3 (faint dots) is not named unread, or band 2 not blank: \(read.stderr)")
+    }
+
+    /// An image too short for 4 bands of 16 rows is not read in bands, and each of its bands that shows ink is unread
+    /// (review 2 of #35282, note 4: before, such an image read as complete and empty). `--bands-only` skips the whole
+    /// read, as when Vision on macOS 27 finds nothing in it.
+    @Test func aShortImageNamesEveryBandWithInkUnread() async throws {
+        let read = try await Reader.shared.read("b04b1326-card-two-lines", arguments: ["--bands-only"])
+        #expect(read.status == 0, "the reader exited \(read.status): \(read.stderr)")
+        #expect(read.lines.isEmpty, "\(read.lines)")
+        #expect(read.stderr.contains("0 lines in 4 bands; no text in bands 1, 2, 3, 4\n"), "\(read.stderr)")
     }
 
     /// An image whose whole read gives 1 or 2 lines is not read in bands either (only a whole read of no line is).
@@ -102,10 +135,10 @@ actor Reader {
     static let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
     static let source = here.appendingPathComponent("../../../pr_media_ocr.swift").standardizedFileURL
 
-    func read(_ frame: String) async throws -> ReadResult {
+    func read(_ frame: String, arguments: [String] = []) async throws -> ReadResult {
         let tool = try await compiled()
         let image = Self.here.appendingPathComponent("Frames/\(frame).png")
-        let (status, out, err) = try await run([tool.path, image.path], name: frame)
+        let (status, out, err) = try await run([tool.path] + arguments + [image.path], name: frame)
         let lines = out.split(separator: "\n").map(String.init).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         return ReadResult(status: status, lines: lines, stderr: err)
     }

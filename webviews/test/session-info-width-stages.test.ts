@@ -1,11 +1,15 @@
 // Session Info's width stages, chosen by the pane's width (session-info/SessionInfo.tsx sessionInfoStage):
-// a wide pane keeps it floating in the free right gutter, moving nothing (Leo, 2026-10-31: "why is the
-// session info thing still pushing my layout when it doesnt need to???"); where the gutter cannot hold
-// it, it pushes the chat left, but only while the transcript's column keeps its width (Leo, 2026-11-03:
+// where the right gutter holds it, it floats and the chat does not move (Leo, 2026-11-09: "if it has
+// enough space, then don't push the layout ... You only push when you don't have any space left").
+// Where the gutter lacks room, it pushes the chat left by only what the gutter lacks. It pushes only
+// while the transcript's column keeps its width (Leo, 2026-11-03:
 // "the agent chat's horizontal width shouldn't be shifted its position sure but it itself and its text
 // shouldn't be affected by the session info if it would need to be then session info should be an
-// overlay"); everywhere else it lies over the chat above the composer, and in a short pane it is a
-// popover (POPOVER_BELOW_HEIGHT). A narrow pane waits for the toggle before it opens (cmuxterm-hq#6137).
+// overlay"). Pushed, the page pins the column to its whole-pane width (sessionInfo.css), so it pushes
+// wherever that pinned column fits in the chat beside the panel, so the panel never covers the
+// prompts; everywhere else it lies over the chat
+// above the composer, and in a short pane it is a popover (POPOVER_BELOW_HEIGHT). A narrow pane waits
+// for the toggle before it opens (cmuxterm-hq#6137).
 import { expect, test } from "bun:test";
 import {
   POPOVER_BELOW_HEIGHT,
@@ -16,17 +20,26 @@ import {
   sessionInfoPopover,
   sessionInfoStage,
   type SessionInfoPlacement,
-} from "../src/agent-session/acpmux/session-info/SessionInfo";
+} from "../src/agent-session/acpmux/session-info/sessionInfoModel";
 import { SESSION_INFO_WIDTH } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { transcriptColumn } from "../src/agent-session/acpmux/model";
 import type { ChatColumn } from "../src/agent-session/acpmux/chatWidth";
 
-// The standard column (chatWidth.ts COLUMNS.standard: 720px, 62.5% of a wider pane up to 800px), pinned
-// so the test does not read the page's width setting or scale.
-const STANDARD: ChatColumn = { min: 720, max: 800, share: 0.625, prose: Infinity };
-const WIDE: ChatColumn = { min: 720, max: 960, share: 0.625, prose: Infinity };
+// Chat Text Width's default column (chatWidth.ts displayColumn: the pane's width up to 800px, at least
+// 720px) and a 960px one, pinned so the test does not read the page's width setting or scale.
+const STANDARD: ChatColumn = { min: 720, max: 800 };
+const WIDE: ChatColumn = { min: 720, max: 960 };
 const WIDTH = SESSION_INFO_WIDTH.fallback;
 const TALL = 960;
+
+/// Pushed, the column keeps its whole-pane width, centered unrounded in the chat, never nearer its sides
+/// than the page edge (sessionInfo.css --acpmux-session-info-column): where it fits, and where it ends.
+const pinnedFits = (paneWidth: number, room: number, column = STANDARD) =>
+  paneWidth - room >= transcriptColumn(paneWidth, column).width + 2 * transcriptColumn(0, column).inset;
+const pinnedEnd = (paneWidth: number, room: number, column = STANDARD) => {
+  const chat = paneWidth - room;
+  return chat - Math.max(transcriptColumn(0, column).inset, (chat - transcriptColumn(paneWidth, column).width) / 2);
+};
 
 /// The stage SessionInfo.tsx draws for a pane, and the room a push takes from the chat.
 function stage(paneWidth: number, paneHeight = TALL, placement: SessionInfoPlacement = "overlay", column = STANDARD) {
@@ -38,19 +51,37 @@ function stage(paneWidth: number, paneHeight = TALL, placement: SessionInfoPlace
   return { stage: popover ? "popover" : at, room, opensUnasked: !popover && sessionInfoFits(paneWidth) };
 }
 
-test("a wide pane: it floats in the free right gutter and pushes nothing", () => {
+test("a wide pane: it floats in the right gutter and the chat does not move", () => {
   expect(stage(1800)).toEqual({ stage: "float", room: 0, opensUnasked: true });
+  expect(stage(1600)).toEqual({ stage: "float", room: 0, opensUnasked: true });
+  // A wider column (its own Text Width) leaves a narrower gutter: it pushes there, by less than the panel.
+  const wide = stage(1600, TALL, "overlay", WIDE);
+  expect(wide.stage).toBe("push");
+  expect(wide.room).toBeGreaterThan(0);
+  expect(wide.room).toBeLessThan(WIDTH + 8);
+  // A short wide pane keeps it floating in the free right gutter (its popover rule), moving nothing.
+  expect(stage(1800, POPOVER_BELOW_HEIGHT - 1).stage).toBe("float");
 });
 
 test("where the gutter lacks a little, it pushes the column left at its own width", () => {
   const { stage: at, room } = stage(1420);
   expect(at).toBe("push");
   expect(room).toBeGreaterThan(0);
-  expect(transcriptColumn(1420 - room, STANDARD).width).toBe(transcriptColumn(1420, STANDARD).width);
+  expect(room).toBeLessThan(pushedWidth(1420, WIDTH) + 8);
+  expect(pinnedFits(1420, room)).toBe(true);
+  expect(pinnedEnd(1420, room)).toBeLessThanOrEqual(1420 - pushedWidth(1420, WIDTH) - 16);
 });
 
-test("where pushing would narrow the column (its 62.5% share), it lies over the chat instead", () => {
-  expect(stage(1240).stage).toBe("overlay");
+test("where the column's share scales with the pane, it still pushes the pinned column left", () => {
+  // At 1240px the column is Chat Text Width's 800px; pushed, it keeps that width, pinned.
+  const { stage: at, room } = stage(1240);
+  expect(at).toBe("push");
+  expect(pinnedFits(1240, room)).toBe(true);
+  expect(pinnedEnd(1240, room)).toBeLessThanOrEqual(1240 - pushedWidth(1240, WIDTH) - 16);
+});
+
+test("where the pinned column cannot fit beside the panel, it lies over the chat instead", () => {
+  expect(stage(1100).stage).toBe("overlay");
   expect(stage(900).stage).toBe("overlay");
 });
 
@@ -58,8 +89,9 @@ test("a narrow pane: over the chat, waiting for the toggle before it opens", () 
   expect(stage(370)).toEqual({ stage: "overlay", room: 0, opensUnasked: false });
 });
 
-// Leo's rule, over every pane width and both placements: a push never changes the column's width, so no
-// line of the chat wraps anew when Session Info opens or closes.
+// Leo's rule, over every pane width and both placements: a push never changes the column's width (the
+// pinned column fits in the chat), so no line of the chat wraps anew when Session Info opens or closes,
+// and the column ends left of the panel.
 for (const placement of ["overlay", "push"] as const)
   for (const [name, column] of [
     ["standard", STANDARD],
@@ -74,24 +106,29 @@ for (const placement of ["overlay", "push"] as const)
         const room = pushedRoom(paneWidth, pushedWidth(paneWidth, WIDTH), column, 0, placement === "push");
         expect(room % 2).toBe(0);
         expect(pushKeepsColumn(paneWidth, room, column)).toBe(true);
-        expect(transcriptColumn(paneWidth - room, column).width).toBe(transcriptColumn(paneWidth, column).width);
+        expect(pinnedFits(paneWidth, room, column)).toBe(true);
+        expect(pinnedEnd(paneWidth, room, column)).toBeLessThanOrEqual(paneWidth - pushedWidth(paneWidth, WIDTH) - 16);
       }
       // Pushing still happens somewhere: the rule narrows push, it does not remove it.
       expect(pushed).toBeGreaterThan(0);
     });
 
-test("every pixel width from 600 to 2400: a push keeps the column's width on its end frame", () => {
+test("every pixel width from 600 to 2400: a push keeps the pinned column clear of the panel on its end frame", () => {
   for (let paneWidth = 600; paneWidth <= 2400; paneWidth++) {
     if (sessionInfoStage("overlay", { width: paneWidth, height: TALL }, WIDTH, STANDARD) !== "push") continue;
-    const room = pushedRoom(paneWidth, pushedWidth(paneWidth, WIDTH), STANDARD);
-    expect(transcriptColumn(paneWidth - room, STANDARD).width).toBe(transcriptColumn(paneWidth, STANDARD).width);
+    const panel = pushedWidth(paneWidth, WIDTH);
+    const room = pushedRoom(paneWidth, panel, STANDARD);
+    expect(pinnedFits(paneWidth, room)).toBe(true);
+    expect(pinnedEnd(paneWidth, room)).toBeLessThanOrEqual(paneWidth - panel - 16);
   }
 });
 
-test("Settings Push always pushes wherever its whole room keeps the column, else lies over the chat", () => {
+test("Settings Push always pushes wherever its whole room keeps the pinned column, else lies over the chat", () => {
   expect(stage(2000, TALL, "push").stage).toBe("push");
   expect(stage(2000, TALL, "push").room).toBe(WIDTH + 8);
-  expect(stage(1300, TALL, "push").stage).toBe("overlay");
+  expect(stage(1300, TALL, "push").stage).toBe("push");
+  expect(pinnedFits(1300, stage(1300, TALL, "push").room)).toBe(true);
+  expect(stage(1100, TALL, "push").stage).toBe("overlay");
 });
 
 test("Push always stays flush and keeps its pinned column across adjacent pane and panel widths", () => {
@@ -101,7 +138,7 @@ test("Push always stays flush and keeps its pinned column across adjacent pane a
       expect(sessionInfoStage("push", pane, panel, STANDARD)).toBe("push");
       const room = pushedRoom(paneWidth, panel, STANDARD, 0, true);
       expect(room).toBe(panel + 8);
-      expect(pushKeepsColumn(paneWidth, room, STANDARD, true)).toBe(true);
+      expect(pushKeepsColumn(paneWidth, room, STANDARD)).toBe(true);
       // This is the width CSS can draw while keeping the minimum page edge on either side.
       expect(paneWidth - room - 2 * transcriptColumn(0, STANDARD).inset).toBeGreaterThanOrEqual(
         transcriptColumn(paneWidth, STANDARD).width,

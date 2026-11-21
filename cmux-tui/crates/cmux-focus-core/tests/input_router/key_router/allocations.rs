@@ -7,6 +7,8 @@
 use super::support::{arc, chord, key, pane, terminal, terminal_tab, topology};
 use cmux_focus_core::event::{FocusEvent, Source};
 use cmux_focus_core::input::{InputEvent, InputRouter, KeyPhase, KeyRecord, LaneLimit, Tier};
+use cmux_focus_core::topology::{Kind, Pane, Tab, Topology};
+use cmux_focus_core::window::WindowFocus;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
@@ -97,4 +99,58 @@ fn a_key_its_release_and_a_bound_chord_allocate_nothing() {
     }
     let made = allocations().wrapping_sub(before);
     assert_eq!(made, 0, "{made} allocations for 4000 key events");
+}
+
+/// A topology report that changes only which tab a pane shows (Cmd-1, a tab
+/// click, a switch back) lists the same tabs: the router keeps its tab index,
+/// which holds each tab's id, surface, kind and host terminal and never the
+/// selection, and makes no more allocations than the window's focus alone.
+/// Before, the router rebuilt the whole index on every report that ran the
+/// reducer (an `Arc<str>` per tab id, surface and host terminal): the S2 focus
+/// A/B measured a topology report 13 % slower through the input handle
+/// (8.04 -> 9.13 us p50, 30 panes).
+#[test]
+fn a_report_that_only_selects_another_tab_rebuilds_no_tab_index() {
+    let layout = |selected: &str| {
+        let tab = |id: String, kind: Kind| Tab {
+            surface: Some(format!("surface-{id}")),
+            terminal: matches!(kind, Kind::Terminal).then(|| format!("host-{id}")),
+            id,
+            kind,
+        };
+        let panes = (0..6)
+            .map(|index| Pane {
+                id: format!("pane-{index}"),
+                tabs: vec![
+                    tab(format!("a{index}"), Kind::Terminal),
+                    tab(format!("b{index}"), Kind::Browser),
+                ],
+                selected: Some(format!("{selected}{index}")),
+            })
+            .collect();
+        Topology::new(Some("workspace".into()), panes, Vec::new())
+    };
+    let (shows_a, shows_b) = (layout("a"), layout("b"));
+    let mut alone = WindowFocus::new();
+    let mut effects = Vec::new();
+    let mut router = InputRouter::new(LaneLimit::of(64));
+    router.handle(&InputEvent::WindowOpened { window: arc("w1") });
+    // The same switches once before the count, so every buffer has grown to them.
+    for topology in [&shows_a, &shows_b, &shows_a] {
+        alone.set_topology(topology.clone(), &mut effects);
+        router.set_focus_topology("w1", topology.clone());
+    }
+    let (for_alone, for_router) = (shows_b.clone(), shows_b);
+    let start = allocations();
+    let reduced = alone.set_topology(for_alone, &mut effects);
+    let window_alone = allocations().wrapping_sub(start);
+    let start = allocations();
+    router.set_focus_topology("w1", for_router);
+    let in_router = allocations().wrapping_sub(start);
+    assert!(reduced.ran, "the report changed nothing: it would not exercise the index");
+    assert_eq!(
+        in_router, window_alone,
+        "the router made {in_router} allocations for a report that only selects other tabs, the \
+         window focus alone {window_alone} (the router rebuilt its tab index?)"
+    );
 }

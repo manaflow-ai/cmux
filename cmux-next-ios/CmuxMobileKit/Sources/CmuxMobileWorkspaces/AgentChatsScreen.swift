@@ -2,6 +2,7 @@
 import CmuxAgentBrands
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxSpinner
 import Observation
 import SwiftUI
 
@@ -22,12 +23,28 @@ public final class AgentChatsModel {
     public private(set) var chats: [AgentChatListing] = []
     public private(set) var nextCursor: String?
     public private(set) var loadingMore = false
+    /// The first page is being read again over the rows shown (the ones this run kept): the
+    /// list shows that it is updating. A pull to refresh shows its own progress instead.
+    public private(set) var refreshing = false
     public var scope: AgentChatScope = .chats
     public var query = ""
     /// The chat being opened or archived (its row shows progress; others wait).
     public private(set) var busyID: String?
     /// A refusal to show (an alert).
     public var failure: String?
+    /// The connection to the Mac dropped or went quiet (``ConnectionInterrupted``): the list keeps
+    /// its rows (or its loading state), says it is reconnecting, and asks again on its own. Past
+    /// ``ConnectionPatience/giveUpAfter`` an empty list says what to do; a list with rows keeps
+    /// them, says they are from earlier (``stale``), and keeps asking.
+    public private(set) var reconnecting = false
+    /// The rows shown are the last ones read: the Mac stayed unreachable past the bound.
+    public private(set) var stale = false
+    @ObservationIgnored private var interruptedSince: ContinuousClock.Instant?
+    @ObservationIgnored private var retryAttempt = 0
+    @ObservationIgnored private var retryTask: Task<Void, Never>?
+    /// The clock the quiet retries read and wait on (tests pass their own).
+    @ObservationIgnored var now: @Sendable () -> ContinuousClock.Instant = { .now }
+    @ObservationIgnored var pause: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
 
     @ObservationIgnored private let macID: String
     /// Moves on each first-page load: a page asked for before it is dropped (a pull to refresh
@@ -37,17 +54,42 @@ public final class AgentChatsModel {
     /// append a page after the new first page and skip the ones between).
     @ObservationIgnored private var loadingFirstPage = false
     @ObservationIgnored private weak var backend: (any AgentChatsBackend)?
+    /// Each Mac's chats as this run last listed them: a list opened again starts from them.
+    @ObservationIgnored private let memory: AgentChatsMemory?
 
-    public init(macID: String, backend: (any AgentChatsBackend)?) {
+    /// Starts from the chats `memory` kept for the Mac (shown at once, then read again by
+    /// ``load()``), else from the loading state.
+    public init(macID: String, backend: (any AgentChatsBackend)?, memory: AgentChatsMemory? = .shared) {
         self.macID = macID
         self.backend = backend
+        self.memory = memory
+        if !macID.isEmpty, let kept = memory?.page(for: macID) {
+            chats = kept.chats
+            nextCursor = kept.nextCursor
+            phase = .loaded
+        }
+    }
+
+    /// The chats listed now are what a list opened again starts from.
+    private func remember() {
+        guard !macID.isEmpty, phase == .loaded else { return }
+        memory?.keep(AgentChatPage(chats: chats, nextCursor: nextCursor), for: macID)
     }
 
     /// The rows the list shows now.
     public var visible: [AgentChatListing] { AgentChatListing.filter(chats, scope: scope, query: query) }
 
-    /// The first page (again, for pull to refresh).
-    public func load() async {
+    /// The first page (again, for pull to refresh: `pulled`, whose own control shows progress).
+    public func load(pulled: Bool = false) async {
+        // Asked for by the person (or the screen opening): the patience starts over.
+        retryTask?.cancel()
+        retryTask = nil
+        interruptedSince = nil
+        retryAttempt = 0
+        await loadFirstPage(pulled: pulled)
+    }
+
+    private func loadFirstPage(pulled: Bool) async {
         guard let backend else {
             phase = .failed("Not connected to the Mac.")
             return
@@ -56,17 +98,58 @@ public final class AgentChatsModel {
         listGeneration &+= 1
         let generation = listGeneration
         loadingFirstPage = true
-        defer { if generation == listGeneration { loadingFirstPage = false } }
+        refreshing = !chats.isEmpty && !pulled
+        defer {
+            if generation == listGeneration {
+                loadingFirstPage = false
+                refreshing = false
+            }
+        }
         do {
             let page = try await backend.agentChats(on: macID, cursor: nil)
             guard generation == listGeneration else { return }
             chats = page.chats
             nextCursor = page.nextCursor
             phase = .loaded
+            reconnecting = false
+            stale = false
+            interruptedSince = nil
+            retryAttempt = 0
+            remember()
+        } catch is CancellationError {
+        } catch let error as ConnectionInterrupted {
+            guard generation == listGeneration else { return }
+            interrupted(error)
         } catch {
             guard generation == listGeneration else { return }
+            reconnecting = false
             let message = Self.message(error)
             if chats.isEmpty { phase = .failed(message) } else { failure = message }
+        }
+    }
+
+    /// The connection is coming back: no alert, no failure page; the list asks again on its
+    /// own, quickly at first. Only past the bound does an empty list say so.
+    private func interrupted(_ error: ConnectionInterrupted) {
+        let at = now()
+        let since = interruptedSince ?? at
+        interruptedSince = since
+        let patient = since.duration(to: at) < ConnectionPatience.giveUpAfter
+        if !patient, chats.isEmpty {
+            reconnecting = false
+            phase = .failed(Self.message(error))
+            return
+        }
+        // Nothing shows for a blip shorter than the shared notice bound; the rows stay as they were.
+        reconnecting = since.duration(to: at) >= ConnectionPatience.quietFor
+        stale = !patient
+        let delay = ConnectionPatience.delay(attempt: retryAttempt)
+        retryAttempt += 1
+        let pause = self.pause
+        retryTask?.cancel()
+        retryTask = Task { [weak self] in
+            do { try await pause(delay) } catch { return }
+            await self?.loadFirstPage(pulled: false)
         }
     }
 
@@ -82,6 +165,9 @@ public final class AgentChatsModel {
             let known = Set(chats.map(\.id))
             chats += page.chats.filter { !known.contains($0.id) }
             nextCursor = page.nextCursor
+            remember()
+        } catch is ConnectionInterrupted {
+            // The connection is coming back: Show Older Chats can be tapped again, no alert.
         } catch {
             guard generation == listGeneration else { return }
             failure = Self.message(error)
@@ -114,6 +200,7 @@ public final class AgentChatsModel {
         do {
             let now = try await backend.setAgentChatArchived(chat, archived: archived, on: macID)
             if let index = chats.firstIndex(where: { $0.id == chat.id }) { chats[index] = now }
+            remember()
             theme.haptics.success()
         } catch {
             failure = Self.message(error)
@@ -130,7 +217,7 @@ public final class AgentChatsModel {
     }
 
     static func message(_ error: any Error) -> String {
-        (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        UserFacingError.message(error)
     }
 }
 
@@ -180,7 +267,7 @@ struct AgentChatsScreen: View {
                     .accessibilityIdentifier("agentChats.filter")
                 }
             }
-            .refreshable { await model.load() }
+            .refreshable { await model.load(pulled: true) }
             .task { await model.load() }
             .confirmationDialog(stopAllTitle, isPresented: $confirmingStopAll, titleVisibility: .visible) {
                 Button("Stop All Agents", role: .destructive) { Task { await model.stopAll() } }
@@ -205,7 +292,7 @@ struct AgentChatsScreen: View {
     private var content: some View {
         switch model.phase {
         case .loading:
-            ProgressView("Loading chats…")
+            CmuxSpinner(label: Text(model.reconnecting ? "Connecting to your Mac…" : "Loading chats…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("agentChats.loading")
         case .failed(let message):
@@ -227,6 +314,11 @@ struct AgentChatsScreen: View {
     private var list: some View {
         let rows = model.visible
         return List {
+            // The kept rows show while the Mac's newest page loads (a pull to refresh has its own).
+            if model.refreshing || model.reconnecting {
+                ListStatusRow(model.stale ? .stale : model.reconnecting ? .reconnecting : .updating)
+                    .accessibilityIdentifier(model.reconnecting ? "agentChats.reconnecting" : "agentChats.updating")
+            }
             ForEach(rows) { chat in
                 row(chat)
             }
@@ -238,7 +330,7 @@ struct AgentChatsScreen: View {
                         HStack {
                             Text("Show Older Chats")
                             Spacer()
-                            if model.loadingMore { ProgressView() }
+                            if model.loadingMore { CmuxSpinner() }
                         }
                     }
                     .disabled(model.loadingMore)
@@ -328,21 +420,31 @@ struct AgentChatRow: View {
                     .font(.body)
                     .foregroundStyle(theme.colors.label.color)
                     .lineLimit(1)
-                HStack(spacing: 6) {
-                    if chat.isActive {
-                        Circle().fill(chat.status == "waiting" ? Color.orange : Color.green).frame(width: 6, height: 6)
-                            .accessibilityHidden(true)
-                    }
-                    Text(subtitle)
+                // Where the chat stands and its next action (the Mac's acpmux rolling summary).
+                if let line = chat.summaryLine {
+                    Text(line)
                         .font(.footnote)
-                        .foregroundStyle(theme.colors.label2.color)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                        .foregroundStyle(theme.colors.label.color.opacity(0.8))
+                        .lineLimit(2)
+                }
+                // No blank line under the title when there is nothing to say (no status, no folder).
+                if chat.isActive || !subtitle.isEmpty {
+                    HStack(spacing: 6) {
+                        if chat.isActive {
+                            Circle().fill(chat.status == "waiting" ? Color.orange : Color.green).frame(width: 6, height: 6)
+                                .accessibilityHidden(true)
+                        }
+                        Text(subtitle)
+                            .font(.footnote)
+                            .foregroundStyle(theme.colors.label2.color)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
                 }
             }
             Spacer(minLength: 8)
             if busy {
-                ProgressView()
+                CmuxSpinner()
             } else if let updated = chat.updatedAt {
                 Text(Self.ages.localizedString(for: updated, relativeTo: Date()))
                     .font(.footnote)
@@ -358,7 +460,7 @@ struct AgentChatRow: View {
         var parts: [String] = []
         if chat.status == "waiting" { parts.append("Needs you") } else if chat.status == "running" { parts.append("Working") }
         parts.append(Self.folder(chat.cwd))
-        return parts.joined(separator: " · ")
+        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     /// `~/x` for a folder in a home folder, as the Mac's chats page abbreviates it.

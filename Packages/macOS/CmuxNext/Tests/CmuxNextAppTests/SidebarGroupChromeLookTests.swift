@@ -53,15 +53,22 @@ import Testing
         #expect(flipped ? lineStart > barEdge : lineStart < barEdge,
                 "the line starts at \(lineStart), inside the header bar that ends at \(barEdge)")
         line.layoutSubtreeIfNeeded()
-        // One capsule (Lawrence msg 19775): the layer's corner clip rounds both ends the same.
-        #expect(line.layer?.cornerRadius == 1 && line.layer?.maskedCorners == SidebarGroupLineShape.corners
+        // A capsule (Lawrence 2026-11-17): the layer's corner clip rounds both ends.
+        #expect(line.layer?.cornerRadius == 1
+                && line.layer?.maskedCorners == SidebarGroupLineShape.capCorners(flipped: line.layer?.contentsAreFlipped() == true,
+                                                                                joined: GroupLineView.joinsBar)
                 && line.layer?.masksToBounds == true && line.railShape.path != nil,
-                "the line is one clipped capsule")
+                "the line is a clipped capsule")
         #expect(line.railShape.frame.width == 2 && line.railShape.frame.height >= 4096,
                 "the cut shape preserves coverage while the parent rail shrinks")
     }
 
     @Test func aHeaderInkIsWhiteOrNearBlackWhicheverReadsBetter() throws {
+        // The solid bar's ink (`sidebar.groupGlass` solid); on the glass pane the ink is the theme's (`GroupHeaderGlassTests`).
+        try GroupHeaderGlassTests.onSolidBar(inkOnTheSolidBar)
+    }
+
+    private func inkOnTheSolidBar() throws {
         let nearBlack = ThemeRGB(hex: 0x1F1F1F)
         for (name, scope) in try GroupPaletteDefaultTests.themes() {
             let (sidebar, ids) = try GroupPaletteDefaultTests.sidebar(GroupPaletteDefaultTests.order)
@@ -128,6 +135,8 @@ import Testing
         // The member count is opt-in (`sidebar.groupHeader.memberCount`, Lawrence 2026-10-20).
         let design = DesignSettings()
         design.sidebarSections.groupHeaderMemberCount = true
+        // The band look (`sidebar.groupHeader.background` Automatic): the default is plain folders (`SidebarGroupsAsFoldersTests`).
+        design.sidebarSections.groupHeaderBackground = .auto
         let sidebar = SidebarView(model: SidebarModel(sections: [CmuxNextSidebar.SidebarSection(kind: section.kind, nodes: nodes)]),
                                   design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)

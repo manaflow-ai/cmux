@@ -3,16 +3,19 @@
 //! program that reports OSC 7501 status), its state, its title and its
 //! workspace. Pure: the caller reads the snapshot.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
+use cmux_tui_core::AgentStatus;
 use serde_json::{Value, json};
 
-/// What a terminal agent does now, in the words the Chief uses.
+/// What a terminal agent does now, as the send wait and its receipt see it.
+/// The words are the shared status words ([`AgentStatus`]) plus `ended`:
+/// a list row and a send receipt say the same word for one agent (W5-Q).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(in crate::cli) enum AgentState {
     /// A permission dialog, a question or an error waits for an answer.
-    WaitingForInput,
-    Busy,
+    Blocked,
+    Working,
     Idle,
     /// The harness reported its session ended; a shell may run there now.
     Ended,
@@ -21,8 +24,8 @@ pub(in crate::cli) enum AgentState {
 impl AgentState {
     pub(in crate::cli) fn as_str(self) -> &'static str {
         match self {
-            Self::WaitingForInput => "waiting-for-input",
-            Self::Busy => "busy",
+            Self::Blocked => "blocked",
+            Self::Working => "working",
             Self::Idle => "idle",
             Self::Ended => "ended",
         }
@@ -32,8 +35,8 @@ impl AgentState {
     /// program status state.
     pub(in crate::cli) fn from_record(state: &str) -> Option<Self> {
         Some(match state {
-            "working" => Self::Busy,
-            "blocked" | "input" | "waiting" | "attention" => Self::WaitingForInput,
+            "working" => Self::Working,
+            "blocked" | "input" | "waiting" | "attention" => Self::Blocked,
             "idle" | "done" | "unknown" => Self::Idle,
             "ended" | "exited" => Self::Ended,
             _ => return None,
@@ -47,6 +50,9 @@ pub(in crate::cli) struct AgentRow {
     pub terminal: String,
     pub harness: String,
     pub state: AgentState,
+    /// The shared status (`working`, `blocked`, `done` for a finished turn
+    /// nobody has viewed, `idle`, `unknown`); `None` for an ended session.
+    pub status: Option<AgentStatus>,
     pub title: Option<String>,
     pub workspace_id: Option<String>,
     pub workspace: Option<String>,
@@ -59,11 +65,25 @@ pub(in crate::cli) struct AgentRow {
 }
 
 impl AgentRow {
+    /// The table's STATE word: the shared status, `ended` for an ended
+    /// session.
+    pub(in crate::cli) fn status_word(&self) -> &'static str {
+        self.status.map_or("ended", AgentStatus::as_str)
+    }
+
+    /// Attention order: blocked, done, working, idle, unknown, then ended.
+    fn attention(&self) -> u8 {
+        self.status.map_or(0, |status| status.rank() + 1)
+    }
+
     pub(in crate::cli) fn to_json(&self, now_ms: u64) -> Value {
         json!({
             "terminal": self.terminal,
             "harness": self.harness,
-            "state": self.state.as_str(),
+            // `status` is `ended` for a session that ended, as in the send
+            // receipt; `state` is its deprecated alias.
+            "state": self.status_word(),
+            "status": self.status_word(),
             "title": self.title,
             "workspace_id": self.workspace_id,
             "workspace": self.workspace,
@@ -117,9 +137,58 @@ fn workspaces_of_terminals(snapshot: &Value) -> HashMap<String, (String, Option<
         .collect()
 }
 
+/// The terminals with an unread notification: a turn finished there that
+/// nobody has viewed (done-until-seen). Reading the snapshot clears nothing.
+fn unseen_terminals(snapshot: &Value) -> HashSet<&str> {
+    let notifications = snapshot["notifications"].as_array().map(Vec::as_slice);
+    super::super::wire::unseen_terminals(notifications.unwrap_or_default())
+}
+
+/// Whether `terminal` carries an unread notification in `snapshot`: its
+/// finished turn is `done` until somebody views it.
+pub(in crate::cli) fn unseen(snapshot: &Value, terminal: &str) -> bool {
+    unseen_terminals(snapshot).contains(terminal)
+}
+
+/// The shared status of a status word: a daemon agent record's state or an
+/// OSC 7501 program status state. `done` there is a finished turn
+/// (program status) and `idle` an agent at its prompt; either one is `done`
+/// while its terminal is `unseen`.
+pub(in crate::cli) fn status_of(word: &str, unseen: bool) -> Option<AgentStatus> {
+    match AgentStatus::parse(word)? {
+        AgentStatus::Done | AgentStatus::Idle if unseen => Some(AgentStatus::Done),
+        AgentStatus::Done => Some(AgentStatus::Idle),
+        status => Some(status),
+    }
+}
+
+/// Whether an agent record is the agent's own report (its hooks, or a
+/// report over the socket), not a guess from the screen (the screen-detection
+/// plugin, `plugin`, or the older `detected`). Only an own report says when
+/// an agent accepts a message or took one (W5-R: a screen record said idle
+/// before Claude Code had started).
+pub(in crate::cli) fn reported_by_agent(record: &Value) -> bool {
+    !matches!(record.get("source").and_then(Value::as_str), Some("plugin" | "detected"))
+}
+
+/// Whether the hooks cmux installs for `harness` (any alias,
+/// cmux-tui-hooks `provider_events`) include one that `kind` matches, a
+/// cmux-tui-core `agent_hook_event_*` predicate. A harness with no such hook
+/// never reports that event, so no wait may depend on it.
+pub(in crate::cli) fn harness_hooks_report(harness: &str, kind: fn(&str, &str) -> bool) -> bool {
+    let harness = super::super::agent_vocabulary::harness_name(harness);
+    cmux_tui_hooks::provider_events(&harness)
+        .is_some_and(|events| events.iter().any(|event| kind(&harness, event)))
+}
+
 /// The agent of one terminal record, from the daemon's agent records of
 /// that terminal (newest first wins) or its OSC 7501 program status.
-pub(in crate::cli) fn agent_of_terminal(terminal: &Value, agents: &[Value]) -> Option<AgentRow> {
+/// `unseen` is whether the terminal carries an unread notification.
+pub(in crate::cli) fn agent_of_terminal(
+    terminal: &Value,
+    agents: &[Value],
+    unseen: bool,
+) -> Option<AgentRow> {
     let id = text(&terminal["id"])?;
     let record = agents
         .iter()
@@ -134,14 +203,16 @@ pub(in crate::cli) fn agent_of_terminal(terminal: &Value, agents: &[Value]) -> O
         let harness = if harness == "claude-code" { "claude".to_owned() } else { harness };
         // A daemon agent record is `done` when the harness session ended
         // (`agent.session.ended`); a status record's `done` is a turn's end.
-        let state = match record["state"].as_str()? {
-            "done" => AgentState::Ended,
-            state => AgentState::from_record(state)?,
+        let word = record["state"].as_str()?;
+        let (state, status) = match word {
+            "done" => (AgentState::Ended, None),
+            word => (AgentState::from_record(word)?, Some(status_of(word, unseen)?)),
         };
         return Some(AgentRow {
             terminal: id,
             harness,
             state,
+            status,
             title: text(&record["title"]).or(terminal_title),
             workspace_id: None,
             workspace: None,
@@ -155,10 +226,13 @@ pub(in crate::cli) fn agent_of_terminal(terminal: &Value, agents: &[Value]) -> O
         .iter()
         .filter(|record| text(&record["app"]).is_some())
         .max_by_key(|record| number(&record["updated_at_ms"]).unwrap_or(0))?;
+    let word = status["state"].as_str()?;
+    let state = AgentState::from_record(word)?;
     Some(AgentRow {
         terminal: id,
         harness: text(&status["app"])?,
-        state: status["state"].as_str().and_then(AgentState::from_record)?,
+        state,
+        status: if state == AgentState::Ended { None } else { status_of(word, unseen) },
         title: text(&status["title"]).or(terminal_title),
         workspace_id: None,
         workspace: None,
@@ -168,17 +242,21 @@ pub(in crate::cli) fn agent_of_terminal(terminal: &Value, agents: &[Value]) -> O
     })
 }
 
-/// Every terminal of `snapshot` that runs an agent: waiting for input
-/// first, then busy, idle and ended, the most recently changed first.
+/// Every terminal of `snapshot` that runs an agent: blocked first, then
+/// done, working, idle, unknown and ended, the most recently changed first.
 pub(in crate::cli) fn agent_rows(snapshot: &Value) -> Vec<AgentRow> {
     let agents = snapshot["agents"].as_array().map(Vec::as_slice).unwrap_or_default();
     let workspaces = workspaces_of_terminals(snapshot);
+    let unseen = unseen_terminals(snapshot);
     let mut rows: Vec<AgentRow> = snapshot["terminals"]
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|terminal| terminal["lifecycle"] != "exited")
-        .filter_map(|terminal| agent_of_terminal(terminal, agents))
+        .filter(|terminal| super::super::terminal_lifecycle::is_live(terminal))
+        .filter_map(|terminal| {
+            let unseen = terminal["id"].as_str().is_some_and(|id| unseen.contains(id));
+            agent_of_terminal(terminal, agents, unseen)
+        })
         .map(|mut row| {
             if let Some((id, name)) = workspaces.get(&row.terminal) {
                 row.workspace_id = Some(id.clone());
@@ -188,8 +266,9 @@ pub(in crate::cli) fn agent_rows(snapshot: &Value) -> Vec<AgentRow> {
         })
         .collect();
     rows.sort_by(|left, right| {
-        left.state
-            .cmp(&right.state)
+        right
+            .attention()
+            .cmp(&left.attention())
             .then(right.updated_at_ms.cmp(&left.updated_at_ms))
             .then(left.terminal.cmp(&right.terminal))
     });
@@ -215,7 +294,7 @@ pub(in crate::cli) fn table(rows: &[AgentRow], now_ms: u64) -> String {
             [
                 row.terminal.clone(),
                 row.harness.clone(),
-                row.state.as_str().to_owned(),
+                row.status_word().to_owned(),
                 row.updated_at_ms.map_or_else(|| "-".into(), |ms| age(now_ms.saturating_sub(ms))),
                 row.workspace.clone().or_else(|| row.workspace_id.clone()).unwrap_or("-".into()),
                 row.title.clone().unwrap_or_else(|| "-".into()),

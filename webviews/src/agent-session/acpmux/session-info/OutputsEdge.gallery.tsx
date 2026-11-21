@@ -30,7 +30,7 @@ export default componentEntry<Props>({
       return (
         <div data-outputs-edge-variant={treatment} style={{ padding: 16 }}>
           <SessionInfoSection id="outputs" title="Outputs" open={open} onOpenChange={setOpen}>
-            <OutputsSection files={files.slice(0, count)} links={[]} artifacts={0} onOpenFile={setOpened} />
+            <OutputsSection files={files.slice(0, count)} artifacts={0} onOpenFile={setOpened} />
           </SessionInfoSection>
           <output data-opened-file="">{opened}</output>
         </div>

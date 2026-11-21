@@ -9,13 +9,17 @@
 //!    from `web/data/model-catalog` by `web/tools/refresh-model-catalog-snapshot.ts`).
 //!
 //! A stored copy older than the bundled one (an app update shipped newer
-//! data) loses to it. The daemon fetches at start and every 6 h with
-//! If-None-Match; `catalog.refresh` fetches now. A body that is too big, not
-//! valid, or of a newer major schema version never replaces the current
-//! copy. Every change is announced to every connection as `catalog.changed`.
+//! data) loses to it. Over whichever copy is in use, the public model feed
+//! ([`feed`], read directly) adds the models the copy's harness rules select
+//! and it lacks, so a stale or unreachable catalog never hides a new model.
+//! The daemon fetches both at start and every hour with If-None-Match;
+//! `catalog.refresh` fetches now. A body that is too big, not valid, or of a
+//! newer major schema version never replaces the current copy. Every change
+//! is announced to every connection as `catalog.changed`.
 
 use cmux_json::JsonSet as _;
 
+pub mod feed;
 pub mod fetch;
 pub mod schema;
 
@@ -36,14 +40,16 @@ pub const RPC_GET: &str = "catalog.get";
 pub const RPC_REFRESH: &str = "catalog.refresh";
 /// `catalog.changed {schemaVersion, generatedAt, source, delivery}`: sent to every connection when the catalog in use changes.
 pub const EVENT_CHANGED: &str = "catalog.changed";
-/// How often the daemon checks for a new catalog.
-pub const REFRESH_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+/// How often the daemon checks for a new catalog and feed: each check is a conditional GET that
+/// costs no body when nothing changed, so a model released today shows within the hour.
+pub const REFRESH_EVERY: Duration = Duration::from_secs(60 * 60);
 /// A refresh request within this long of the last network read answers from the current copy.
 pub const MIN_FETCH_SPACING: Duration = Duration::from_secs(10);
 const STORE_FILE: &str = "models-v1.json";
 
 /// The copy bundled at build time.
-pub const BUNDLED: &str = include_str!("../../catalog/models-v1.json");
+pub static BUNDLED: cmux_embed::PackedStr =
+    cmux_embed::packed_str!(include_str!("../../catalog/models-v1.json"));
 
 /// Where the catalog in use came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,7 +70,14 @@ struct StoredCopy {
 }
 
 struct State {
+    /// The catalog in use: `base` with the feed's additions.
     catalog: Arc<Catalog>,
+    /// The fetched, stored or bundled copy.
+    base: Arc<Catalog>,
+    feed: Option<Arc<feed::FeedSnapshot>>,
+    feed_etag: Option<String>,
+    feed_at_ms: Option<u64>,
+    feed_error: Option<String>,
     source: Source,
     etag: Option<String>,
     fetched_at_ms: Option<u64>,
@@ -76,6 +89,7 @@ pub struct CatalogService {
     state: Mutex<State>,
     dir: Mutex<Option<PathBuf>>,
     fetcher: Mutex<Option<Arc<dyn Fetcher>>>,
+    feed_fetcher: Mutex<Option<Arc<dyn Fetcher>>>,
     /// One network read at a time.
     refreshing: tokio::sync::Mutex<()>,
     changed: broadcast::Sender<Value>,
@@ -91,7 +105,7 @@ fn now_ms() -> u64 {
 /// The bundled copy. It is checked by a test, so a bad one never ships; if it
 /// still fails to read, the catalog is empty and harnesses keep their own lists.
 fn bundled() -> Catalog {
-    schema::parse(BUNDLED.as_bytes()).unwrap_or_else(|e| {
+    schema::parse(BUNDLED.inflate().as_bytes()).unwrap_or_else(|e| {
         tracing::error!("the bundled model catalog does not read: {e}");
         Catalog {
             schema_version: schema::SCHEMA_VERSION,
@@ -104,36 +118,31 @@ fn bundled() -> Catalog {
     })
 }
 
-/// Writes `bytes` to `path` through a temporary file in the same folder, so a reader sees the old or the new file.
+/// Writes `bytes` to `path` through a temporary file in the same folder, so a reader sees the old
+/// or the new file ([`crate::config::write_atomic`], which also removes the copies of a writer
+/// stopped before its rename).
 fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
     let dir = path.parent().ok_or_else(|| std::io::Error::other("no parent folder"))?;
     // A refresh that ends after the home was lost never makes it again (`config::mark_home_lost`).
     crate::config::refuse_lost_home(path).map_err(std::io::Error::other)?;
-    // Owner-only whatever the umask, like the rest of the acpmux home.
-    let mut made = std::fs::DirBuilder::new();
-    made.recursive(true);
-    #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut made, 0o700);
-    made.create(dir)?;
-    let tmp = dir.join(format!(".{STORE_FILE}.{}.tmp", std::process::id()));
-    // A file a crashed process left under a reused pid keeps its mode: start anew.
-    let _ = std::fs::remove_file(&tmp);
-    let result = (|| {
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        let mut file = options.open(&tmp)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        std::fs::rename(&tmp, path)?;
-        std::fs::File::open(dir)?.sync_all()
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&tmp);
+    // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
+    // gets the file. Owner-only whatever the umask, like the rest of the acpmux home.
+    crate::home_fs::create_dir_all(dir, 0o700)?;
+    crate::config::write_atomic_checked(path, bytes).map_err(std::io::Error::other)
+}
+
+impl State {
+    /// Takes `base` as the copy in use, with the last feed read's additions over it and its
+    /// disabled models dropped.
+    fn set_base(&mut self, base: Catalog) {
+        let mut catalog = match &self.feed {
+            Some(snapshot) => feed::overlay(&base, snapshot),
+            None => base.clone(),
+        };
+        feed::drop_disabled(&mut catalog);
+        self.catalog = Arc::new(catalog);
+        self.base = Arc::new(base);
     }
-    result
 }
 
 impl Default for CatalogService {
@@ -150,9 +159,16 @@ impl CatalogService {
 
     /// Starts from `catalog` as the bundled copy (tests).
     pub fn with_bundled(catalog: Catalog) -> Self {
+        let mut in_use = catalog.clone();
+        feed::drop_disabled(&mut in_use);
         Self {
             state: Mutex::new(State {
-                catalog: Arc::new(catalog),
+                base: Arc::new(catalog),
+                catalog: Arc::new(in_use),
+                feed: None,
+                feed_etag: None,
+                feed_at_ms: None,
+                feed_error: None,
                 source: Source::Bundled,
                 etag: None,
                 fetched_at_ms: None,
@@ -161,6 +177,7 @@ impl CatalogService {
             }),
             dir: Mutex::new(None),
             fetcher: Mutex::new(None),
+            feed_fetcher: Mutex::new(None),
             refreshing: tokio::sync::Mutex::new(()),
             changed: broadcast::channel(16).0,
         }
@@ -189,13 +206,18 @@ impl CatalogService {
         if let Some((catalog, copy)) = stored {
             let mut state = self.state();
             // ISO-8601 UTC strings of the same shape order as text.
-            if catalog.generated_at >= state.catalog.generated_at {
-                state.catalog = Arc::new(catalog);
+            if catalog.generated_at >= state.base.generated_at {
+                state.set_base(catalog);
                 state.source = Source::Stored;
                 state.etag = copy.etag;
                 state.fetched_at_ms = Some(copy.fetched_at_ms);
             }
         }
+    }
+
+    /// Reads the public model feed with `fetcher` on every refresh ([`feed::FeedFetcher`] in the daemon).
+    pub fn attach_feed(&self, fetcher: Arc<dyn Fetcher>) {
+        *self.feed_fetcher.lock().unwrap_or_else(PoisonError::into_inner) = Some(fetcher);
     }
 
     /// The catalog in use.
@@ -221,6 +243,9 @@ impl CatalogService {
         if let Some(at) = state.fetched_at_ms {
             v.set("fetchedAt", json!(at));
         }
+        if let Some(at) = state.feed_at_ms {
+            v.set("feedAt", json!(at));
+        }
         v
     }
 
@@ -241,8 +266,9 @@ impl CatalogService {
         let fetched_at = now_ms();
         let changed = {
             let mut state = self.state();
-            let changed = *state.catalog != catalog;
-            state.catalog = Arc::new(catalog);
+            let before = state.catalog.clone();
+            state.set_base(catalog);
+            let changed = *before != *state.catalog;
             state.source = Source::Fetched;
             state.etag = etag.clone();
             state.fetched_at_ms = Some(fetched_at);
@@ -274,10 +300,20 @@ impl CatalogService {
             Some(_) if recent && !force => (false, self.state().last_error.clone()),
             Some(fetcher) => self.fetch_once(fetcher.as_ref()).await,
         };
+        let feed_fetcher = self.feed_fetcher.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let (feed_changed, feed_error) = match feed_fetcher {
+            None => (false, None),
+            Some(_) if recent && !force => (false, self.state().feed_error.clone()),
+            Some(fetcher) => self.fetch_feed_once(fetcher.as_ref()).await,
+        };
+        let changed = changed || feed_changed;
         let mut reply = self.summary();
         reply.set("changed", json!(changed));
         if let Some(error) = error {
             reply.set("error", json!(error));
+        }
+        if let Some(error) = feed_error {
+            reply.set("feedError", json!(error));
         }
         if changed {
             let _ = self.changed.send(self.summary());
@@ -295,19 +331,71 @@ impl CatalogService {
             }
             Err(e) => Err(e),
         };
-        let mut state = self.state();
-        state.last_fetch = Some(std::time::Instant::now());
+        {
+            let mut state = self.state();
+            state.last_fetch = Some(std::time::Instant::now());
+            state.last_error = result.as_ref().err().cloned();
+        }
+        // Logged with the state unlocked: a log write can wait (stdout a full pipe), and every
+        // request that reads the catalog in use takes this lock (`log_lock_tests.rs`).
         match result {
-            Ok(changed) => {
-                state.last_error = None;
-                (changed, None)
-            }
+            Ok(changed) => (changed, None),
             Err(e) => {
                 tracing::warn!("model catalog refresh: {e}; keeping the current copy");
-                state.last_error = Some(e.clone());
                 (false, Some(e))
             }
         }
+    }
+
+    /// Reads the public feed once; true when the catalog in use changed. The body is parsed off
+    /// the async runtime, and only the models of the providers the rules name are kept.
+    async fn fetch_feed_once(&self, fetcher: &dyn Fetcher) -> (bool, Option<String>) {
+        let (keep, etag) = {
+            let state = self.state();
+            let keep = feed::providers_used(&state.base);
+            // A copy that names a provider the last read did not keep needs the whole feed again.
+            let covered = state.feed.as_ref().is_some_and(|f| f.covers(&keep));
+            (keep, if covered { state.feed_etag.clone() } else { None })
+        };
+        let result = match fetcher.fetch(etag.as_deref()).await {
+            Ok(FetchOutcome::NotModified) => Ok(None),
+            Ok(FetchOutcome::Body { body, etag }) => {
+                let parsed = match tokio::runtime::Handle::try_current() {
+                    Ok(_) => tokio::task::spawn_blocking(move || feed::parse(&body, &keep))
+                        .await
+                        .unwrap_or_else(|e| Err(e.to_string())),
+                    Err(_) => feed::parse(&body, &keep),
+                };
+                parsed.map(|snapshot| Some((snapshot, etag)))
+            }
+            Err(e) => Err(e),
+        };
+        let (changed, error) = {
+            let mut state = self.state();
+            let before = state.catalog.clone();
+            let error = match result {
+                Ok(Some((snapshot, etag))) => {
+                    state.feed = Some(Arc::new(snapshot));
+                    state.feed_etag = etag;
+                    state.feed_at_ms = Some(now_ms());
+                    let base = state.base.as_ref().clone();
+                    state.set_base(base);
+                    None
+                }
+                Ok(None) => {
+                    state.feed_at_ms = Some(now_ms());
+                    None
+                }
+                Err(e) => Some(e),
+            };
+            state.feed_error = error.clone();
+            (*before != *state.catalog, error)
+        };
+        // Logged with the state unlocked (`log_lock_tests.rs`).
+        if let Some(e) = &error {
+            tracing::warn!("model feed refresh: {e}; keeping the current models");
+        }
+        (changed, error)
     }
 
     /// Fetches at once and then every [`REFRESH_EVERY`], until the task is dropped.
@@ -320,3 +408,11 @@ impl CatalogService {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "log_lock_tests.rs"]
+mod log_lock_tests;
+
+#[cfg(test)]
+#[path = "feed_tests.rs"]
+mod feed_tests;

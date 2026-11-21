@@ -6,8 +6,11 @@ import CmuxNextDesign
 /// overlay one whatever the macOS "Show scroll bars" setting (``SystemScrollers/nativeStyle``):
 /// hidden at rest, shown while the viewport moves through the scrollback (wheel, keyboard, search),
 /// never for output that only follows the bottom, and fading out after (Lawrence 2026-10-23, msg
-/// 11494). While it is shown the pointer near it widens it and it can be dragged; at rest it takes
-/// no clicks and the pointer does not reveal it, so the last column stays the terminal's. The style
+/// 11494). The pointer over its strip at the trailing edge shows it too, wide and ready to drag,
+/// while there is scrollback, and it fades when the pointer leaves (Lawrence 2026-11-12, msg 30795:
+/// "should not change anything about the idle state"). A press on that strip, the knob or the track
+/// beside it, grabs the scroller exactly where the pointer widens the knob (its grab zone, Lawrence
+/// 2026-11-20, msg 42498); everywhere else the press is the terminal's. The style
 /// is pinned: AppKit resets a scroll view to the system's style when the setting changes, which
 /// here would briefly reserve a legacy strip and take clicks.
 ///
@@ -39,7 +42,8 @@ final class TerminalScroller: NSScrollView {
         documentView = document
         let thin = ThinScroller()
         thin.showsOnScroll = false // only a move through the scrollback shows it (`update`)
-        thin.revealsNearPointerAtRest = false // the last column is the terminal's
+        // The pointer over the strip shows it, as a macOS overlay scroller (Lawrence 2026-11-12, msg 30795).
+        thin.revealsNearPointerAtRest = true
         verticalScroller = thin
         apply(SystemScrollers.nativeStyle)
         // AppKit resets a scroll view's style when the setting changes.
@@ -90,9 +94,13 @@ final class TerminalScroller: NSScrollView {
         style == .legacy ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
     }
 
-    /// The frame for a host of `bounds`: a strip at the trailing edge.
-    func strip(in bounds: CGRect) -> CGRect {
-        let width = max(reservedWidth, ThinScroller.width)
+    /// The frame for a host of `bounds`: a strip at the trailing edge, as wide as the thin scroller
+    /// and so its grab zone: the pointer over it widens the knob, and a press there grabs it.
+    func strip(in bounds: CGRect) -> CGRect { Self.strip(in: bounds, style: scrollerStyle) }
+
+    /// The strip a scroller of `style` takes in a host of `bounds` (also before one is built).
+    static func strip(in bounds: CGRect, style: NSScroller.Style) -> CGRect {
+        let width = max(reservedWidth(for: style), ThinScroller.width)
         return CGRect(x: bounds.maxX - width, y: bounds.minY, width: width, height: bounds.height)
     }
 
@@ -133,8 +141,8 @@ final class TerminalScroller: NSScrollView {
         onScrollToRow?(row)
     }
 
-    /// Only the scroller itself: the shown knob (``ThinScroller`` takes clicks on its knob alone),
-    /// never the empty document, so everything else stays the terminal's.
+    /// Only the scroller itself, in its grab zone while its knob widens there (``ThinScroller``'s own
+    /// test), never the empty document, so everything else stays the terminal's.
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let scroller = verticalScroller, !scroller.isHidden else { return nil }
         let hit = super.hitTest(point)

@@ -32,16 +32,28 @@ const sent: Play = async (ctx) => {
 /// The play's own layout-shift observer spans the whole start (the step's own measure ends when
 /// the hover settles, before the agent is up), and the line under the prompt must keep its top
 /// from the send to the first output (the start row once moved 28 px down when the turn opened).
+/// The first output's own frame is past that window: the reply's first line lands above the live
+/// line and moves it down (Thinking.tsx keeps the line under a streaming reply). Its entry came in
+/// before the play disconnected on some runs and after it on others (cmux#35744), so the window ends
+/// where the reply mounts (`replyAt`), and what the browser still holds is read before it closes.
 const toReply: Play = async (ctx) => {
   const doc = ctx.document;
   const view = doc.defaultView!;
   await sent(ctx);
   const shifts: { value: number; from: string }[] = [];
-  const observer = new view.PerformanceObserver((list) => {
-    for (const entry of list.getEntries() as (PerformanceEntry & {
+  let replyAt = Number.POSITIVE_INFINITY;
+  const replied = new view.MutationObserver(() => {
+    if (replyAt === Number.POSITIVE_INFINITY && doc.querySelector(".cv-md")) replyAt = view.performance.now();
+  });
+  replied.observe(doc.body, { childList: true, subtree: true });
+  const record = (list: PerformanceObserverEntryList | PerformanceEntryList) => {
+    const entries = Array.isArray(list) ? list : (list as PerformanceObserverEntryList).getEntries();
+    for (const entry of entries as (PerformanceEntry & {
       value: number;
       sources?: { node?: Node; previousRect?: DOMRectReadOnly; currentRect?: DOMRectReadOnly }[];
     })[]) {
+      // The reply's frame and after: past the window (above).
+      if (entry.startTime >= replyAt) continue;
       // The chat header is out of scope: its Needs you badge widens whenever its count changes,
       // whatever the start does (cmux#30663).
       const moved = (entry.sources ?? []).filter(
@@ -66,7 +78,8 @@ const toReply: Play = async (ctx) => {
       });
       shifts.push({ value: entry.value, from: from.join(" + ") });
     }
-  });
+  };
+  const observer = new view.PerformanceObserver(record);
   if (view.PerformanceObserver.supportedEntryTypes?.includes("layout-shift"))
     observer.observe({ type: "layout-shift", buffered: false });
   const line = () => doc.querySelector(".acpmux-thinking .cv-worked")?.getBoundingClientRect().top;
@@ -95,6 +108,8 @@ const toReply: Play = async (ctx) => {
     },
     { capMs: 15_000 },
   );
+  replied.disconnect();
+  record(observer.takeRecords());
   observer.disconnect();
   const moved = doc.querySelector(".cv-user__bubble")?.getBoundingClientRect();
   const problems: string[] = [];

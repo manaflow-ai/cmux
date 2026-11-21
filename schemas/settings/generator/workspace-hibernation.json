@@ -1,0 +1,8 @@
+{
+  "source": "schemas/settings/source/workspace-hibernation.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+WorkspaceHibernation.generated.swift",
+  "type": "WorkspaceHibernationSettingsSchema",
+  "lists": {
+    "hibernation": ["descriptors", "WorkspaceHibernationSettings"]
+  }
+}

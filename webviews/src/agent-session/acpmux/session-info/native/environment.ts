@@ -6,11 +6,13 @@ import type { AcpmuxSnapshot } from "../../model";
 import { homePath } from "../../sessionList";
 import { chatProject } from "../chatFolders";
 import { machineHue } from "../../machineColor";
-import { machineOf, type ProjectRowLook } from "../EnvironmentSection";
-import type { AttachedCloudRepo, PendingCloudRepo } from "../CloudRepositoryPicker";
+import type { ProjectRowLook } from "../EnvironmentSection";
+import { chatMachine, type ChatPlace } from "../../chatMachine";
+import type { AttachedCloudRepo, PendingCloudRepo } from "../cloudRepositoryPickerModel";
 import type { NativeInfoRect } from "./model";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
 import { nativeExternalUrl } from "./links";
+import { SCREEN_SHARING_LABELS, type ScreenSharingKind } from "../screenSharing";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 
@@ -24,6 +26,8 @@ export type EnvironmentInput = {
   summary?: Summary;
   machineName?: string;
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
+  /// The page's route to the chat (chatMachine.ts `chatPlace`).
+  place?: ChatPlace;
   /// The chat folder's GitHub repository, `owner/name`.
   repository?: string;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
@@ -37,6 +41,10 @@ export type EnvironmentInput = {
   projectLook?: ProjectRowLook;
   /// Opens the repository's and the branch's GitHub links (the web rows' `href`).
   onOpenUrl?: (url: string) => void;
+  onShareScreen?: () => void;
+  /// Share (this Mac) or View screen (a Cloud machine): the row is drawn only with one.
+  screenShareKind?: ScreenSharingKind;
+  screenShareNote?: string;
 };
 
 export function environmentSection(
@@ -46,7 +54,7 @@ export function environmentSection(
 ): NativeInfoSection | undefined {
   const { summary, repository, remoteControl, onOpenFolder, onOpenUrl, projectLook = "name", grants = [] } = input;
   const openUrl = nativeExternalUrl(onOpenUrl);
-  const machine = machineOf(summary, input.machineName, input.peerKinds);
+  const machine = chatMachine(summary, input.machineName, input.peerKinds, input.place);
   const branch = summary?.branch;
   const project = chatProject(summary, repository);
   const repositoryUrl = repository ? `https://github.com/${repository}` : undefined;
@@ -68,6 +76,15 @@ export function environmentSection(
     ...(machine.kind === "cloud" ? { subtitle: t("cloudRepository.lifetime") } : {}),
   });
   const cloudSession = machine.kind === "cloud" && summary?.sessionId;
+  if (input.onShareScreen && input.screenShareKind) {
+    rows.push({
+      id: "screen-sharing",
+      symbol: "display",
+      title: t(SCREEN_SHARING_LABELS[input.screenShareKind]),
+      action: actions.add("environment.screenSharing", input.onShareScreen),
+      ...(input.screenShareNote ? { subtitle: input.screenShareNote } : {}),
+    });
+  }
   if (cloudSession && input.cloudRepositoryAvailable) {
     rows.push({
       id: "cloud-default",

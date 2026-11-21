@@ -100,3 +100,15 @@ import Testing
     }
 }
 
+
+/// Codex review of #41898 (F2): several messages that come back at once all reach the composer.
+@MainActor
+@Suite struct ReturnedDraftsJoinTests {
+    @Test func twoReturnedMessagesAreBothKept() {
+        let store = AgentChatStore(source: PromptResendTests.Recorder())
+        store.apply(.promptNotSent(text: "first", attachments: [], promptID: "p1", reason: "down"))
+        store.apply(.promptNotSent(text: "second", attachments: [], promptID: "p2", reason: "down"))
+        #expect(store.returnedDraft?.text == "first\n\nsecond")
+        #expect(!store.canRetryPrompt)
+    }
+}

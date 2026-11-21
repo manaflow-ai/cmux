@@ -4,7 +4,8 @@ public import Foundation
 /// loopback connections and frames and the diff page's WebAssembly and provider connection). The
 /// scheme handler sends it as the response header, the only CSP a page gets. Every page starts
 /// strict: no network, no frames, inline script and style only; a first-party page may add
-/// `connect-src` and `frame-src` sources and the one script keyword `'wasm-unsafe-eval'`. A page that
+/// `connect-src`, `frame-src`, `media-src` and extra `img-src` sources and the one script keyword
+/// `'wasm-unsafe-eval'`. A page that
 /// ships its script as files may also turn inline script off (``inlineScript``), which only narrows
 /// the policy. App pages (``PageDescriptor/appPage(id:resource:namespaces:)``) always get the strict
 /// policy.
@@ -16,6 +17,9 @@ public nonisolated struct PageCSP: Sendable, Hashable {
     /// `media-src` sources (video and audio a page plays from a loopback server, such as the daemon's
     /// attachment links). None: no media.
     public var media: [String]
+    /// Extra `img-src` sources beside `'self'` and `data:` (the GitHub page's image proxy hosts). None:
+    /// no remote image.
+    public var image: [String]
     /// Extra `script-src` keywords; only ``allowedScriptKeywords`` are kept.
     public var script: [String]
     /// False drops `'unsafe-inline'` from `script-src`: the page runs only same-origin script files,
@@ -26,12 +30,13 @@ public nonisolated struct PageCSP: Sendable, Hashable {
     public static let strict = PageCSP()
 
     public init(
-        connect: [String] = [], frame: [String] = [], media: [String] = [], script: [String] = [],
+        connect: [String] = [], frame: [String] = [], media: [String] = [], image: [String] = [], script: [String] = [],
         inlineScript: Bool = true
     ) {
         self.connect = connect
         self.frame = frame
         self.media = media
+        self.image = image
         self.script = script
         self.inlineScript = inlineScript
     }
@@ -50,6 +55,10 @@ public nonisolated struct PageCSP: Sendable, Hashable {
         }
         var directives = Self.base
         if !inlineScript { directives[1].1.removeAll { $0 == "'unsafe-inline'" } }
+        let image = clean(image)
+        if !image.isEmpty, let at = directives.firstIndex(where: { $0.0 == "img-src" }) {
+            directives[at].1 += image
+        }
         let keywords = script.filter(Self.allowedScriptKeywords.contains)
         if !keywords.isEmpty { directives[1].1 += keywords }
         let connect = clean(connect)

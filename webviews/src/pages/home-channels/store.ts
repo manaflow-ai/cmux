@@ -4,6 +4,7 @@
 // conversation, pages of PAGE older ones on demand) and refetches on a gap. Writes go to the host
 // with an idempotency key; the owner's event is what shows them.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { userMessage } from "../shared/userMessage";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { AttachmentService, messageGroups } from "./attachmentService";
 import { AvatarService } from "./avatars";
@@ -14,6 +15,7 @@ import { LiveBook } from "./live";
 import { readPresentation } from "./presentation";
 import { RunBook } from "./runs";
 import { HomeSheets } from "./sheets";
+import { fixtureRank, type PaletteRankReply, type PaletteRankRequest } from "./paletteRank";
 import { ChiefWorkStore } from "./ChiefWorkStore";
 import {
   HomeOps,
@@ -126,9 +128,17 @@ export interface HomeSnapshot {
   /** Which owners take files through this host (asked once at start; absent until it answers). */
   fileSupport?: HomeAttachmentSupport;
   error?: string;
+  /** Why the last Cloud inbox read failed: the Cloud rows are the last good list, read again with
+   * backoff until one answers (absent: it answered, or no Cloud). */
+  cloudError?: string;
 }
 
-const describe = (error: unknown) => (isPageError(error) || error instanceof Error ? error.message : String(error));
+/** The first retry of a failed Cloud inbox read, doubled per failure up to the cap. */
+export const CLOUD_RETRY_FIRST_MS = 2_000;
+export const CLOUD_RETRY_MAX_MS = 60_000;
+
+/** The plain sentence of a failure; the owner's own text stays in the error. */
+const describe = (error: unknown) => userMessage(error);
 
 export class HomeChannelsStore {
   private snapshot: HomeSnapshot;
@@ -397,7 +407,32 @@ export class HomeChannelsStore {
     }
   }
 
+  /** The pending retry of a failed Cloud inbox read, and the wait before the next one. */
+  private cloudRetry: ReturnType<typeof setTimeout> | undefined;
+  private cloudRetryMs = CLOUD_RETRY_FIRST_MS;
+
+  /** After a failed Cloud read, reads the inbox again: 2 s, then doubling to one a minute. An
+   * answer (or a stopped page) ends the retries and the next failure starts at 2 s again. */
+  private retryCloud(failed: boolean): void {
+    clearTimeout(this.cloudRetry);
+    this.cloudRetry = undefined;
+    if (!failed || !this.running) {
+      this.cloudRetryMs = CLOUD_RETRY_FIRST_MS;
+      return;
+    }
+    const wait = this.cloudRetryMs;
+    this.cloudRetryMs = Math.min(wait * 2, CLOUD_RETRY_MAX_MS);
+    const life = this.life;
+    this.cloudRetry = setTimeout(() => {
+      this.cloudRetry = undefined;
+      if (life === this.life) void this.reloadInbox();
+    }, wait);
+  }
+
   private stop(): void {
+    clearTimeout(this.cloudRetry);
+    this.cloudRetry = undefined;
+    this.cloudRetryMs = CLOUD_RETRY_FIRST_MS;
     this.life++;
     this.chiefWork.select(undefined);
     this.running = false;
@@ -406,6 +441,12 @@ export class HomeChannelsStore {
     this.stops = [];
     this.starting = undefined;
   }
+
+  /** Ranks the Cmd-K palette's rows (`cmux.home.paletteRank`); offline, the fixture ranker. */
+  readonly rankPalette = (request: PaletteRankRequest): Promise<PaletteRankReply> =>
+    this.client
+      ? this.client.call<PaletteRankReply>(HomeOps.paletteRank, request)
+      : Promise.resolve(fixtureRank(request));
 
   async reloadInbox(): Promise<void> {
     if (!this.client) return;
@@ -423,7 +464,9 @@ export class HomeChannelsStore {
         loading: false,
         error: undefined,
         inboxState: inbox.inboxState === true,
+        cloudError: inbox.cloudError,
       });
+      this.retryCloud(inbox.cloudError !== undefined);
       // The open conversation's owner is known now (a reconnect says the viewing again), and an
       // open row the list dropped is no longer viewed (even with nothing to open instead).
       this.syncViewing();
@@ -810,6 +853,48 @@ export class HomeChannelsStore {
       this.set({ error: describe(error) });
       return false;
     }
+  }
+
+  /** Puts my pinned grid in `order` (a drag in the Messages list moved a tile, or dropped a row in):
+   * every tile gets a position on the owners' scale (now plus its index), pinned, so this order holds
+   * across both owners. Optimistic: the grid shows the order at once; a refusal puts that row back.
+   * Resolves true when every owner took it. */
+  async arrangePinned(order: readonly string[]): Promise<boolean> {
+    const client = this.client;
+    if (!client) return false;
+    const base = Math.max(
+      Date.now(),
+      ...[...this.snapshot.conversations.values()].map((c) => (c.pinPosition ?? 0) + 1),
+    );
+    const moves = order.flatMap((id, index) => {
+      const before = this.snapshot.conversations.get(id);
+      const position = base + index;
+      return before ? [{ id, before, position }] : [];
+    });
+    if (moves.length === 0) return false;
+    const conversations = new Map(this.snapshot.conversations);
+    for (const { id, before, position } of moves)
+      conversations.set(id, { ...before, pinned: true, pinPosition: position });
+    this.set({ conversations });
+    const results = await Promise.all(
+      moves.map(async ({ id, before, position }) => {
+        try {
+          await client.call(HomeOps.pin, {
+            conversation: id,
+            pinned: true,
+            position,
+            idempotencyKey: this.key("pin"),
+          } satisfies HomePinRequest);
+          return true;
+        } catch (error) {
+          if (this.snapshot.conversations.get(id)?.pinPosition === position)
+            this.patchConversation(id, { pinned: before.pinned, pinPosition: before.pinPosition });
+          this.set({ error: describe(error) });
+          return false;
+        }
+      }),
+    );
+    return results.every(Boolean);
   }
 
   /** Flags a conversation unread (the read cursor stays) or clears the flag. Optimistic, as a pin. */

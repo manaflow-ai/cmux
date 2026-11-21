@@ -28,7 +28,7 @@ public struct DiffChangesScreen: View {
                         DiffFileScreen(state: state, fileID: file.id)
                     } label: {
                         DiffFileRow(file: file, isViewed: viewed.contains(file.id)) {
-                            withAnimation(.cmuxMobileSnap) { state.toggleViewed(file) }
+                            withAnimation(.cmuxMobileSnap.unlessReduceMotion) { state.toggleViewed(file) }
                         }
                         .equatable()
                     }
@@ -212,7 +212,7 @@ struct ViewedToggle: View {
                 .frame(width: 44, height: 44)
                 .contentShape(.rect)
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.cmuxPressFillTinted)
         .accessibilityLabel(isViewed ? "Viewed" : "Mark as viewed")
         .sensoryFeedback(.selection, trigger: isViewed)
     }

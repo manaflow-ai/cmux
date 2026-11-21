@@ -17,7 +17,7 @@ const row = (id: string, kind: string, at: number, extra: Partial<AcpmuxRow> = {
   at,
   ...extra,
 });
-const options = { now: 60_000, liveRuns: true, lineBelow: true };
+const options = { now: 60_000 };
 const prompted = [
   row("prompt", "user", 0, { text: "Watch the deploy" }),
   row("reply", "assistant", 1_000, { text: "Watching it." }),

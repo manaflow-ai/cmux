@@ -89,8 +89,10 @@ export type Answer = {
 /// Why an ask ended unanswered, when its record says: `skipped`, the person declined it (Skip sent
 /// the ask's reject option); `stopped`, acpmux cancelled it without an answer (the turn was stopped,
 /// or the chat closed or restarted) on an ask whose Skip would have sent the reject option instead.
-/// Absent when the record can't tell the two apart.
-export type CancelReason = "skipped" | "stopped";
+/// Absent when the record can't tell the two apart. `answeredInChat`: the person replied in their own
+/// words instead of picking (a typed prompt while it waited, or right after it was declined for one;
+/// direct.ts `answeredInChat`), so it was answered, only not on the card.
+export type CancelReason = "skipped" | "stopped" | "answeredInChat";
 
 /// Where the ask stands. Only the owner moves it out of `pending`; clients render it.
 export type State =
@@ -173,6 +175,15 @@ export function selection(optionIDs: string[] = [], other?: string): Selection {
 
 const selectionIsEmpty = (value: Selection | undefined) => !value || (value.optionIDs.length === 0 && !value.other);
 
+/// The agent's own pick among its choices: Claude Code writes it into the label ("Remove both
+/// (Recommended)"). A place that answers outside the chat (the composer hat, Home's Needs you) draws
+/// the label without it and marks the button instead; the answer still sends the option as asked.
+const RECOMMENDED = /\s*\(recommended\)\s*$/i;
+export function recommendedLabel(label: string): { label: string; recommended: boolean } {
+  const bare = label.replace(RECOMMENDED, "").trim();
+  return bare && bare !== label.trim() ? { label: bare, recommended: true } : { label, recommended: false };
+}
+
 /// True when at least one option carries a preview: the card then shows the highlighted
 /// option's preview beside the list.
 export const hasPreviews = (item: Item): boolean => item.options.some((option) => option.preview !== undefined);
@@ -201,9 +212,15 @@ export const questionSummary = (question: AgentQuestion): string => question.ite
 /// outcome (`question.outcome.*`) under the question.
 export const cancelledKey = (
   question: AgentQuestion,
-): "question.skipped" | "question.stopped" | "question.cancelled" => {
+): "question.skipped" | "question.stopped" | "question.answeredInChat" | "question.cancelled" => {
   const reason = question.state.kind === "cancelled" ? question.state.reason : undefined;
-  return reason === "skipped" ? "question.skipped" : reason === "stopped" ? "question.stopped" : "question.cancelled";
+  return reason === "skipped"
+    ? "question.skipped"
+    : reason === "stopped"
+      ? "question.stopped"
+      : reason === "answeredInChat"
+        ? "question.answeredInChat"
+        : "question.cancelled";
 };
 
 // MARK: Mapping a permission request (AgentQuestion+Permission.swift)

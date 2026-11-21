@@ -15,8 +15,8 @@ import Testing
         let began1 = flow.begin()
         #expect(began1)
         #expect(flow.state == .waitingForApproval)
-        #expect(flow.statusText == "Waiting for Face ID…")
-        // A second Answer while Face ID is up does nothing.
+        #expect(flow.statusText == "Sending…")
+        // A second Answer while one is signing does nothing.
         let began2 = flow.begin()
         #expect(!began2)
         flow.approved()
@@ -25,7 +25,7 @@ import Testing
         flow.stored()
         #expect(flow.state == .sent)
         // Nothing after sent changes it; it cannot be answered again.
-        flow.failed(ChiefApprovalCancelled())
+        flow.failed(ChiefApprovalUnavailable())
         #expect(flow.state == .sent)
         let began3 = flow.begin()
         #expect(!began3)
@@ -42,8 +42,8 @@ import Testing
     @Test func failuresSayWhyAndAllowAnotherTry() {
         var flow = ChiefAnswerFlow()
         _ = flow.begin()
-        flow.failed(ChiefApprovalCancelled())
-        #expect(flow.state == .failed("Not sent: Face ID was cancelled."))
+        flow.failed(ChiefApprovalUnavailable())
+        #expect(flow.state == .failed("Not sent: this iPhone isn't paired with the Mac yet."))
         #expect(!flow.isBusy)
         let began4 = flow.begin()
         #expect(began4)
@@ -144,7 +144,7 @@ private var localApprovalPart: [String: Any] {
                 "options": [["id": "allow", "label": "Allow once"], ["id": "deny", "label": "Deny"]]]]]
 }
 
-/// Signs like `ChiefAnswerSigner` without Face ID, and records what it signed.
+/// Signs like `ChiefAnswerSigner` and records what it signed.
 final class RecordingSigner: ChiefAnswerSigning, @unchecked Sendable {
     private let lock = NSLock()
     private(set) var signed: [(conversation: String, messageID: String, partIndex: Int, answer: JSONValue)] = []

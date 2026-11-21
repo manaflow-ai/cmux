@@ -270,9 +270,9 @@ def test_paths_that_reach_the_app_still_build() -> None:
         "Resources/bin/open-app",
         "cmux.xcodeproj/project.pbxproj",
         "package.json",
-        # The app bundles skills/cmux-cua as a folder resource, so its
+        # The app bundles skills/cmux-computer-use as a folder resource, so its
         # Markdown ships while other skills' Markdown does not.
-        "skills/cmux-cua/SKILL.md",
+        "skills/cmux-computer-use/SKILL.md",
         # Nightly signs and publishes; those helpers run in no PR lane.
         "scripts/sign-cmux-bundle.sh",
         "scripts/sparkle_generate_appcast.sh",
@@ -295,6 +295,20 @@ def test_paths_that_reach_the_app_still_build() -> None:
 def test_skill_markdown_outside_the_bundled_skill_is_neutral() -> None:
     assert not should_build(run_decide(event="push", interval="0",
                                        comparison=comparison(["skills/cmux-testing/SKILL.md"])))
+
+
+def test_paths_no_build_reads_are_neutral() -> None:
+    """The Cloud VM image roll (images/cmux-vm/inputs.lock.json, about 100 commits a day on
+    feat-cmux-next) and the other paths cmux_next_route.NO_APP_INPUT proves no build reads publish
+    no new app; a path the workflow or the bundle names still builds."""
+    _, nightly = ci_scripts()
+    for path in ["images/cmux-vm/inputs.lock.json", "services/example/main.go", ".claude/settings.json"]:
+        changed, reason = nightly.build_inputs_changed([path])
+        assert not changed, f"{path} reaches no build but rebuilt the app: {reason}"
+    roll = run_decide(event="push", interval="0",
+                      comparison=comparison(["images/cmux-vm/inputs.lock.json", "workers/cmux-vm/wrangler.jsonc"]))
+    assert not should_build(roll)
+    assert nightly.build_inputs_changed(["images/cmux-vm/inputs.lock.json", "Sources/AppDelegate.swift"])[0]
 
 
 def test_renames_are_classified_by_both_names() -> None:
@@ -361,6 +375,22 @@ def test_what_the_nightly_ships_is_read_back_from_the_project() -> None:
     )
     assert not detect.classify_files(["daemon/remote/src/lib.rs"]).release_build
     assert nightly.build_inputs_changed(["daemon/remote/src/lib.rs"])[0]
+
+
+def test_an_embedded_package_product_is_not_a_bundled_file() -> None:
+    """A copy-files entry for a Swift package product (productRef, no fileRef) is built from package sources.
+
+    81b17999 (CMUX-629) embeds CmuxNextApp.framework that way; reading every entry as a file reference
+    raised "missing pbx field fileRef" and broke every nightly input decision on feat-cmux-next.
+    """
+    _, nightly = ci_scripts()
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        project = (ROOT / "cmux.xcodeproj/project.pbxproj").read_text(encoding="utf-8")
+        (root / "cmux.xcodeproj").mkdir()
+        (root / "cmux.xcodeproj/project.pbxproj").write_text(project, encoding="utf-8")
+        bundled = nightly.bundled_paths(root)
+    assert "CmuxNextApp" not in " ".join(bundled), bundled
 
 
 def test_decide_checks_out_before_it_classifies() -> None:
@@ -497,7 +527,7 @@ def test_schedule_dispatch_and_rc_are_not_throttled() -> None:
     )
 
 
-NEXT_ENV = {"NIGHTLY_NEXT_FEED_BASE": "https://files-next.cmux.com/nightly-next/next", "NIGHTLY_NEXT_WRITER": "mac"}
+NEXT_ENV = {"NIGHTLY_NEXT_FEED_BASE": "https://files-next.cmux.com/nightly-next", "NIGHTLY_NEXT_WRITER": "mac"}
 
 
 def test_nightly_next_builds_for_publication_only_as_the_mac_writer() -> None:
@@ -523,8 +553,9 @@ def test_nightly_next_builds_for_publication_only_as_the_mac_writer() -> None:
 
 def test_nightly_next_publishes_its_own_track() -> None:
     # A push to nightly-next (moved only by the promote workflow) builds and
-    # publishes the cmux-next track: its own app (cmux NEXT, cx-x7hwx),
-    # release, feed and environment, and no main push throttle.
+    # publishes the cmux-next track: signed once as cmux NIGHTLY, the app the
+    # team runs, with its Developer ID profile (hq#7156), on its own release,
+    # feed and environment, and no main push throttle.
     result = run_decide(event="push", ref="refs/heads/nightly-next",
                         tag_age_hours=0.1, extra_env=NEXT_ENV)
     outputs = result["outputs"]
@@ -533,13 +564,15 @@ def test_nightly_next_publishes_its_own_track() -> None:
     assert outputs["track"] == "nightly-next"
     assert outputs["channel"] == "nightly"
     assert outputs["environment"] == "release-next"
-    assert outputs["bundle_id"] == "com.cmuxterm.app.nightly.cmux-next"
-    assert outputs["app_name"] == "cmux NEXT"
-    assert outputs["sign_channel"] == "next"
-    assert outputs["profile_channel"] == ""
+    assert outputs["bundle_id"] == "com.cmuxterm.app.nightly"
+    assert outputs["app_name"] == "cmux NIGHTLY"
+    assert outputs["url_scheme"] == "cmux-nightly"
+    assert outputs["entitlements"] == "cmux.nightly.entitlements"
+    assert outputs["sign_channel"] == "nightly"
+    assert outputs["profile_channel"] == "NIGHTLY"
     assert outputs["release_tag"] == "nightly-next"
     assert outputs["dmg_prefix"] == "cmux-nightly-next-macos"
-    assert outputs["feed_base"] == "https://files-next.cmux.com/nightly-next/next"
+    assert outputs["feed_base"] == "https://files-next.cmux.com/nightly-next"
     # The same commit is not rebuilt.
     assert not should_build(run_decide(event="push", ref="refs/heads/nightly-next",
                                        tag_sha=HEAD_SHA, extra_env=NEXT_ENV))

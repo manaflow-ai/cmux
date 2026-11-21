@@ -28,6 +28,7 @@ fn spec(name: &str, trigger: Trigger) -> AutomationSpec {
         catch_up: CatchUp::default(),
         timeout_seconds: 60,
         enabled: true,
+        gate: Default::default(),
     }
 }
 

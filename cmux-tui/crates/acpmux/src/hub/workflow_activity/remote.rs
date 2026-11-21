@@ -338,6 +338,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn remote_workflow_agent_journals_guarded_dispatch_and_reuses_the_reply() {
         let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_workflow_agent.py");
+        let cwd = std::env::temp_dir()
+            .join(format!("acpmux-remote-workflow-{}", uuid::Uuid::now_v7().simple()));
+        std::fs::create_dir_all(&cwd).unwrap();
         let mut config: crate::config::Config =
             serde_json::from_value(json!({"defaultHarness":"fake",
             "harnesses":{"fake":{"argv":["python3",fixture]}}}))
@@ -346,7 +349,7 @@ mod tests {
         let store =
             crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
         let owner: SessionMeta = serde_json::from_value(json!({"schema":crate::store::META_SCHEMA,
-            "id":"remote-owner","name":"Remote owner","harness":"fake","cwd":std::env::temp_dir(),
+            "id":"remote-owner","name":"Remote owner","harness":"fake","cwd":cwd,
             "status":"closed","createdAt":1,"updatedAt":2}))
         .unwrap();
         store.save(&owner).unwrap();
@@ -364,11 +367,12 @@ mod tests {
                 source_hash: String::new(),
                 args: json!([]),
                 allowed_tools: None,
-                cwd: std::env::temp_dir(),
+                cwd: owner.cwd.clone(),
                 generation: 1,
                 state: crate::workflow_runs::State::Running,
                 activities: Default::default(),
                 outcome: None,
+                caller_subagent: None,
             })
             .unwrap();
         let activity = ActivityRecord {
@@ -538,6 +542,7 @@ mod tests {
         );
         hub.shutdown_all().await;
         std::fs::remove_dir_all(hub.workflow_runs.store().directory(&run.id).unwrap()).unwrap();
+        std::fs::remove_dir_all(owner.cwd).unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -605,6 +610,7 @@ mod tests {
                 state: crate::workflow_runs::State::Running,
                 activities: Default::default(),
                 outcome: None,
+                caller_subagent: None,
             })
             .unwrap();
         let parent = ActivityRecord {

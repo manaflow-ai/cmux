@@ -35,6 +35,8 @@ public final class HomeStore {
     @ObservationIgnored var seeded: Set<ConversationID> = []
     /// The cache was read into the mirror (once per store).
     @ObservationIgnored var cacheRestored = false
+    /// This launch named its Chief (``rememberChief(_:)``): ``launchChief`` is nil from then on.
+    var chiefDecided = false
     /// Conversations that got the text typed in a gone cache-only one, until their view says so.
     @ObservationIgnored var carriedDrafts: Set<ConversationID> = []
     public internal(set) var me: Participant?
@@ -68,6 +70,12 @@ public final class HomeStore {
     @ObservationIgnored var agentSeen: [ConversationID: [String: Date]] = [:]
     /// Per conversation, where each agent's session runs, by session id (``followAgentSessions(_:in:)``).
     @ObservationIgnored var agentSessions: [ConversationID: [String: HomeAgentSessionRef]] = [:]
+    /// The Chief's agents that had a session at some point (``agentsStarted(_:)``): an agent queued at its
+    /// newest message counts as started once it is here. It only grows: a session that ends leaves its agent started.
+    @ObservationIgnored var startedAgents: Set<String> = []
+    /// When each of the Chief's agents' newest session began (``agentsStarted(_:startedAt:)``): its pill counts from it.
+    /// A session that ends keeps its start.
+    @ObservationIgnored var agentSessionStarts: [String: Date] = [:]
     /// The Feed rows the main Chief's transcript shows, and that conversation (``setFeedRows(_:in:)``).
     @ObservationIgnored var feedRows: (conversation: ConversationID, rows: [HomeFeedRow])?
     @ObservationIgnored var liveBook = HomeLiveBook()
@@ -94,6 +102,8 @@ public final class HomeStore {
     /// `mirror.cacheChanges` and `log.cacheChanges` at the last cache write scheduled or restored.
     @ObservationIgnored var cachedOwnerState = (mirror: UInt64(0), log: UInt64(0))
     @ObservationIgnored private var eventTask: Task<Void, Never>?
+    /// Reads the owner's ``HomeSource/agentStarts()`` into ``agentsStarted(_:)`` while the store runs.
+    @ObservationIgnored private var agentStartTask: Task<Void, Never>?
     @ObservationIgnored var resendTask: Task<Void, Never>?
     @ObservationIgnored var pendingResends: [HomeIntent] = []
     @ObservationIgnored var refetching: Set<HomeStream> = []
@@ -138,6 +148,8 @@ public final class HomeStore {
     /// for a running pass, and a pass skips while a prepare runs, so a
     /// prune never deletes a blob a prepare is reusing.
     @ObservationIgnored private var pruneLoop: Task<Void, Never>?
+    /// Whether `start` runs the prune loop (``init(source:blobCacheDirectory:clock:cache:cacheWriteDelay:prunesBlobCache:)``).
+    @ObservationIgnored private let prunesBlobCache: Bool
     @ObservationIgnored var pruning: Task<Void, Never>?
     @ObservationIgnored var preparing = 0
 
@@ -199,10 +211,17 @@ public final class HomeStore {
     /// Drafts, scroll anchors and the coalesced cache writes.
     @ObservationIgnored let viewCache: HomeClientViewCache
 
-    public init(source: any HomeSource, blobCacheDirectory: URL = HomeStore.defaultBlobCacheDirectory,
+    /// - Parameter blobCacheDirectory: The attachment folder; by default one of its own (``ownBlobCacheDirectory()``).
+    ///   The app's Home store passes its folder in the app's Caches (``defaultBlobCacheDirectory``).
+    /// - Parameter prunesBlobCache: Whether this store prunes `blobCacheDirectory` at `start` and while it runs. A
+    ///   store over a local conversation of its own (New Message's blank page, a bare launch's message box) passes
+    ///   false: it keeps none of the folder's blobs, so its pass would delete the drafts' and pending sends' blobs of
+    ///   the store that owns the folder (its keep set is empty).
+    public init(source: any HomeSource, blobCacheDirectory: URL = HomeStore.ownBlobCacheDirectory(),
                 clock: any Clock<Duration> = ContinuousClock(), cache: HomeCache? = nil,
-                cacheWriteDelay: Duration = .milliseconds(250)) {
+                cacheWriteDelay: Duration = .milliseconds(250), prunesBlobCache: Bool = true) {
         self.source = source
+        self.prunesBlobCache = prunesBlobCache
         self.blobCacheDirectory = blobCacheDirectory
         self.clock = clock
         self.cache = cache
@@ -216,11 +235,13 @@ public final class HomeStore {
         restoreCache()
         let clock = self.clock
         let interval = Self.blobCachePruneInterval
-        pruneLoop = Task { [weak self] in
-            while !Task.isCancelled {
-                guard self != nil else { return }
-                await self?.pruneBlobCache()
-                do { try await clock.sleep(for: interval) } catch { return }
+        if prunesBlobCache {
+            pruneLoop = Task { [weak self] in
+                while !Task.isCancelled {
+                    guard self != nil else { return }
+                    await self?.pruneBlobCache()
+                    do { try await clock.sleep(for: interval) } catch { return }
+                }
             }
         }
         let source = self.source
@@ -229,6 +250,13 @@ public final class HomeStore {
             for await event in stream {
                 guard let self, !self.stopped else { return }
                 self.handle(event)
+            }
+        }
+        // task-owner: one consumer of the owner's agent starts, cancelled by stop()
+        agentStartTask = Task { [weak self] in
+            for await starts in await source.agentStarts() {
+                guard let self, !self.stopped else { return }
+                self.agentsStarted(starts.peers, startedAt: starts.startedAt)
             }
         }
     }
@@ -243,6 +271,8 @@ public final class HomeStore {
         agentMessageRefreshes.removeAll()
         eventTask?.cancel()
         eventTask = nil
+        agentStartTask?.cancel()
+        agentStartTask = nil
         resendTask?.cancel()
         resendTask = nil
         pruneLoop?.cancel()
@@ -288,12 +318,13 @@ public final class HomeStore {
         var items = (mirror.windows[id] ?? TranscriptWindow()).items(pending: log.sends(in: id), me: me)
         if !localFiles.isEmpty { items = items.map(decorated) }
         items = agentMessages[id]?.inserting(into: items, summary: summary(id),
-                                             expanded: expandedAgentMessages[id] ?? [], seen: agentSeen[id] ?? [:]) ?? items
-        if let feed = feedRows, feed.conversation == id,
-           let chief = summary(id)?.participants.first(where: \.isChief)?.id {
+                                             expanded: expandedAgentMessages[id] ?? [], seen: agentSeen[id] ?? [:],
+                                             started: startedAgents.union(agentSessions[id]?.values.map(\.peer) ?? []),
+                                             sessionStarts: agentSessionStarts) ?? items
+        if let feed = feedRows, feed.conversation == id {
             // A window that does not reach the start shows no rows older than its first message.
             let since = mirror.windows[id]?.reachedStart == false ? items.first(where: { $0.delivery == .committed })?.createdAt : nil
-            items = HomeFeedRow.inserting(feed.rows, into: items, author: chief, since: since)
+            items = HomeFeedRow.inserting(feed.rows, into: items, since: since)
         }
         transcriptCache[id] = (version, me, items)
         return items

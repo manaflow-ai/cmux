@@ -24,7 +24,7 @@ export const signInRules = async (env: Env, team: string, user: string, domain?:
   const key = `${team}\u0000${user}\u0000${domain ?? ""}`
   const hit = cache.get(key)
   if (hit && Date.now() - hit.at < TTL_MS) return hit.rules
-  const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team)) as unknown as { signInRules(e: string, u: string, d?: string): Promise<SignInRules> }
+  const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team))
   const rules = await stub.signInRules(team, user, domain)
   if (cache.size > 5000) cache.clear()
   cache.set(key, { at: Date.now(), rules })
@@ -78,7 +78,7 @@ export const withSsoSession = async (env: Env, principal: Principal, team: strin
   const key = `${team}\u0000${principal.stack_session}\u0000${principal.stack_user_id}`
   const at = ssoSessions.get(key)
   if (!fresh && at !== undefined && Date.now() - at < TTL_MS) return { ...principal, sso_team: team }
-  const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team)) as unknown as { ssoSession(e: string, s: string, u: string): Promise<boolean> }
+  const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team))
   if (!(await stub.ssoSession(team, principal.stack_session, principal.stack_user_id))) return principal
   if (ssoSessions.size > 5000) ssoSessions.clear()
   ssoSessions.set(key, Date.now())

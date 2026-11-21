@@ -7,7 +7,12 @@
 # Full commit SHAs every copied build must contain (space-separated);
 # unset means no requirement, and then the kill switch
 # NIGHTLY_NEXT_LEGACY_IDENTITY is the only protection.
+#
+# build-sign-notarize-nightly runs it too, as the first step of its cmux
+# NIGHTLY-identity copy, with LEGACY_TARGET_RECORD=off: it decides the same
+# way but leaves the failure issue and the pending artifacts to this job.
 set -euo pipefail
+record="${LEGACY_TARGET_RECORD:-on}"
 curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o next-all.xml "${NIGHTLY_NEXT_FEED_BASE}/${LEGACY_APPCAST}"
 curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o old-all.xml "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"
 # The old feed's installs run the same updater as cmux NEXT's and
@@ -134,7 +139,7 @@ for _ in 1 2 3; do
   echo "::warning title=cmux NIGHTLY-identity build $build refused (cx-x7hwx)::$check"
   refuse_args+=(--refuse-build "$build")
   note="Build $build skipped (not counted): $check."
-  if [ "$action" = continue ] && [[ "$check" == missing* ]]; then
+  if [ "$record" = on ] && [ "$action" = continue ] && [[ "$check" == missing* ]]; then
     for run in "$pending_run" "$bundle_run"; do
       for name in cmux-nightly-identity-pending-meta cmux-nightly-identity-pending-bundle; do
         gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?name=$name" --jq '.artifacts[].id' \
@@ -156,7 +161,7 @@ if [ "$action" = new ] && [ "$CURRENT_BUILD_READY" = true ] && [ "$build" = "$CU
 fi
 echo "source_run=$source_run" >> "$GITHUB_OUTPUT"
 echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
-if [ -n "$notes" ]; then
+if [ "$record" = on ] && [ -n "$notes" ]; then
   body="$notes"$'\n'"Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID (requirement: NIGHTLY_LEGACY_REQUIRED_COMMITS=${REQUIRED:-none})"
   if issue="$(./scripts/ci/nightly-next-legacy-failure-issue.sh "$GITHUB_REPOSITORY")"; then
     if [ -n "$issue" ]; then

@@ -13,13 +13,14 @@ enum TabSearchFactsBuilder {
     static func facts(_ services: AppServices, cache: ControlWorkspaceInfoCache? = nil) -> ControlTabSearchFacts {
         ControlTabSearchFacts(lastActive: lastActive(services), closing: closing(services),
                               closed: cache?.closedTabs { closed(services) } ?? closed(services),
-                              titles: titles(services.machines.allWorkspaces.map(\.0), TabTitleResolver(services: services)))
+                              titles: titles(services.machines.allWorkspaces.map(\.0), TabTitleResolver(services: services), cache: cache))
     }
 
     /// The strip's names (`TabTitleResolver`) of the agent chats in `workspaces`, by tab id: their
     /// records are titled with the `about:blank` of the page that draws them. Only agent tabs are
-    /// resolved, so a publish stays one walk of the tabs.
-    static func titles(_ workspaces: [WorkspaceModel], _ resolver: TabTitleResolver) -> [String: String] {
+    /// resolved, in one walk; with `cache`, only the workspaces whose names changed (ask-bdd706af47).
+    static func titles(_ workspaces: [WorkspaceModel], _ resolver: TabTitleResolver, cache: ControlWorkspaceInfoCache? = nil) -> [String: String] {
+        if let cache { return cache.tabTitles.titles(workspaces) { titles([$0], resolver) } }
         var resolver = resolver
         var result: [String: String] = [:]
         for workspace in workspaces {

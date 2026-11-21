@@ -14,9 +14,20 @@ const shown = { current: "gallery-chat" as string | undefined };
 
 export type CommandTitlesScene = "terse" | "long" | "none" | "subagent";
 
+const parentAgent: Subagent = {
+  id: "gallery-chat/toolu_parent",
+  parent: null,
+  name: "Cut create overhead",
+  task: "Cut create overhead",
+  kind: "general-purpose",
+  state: "running",
+  background: true,
+  startedAt: minutesAgo(4),
+};
+
 const reviewer: Subagent = {
   id: "gallery-chat/toolu_reviewer",
-  parent: null,
+  parent: parentAgent.id,
   name: "Reviewer",
   task: "Review the tray PR at its head",
   kind: "general-purpose",
@@ -74,7 +85,7 @@ const SCENES: Record<CommandTitlesScene, { agents: Subagent[]; commands: Backgro
     ],
   },
   subagent: {
-    agents: [reviewer],
+    agents: [parentAgent, reviewer],
     commands: [
       command("sleep 840; echo t", "hold", 8, reviewer.id),
       command(WAIT_FILE, "review result", 23, reviewer.id),

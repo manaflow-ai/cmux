@@ -1,6 +1,8 @@
 #if os(iOS)
+import enum CmuxMobileModel.UserFacingError
 import AVFoundation
 import CmuxMobileDesign
+import CmuxSpinner
 import NaturalLanguage
 import Observation
 import SwiftUI
@@ -93,6 +95,9 @@ public enum AgentChatCopy: String, CaseIterable, Identifiable, Sendable {
                 case .message(_, let markdown):
                     let text = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !text.isEmpty { blocks.append("**Assistant:**\n" + text) }
+                case .steer(let message) where message.incoming == nil:
+                    let text = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !text.isEmpty { blocks.append("**User:**\n" + text) }
                 case .tool(let call):
                     let title = call.title.split(whereSeparator: \.isWhitespace).joined(separator: " ")
                     guard !title.isEmpty else { continue }
@@ -126,7 +131,7 @@ struct ChatCopyChoicesSheet: View {
                                 Label(row.title, systemImage: row.systemImage)
                                 Spacer()
                                 if copying == row {
-                                    ProgressView()
+                                    CmuxSpinner()
                                 } else if copied == row {
                                     Image(systemName: "checkmark").foregroundStyle(.tint).accessibilityLabel("Copied")
                                 }
@@ -163,7 +168,7 @@ struct ChatCopyChoicesSheet: View {
                 copied = row
                 UIAccessibility.post(notification: .announcement, argument: String(localized: "Copied"))
             } catch {
-                failure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                failure = UserFacingError.message(error, fallback: "Couldn't copy that. Try again.")
             }
             copying = nil
         }
@@ -293,7 +298,7 @@ struct ChatDisplaySettingsSheet: View {
                             .disabled(!settings.canZoomIn(system: system))
                             .accessibilityIdentifier("chat.display.zoomIn")
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.cmuxPressFillTinted)
                     .font(.title2)
                     Button("Actual Size") { preferences.update(summary) { $0.zoomStep = 0 } }
                         .disabled(settings.zoomStep == 0)

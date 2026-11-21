@@ -6,6 +6,7 @@
 import { createContext } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { documentName, type Artifact } from "./artifactPreview";
+import { PrefixFlatCache, type PrefixFlat } from "./prefixFlatMap";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -87,14 +88,12 @@ export type RenderPage = { first: string; id: string; calls: RenderCall[] };
 /// the most recent card that answers to that id, which shows its last page; one that finds none is
 /// its own card.
 export function renderPages(rows: readonly AcpmuxRow[]): Map<string, RenderPage> {
-  const found: [string, RenderCall][] = [];
-  for (const row of rows) {
-    if (row.kind !== "activity") continue;
-    for (const item of row.items ?? []) {
-      const call = item.tool && renderCall(item.tool);
-      if (call?.id) found.push([item.tool!.id, call]);
-    }
-  }
+  // Read on every snapshot: only the rows after the last kept one are read again
+  // (prefixFlatMap.ts), so a snapshot costs the rows it changed.
+  const read = renderCallReads.read(rows);
+  const kept = lastPages.get(read);
+  if (kept) return kept;
+  const found = read.items;
   // A snapshot whose render calls are the last one's (a streaming delta, most snapshots) keeps its
   // pages, so the cards and the panel do not draw again.
   if (
@@ -119,9 +118,24 @@ export function renderPages(rows: readonly AcpmuxRow[]): Map<string, RenderPage>
     latest.set(page.id, page);
   }
   last = { found, pages };
+  lastPages.set(read, pages);
   return pages;
 }
-let last: { found: [string, RenderCall][]; pages: Map<string, RenderPage> } | undefined;
+const renderCallReads = new PrefixFlatCache<AcpmuxRow, [string, RenderCall]>(rowRenderCalls);
+let last: { found: readonly [string, RenderCall][]; pages: Map<string, RenderPage> } | undefined;
+/// The pages of each kept pass (a pass the cache dropped goes with its entry).
+const lastPages = new WeakMap<PrefixFlat<AcpmuxRow, [string, RenderCall]>, Map<string, RenderPage>>();
+
+/// One row's render calls with an id, by tool-call id.
+function rowRenderCalls(row: AcpmuxRow): [string, RenderCall][] {
+  if (row.kind !== "activity") return [];
+  const found: [string, RenderCall][] = [];
+  for (const item of row.items ?? []) {
+    const call = item.tool && renderCall(item.tool);
+    if (call?.id) found.push([item.tool!.id, call]);
+  }
+  return found;
+}
 
 /// The open chat's render pages (`renderPages`); unset where there is no transcript (a gallery).
 export const RenderPages = createContext<Map<string, RenderPage> | undefined>(undefined);

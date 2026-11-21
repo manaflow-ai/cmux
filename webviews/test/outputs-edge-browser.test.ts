@@ -8,6 +8,8 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 await requireBrowserLane("outputs-edge-browser.test.ts", async () => {
   setDefaultTimeout(120_000);
   const entry = "agent-pane.outputs-edge";
+  // The fold names how many rows it holds ("Show 13 more": OutputsSection.tsx OUTPUTS_SHOWN).
+  const SHOW_MORE = /^Show \d+ more$/;
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>>;
   let browser: Browser;
@@ -64,7 +66,7 @@ await requireBrowserLane("outputs-edge-browser.test.ts", async () => {
       expect((await edges(page)).overflow).toBe(false);
       expect((await edges(page)).top).toBe("0");
       expect((await edges(page)).bottom).toBe("0");
-      await page.getByRole("button", { name: "Show more", exact: true }).click();
+      await page.getByRole("button", { name: SHOW_MORE }).click();
       await page.waitForFunction(() =>
         document.querySelector('ul[data-section="outputs"]')?.hasAttribute("data-fade-bottom"),
       );
@@ -77,9 +79,16 @@ await requireBrowserLane("outputs-edge-browser.test.ts", async () => {
       expect((await edges(page)).top).toBe("1");
       expect((await edges(page)).bottom).toBe("0");
       await page.getByRole("button", { name: "Show less", exact: true }).click();
-      await page.waitForFunction(
-        () => !document.querySelector('ul[data-section="outputs"]')?.hasAttribute("data-fade-bottom"),
-      );
+      // The fold holds the rows it closes over until it settles (foldMotion.ts); then both bands go.
+      await page.waitForFunction(() => {
+        const list = document.querySelector('ul[data-section="outputs"]');
+        return (
+          !!list &&
+          !list.closest("[data-folding]") &&
+          !list.hasAttribute("data-fade-top") &&
+          !list.hasAttribute("data-fade-bottom")
+        );
+      });
       expect((await edges(page)).top).toBe("0");
       expect((await edges(page)).bottom).toBe("0");
       await page.getByRole("button", { name: "Outputs", exact: true }).click();
@@ -91,7 +100,7 @@ await requireBrowserLane("outputs-edge-browser.test.ts", async () => {
   test("decorative bands pass clicks to file rows and honor reduced transparency", async () => {
     const page = await open();
     try {
-      await page.getByRole("button", { name: "Show more", exact: true }).click();
+      await page.getByRole("button", { name: SHOW_MORE }).click();
       await scroll(page, "middle");
       expect((await edges(page)).pointer).toBe("none");
       expect((await edges(page)).blur).toBe("blur(5px)");
@@ -135,14 +144,14 @@ await requireBrowserLane("outputs-edge-browser.test.ts", async () => {
       try {
         expect((await edges(page)).height).toBe(height);
         if (process.env.FAST_CHECKS_OUT) {
-          await page.getByRole("button", { name: "Show more", exact: true }).click();
+          await page.getByRole("button", { name: SHOW_MORE }).click();
           await scroll(page, "middle");
           await page.locator(".acpmux-session-info-section").screenshot({
             path: path.join(process.env.FAST_CHECKS_OUT, `outputs-${variant}-dark.png`),
           });
           const light = await open(variant, "light");
           try {
-            await light.getByRole("button", { name: "Show more", exact: true }).click();
+            await light.getByRole("button", { name: SHOW_MORE }).click();
             await scroll(light, "middle");
             await light.locator(".acpmux-session-info-section").screenshot({
               path: path.join(process.env.FAST_CHECKS_OUT, `outputs-${variant}-light.png`),

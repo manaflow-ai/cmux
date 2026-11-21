@@ -31,7 +31,6 @@ on:
       - Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabStripDebug.swift
       - Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabMotion.swift
       - Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabLayoutEngine.swift
-      - Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Spring.swift
       - Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarContainerView*.swift
       - Packages/macOS/CmuxNext/Sources/CmuxNextApp/WindowRootView.swift
       - Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/ShellWindow*.swift
@@ -49,6 +48,10 @@ concurrency:
   # Adding another label starts a run that skips; its own group keeps it from cancelling the real one.
   group: cmux-next-motion-golden-${{ github.event.pull_request.number }}-${{ github.event.action == 'labeled' && github.event.label.name != 'motion-golden' && github.run_id || 'run' }}
   cancel-in-progress: true
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 jobs:
   dispatch:

@@ -758,6 +758,7 @@ fn the_engine_set_takes_the_reaction_classifier() {
             classifier_model: Some("claude-sonnet-5-5".into()),
             classifier_prompt: Some("Wake only on 👎.".into()),
             reactions_can_wake: Some("false".into()),
+            ..ReactionFields::default()
         }),
     );
     assert_eq!(
@@ -860,4 +861,104 @@ fn turn_routing_control_validates_and_clears_without_touching_model() {
     let cleared = engine(&mut brain, set("default"));
     assert!(cleared["choice"]["turn_routing"].is_null());
     assert_eq!(cleared["engine"]["turn_routing"], "off");
+}
+
+/// chief.engine.set `permission_mode` (cmux#37392): the Home Chief Settings
+/// panel and `cmux chief engine --mode` reach the brain; the answer names
+/// the mode the next turn runs in and what chose it.
+#[test]
+fn permission_mode_control_sets_names_and_clears_the_turn_mode() {
+    use optchat_chief::brain::ReactionFields;
+    let dir = tempfile::tempdir().unwrap();
+    let mut brain = brain(
+        dir.path(),
+        &[("claude-sr", optchat_chief::acpmux::Family::Claude)],
+    );
+    brain.set_user_settings(None);
+    let set = |mode: &str| EngineRequest::Set {
+        harness: None,
+        model: None,
+        effort: None,
+        speed: None,
+        compactor_speed: None,
+        compactor_harness: None,
+        compactor_model: None,
+        turn_routing: None,
+        reactions: Box::new(ReactionFields {
+            permission_mode: Some(mode.into()),
+            ..ReactionFields::default()
+        }),
+    };
+    let shown = engine(&mut brain, EngineRequest::Show);
+    assert_eq!(shown["engine"]["permission_mode"], "bypassPermissions");
+    assert_eq!(shown["engine"]["permission_mode_source"], "default");
+    let answer = engine(&mut brain, set("auto"));
+    assert_eq!(answer["choice"]["permission_mode"], "auto");
+    assert_eq!(answer["engine"]["permission_mode"], "auto");
+    assert_eq!(answer["engine"]["permission_mode_source"], "engine");
+    let refused = engine(&mut brain, set("plan"));
+    assert_eq!(refused["error"]["code"], "invalid_value");
+    // Settings caps it.
+    brain.set_user_settings(Some(json!({"chief": {"permissionMode": "default"}})));
+    let capped = engine(&mut brain, EngineRequest::Show);
+    assert_eq!(capped["engine"]["permission_mode"], "default");
+    assert_eq!(capped["engine"]["permission_mode_source"], "settings");
+    brain.set_user_settings(None);
+    let cleared = engine(&mut brain, set("unset"));
+    assert!(cleared["choice"]["permission_mode"].is_null());
+    assert_eq!(cleared["engine"]["permission_mode"], "bypassPermissions");
+}
+
+/// `/` in a Chief composer on the phone, or on a Mac whose Chief host runs
+/// elsewhere, lists what this host would run (2026-11-09: typing `/` in the
+/// iPhone's Chief chat showed nothing). The engine answer carries the
+/// host's slash skills (slash_skills.rs `catalog`): the Chief's own over a
+/// shared one of the same name, each once, with where it comes from.
+#[test]
+fn the_engine_answer_offers_the_skills_slash_lists() {
+    let base = tempfile::tempdir().unwrap();
+    // host.json's folder is `<mux home>/optchat` (state.rs `mux_home`).
+    let dir = base.path().join("home").join("optchat");
+    std::fs::create_dir_all(&dir).unwrap();
+    let skill = |root: &std::path::Path, name: &str, description: &str| {
+        let folder = root.join(name);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(
+            folder.join("SKILL.md"),
+            format!("---\nname: {name}\ndescription: {description}\n---\n\nSteps.\n"),
+        )
+        .unwrap();
+    };
+    skill(
+        &base.path().join("home/skills"),
+        "cmux-views",
+        "Own: build a view.",
+    );
+    skill(
+        &base.path().join("skills"),
+        "cmux-views",
+        "Shared: build a view.",
+    );
+    skill(&base.path().join("skills"), "triage", "Sort the inbox.");
+
+    let mut brain = brain(&dir, &[]);
+    let answer = engine(&mut brain, EngineRequest::Show);
+    let skills = answer["offered"]["skills"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let named = |name: &str| {
+        skills
+            .iter()
+            .filter(|s| s["name"] == name)
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        named("cmux-views"),
+        vec![json!({"name": "cmux-views", "description": "Own: build a view.", "source": "chief"})],
+        "{answer:#}"
+    );
+    assert_eq!(named("triage").len(), 1, "{answer:#}");
+    assert_eq!(named("triage")[0]["source"], "chief");
 }

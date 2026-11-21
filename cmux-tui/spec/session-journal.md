@@ -353,6 +353,17 @@ one registry grew to 41.6 GB. The daemon's output store
 
 Accepted geometry changes and the small `terminal.output.gap` markers
 (`host_reconnect`, `host_respawn`; no bytes) still use the FIFO terminal lane.
+Their producers hold the terminal's geometry and parser locks, so they offer
+the record and never wait for room. A full lane refuses the record and owes
+that terminal generation one `terminal.output.gap` marker: reason
+`journal_queue_full` for a geometry change, the marker's own reason for a
+marker. The owed marker enters the lane ahead of the terminal's next record
+when the lane has drained to half (a marker with its own reason: when it has
+room), ahead of the next coalesced checkpoint, or ahead of the last terminal
+barrier of a shutdown (when the lane is still full there: after the barrier
+that empties it, ahead of one more barrier); records refused in between are
+covered by that one marker. The geometry of a terminal that owes a marker is the snapshot's, not
+the journal's.
 Registries written before this change keep their output records; the readers
 below still understand them. A subscription with `kinds: ["terminal.output"]` or the
 `terminal_output` regex field matches only those older records; a new hook
@@ -384,7 +395,22 @@ CLI, preserves only structural string fields and non-string structure before
 it stores the provider shape under `payload.native`, and stores common session,
 turn, directory, transcript, tool, and agent topology fields under
 `payload.normalized`. Content strings and credential fields are redacted.
-Unknown native events become `agent.state.changed`:
+Unknown native events become `agent.state.changed`.
+
+A hook report that changes no durable state (a tool call inside a turn, a
+notification) is answered from daemon memory and gets no record. So that a
+reader of the journal alone still knows when an agent last worked, the daemon
+writes one coalesced record for the whole session, at most one per 5 minutes
+and one at a clean stop, and none while no agent reports: kind
+`agent.state.changed`, adapter `cmux`, `native_event` `AgentActivityObserved`,
+no terminal subject, and `payload.normalized.activity` as a list of
+`{adapter, agent_session_id, terminal, observed_at_ms}` (the newest report time
+of each terminal that reported since the last such record). A fold applies
+each entry as `last activity = max(last activity, observed_at_ms)` of a session
+it already has; the record makes no session and has no state. A reader in the
+daemon (`history.entries.list`) gets the exact time from memory.
+
+An unknown native event through the CLI:
 
 ```bash
 printf '%s\n' '{"session_id":"abc","message":"done"}' | \
@@ -641,7 +667,9 @@ runtime generation and uses `cmux.terminal-output-gap.v1` with reason
 `detach_fence_failed` or `active_update_timeout`. A live daemon appends the
 same record with reason `host_reconnect` when it reconnects to a terminal host
 after its tap was lost or the host asked it to resync (see `terminal-host.md`,
-"Durability boundary"). A restore preview treats this
+"Durability boundary"), and with reason `journal_queue_full` when the full
+terminal lane refused a geometry change (see "Accepted geometry changes"
+above). A restore preview treats this
 required kind as unsupported, so it cannot report a fully reducible tail that
 can contain missing source bytes. The daemon always attempts the final terminal
 barrier, closes both journal admission lanes, drains accepted records, and joins

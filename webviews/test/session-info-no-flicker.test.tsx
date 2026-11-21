@@ -12,7 +12,7 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
-import { useSessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
 import {
   resetSessionInfoState,
   setSessionInfoMore,
@@ -23,6 +23,8 @@ import * as outputsSection from "../src/agent-session/acpmux/session-info/Output
 import * as environmentSection from "../src/agent-session/acpmux/session-info/EnvironmentSection";
 import type { SessionInfoProcess } from "../src/agent-session/acpmux/session-info/processes";
 import { activity, assistant, chat, tool, user } from "../src/gallery/fixtures/acpmux";
+import { settleReact } from "./support/domTeardown";
+import { SESSION_INFO } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -71,6 +73,7 @@ afterEach(async () => {
   root = undefined;
   resetSessionInfoState();
   setHeaderState({ inspector: false });
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -81,7 +84,9 @@ afterEach(async () => {
 });
 
 const CWD = "/Users/you/src/atlas-web";
-const PANE_WIDTH = 1200;
+// Session Info lies over the chat here (a push would narrow Chat Text Width's 800px column), as it did
+// at 1200px beside the old 720px column.
+const PANE_WIDTH = 1100;
 const UPDATES = 50;
 
 const edited = (path: string, newText: string) =>
@@ -113,7 +118,12 @@ test(`${UPDATES} streamed tokens, tool calls and usage ticks paint nothing in Se
   // (spied before the mount, so the tree is drawn with the spies from the start).
   const outputsRenders = spyOn(outputsSection, "OutputsSection");
   const environmentRenders = spyOn(environmentSection, "EnvironmentSection");
-  const first = chat([user("Add retries", 4), activity([edited("src/fetch.ts", "a\nb\n")], 3)]);
+  // The reply links the report it made: an Outputs row (chatOutputs.ts), watched with the rest.
+  const first = chat([
+    user("Add retries", 4),
+    activity([edited("src/fetch.ts", "a\nb\n")], 3),
+    assistant("Wrote [retries.pdf](/tmp/retries.pdf).", 2),
+  ]);
   let push: (snapshot: AcpmuxSnapshot) => void = () => {};
   let panelRenders = 0;
   function Pane() {
@@ -156,11 +166,13 @@ test(`${UPDATES} streamed tokens, tool calls and usage ticks paint nothing in Se
     root.render(<Pane />);
   });
   await act(async () => setSessionInfoOpen(true));
+  // Outputs starts folded (sessionInfoState.ts DEFAULT_SECTIONS): open it, so its rows are watched too.
+  await act(async () => setSessionInfoSection("outputs", true));
   // The first streamed update settles anything the panel draws once it first sees a running chat.
   await act(async () => push(streamed(first, 0)));
   // fixed-wait: timers and frames the updates scheduled run inside the observed window.
   await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
-  const panel = container.querySelector<HTMLElement>("aside.acpmux-session-info");
+  const panel = container.querySelector<HTMLElement>(SESSION_INFO);
   expect(panel).not.toBeNull();
   expect(panel!.querySelector('[data-section="outputs"]')).not.toBeNull();
   // The spies count the sections' renders: they drew at the mount.
@@ -195,7 +207,7 @@ test(`${UPDATES} streamed tokens, tool calls and usage ticks paint nothing in Se
   record(observer.takeRecords());
   observer.disconnect();
 
-  expect(container.querySelector("aside.acpmux-session-info")).toBe(panel);
+  expect(container.querySelector(SESSION_INFO)).toBe(panel);
   // The same section elements, none mounted again.
   expect(sections().every((element, index) => element === drawn[index])).toBe(true);
   expect(sections()).toHaveLength(drawn.length);

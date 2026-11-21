@@ -61,7 +61,7 @@ struct AgentSessionOpenPlacementTests {
         await RapidWorkspaceCreateTests.wait(within: .seconds(20)) { !Self.tabs(on: focusedSession, in: store).isEmpty }
         await Self.caughtUp(services)
         let before = Self.daemonTabs(store)
-        let focusedTitles = Set(Self.tabs(on: focusedSession, in: store).map(\.tab.title))
+        let focusedTitles = Set(Self.tabs(on: focusedSession, in: store).map(\.tab.titleText))
 
         let name = "Rail & sidebar"
         let session = "s-open-\(UUID().uuidString.prefix(8).lowercased())"
@@ -74,8 +74,10 @@ struct AgentSessionOpenPlacementTests {
         }
         #expect(kill(pid, SIGSTOP) == 0)
         defer { kill(pid, SIGCONT) } // a throw before the SIGCONT below never leaves the daemon stopped
-        let first = run()
-        try await Task.sleep(for: stall)
+        var first = false
+        let firstWork = services.registry.capturingWork { first = run() }
+        // The retry comes `stall` into the first open, which waits on the stopped daemon unless it ends first.
+        let firstEnded = await AgentSessionOpenLateDaemonTests.ends(within: stall) { for task in firstWork { _ = await task.value } }
         let second = run()
         #expect(kill(pid, SIGCONT) == 0)
         await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { !Self.tabs(on: session, in: store).isEmpty }
@@ -88,10 +90,11 @@ struct AgentSessionOpenPlacementTests {
         let ownKey = own?.key?.rawValue ?? own?.id ?? ""
         let ownTabs = after[ownKey] ?? []
         let ownName = own?.name
-        let title = onSession.first?.tab.title
+        let title = onSession.first?.tab.titleText
         await launched.stop()
 
         #expect(first && second, "a run was refused")
+        #expect(!firstEnded, "the first open ended while the daemon was stopped")
         #expect(onSession.count == 1, "tabs on the session: \(onSession.map { "\($0.workspace.key?.rawValue ?? $0.workspace.id) \($0.tab.surface)" })")
         #expect(before[ownKey] == nil, "the session's tab went into workspace \(ownKey), which was there before the open")
         #expect(ownName == name, "the session's workspace is named \(ownName ?? "nothing"), not \(name)")

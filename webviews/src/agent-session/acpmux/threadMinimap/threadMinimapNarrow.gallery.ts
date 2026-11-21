@@ -67,6 +67,7 @@ export default agentPaneEntry({
       note: "Session Info open: the chat column is narrower than the pane, the dimmed rail rests over the text's edge, and hovering its drawn ticks reveals it with its preview.",
       snapshot: chat(rows, { title: "Prompt rail beside Session Info, hovered" }),
       native: { "pane.tabState": { inspector: true } },
+      sessionInfoOpen: true,
       play: async (ctx) => {
         await ctx.hover({ selector: ".acpmux-minimap__strip" });
         await ctx.hover({ selector: '[data-tick="0"]' });

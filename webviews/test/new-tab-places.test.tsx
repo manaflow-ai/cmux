@@ -9,6 +9,7 @@ import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { classicField } from "./support/classicNewTabField";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -60,18 +61,16 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 const noop = () => {};
 
 test("the bar shows real places only and follows the host's open tabs without losing the typed text", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { NewTabPage, newTabHost } = await import("../src/agent-session/acpmux/NewTabPage");
+  const { NewTabPage } = await import("../src/agent-session/acpmux/NewTabPage");
+  const { newTabHost } = await import("../src/agent-session/acpmux/newTabModel");
   const adoption = await import("../src/agent-session/acpmux/newtab/adoption");
   const opened = newTabHost({
     newTab: {

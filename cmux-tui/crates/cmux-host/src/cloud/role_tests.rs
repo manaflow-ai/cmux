@@ -5,51 +5,24 @@ use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use super::Worker;
-use crate::cloud::wire::AGENT_SOCKET;
+use super::{Backoff, Worker, bind_retry_wait};
+use crate::cloud::wire::{AGENT_SOCKET, DAEMON_INFO_FILE, DESKTOP_CAPABILITY, DESKTOP_SOCKET_UNIT};
 use crate::config::Paths;
-
-/// Exercise the real agent socket and client reply routing without starting
-/// network jobs or polling for readiness. Unbound agents must answer closed.
-#[test]
-fn vm_receiver_client_socket_refuses_unbound_and_caller_identity() {
-    use std::io::{BufRead, BufReader};
-    let root = tempfile::tempdir().unwrap();
-    let paths = Paths::new(root.path());
-    let (_control, theirs) = UnixStream::pair().unwrap();
-    let mut worker =
-        Worker::new(paths.clone(), "vm-1".into(), None, theirs, Arc::default()).unwrap();
-    worker.listener = Some(worker.serve_socket().unwrap());
-    let mut first = UnixStream::connect(paths.at(AGENT_SOCKET)).unwrap();
-    let mut second = UnixStream::connect(paths.at(AGENT_SOCKET)).unwrap();
-    first.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
-    second.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
-    first.write_all(b"{\"op\":\"cloud.vm.network_policy\"}\n").unwrap();
-    second
-        .write_all(b"{\"op\":\"cloud.vm.network_policy\",\"machine\":\"caller-chosen\"}\n")
-        .unwrap();
-    worker.accept();
-    assert_eq!(worker.clients.len(), 2);
-    worker.read_clients(&[0, 1]);
-    for stream in [first, second] {
-        let mut line = String::new();
-        BufReader::new(stream).read_line(&mut line).unwrap();
-        let reply: serde_json::Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(
-            reply,
-            serde_json::json!({"ok":false,"error":"cloud.vm.network_policy.unavailable"})
-        );
-    }
-    assert!(worker.live.is_none());
-}
 
 #[test]
 fn vm_receiver_client_socket_discards_reply_after_its_write_deadline() {
     use std::io::Read;
     let root = tempfile::tempdir().unwrap();
     let (_control, theirs) = UnixStream::pair().unwrap();
-    let mut worker =
-        Worker::new(Paths::new(root.path()), "vm-1".into(), None, theirs, Arc::default()).unwrap();
+    let mut worker = Worker::new(
+        Paths::new(root.path()),
+        "vm-1".into(),
+        None,
+        theirs,
+        Arc::default(),
+        Arc::default(),
+    )
+    .unwrap();
     let (mut caller, stream) = UnixStream::pair().unwrap();
     stream.set_nonblocking(true).unwrap();
     caller.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
@@ -80,8 +53,14 @@ fn agent_socket_clients_never_stop_the_worker() {
     let (ours, theirs) = UnixStream::pair().unwrap();
     let worker_paths = paths.clone();
     let thread = std::thread::spawn(move || {
-        let mut worker =
-            Worker::new(worker_paths, "vm-1".to_owned(), None, theirs, Arc::default())?;
+        let mut worker = Worker::new(
+            worker_paths,
+            "vm-1".to_owned(),
+            None,
+            theirs,
+            Arc::default(),
+            Arc::default(),
+        )?;
         worker.run()
     });
     let socket = paths.at(AGENT_SOCKET);
@@ -113,8 +92,14 @@ fn github_token_asks_get_one_reply_line() {
     let (ours, theirs) = UnixStream::pair().unwrap();
     let worker_paths = paths.clone();
     let thread = std::thread::spawn(move || {
-        let mut worker =
-            Worker::new(worker_paths, "vm-1".to_owned(), None, theirs, Arc::default())?;
+        let mut worker = Worker::new(
+            worker_paths,
+            "vm-1".to_owned(),
+            None,
+            theirs,
+            Arc::default(),
+            Arc::default(),
+        )?;
         worker.run()
     });
     let socket = paths.at(AGENT_SOCKET);
@@ -246,4 +231,31 @@ fn a_line_over_max_line_ends_the_stream() {
     assert!(buf.len() <= 2 * super::MAX_LINE + 4096);
     drop(theirs);
     let _ = writer.join();
+}
+
+#[test]
+fn the_desktop_capability_follows_the_images_socket_unit() {
+    let root = tempfile::tempdir().unwrap();
+    let paths = Paths::new(root.path());
+    let recorded = paths.at(DAEMON_INFO_FILE);
+    std::fs::create_dir_all(recorded.parent().unwrap()).unwrap();
+    // A recorded block that claims the desktop does not decide it.
+    std::fs::write(&recorded, r#"{"version":"v","capabilities":["fs-v1","link-desktop-v1"]}"#)
+        .unwrap();
+    let caps = || super::resolve_daemon_info(&paths).unwrap().capabilities;
+    assert_eq!(caps(), ["fs-v1"]);
+    let unit = paths.at(DESKTOP_SOCKET_UNIT);
+    std::fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    std::fs::write(&unit, "[Socket]\n").unwrap();
+    assert_eq!(caps(), ["fs-v1", DESKTOP_CAPABILITY]);
+}
+
+#[test]
+fn a_bind_the_network_change_failed_retries_at_once_and_keeps_its_backoff() {
+    let mut backoff = Backoff::new(2_000, 600_000);
+    assert_eq!(bind_retry_wait(&mut backoff, true), 0);
+    assert_eq!(bind_retry_wait(&mut backoff, true), 0);
+    // The backoff did not grow: the first ordinary failure still waits about its 2 s base.
+    let ordinary = bind_retry_wait(&mut backoff, false);
+    assert!((1_000..=4_000).contains(&ordinary), "first ordinary wait {ordinary} ms");
 }

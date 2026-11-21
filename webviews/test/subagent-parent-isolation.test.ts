@@ -108,7 +108,7 @@ function fakeDaemon(steps: Step[]) {
 }
 
 async function connect(daemon: ReturnType<typeof fakeDaemon>) {
-  let snapshot: Pick<AcpmuxSnapshot, "rows" | "subagentViews"> = { rows: [] };
+  let snapshot: Pick<AcpmuxSnapshot, "rows" | "subagentViews" | "summary"> = { rows: [] };
   const waiters = new Set<() => void>();
   const client = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
@@ -159,11 +159,9 @@ test("helper activity stays in its own chat when attach starts after its spawn, 
     expect(replies(snapshot().rows)).toEqual(["Parent replay reply"]);
     expect(thoughts(snapshot().rows)).toEqual([]);
     expect(tools(snapshot().rows).map((entry) => entry.id)).toEqual(["parent-read"]);
-    expect(
-      snapshot()
-        .rows.filter((row) => row.kind === "sessionStart")
-        .map((row) => row.sessionStart?.model),
-    ).toEqual(["parent-model"]);
+    // What the parent runs on is the parent's, never a helper's (Session Info and /status read it).
+    expect(snapshot().summary?.sessionStart?.model).toBe("parent-model");
+    expect(snapshot().rows.filter((row) => row.kind === "sessionStart")).toEqual([]);
 
     daemon.push(
       init("helper-live-model", HELPER),
@@ -177,11 +175,9 @@ test("helper activity stays in its own chat when attach starts after its spawn, 
     expect(replies(snapshot().rows)).toEqual(["Parent replay reply", "Parent live reply"]);
     expect(thoughts(snapshot().rows)).toEqual([]);
     expect(tools(snapshot().rows).map((entry) => entry.id)).toEqual(["parent-read", "parent-live-read"]);
-    expect(
-      snapshot()
-        .rows.filter((row) => row.kind === "sessionStart")
-        .map((row) => row.sessionStart?.model),
-    ).toEqual(["parent-model"]);
+    // What the parent runs on is the parent's, never a helper's (Session Info and /status read it).
+    expect(snapshot().summary?.sessionStart?.model).toBe("parent-model");
+    expect(snapshot().rows.filter((row) => row.kind === "sessionStart")).toEqual([]);
 
     // Lifecycle metadata arriving later names the helper without losing its earlier work.
     daemon.push([

@@ -268,7 +268,7 @@ test.skipIf(!enabled)(
     });
 
     // A switch on the General page (59 rows): click, optimistic value, write, re-read.
-    const toggleKey = "tabs.cmdWClosesPinnedTabs";
+    const toggleKey = "tabs.swapCmdTAndCmdN";
     await scenario("toggle.bool", sectionPath(toggleKey), (page) => {
       page.container.querySelector<HTMLButtonElement>(`[data-row-key="${toggleKey}"] [role="switch"]`)!.click();
     });

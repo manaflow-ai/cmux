@@ -53,7 +53,12 @@ export type AnchoredCollapse = {
   open: boolean;
   /// Draw the body: while open, and while it closes.
   present: boolean;
-  toggle: () => void;
+  /// Opens or closes it. Given the click (a row's `onClick`), only a deliberate one (`deliberateClick`).
+  /// True when it did: a wrapper that does more on a click (notes it, moves focus) does it only then.
+  toggle: (event?: unknown) => boolean;
+  /// Whether `event` is a deliberate click (`deliberateClick`), using up the header's press as
+  /// `toggle` does: for a row that acts on the click later (it waits on a read, then `setOpen`).
+  deliberate: (event?: unknown) => boolean;
   setOpen: (open: boolean) => void;
   /// The ref for the line the reader clicks: it stays where it is drawn while the body opens or closes.
   headerRef: (node: HTMLElement | null) => void;
@@ -67,6 +72,36 @@ export function holdHeader(header: HTMLElement): boolean {
   // The node's own window builds the event, so a header in another document (an iframe, a test's DOM) can carry it.
   const Custom = header.ownerDocument.defaultView?.CustomEvent ?? CustomEvent;
   return !header.dispatchEvent(new Custom(ANCHORED_COLLAPSE_EVENT, { bubbles: true, cancelable: true }));
+}
+
+/// What a block's open held (`holdBlock`) and the offset it was clicked at, so its close holds the same.
+export type BlockHold = { current: { held: "block" | "control"; at: number } | undefined };
+
+/// Asks the transcript to hold a line for a toggle that sits under or inside the block it opens (Show
+/// more, a text file's card), so that an open then a close put the view back where it started however
+/// often the reader does it (Leo, 2026-11-08: "it's not an— what is it? idempotent action ... there's
+/// the drift"). Holding the block's top to open and the control to close, as Show more did since
+/// #24050 and the paste card since #36303, moved the view down by what opened on every round trip.
+/// - Opening holds the block's top, so it grows below it (Leo, 2026-10-21: "just expand the area at
+///   the bottom and you're in the same place").
+/// - Closing with the view where the open left it holds the same line, so the pair is exact.
+/// - Closing after the reader scrolled (to a Show less under a long block) holds the block's top if
+///   it is in the view, else the control where the reader clicked it.
+/// A close at the very bottom still pins the bottom (VirtualTranscript `beginBottomStackFold`).
+export function holdBlock(block: HTMLElement, control: HTMLElement | null, memo: BlockHold, opening: boolean): boolean {
+  const scroller = block.closest<HTMLElement>(".acpmux-scroll") ?? scrollerOf(block);
+  const at = scroller?.scrollTop ?? 0;
+  const opened = memo.current;
+  memo.current = undefined;
+  let held: "block" | "control";
+  if (opening || !control) held = "block";
+  else if (opened && Math.abs(opened.at - at) <= 1) held = opened.held;
+  else {
+    const top = scroller?.getBoundingClientRect().top ?? 0;
+    held = block.getBoundingClientRect().top >= top - 0.5 ? "block" : "control";
+  }
+  if (opening) memo.current = { held, at };
+  return holdHeader(held === "block" ? block : control!);
 }
 
 /// The nearest ancestor of `node` that scrolls.
@@ -108,6 +143,33 @@ function keepHeader(header: HTMLElement): () => () => void {
   };
 }
 
+/// How far (px) the pointer may travel between press and release for the release to still be a click
+/// on a line: past it the reader dragged (a selection, a scroll on a trackpad's press), and nothing
+/// opens or closes (Leo, 2026-11-06: "way too jittery/sensitive").
+export const CLICK_SLOP_PX = 4;
+
+/// Where the pointer pressed a header (`useAnchoredCollapse`'s headerRef notes it).
+type Press = { x: number; y: number };
+
+/// Whether `event`, a click on `header`, is the reader's deliberate click: a keyboard click (detail
+/// 0) or a call with no event always is; a pointer's is unless it travelled more than CLICK_SLOP_PX
+/// from where it pressed, or left a selection inside the line (a drag or a double-click that selects
+/// its words), so neither a small drag nor a selection toggles the row. A selection elsewhere that
+/// only spans the line (an older one the click did not clear) never blocks it.
+export function deliberateClick(event: unknown, header: HTMLElement | null, press: Press | undefined): boolean {
+  const click = event as { detail?: number; clientX?: number; clientY?: number } | undefined;
+  if (!click || typeof click.detail !== "number" || click.detail === 0) return true;
+  if (press && typeof click.clientX === "number" && typeof click.clientY === "number") {
+    if (Math.hypot(click.clientX - press.x, click.clientY - press.y) > CLICK_SLOP_PX) return false;
+  }
+  const selection = header?.ownerDocument.getSelection?.();
+  if (header && selection && !selection.isCollapsed && selection.rangeCount > 0) {
+    const range = selection.getRangeAt(0);
+    if (header.contains(range.commonAncestorContainer)) return false;
+  }
+  return true;
+}
+
 export function useAnchoredCollapse(options: AnchoredCollapseOptions = {}): AnchoredCollapse {
   const [inner, setInner] = useState(options.defaultOpen ?? false);
   const controlled = options.open !== undefined;
@@ -115,8 +177,24 @@ export function useAnchoredCollapse(options: AnchoredCollapseOptions = {}): Anch
   // A transcript view switch (transcriptView.ts) opens and closes the rows on screen at once: they snap.
   const fold = useFold(open, options.animates ?? foldPlays, options.fadeIn ?? true);
   const header = useRef<HTMLElement | null>(null);
+  // Where the pointer last pressed the header, for `deliberateClick`; the listener lives as long as
+  // the header is mounted. A ref reattach keeps the press: a caller's inline ref (CommandRow's) detaches
+  // and reattaches at every render, and a streamed render between a press and its release must not
+  // turn a drag into a click. The press holds the node it landed on and counts only while that node is
+  // still the header, so a header that went (a row that draws its toggle elsewhere) leaves no stale
+  // press behind. The next press replaces it, and the toggle clears it.
+  const press = useRef<(Press & { on: HTMLElement }) | undefined>(undefined);
+  const unlisten = useRef<(() => void) | undefined>(undefined);
   const headerRef = useCallback((node: HTMLElement | null) => {
+    unlisten.current?.();
+    unlisten.current = undefined;
     header.current = node;
+    if (!node) return;
+    const note = (event: PointerEvent) => {
+      press.current = event.button === 0 ? { x: event.clientX, y: event.clientY, on: node } : undefined;
+    };
+    node.addEventListener("pointerdown", note, { passive: true });
+    unlisten.current = () => node.removeEventListener("pointerdown", note);
   }, []);
   // Read when the reader toggles, so `setOpen` and `toggle` stay the same function across renders.
   const latest = useRef({ open, controlled, onOpenChange: options.onOpenChange });
@@ -141,7 +219,20 @@ export function useAnchoredCollapse(options: AnchoredCollapseOptions = {}): Anch
     },
     [stopKeeping],
   );
-  const toggle = useCallback(() => setOpen(!latest.current.open), [setOpen]);
+  const deliberate = useCallback((event?: unknown) => {
+    const noted = press.current;
+    press.current = undefined;
+    const pressed = noted && noted.on === header.current ? noted : undefined;
+    return deliberateClick(event, header.current, pressed);
+  }, []);
+  const toggle = useCallback(
+    (event?: unknown) => {
+      if (!deliberate(event)) return false;
+      setOpen(!latest.current.open);
+      return true;
+    },
+    [deliberate, setOpen],
+  );
   useLayoutEffect(() => {
     const keep = pendingKeep.current;
     pendingKeep.current = undefined;
@@ -152,6 +243,7 @@ export function useAnchoredCollapse(options: AnchoredCollapseOptions = {}): Anch
     open,
     present: fold.present,
     toggle,
+    deliberate,
     setOpen,
     headerRef,
     bodyProps: {

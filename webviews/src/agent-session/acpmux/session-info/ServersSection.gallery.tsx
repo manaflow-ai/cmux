@@ -32,19 +32,26 @@ function ServerPorts({ ports }: Props) {
   );
 }
 
+/// A server is one Background tasks row (ServersSection.tsx): the globe, the first port's address,
+/// then the command in grey, cut to the row. The address stays whole and in view; the command ends
+/// before the time.
 const portsFit =
   (count: number): Play =>
   async (ctx) => {
-    await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-session-info-port").length === count);
-    const line = ctx.find({ selector: ".acpmux-session-info-server__line" }).getBoundingClientRect();
-    for (const port of ctx.document.querySelectorAll(".acpmux-session-info-port")) {
-      const box = port.getBoundingClientRect();
-      if (box.left < line.left - 0.5 || box.right > line.right + 0.5 || box.bottom > line.bottom + 0.5) {
-        throw new Error(`Port ${port.textContent} extends outside the server detail line`);
-      }
-      const hit = ctx.document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
-      if (!hit || !port.contains(hit)) throw new Error(`Port ${port.textContent} is covered or clipped`);
-    }
+    const row = '.acpmux-session-info-task--command[data-kind="server"]';
+    await ctx.waitFor(() => ctx.document.querySelector(`${row} .acpmux-session-info-task__address`));
+    const box = ctx.find({ selector: row }).getBoundingClientRect();
+    const address = ctx.find({ selector: `${row} .acpmux-session-info-task__address` });
+    if (address.textContent !== "localhost:3000") throw new Error(`The row names ${address.textContent}`);
+    const own = address.getBoundingClientRect();
+    if (own.left < box.left - 0.5 || own.right > box.right + 0.5) throw new Error("The address leaves its row");
+    const hit = ctx.document.elementFromPoint(own.left + own.width / 2, own.top + own.height / 2);
+    if (!hit || !address.contains(hit)) throw new Error("The address is covered or clipped");
+    const command = ctx.find({ selector: `${row} .acpmux-session-info-task__command` }).getBoundingClientRect();
+    const time = ctx.find({ selector: `${row} .acpmux-session-info-task__time` }).getBoundingClientRect();
+    if (command.right > time.left + 0.5) throw new Error("The command runs under the time");
+    // One row, whatever the number of ports the command names.
+    if (ctx.document.querySelectorAll(row).length !== 1) throw new Error(`${count} ports drew more than one row`);
   };
 
 export default componentEntry<Props>({
@@ -58,12 +65,12 @@ export default componentEntry<Props>({
   load: async () => ServerPorts,
   variants: {
     "six-ports": {
-      note: "A long development command exposing six local services in a 260px Session Info panel.",
+      note: "A long development command exposing six local services in a 260px Session Info panel: one Background tasks row with the first address, the command cut before the time.",
       props: { ports: 6 },
       play: portsFit(6),
     },
     "single-port": {
-      note: "The same long command with one port, keeping the ordinary server row compact.",
+      note: "The same long command with one port: the same one row.",
       props: { ports: 1 },
       play: portsFit(1),
     },

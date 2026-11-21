@@ -2,7 +2,8 @@ public import CmuxNextCompat
 import Foundation
 
 /// Sends browser failures (a renderer that ended, a main-frame load that
-/// failed) to crash reporting, deduplicated: a crash loop sends the 1st,
+/// failed, a helper with no tab that ended) to crash reporting,
+/// deduplicated: a crash loop sends the 1st,
 /// 10th, 100th... failure of each key with its count
 /// (``BrowserFailureThrottle``). Cancelled loads (ERR_ABORTED) are never
 /// sent (``CmuxNextCompat/BrowserEngineFailure/isReportable``). Does

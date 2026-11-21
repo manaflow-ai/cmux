@@ -12,7 +12,7 @@
 // held: Approve (primary) and Decline (quiet) in the line's action area, then "Waiting for you".
 // Return approves it while the card has the focus. Approved, it waits as any queued message does;
 // declined, it is one quiet line "Declined: <first line>" that opens on a click.
-import { useContext, useState, type KeyboardEvent } from "react";
+import { useContext, useMemo, useState, type KeyboardEvent } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow, QueuedPromptImage } from "../model";
@@ -22,12 +22,14 @@ import type { Participant } from "../multiplayer/participants";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { ChevronRight } from "./icons";
 import { IncomingMessageLine } from "./IncomingMessageCard";
-import { recordedFiles } from "./UserBubble";
-import type { FileAttachmentInfo } from "../FileAttachment";
+
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import { messagePreview, type IncomingMessage } from "./incomingMessage";
 import { MessageFooterRow } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
+import { heldLook, heldFiles } from "./queuedMessageCardModel";
+import { sentVideosOf } from "./sentVideos";
+import { withoutVideoFrames } from "../composer/videoPrompt";
 
 /// What the ⋯ menu does (App.tsx, through TurnActions `queuedMessages`); each is false once the
 /// message started. `edit`, `sideChat`, `position` and `move` serve the person's own queue rows.
@@ -88,15 +90,6 @@ export function WaitingMessageMenu({ sendNow, dismiss }: { sendNow?: () => void;
 /// the owner answers again); `gone`, it no longer waits (answered elsewhere); `failed`, anything else.
 export type HeldAnswer = "ok" | "stale" | "gone" | "failed";
 
-/// Where a held message's Approve and Decline sit: in the line's action area (`inline`, the pick),
-/// in a compact bar under the message (`bar`), or in a ⋯ menu beside the label (`menu`). The
-/// gallery compares them through `<html data-held-card-look>`; the app sets none.
-export type HeldLook = "inline" | "bar" | "menu";
-export function heldLook(root: { dataset: DOMStringMap } | undefined = globalThis.document?.documentElement): HeldLook {
-  const value = root?.dataset.heldCardLook;
-  return value === "bar" || value === "menu" ? value : "inline";
-}
-
 export function QueuedMessageCard({
   row,
   onOpen,
@@ -153,25 +146,6 @@ export function QueuedMessageCard({
   );
 }
 
-/// Everything a held message sends beyond its text and images, so the owner approves what they
-/// see: its resource links as a sent prompt draws them (UserBubble.tsx `recordedFiles`), and its
-/// documents and audio as the same file chips (a sent prompt's own bubble has them in the
-/// composer's attachments instead).
-export function heldFiles(parts: AcpmuxRow["inlineParts"]): FileAttachmentInfo[] {
-  const media = (parts ?? []).flatMap((part): FileAttachmentInfo[] =>
-    (part.kind === "document" || part.kind === "audio") && part.companionOf === undefined
-      ? [
-          {
-            name: part.name,
-            ...(part.mimeType ? { mimeType: part.mimeType } : {}),
-            ...(part.size ? { size: part.size } : {}),
-          },
-        ]
-      : [],
-  );
-  return [...(recordedFiles(parts) ?? []), ...media];
-}
-
 /// A person's (a guest's) waiting prompt: held with Approve and Decline, or approved and waiting
 /// with no note.
 /// The owner changes nothing else of it (acpmux `queue.not_author`).
@@ -196,6 +170,14 @@ function PersonMessageCard({ row, act }: { row: AcpmuxRow; act?: QueuedMessageAc
   };
   const answers = held && act?.answerHeld !== undefined;
   const look = heldLook();
+  // A video is its tile, as in a sent prompt (UserBubble.tsx): not also a chip, nor its frames.
+  const { videos, files, images } = useMemo(() => {
+    const videos = sentVideosOf(row);
+    const files = heldFiles(row.inlineParts).filter(
+      (file) => !videos.some((video) => video.name === file.name && video.path === file.path),
+    );
+    return { videos, files, images: withoutVideoFrames(row).images };
+  }, [row]);
   const button = (approve: boolean) => (
     <button
       type="button"
@@ -260,8 +242,9 @@ function PersonMessageCard({ row, act }: { row: AcpmuxRow; act?: QueuedMessageAc
         message={message}
         person={queued.person}
         whole
-        files={heldFiles(row.inlineParts)}
-        images={row.images}
+        files={files}
+        images={images}
+        videos={videos}
         onOpen={() => undefined}
         actions={
           <>
@@ -315,7 +298,7 @@ function DeclinedLine({ row, person }: { row: AcpmuxRow; person?: Participant })
       <button type="button" className="cv-declined__line" aria-expanded={open} onClick={toggle}>
         {person && <Face person={person} size={14} />}
         <span className="cv-declined__text">{t("queue.held.declined", { preview: messagePreview(text) })}</span>
-        <ChevronRight size={14} strokeWidth={1.2} className={`cv-rotor${open ? " is-open" : ""}`} />
+        <ChevronRight size={14} className={`cv-rotor${open ? " is-open" : ""}`} />
       </button>
       {open && <div className="cv-received__body cv-declined__body selectable">{text}</div>}
     </div>

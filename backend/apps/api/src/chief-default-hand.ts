@@ -5,6 +5,8 @@ import type { MachineExecReply } from "./automation-machine.ts"
 import { handStub, apiOrigin } from "./hand-api.ts"
 import { layoutSelector, asDaemonUser, shellQuote } from "./cloud-acpmux-guest.ts"
 import { personalTeamIdFor } from "./domains/user.ts"
+import { platformCloud } from "./platform-cloud.ts"
+import { declared } from "./do-stub.ts"
 
 export interface DefaultChiefMachine {
   readonly workspace: string
@@ -57,7 +59,7 @@ type Grant = { id: string; grantee: string; revoked_at: unknown; expires_at: num
 export const authorizeDefaultMachine = async (env: Env, scope: DefaultHandScope, options: { running?: boolean } = {}): Promise<DefaultCloud> => {
   const { owner, chief, team, workspace, install, connection_machine: carrier } = scope
   if (team !== personalTeamIdFor(owner) || workspace !== `chief-default-${owner}` || !/^vm_[a-z0-9]{20}$/.test(carrier)) throw new Error("chief.machine.invalid_scope")
-  const user = env.USER_DO.get(env.USER_DO.idFromName(owner)) as unknown as ReadStub
+  const user = declared(env.USER_DO.get(env.USER_DO.idFromName(owner)))
   const principal: Principal = { identity: `session:${owner}`, kind: "session", user: owner }
   const [record, installed] = await Promise.all([
     user.readOp(owner, principal, "chief.list", {}),
@@ -71,7 +73,7 @@ export const authorizeDefaultMachine = async (env: Env, scope: DefaultHandScope,
   const g = state.grants.find((x) => x.id === i?.grant)
   if (!i || i.kind !== "vm" || i.revoked_at !== null || i.bound_team !== team || i.bound_machine !== carrier
     || !g || g.grantee !== install || g.revoked_at !== null || !g.op_classes.includes("vm-self") || (g.expires_at !== null && (!Number.isFinite(g.expires_at) || g.expires_at <= Date.now()))) throw new Error("chief.machine.install_revoked")
-  const cloud = env.CLOUD_DO.get(env.CLOUD_DO.idFromName(team)) as unknown as DefaultCloud
+  const cloud: DefaultCloud = platformCloud(env.CLOUD_DO, team)
   const self = await cloud.readOp(team, {
     identity: `install:${install}`, kind: "install", user: owner, team, install,
     grant: i.grant, install_kind: "vm", bound_machine: carrier, grant_classes: ["vm-self"],
@@ -82,6 +84,37 @@ export const authorizeDefaultMachine = async (env: Env, scope: DefaultHandScope,
   return cloud
 }
 
+/** What the stored binding's checks answer when the platform moved its logical machine to another VM. */
+const CARRIER_MOVED = new Set(["chief.machine.carrier_changed", "chief.machine.install_revoked"])
+export type CarrierRebind = () => Promise<{ ok: true; changed: boolean; binding: DefaultChiefMachine } | { ok: false; code: string; retryable: boolean }>
+
+/**
+ * Authorizes the stored binding; when its VM or that VM's install no longer answers, follows the same logical
+ * machine to the VM the platform names now (a shrink, a rewind, a fresh machine) and authorizes that one. A
+ * refused or unchanged rebind keeps the original refusal, so a revoked install on the same VM stays revoked.
+ */
+export const followDefaultCarrier = async (
+  binding: DefaultChiefMachine,
+  authorize: (binding: DefaultChiefMachine) => Promise<unknown>,
+  rebind: CarrierRebind
+): Promise<DefaultChiefMachine> => {
+  try {
+    await authorize(binding)
+    return binding
+  } catch (error) {
+    if (!(error instanceof Error) || !CARRIER_MOVED.has(error.message)) throw error
+    const moved = await rebind().catch(() => null)
+    if (!moved?.ok || !moved.changed) throw error
+    await authorize(moved.binding)
+    return moved.binding
+  }
+}
+
+/** ``authorizeDefaultMachine`` that follows its logical machine to a new VM (``followDefaultCarrier``). */
+export const authorizeDefaultMachineFollowing = (env: Env, owner: string, chief: string, binding: DefaultChiefMachine, options: { running?: boolean } = {}): Promise<DefaultChiefMachine> =>
+  followDefaultCarrier(binding, (b) => authorizeDefaultMachine(env, { ...b, owner, chief }, options),
+    () => declared(env.USER_DO.get(env.USER_DO.idFromName(owner))).rebindDefaultChief(owner, chief))
+
 /** No bearer is in this script, stdin, a provider argument, or its result. Only the guest creates it. */
 export const DEFAULT_HAND_GUEST_CONFIG = `import fcntl, hashlib, json, os, re, secrets, stat, sys, tempfile
 expected = json.load(sys.stdin)
@@ -91,6 +124,22 @@ cwd = os.path.join(home, "proj")
 os.makedirs(directory, mode=0o700, exist_ok=True)
 if not stat.S_ISDIR(os.lstat(directory).st_mode): raise RuntimeError("hand directory conflict")
 os.chmod(directory, 0o700)
+def moved(was, now):
+    try: was, now = json.loads(was), json.loads(now)
+    except Exception: return False
+    return isinstance(was, list) and isinstance(now, list) and len(was) == len(now) == 8 and was[:6] == now[:6] and was[6:] != now[6:]
+def fresh(policy):
+    return {"api": expected["api"], "hand": expected["hand"], "default_scope": expected["scope"], "key": secrets.token_urlsafe(32), "profile": "sandbox", "roots": [cwd], "allow": [], "agent_policy": policy}
+def write(config, place):
+    fd, tmp = tempfile.mkstemp(prefix=".hand-", dir=directory)
+    try:
+        with os.fdopen(fd, "w") as staged:
+            json.dump(config, staged)
+            staged.flush()
+            os.fsync(staged.fileno())
+        place(tmp, path)
+    finally:
+        if os.path.lexists(tmp): os.unlink(tmp)
 lock = os.open(os.path.join(directory, ".provision.lock"), os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
 with os.fdopen(lock, "w") as held:
     fcntl.flock(held, fcntl.LOCK_EX)
@@ -98,20 +147,18 @@ with os.fdopen(lock, "w") as held:
     if os.path.lexists(path):
         if not stat.S_ISREG(os.lstat(path).st_mode): raise RuntimeError("hand config conflict")
         with open(path) as current: config = json.load(current)
-        if any(config.get(k) != v for k, v in {"api": expected["api"], "hand": expected["hand"], "default_scope": expected["scope"], "profile": "sandbox", "roots": [cwd]}.items()): raise RuntimeError("hand identity conflict")
         if config.get("agent_policy") not in ["ask", "approve-reads", "approve-edits", "deny-all"]: raise RuntimeError("hand policy conflict")
         if not re.fullmatch(r"[A-Za-z0-9_-]{43}", config.get("key", "")): raise RuntimeError("hand key conflict")
+        if any(config.get(k) != v for k, v in {"api": expected["api"], "hand": expected["hand"], "default_scope": expected["scope"], "profile": "sandbox", "roots": [cwd]}.items()):
+            # A home copied from this logical machine's earlier VM (a shrink, a rewind): the same owner, Chief,
+            # workspace, team, machine and provider, another VM and install. It gets a new identity and key.
+            if not moved(config.get("default_scope"), expected["scope"]) or config.get("api") != expected["api"] or config.get("profile") != "sandbox" or config.get("roots") != [cwd]: raise RuntimeError("hand identity conflict")
+            config = fresh(config["agent_policy"])
+            write(config, os.replace)
         os.chmod(path, 0o600)
     else:
-        config = {"api": expected["api"], "hand": expected["hand"], "default_scope": expected["scope"], "key": secrets.token_urlsafe(32), "profile": "sandbox", "roots": [cwd], "allow": [], "agent_policy": "approve-edits"}
-        fd, tmp = tempfile.mkstemp(prefix=".hand-", dir=directory)
-        try:
-            with os.fdopen(fd, "w") as staged:
-                json.dump(config, staged)
-                staged.flush()
-                os.fsync(staged.fileno())
-            os.link(tmp, path)
-        finally: os.unlink(tmp)
+        config = fresh("approve-edits")
+        write(config, os.link)
     os.makedirs(cwd, exist_ok=True)
     print(json.dumps({"key_sha": hashlib.sha256(config["key"].encode()).hexdigest(), "cwd": cwd}))
 `

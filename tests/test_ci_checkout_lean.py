@@ -59,6 +59,12 @@ def is_lean(options: dict, want: list[str]) -> bool:
     return patterns(options) == want and options.get("sparse-checkout-cone-mode") is False
 
 
+def is_allow_list(options: dict) -> bool:
+    """A sparse checkout that takes only the paths it names, not the whole tree minus some."""
+    found = patterns(options)
+    return bool(found) and found[0] != "/*"
+
+
 class CheckoutLeanTest(unittest.TestCase):
     def setUp(self):
         self.table = table()
@@ -68,6 +74,8 @@ class CheckoutLeanTest(unittest.TestCase):
     def test_lean_jobs_use_the_declared_patterns(self):
         bad = []
         for wf, job, i, options in self.steps:
+            if is_allow_list(options):
+                continue  # names the paths it takes (the signer's controls checkout), so it is already narrower
             if job in self.table["lean"].get(wf, {}) and not is_lean(options, self.want):
                 bad.append(f"{wf} :: {job} step {i}: sparse-checkout {patterns(options)!r}, "
                            f"cone mode {options.get('sparse-checkout-cone-mode')!r}")

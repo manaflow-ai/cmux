@@ -165,7 +165,7 @@ struct KeyboardToggleKey: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Color.primary.opacity(0.78))
                 .contentTransition(.opacity)
-                .animation(.easeInOut(duration: 0.2), value: shown)
+                .animation(.easeInOut(duration: 0.2).unlessReduceMotion, value: shown)
         }
         .buttonStyle(KeyCapStyle(width: TerminalDockMetrics.keyRowHeight + 12))
         .keyGlass(armed: false)
@@ -250,7 +250,8 @@ struct KeyCapStyle: ButtonStyle {
                     Capsule().fill(Color.cmuxMobileOnAccent).frame(height: 2).padding(.horizontal, 7).padding(.bottom, 2)
                 }
             }
-            .opacity(configuration.isPressed ? 0.7 : 1)
+            .cmuxMobilePressFill(configuration.isPressed,
+                                 in: RoundedRectangle(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
             .contentShape(.rect(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
     }
 }

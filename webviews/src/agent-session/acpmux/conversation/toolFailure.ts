@@ -7,7 +7,7 @@
 // call. Only a failed call is read: its text is cleaned whole (colour codes, a fence, a host's
 // injected context; all linear, once per call), and only its first and last few thousand
 // characters are searched for the cause.
-import { stripAnsi } from "./toolOutput";
+import { stripAnsi } from "./toolOutputModel";
 import { isFailed } from "./toolGroups";
 import { cleanText } from "./mcpCalls";
 import type { AcpmuxActivity } from "../model";

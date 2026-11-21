@@ -5,6 +5,7 @@
 // a reconnect; typing is said once; a message over 32 KiB cannot be sent.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -46,18 +47,16 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configu
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { GuestPage } = await import("../src/agent-session/guest/GuestPage");
+const { GuestPage, loadGuestTranscript } = await import("../src/agent-session/guest/GuestPage");
+// The transcript is its own chunk (GuestTranscript.tsx); load it once so the room's frames draw at once.
+await loadGuestTranscript();
 const { translate } = await import("../src/agent-session/acpmux/i18n");
 const { joinFrames, memoryStorage, workingRecords } = await import("../src/agent-session/guest/fixtures/liveChat");
 const { PROMPT_MAX_BYTES } = await import("../src/agent-session/guest/guestPrompts");
 type Socket = import("../src/agent-session/guest/shareSocket").ShareSocketLike;
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const SHARE = "c2hhcmUtMTIzNDU2Nzg";
@@ -119,6 +118,8 @@ async function mount(fake: ReturnType<typeof room>, storage = memoryStorage()) {
       <GuestPage
         shareId={SHARE}
         guestId="g1"
+        // A talk guest (a plain `role` prop reads as an ARIA role to the linter).
+        {...{ role: "talk" as const }}
         name="Ana"
         storage={storage}
         redeem={() => new Promise(() => undefined)}

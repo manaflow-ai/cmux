@@ -90,7 +90,7 @@ impl HiddenHistory {
     }
 
     /// Hides everything active from `since_ms` (`None`: all time) until
-    /// `now_ms`. Later activity shows again. Keeps the newest 64 ranges.
+    /// `now_ms` (a queued clear's click time, else now). Later activity shows again. Keeps the newest 64 ranges.
     pub fn hide_range(&mut self, since_ms: Option<i64>, now_ms: i64, kind: Option<&str>) {
         self.ranges.push(HiddenRange {
             from_ms: since_ms.unwrap_or(Self::DISTANT_PAST_MS),

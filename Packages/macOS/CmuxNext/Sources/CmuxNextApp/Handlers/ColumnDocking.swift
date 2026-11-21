@@ -3,6 +3,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSettings
+import CmuxNextWindowRules
 
 /// Docked columns and the strip scrollbar (plans/cmux-next/dock-column.md).
 /// Every entry point (palette, context menus, CLI verbs, `action.run`,
@@ -28,7 +29,7 @@ enum ColumnDocking {
             ctx.design.stripScrollbar = next
             ctx.writeSetting("set strip scrollbar", StripScrollbarSetting.configPath, .string(next.rawValue))
         })
-        ActionTargetTitles.setPaletteState("layout.toggleStripScrollbar", in: registry) { ctx.design.stripScrollbar != .off }
+        ActionTargetTitles.setPaletteSettingState("layout.toggleStripScrollbar", in: registry) { ctx.design.stripScrollbar != .off }
     }
 
     /// cmux.json `layout.dockColumnEdge` when set to an edge; nil for the
@@ -53,12 +54,11 @@ enum ColumnDocking {
     /// `set-column-dock`; a refusal throws its reason.
     static func apply(_ dock: DockColumn?, to column: LayoutColumn, in content: WorkspaceContentController,
                       transaction: LayoutTransactionID = .make()) throws {
-        let capability = DaemonCapability.dockColumns.rawValue
-        guard content.daemon.supports(capability) else { throw ActionFailure(message: content.daemon.missingCapabilityMessage(capability)) }
-        // Top and bottom docks need a daemon that serves edge-docks-v1.
-        let docks = DaemonCapability.edgeDocks.rawValue
-        if dock?.edge.isBand == true, !content.daemon.supports(docks) {
-            throw ActionFailure(message: content.daemon.missingCapabilityMessage(docks))
+        // Top and bottom docks need a daemon that serves edge-docks-v1 (`chat::dock_needs`).
+        let daemon = content.daemon
+        if let needs = WindowRules().dockNeeds(band: dock?.edge.isBand == true, dockColumns: daemon.supports(DaemonCapability.dockColumns.rawValue),
+                                               edgeDocks: daemon.supports(DaemonCapability.edgeDocks.rawValue)) {
+            throw ActionFailure(message: daemon.missingCapabilityMessage(needs))
         }
         guard let refusal = content.layoutModel.setColumnDock(column.id, dock, transaction: transaction) else { return }
         switch refusal {

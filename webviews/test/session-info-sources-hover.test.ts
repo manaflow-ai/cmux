@@ -60,7 +60,15 @@ await requireBrowserLane("session-info-sources-hover.test.ts", async () => {
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 90_000,
     });
+    // Sources starts folded to its count, and shows its first four rows open (SourcesSection.tsx
+    // SOURCES_SHOWN): open it, then its Show more, so every row this test hovers is drawn.
+    const head = page.locator('[data-section="sources"] button.ui-disclosure-trigger');
+    if ((await head.getAttribute("aria-expanded")) !== "true") await head.click();
+    const more = page.locator(".acpmux-session-info-sources-fold");
+    if ((await more.count()) > 0 && (await more.getAttribute("aria-expanded")) !== "true") await more.click();
     await page.waitForSelector("a.acpmux-session-info-source__link");
+    // The pointer leaves the controls it clicked, so no row starts lit.
+    await page.mouse.move(0, 0);
     return page;
   };
 

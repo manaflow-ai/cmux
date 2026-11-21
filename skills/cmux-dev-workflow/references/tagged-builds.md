@@ -66,6 +66,15 @@ The helper refuses to run without `CMUX_TAG`, targets the tag's socket (cmux NEX
 
 `/tmp/cmux-cli` points at the most recently reloaded build and can target the user's main app socket, so it is never safe for tagged dogfood.
 
+## Daemon edits
+
+A change to the cmux-tui daemon or acpmux needs no app reload. Swap the tagged session's daemon for the
+new build and keep its terminals and agent sessions: `<new build>/cmux-tui --session cmux-app-<tag>
+server restart`, and `<new build>/cmux-tui-acpmux daemon restart` for acpmux
+([cmux-tui/AGENTS.md](../../../cmux-tui/AGENTS.md#daemon-edits-swap-the-running-daemon)). The next
+`reload.sh` launch hands the session back to the daemon bundled in the app, unless you bundle your build
+with `CMUX_NEXT_TUI_BIN=<path>`.
+
 ## Cleanup
 
 Before launching a new tagged run, quit older tagged apps you started this session and remove their stale `/tmp` sockets. Remove derived data only when no active task needs it.

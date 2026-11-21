@@ -2,7 +2,11 @@ import Foundation
 
 /// Home strings (Resources/Home.xcstrings).
 public nonisolated enum HomeStrings {
-    public static var title: String { String(localized: "home.title", defaultValue: "Home", table: "Home", bundle: .module) }
+    /// The Chief's page (the Home dock's tab and workspace): "Chief", since the Chief replaces Home (2026-11-20).
+    public static var title: String { String(localized: "home.title", defaultValue: "Chief", table: "Home", bundle: .module) }
+    /// The title Home's tab and workspace had before (English; builds before 2026-11-20 wrote it), still read as
+    /// the default title, never as a name the person chose.
+    public static let legacyTitle = "Home"
     /// The chief's name (N1): the chief conversation's title and the mux's name.
     public static var chiefName: String { String(localized: "home.chief.name", defaultValue: "Chief", table: "Home", bundle: .module) }
     /// Chief's first message on a fresh install: its greeting (``ChiefWelcome``).
@@ -54,6 +58,11 @@ public nonisolated enum HomeStrings {
         String(format: String(localized: "home.chief.organizing", defaultValue: "Organizing Chief history: %1$lld of %2$lld",
                               table: "Home", bundle: .module), built, total)
     }
+    /// The Chief conversation's notice while a turn's session is slow to start on a loaded machine.
+    static func chiefStillStarting(seconds: Int) -> String {
+        String(format: String(localized: "home.chief.stillStarting", defaultValue: "The machine is busy. The Chief is still starting (%lld s).",
+                              table: "Home", bundle: .module), seconds)
+    }
     public static var archiveDefaultChief: String {
         String(localized: "home.chief.archive.default", defaultValue: "Make another Chief the default before archiving this one.",
                table: "Home", bundle: .module)
@@ -87,6 +96,18 @@ public nonisolated enum HomeStrings {
         String(format: String(localized: "home.chief.welcome.goTo",
                               defaultValue: "**Press `%@` to go anywhere.** It jumps to any open workspace, tab or agent, so it's the first shortcut to learn.",
                               table: "Home", bundle: .module), keys)
+    }
+    /// A chord in the welcome's shortcut list, as Markdown: `` `⌘J` then `S` ``.
+    static func chiefWelcomeChord(_ first: String, _ second: String) -> String {
+        String(format: String(localized: "home.chief.welcome.chord", defaultValue: "`%1$@` then `%2$@`",
+                              table: "Home", bundle: .module), first, second)
+    }
+    /// The welcome's Start Agent from Any App line while its system-wide key is off, as Markdown: its
+    /// `keys` (already a code span), its `title`, and the `link` that turns the key on.
+    static func chiefWelcomeAnyApp(_ keys: String, _ title: String, link: String) -> String {
+        String(format: String(localized: "home.chief.welcome.anyApp",
+                              defaultValue: "%1$@ %2$@ (off until you [turn it on](%3$@))",
+                              table: "Home", bundle: .module), keys, title, link)
     }
     /// The heading over the welcome's other shortcuts.
     static var chiefWelcomeShortcuts: String {

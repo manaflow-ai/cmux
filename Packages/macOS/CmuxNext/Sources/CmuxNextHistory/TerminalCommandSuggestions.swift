@@ -116,7 +116,7 @@ public nonisolated struct TerminalCommandSuggestionStore: Sendable {
         let lower = text.lowercased()
         let secretMarkers = ["password=", "passwd=", "token=", "secret=", "api_key=", "apikey=",
                              "authorization:", "bearer ", "api-key", "aws_secret_access_key", "aws_session_token",
-                             "client_secret", "private_key", "refresh_token", "-----begin"]
+                             "client_secret", "private_key", "refresh_token", "-----begin", "_authtoken", "--with-token"]
         let normalized = lower.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
         let riskyPatterns = ["rm -rf", "rm -r ", "git reset --hard", "git push --force", "sudo "]
         let pipesToShell = normalized.range(
@@ -125,9 +125,21 @@ public nonisolated struct TerminalCommandSuggestionStore: Sendable {
         ) != nil
         return !secretMarkers.contains(where: lower.contains)
             && !Self.hasURLCredentials(in: lower)
+            && !Self.credentialArgumentPatterns.contains { lower.range(of: $0, options: .regularExpression) != nil }
             && !pipesToShell
             && !riskyPatterns.contains(where: normalized.contains)
     }
+
+    /// Credentials passed as arguments rather than `key=value`: a credential flag with its value
+    /// (`--password X`, `--token=X`), `-u`/`--user` with `user:password` (curl), the user empty too
+    /// (`-u :pw`), and a MySQL or MariaDB client's password glued to `-p` (`mysql -pSECRET`,
+    /// `/usr/bin/mysqldump -pSECRET`), quoted too: the client's name (`"/usr/bin/mysql" -pX`, `sh -c
+    /// 'mysql -pX'`) or the flag (`mysql '-pX'`). A bare `-p` (`mkdir -p x`) stays allowed.
+    static let credentialArgumentPatterns = [
+        #"(?:^|\s)--?(?:password|passwd|pass|token|auth-token|access-token|secret|client-secret|private-key)(?:[=\s]|$)"#,
+        #"(?:^|\s)(?:-u|--user)(?:\s+|=)?['"]?[^\s:'"]*:\S"#,
+        #"(?:^|[\s;&|('"])(?:[^\s'"]*/)?(?:mysql|mariadb)[\w-]*['"]?\s(?:.*[\s'"])?-p\S"#,
+    ]
 
     private static func hasURLCredentials(in text: String) -> Bool {
         let end = text.endIndex

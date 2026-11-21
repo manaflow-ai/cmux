@@ -108,7 +108,7 @@ pub enum DatagramOut {
 }
 
 impl DatagramOut {
-    pub fn send(&self, stream: &mut TcpStream, datagram: &[u8]) -> io::Result<()> {
+    pub fn send<S: Write + AsRawFd>(&self, stream: &mut S, datagram: &[u8]) -> io::Result<()> {
         match self {
             DatagramOut::Udp { sock, peer } => match sock.send_to(datagram, peer) {
                 Ok(_) => Ok(()),

@@ -19,6 +19,7 @@ impl Hub {
     /// commands of tool calls in flight and of running background processes, never a
     /// process scan). Waits at most
     /// `host_pressure::SAMPLE_WAIT` for a sample; with none yet, `ok` is null.
+    /// Also carries the shadow admission readings (`shadow_admission.rs`).
     pub(crate) async fn host_pressure_status(&self) -> Value {
         let verdict = Meter::shared().current().await;
         let mut v = match verdict.and_then(|v| serde_json::to_value(v).ok()) {
@@ -30,7 +31,10 @@ impl Hub {
         let mut top = Vec::new();
         let (mut turns, mut processes) = (0, 0);
         let mut heavy = None;
-        for s in self.sessions() {
+        // The live sessions only, newest first as before: a close ends a session's agent, its
+        // turn and (with the harness, `Hub::processes_lost`) its running processes, so a closed
+        // one adds nothing here.
+        for s in self.indexed_live_sessions() {
             let info = s.turn();
             let turn = usize::from(info.is_some());
             let running = self.running_processes_read(&s);
@@ -58,7 +62,10 @@ impl Hub {
                 obj.insert("heavy".into(), json!(heavy));
             }
         }
-        v
+        // The readings the shadow admission verdict uses beside the meter's
+        // (`shadow_admission::local_readings`): `cpus`, `pressureAgeMs`, `load`,
+        // `ram` and `swap`, so a reader of this builds the inputs placement does.
+        crate::shadow_admission::with_readings(v, &crate::shadow_admission::local_readings())
     }
 
     /// Wraps a turn's `on_accepted` so its acceptance carries the verdict while the

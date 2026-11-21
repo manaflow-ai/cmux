@@ -44,9 +44,6 @@ nonisolated enum PickerStrings {
     static func explainer(_ folder: String) -> String {
         String(format: text("picker.explainer.title", "macOS will ask before cmux opens %@"), folder)
     }
-    static var explainerDetail: String {
-        text("picker.explainer.detail", "cmux reads a protected folder only when you open it. You can change this later in System Settings.")
-    }
     static var continueTitle: String { text("picker.explainer.continue", "Continue") }
     static var goBack: String { text("picker.explainer.back", "Go Back") }
     static var markdownType: String { text("picker.type.markdown", "Markdown") }
