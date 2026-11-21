@@ -7,7 +7,7 @@
  */
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "@effect/platform";
 import { Schema } from "effect";
-import { ReportedScope, Scope } from "../domain/scopes.ts";
+import { KeyScope, ReportedScope } from "../domain/scopes.ts";
 import { NotFound, QuotaExceeded } from "../errors.ts";
 import { ApiKeyId, SnapshotId, VmId } from "../lib/ids.ts";
 import { GroupTeamHeaders, InvalidRequest } from "./common.ts";
@@ -45,7 +45,8 @@ export class ApiKeyList extends Schema.Class<ApiKeyList>("ApiKeyList")({ items: 
 
 export class CreateApiKeyRequest extends Schema.Class<CreateApiKeyRequest>("CreateApiKeyRequest")({
   name: ApiKeyName,
-  scopes: Schema.Array(Scope).pipe(Schema.minItems(1), Schema.maxItems(32)),
+  /** Service-only scopes (import:classic) are refused: only a service key holds them. */
+  scopes: Schema.Array(KeyScope).pipe(Schema.minItems(1), Schema.maxItems(32)),
   /** Limit the key to these VM and snapshot ids. Omit for every resource the issuer can reach. */
   resourceAllowlist: Schema.optional(ResourceAllowlist),
   /** When the key stops working. Omit for no expiry. */

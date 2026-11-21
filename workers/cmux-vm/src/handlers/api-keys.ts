@@ -18,7 +18,7 @@ import { generateApiKey, hashApiKey } from "../auth/credentials.ts";
 import { TeamAdmin } from "../auth/team-admin.ts";
 import { ApiKeyAdminStore } from "../db/api-keys.ts";
 import { actorRef, CurrentPrincipal, type Principal } from "../domain/principal.ts";
-import { Scope, SCOPES, scopeSetOf } from "../domain/scopes.ts";
+import { KEY_SCOPES, Scope, SERVICE_ONLY_SCOPES, scopeSetOf } from "../domain/scopes.ts";
 import { Forbidden, NotFound, unavailable } from "../errors.ts";
 import { ApiKeyId, newApiKeyId } from "../lib/ids.ts";
 import type { RateClass } from "../limits/ledger.ts";
@@ -45,7 +45,7 @@ const asKeyAdmin = (rateClass: RateClass) =>
       const teamAdmin = yield* TeamAdmin;
       const admin = yield* teamAdmin.isAdmin(principal.tenantId, principal.actor.userId).pipe(Effect.mapError(unavailable));
       if (!admin) return yield* Effect.fail(notAdmin());
-      grantable = new Set(SCOPES);
+      grantable = new Set(KEY_SCOPES);
     } else {
       return yield* Effect.fail(notAdmin());
     }
@@ -55,7 +55,7 @@ const asKeyAdmin = (rateClass: RateClass) =>
 
 /** The first requested scope the issuer cannot grant, if any. Family scopes are compared after expansion. */
 const ungrantable = (requested: ReadonlyArray<Scope>, grantable: ReadonlySet<Scope>): Scope | undefined =>
-  [...scopeSetOf(requested)].find((scope) => !grantable.has(scope));
+  requested.find((scope) => SERVICE_ONLY_SCOPES.has(scope)) ?? [...scopeSetOf(requested)].find((scope) => !grantable.has(scope));
 
 /** Whether an allowlist stays inside the issuer's: an issuer limited to some resources cannot issue an unlimited key. */
 const withinAllowlist = (requested: ReadonlyArray<string> | null, issuer: Principal["resourceAllowlist"]): boolean =>

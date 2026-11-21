@@ -22,9 +22,14 @@ export class Forbidden extends Schema.TaggedError<Forbidden>()(
   HttpApiSchema.annotations({ status: 403 }),
 ) {}
 
+/** Machine-readable reasons a 404 can carry; most carry none. */
+export const NotFoundCode = Schema.Literal("import.upstream_vm_not_found").annotations({
+  description: "import.upstream_vm_not_found: the provider account this service uses has no such VM (a classic VM in a different provider account shows up this way).",
+});
+
 export class NotFound extends Schema.TaggedError<NotFound>()(
   "NotFound",
-  { message: Schema.String, ...CreationRecovery },
+  { message: Schema.String, code: Schema.optional(NotFoundCode), ...CreationRecovery },
   HttpApiSchema.annotations({ status: 404 }),
 ) {}
 
