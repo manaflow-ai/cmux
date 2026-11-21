@@ -99,7 +99,9 @@ extension CloudFrontedChats {
             // task-owner: one close request; the workspace's row never showed, so nothing waits on it
             Task { _ = try? await connection.closeWorkspace(WorkspaceKey(rawValue: front.workspace)) }
         }
-        fronts.reshow = { [weak services] mac in services.map { showSelected(mac.key, services: $0) } }
+        // After the release that dropped the front: a show now would make the Mac tab's page inside that release.
+        // task-owner: one main hop; it shows nothing once the app's services went
+        fronts.reshow = { [weak services] mac in Task { @MainActor [weak services] in if let services { showSelected(mac.key, services: services) } } }
         fronts.restore()
     }
 
