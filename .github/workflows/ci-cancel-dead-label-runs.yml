@@ -1,0 +1,59 @@
+name: CI cancel dead-label runs
+
+# Leo, 2026-11-20: "[we] need to be getting rid of the hardcoded blacksmith jobs [...] blank cheque cancel the
+# doomed ones, we're scaling with Freestyle and GCP, we just need to go". At 02:39Z 9,067 queued runs held
+# 17,380 jobs on GitHub-hosted ubuntu-* labels (refused on billing) and the starved blacksmith-8/16/32vcpu
+# Linux labels. GitHub never re-routes a queued job, so this cancels those runs on GITHUB_TOKEN; the branch's
+# next push runs on the fleet labels. It runs on an owned runner (CI_CONTROL_RUNNER, else the reserved
+# cmux-gcp-nightly-x64 label), never Blacksmith or GitHub-hosted, so it does not queue behind what it cancels.
+# scripts/ci/cancel_dead_label_runs.py has the policy. in_progress runs are never touched.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Report what would be cancelled without cancelling anything"
+        required: true
+        default: false
+        type: boolean
+      max_cancels:
+        description: "Most runs to cancel in this sweep"
+        required: true
+        default: "3000"
+        type: string
+
+permissions: {}
+
+# One sweep at a time; a second waits instead of racing the first one's cancels, and never cancels it.
+concurrency:
+  group: ci-cancel-dead-label-runs
+  cancel-in-progress: false
+
+jobs:
+  cancel:
+    name: Cancel queued runs on dead Linux labels
+    if: github.repository == 'manaflow-ai/cmux'
+    permissions:
+      actions: write
+      contents: read
+    runs-on: ${{ vars.CI_CONTROL_RUNNER || 'cmux-gcp-nightly-x64' }}
+    timeout-minutes: 60
+    steps:
+      - name: Check out the cancel script
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+          sparse-checkout-cone-mode: true
+
+      - name: Cancel queued runs on dead labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+          MAX_CANCELS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_cancels || '3000' }}
+          DEAD_LABEL_PATTERN: ${{ vars.CI_DEAD_LABEL_PATTERN || '^(blacksmith-(8|16|32)vcpu-ubuntu.*|ubuntu-.*)$' }}
+          CANCEL_SPACING_SECONDS: "0.1"
+        run: python3 scripts/ci/cancel_dead_label_runs.py
