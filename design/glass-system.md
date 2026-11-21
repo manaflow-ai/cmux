@@ -56,7 +56,13 @@ does. Native glass (the window, sidebar, native menus, the native tooltip) is no
    `--ds-color-danger/attention/success`) is one ink too: the design scale's `glassInk.status` share
    of its hue (65% light, 55% dark), the rest the theme's text, so "Checks failed" on a dark hover
    card over a white page keeps 3:1 (it was 2.2:1) and "Needs input" on a light one over black keeps
-   it (it was 1.9:1). A solid destructive button keeps the hue (`--glass-hue-danger`).
+   it (it was 1.9:1). A solid destructive button keeps the hue (`--glass-hue-danger`). A link
+   (`--agent-link`) and a diff count (`--acpmux-add/del`) mix the same way (a PR card's blue link
+   was 1.5:1 under dark glass on a white page, cmux#48217). A tooltip's tint is fitted to its text
+   at 4.5:1, so inks dimmer than the text get less room there: a status word in a tooltip keeps
+   `glassInk.chipStatus` (35%) of its hue, and the shortcut's keycap hint is the text at
+   `glassInk.keycap` (84%), not the secondary ink (it was 2.6:1). The thread minimap's hover card
+   (`.acpmux-minimap__card`) is a glass level on its own class and reads the same inks.
 6. **See-through pages.** Where the page can blur itself under a surface (`seeThroughBlur.ts`,
    `data-glass-over`), it does, and the surface lays no underlay. Where it cannot, the underlay is
    40%, so a menu (80% over 40%) covers 88% of the text under it, not 93%.
