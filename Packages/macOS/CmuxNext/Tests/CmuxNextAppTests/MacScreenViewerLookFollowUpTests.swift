@@ -74,6 +74,65 @@ struct MacScreenViewerLookFollowUpTests {
         #expect(view.nextKeyView === target)
     }
 
+    /// A live pane as the gallery draws one: a streaming session at `scope` with a picture, laid out at `size`.
+    private func livePane(_ look: MacScreenViewerLook, scope: SessionScope, size: CGSize = CGSize(width: 1280, height: 800)) async -> MacScreenPane {
+        let viewer = MacScreenHubViewer(deviceID: "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff") { nil }
+        viewer.phase = .streaming(sessionID: "follow-up", scope: scope)
+        let pane = MacScreenPane(hubDevice: viewer, name: "Studio MacBook Pro", preferences: ScreenPreferences(), viewerLook: look)
+        pane.model.hasFrame = true
+        pane.session?.showPreviewState(phase: .connected, frameSize: CGSize(width: 2560, height: 1600))
+        for _ in 0 ..< 100 { await Task.yield() }
+        pane.view.frame = CGRect(origin: .zero, size: size)
+        pane.view.needsLayout = true
+        pane.view.layoutSubtreeIfNeeded()
+        return pane
+    }
+
+    /// Look A's floating toolbar is as wide as its name, stats and controls need (the pane allowing): no label in it
+    /// truncates at 1280 wide beside empty room, and it is wider than the controls' own width.
+    @Test func lookAsToolbarFitsItsNameAndStats() async throws {
+        let pane = await livePane(.a, scope: .full)
+        defer { pane.close() }
+        let toolbar = pane.view.chrome.toolbar
+        #expect(!toolbar.isHidden)
+        #expect(toolbar.frame.width >= toolbar.floatingWidth - 1 || toolbar.frame.width >= 1280 - 2 * MacScreenViewerStyle.lookA.toolbarInset - 1)
+        let labels = Self.labels(in: toolbar).filter { !$0.isHiddenOrHasHiddenAncestor }
+        let name = try #require(labels.first { $0.stringValue == "Studio MacBook Pro" })
+        let stats = try #require(labels.first { $0.accessibilityIdentifier() == "macScreen.stats" })
+        #expect(!stats.stringValue.isEmpty)
+        for label in [name, stats] {
+            #expect(label.frame.width >= MacScreenToolbarView.textWidth(label) - 1, "\(label.stringValue) truncates")
+        }
+    }
+
+    /// The stats line drops the codec and size first: the short line keeps the path, the rate and the round trip.
+    @Test func theShortStatsLineDropsCodecAndSize() {
+        let full = MacScreenToolbarView.statsLine(path: "direct", fps: 60, targetFps: 60, latencyMs: 12, encoding: "H.264",
+                                                  frameSize: CGSize(width: 2560, height: 1600))
+        let short = MacScreenToolbarView.statsLine(path: "direct", fps: 60, targetFps: 60, latencyMs: 12, encoding: "-", frameSize: .zero)
+        #expect(full.contains("H.264") && full.contains("2560"))
+        #expect(!short.contains("H.264") && !short.contains("2560"))
+        #expect(short.contains("direct") && short.contains("12 ms"))
+    }
+
+    /// While this Mac controls the picture, only the pane's top edge brings look A's toolbar back: the remote menu bar
+    /// under it takes the pointer. View Only keeps the wider band.
+    @Test func controlKeepsTheRemoteMenuBarReachable() async {
+        let control = await livePane(.a, scope: .full)
+        defer { control.close() }
+        #expect(control.view.chrome.overlay.revealZone.height == MacScreenLookA.controlRevealHeight)
+        let view = await livePane(.a, scope: .view)
+        defer { view.close() }
+        #expect(view.view.chrome.overlay.revealZone.height >= MacScreenLookA.revealHeight)
+    }
+
+    private static func labels(in view: NSView) -> [NSTextField] {
+        view.subviews.flatMap { subview -> [NSTextField] in
+            if let label = subview as? NSTextField { return [label] }
+            return labels(in: subview)
+        }
+    }
+
     /// The tab asks the pane for its focus target each time: after the card changes it is the new card's button.
     @Test func theTabResolvesThePanesFocusTargetWhenAsked() async throws {
         let (pane, viewer) = pane(.current)

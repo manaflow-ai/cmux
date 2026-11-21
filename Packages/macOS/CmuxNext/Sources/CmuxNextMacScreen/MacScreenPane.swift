@@ -372,7 +372,7 @@ public final class MacScreenPaneView: NSView {
         case .topBar:
             return CGRect(x: 0, y: 0, width: bounds.width, height: measured ? toolbarHeight : 0)
         case .floating:
-            let width = max(0, min(bounds.width - style.toolbarInset * 2, chrome.toolbar.expandedWidth))
+            let width = max(0, min(bounds.width - style.toolbarInset * 2, chrome.toolbar.floatingWidth))
             let height = measured ? chrome.toolbar.height(for: width) : 0
             return CGRect(x: (bounds.width - width) / 2, y: style.toolbarInset, width: width, height: height)
         }

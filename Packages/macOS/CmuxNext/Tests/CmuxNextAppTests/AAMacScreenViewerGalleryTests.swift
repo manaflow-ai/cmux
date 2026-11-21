@@ -1,5 +1,6 @@
 import AppKit
-import CmuxNextDevices
+@testable import CmuxNextDevices
+import CryptoKit
 @testable import CmuxNextDesign
 @testable import CmuxNextMacScreen
 import CmuxNextTestSupport
@@ -87,7 +88,11 @@ struct AAMacScreenViewerGalleryTests {
         let scope = ThemeScope(level: .room)
         scope.setOverride(ThemeSpec(theme), input: input, animated: false)
         scope.root(root)
-        let viewer = MacScreenHubViewer(deviceID: "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff") { nil }
+        // This Mac's own hub link is up: a failed state then shows its own cause (an asleep host, a link error), not
+        // "This Mac lost its connection to the device hub", which every failed state showed with no hub at all.
+        let hub = await connectedHub()
+        let viewer = MacScreenHubViewer(deviceID: "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff") { hub }
+        #expect(viewer.hubConnected)
         viewer.phase = .streaming(sessionID: "gallery-session", scope: state.scope)
         let pane = MacScreenPane(hubDevice: viewer, name: "Studio MacBook Pro", preferences: ScreenPreferences(), viewerLook: look)
         defer { pane.close() }
@@ -130,6 +135,29 @@ struct AAMacScreenViewerGalleryTests {
         let image = try #require(rep.cgImage)
         window.close()
         return image
+    }
+
+    /// A hub whose socket says connected (no network: its account token never resolves, so its reads fail at once).
+    static func connectedHub() async -> DeviceHub {
+        let identity = DeviceIdentity(deviceID: UUID(), keys: GalleryKeys())
+        let client = DeviceHubClient(baseURL: URL(string: "https://hub.invalid")!, identity: identity,
+                                     tokens: DeviceHubAccountToken { throw CancellationError() })
+        let hub = DeviceHub(client: client, secrets: MemoryRelaySecretStore(), deviceName: "Gallery Mac")
+        await hub.handle(.state(.connected))
+        return hub
+    }
+
+    nonisolated private struct GalleryKeys: DeviceKeyMaterial {
+        let signing = P256.Signing.PrivateKey()
+        let agreement = P256.KeyAgreement.PrivateKey()
+        var signingPublicKey: P256.Signing.PublicKey { signing.publicKey }
+        var agreementPublicKey: P256.KeyAgreement.PublicKey { agreement.publicKey }
+        func signature(for message: Data) throws -> P256.Signing.ECDSASignature { try signing.signature(for: message) }
+        func open(_ ciphertext: Data, encapsulatedKey: Data, info: Data) throws -> Data {
+            var recipient = try HPKE.Recipient(privateKey: agreement, ciphersuite: RelaySealing.ciphersuite, info: info,
+                                               encapsulatedKey: encapsulatedKey)
+            return try recipient.open(ciphertext)
+        }
     }
 
     /// Wide light and dark for every state on one sheet (half size, light left, dark right).
