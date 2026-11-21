@@ -23,7 +23,9 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use super::internal::bounded::PAST_DEADLINE;
-use super::{Deadline, Outcome, Ran, Request, Runner, at, failed, run_once, step_result, words};
+use super::{
+    Deadline, Outcome, Ran, Request, Runner, at, failed, run_once, step_result, stuck_facts, words,
+};
 
 /// The longest a `cloud start-session` on a machine this run made may take before the machine is given up.
 /// Production's healthy starts (24 passing `cloud-chat-replies-production` rows, 2026-11-16 to 11-18): the link
@@ -98,39 +100,89 @@ struct Released {
     gone: bool,
     /// Why it is not gone.
     error: Option<Value>,
+    /// What it said about itself before its delete (stuck_facts.rs): `null` when it was never listed.
+    facts: Value,
 }
 
 impl Released {
     fn json(&self, name: &str, why: &Value) -> Value {
         json!({"machine_name": name, "machine_id": self.machine_id, "why": why, "deleted": self.gone,
-               "error": self.error})
+               "error": self.error, "facts": self.facts})
     }
 }
 
-/// Deletes the machine named `name` this run made: its id from the app's list, then `cloud kill-machine`.
-fn release(runner: &mut dyn Runner, name: &str) -> Released {
+/// Deletes the machine named `name` this run made: its id from the app's list, its facts read (stuck_facts.rs:
+/// each read bounded, and none of them can stop the delete), then `cloud kill-machine`. `stages` is the stuck
+/// attempt's own stage trace.
+fn release(runner: &mut dyn Runner, name: &str, stages: &Value, deadline: Deadline) -> Released {
     let listed = match step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"]))) {
         Ok(listed) => listed,
-        Err(error) => return Released { machine_id: None, gone: false, error: Some(error) },
+        Err(error) => {
+            return Released {
+                machine_id: None,
+                gone: false,
+                error: Some(error),
+                facts: Value::Null,
+            };
+        }
     };
     let rows = |key: &str| at(&listed, key).as_array().cloned().unwrap_or_default();
     let named = |row: &Value, key: &str| at(row, key).as_str() == Some(name);
-    let Some(id) = rows("machines")
-        .iter()
-        .find(|row| named(row, "title"))
-        .and_then(|row| at(row, "machine_id").as_str().map(str::to_owned))
-    else {
+    let found = rows("machines").into_iter().find(|row| named(row, "title")).and_then(|row| {
+        let id = at(&row, "machine_id").as_str()?.to_owned();
+        Some((id, row))
+    });
+    let Some((id, row)) = found else {
         // A create of it still on its way has no id to delete yet: it is not gone.
         let creating = rows("creating").iter().any(|row| named(row, "name"));
         let error = creating.then(|| json!({"message": "its create is still on its way"}));
-        return Released { machine_id: None, gone: !creating, error };
+        return Released { machine_id: None, gone: !creating, error, facts: Value::Null };
     };
+    let facts = stuck_facts::read(runner, &id, &row, stages, deadline);
     let target = format!("machine:{id}");
     let kill = ["cloud", "kill-machine", "--target", target.as_str(), "--confirm", "--json"];
     match step_result(&runner.cmux(&words(&kill))) {
-        Ok(_) => Released { machine_id: Some(id), gone: true, error: None },
-        Err(error) => Released { machine_id: Some(id), gone: false, error: Some(error) },
+        Ok(_) => Released { machine_id: Some(id), gone: true, error: None, facts },
+        Err(error) => Released { machine_id: Some(id), gone: false, error: Some(error), facts },
     }
+}
+
+/// The `fresh_retry` rows `outcome` carries (the answer's, or the error's `details`).
+pub(super) fn retried(outcome: &Outcome) -> Vec<Value> {
+    let rows = match outcome {
+        Outcome::Done(answer) => at(answer, "fresh_retry"),
+        Outcome::Failed { error, .. } => at(at(error, "details"), "fresh_retry"),
+    };
+    rows.as_array().cloned().unwrap_or_default()
+}
+
+/// `outcome` with `earlier` (the `fresh_retry` rows of a start before it in the same run, a `--make-room`
+/// rerun's first start) ahead of its own: no machine given up on drops out of the run's answer (cmux#46584).
+pub(super) fn keep_retried(earlier: Vec<Value>, mut outcome: Outcome) -> Outcome {
+    let own = retried(&outcome);
+    // `make_room` hands back an outcome it did not rerun as it was: its rows are the earlier ones already.
+    let mut rows: Vec<Value> = earlier.into_iter().filter(|row| !own.contains(row)).collect();
+    if rows.is_empty() {
+        return outcome;
+    }
+    rows.extend(own);
+    match &mut outcome {
+        Outcome::Done(answer) => {
+            answer["fresh_retry"] = json!(rows);
+        }
+        Outcome::Failed { error, .. } => {
+            if let Some(error) = error.as_object_mut() {
+                let details = error.entry("details").or_insert_with(|| json!({}));
+                if !details.is_object() {
+                    *details = json!({"was": details.clone()});
+                }
+                if let Some(details) = details.as_object_mut() {
+                    details.insert("fresh_retry".into(), json!(rows));
+                }
+            }
+        }
+    }
+    outcome
 }
 
 /// `outcome` (the run's first start, begun at `began`), or, when its new machine was stuck ([`stuck`]), the start
@@ -155,7 +207,8 @@ pub(super) fn replace_stuck(
         let details = at(error, "details");
         let Some(name) = at(details, "machine_name").as_str().map(str::to_owned) else { break };
         let why = at(details, "why").clone();
-        let released = release(runner, &name);
+        let stages = at(details, "stages_ms").clone();
+        let released = release(runner, &name, &stages, deadline);
         replaced.push(released.json(&name, &why));
         if !released.gone {
             // The very command `release` ran, so the person's retry of it is the same step.

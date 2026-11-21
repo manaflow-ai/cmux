@@ -1232,7 +1232,12 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     let outcome = run_once(runner, request);
     // A new machine this run made that never came up is deleted and the start runs on a fresh one (fresh.rs).
     let outcome = fresh::replace_stuck(runner, request, began, outcome);
-    if request.make_room { make_room(runner, request, began, outcome) } else { outcome }
+    if !request.make_room {
+        return outcome;
+    }
+    // The machines the first start gave up on stay in the answer after the rerun (cmux#46584).
+    let earlier = fresh::retried(&outcome);
+    fresh::keep_retried(earlier, make_room(runner, request, began, outcome))
 }
 
 /// `--make-room` after a cap refusal: free the machine the refusal offers, then start once more. A
@@ -3182,6 +3187,7 @@ mod fault;
 mod folder;
 mod fresh;
 mod internal;
+mod stuck_facts;
 use folder::local_folder;
 use internal::link_wait;
 mod support;
