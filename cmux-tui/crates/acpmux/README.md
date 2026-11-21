@@ -539,7 +539,12 @@ names) not running or waiting. The chat stays open and its idle agent exits as a
 does; the next prompt resumes it.
 Files dropped into a chat (`_acpmux/file_put`, under `<home>/uploads/<session>/`) are
 deleted with the chat (`_acpmux/kill` with purge) and once older than `uploadsMaxAgeDays`
-(default 30; 0 keeps them), checked at the daemon's start and daily.
+(default 30; 0 keeps them), checked at the daemon's start and daily. An upload never finished
+and untouched for a day goes at the same sweep. Session bundles in `<home>/bundles` (`session
+export` with no `--dest`) are deleted once nothing wrote or imported them for `bundlesMaxAgeDays`
+(default 30; 0 keeps them); a bundle exported with `--dest` elsewhere is never touched. The
+cross-host audit log (`cross-host-audit.jsonl`) keeps one previous file
+(`cross-host-audit.jsonl.1`) once it reaches 16 MiB.
 
 `usageWarnings` (`{"subagentsPerHour": 40, "autocompactCap": true}`, the defaults; with no
 `contextTokens` each session is held to its own window: its autocompact cap, else its model's

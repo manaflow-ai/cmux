@@ -23,6 +23,108 @@ fn marker_names(marker: &Path, outer_id: &str) -> bool {
         .is_some_and(|v| v.get("outerId").and_then(Value::as_str) == Some(outer_id))
 }
 
+/// Where `_acpmux/export` writes a bundle when it names no `dest`, and the one folder a remote
+/// caller may import from (`server/remote_guard.rs`).
+pub(super) fn bundles_dir() -> PathBuf {
+    crate::config::home().join("bundles")
+}
+
+/// Held while [`sweep_bundles`] decides on and deletes a bundle, and while an export or import
+/// marks one used ([`mark_bundle_used`]): a bundle being written or read is never deleted
+/// between the two.
+static BUNDLES_IN_USE: Mutex<()> = Mutex::new(());
+
+/// The marker of a bundle's last use: written by an export into it and by an import from it.
+const BUNDLE_USED: &str = ".used";
+
+/// Marks `dir` used now when it is a bundle in [`bundles_dir`], so [`sweep_bundles`] keeps it
+/// another `bundlesMaxAgeDays` from now. A bundle anywhere else (an export's `dest`, a move's
+/// transfer folder) is not the sweep's and is left as it is. Best effort: a bundle that cannot
+/// be marked still has the times of the files an export just wrote.
+fn mark_bundle_used(dir: &Path) {
+    mark_bundle_used_in(&bundles_dir(), dir);
+}
+
+fn mark_bundle_used_in(root: &Path, dir: &Path) {
+    let inside = match (std::fs::canonicalize(dir), std::fs::canonicalize(root)) {
+        (Ok(dir), Ok(root)) => dir.starts_with(&root) && dir != root,
+        _ => dir.starts_with(root),
+    };
+    if inside {
+        let _held = BUNDLES_IN_USE.lock().unwrap_or_else(|e| e.into_inner());
+        if crate::home_fs::create_dirs(dir).is_ok() {
+            let _ = crate::home_fs::write(dir.join(BUNDLE_USED), []);
+        }
+    }
+}
+
+/// When bundle folder `dir` was last written or used, in Unix ms: the newest of its folder,
+/// its `session.json`, `manifest.json` and [`BUNDLE_USED`] marker.
+fn bundle_used_at(dir: &Path) -> u64 {
+    [dir.to_path_buf(), dir.join("session.json"), dir.join("manifest.json"), dir.join(BUNDLE_USED)]
+        .iter()
+        .filter_map(|p| std::fs::symlink_metadata(p).and_then(|m| m.modified()).ok())
+        .filter_map(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .max()
+        .unwrap_or(u64::MAX)
+}
+
+/// The bytes of the files under `dir`, links not followed.
+fn tree_bytes(dir: &Path) -> u64 {
+    let mut total = 0;
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            match entry.file_type() {
+                Ok(kind) if kind.is_dir() => pending.push(entry.path()),
+                Ok(kind) if kind.is_file() => {
+                    total += entry.metadata().map_or(0, |m| m.len());
+                }
+                _ => {}
+            }
+        }
+    }
+    total
+}
+
+/// Deletes each session bundle under `root` that nothing wrote or imported for `max_age` at
+/// `now_ms` ([`bundle_used_at`]); answers how many went and their bytes. Only real folders that
+/// hold a `session.json` or `manifest.json` (what `export` writes) are read as bundles: a link,
+/// a file or any other folder is kept. A bundle is a copy: exporting it took nothing from its
+/// chat, and an import copies what it reads, so an imported chat never needs its bundle again.
+/// Blocking: run it off the runtime.
+pub(super) fn sweep_bundles(
+    root: &Path,
+    now_ms: u64,
+    max_age: std::time::Duration,
+) -> (usize, u64) {
+    let cutoff = now_ms.saturating_sub(u64::try_from(max_age.as_millis()).unwrap_or(u64::MAX));
+    let (mut removed, mut bytes) = (0, 0);
+    for entry in std::fs::read_dir(root).into_iter().flatten().flatten() {
+        let real_dir = entry.file_type().is_ok_and(|kind| kind.is_dir() && !kind.is_symlink());
+        let path = entry.path();
+        let is_bundle = || {
+            ["session.json", "manifest.json"]
+                .iter()
+                .any(|name| std::fs::symlink_metadata(path.join(name)).is_ok_and(|m| m.is_file()))
+        };
+        if !real_dir || !is_bundle() {
+            continue;
+        }
+        let _held = BUNDLES_IN_USE.lock().unwrap_or_else(|e| e.into_inner());
+        if bundle_used_at(&path) >= cutoff {
+            continue;
+        }
+        let size = tree_bytes(&path);
+        if crate::home_fs::remove_dir_all(&path).is_ok() {
+            removed += 1;
+            bytes += size;
+        }
+    }
+    (removed, bytes)
+}
+
 /// Releases an import's claim on its session id however the import ends.
 struct ImportReservation<'a> {
     hub: &'a Hub,
@@ -51,6 +153,8 @@ impl Hub {
             meta.history_kept_through = Some(r.through_seq);
         }
         let dir = dest.join(&meta.id);
+        // Marked before it is written, so the bundle sweep never takes a re-export under way.
+        mark_bundle_used(&dir);
         crate::home_fs::create_dirs(dir.join("events"))?;
         crate::home_fs::write(dir.join("session.json"), serde_json::to_string_pretty(&meta)?)?;
         use std::io::Write;
@@ -137,6 +241,10 @@ impl Hub {
         replace_durable: bool,
         defer_finalize: bool,
     ) -> Result<Arc<Session>, RpcError> {
+        // Marked before it is read, so the bundle sweep never takes a bundle being imported.
+        if bundle.join("session.json").is_file() {
+            mark_bundle_used(bundle);
+        }
         let meta_text = std::fs::read_to_string(bundle.join("session.json"))
             .map_err(|e| RpcError::invalid_params(format!("read session.json: {e}")))?;
         let mut meta: SessionMeta = serde_json::from_str(&meta_text)
@@ -881,6 +989,10 @@ mod fork_reference_export_tests;
 #[cfg(test)]
 #[path = "import_publish_tests.rs"]
 mod import_publish_tests;
+
+#[cfg(test)]
+#[path = "bundle_sweep_tests.rs"]
+mod bundle_sweep_tests;
 
 #[cfg(test)]
 mod tests {

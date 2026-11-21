@@ -165,6 +165,14 @@ impl Config {
         }
     }
 
+    /// `bundlesMaxAgeDays`, or its 30-day default; None when it is 0 (keep them).
+    pub fn bundles_max_age(&self) -> Option<std::time::Duration> {
+        match self.bundles_max_age_days.unwrap_or(30) {
+            0 => None,
+            days => Some(std::time::Duration::from_secs(days.saturating_mul(24 * 60 * 60))),
+        }
+    }
+
     /// `silentTurnMs`, or its 90 s default; None when it is 0 (off).
     pub fn silent_turn(&self) -> Option<std::time::Duration> {
         match self.silent_turn_ms.unwrap_or(90_000) {
