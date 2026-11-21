@@ -97,7 +97,7 @@ fi
 # anything else (a compare or marker read failure, more than NEWER_CHECK_MAX commits, the NEWER_CHECK_SECONDS bound)
 # prints nothing, and the run leaves as before.
 newer_marked() {
-  local marker="$here/../../cmux-next/tree-commit-marker.sh" shas sha rc deadline
+  local marker="$here/../../cmux-next/tree-commit-marker.sh" shas sha rc deadline left
   [[ -f "$marker" ]] || return 0
   shas="$(gh_bounded api "repos/$REPOSITORY/compare/$TIP_SHA...$tip" \
     --jq 'select(.status == "ahead" and .ahead_by == (.commits | length)) | .commits[].sha' 2>/dev/null)" || return 0
@@ -106,15 +106,20 @@ newer_marked() {
   deadline=$(( $(date -u +%s) + ${NEWER_CHECK_SECONDS:-90} ))
   # Newest first: the tick promotes the newest buildable commit, and markers are written for a window from the tip.
   while IFS= read -r sha; do
-    (( $(date -u +%s) < deadline )) || return 0
+    # Each read gets only the time left, so the reads together stay inside NEWER_CHECK_SECONDS.
+    left=$(( deadline - $(date -u +%s) ))
+    (( left > 0 )) || return 0
+    (( left <= ${GH_CALL_SECONDS:-30} )) || left=${GH_CALL_SECONDS:-30}
     [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || return 0
-    rc=0; bash "$here/../timeout.sh" "${GH_CALL_SECONDS:-30}" bash "$marker" check "$sha" >/dev/null 2>&1 || rc=$?
+    rc=0; bash "$here/../timeout.sh" "$left" bash "$marker" check "$sha" >/dev/null 2>&1 || rc=$?
     case "$rc" in
       0) echo "marked $sha"; return 0 ;;
       1) ;;
       *) return 0 ;;
     esac
   done < <(awk '{ l[NR] = $0 } END { for (i = NR; i > 0; i--) print l[i] }' <<<"$shas")
+  # A last read that ended past the bound is not a clean answer: leave as before.
+  (( $(date -u +%s) <= deadline )) || return 0
   echo none
 }
 if [[ -n "${IN_SLOT:-}" ]]; then
