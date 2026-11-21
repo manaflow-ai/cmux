@@ -719,12 +719,24 @@ async fn a_child_that_exits_under_a_hold_answers_its_ask() {
     serve.expect("resume").await;
     serve.send(json!({"ahead": 7, "keep_ms": 60_000}));
     let mut held = accepted(&listener).await;
-    // Opened and closed: the child's read ends, and the child exits.
-    tokio::task::spawn_blocking(move || {
-        drop(std::fs::OpenOptions::new().write(true).open(die).expect("the child reads its pipe"));
-    })
-    .await
-    .expect("the pipe is closed");
+    // Opened and closed: the child's read ends, and the child exits. The
+    // open is asked again, without waiting, until the child reads its pipe.
+    let deadline = tokio::time::Instant::now() + LINE_WAIT;
+    loop {
+        match pipe::OpenOptions::new().open_sender(&die) {
+            Ok(sender) => {
+                drop(sender);
+                break;
+            }
+            Err(error) => {
+                assert!(
+                    tokio::time::Instant::now() < deadline,
+                    "the child reads its pipe: {error}"
+                );
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }
+    }
     // The ask may still wait for the serve's answer: it is told at once.
     assert_eq!(serve.expect("ahead").await, json!({"ahead": 7, "held": false}));
     assert!(closed(&mut held).await, "dropped at the child's exit");

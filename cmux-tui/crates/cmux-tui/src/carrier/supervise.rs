@@ -686,22 +686,29 @@ impl Supervisor {
 /// One connection on the serving socket at `socket`, held until `keep`
 /// passed (counted from the ask), the serve closed its end, or `cancelled`
 /// (its sender dropped), which also ends a connect still under way. What
-/// the serve sends on it is read and dropped. False when the socket took no
-/// connection.
-async fn hold_ahead(socket: &str, keep: Duration, cancelled: oneshot::Receiver<()>) -> bool {
-    let held = async {
-        let Ok(mut stream) = UnixStream::connect(socket).await else {
-            return false;
-        };
+/// the serve sends on it is read and dropped. False when no connection was
+/// made: the socket took none, or `keep` passed first.
+async fn hold_ahead(socket: &str, keep: Duration, mut cancelled: oneshot::Receiver<()>) -> bool {
+    let kept = tokio::time::sleep(keep);
+    tokio::pin!(kept);
+    let mut stream = tokio::select! {
+        stream = UnixStream::connect(socket) => match stream {
+            Ok(stream) => stream,
+            Err(_) => return false,
+        },
+        () = &mut kept => return false,
+        _ = &mut cancelled => return true,
+    };
+    let ended = async {
         let mut dropped = [0_u8; 1024];
         while matches!(stream.read(&mut dropped).await, Ok(read) if read > 0) {}
-        true
     };
     tokio::select! {
-        connected = held => connected,
-        () = tokio::time::sleep(keep) => true,
-        _ = cancelled => true,
+        () = ended => {}
+        () = &mut kept => {}
+        _ = &mut cancelled => {}
     }
+    true
 }
 
 /// Takes the lease at `path` within `wait`; None when another holder kept

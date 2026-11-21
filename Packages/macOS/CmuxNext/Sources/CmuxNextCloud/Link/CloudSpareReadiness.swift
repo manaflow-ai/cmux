@@ -3,7 +3,7 @@ import os
 
 /// Leo, Cloud V0 item 1 ("A chat starts in a few seconds: ready spare"): the person's warm spare made ready in this
 /// app run before any claim, so the start that claims it has little left to do but open its chat. On a warm's answer
-/// (``CloudSpareWarm``) or the platform's `cloud.spare.ready` (``CloudMachineWire/onSpareReady``), ``prime(_:team:)``
+/// (``CloudSpareWarm``) or the platform's `cloud.spare.ready` (``CloudMachineWire/onSpareReady``), ``prime(_:team:dials:)``
 /// keys the spare's acpmux for remote approvals (the start's own keyed restart, done ahead: an unclaimed spare's
 /// creator is the person, all the owner check asks) and starts its carrier link beside it. A prime from the warm
 /// or from a compose's reserve (the person is about to start a chat, and the service keeps the machine running for
@@ -97,7 +97,8 @@ public final class CloudSpareReadiness {
     /// nothing, so a prime after that reset starts its own. `dials`: it dials its link; `id` tells it from a later one.
     private var primes: [String: (resets: Int, dials: Bool, id: Int, task: Task<Void, Never>)] = [:]
     private var lastPrime = 0
-    /// Machines whose session asked for a link while their prime still read the team: that prime links nothing.
+    /// Machines whose session asked for its link while a prime still ran for them: the primes running for it make no
+    /// link after that.
     private var asked: Set<String> = []
     /// When a key ahead of `machine` last did not key it: not tried again for ``keyRetry``, so a spare whose daemon is
     /// busy or too old is not read (or restarted) on every app activation.
@@ -159,10 +160,10 @@ public final class CloudSpareReadiness {
     /// The link made ahead for `machine`, for its session to take, when it is still for the scope signed in, `team` and
     /// not past ``linkKept``; else nil, and a link that no longer fits is ended. Taken once.
     public func link(for machine: String, team: String?) -> CloudCarrierServe? {
-        guard let held = links.removeValue(forKey: machine) else {
-            if primes[machine] != nil { asked.insert(machine) }
-            return nil
-        }
+        // Its session links now, with this link or its own: a prime still running for it (one that joined may still
+        // read the team) makes no other.
+        if primes[machine] != nil { asked.insert(machine) }
+        guard let held = links.removeValue(forKey: machine) else { return nil }
         let scope = dependencies.scope()
         guard fits(held, scope: scope), held.team == team else {
             let why = held.scope != scope ? "the account changed since"
@@ -223,8 +224,8 @@ public final class CloudSpareReadiness {
         // is not made.
         guard resets == self.resets, !asked.contains(machine), dependencies.scope() == scope else { return }
         // Held and fit: kept. A prime that dials replaces a link made for another team than the one it names; any
-        // other prime keeps what is held.
-        let kept = links[machine].map { fits($0, scope: scope) && ($0.team == team || !dials) } ?? false
+        // other prime, and one whose team could not be read, keeps what is held.
+        let kept = links[machine].map { fits($0, scope: scope) && ($0.team == team || !dials || team == nil) } ?? false
         if !kept {
             if let stale = links.removeValue(forKey: machine) { end(stale.link) }
             guard let link = dependencies.link(machine, team) else { return }

@@ -397,6 +397,55 @@ import Testing
         #expect(readiness.link(for: "vm_spare", team: "team_install") != nil)
     }
 
+    /// The claim takes the first prime's link while a dialing prime that joined it still reads the team: that prime
+    /// makes no second link, which nobody would take.
+    @Test func aClaimThatTookTheLinkLeavesAJoinedPrimeLinkingNothing() async {
+        let world = World()
+        var dependencies = world.dependencies()
+        let (teamGate, teamOpen) = AsyncStream.makeStream(of: Void.self)
+        let (keyGate, keyOpen) = AsyncStream.makeStream(of: Void.self)
+        let (reading, read) = AsyncStream.makeStream(of: String.self)
+        var reads = 0
+        dependencies.team = {
+            reads += 1
+            if reads == 2 {
+                read.yield("second")
+                for await _ in teamGate { break }
+            }
+            return "team_install"
+        }
+        (world.keyGate, world.dialed) = (keyGate, true)
+        let readiness = CloudSpareReadiness(dependencies)
+        // The wire's prime links and still keys; the reserve's prime joins it and reads the team.
+        readiness.prime("vm_spare")
+        #expect(await firstValue(world.made) == "vm_spare")
+        readiness.prime("vm_spare", dials: true)
+        #expect(await firstValue(reading) == "second")
+        #expect(readiness.link(for: "vm_spare", team: "team_install") != nil)
+        teamOpen.yield()
+        keyOpen.yield()
+        await readiness.settled("vm_spare")
+        #expect(world.links == ["vm_spare"], "no second link after the claim took the first")
+        #expect(world.dials.isEmpty)
+        // The next prime (another spare's warm, or this machine's next one) links again.
+        readiness.prime("vm_spare", dials: true)
+        await readiness.settled("vm_spare")
+        #expect(world.links == ["vm_spare", "vm_spare"])
+    }
+
+    /// A dialing prime whose team could not be read keeps the link held for the spare's team.
+    @Test func aDialingPrimeWithNoReadableTeamKeepsTheLinkHeld() async {
+        let world = World(), readiness = CloudSpareReadiness(world.dependencies())
+        world.dialed = true
+        readiness.prime("vm_spare", team: "team_install", dials: true)
+        await readiness.settled("vm_spare")
+        readiness.prime("vm_spare", dials: true)
+        await readiness.settled("vm_spare")
+        #expect(world.links == ["vm_spare"])
+        #expect(world.dials == ["vm_spare"])
+        #expect(readiness.link(for: "vm_spare", team: "team_install") != nil)
+    }
+
     /// The claim asks while a dialing prime still reads the team: nothing is linked and nothing is dialed.
     @Test func aClaimDuringTheTeamReadLeavesADialingPrimeDialingNothing() async {
         let world = World()
