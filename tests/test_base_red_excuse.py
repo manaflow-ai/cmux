@@ -3375,12 +3375,24 @@ class BatchSuiteBaseVerdict(unittest.TestCase):
         # A ci.yml job outside the caller job is not the suite's.
         self.assertIsNone(excuse.base_caller(REPO, "feat-cmux-next", ci, SWIFT))
 
-    def test_the_batch_suite_wins_over_the_push_caller_once_its_entry_lands(self):
+    def test_with_no_web_suite_yet_a_web_shard_reads_the_push_caller(self):
         ci = {"path": ".github/workflows/ci.yml"}
         batch_manifest(self, {"drill": BATCH_SUITES["drill"]})
         self.assertEqual(excuse.base_caller(REPO, "feat-cmux-next", ci, WEB_SHARD),
                          (excuse.BASE_WORKFLOW_FOR[("feat-cmux-next", "ci.yml", "web")], WEB_SHARD))
 
+    def test_a_web_shard_reads_the_web_suites_batch_runs_once_its_entry_lands(self):
+        # cmux#48846's web suite: ci.yml's 'web / ...' shard is judged against the batch runs' 'web / ...' checks,
+        # as it was against cmux-next-web.yml's push runs (the same fixture, served as batch runs).
+        batch_manifest(self, {"web": {"workflow": "ci-web.yml", "paths": [], "jobs": {}}})
+        gh = WebShardBaseGitHub()
+        json_of = gh.json
+        gh.json = lambda route, **kw: json_of(route.replace(f"/{excuse.POST_MERGE_WORKFLOW}/", "/cmux-next-web.yml/"),
+                                              **kw)
+        text = self.judge(gh)
+        self.assertIn(f"excused '{WEB_SHARD}'", text)
+        self.assertIn("run 40", text)
+        self.assertIn(f"/actions/workflows/cmux-next-web.yml/runs?branch=feat-cmux-next", "".join(gh.routes))
 
 
 class CheckedInBatchManifest(unittest.TestCase):
@@ -3396,7 +3408,6 @@ class CheckedInBatchManifest(unittest.TestCase):
             for display in suite["jobs"].values():
                 self.assertEqual(excuse.base_caller(REPO, "feat-cmux-next", run, display),
                                  (excuse.POST_MERGE_WORKFLOW, f"{key} / {display}"), key)
-
 
 class WebReplayGitHub(WebShardBaseGitHub):
     """cmux#34111 at 64617d70 (2026-11-08): the head's ci.yml run 10 failed REPLAY, its merge-parent replay, which

@@ -6015,10 +6015,10 @@ def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, 
                           suites: SuiteChecks | None = None, base_workflow=None, base_name=None) -> str:
     """The audit line for red head JOB (VIEW: its failed_view; WORKFLOW_INFO: its run) when each of its failing steps
     is fixed on base by the rule above, BASE_RUN and BASE_JOB being the base's newest verdict for it, from
-    BASE_WORKFLOW (the head's own workflow when None; a BASE_WORKFLOW_FOR caller's otherwise, whose runs then give the
-    merge-base's verdict too, #41104's review F2, under BASE_NAME: a batch suite's check name). OTHERS: the head's
-    red jobs; one of NAME in another workflow makes the job's identity unknown. Its failures must also be the merge-base verdict's: each failing step's test ids and
-    `file:line` compiler errors (a continue-on-error check's: the job's file error annotations) among that run's, so a
+    BASE_WORKFLOW (the head's own workflow when None; a base caller's otherwise, whose runs then give the merge-base's
+    verdict too, #41104's review F2, under BASE_NAME: a batch suite's check name). OTHERS: the head's red jobs; one of
+    NAME in another workflow makes the job's identity unknown. Its failures must also be the merge-base verdict's:
+    each failing step's test ids and `file:line` compiler errors (a continue-on-error check's: the job's file error annotations) among that run's, so a
     new failure in a step red at the merge-base is never excused (#41117's review F1). Raises Refused with why not."""
     workflow = workflow_info.get("workflow_id")
     base_workflow = workflow if base_workflow is None else base_workflow
@@ -8797,7 +8797,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                             # Out of verdicts because the cap cut the search, with older runs unread (#47971's review
                             # F1, as the placed window's F3): an older red matching the whole head may be among them.
                             if (run is None and read < BASE_WINDOW
-                                    and (cut := search_cut_any(job_reads, (workflow, name), (base_workflow, base_name))) is not None):
+                                    and (cut := search_cut_any(job_reads, (workflow, name),
+                                                               (base_workflow, base_name))) is not None):
                                 raise Refused(f"{cut_refusal(name, base, cut)}; the newest so far: "
                                               f"{mismatch}") from None
                             # Last, so it pre-empts no excuse: a refusal that says the base ran and passed the check
