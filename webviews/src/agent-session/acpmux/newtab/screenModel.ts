@@ -15,7 +15,8 @@ import {
   type OmnibarRow,
 } from "../omnibar";
 import { activityTime, listed, normalizedSessionEntry, sessionMark, type AcpmuxSessionEntry } from "../sessionList";
-import { classifyNewTabInput, TERMINAL_PREFIX } from "../newTabIntent";
+import { classifyNewTabInput, TERMINAL_PREFIX, type NewTabIntent } from "../newTabIntent";
+import { resumeReference } from "../resumeCommand";
 import { commandLikeness, isMultiline } from "./commandIntent";
 import { type Translate, translate } from "../i18n";
 import type { DeviceChat } from "./deviceChats";
@@ -55,7 +56,10 @@ export type ScreenRow =
   /// Start an agent in a folder (launchRows.ts): "Codex in ~/fun/cmux".
   | LaunchRow
   /// Run `command` in a terminal in the page's folder, as `!command` does (commandIntent.ts).
-  | { type: "run"; command: string };
+  | { type: "run"; command: string }
+  /// Resume the chat `ref` names (resumeCommand.ts `resumeReference`): `/resume <ref>`, a pasted
+  /// session id, `claude --resume <id>`. It runs `/resume <ref>`, the chat composer's command.
+  | { type: "resume"; ref: string };
 
 /// The omnibar's agent sources: the folders and agents to start, and the disk's answer for a typed
 /// path (``FolderListing``). All optional: without them the rows are as before. No chats: the
@@ -231,6 +235,20 @@ function navigationRows(
     typingPort(text, context.home) ?? classifyNewTabInput(text, context.home ? { home: context.home } : {});
   // A pairing link offers nothing: no search, no Ask, no address, no create row (they carry the text).
   if (intent.kind === "none" || intent.kind === "terminal" || intent.kind === "refused") return [];
+  // A chat to resume leads (user 2026-11-20: "resuming claude sessions needs to 'just work'"). Typed
+  // as `/resume <ref>` it is the one row: Ask would run the same command, and it is no web search.
+  const resumeRef = resumeReference(text);
+  const resume: ScreenRow[] = resumeRef ? [{ type: "resume", ref: resumeRef }] : [];
+  if (resume.length && text.trim().startsWith("/")) return resume;
+  return [...resume, ...typedRows(text, intent, context)].slice(0, resume.length ? MAX_SUGGESTIONS : undefined);
+}
+
+/// The rows for typed text that is not only a chat to resume.
+function typedRows(
+  text: string,
+  intent: Exclude<NewTabIntent, { kind: "none" | "terminal" | "refused" }>,
+  context: { omnibar: OmnibarContext; home?: string; ask?: ScreenAsk; order?: SuggestionOrder } & ScreenAgentSources,
+): ScreenRow[] {
   const order = context.order ?? DEFAULT_SUGGESTION_ORDER;
   const query = text.trim();
   const ask: ScreenRow[] = context.ask ? [{ type: "ask", text: query, ...context.ask }] : [];
