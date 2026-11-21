@@ -124,6 +124,8 @@ public final class TrafficLightsOwner {
     private var watched: [Watched] = []
     /// True while the lights are placed: their own frame changes are not AppKit's.
     private var isPlacing = false
+    /// The placements run (``place(_:)``) since the owner was made: a window pass that moved nothing runs none (tests).
+    public private(set) var placements = 0
     /// A placement before Core Animation's next commit is asked for.
     private var commitPassPending = false
     /// Core Animation commits at order 2,000,000 of the main run loop's before-waiting stage, after AppKit's display
@@ -186,6 +188,7 @@ public final class TrafficLightsOwner {
     func place(_ body: () -> Bool) {
         guard !isPlacing else { return }
         isPlacing = true
+        placements += 1
         defer { isPlacing = false }
         for _ in 0..<3 where body() { return }
     }
