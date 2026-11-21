@@ -150,8 +150,8 @@ pub const REFUSED_RETRY_MS: u64 = 30_000;
 pub const FLUSH_MS: u64 = 15 * 60 * 1000;
 /// How long results wait to steer into a running turn after the oldest new one came, so a burst
 /// goes in as ONE steer at a tool step instead of one each: every steer is a new user message,
-/// which re-runs the harness's prompt hooks (1-3 KB of injected context each, measured on
-/// fs-agent-lane-2, 2026-11-21: 3 results in 3 minutes interrupted one turn singly). A block, a
+/// which re-runs the harness's prompt hooks (1-3 KB of injected context each, measured
+/// 2026-11-21: 3 results in 3 minutes interrupted one turn singly). A block, a
 /// question, a message from the chat's parent or delegator ([`steers_at_once`]) and a Stop's
 /// `due_now` bring the batch at once.
 pub const STEER_COALESCE_MS: u64 = 2 * 60 * 1000;
