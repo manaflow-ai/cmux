@@ -9,69 +9,42 @@ extension NotificationSettingsSchema {
         let group = SettingsText.keyed("settings.group.notificationDelivery", "Delivery by Event")
         return [
             SettingDescriptor(
-                NotificationPreferences.finishedDeliveryPath,
+                NotificationPreferences.permissionRequestDeliveryPath,
                 section: .notifications,
                 group: group,
-                title: SettingsText.keyed("settings.notifications.sounds.event.finished", "Agent Finished"),
+                title: SettingsText.keyed("settings.notifications.delivery.permissionRequest", "Permission Request"),
                 kind: .choice([
-                    SettingChoice(NotificationDeliveryLevel.inherit.rawValue, SettingsText.keyed("settings.notifications.delivery.inherit", "Use Notification Settings")),
-                    SettingChoice(NotificationDeliveryLevel.bannerOnly.rawValue, SettingsText.keyed("settings.notifications.delivery.bannerOnly", "Banner Without Sound")),
-                    SettingChoice(NotificationDeliveryLevel.inApp.rawValue, SettingsText.keyed("settings.notifications.delivery.inApp", "In App Only")),
+                    SettingChoice(NotificationDeliveryLevel.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
+                    SettingChoice(NotificationDeliveryLevel.badge.rawValue, SettingsText.keyed("settings.choice.badge", "Badge")),
+                    SettingChoice(NotificationDeliveryLevel.banner.rawValue, SettingsText.keyed("settings.notifications.delivery.banner", "Banner")),
                 ]),
-                default: .string(NotificationPreferences.finishedDeliveryDefault.rawValue),
-                keywords: ["banner", "delivery"]
+                default: .string(NotificationPreferences.permissionRequestDeliveryDefault.rawValue),
+                keywords: ["banner", "delivery", "permissionRequest"]
             ),
             SettingDescriptor(
-                NotificationPreferences.needsInputDeliveryPath,
+                NotificationPreferences.questionDeliveryPath,
                 section: .notifications,
                 group: group,
-                title: SettingsText.keyed("settings.notifications.sounds.event.needsInput", "Agent Needs Input"),
+                title: SettingsText.keyed("settings.notifications.delivery.question", "Question"),
                 kind: .choice([
-                    SettingChoice(NotificationDeliveryLevel.inherit.rawValue, SettingsText.keyed("settings.notifications.delivery.inherit", "Use Notification Settings")),
-                    SettingChoice(NotificationDeliveryLevel.bannerOnly.rawValue, SettingsText.keyed("settings.notifications.delivery.bannerOnly", "Banner Without Sound")),
-                    SettingChoice(NotificationDeliveryLevel.inApp.rawValue, SettingsText.keyed("settings.notifications.delivery.inApp", "In App Only")),
+                    SettingChoice(NotificationDeliveryLevel.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
+                    SettingChoice(NotificationDeliveryLevel.badge.rawValue, SettingsText.keyed("settings.choice.badge", "Badge")),
+                    SettingChoice(NotificationDeliveryLevel.banner.rawValue, SettingsText.keyed("settings.notifications.delivery.banner", "Banner")),
                 ]),
-                default: .string(NotificationPreferences.needsInputDeliveryDefault.rawValue),
-                keywords: ["banner", "delivery"]
+                default: .string(NotificationPreferences.questionDeliveryDefault.rawValue),
+                keywords: ["banner", "delivery", "question"]
             ),
             SettingDescriptor(
-                NotificationPreferences.errorDeliveryPath,
+                NotificationPreferences.taskCompleteDeliveryPath,
                 section: .notifications,
                 group: group,
-                title: SettingsText.keyed("settings.notifications.sounds.event.error", "Error"),
+                title: SettingsText.keyed("settings.notifications.delivery.taskComplete", "Task Complete"),
                 kind: .choice([
-                    SettingChoice(NotificationDeliveryLevel.inherit.rawValue, SettingsText.keyed("settings.notifications.delivery.inherit", "Use Notification Settings")),
-                    SettingChoice(NotificationDeliveryLevel.bannerOnly.rawValue, SettingsText.keyed("settings.notifications.delivery.bannerOnly", "Banner Without Sound")),
-                    SettingChoice(NotificationDeliveryLevel.inApp.rawValue, SettingsText.keyed("settings.notifications.delivery.inApp", "In App Only")),
+                    SettingChoice(NotificationDeliveryLevel.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
+                    SettingChoice(NotificationDeliveryLevel.banner.rawValue, SettingsText.keyed("settings.notifications.delivery.banner", "Banner")),
                 ]),
-                default: .string(NotificationPreferences.errorDeliveryDefault.rawValue),
-                keywords: ["banner", "delivery"]
-            ),
-            SettingDescriptor(
-                NotificationPreferences.bellDeliveryPath,
-                section: .notifications,
-                group: group,
-                title: SettingsText.keyed("settings.notifications.sounds.event.bell", "Terminal Notification"),
-                kind: .choice([
-                    SettingChoice(NotificationDeliveryLevel.inherit.rawValue, SettingsText.keyed("settings.notifications.delivery.inherit", "Use Notification Settings")),
-                    SettingChoice(NotificationDeliveryLevel.bannerOnly.rawValue, SettingsText.keyed("settings.notifications.delivery.bannerOnly", "Banner Without Sound")),
-                    SettingChoice(NotificationDeliveryLevel.inApp.rawValue, SettingsText.keyed("settings.notifications.delivery.inApp", "In App Only")),
-                ]),
-                default: .string(NotificationPreferences.bellDeliveryDefault.rawValue),
-                keywords: ["banner", "delivery"]
-            ),
-            SettingDescriptor(
-                NotificationPreferences.messageDeliveryPath,
-                section: .notifications,
-                group: group,
-                title: SettingsText.keyed("settings.notifications.sounds.event.message", "cmux notify Message"),
-                kind: .choice([
-                    SettingChoice(NotificationDeliveryLevel.inherit.rawValue, SettingsText.keyed("settings.notifications.delivery.inherit", "Use Notification Settings")),
-                    SettingChoice(NotificationDeliveryLevel.bannerOnly.rawValue, SettingsText.keyed("settings.notifications.delivery.bannerOnly", "Banner Without Sound")),
-                    SettingChoice(NotificationDeliveryLevel.inApp.rawValue, SettingsText.keyed("settings.notifications.delivery.inApp", "In App Only")),
-                ]),
-                default: .string(NotificationPreferences.messageDeliveryDefault.rawValue),
-                keywords: ["banner", "delivery"]
+                default: .string(NotificationPreferences.taskCompleteDeliveryDefault.rawValue),
+                keywords: ["banner", "delivery", "taskComplete"]
             ),
         ]
     }

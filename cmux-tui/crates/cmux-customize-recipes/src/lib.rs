@@ -191,7 +191,7 @@ pub const RECIPES: &[Recipe] = &[
         name: "claude-code-notification-levels",
         title: "Claude Code notification levels",
         group: Group::Apps,
-        ask: "keep finished turns in the app",
+        ask: "show permission banners and question badges, with task-complete alerts off",
         profile: include_str!(
             "../../../../examples/looks/claude-code/notification-levels/cmux-setup.json"
         ),

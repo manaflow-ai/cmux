@@ -1342,40 +1342,41 @@
       },
       "rows": [
         {
-          "key": "notifications.delivery.finished",
-          "name": "finishedDelivery",
+          "key": "notifications.delivery.permissionRequest",
+          "name": "permissionRequestDelivery",
           "title": {
-            "key": "settings.notifications.sounds.event.finished",
-            "text": "Agent Finished"
+            "key": "settings.notifications.delivery.permissionRequest",
+            "text": "Permission Request"
           },
           "kind": "choice",
           "choices": [
             {
-              "value": "inherit",
+              "value": "off",
               "title": {
-                "key": "settings.notifications.delivery.inherit",
-                "text": "Use Notification Settings"
+                "key": "settings.choice.off",
+                "text": "Off"
               }
             },
             {
-              "value": "bannerOnly",
+              "value": "badge",
               "title": {
-                "key": "settings.notifications.delivery.bannerOnly",
-                "text": "Banner Without Sound"
+                "key": "settings.choice.badge",
+                "text": "Badge"
               }
             },
             {
-              "value": "inApp",
+              "value": "banner",
               "title": {
-                "key": "settings.notifications.delivery.inApp",
-                "text": "In App Only"
+                "key": "settings.notifications.delivery.banner",
+                "text": "Banner"
               }
             }
           ],
-          "default": "inherit",
+          "default": "banner",
           "keywords": [
             "banner",
-            "delivery"
+            "delivery",
+            "permissionRequest"
           ],
           "swift_enum": {
             "name": "NotificationDeliveryLevel",
@@ -1383,40 +1384,41 @@
           }
         },
         {
-          "key": "notifications.delivery.needsInput",
-          "name": "needsInputDelivery",
+          "key": "notifications.delivery.question",
+          "name": "questionDelivery",
           "title": {
-            "key": "settings.notifications.sounds.event.needsInput",
-            "text": "Agent Needs Input"
+            "key": "settings.notifications.delivery.question",
+            "text": "Question"
           },
           "kind": "choice",
           "choices": [
             {
-              "value": "inherit",
+              "value": "off",
               "title": {
-                "key": "settings.notifications.delivery.inherit",
-                "text": "Use Notification Settings"
+                "key": "settings.choice.off",
+                "text": "Off"
               }
             },
             {
-              "value": "bannerOnly",
+              "value": "badge",
               "title": {
-                "key": "settings.notifications.delivery.bannerOnly",
-                "text": "Banner Without Sound"
+                "key": "settings.choice.badge",
+                "text": "Badge"
               }
             },
             {
-              "value": "inApp",
+              "value": "banner",
               "title": {
-                "key": "settings.notifications.delivery.inApp",
-                "text": "In App Only"
+                "key": "settings.notifications.delivery.banner",
+                "text": "Banner"
               }
             }
           ],
-          "default": "inherit",
+          "default": "banner",
           "keywords": [
             "banner",
-            "delivery"
+            "delivery",
+            "question"
           ],
           "swift_enum": {
             "name": "NotificationDeliveryLevel",
@@ -1424,122 +1426,34 @@
           }
         },
         {
-          "key": "notifications.delivery.error",
-          "name": "errorDelivery",
+          "key": "notifications.delivery.taskComplete",
+          "name": "taskCompleteDelivery",
           "title": {
-            "key": "settings.notifications.sounds.event.error",
-            "text": "Error"
+            "key": "settings.notifications.delivery.taskComplete",
+            "text": "Task Complete"
           },
           "kind": "choice",
           "choices": [
             {
-              "value": "inherit",
+              "value": "off",
               "title": {
-                "key": "settings.notifications.delivery.inherit",
-                "text": "Use Notification Settings"
+                "key": "settings.choice.off",
+                "text": "Off"
               }
             },
             {
-              "value": "bannerOnly",
+              "value": "banner",
               "title": {
-                "key": "settings.notifications.delivery.bannerOnly",
-                "text": "Banner Without Sound"
-              }
-            },
-            {
-              "value": "inApp",
-              "title": {
-                "key": "settings.notifications.delivery.inApp",
-                "text": "In App Only"
+                "key": "settings.notifications.delivery.banner",
+                "text": "Banner"
               }
             }
           ],
-          "default": "inherit",
+          "default": "banner",
           "keywords": [
             "banner",
-            "delivery"
-          ],
-          "swift_enum": {
-            "name": "NotificationDeliveryLevel",
-            "generated": false
-          }
-        },
-        {
-          "key": "notifications.delivery.bell",
-          "name": "bellDelivery",
-          "title": {
-            "key": "settings.notifications.sounds.event.bell",
-            "text": "Terminal Notification"
-          },
-          "kind": "choice",
-          "choices": [
-            {
-              "value": "inherit",
-              "title": {
-                "key": "settings.notifications.delivery.inherit",
-                "text": "Use Notification Settings"
-              }
-            },
-            {
-              "value": "bannerOnly",
-              "title": {
-                "key": "settings.notifications.delivery.bannerOnly",
-                "text": "Banner Without Sound"
-              }
-            },
-            {
-              "value": "inApp",
-              "title": {
-                "key": "settings.notifications.delivery.inApp",
-                "text": "In App Only"
-              }
-            }
-          ],
-          "default": "inherit",
-          "keywords": [
-            "banner",
-            "delivery"
-          ],
-          "swift_enum": {
-            "name": "NotificationDeliveryLevel",
-            "generated": false
-          }
-        },
-        {
-          "key": "notifications.delivery.message",
-          "name": "messageDelivery",
-          "title": {
-            "key": "settings.notifications.sounds.event.message",
-            "text": "cmux notify Message"
-          },
-          "kind": "choice",
-          "choices": [
-            {
-              "value": "inherit",
-              "title": {
-                "key": "settings.notifications.delivery.inherit",
-                "text": "Use Notification Settings"
-              }
-            },
-            {
-              "value": "bannerOnly",
-              "title": {
-                "key": "settings.notifications.delivery.bannerOnly",
-                "text": "Banner Without Sound"
-              }
-            },
-            {
-              "value": "inApp",
-              "title": {
-                "key": "settings.notifications.delivery.inApp",
-                "text": "In App Only"
-              }
-            }
-          ],
-          "default": "inherit",
-          "keywords": [
-            "banner",
-            "delivery"
+            "delivery",
+            "taskComplete"
           ],
           "swift_enum": {
             "name": "NotificationDeliveryLevel",

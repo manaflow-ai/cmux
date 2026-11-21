@@ -166,21 +166,15 @@ extension NotificationSoundPreferences {
 }
 
 extension NotificationPreferences {
-    /// `notifications.delivery.finished`.
-    public nonisolated static let finishedDeliveryPath = ["notifications", "delivery", "finished"]
-    public nonisolated static let finishedDeliveryDefault: NotificationDeliveryLevel = .inherit
-    /// `notifications.delivery.needsInput`.
-    public nonisolated static let needsInputDeliveryPath = ["notifications", "delivery", "needsInput"]
-    public nonisolated static let needsInputDeliveryDefault: NotificationDeliveryLevel = .inherit
-    /// `notifications.delivery.error`.
-    public nonisolated static let errorDeliveryPath = ["notifications", "delivery", "error"]
-    public nonisolated static let errorDeliveryDefault: NotificationDeliveryLevel = .inherit
-    /// `notifications.delivery.bell`.
-    public nonisolated static let bellDeliveryPath = ["notifications", "delivery", "bell"]
-    public nonisolated static let bellDeliveryDefault: NotificationDeliveryLevel = .inherit
-    /// `notifications.delivery.message`.
-    public nonisolated static let messageDeliveryPath = ["notifications", "delivery", "message"]
-    public nonisolated static let messageDeliveryDefault: NotificationDeliveryLevel = .inherit
+    /// `notifications.delivery.permissionRequest`.
+    public nonisolated static let permissionRequestDeliveryPath = ["notifications", "delivery", "permissionRequest"]
+    public nonisolated static let permissionRequestDeliveryDefault: NotificationDeliveryLevel = .banner
+    /// `notifications.delivery.question`.
+    public nonisolated static let questionDeliveryPath = ["notifications", "delivery", "question"]
+    public nonisolated static let questionDeliveryDefault: NotificationDeliveryLevel = .banner
+    /// `notifications.delivery.taskComplete`.
+    public nonisolated static let taskCompleteDeliveryPath = ["notifications", "delivery", "taskComplete"]
+    public nonisolated static let taskCompleteDeliveryDefault: NotificationDeliveryLevel = .banner
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).

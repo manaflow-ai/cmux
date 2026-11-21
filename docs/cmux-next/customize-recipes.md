@@ -149,13 +149,16 @@ Or ask: "make cmux look and work like the Claude desktop app's Code tab"
 
 ### Claude Code notification levels
 
-Keep finished turns in the app. Requests for input and errors follow your current notification settings.
+Show banners for permission requests, badges for questions, and turn task-complete alerts off.
+The profile maps Claude Code’s `permission_request`, `question`, and `task_complete` events
+to `notifications.delivery.permissionRequest`, `.question`, and `.taskComplete`.
+Source: Claude Code 6.28899.6, `app.asar`, `index.chunk-CknhaMei.js`, bytes 294195–294880.
 
 ```sh
 cmux customize use ~/.local/state/cmux/customize/recipes/claude-code-notification-levels.json
 ```
 
-Or ask: "keep finished turns in the app"
+Or ask: "show permission banners and question badges, with task-complete alerts off"
 
 ## For agents and scripts
 
