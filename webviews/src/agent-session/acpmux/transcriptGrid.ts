@@ -149,8 +149,16 @@ export const MARK_LIVE_STEP = 12;
 /// does, so it never reads as the tail of the subagent or tool row above (Leo, 2026-11-08: "the
 /// text in this situation isn't from the subagent?"). Toward the rows after it, it is its own mark.
 export const MARK_OPENS_TURN = 64;
-/// A mark without its MARK_OPENS_TURN bit.
-export const baseMark = (mark: number): number => mark & ~MARK_OPENS_TURN;
+/// Added to a row that heads a turn another agent's line opened (model.ts `gridMark`): the running
+/// turn's live line ("Thinking", "Working") right under that notice or message, which heads the turn's
+/// work as "Working for" does; or the notice or message itself right under the turn before's "Worked
+/// for" line when that turn's footer draws nothing (no stack gap follows "Worked for" inside its turn,
+/// so it stood flush, as that turn's last step). Either stands the "Working for" head gap over it
+/// (`workedHeadGap`), not none. Toward the rows after it, it is its own
+/// mark.
+export const MARK_HEADS_TURN = 128;
+/// A mark without its MARK_OPENS_TURN and MARK_HEADS_TURN bits.
+export const baseMark = (mark: number): number => mark & ~(MARK_OPENS_TURN | MARK_HEADS_TURN);
 
 type MarkedRow = {
   kind: string;
@@ -182,6 +190,29 @@ export function rowMark(row: MarkedRow): number {
       : MARK_FOOTER;
   return MARK_OTHER;
 }
+
+/// The gap over a turn's "Working for"/"Worked for" line right under a one-line row (transcriptGap), and over a
+/// MARK_HEADS_TURN row: `row` (shipped), the gap `<html data-row-gap>` gives "Worked for" under a line (rowGapLook
+/// `workedAfterLine`, the run gap 16 by default, #48591); `run`, 16; `block`, 24; `turn`, the 32 under a person's
+/// prompt; `flush`, the 0 it stood before (gallery `agent-pane.working-turn-gap`, `<html data-worked-head-gap>`).
+/// Read only for such a pair.
+export type WorkedHeadGapLook = "row" | "flush" | "run" | "block" | "turn";
+export function workedHeadGapLook(): WorkedHeadGapLook {
+  const set = typeof document === "undefined" ? undefined : document.documentElement?.dataset.workedHeadGap;
+  return set === "flush" || set === "run" || set === "block" || set === "turn" ? set : "row";
+}
+const workedHeadGap = (): number => {
+  const look = workedHeadGapLook();
+  return look === "flush"
+    ? 0
+    : look === "run"
+      ? TRANSCRIPT_RUN_GAP
+      : look === "block"
+        ? TRANSCRIPT_BLOCK_GAP
+        : look === "turn"
+          ? TRANSCRIPT_TURN_GAP
+          : rowGapLook().workedAfterLine;
+};
 
 const isLineMark = (mark: number): boolean => mark === MARK_STEP || mark === MARK_STATUS || mark === MARK_WORKED;
 
@@ -215,14 +246,24 @@ export function transcriptGap(previous: number, next: number): number {
     if (gap > 0) return gap;
     next = baseMark(next);
   }
+  // The live line under the notice or message that opened its turn, or that notice right under the turn
+  // before's "Worked for" (it sat flush): the same gap as the "Worked for" rule below.
+  if ((next & MARK_HEADS_TURN) !== 0) return workedHeadGap();
+  next = baseMark(next);
   if (previous === MARK_PLAN_LINE && next === MARK_FOOTER_ROW) return TRANSCRIPT_FOOTER_GAP;
   if (previous === MARK_PLAN_LINE) previous = MARK_OTHER;
   if (next === MARK_PLAN_LINE) next = MARK_OTHER;
   if (previous === MARK_WORKED && next !== MARK_PROMPT) return 0;
   if (previous === MARK_WORKED) previous = MARK_STEP;
+  // A turn's "Working for" or "Worked for" line opens that turn's work. Right under a one-line row
+  // (the notice or another agent's line that opened the turn, or the turn before's last run when the
+  // prompt draws nothing) it stood flush as one more step, and the new turn read as the old one's
+  // tail (Leo, 2026-11-21: "it is noticeably bad when you start a new working for whatever and there
+  // is no space before"). The "Working for" and the "Worked for" that replaces it stand the same gap.
+  // (The "Working for" and the "Worked for" that replaces it stand the same gap, workedHeadGap.)
   // "Worked for" opens a finished turn's work: right under another turn's last one-line row it stood flush with it,
   // so "Sent to", another agent's line and "Worked for" read as one run (Leo, 2026-11-21: "way too close. no way.").
-  if (next === MARK_WORKED && (previous === MARK_STEP || previous === MARK_STATUS)) return rowGapLook().workedAfterLine;
+  if (next === MARK_WORKED && (previous === MARK_STEP || previous === MARK_STATUS)) return workedHeadGap();
   if (next === MARK_WORKED) next = MARK_STEP;
   const near = (mark: number) =>
     mark === MARK_STEP || mark === MARK_STATUS || mark === MARK_MESSAGE || mark === MARK_CARD;
