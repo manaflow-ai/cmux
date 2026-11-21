@@ -107,4 +107,50 @@ struct CmdLAfterClosingANewBrowserTabTests {
             }
         }
     }
+
+    /// The same Home, with the keyboard in the Chief dock: the dock has no address bar, so Cmd-L puts the keyboard in
+    /// the address bar of the browser beside it, its URL selected, and opens nothing in the dock.
+    @Test func cmdLInHomesChatDockFocusesTheAddressBarOfTheBrowserBesideIt() async throws {
+        try await PasswordManagerRouteTests.withApp(heldKeyReplay: { event, window, router in
+            if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
+        }) { services, connection in
+            let controller = try #require(services.windows.active)
+            let window = try #require(controller.window)
+            let router = services.keyRouter
+            window.orderFrontRegardless()
+
+            let (_, home) = try await HomeSplitKeysTests.showHome(services, connection)
+            var terminal = ActionInvocation(origin: .user)
+            terminal.opensTerminal = true
+            #expect(services.registry.perform("splitRight", invocation: terminal))
+            try await PasswordManagerRouteTests.until({
+                HomeSplitKeysTests.panes(home).count == 2
+                    && HomeSplitKeysTests.panes(home).last.map { $0.handle.rawValue < ProvisionalPane.firstHandle } == true
+            }, report: { "\(HomeSplitKeysTests.panes(home).count) panes in Home" })
+            let dockModel = try #require(HomeSplitKeysTests.panes(home).first)
+            let paneModel = try #require(HomeSplitKeysTests.panes(home).last)
+            let dock = try #require(services.paneController(for: dockModel))
+            let pane = try #require(services.paneController(for: paneModel))
+            _ = try await connection.newFrontendBrowserTab(url: Self.pageURL, engine: .webkit, in: pane.pane.handle, activate: true)
+            try await PasswordManagerRouteTests.until({ Self.pageTab(pane) != nil }, report: { "the page's tab: \(pane.pane.tabs.map { "\($0.kind) \($0.id)" })" })
+            let page = try #require(Self.pageTab(pane))
+            pane.select(StripTabID(page.id))
+            let dockTabs = dock.pane.tabs.map(\.id)
+
+            // The person is in the Chief dock: its pane has the focus.
+            controller.focus.send(.focusPane(dock.paneKey, source: .intent))
+            try await PasswordManagerRouteTests.until({ pane.showSelected(); return pane.currentTabKey == page.id && Self.bar(pane) != nil
+                && controller.focusedPane === dock && Self.bar(pane)?.isEditing == false },
+                report: { "the dock has the focus, the page shows beside it: tab \(pane.currentTabKey ?? "none"), focus \(controller.focus.state.resolved)" })
+
+            try Self.press("l", .command, in: window, router: router)
+            try await PasswordManagerRouteTests.until({ pane.showSelected(); return Self.bar(pane)?.editsAsFirstResponder == true && Self.bar(pane)?.debugAllSelected == true },
+                                                      within: .seconds(5), report: {
+                "Cmd-L in the dock: focus \(controller.focus.state.resolved), focused pane \(controller.focusedPane?.paneKey ?? "none") (page's \(pane.paneKey), dock's \(dock.paneKey)), "
+                    + "omnibar editing \(Self.bar(pane)?.isEditing == true), first responder \(String(describing: window.firstResponder)), dock tabs \(dock.pane.tabs.map(\.id))"
+            })
+            #expect(controller.focusedPane === pane, "Cmd-L in the dock did not move the focus to the browser beside it")
+            #expect(dock.pane.tabs.map(\.id) == dockTabs, "Cmd-L in the dock opened a tab there: \(dock.pane.tabs.map(\.id))")
+        }
+    }
 }
