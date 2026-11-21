@@ -73,7 +73,7 @@ import { type NowPlayingCommand } from "./nowPlayingPlayerModel";
 import { ArrowUpIcon } from "../ComposerPickers";
 import { Spinner } from "../conversation/icons";
 import { useNewTabChipModel, useNewTabStart } from "./chipDefaults";
-import { useLastPick } from "../lastPick";
+import { useChipPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
 import { listingWanted, omnibarFolders } from "./launchRows";
 import { type CompleteFolder, useFolderListing } from "./omnibarReads";
@@ -896,7 +896,8 @@ export function NewTabScreen(props: Props) {
   // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
   // The chips' agent or model pick starts no chat in a folder New project has not made yet.
   const chipFolder = newProject ? undefined : chatFolder;
-  const remembered = useLastPick(chatFolder);
+  // The folder's own last pick, until the person picks here: a folder pick never swaps the chips (cmux#47677).
+  const remembered = useChipPick(chatFolder);
   const harnessesListed = useHarnessesListed();
   const { harness, snapshot: chipSnapshot } = useNewTabStart(
     snapshot,

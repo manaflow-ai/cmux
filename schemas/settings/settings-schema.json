@@ -10191,7 +10191,7 @@
         true,
         false
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -10324,7 +10324,7 @@
         240,
         120.5
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -33730,7 +33730,7 @@
         false
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -33797,7 +33797,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -33809,9 +33809,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -101104,7 +101106,7 @@
         "glow"
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -101183,7 +101185,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -101195,9 +101197,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -108342,7 +108346,7 @@
         true,
         false
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"

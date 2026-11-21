@@ -546,7 +546,18 @@ fn action_list_export_matches() {
             action.surface_plan.mcp().map_or("undeclared", |d| d.wire()),
             "{id}"
         );
-        assert_eq!(row["main_menu"], serde_json::json!(action.main_menu), "{id}");
+        // A main menu placement awaiting the re-pin keeps the pinned app's menu here too; once
+        // the export has the crate's menu, the marker's /mainMenu line is stale.
+        if field_awaits_repin(id, "/mainMenu") {
+            assert_ne!(
+                row["main_menu"],
+                serde_json::json!(action.main_menu),
+                "action-surfaces.json has {id}'s main menu: the re-pin landed, so take /mainMenu out of {} (delete the file when it is the last)",
+                marker("fields", id)
+            );
+        } else {
+            assert_eq!(row["main_menu"], serde_json::json!(action.main_menu), "{id}");
+        }
         // A retitle awaiting the re-pin keeps the pinned app's title in this export.
         if field_awaits_repin(id, "/title") {
             assert_ne!(
