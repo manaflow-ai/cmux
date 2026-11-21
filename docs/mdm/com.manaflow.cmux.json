@@ -80,6 +80,14 @@
       "title" : "Play Sound When Work Finishes",
       "type" : "boolean"
     },
+    "agentPane.display.font.faces" : {
+      "description" : "A font file for each family, such as \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\".",
+      "properties" : {
+
+      },
+      "title" : "Chat Font Files",
+      "type" : "object"
+    },
     "agentPane.display.font.lineHeight" : {
       "default" : 1.625,
       "description" : "agentPane.display.font.lineHeight",
@@ -98,6 +106,11 @@
         "mono"
       ],
       "title" : "Chat Font",
+      "type" : "string"
+    },
+    "agentPane.display.font.proseFamily" : {
+      "description" : "The font of the agent's replies. When set, it replaces the Chat Font.",
+      "title" : "Chat Reply Font Family",
       "type" : "string"
     },
     "agentPane.display.font.size" : {
@@ -126,6 +139,11 @@
         "atkinson"
       ],
       "title" : "Chat Interface Font",
+      "type" : "string"
+    },
+    "agentPane.display.font.uiFamily" : {
+      "description" : "A font family or a comma list of them. When set, it replaces the Chat Interface Font.",
+      "title" : "Chat Interface Font Family",
       "type" : "string"
     },
     "agentPane.display.fullWidth" : {
@@ -960,7 +978,25 @@
         "dore-paradise-lost-book-vi",
         "dore-moses-tables",
         "dore-empyrean",
-        "dore-raven"
+        "dore-raven",
+        "hokusai-red-fuji",
+        "hokusai-storm-below-fuji",
+        "hokusai-kajikazawa",
+        "hiroshige-sudden-shower",
+        "hiroshige-kanbara-snow",
+        "hiroshige-plum-garden",
+        "hiroshige-moon-pine",
+        "korin-irises",
+        "tohaku-pine-trees",
+        "jakuchu-mandarin-ducks",
+        "fan-kuan-travelers",
+        "guo-xi-early-spring",
+        "ma-yuan-clouds-green-sea",
+        "zhang-zeduan-qingming",
+        "wang-ximeng-thousand-li",
+        "jeong-seon-inwang",
+        "jeong-seon-geumgang",
+        "kim-hong-do-samgong"
       ],
       "title" : "Backdrop Art",
       "type" : "string"
@@ -1119,6 +1155,24 @@
         "dore-moses-tables",
         "dore-empyrean",
         "dore-raven",
+        "hokusai-red-fuji",
+        "hokusai-storm-below-fuji",
+        "hokusai-kajikazawa",
+        "hiroshige-sudden-shower",
+        "hiroshige-kanbara-snow",
+        "hiroshige-plum-garden",
+        "hiroshige-moon-pine",
+        "korin-irises",
+        "tohaku-pine-trees",
+        "jakuchu-mandarin-ducks",
+        "fan-kuan-travelers",
+        "guo-xi-early-spring",
+        "ma-yuan-clouds-green-sea",
+        "zhang-zeduan-qingming",
+        "wang-ximeng-thousand-li",
+        "jeong-seon-inwang",
+        "jeong-seon-geumgang",
+        "kim-hong-do-samgong",
         "desktop"
       ],
       "title" : "Background",
@@ -1284,6 +1338,24 @@
         "dore-moses-tables",
         "dore-empyrean",
         "dore-raven",
+        "hokusai-red-fuji",
+        "hokusai-storm-below-fuji",
+        "hokusai-kajikazawa",
+        "hiroshige-sudden-shower",
+        "hiroshige-kanbara-snow",
+        "hiroshige-plum-garden",
+        "hiroshige-moon-pine",
+        "korin-irises",
+        "tohaku-pine-trees",
+        "jakuchu-mandarin-ducks",
+        "fan-kuan-travelers",
+        "guo-xi-early-spring",
+        "ma-yuan-clouds-green-sea",
+        "zhang-zeduan-qingming",
+        "wang-ximeng-thousand-li",
+        "jeong-seon-inwang",
+        "jeong-seon-geumgang",
+        "kim-hong-do-samgong",
         "desktop"
       ],
       "title" : "Dark Picture",
@@ -1448,6 +1520,24 @@
         "dore-moses-tables",
         "dore-empyrean",
         "dore-raven",
+        "hokusai-red-fuji",
+        "hokusai-storm-below-fuji",
+        "hokusai-kajikazawa",
+        "hiroshige-sudden-shower",
+        "hiroshige-kanbara-snow",
+        "hiroshige-plum-garden",
+        "hiroshige-moon-pine",
+        "korin-irises",
+        "tohaku-pine-trees",
+        "jakuchu-mandarin-ducks",
+        "fan-kuan-travelers",
+        "guo-xi-early-spring",
+        "ma-yuan-clouds-green-sea",
+        "zhang-zeduan-qingming",
+        "wang-ximeng-thousand-li",
+        "jeong-seon-inwang",
+        "jeong-seon-geumgang",
+        "kim-hong-do-samgong",
         "desktop"
       ],
       "title" : "Light Picture",
@@ -1877,6 +1967,12 @@
       ],
       "title" : "Pane Backgrounds",
       "type" : "string"
+    },
+    "appearance.previousGlass" : {
+      "default" : false,
+      "description" : "Draws menus, popovers, the composer and cards with the glass from before November 2026.",
+      "title" : "Previous Glass Look",
+      "type" : "boolean"
     },
     "appearance.rotateFavoriteThemes" : {
       "default" : "off",
@@ -3467,6 +3563,12 @@
       "title" : "EnrollmentToken",
       "type" : "string"
     },
+    "experiments.composerV2" : {
+      "default" : false,
+      "description" : "A glass composer with mode chips, mention chips and a round send button. Still being shaped.",
+      "title" : "Composer Refresh",
+      "type" : "boolean"
+    },
     "experiments.glassToolbarGroups" : {
       "default" : false,
       "description" : "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps.",
@@ -4964,9 +5066,10 @@
       "type" : "string"
     },
     "sidebar.groupHeader.background" : {
-      "default" : "auto",
-      "description" : "How a group's background draws. Sections shows plain headings instead.",
+      "default" : "folder",
+      "description" : "How a group draws. Folders shows plain folders; Sections shows plain headings.",
       "enum" : [
+        "folder",
         "auto",
         "glass",
         "solid",
@@ -5135,6 +5238,18 @@
       "description" : "When an agent waited for your input or finished its turn, in the card's history.",
       "title" : "Show Waits in Workspace Cards",
       "type" : "boolean"
+    },
+    "sidebar.look" : {
+      "default" : "cmux",
+      "description" : "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win.",
+      "enum" : [
+        "cmux",
+        "claude",
+        "codex",
+        "studio"
+      ],
+      "title" : "Sidebar Look",
+      "type" : "string"
     },
     "sidebar.minimal" : {
       "default" : false,

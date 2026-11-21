@@ -51,17 +51,23 @@ await requireBrowserLane("apps-decoration.test.ts", async () => {
             return { text: element.textContent, background: css.backgroundColor, image: css.backgroundImage };
           }),
         );
-        expect(paint.map((item) => item.text)).toEqual(["Verified", "Productivity"]);
+        // Verified is a check beside the publisher (.apps-verified), not a badge.
+        expect(await card.locator(".apps-verified").count()).toBe(1);
+        expect(paint.map((item) => item.text)).toEqual(["Productivity"]);
         for (const item of paint) {
           expect(item.background).toBe("rgba(0, 0, 0, 0)");
           expect(item.image).toBe("none");
         }
-        expect(
-          await card.locator(".apps-icon-glyph").evaluate((element) => getComputedStyle(element).backgroundImage),
-        ).toBe("none");
+        // A sample with art shows it; any initials fallback on the page stays a quiet, flat tile.
+        expect(await card.locator("img.apps-icon").count()).toBe(1);
+        for (const image of await page
+          .locator(".apps-icon-glyph")
+          .evaluateAll((elements) => elements.map((element) => getComputedStyle(element).backgroundImage))) {
+          expect(image).toBe("none");
+        }
         await card.getByRole("button", { name: "Install", exact: true }).click();
         await card.getByRole("button", { name: "Remove", exact: true }).waitFor();
-        expect(await card.locator(".apps-badge").allTextContents()).toEqual(["Verified", "Productivity", "Installed"]);
+        expect(await card.locator(".apps-badge").allTextContents()).toEqual(["Productivity", "Installed"]);
         expect(
           await card
             .locator(".apps-badge")

@@ -76,8 +76,10 @@ pub fn exceptions_in(root: &Value) -> BTreeSet<String> {
         .map(|keys| keys.iter().filter_map(Value::as_str).map(str::to_string).collect())
         .unwrap_or_default()
 }
-const LOOK_PREFIXES: [&str; 7] = [
+const LOOK_PREFIXES: [&str; 8] = [
     "appearance.",
+    // The agent chat's typography: a font pack's families and face files.
+    "agentPane.display.font.",
     "ui.animation",
     "ui.calm",
     "ui.paneAnimations",
@@ -85,13 +87,14 @@ const LOOK_PREFIXES: [&str; 7] = [
     "browser.omnibar.glass",
     "app.uiScale",
 ];
-/// Look keys outside those prefixes: the terminal font and cursor; the sidebar's shape,
-/// edges, text, group headers and buttons, and the sidebar look
-/// (`sidebar_look`); the tab strip's and titlebar's buttons and inactive tabs;
-/// pane corners; and the agent chat's text sizes, sender marks and Session
+/// Look keys outside those prefixes: the terminal font and cursor and the chat
+/// code font; the sidebar's shape, edges, text, group headers and buttons, and
+/// the sidebar look (`sidebar_look`); the tab strip's and titlebar's buttons and
+/// inactive tabs; pane corners; and the agent chat's text sizes, sender marks and Session
 /// Info. Keep in step with Swift `ThemeFileOverlay.lookKeys`.
-const LOOK_KEYS: [&str; 38] = [
+const LOOK_KEYS: [&str; 39] = [
     "terminal.fontFamily",
+    "agentPane.display.code.family",
     "terminal.fontSize",
     "terminal.cursorStyle",
     "terminal.cursorBlink",
@@ -376,6 +379,31 @@ impl ThemeFile {
     pub fn keys(&self) -> Vec<String> {
         self.values.iter().map(|(path, _)| dotted(path)).collect()
     }
+
+    /// Each `agentPane.display.font.faces` entry the app would skip (a bad
+    /// key, a missing, oversized or mistyped file), as a diagnostic of this
+    /// file: `cmux theme check` reports them; the read itself never stats
+    /// the files.
+    pub fn face_diagnostics(&self) -> Vec<ThemeDiagnostic> {
+        let path = key_path(crate::font_faces::SETTING_KEY);
+        let Some(Value::Object(faces)) =
+            self.values.iter().find(|(at, _)| *at == path).map(|(_, value)| value)
+        else {
+            return Vec::new();
+        };
+        let (_, problems) = crate::font_faces::check_all(faces);
+        problems
+            .into_iter()
+            .map(|problem| ThemeDiagnostic {
+                kind: ThemeDiagnosticKind::InvalidValue,
+                path: format!("{}.{}", crate::font_faces::SETTING_KEY, problem.key),
+                message: problem.message,
+                file: Some(format!("{FOLDER_NAME}/{}.{FILE_EXTENSION}", self.name)),
+                line: None,
+                value: faces.get(&problem.key).map(compact),
+            })
+            .collect()
+    }
 }
 
 struct Reader<'a> {
@@ -454,15 +482,25 @@ impl<'a> Reader<'a> {
         if !is_look(row) {
             return self.refuse(&row.key, Some(written), "a theme file sets only look settings");
         }
-        let value = match (&row.validation, written) {
-            (
-                Validation::Domain(DomainKind::BackdropSelection | DomainKind::BackdropPicture),
-                _,
-            ) => self.picture(written),
-            (Validation::Domain(DomainKind::BackdropPictures), Value::Array(items)) => {
-                Value::Array(items.iter().map(|item| self.picture(item)).collect())
+        let value = if matches!(
+            row.validation,
+            Validation::Domain(DomainKind::BackdropSelection | DomainKind::BackdropPicture)
+        ) {
+            self.picture(written)
+        } else if let (Validation::Domain(DomainKind::BackdropPictures), Value::Array(items)) =
+            (&row.validation, written)
+        {
+            Value::Array(items.iter().map(|item| self.picture(item)).collect())
+        } else if row.key == crate::font_faces::SETTING_KEY {
+            // A font pack's face files resolve as pictures do: `file:../fonts/x.woff2`.
+            match written {
+                Value::Object(faces) => Value::Object(
+                    faces.iter().map(|(key, value)| (key.clone(), self.picture(value))).collect(),
+                ),
+                other => other.clone(),
             }
-            _ => written.clone(),
+        } else {
+            written.clone()
         };
         if let Err(refusal) = accepts(row, &value, self.domains) {
             return self.refuse(&row.key, Some(&value), &expectation(&refusal));
