@@ -45,9 +45,12 @@ extension AgentPaneView {
             var params: [String: Any] = ["sessionId": snapshot.target.sessionID, "permissionId": snapshot.target.permissionID,
                                           "optionId": option, "answers": answers]
             if let annotations { params["annotations"] = annotations }
+            var refusal: String?
             let intent = AgentPaneGestureIntent(gestureParams: ["intent": ["method": "_acpmux/permission_respond",
-                "params": params]])
+                "params": params]], refusal: &refusal)
             guard let intent else {
+                AgentPaneRefusalLog.log(.gestureParse, method: "_acpmux/permission_respond", session: snapshot.target.sessionID,
+                                        cause: refusal ?? "intent not parsed")
                 self.model.transport.rejectQuestionKeyReply(connection: connection, requestID: requestID,
                                                              target: snapshot.target, error: .intentInvalid)
                 return
