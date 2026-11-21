@@ -133,6 +133,10 @@ const SUMMARY = {
 /// open socket, as a daemon that restarts does.
 class Daemon {
   static attachDelayMs = 0;
+  /// Answers `initialize` that much later (the handshake of an acpmux still starting).
+  static initializeDelayMs = 0;
+  /// What acpmux lists and attaches the chat as doing.
+  static status = "idle";
   static metadataOnlyAttach = false;
   static recordOffset = 0;
   static tailCursor = 100;
@@ -182,14 +186,15 @@ class Daemon {
     const records = Daemon.recordOffset
       ? RECORDS.map((record) => ({ ...record, seq: record.seq + Daemon.recordOffset }))
       : RECORDS;
+    const summary = { ...SUMMARY, status: Daemon.status };
     let result: unknown = {};
     if (message.method === "initialize")
       result = { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
-    else if (message.method === "_acpmux/watch") result = { sessions: Daemon.listsChat ? [SUMMARY] : [] };
+    else if (message.method === "_acpmux/watch") result = { sessions: Daemon.listsChat ? [summary] : [] };
     else if (message.method === "_acpmux/attach")
       result = Daemon.metadataOnlyAttach
         ? {
-            session: SUMMARY,
+            session: summary,
             lastSeq: Daemon.tailCursor,
             hasMore: true,
             turnOpener: records[0],
@@ -197,7 +202,7 @@ class Daemon {
               { sessionId: CHAT, seq: Daemon.tailCursor, at: START + 1000, dir: "mux", kind: "resumed", msg: {} },
             ],
           }
-        : { session: SUMMARY, lastSeq: RECORDS.length, events: RECORDS, hasMore: false };
+        : { session: summary, lastSeq: RECORDS.length, events: RECORDS, hasMore: false };
     else if (message.method === "_acpmux/draft_get") result = { draft: DRAFT };
     else if (message.method === "_acpmux/events")
       result = {
@@ -210,7 +215,12 @@ class Daemon {
         hasMore: false,
         lastSeq: RECORDS.length,
       };
-    const delay = message.method === "_acpmux/attach" ? Daemon.attachDelayMs : 1;
+    const delay =
+      message.method === "_acpmux/attach"
+        ? Daemon.attachDelayMs
+        : message.method === "initialize"
+          ? Math.max(1, Daemon.initializeDelayMs)
+          : 1;
     setTimeout(() => {
       if (this.readyState !== 1) return;
       Daemon.answered.push(message.method);
@@ -411,6 +421,8 @@ function expectMonotonic(trace: Record<Surface, State[]>) {
 afterEach(() => {
   Daemon.drop();
   Daemon.attachDelayMs = 0;
+  Daemon.initializeDelayMs = 0;
+  Daemon.status = "idle";
   Daemon.listsChat = true;
   Daemon.answered = [];
 });
@@ -526,6 +538,69 @@ test.each([0, 300, 1500])(
     expect(Daemon.open.size).toBe(0);
   },
 );
+
+/// The settled-page bench's restart.stream (first-load-after-restart MODE=native-ready RUNNING=1): a chat kept while
+/// running, its restored tail drawn under the last launch's copy (which draws it working, its live line at the
+/// bottom). The tail's rows cannot say it is working, and the copy handed over to them at the handshake: the live line
+/// went for a frame or two, until the open drew the chat working. The copy stays until the page draws it working.
+test("a running chat's restored tail leaves the last launch's copy up until the page draws it working", async () => {
+  Daemon.refusing = false;
+  Daemon.status = "running";
+  // The open draws later than the frame after the handshake.
+  Daemon.initializeDelayMs = 100;
+  let ready: (value: unknown) => void = () => {};
+  drawCopy();
+  Object.assign(dom.window, {
+    __cmuxRestoredChat: CHAT,
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          postMessage: (message: { method: string }) => {
+            if (message.method === "ready")
+              return new Promise((resolve) => {
+                ready = resolve;
+              });
+            const value =
+              message.method === "chat.tail.get" ? { ...keptTail(), summary: { ...SUMMARY, status: "running" } } : null;
+            return Promise.resolve({ ok: true, value });
+          },
+        },
+      },
+    },
+  });
+  const working = () => doc().querySelector('.acpmux-row[data-row-id="thinking-live"]') !== null;
+  // What the page showed on the frame the copy went: working or not.
+  let swappedWorking: boolean | undefined;
+  const watch = new dom.window.MutationObserver(() => {
+    if (swappedWorking === undefined && !copyShown()) swappedWorking = working();
+  });
+  watch.observe(doc().body, { childList: true, subtree: true });
+  try {
+    const { createRoot } = await import("react-dom/client");
+    const { AcpmuxApp } = await import("../src/agent-session/acpmux/App");
+    root = createRoot(doc().getElementById("root")!);
+    await act(async () => root!.render(<AcpmuxApp />));
+    await until(
+      () => copyShown() && (doc().getElementById("root")!.textContent ?? "").includes(REPLY),
+      "the restored tail drawn under the copy",
+    );
+    ready({
+      ok: true,
+      value: {
+        protocolVersion: 1,
+        transport: "acpmux-websocket",
+        endpoint: "ws://acpmux.test/",
+        token: "t",
+        sessionId: CHAT,
+        machineName: "Mac",
+      },
+    });
+    await until(() => !copyShown() && working(), "the chat drawn working, the copy gone");
+    expect(swappedWorking, "the copy went to a frame without the live line").toBe(true);
+  } finally {
+    watch.disconnect();
+  }
+});
 
 test("retained presentation refuses another chat and strips stale live state", async () => {
   const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
