@@ -72,11 +72,14 @@ await requireBrowserLane("look-addons.test.ts", async () => {
   /** The host's path for a person's agent-pane/theme.css, over what the stage already sent (its font). */
   async function applyLook(page: Page, look: string) {
     await page.evaluate((look) => {
-      const stage = (window as { __lookAddonsBase?: string }).__lookAddonsBase ??
-        (document.getElementById("acpmux-user-theme")?.textContent ?? "");
+      const stage =
+        (window as { __lookAddonsBase?: string }).__lookAddonsBase ??
+        document.getElementById("acpmux-user-theme")?.textContent ??
+        "";
       (window as { __lookAddonsBase?: string }).__lookAddonsBase = stage;
-      (window as unknown as { cmuxAcpmuxBridge: { applyCustomization(c: { themeCSS: string }): void } })
-        .cmuxAcpmuxBridge.applyCustomization({ themeCSS: `${stage}\n${look}` });
+      (
+        window as unknown as { cmuxAcpmuxBridge: { applyCustomization(c: { themeCSS: string }): void } }
+      ).cmuxAcpmuxBridge.applyCustomization({ themeCSS: `${stage}\n${look}` });
     }, look);
     await settle(page);
   }
@@ -88,7 +91,13 @@ await requireBrowserLane("look-addons.test.ts", async () => {
         .map((el) => {
           const r = el.getBoundingClientRect();
           return r.width || r.height
-            ? { el: `${el.tagName.toLowerCase()}.${[...el.classList].join(".")}`, x: r.x, y: r.y, w: r.width, h: r.height }
+            ? {
+                el: `${el.tagName.toLowerCase()}.${[...el.classList].join(".")}`,
+                x: r.x,
+                y: r.y,
+                w: r.width,
+                h: r.height,
+              }
             : null;
         })
         .filter((box) => box !== null),
