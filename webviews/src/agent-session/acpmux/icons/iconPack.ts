@@ -1,5 +1,6 @@
 import bundled from "./cmuxIcons.json";
 import custom from "./cmuxIconsCustom.json";
+import neko from "./cmuxIconsNeko.json";
 import type { IconAccent, IconLayer, IconPack, IconStyle } from "./types";
 
 /// `pack` with `overlay`'s drawings in place of its own (Debug Settings `icons.family`).
@@ -12,6 +13,18 @@ export const bundledIconPack = bundled as IconPack;
 
 /// The bundled pack with the cmux custom family laid over it (Debug Settings `icons.family` = custom).
 export const customIconPack = overlaidIconPack(bundledIconPack, custom as IconPack);
+
+/// The bundled pack with the Neko family laid over it (Settings > Appearance > Icon Theme = Neko, or Debug
+/// Settings `icons.family` = neko): cat drawings of the action icons, design/icons/neko-evaluation.md round 4.
+export const nekoIconPack = overlaidIconPack(bundledIconPack, neko as IconPack);
+
+/// The pack the page's icon family draws (`data-icon-family`), when `pack` is the bundled one.
+export function familyIconPack(pack: IconPack, family: string | undefined): IconPack {
+  if (pack !== bundledIconPack) return pack;
+  if (family === "custom") return customIconPack;
+  if (family === "neko") return nekoIconPack;
+  return pack;
+}
 
 /// The family the host set on the page (`data-icon-family`, AgentPaneTunables.documentAttributes); none is
 /// the pack. A pooled page learns it when it is claimed, after its first render, so readers subscribe.

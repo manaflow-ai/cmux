@@ -304,7 +304,7 @@ public nonisolated struct AgentPaneTunables {
         attributes(topStripStyle: topStripStyle.value, thoughtHeader: thoughtHeader.value,
                    thoughtFoldThreshold: thoughtFoldThreshold.value,
                    needsYou: needsYouStyle(installed: needsYouInstalled(), debug: needsYou.value),
-                   needsYouPill: needsYouPill.value, iconFamily: IconFamily.tunable.value)
+                   needsYouPill: needsYouPill.value, iconFamily: IconFamily.effective(debug: IconFamily.tunable.value))
     }
 
     static func attributes(topStripStyle: AgentPaneTopStripStyle,

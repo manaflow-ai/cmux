@@ -94,7 +94,7 @@ final class DebugSettingsService: InternalPageProvider {
         // CmuxNextCloud does not see tunables; Release keeps CloudAuth's default (automatic).
         services.cloud.auth.signInWindow = { .init(rawValue: AccountTunables.signInWindow.value.rawValue) ?? .automatic }
         // The store loads the file off the main actor, after the first icons draw: the family is read here.
-        IconPack.useOverlay(Self.launchIconFamily(url).overlay)
+        IconPack.useOverlay(IconFamily.effective(debug: Self.launchIconFamily(url)).overlay)
     }
 
     /// Debug Settings `icons.family` as the override file holds it at launch (`pack` without one).

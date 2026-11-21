@@ -11,14 +11,14 @@
       "rows": [
         {
           "key": "appearance.iconTheme",
-          "note": "Reserved for the optional Neko icon family; neko resolves to the default artwork until a reviewed set ships.",
+          "note": "The optional Neko icon family (cat drawings of the action icons, design/icons/neko-evaluation.md round 4); off by default.",
           "title": {
             "key": "settings.appearance.iconTheme",
             "text": "Icon Theme"
           },
           "help": {
             "key": "settings.appearance.iconTheme.help",
-            "text": "The icon drawings used by cmux."
+            "text": "The icon drawings used by cmux. Neko draws the action icons as cats. Native icons change after a relaunch."
           },
           "kind": "choice",
           "choices": [
@@ -49,8 +49,7 @@
             "theme",
             "neko",
             "cat"
-          ],
-          "page_hidden": "reserved until the Neko artwork passes light/dark 1x/2x review"
+          ]
         }
       ]
     },

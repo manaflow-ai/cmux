@@ -51,6 +51,8 @@ OUTPUTS = {
     "pack_custom_web": WEB / "cmuxIconsCustom.json",
     "pack_neko_web": WEB / "nekoCandidate.json",
     "pack_neko_rounds_web": WEB / "nekoRounds.json",
+    "pack_neko_native": NATIVE / "Resources" / "cmux-icons-neko.json",
+    "pack_neko_shipped_web": WEB / "cmuxIconsNeko.json",
 }
 # Neko is deliberately conservative. The icon spec allows a cat cue only when it is natural;
 # repeated ears are a candidate to evaluate, not evidence of a finished semantic icon family.
@@ -73,7 +75,12 @@ NEKO_ROUNDS = {
     "whisker": ("round2", "03-whisker-"),
     "r3tail": ("round3", "tail/"),
     "r3mix": ("round3", "mix/"),
+    "r4head": ("round4", "head/"),
+    "r4sit": ("round4", "sit/"),
+    "r4pixel": ("round4", "pixel/"),
 }
+# The round-4 direction Settings > Appearance > Icon Theme = Neko draws (design/icons/neko-evaluation.md).
+NEKO_SHIPPED = "r4head"
 # Existing Cat accents include two drawings that are valid for the general Cat accent but violate
 # the Neko family contract: status marks and security/privacy marks stay semantic and unadorned.
 NEKO_EXCLUDED = {"state.idle", "browser.incognito"}
@@ -541,17 +548,23 @@ def build():
     for direction, (folder, prefix) in NEKO_ROUNDS.items():
         drawings = {}
         for path in sorted((NEKO_CANDIDATES / folder).glob(prefix + "*.svg")):
+            if path.name.endswith(".solid.svg"):
+                continue
             stem = path.relative_to(NEKO_CANDIDATES / folder).as_posix()[len(prefix):-len(".svg")]
             name = NEKO_ROUND2_ACTIONS.get(stem, stem) if folder == "round2" else stem
             if name not in icons:
                 raise ValueError(f"neko {direction}: {name} is not in the pack")
             line = layers(path.read_text())
-            drawings[name] = {"line": line, "solid": line}
+            # Round 4 draws a Solid (selected) form beside each Line drawing: <name>.solid.svg.
+            solid_path = path.with_name(path.name[:-len(".svg")] + ".solid.svg")
+            drawings[name] = {"line": line, "solid": layers(solid_path.read_text()) if solid_path.exists() else line}
         if not drawings:
             raise ValueError(f"neko {direction}: no drawings under {folder}/{prefix}")
         rounds[direction] = {"id": f"cmux-neko-{direction}", "version": 1, "grid": 24,
                              "icons": dict(sorted(drawings.items()))}
     rounds_text = json.dumps(rounds, separators=(",", ":"), ensure_ascii=False) + "\n"
+    shipped_neko = {**rounds[NEKO_SHIPPED], "id": "cmux-neko"}
+    shipped_neko_text = json.dumps(shipped_neko, separators=(",", ":"), ensure_ascii=False) + "\n"
     return {
         "pack_native": pack_text,
         "pack_web": pack_text,
@@ -559,6 +572,8 @@ def build():
         "pack_custom_web": custom_text,
         "pack_neko_web": neko_text,
         "pack_neko_rounds_web": rounds_text,
+        "pack_neko_native": shipped_neko_text,
+        "pack_neko_shipped_web": shipped_neko_text,
         "catalog_native": json.dumps({"icons": catalog}, indent=1, ensure_ascii=False) + "\n",
         "catalog_web": json.dumps({"icons": catalog}, separators=(",", ":"), ensure_ascii=False) + "\n",
         "names_swift": swift,

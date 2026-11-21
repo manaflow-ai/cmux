@@ -1,4 +1,4 @@
-import { bundledIconPack, customIconPack, documentIconFamily, MISSING_ICON, resolveIcon } from "./iconPack";
+import { bundledIconPack, documentIconFamily, familyIconPack, MISSING_ICON, resolveIcon } from "./iconPack";
 import { ICON_STROKE } from "./iconSize";
 import type { IconLayer, IconPack } from "./types";
 
@@ -53,12 +53,21 @@ export function iconSvg(layers: IconLayer[], width: number): string {
 
 /// The page's pack, as useIcons() picks it with no provider (the app's agent pane has none).
 function pagePack(): IconPack {
-  return documentIconFamily() === "custom" ? customIconPack : bundledIconPack;
+  return familyIconPack(bundledIconPack, documentIconFamily());
+}
+
+/// One key per laid-over pack object, so two overlays of the same base pack never share a cached mask.
+const familyKeys = new WeakMap<IconPack, string>();
+let nextFamilyKey = 0;
+function familyKey(pack: IconPack): string {
+  let key = familyKeys.get(pack);
+  if (!key) familyKeys.set(pack, (key = `o${nextFamilyKey++}`));
+  return key;
 }
 
 /// `name`'s line drawing as a CSS `url(…)` for `mask-image`, at <Icon size={14}>'s stroke.
 export function iconMaskUrl(name: string, pack: IconPack = pagePack()): string {
-  const key = `${pack.id}:${pack.version}:${pack === customIconPack ? "custom" : ""}:${name}`;
+  const key = `${pack.id}:${pack.version}:${pack === bundledIconPack ? "" : familyKey(pack)}:${name}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const layers = resolveIcon(pack, name, "line", "none") ?? resolveIcon(pack, MISSING_ICON, "line", "none") ?? [];

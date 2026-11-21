@@ -178,6 +178,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             firstFrame.whenOpen { [launchReveal = services.launchReveal, weak services] in launchReveal.whenReady(.home, orAfter: .seconds(10)) { recorder.write(marks: DebugTimings.launchMarkTimes(), workspaces: services?.daemon.store.workspaces.count) } }
         }
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
+        // Settings > Appearance > Icon Theme, before Debug Settings picks the pack the first icon draws with.
+        IconFamily.useNekoTheme(settingsRead.snapshot.iconTheme == .neko)
         services.debugSettings.start()
         DebugTimings.markLaunch("dfl.services")
         AppActions.bind(services)

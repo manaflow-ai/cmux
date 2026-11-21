@@ -23,14 +23,22 @@ struct IconFamilyAttributeTests {
             == ["icon-family": "neko"])
     }
 
-    /// `allCases` keeps the reserved Neko family so nothing walking the cases skips it silently; only the
-    /// families with shipped art are offered in Debug Settings (#37815).
-    @Test func everyFamilyIsACaseButOnlyShippedOnesAreOffered() {
+    /// Neko ships (round 4 art), so Debug Settings offers every family.
+    @Test func everyFamilyShipsAndIsOffered() {
         #expect(IconFamily.allCases == [.pack, .custom, .neko])
-        #expect(IconFamily.shippedCases == [.pack, .custom])
+        #expect(IconFamily.shippedCases == [.pack, .custom, .neko])
         #expect(IconFamily.allCases.filter(\.isShipped) == IconFamily.shippedCases)
-        #expect(!IconFamily.neko.isShipped)
         #expect(IconFamily.tunableCases == IconFamily.shippedCases)
+    }
+
+    /// Settings > Appearance > Icon Theme = Neko draws Neko unless Debug Settings chose a family itself.
+    @Test func theSettingsThemeAppliesUnderTheDebugFamily() {
+        defer { IconFamily.useNekoTheme(false) }
+        IconFamily.useNekoTheme(false)
+        #expect(IconFamily.effective(debug: .pack) == .pack)
+        IconFamily.useNekoTheme(true)
+        #expect(IconFamily.effective(debug: .pack) == .neko)
+        #expect(IconFamily.effective(debug: .custom) == .custom)
     }
 
     /// Turning another tunable off adds its own attribute beside the family's; neither hides the other,
