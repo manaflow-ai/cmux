@@ -10,10 +10,14 @@ import CmuxNextDesignTokens
 final class CmuxDialogKeycapView: NSView {
     let label: ChromeLabel
     let style: CmuxDialogKeycapStyle
+    /// The plate's corner when its owner sets it (a tooltip's, concentric with the tooltip); nil: the style's, concentric
+    /// with the dialog button.
+    let cornerOverride: CGFloat?
 
-    init(_ glyph: String, style: CmuxDialogKeycapStyle = .linearKbd) {
+    init(_ glyph: String, style: CmuxDialogKeycapStyle = .linearKbd, cornerRadius: CGFloat? = nil) { // concentric-allow: the owner passes its own nested corner (a tooltip's radius less the keycap inset)
         label = ChromeLabel(labelWithString: glyph)
         self.style = style
+        cornerOverride = cornerRadius
         super.init(frame: .zero)
         wantsLayer = true
         label.font = Typography.system(.default, size: style.glyphSize, weight: style.glyphWeight)
@@ -50,16 +54,23 @@ final class CmuxDialogKeycapView: NSView {
     // size here too, so it never keeps the corner of an earlier size.
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        layer?.cornerRadius = style.hasPlate ? style.keycapCornerRadius(fitting: newSize) : 0
+        layer?.cornerRadius = plateCornerRadius(fitting: newSize) // concentric-allow: the style's concentric corner, or the owner's nested one
         needsLayout = true
     }
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = style.hasPlate ? style.keycapCornerRadius(fitting: bounds.size) : 0
+        layer?.cornerRadius = plateCornerRadius(fitting: bounds.size) // concentric-allow: the style's concentric corner, or the owner's nested one
         let size = label.naturalSize
         label.frame = NSRect(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2,
                              width: size.width, height: size.height)
+    }
+
+    /// The plate's corner at `size`: the owner's or the style's, at most half the plate's height; 0 with no plate.
+    private func plateCornerRadius(fitting size: NSSize) -> CGFloat {
+        guard style.hasPlate else { return 0 }
+        guard let cornerOverride else { return style.keycapCornerRadius(fitting: size) }
+        return max(0, min(cornerOverride, min(size.width, size.height) / 2))
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }

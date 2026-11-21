@@ -22,6 +22,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "clap",
+ "cmux-agent-customize",
  "cmux-agent-pane-policy",
  "cmux-build-space",
  "cmux-chat-index",
@@ -1286,11 +1287,13 @@ dependencies = [
  "cmux-tui-hooks",
  "cmux-tui-platform",
  "indexmap",
+ "libc",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
  "toml_edit 0.22.27",
+ "yaml-rust",
 ]
 
 [[package]]
