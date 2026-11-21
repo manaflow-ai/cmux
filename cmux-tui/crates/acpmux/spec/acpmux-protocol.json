@@ -5574,7 +5574,6 @@
           "type": "integer"
         },
         "next": {
-          "default": null,
           "description": "The next action, for the person or the agent; absent when there is none.",
           "type": [
             "string",
@@ -6324,7 +6323,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "description": "Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar\nand the chat header. Absent before the first turn that makes one, and from a peer on an\nolder acpmux."
         },
         "root": {
@@ -7069,7 +7067,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "description": "Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar\nand the chat header. Absent before the first turn that makes one, and from a peer on an\nolder acpmux."
         },
         "root": {
