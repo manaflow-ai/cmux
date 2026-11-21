@@ -1,3 +1,4 @@
+#if os(iOS)
 import Foundation
 
 /// The composer's draft across a rebuilt terminal (Leo, 2026-11-21: "the connection f***ing
@@ -31,3 +32,4 @@ extension TerminalModel {
         composerText = text
     }
 }
+#endif
