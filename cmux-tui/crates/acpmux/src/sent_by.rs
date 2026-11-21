@@ -169,7 +169,7 @@ mod tests {
 
     fn lane_x(model: Option<&str>) -> Sender {
         Sender {
-            host: Some("gcp-agent-lane-12".into()),
+            host: Some("devbox".into()),
             session: "lane-x".into(),
             harness: Some("claude".into()),
             model: model.map(str::to_owned),
@@ -180,13 +180,13 @@ mod tests {
     fn names_host_session_harness_and_model() {
         assert_eq!(
             line(&lane_x(Some("claude-opus-5-5"))),
-            "Sent-by: gcp-agent-lane-12/lane-x harness=claude model=claude-opus-5-5"
+            "Sent-by: devbox/lane-x harness=claude model=claude-opus-5-5"
         );
     }
 
     #[test]
     fn an_unknown_field_is_left_out() {
-        assert_eq!(line(&lane_x(None)), "Sent-by: gcp-agent-lane-12/lane-x harness=claude");
+        assert_eq!(line(&lane_x(None)), "Sent-by: devbox/lane-x harness=claude");
         let bare = Sender { session: "lane-x".into(), ..Sender::default() };
         assert_eq!(line(&bare), "Sent-by: lane-x");
     }
@@ -198,7 +198,7 @@ mod tests {
         assert!(stamp_blocks(&mut p, &line(&lane_x(Some("claude-opus-5-5")))));
         assert_eq!(
             p["prompt"][0]["text"],
-            "PR #1 is green.\n\nSent-by: gcp-agent-lane-12/lane-x harness=claude \
+            "PR #1 is green.\n\nSent-by: devbox/lane-x harness=claude \
              model=claude-opus-5-5"
         );
     }

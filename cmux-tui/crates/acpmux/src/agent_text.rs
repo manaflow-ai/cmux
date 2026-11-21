@@ -234,10 +234,10 @@ mod tests {
 
     #[test]
     fn a_sent_by_trailer_reads_as_an_agents() {
-        let text = "PR #1 is green.\n\nSent-by: gcp-agent-lane-12/lane-x harness=claude \
+        let text = "PR #1 is green.\n\nSent-by: devbox/lane-x harness=claude \
                     model=claude-opus-5-5";
         let found = detect(text);
-        assert_eq!(found.from.as_deref(), Some("gcp-agent-lane-12/lane-x"));
+        assert_eq!(found.from.as_deref(), Some("devbox/lane-x"));
         assert_eq!(found.signals, vec!["a Sent-by line"]);
     }
 

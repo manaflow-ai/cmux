@@ -1464,7 +1464,7 @@ Every message one session sends another ends with one line the daemon writes, ne
 ```text
 PR #1 is green.
 
-Sent-by: gcp-agent-lane-12/lane-x harness=claude model=claude-opus-5-5
+Sent-by: devbox/lane-x harness=claude model=claude-opus-5-5
 ```
 
 The host is the short hostname of the daemon that proved the sender's session (its caller
