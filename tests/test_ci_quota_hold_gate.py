@@ -66,7 +66,7 @@ HOLD_GATED: dict[str, tuple[str, ...]] = {
 # missing on the head dispatches the gates rather than passing.
 DRAFT_SKIPPED: dict[str, tuple[str, ...]] = {
     "cmux-next-fast-gates.yml": (),
-    "gallery-advisory.yml": (),
+    # gallery-advisory.yml left: no pull request starts it since #48517, so it has no draft to skip.
     "cmux-next-hot-verify.yml": ("plan",),
     "pr-checks.yml": ("link", "swift-logic", "size", "ui-review"),
 }
