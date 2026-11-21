@@ -310,7 +310,11 @@ class SwiftSyntaxTests(unittest.TestCase):
                 return {"id": item[0], "phase": item[1], "argv": item[3], "tests": None,
                         "cancelled": False, "status": "passed", "executed": True,
                         "elapsed_seconds": 0}, ""
-            with patch.object(verify, "execute", side_effect=changed):
+            # execute is mocked, so the parser never runs; pretend swiftc is
+            # installed or run() reports "unsupported" on hosts without Swift
+            # (the Linux guard runners) before the drift check is reached.
+            with patch.object(verify, "execute", side_effect=changed), \
+                    patch.object(verify.shutil, "which", return_value="/nonexistent/swiftc"):
                 result = verify.run(repo, ["swift-syntax"], 5, io.StringIO(),
                                     swift_files=["Example.swift"])
             self.assertEqual(result["outcome"]["status"], "interrupted")
