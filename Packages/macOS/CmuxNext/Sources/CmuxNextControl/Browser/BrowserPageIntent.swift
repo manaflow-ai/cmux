@@ -18,6 +18,20 @@ public enum BrowserPageIntent: Sendable, Hashable {
     /// The intent of the `browser.page.*` call running in this task; ``acts`` outside one.
     @TaskLocal public static var current: BrowserPageIntent = .acts
 
+    /// The methods that only read their page or the profile: their scripts are cmux's own. `browser.page.eval`, a
+    /// wait with the agent's own `function` and every input verb can call `navigator.credentials` themselves.
+    static let readMethods: Set<String> = [
+        "browser.page.state", "browser.page.snapshot", "browser.page.screenshot", "browser.page.tabs",
+        "browser.page.text", "browser.page.value", "browser.page.wait", "browser.page.passkey_status",
+        "browser.page.cookies.get", "browser.page.storage.get", "browser.page.downloads", "browser.page.download.wait",
+    ]
+
     /// The intent of `call`: ``reads`` for the read verbs, ``acts`` for every other.
-    static func of(_ call: ControlCall) -> BrowserPageIntent { .acts }
+    static func of(_ call: ControlCall) -> BrowserPageIntent {
+        guard readMethods.contains(call.request.method) else { return .acts }
+        if call.request.method == "browser.page.wait", let script = call.request.params["function"]?.stringValue, !script.isEmpty {
+            return .acts
+        }
+        return .reads
+    }
 }

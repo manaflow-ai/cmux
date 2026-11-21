@@ -150,6 +150,8 @@ extension BrowserTab {
 
     public func markAgentDriven() {}
     public func markAgentReading() { markAgentDriven() }
+    /// ``markAgentReading()`` when `reading`, else ``markAgentDriven()``.
+    public func markAgent(reading: Bool) { if reading { markAgentReading() } else { markAgentDriven() } }
     public var isAgentDriven: Bool { false }
     public func handOverWebAuthn(during trigger: @Sendable () async throws -> Void) async throws { try await trigger() }
     public var isExtensionWindow: Bool { false }
