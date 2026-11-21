@@ -1434,6 +1434,9 @@ final class ClaudeHookSessionStore {
         cwd: String?,
         transcriptPath: String? = nil,
         pid: Int? = nil,
+        /// Written only when the record has no pid yet: the hook's agent pid,
+        /// for a session whose SessionStart never reached cmux (#34433).
+        missingPid: Int? = nil,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         isRestorable: Bool? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
@@ -1494,7 +1497,7 @@ final class ClaudeHookSessionStore {
                 surfaceId: surfaceId,
                 cwd: cwd,
                 transcriptPath: transcriptPath,
-                pid: pid,
+                pid: pid ?? (record.pid == nil ? missingPid : nil),
                 launchCommand: launchCommand,
                 isRestorable: isRestorable,
                 agentLifecycle: agentLifecycle,
@@ -31790,6 +31793,7 @@ struct CMUXCLI {
                         surfaceId: surfaceId,
                         cwd: hookCwd,
                         transcriptPath: hookTranscriptPath,
+                        missingPid: liveClaudePID(mapped: nil),
                         isRestorable: true,
                         // Pending background work keeps the pane out of the
                         // hibernatable .idle state so the planner cannot SIGTERM
@@ -32011,6 +32015,7 @@ struct CMUXCLI {
                     cwd: hookCwd,
                     transcriptPath: hookTranscriptPath,
                     pid: mappedSession == nil ? claudePid : nil,
+                    missingPid: liveClaudePID(mapped: nil),
                     launchCommand: firstSightingLaunchCommand,
                     isRestorable: true,
                     agentLifecycle: .running,
@@ -32372,6 +32377,7 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: hookCwd,
                     transcriptPath: hookTranscriptPath,
+                    missingPid: liveClaudePID(mapped: nil),
                     agentLifecycle: .needsInput,
                     hookEventName: reportedHookEventName(from: parsedInput) ?? "Notification",
                     lastSubtitle: summary.subtitle,
@@ -32684,6 +32690,7 @@ struct CMUXCLI {
                     surfaceId: existingSurfaceId,
                     cwd: hookCwd,
                     transcriptPath: hookTranscriptPath,
+                    missingPid: liveClaudePID(mapped: nil),
                     agentLifecycle: .needsInput,
                     hookEventName: reportedHookEventName(from: parsedInput) ?? "PermissionRequest",
                     lastSubtitle: waitingSubtitle,
@@ -32764,6 +32771,7 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
+                    missingPid: liveClaudePID(mapped: nil),
                     agentLifecycle: .running,
                     hookEventName: reportedHookEventName(from: parsedInput) ?? "PreToolUse",
                     updateLastSummary: true
