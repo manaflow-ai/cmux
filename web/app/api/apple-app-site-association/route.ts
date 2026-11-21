@@ -1,8 +1,8 @@
 /**
  * The Apple App Site Association file, served at
  * `/.well-known/apple-app-site-association` (next.config.ts rewrites it here).
- * It lets the cmux iOS app open cmux.com's agent links
- * (`/deeplink/agent?harness=&session=`) directly, as universal links, instead
+ * It lets the cmux iOS app open cmux.com's agent and screen links
+ * (`/deeplink/agent?harness=&session=`, `/deeplink/screen?device=&display=`) directly, as universal links, instead
  * of in Safari. A link is an address, not a credential: the app opens only a
  * session the person's own Mac already shows (schemas/deeplinks/agent-link.json).
  * Without the app installed the page loads as before.
@@ -15,8 +15,13 @@
  */
 const APP_IDS = ["7WLXT3NR37.com.cmux.app", "7WLXT3NR37.dev.cmux.app.internal"];
 
-/** The agent link page, bare and under a locale prefix (`/ja/deeplink/agent`). */
-const COMPONENTS = [{ "/": "/deeplink/agent" }, { "/": "/*/deeplink/agent" }];
+/** The agent and screen link pages, bare and under a locale prefix (`/ja/deeplink/agent`). */
+const COMPONENTS = [
+  { "/": "/deeplink/agent" },
+  { "/": "/*/deeplink/agent" },
+  { "/": "/deeplink/screen" },
+  { "/": "/*/deeplink/screen" },
+];
 
 export function appleAppSiteAssociation() {
   return { applinks: { details: [{ appIDs: APP_IDS, components: COMPONENTS }] } };

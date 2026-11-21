@@ -12,13 +12,14 @@ import {
   agentLinkModel,
   agentReference,
 } from "./deeplink-agent";
+import { SCREEN_ALLOWED_PARAMS, SCREEN_REQUIRED_PARAMS, screenLink } from "./deeplink-screen";
 
 type SearchValue = string | string[] | undefined;
 type SearchParams = Record<string, SearchValue>;
 
-type LinkKind = "ssh" | "prompt" | "rules" | "agent";
+type LinkKind = "ssh" | "prompt" | "rules" | "agent" | "screen";
 
-const LINK_KINDS: readonly LinkKind[] = ["ssh", "prompt", "rules", "agent"];
+const LINK_KINDS: readonly LinkKind[] = ["ssh", "prompt", "rules", "agent", "screen"];
 
 const definitions: Record<
   LinkKind,
@@ -61,6 +62,12 @@ const definitions: Record<
     requiredParams: AGENT_REQUIRED_PARAMS,
     exampleHref:
       "/deeplink/agent?harness=claude&session=example-session&host=devbox&name=Rivetmoss&message=example-message",
+  },
+  screen: {
+    allowedParams: SCREEN_ALLOWED_PARAMS,
+    requiredParams: SCREEN_REQUIRED_PARAMS,
+    exampleHref:
+      "/deeplink/screen?device=00000000-0000-4000-8000-000000000000&display=1&name=Example",
   },
 };
 
@@ -331,6 +338,7 @@ export function generateStaticParams() {
     { kind: "rules" },
     { kind: "rule" },
     { kind: "agent" },
+    { kind: "screen" },
   ];
 }
 
@@ -369,30 +377,35 @@ export default async function DeeplinkPage({
   // or a hint it cannot use, is ignored by name and the session still opens
   // (schemas/deeplinks/agent-link.json). The other kinds carry commands and stay strict.
   const agent = kind === "agent" ? agentLink(resolvedSearchParams) : null;
+  // A screen link is an address too: an unknown or unusable hint is ignored by name.
+  const screen = kind === "screen" ? screenLink(resolvedSearchParams) : null;
   // A private reference in place of a session: say what it is, offer no Open.
   const reference =
     agent && !agent.model ? agentReference(resolvedSearchParams) : null;
-  const issues: LinkIssues = agent
+  const addressed = agent ?? screen;
+  const issues: LinkIssues = addressed
     ? {
         unsupported: [],
-        duplicates: agent.duplicates,
+        duplicates: addressed.duplicates,
         conflicts: [],
-        invalid: agent.invalid,
-        missing: agent.missing,
+        invalid: addressed.invalid,
+        missing: addressed.missing,
       }
     : strictIssues(kind, resolvedSearchParams);
   // Never echo unvalidated input into a link.
-  const href = agent
-    ? (agent.model?.href ?? "cmux://agent")
+  const href = addressed
+    ? (addressed.model?.href ?? `cmux://${kind === "screen" ? "mac-screen" : "agent"}`)
     : nativeHref(kind, resolvedSearchParams);
-  const canOpen = agent
-    ? agent.model !== null
+  const canOpen = addressed
+    ? addressed.model !== null
     : Object.values(issues).every((names) => names.length === 0);
   // Only when the link opens: the sentence says the session still opens, and a
   // link that cannot open shows the one problem the reader has to fix instead.
   const ignoredMessage =
-    canOpen && agent && agent.ignored.length > 0
-      ? t("ignoredParams", { params: agent.ignored.join(", ") })
+    canOpen && addressed && addressed.ignored.length > 0
+      ? t(screen ? "screen.ignoredParams" : "ignoredParams", {
+          params: addressed.ignored.join(", "),
+        })
       : null;
   const issue = firstIssue(issues);
   const errorMessage = reference
