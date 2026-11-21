@@ -533,6 +533,9 @@ impl MediaSession {
     /// Sends the paced datagrams that are due, telling the engine when each left.
     fn send_paced(&mut self, carrier: &mut dyn Carrier) -> std::io::Result<()> {
         let Some(pacer) = self.pacer.as_mut() else { return Ok(()) };
+        // Ultra's strict budget follows the controller's held wire rate as probes raise it and a
+        // standing queue cuts it (balanced pacing ignores this).
+        pacer.set_rate_bps(self.engine.target_bps());
         let now = now_us();
         let due = pacer.due(now);
         for datagram in &due {
