@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-15 (machines-home): a new built-in sidebar item, Machines (`SidebarBuiltIn.machines`, `desktopcomputer`
+  / `.machine` icon, title "Machines" in every locale). The Machines page lost its surface with the right sidebar
+  (#41025); the item opens it on top (`TopPageRoute.page(.machines)`, `machines.show`, also in Cmd+Shift+P). Like the
+  Automations and Chief items it is NOT in `SidebarLayoutDocument.defaults` and no migration adds it, so the default
+  sidebar does not change; Add to Sidebar and the App Store's "Machines in Sidebar" card add it, and removing it gives
+  back the sidebar as it was. Picked over a Machines section and a Settings > Devices list (gallery
+  `sidebar.machines-placement`, design/machines-section.md "Where it lives"). Regression: `MachinesEntryTests`.
 - 2026-11-21 (hide-app-store-2): Sidebar-Look: David Beyer, Nov 20 call: "don't show the app store until it's ready, it takes too much space"; the person: hide it by default, keep a setting that turns it back on. With `labs.previewFeatures` off (the default) the App Store item is hidden in every look: the `cmux/app-store` app item (0aa5aa4a64043, `SidebarAppItemInfo`) and now the `app_store` built-in of a layout stored before it became an app (`SidebarBuiltIn.defaultInfo(showsStore:)`). The stored layout keeps both; Labs on draws them again. `AppStoreHiddenUntilReadyTests`.
 - 2026-11-21 (lane/sidebar-pin-archive): Sidebar-Look: Leo, 2026-11-21: "the pin button does not make sense. you
   expect this to be the pinned thing. but it isn't. when you pin it, the pin goes to teh left of the bar as an empty

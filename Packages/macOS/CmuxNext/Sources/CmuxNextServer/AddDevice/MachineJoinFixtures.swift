@@ -28,10 +28,13 @@ extension MachineJoinService {
 }
 
 extension JoinedMachine {
-    /// The joined machines `debug.joined_machines` lists (online, offline, revoked).
+    /// The joined machines `debug.joined_machines` lists (online, offline, revoked), and a Mac signed in
+    /// to this account (online, macOS), whose row offers New Workspace.
     public static let fixtures = [
         JoinedMachine(id: "m_lane", name: "lane-vm-3", state: .online, platform: "linux", hostname: "lane-vm-3",
                       joinTokenId: "jt_1", mintedBy: "you@example.com"),
+        JoinedMachine(id: "m_mini", name: "studio-mini", state: .online, platform: "macos", hostname: "studio-mini",
+                      joinTokenId: "jt_4", mintedBy: "you@example.com"),
         JoinedMachine(id: "m_gpu", name: "gpu-west", state: .offline, platform: "linux", joinTokenId: "jt_2", mintedBy: "sam@example.com"),
         JoinedMachine(id: "m_old", name: "old-box", state: .revoked, platform: "macos", joinTokenId: "jt_3"),
     ]
