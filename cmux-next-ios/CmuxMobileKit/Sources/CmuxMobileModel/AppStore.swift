@@ -98,8 +98,15 @@ public final class AppStore {
     public private(set) var attentionCount = 0
 
     private func refreshAttentionCount() {
-        let count = activeWorkspaces.count(where: \.needsAttention)
+        let macIDs = Set(activeTeam?.macs.map(\.id) ?? [])
+        var count = 0
+        var any = false
+        for workspace in workspaceStorage where macIDs.contains(workspace.macID) {
+            any = true
+            if workspace.needsAttention { count += 1 }
+        }
         if count != attentionCount { attentionCount = count }
+        if any != hasActiveWorkspaces { hasActiveWorkspaces = any }
     }
     public var feed: [FeedEvent]
     /// The last tab the user had open per workspace on this device,
@@ -349,12 +356,10 @@ public final class AppStore {
     }
 
     /// Workspaces on the active team's Macs.
-    /// Whether the active space has a workspace: stops at the first one (the Workspaces page asks
-    /// on every pass; `activeWorkspaces` copied every row it kept).
-    public var hasActiveWorkspaces: Bool {
-        let macIDs = Set(activeTeam?.macs.map(\.id) ?? [])
-        return workspaces.contains { macIDs.contains($0.macID) }
-    }
+    /// Whether the active space has a workspace. Kept with the attention count, so a view that
+    /// asks reads a flag that changes only when the space empties or fills, not the workspaces
+    /// (which change on every Mac update: the Workspaces page re-ran its whole body for each).
+    public private(set) var hasActiveWorkspaces = false
 
     public var activeWorkspaces: [Workspace] {
         let macIDs = Set(activeTeam?.macs.map(\.id) ?? [])

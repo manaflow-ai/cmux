@@ -168,7 +168,7 @@ public struct WorkspacesList: View {
     }
 
     /// Refreshing: the team is loading, or the linked Mac's list has not arrived.
-    private var isRefreshing: Bool { store.teamDataState == .loading || inbox.isUpdating }
+    private func isRefreshing(_ inbox: WorkspaceInbox?) -> Bool { store.teamDataState == .loading || inbox?.isUpdating == true }
 
     /// The page's one state for the team's data (CMUX-49): first load, the list, no Mac, or failed.
     private var launchState: WorkspacesLaunchState {
@@ -177,7 +177,7 @@ public struct WorkspacesList: View {
     }
 
     /// The list's own placeholder rows fill the page (Macs known, no rows yet).
-    private var listShowsPlaceholder: Bool { inbox.isLoading && inbox.folds.isEmpty }
+    private func listShowsPlaceholder(_ inbox: WorkspaceInbox?) -> Bool { inbox.map { $0.isLoading && $0.folds.isEmpty } ?? false }
 
     public var body: some View {
         #if DEBUG
@@ -187,26 +187,16 @@ public struct WorkspacesList: View {
     }
 
     private var page: some View {
+        // The page reads no workspace: the rows, the subtitle and the toolbar's recent folders
+        // are their own views (`WorkspacesListRows`, `WorkspacesToolbarHost`), so a Mac update re-runs
+        // those, not this body with its dialogs, sheets and toolbar host.
         content
             .navigationTitle("Workspaces")
-            .navigationSubtitle(subtitle)
-            // The toolbar from plain values in a view of its own: SwiftUI skips it
-            // when they did not change, so a workspace update does not rebuild
-            // the bar's items (it did, at about 10 ms, on every Mac tree update).
-            .background { toolbarHost }
+            .background { WorkspacesToolbarHost(host: self) }
             // The chosen Mac is the linked Mac: on a choice, on launch with a
             // remembered choice, and when the chosen Mac comes online.
             .onChange(of: scope.macToLink(in: macs), initial: true) { _, id in
                 if let id { linking?.link(id) }
-            }
-            .task(id: isRefreshing) {
-                // Say "Updating…" only when a refresh is slow, not on every one.
-                guard isRefreshing else {
-                    showsUpdating = false
-                    return
-                }
-                try? await Task.sleep(for: .seconds(1.5))
-                if !Task.isCancelled { showsUpdating = true }
             }
             .alert(unavailableTitle, isPresented: isPresented($unavailable), presenting: unavailable) { _ in
                 Button("OK", role: .cancel) {}
@@ -290,18 +280,18 @@ public struct WorkspacesList: View {
 
     /// Filtered: the Mac and its presence. Else "Updating…" for a slow
     /// refresh, "2 need you", or with several Macs how many are online.
-    private var subtitle: String {
+    func subtitle(_ inbox: WorkspaceInbox?) -> String {
         if let mac = scopedMac {
             return "\(displayName(mac)) · " + RelativeStamp(now: MinuteClock.shared.now).presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
         }
         let state = launchState
         // One loading indicator at a time: over the placeholder rows the page already says it loads.
-        if showsUpdating && isRefreshing && state.allowsUpdatingSubtitle && !listShowsPlaceholder { return "Updating…" }
+        if showsUpdating && isRefreshing(inbox) && state.allowsUpdatingSubtitle && !listShowsPlaceholder(inbox) { return "Updating…" }
         // Rows are the last known only while none of their Macs is live (a live Mac's rows are current).
-        if case .content(refreshFailed: true) = state, !inbox.rowMacIDs.isEmpty, liveRowMacs(inbox).isEmpty {
+        if case .content(refreshFailed: true) = state, let inbox, !inbox.rowMacIDs.isEmpty, liveRowMacs(inbox).isEmpty {
             return store.isOffline ? "Offline · last known" : "Couldn't refresh · last known"
         }
-        let waiting = inbox.needsYouCount
+        let waiting = inbox?.needsYouCount ?? 0
         if waiting > 0 { return waiting == 1 ? "1 needs you" : "\(waiting) need you" }
         if macs.count > 1 { return "\(macs.filter(\.isOnline).count) of \(macs.count) Macs online" }
         return ""
@@ -371,6 +361,7 @@ public struct WorkspacesList: View {
         switch launchState {
         case .firstLoad(let offline):
             skeleton(offline ? "Waiting for a connection…" : "Loading workspaces…")
+                .navigationSubtitle(subtitle(nil))
         case .failed(let offline):
             EmptyState(symbol: offline ? "wifi.slash" : "cloud", title: "Couldn't load workspaces",
                        message: offline ? "This iPhone is offline. Workspaces load when it's back online."
@@ -378,6 +369,7 @@ public struct WorkspacesList: View {
                        // The offline pill is status only: Retry stays here (the one on screen).
                        retry: retryLoad == nil ? nil : retry)
                 .accessibilityIdentifier("workspaces.retry")
+                .navigationSubtitle(subtitle(nil))
         case .noMacs, .content:
             if macs.isEmpty {
                 ConnectMacEmptyState(
@@ -388,8 +380,9 @@ public struct WorkspacesList: View {
                     noMacsForAccount: store.accountMacCount == 0,
                     openAccount: openAccount
                 )
+                .navigationSubtitle(subtitle(nil))
             } else {
-                list(inbox)
+                WorkspacesListRows(host: self)
             }
         }
     }
@@ -405,6 +398,24 @@ public struct WorkspacesList: View {
     /// diffable data source (`WorkspacesCollection`), fed plain values. The
     /// empty states, the placeholders and the close popover's anchor stay
     /// SwiftUI over it.
+    /// The rows and what follows them (the subtitle, the slow-refresh timer): `WorkspacesListRows`'s
+    /// body, so the workspaces it reads re-run it alone.
+    func rows() -> some View {
+        let inbox = inbox
+        let refreshing = isRefreshing(inbox)
+        return list(inbox)
+            .navigationSubtitle(subtitle(inbox))
+            .task(id: refreshing) {
+                // Say "Updating…" only when a refresh is slow, not on every one.
+                guard refreshing else {
+                    showsUpdating = false
+                    return
+                }
+                try? await Task.sleep(for: .seconds(1.5))
+                if !Task.isCancelled { showsUpdating = true }
+            }
+    }
+
     private func list(_ inbox: WorkspaceInbox) -> some View {
         WorkspacesCollection(model: listModel(inbox), actions: collectionActions, control: listControl,
                              membershipKey: inboxMemo.workspaceIDsKey &* 31 &+ inboxMemo.needsYouKey)
@@ -1047,7 +1058,7 @@ public struct WorkspacesList: View {
         }
     }
 
-    private var toolbarHost: some View {
+    func toolbarHost() -> some View {
         let target = target
         let macs = macs
         let entries = macs.count > 1 ? macText.entries(MacFilterMemo.Input(macs: macs, accountMacs: accountMacs, connection: store.macConnection,
@@ -1076,6 +1087,27 @@ public struct WorkspacesList: View {
     func retry() async {
         await retryLoad?()
     }
+}
+
+/// The Workspaces rows and the subtitle over them: the part of the page that reads the
+/// workspaces, so a busy Mac's updates re-run this view, not the page with its dialogs.
+struct WorkspacesListRows: View {
+    let host: WorkspacesList
+
+    var body: some View {
+        #if DEBUG
+        let _ = ListApplyProbe.shared.count("ws.rows.body")
+        #endif
+        host.rows()
+    }
+}
+
+/// The toolbar's model (its New Workspace menu lists recent folders by the Mac's activity): its
+/// own view, so reading the workspaces for it does not re-run the page.
+struct WorkspacesToolbarHost: View {
+    let host: WorkspacesList
+
+    var body: some View { host.toolbarHost() }
 }
 
 /// A row's inputs as plain values: SwiftUI compares them and skips the row
