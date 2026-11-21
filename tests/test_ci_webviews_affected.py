@@ -237,5 +237,52 @@ class SelectTest(unittest.TestCase):
         self.assertEqual(run().stdout, "")
 
 
+
+class PullRequestShardsTest(unittest.TestCase):
+    """scripts/ci/webviews_pr_shards.py: a pull request runs shard 1 and each shard that holds a test its change
+    touches (edits, or imports a changed webviews file); never the always-run set alone; every shard for a build
+    or runner input."""
+
+    setUp = SelectTest.setUp
+
+    def touched(self, *paths: str, delete: bool = False) -> list[str] | None:
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        for path in paths:
+            if delete:
+                git(self.root, "rm", "-q", path)
+            else:
+                (self.root / path).parent.mkdir(parents=True, exist_ok=True)
+                with open(self.root / path, "a") as out:
+                    out.write("// changed\n")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "change")
+        found, _ = ps.touched(wa.Selector(self.root), wa.changed(self.root, "HEAD^1", "HEAD"))
+        return None if found is None else sorted(found)
+
+    def test_a_source_touches_the_tests_that_import_it_not_the_always_set(self) -> None:
+        self.assertEqual(self.touched("webviews/src/leaf.ts"), ["webviews/test/leaf.test.ts"])
+        self.assertEqual(self.touched("webviews/src/hub.ts"), [])  # only through leaf.ts and other.ts
+        self.assertEqual(self.touched("webviews/test/other.test.ts"), ["webviews/test/other.test.ts"])
+
+    def test_a_change_outside_webviews_touches_no_test(self) -> None:
+        self.assertEqual(self.touched("unrelated/tool.py"), [])
+        self.assertEqual(self.touched("schemas/settings/settings-schema.json"), [])
+
+    def test_build_and_runner_inputs_and_deleted_sources_run_every_shard(self) -> None:
+        self.assertIsNone(self.touched("webviews/package.json"))
+        self.assertIsNone(self.touched("scripts/ci/webviews_affected.py"))
+        self.assertIsNone(self.touched("webviews/src/leaf.ts", delete=True))
+
+    def test_no_touched_test_runs_shard_1_and_all_means_all(self) -> None:
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        self.touched("unrelated/tool.py")
+        self.assertEqual(ps.pick(self.root, "HEAD^1", "HEAD", 12), ([1], "the change touches no webviews test"))
+        run = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_pr_shards.py"), "--all", "--count", "3"],
+                             capture_output=True, text=True, check=True)
+        self.assertEqual(run.stdout.strip(), '[{"shard":1,"shard_count":3},{"shard":2,"shard_count":3},{"shard":3,"shard_count":3}]')
+        self.touched("webviews/package.json")
+        self.assertEqual(ps.pick(self.root, "HEAD^1", "HEAD", 3)[0], [1, 2, 3])
+
+
 if __name__ == "__main__":
     unittest.main()
