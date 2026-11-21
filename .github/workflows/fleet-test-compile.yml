@@ -82,7 +82,7 @@ jobs:
     # (cmux-next-tip-test-compile.yml) checks every feat-cmux-next push that reaches a test target.
     if: ${{ github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'full-ci') }}
     # Blacksmith, behind the fork branch, so a GitHub billing block cannot stop it (tests/test_ci_self_hosted_guard.sh).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
     permissions:
       contents: read
     timeout-minutes: 5
