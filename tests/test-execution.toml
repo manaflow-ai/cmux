@@ -1681,10 +1681,6 @@ path = "tests/test_ci_main_full_suite.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_ios_ui_nightly.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_update_release_tag.py"
 lane = "linux-guard"
 
@@ -2386,4 +2382,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_write_token_jit_label.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_language_boundaries_spends_no_rest.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_risk_tier_grades_once.py"
 lane = "linux-guard"

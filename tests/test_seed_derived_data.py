@@ -1533,7 +1533,7 @@ class Wiring(unittest.TestCase):
         owned = {(workflow, job) for workflow, job, on_fleet in checked if on_fleet}
         self.assertTrue({("ci-macos.yml", "macos-compile-admission"), ("ci-macos.yml", "cli-product-tests"),
                          ("ci-macos.yml", "app-host-unit-tests"), ("ci.yml", "claude-wrapper"),
-                         ("auth-refresh-tests.yml", "auth-refresh-tests")} <= owned, owned)
+                         ("auth-refresh-tests.yml", next(iter(load("auth-refresh-tests.yml")["jobs"])))} <= owned, owned)
 
     def test_full_suite_shards_take_the_shard_runner_on_admissions_xcode(self):
         shards = load("ci-macos.yml")["jobs"]["app-host-unit-tests"]

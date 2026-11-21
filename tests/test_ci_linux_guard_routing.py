@@ -111,8 +111,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         self.assertIn('startswith("Packages/macOS/CmuxCloudMachines/")', changes)
         self.assertNotIn("actions/checkout", changes)
         self.assertIn("pull-requests: read", workflow)
-        # mac-grant: the Mac grant switch (mac-grant.yml, cmuxterm-hq#16502).
-        self.assertIn("needs: [changes, resolve-ref, mac-grant]", lifecycle)
+        self.assertIn("needs: [changes, resolve-ref]", lifecycle)
         self.assertIn(
             "if: ${{ needs.changes.outputs.should_run == 'true' }}",
             lifecycle,

@@ -2,7 +2,7 @@
 """The Mac grant switch (CI v2 step 9, cmuxterm-hq#16502).
 
 With scripts/ci/mac-grants.json on, every same-repository Mac pull request job asks for
-`cmux-<run_id>-<run_attempt>-mac` (plus `xcode-<version>`); off, every route is what it was.
+`cmux-mac` (plus `xcode-<version>`); off, every route is what it was.
 """
 from __future__ import annotations
 
@@ -27,12 +27,10 @@ from test_seed_derived_data import evaluate, github_context, load  # noqa: E402
 REPO = "manaflow-ai/cmux"
 PR_ENV = {"EVENT_NAME": "pull_request", "GITHUB_REPOSITORY": REPO, "GITHUB_REPOSITORY_OWNER": "manaflow-ai",
           "HEAD_REPO": REPO, "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "2"}
-GRANT = '["cmux-123-2-mac","xcode-26.6"]'
+GRANT = '["cmux-mac","xcode-26.6"]'
 
 # Every Mac pull request job the switch moves, and the expression it reads the grant from.
 PICKER_TERM = "github.event_name == 'pull_request' && inputs.pr_grant != '' && fromJSON(inputs.pr_grant) || "
-INLINE_TERM = ("github.event_name == 'pull_request' && needs.mac-grant.outputs.labels != '' "
-               "&& fromJSON(needs.mac-grant.outputs.labels) || ")
 GRANTED_JOBS = {
     ("ci.yml", "claude-wrapper"): ("github.event_name == 'pull_request' && needs.changes.outputs.macos_pr_grant != '' "
                                    "&& fromJSON(needs.changes.outputs.macos_pr_grant) || "),
@@ -43,12 +41,6 @@ GRANTED_JOBS = {
     ("ci-macos.yml", "swift-package-tests"): (
         "github.event_name == 'pull_request' && !(inputs.full_suite == 'true' && inputs.release_build == 'true') "
         "&& inputs.pr_grant != '' && fromJSON(inputs.pr_grant) || "),
-    **{key: INLINE_TERM for key in (
-        ("auth-refresh-tests.yml", "auth-refresh-tests"), ("relay-tls.yml", "diagnostic-presentation"),
-        ("terminal-hang-diagnostics.yml", "portal-reconciliation"),
-        ("terminal-hang-diagnostics.yml", "phase-attribution"), ("iroh-v2.yml", "client"),
-        ("billing.yml", "ios-billing"), ("cloud-command-deadlines.yml", "command-regressions"),
-        ("cloud-machine-tests.yml", "lifecycle"), ("cloud-task-local-tests.yml", "lifecycle"))},
 }
 
 
@@ -82,9 +74,10 @@ class Switch(unittest.TestCase):
         self.assertEqual(mac_grants.grant_labels(PR_ENV, ['["glaeda-side","glaeda-side-xcode-26.6"]'], path=on),
                          GRANT)
         self.assertEqual(mac_grants.grant_labels(PR_ENV, ["", None, "glaeda-std-xcode-26.6"], path=on), GRANT)
-        self.assertEqual(mac_grants.grant_labels(PR_ENV, ["glaeda-std"], path=on), '["cmux-123-2-mac"]')
+        self.assertEqual(mac_grants.grant_labels(PR_ENV, ["glaeda-std"], path=on), '["cmux-mac"]')
         self.assertTrue(mac_grants.is_grant_label("cmux-123-2-mac"))
         self.assertFalse(mac_grants.is_grant_label("cmux-linux"))
+        self.assertEqual(mac_grants.grant_label(123, 2), "cmux-123-2-mac")
 
     def test_forks_other_events_and_other_owners_get_no_grant(self):
         on = switch(True)
@@ -95,15 +88,6 @@ class Switch(unittest.TestCase):
                        {"GITHUB_RUN_ID": ""}):
             with self.subTest(change=change):
                 self.assertEqual(mac_grants.grant_labels({**PR_ENV, **change}, ["glaeda-std-xcode-26.6"], path=on), "")
-
-    def test_main_writes_the_labels_output(self):
-        out = Path(tempfile.mkdtemp()) / "out"
-        env = {**PR_ENV, "GITHUB_OUTPUT": str(out), "CI_SIDE_LANE_RUNNER": "glaeda-side-xcode-26.6"}
-        with mock.patch.object(mac_grants, "SWITCH_FILE", switch(True)):
-            mac_grants.main(env)
-        with mock.patch.object(mac_grants, "SWITCH_FILE", switch(False)):
-            mac_grants.main(env)
-        self.assertEqual(out.read_text().splitlines(), [f"labels={GRANT}", "labels="])
 
 
 class Picker(unittest.TestCase):
@@ -165,7 +149,6 @@ class Workflows(unittest.TestCase):
                                  full_suite="false", release_build="false")
         context["needs"] = {"changes": {"outputs": {"macos_pr_grant": grant, "owned_head_repos": f'["{REPO}"]',"macos_pr_runner": "glaeda-std-xcode-26.6",
                                                     "macos_pr_side_runner": "glaeda-side-xcode-26.6"}},
-                            "mac-grant": {"outputs": {"labels": grant}},
                             "late-placement": {"outputs": {}}, "admission-placement": {"outputs": {}},
                             "macos-compile-admission": {"outputs": {"runner": "glaeda-std-xcode-26.6"}},
                             "resolve-ref": {"outputs": {"trusted_ref": "true"}}}
@@ -180,10 +163,6 @@ class Workflows(unittest.TestCase):
                 fork = "github.event.pull_request.head.repo.full_name != github.repository"
                 if fork in runs_on:
                     self.assertLess(runs_on.index(fork), runs_on.index(term))
-                if term == INLINE_TERM:
-                    needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
-                    self.assertIn("mac-grant", needs)
-                    self.assertEqual(load(workflow)["jobs"]["mac-grant"]["uses"], "./.github/workflows/mac-grant.yml")
 
     def test_on_a_same_repository_pull_request_takes_the_grant_and_nothing_else_does(self):
         for (workflow, name) in GRANTED_JOBS:
@@ -224,22 +203,13 @@ class Workflows(unittest.TestCase):
             self.assertEqual(steps[step_id]["if"], "${{ inputs.pr_grant == '' }}", step_id)
         self.assertIn("steps.place.outputs.runners || '{}'", jobs["late-placement"]["outputs"]["runners"])
 
-    def test_the_reusable_grant_workflow_reads_the_switch_only_for_same_repository_pull_requests(self):
-        grant = load("mac-grant.yml")
-        self.assertEqual(grant[True]["workflow_call"]["outputs"]["labels"]["value"], "${{ jobs.grant.outputs.labels }}")
-        job = grant["jobs"]["grant"]
-        self.assertNotIn("if", job, "a skipped grant job would skip its dependents")
-        same_repo = "github.event.pull_request.head.repo.full_name == github.repository"
-        for step in job["steps"]:
-            self.assertIn(same_repo, step["if"])
-        self.assertEqual(job["steps"][-1]["run"], "python3 scripts/ci/mac_grants.py")
-
 
 class Watchers(unittest.TestCase):
     def test_the_rescue_and_the_starvation_alarm_leave_a_granted_job_to_the_controller(self):
-        job = {"name": "app-host-unit-tests (1)", "labels": ["cmux-123-2-mac", "xcode-26.6"], "status": "queued"}
-        self.assertIsNone(owned_pool_rescue.job_pool(job))
-        self.assertEqual(starved_labels.fleet_key(job), "")
+        for labels in (["cmux-mac", "xcode-26.6"], ["cmux-123-2-mac", "xcode-26.6"]):
+            job = {"name": "app-host-unit-tests (1)", "labels": labels, "status": "queued"}
+            self.assertIsNone(owned_pool_rescue.job_pool(job), labels)
+            self.assertEqual(starved_labels.fleet_key(job), "", labels)
 
 
 if __name__ == "__main__":

@@ -1,13 +1,15 @@
-#!/usr/bin/env python3
 """Same-repository Mac pull request jobs on a label the CI controller grants (CI v2 step 9, cmuxterm-hq#16502).
 
 Leo: "i thought we were only gonna label things cmux-linux and therefore likewise cmux-mac?" and
 "putting our scheduler as the layer in front of github actions, then we're the ones deciding. and so
-we can literally size per job ourselves." So no Mac pull request job picks a pool: each asks for
-`cmux-<run_id>-<run_attempt>-mac`. No standing runner carries it. A Mac's asker sees free capacity,
-asks the controller, and gets a one-job JIT runner carrying exactly the job's labels.
+we can literally size per job ourselves." So no Mac pull request job picks a pool: each says plain
+`cmux-mac` (the CI v2 lead's ruling, 2026-11-21). A Mac's asker sees free capacity, asks the
+controller, and gets a one-job JIT runner carrying `cmux-mac` and the job's own labels, sized by the
+scheduler. `cmux-size-<N>c` / `cmux-mem-<N>g` are a job's own size ask. The per-run label
+`cmux-<run_id>-<run_attempt>-mac` (grant_label()) is only an opt-in, for a job that must have a
+scheduler-sized machine of its own: no standing runner carries it.
 
-The controller understands, beside the grant label: `cmux-size-<N>c`, `cmux-mem-<N>g`,
+The controller understands, beside `cmux-mac` or the per-run label: `cmux-size-<N>c`, `cmux-mem-<N>g`,
 `xcode-<version>`, `cmux-signing`, and GitHub's self-hosted/macOS/ARM64. Any other label makes the job
 ungrantable, so the grant label replaces a pool label (glaeda-*), never joins one. The Xcode a pool
 label named (glaeda-std-xcode-26.6, or the lane's CMUX_CI_XCODE_APP_PR pin) rides along as
@@ -17,26 +19,27 @@ The one switch is SWITCH_FILE (`{"on": false}`): merging this changes nothing un
 request flips it, after an asker runs on every PR mini. Off, unreadable or malformed: no grant, and
 every route is what it was.
 
-grant_labels() is the runs-on, a JSON array (`["cmux-123-1-mac","xcode-26.6"]`), or "" for no
+grant_labels() is the runs-on, a JSON array (`["cmux-mac","xcode-26.6"]`), or "" for no
 grant: the switch off, not a pull request, a pull request from another repository, or a repository
 outside manaflow-ai (forks keep their own labels). simple_pool_picker.py emits it as `grant` for
-ci.yml's and ci-macos.yml's jobs. The workflows without a picker take it from mac-grant.yml, which
-runs this file (`labels`). A re-run of failed jobs keeps the label of the attempt that made it; the
-controller grants a label naming an earlier attempt of the same run.
+ci.yml's and ci-macos.yml's jobs. The Mac workflows without a picker (auth-refresh-tests, billing,
+cloud-*, iroh-v2, relay-tls, terminal-hang-diagnostics) keep their routes until the pull request that
+flips the switch moves them onto `cmux-mac` inline; reverting that pull request is their off
+switch. A per-run label in a re-run of failed jobs keeps the attempt that made it; the controller
+grants a label naming an earlier attempt of the same run.
 """
 from __future__ import annotations
 
 import json
-import os
 import re
-import sys
 from pathlib import Path
 from typing import Iterable, Mapping
 
 SWITCH_FILE = Path(__file__).with_name("mac-grants.json")
 OWNER = "manaflow-ai"
-# `cmux-<run_id>-<run_attempt>-mac`: the label the controller grants. owned_pool_rescue.py and
-# starved_labels.py leave a job on it alone: the controller, not a pool, owns its wait.
+# The plain Mac label every granted Mac pull request job says (cmuxterm-hq hq#16976 spells it the same).
+MAC_LABEL = "cmux-mac"
+# `cmux-<run_id>-<run_attempt>-mac`: the opt-in per-run label the controller grants.
 GRANT_LABEL = re.compile(r"cmux-[0-9]+-[0-9]+-mac")
 _XCODE = re.compile(r"(?:-xcode-|(?:^|/)Xcode_)(?P<version>[0-9]+(?:\.[0-9]+)*)(?:\.app)?(?:/|$)")
 
@@ -94,26 +97,9 @@ def grant_labels(env: Mapping[str, str], xcode_sources: Iterable[str | None] = (
     attempt = (env.get("GITHUB_RUN_ATTEMPT") or "1").strip()
     if not (run_id.isdigit() and attempt.isdigit() and same_repo_pr(env) and switch_on(path)):
         return ""
-    labels = [grant_label(run_id, attempt)]
+    labels = [MAC_LABEL]
     xcode = xcode_label(xcode_sources)
     if xcode:
         labels.append(xcode)
     return json.dumps(labels, separators=(",", ":"))
 
-
-# What mac-grant.yml hands in for the Xcode, in the order the side-lane jobs read the pool labels.
-LANE_XCODE_VARIABLES = ("CI_LIGHT_LANE_RUNNER", "CI_SIDE_LANE_LABELS", "CI_SIDE_LANE_RUNNER", "CMUX_CI_XCODE_APP_PR")
-
-
-def main(env: Mapping[str, str] | None = None) -> int:
-    env = os.environ if env is None else env
-    labels = grant_labels(env, [env.get(name) for name in LANE_XCODE_VARIABLES])
-    print(f"mac grant: {labels or 'none'} (switch {'on' if switch_on() else 'off'})")
-    if env.get("GITHUB_OUTPUT"):
-        with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
-            handle.write(f"labels={labels}\n")
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

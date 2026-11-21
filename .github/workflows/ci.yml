@@ -152,7 +152,7 @@ jobs:
       # then this pull request), for ci-macos.yml's admission-placement.
       macos_pr_admission_warm: ${{ steps.macos-pool.outputs.admission_warm }}
       # scripts/ci/mac-grants.json on, a same-repository pull request: the controller's per-run grant,
-      # JSON labels (`["cmux-<run>-<attempt>-mac","xcode-<version>"]`) every Mac job reads first, and
+      # JSON labels (`["cmux-mac","xcode-<version>"]`) every Mac job reads first, and
       # every pool output above is empty (simple_pool_picker.grant_outputs()). Otherwise "".
       macos_pr_grant: ${{ steps.macos-pool.outputs.grant }}
     permissions:

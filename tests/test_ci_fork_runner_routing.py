@@ -583,21 +583,6 @@ FORK_GATE_EXEMPT = {
         "its hosted 6vcpu pool without reading this default, and every runs-on "
         "reads its output"
     ),
-    ("mac-grant.yml", "CI_LIGHT_LANE_RUNNER: ${{ vars.CI_LIGHT_LANE_RUNNER }}"): (
-        "mac_grants.py's input, read only for its Xcode version: the step runs only for a "
-        "same-repository pull request, and every runs-on reading its `labels` output takes "
-        "the fork branch first"
-    ),
-    ("mac-grant.yml", "CI_SIDE_LANE_LABELS: ${{ vars.CI_SIDE_LANE_LABELS }}"): (
-        "mac_grants.py's input, read only for its Xcode version: the step runs only for a "
-        "same-repository pull request, and every runs-on reading its `labels` output takes "
-        "the fork branch first"
-    ),
-    ("mac-grant.yml", "CI_SIDE_LANE_RUNNER: ${{ vars.CI_SIDE_LANE_RUNNER }}"): (
-        "mac_grants.py's input, read only for its Xcode version: the step runs only for a "
-        "same-repository pull request, and every runs-on reading its `labels` output takes "
-        "the fork branch first"
-    ),
 }
 
 
