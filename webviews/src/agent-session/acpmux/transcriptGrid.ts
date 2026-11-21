@@ -148,16 +148,45 @@ export function rowMark(row: MarkedRow): number {
   return MARK_OTHER;
 }
 
+const isLineMark = (mark: number): boolean => mark === MARK_STEP || mark === MARK_STATUS || mark === MARK_WORKED;
+
+/// The two gaps a one-line row stands over a turn boundary, in px at Interface Size 1 (design/chat-surfaces.md
+/// "Row rhythm"). Gallery `agent-pane.chat-row-spacing` compares the looks (`<html data-row-gap>`); `shipped` is the
+/// default. `opensAfterLine`: a background turn's first row under a one-line row (it stood the turn gap, 32, a blank
+/// band). `workedAfterLine`: "Worked for" under a one-line row (it stood flush, 0).
+export const ROW_GAP_LOOKS = {
+  before: { opensAfterLine: TRANSCRIPT_TURN_GAP, workedAfterLine: 0 },
+  tight: { opensAfterLine: 0, workedAfterLine: 8 },
+  shipped: { opensAfterLine: 0, workedAfterLine: TRANSCRIPT_RUN_GAP },
+  roomy: { opensAfterLine: 0, workedAfterLine: TRANSCRIPT_BLOCK_GAP },
+} as const;
+export type RowGapLook = keyof typeof ROW_GAP_LOOKS;
+export function rowGapLook(): (typeof ROW_GAP_LOOKS)[RowGapLook] {
+  const set = typeof document === "undefined" ? undefined : document.documentElement.dataset.rowGap;
+  return set !== undefined && set in ROW_GAP_LOOKS ? ROW_GAP_LOOKS[set as RowGapLook] : ROW_GAP_LOOKS.shipped;
+}
+
 /// One gap per adjacent pair, the most specific first: the waiting rule, then turn, then block.
 /// (The composer gap is the stack's, tailGap below.) Gaps never add.
 export function transcriptGap(previous: number, next: number): number {
-  if ((next & MARK_OPENS_TURN) !== 0) return TRANSCRIPT_TURN_GAP;
   previous = baseMark(previous);
+  if ((next & MARK_OPENS_TURN) !== 0) {
+    // Under a one-line row (a step, a status line, "Worked for", a group's head) the turn's first row is one more
+    // line of the run: the turn gap there left a blank band inside an opened group, above its first child and between
+    // children (Leo, 2026-11-21, on the video of a "Sent 3 messages, used a tool, ..." group opened: "spacing is off").
+    if (!isLineMark(previous)) return TRANSCRIPT_TURN_GAP;
+    const gap = rowGapLook().opensAfterLine;
+    if (gap > 0) return gap;
+    next = baseMark(next);
+  }
   if (previous === MARK_PLAN_LINE && next === MARK_FOOTER_ROW) return TRANSCRIPT_FOOTER_GAP;
   if (previous === MARK_PLAN_LINE) previous = MARK_OTHER;
   if (next === MARK_PLAN_LINE) next = MARK_OTHER;
   if (previous === MARK_WORKED && next !== MARK_PROMPT) return 0;
   if (previous === MARK_WORKED) previous = MARK_STEP;
+  // "Worked for" opens a finished turn's work: right under another turn's last one-line row it stood flush with it,
+  // so "Sent to", another agent's line and "Worked for" read as one run (Leo, 2026-11-21: "way too close. no way.").
+  if (next === MARK_WORKED && (previous === MARK_STEP || previous === MARK_STATUS)) return rowGapLook().workedAfterLine;
   if (next === MARK_WORKED) next = MARK_STEP;
   const near = (mark: number) =>
     mark === MARK_STEP || mark === MARK_STATUS || mark === MARK_MESSAGE || mark === MARK_CARD;
