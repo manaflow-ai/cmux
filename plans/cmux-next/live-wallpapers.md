@@ -164,6 +164,12 @@ Our own takes on the references, each one program:
 7. Block Matrix: a fine, even matrix of faint dots lit by a glow centered on the pointer (with a short
    trail), a few slow drifting lights and agent output (`agents`); the light arrives in rectangular
    blocks that ease between levels.
+8. Liquid Gradient: soft blobs of the accent and its neighboring hues wander and flow into each other
+   like a blurred motion-graphics gradient; they lean toward the pointer, and agent output (`agents`)
+   quickens the flow and sends a soft swell.
+9. Eclipse: a dark disc over a glowing one, upper right, leaving a thin rim whose brightest arc turns
+   while the corona breathes and faint rays stream out; agent output (`agents`) brightens the rim and
+   each event sends a flare along it.
 
 Each is mostly the theme's paper and ink with one accent.
 
