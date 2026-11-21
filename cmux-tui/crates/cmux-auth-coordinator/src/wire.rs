@@ -121,6 +121,8 @@ pub struct Snapshot {
     pub published_session_identity: Option<SessionIdentity>,
     pub team_scope: Option<TeamScope>,
     pub cached_team_identity: Option<CachedTeamIdentity>,
+    pub token_store_write_high_water: u64,
+    pub has_active_sign_in_flows: bool,
 }
 
 impl Snapshot {
@@ -211,6 +213,8 @@ impl Session {
             published_session_identity: c.published_session_identity(),
             team_scope: c.team_scope(),
             cached_team_identity: c.cached_team_identity(),
+            token_store_write_high_water: c.token_store_write_high_water(),
+            has_active_sign_in_flows: c.has_active_sign_in_flows(),
         }
     }
 

@@ -473,6 +473,8 @@ fn every_effect_and_the_snapshot_have_the_documented_shape() {
         "publishedSessionIdentity",
         "teamScope",
         "cachedTeamIdentity",
+        "tokenStoreWriteHighWater",
+        "hasActiveSignInFlows",
     ] {
         assert!(snapshot.get(key).is_some(), "snapshot lacks {key}: {snapshot}");
     }

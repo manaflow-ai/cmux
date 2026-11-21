@@ -110,6 +110,32 @@ mod tests {
         assert_eq!(effects(&coordinator), Vec::<Value>::new());
     }
 
+    /// The shell's own requests and the snapshot fields its runners compare
+    /// cross the phone's surface as JSON too.
+    #[test]
+    fn the_shell_requests_and_their_snapshot_fields_cross_as_json() {
+        let coordinator = AuthCoordinator::new(String::new()).unwrap();
+        effects(&coordinator);
+        let snapshot: Value = serde_json::from_str(&coordinator.snapshot()).unwrap();
+        assert_eq!(snapshot["tokenStoreWriteHighWater"], json!(0));
+        assert_eq!(snapshot["hasActiveSignInFlows"], json!(false));
+        coordinator
+            .feed(json!({"availableTeamsSet": [{"id": "t1", "displayName": "One"}]}).to_string())
+            .unwrap();
+        let snapshot: Value = serde_json::from_str(&coordinator.snapshot()).unwrap();
+        assert_eq!(snapshot["availableTeams"][0]["id"], json!("t1"));
+        coordinator
+            .feed(
+                json!({"clearAuthStateRequested": {"reason": "test", "preservePendingCode": true}})
+                    .to_string(),
+            )
+            .unwrap();
+        assert!(effects(&coordinator).contains(&json!({"logSignOut": {"reason": "test"}})));
+        let snapshot: Value = serde_json::from_str(&coordinator.snapshot()).unwrap();
+        assert_eq!(snapshot["lastSignOutReason"], json!("test"));
+        assert_eq!(snapshot["availableTeams"], json!([]));
+    }
+
     #[test]
     fn a_malformed_event_is_refused_and_changes_nothing() {
         let coordinator = AuthCoordinator::new("{}".to_owned()).unwrap();

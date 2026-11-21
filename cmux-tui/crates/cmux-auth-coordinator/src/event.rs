@@ -264,6 +264,15 @@ pub enum Event {
     DevAuthAccessTokenFinished {
         got_token: bool,
     },
+    /// A rollback outside the reducer (a token operation or validation that
+    /// raced a sign-out) signs the app out locally.
+    ClearAuthStateRequested {
+        reason: String,
+        preserve_pending_code: bool,
+    },
+    /// A team action replaced the team list outside a refresh (a created
+    /// team merged into the list it re-read).
+    AvailableTeamsSet(Vec<AuthTeam>),
 }
 
 impl Event {

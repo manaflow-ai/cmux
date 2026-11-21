@@ -168,6 +168,14 @@ impl Coordinator {
         self.last_sign_out_reason.as_deref()
     }
 
+    pub fn token_store_write_high_water(&self) -> u64 {
+        self.token_store_write_high_water
+    }
+
+    pub fn has_active_sign_in_flows(&self) -> bool {
+        !self.active_sign_in_flows.is_empty()
+    }
+
     pub fn has_pending_code(&self) -> bool {
         self.has_pending_code
     }
@@ -436,6 +444,10 @@ impl Coordinator {
                     self.fail_token_read_unauthorized(TokenReadKind::AccessToken, &mut fx);
                 }
             }
+            Event::ClearAuthStateRequested { reason, preserve_pending_code } => {
+                self.clear_auth_state(&reason, preserve_pending_code, false, &mut fx);
+            }
+            Event::AvailableTeamsSet(teams) => self.set_available_teams(teams, &mut fx),
         }
         fx
     }
