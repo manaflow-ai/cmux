@@ -121,10 +121,11 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
               return { kind, glyphs: measure(scope, ...selectors[kind]!) };
             });
             const footer = measure(document.querySelector("[data-footer-row]")!, ".cv-user__time", ".cv-iconbtn svg");
+            // The switcher's head slot is drawn only in other looks (VersionSwitcher.tsx, display none).
             const versionFooter = measure(
               document.querySelector("[data-version-footer-row]")!,
               ".cv-user__time",
-              ".cv-iconbtn svg",
+              '.cv-iconbtn:not([data-version-slot="head"] .cv-iconbtn) svg',
             );
             // The last turn's Retry is its reply footer's (TurnFooter): no message row draws one.
             const retry = (kind: string) => document.querySelector(`[data-received-row="${kind}"] .cv-message-retry`);
