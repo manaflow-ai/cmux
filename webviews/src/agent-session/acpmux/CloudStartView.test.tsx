@@ -242,6 +242,14 @@ test("a start waiting on its browser sign-in says so, not starting or Thinking",
     expect(html).not.toContain("cv-thinking");
     expect(html).not.toContain("Preparing machine");
   }
+  // While the browser is out the composer's prompt is held for the sign-in, so the waiting card offers no Run on
+  // This Mac (it would switch to This Mac and send an empty composer) and no Not now; only the failed card does.
+  const waiting = renderToStaticMarkup(
+    <CloudStartView {...variant.props} onRunHere={() => undefined} onDismiss={() => undefined} />,
+  );
+  expect(waiting).toContain('data-setup-step="account"');
+  expect(waiting).not.toContain('data-action="run-here"');
+  expect(waiting).not.toContain('data-action="dismiss"');
   // Once signed in, the start reads as any start again.
   const { signingIn: _signingIn, ...started } = variant.props.start;
   const html = renderToStaticMarkup(<CloudStartView start={started} />);

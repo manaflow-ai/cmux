@@ -1992,13 +1992,19 @@ fn run_main() {
     // this process. It needs none of the mux's provider credentials or signal handlers.
     #[cfg(unix)]
     if let Some(head) = raw_args.first().map(String::as_str)
-        && (matches!(head, "acp" | "harness" | "chats") || cli::agent_engine_requested(&raw_args))
+        && (matches!(head, "acp" | "harness" | "chats" | "board")
+            || cli::agent_engine_requested(&raw_args))
     {
         discard_provider_secret_environment();
         // From raw_args, not args_os: `cmux help chats` became `chats --help` there, and
         // std::env::args() above already refused argv that is not UTF-8.
         let args = cli::acp_scope_args(&raw_args);
         client_log::exit(acp::run_scope(head, args));
+    }
+    #[cfg(unix)]
+    if let Some(args) = cli::agent_acp_scope_args(&raw_args) {
+        discard_provider_secret_environment();
+        client_log::exit(acp::run_as(args, "cmux agent"));
     }
     // Windows machine join installs the session engine as its own executable.
     // Launch that binary so its daemon and agent hosts use the Windows install.
