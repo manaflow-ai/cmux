@@ -102,7 +102,7 @@ final class BrowserDesignModeController {
     /// `debug.design_mode {draft?, comment?, commit?}` (captures and tours): types `draft` into the
     /// open comment bubble of the tab in design mode, or `comment` and adds it, or adds what is typed
     /// (`commit: true`), through the runtime's own path. `ok` false when no tab is in design mode.
-    static func debugDrive(_ params: [String: JSONValue], services: AppServices?) async -> JSONValue {
+    static func debugDrive(_ params: [String: CmuxNextSettings.JSONValue], services: AppServices?) async -> CmuxNextSettings.JSONValue {
         let cards = services?.designMode.cards ?? [:]
         guard let page = services?.cache.browsers.first(where: { cards[$0.key] != nil })?.value.tab else { return ["ok": .bool(false)] }
         let commit = params["comment"] != nil || params["commit"]?.boolValue == true
