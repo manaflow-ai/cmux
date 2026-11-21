@@ -7,7 +7,9 @@ import { observeHostTail } from "./tailCache";
 const RESTORED_CHAT = "__cmuxRestoredChat";
 const RESTORED_EVENT = "cmux-restored-chat";
 
-export function watchRestoredTail(draw: (snapshot: AcpmuxSnapshot) => void): () => void {
+/// `draw` gets the tail's rows and whether the chat was running when it was kept: the rows say
+/// nothing of what it does now (`retainedSnapshot` strips its status), so they never draw it working.
+export function watchRestoredTail(draw: (snapshot: AcpmuxSnapshot, keptRunning: boolean) => void): () => void {
   let stopRead: (() => void) | undefined;
   let requested = false;
   const read = () => {
@@ -16,7 +18,7 @@ export function watchRestoredTail(draw: (snapshot: AcpmuxSnapshot) => void): () 
     requested = true;
     stopRead = observeHostTail(session, (tail) => {
       const snapshot = AcpmuxDirectClient.retainedSnapshot(session, tail);
-      if (snapshot?.rows.length) draw(snapshot);
+      if (snapshot?.rows.length) draw(snapshot, tail.summary?.status === "running");
     });
   };
   window.addEventListener(RESTORED_EVENT, read);
