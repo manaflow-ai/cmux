@@ -169,6 +169,7 @@ pub mod machine_tunnel;
 pub mod machine_wake;
 pub mod mailbox;
 pub mod managed_codex;
+pub mod mcp_args;
 /// Each chat's `cmux` MCP server over loopback HTTP, started on use and stopped when idle.
 pub mod mcp_gateway;
 pub mod mcp_hint;
