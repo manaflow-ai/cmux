@@ -1,5 +1,6 @@
 import { composerHealthHarness } from "./composerPickerEntries";
 import { forkMenuRows } from "./header/forkMenu";
+import { useFold } from "./conversation/fold";
 import { openFork, openInOwnTab } from "./conversation/openFork";
 import { setSessionRefResolver } from "./conversation/sessionRefs";
 import { useStopThroughReconnect } from "./stopThroughReconnect";
@@ -147,6 +148,7 @@ import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "./new
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
 import { startNewTabTransition } from "./newtab/startTransition";
+import { drawPaneSnapshot, PendingPaneDraw } from "./paneSnapshotLane";
 import {
   folderFields,
   isAgentHome,
@@ -5338,18 +5340,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
     // The Environment chip's pick (CLOUD_ENVIRONMENTS_ENABLED); Auto, and the flag off, name none.
     const environment = cloudEnvironment.forSend(start.environment);
-    const reservationKey = cloudReservation.handoff(environment);
     const team = cloudSwitchTeam.forSend();
-    const request: CloudStart = {
+    const unreserved: CloudStart = {
       task: text,
       attachments,
       ...start,
       ...(environment ? { environment } : {}),
-      ...(reservationKey ? { reservationKey } : {}),
       ...(team ? { team } : {}),
       // The empty chat this start replaces: the host closes this tab with it once the Cloud chat opens.
       ...(emptyLocalChat && snapshot.sessionId ? { replacesChat: snapshot.sessionId } : {}),
     };
+    // The compose's warm machine goes only with the Send it first went with (or that Send's retry,
+    // the same start key): after a refused start, another prompt from this page would be refused
+    // by the platform as `409 reservation.bound` (cloudComposeReservation.ts `handoff`).
+    const reservationKey = cloudReservation.handoff(environment, cloudStartKeys.keyFor(unreserved));
+    const request: CloudStart = { ...unreserved, ...(reservationKey ? { reservationKey } : {}) };
     // A page's send leaves the page: its draft comes back in the chat composer, compared there.
     const preserved = fromPage || heldStillShown === false ? undefined : composerHandle.current?.draft();
     const started = beginCloudSend(request, false, preserved, fromPage);
@@ -6694,6 +6699,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const toolOutputEpoch = useRef(0);
   // The pane drew a new snapshot: its rows hold every call's output as of that draw again.
   useLayoutEffect(() => liveToolOutput.settle(toolOutputEpoch.current), [clientSnapshot]);
+  /// The pane's transition draw of a snapshot that has not committed yet (paneSnapshotLane.ts).
+  const [pendingPaneDraw] = useState(() => new PendingPaneDraw());
+  useLayoutEffect(() => pendingPaneDraw.committed(clientSnapshot), [pendingPaneDraw, clientSnapshot]);
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(initialChat?.snapshot);
   const readSendAgain = useCallback((): SendPromptAgainState => {
@@ -7233,6 +7241,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     )
       releaseCalls();
   }, []);
+  /// The oldest row the followed transcript draws: the client sheds no held record above it (direct.ts `setKeepFrom`).
+  const onTranscriptKeepFrom = useCallback(
+    (rowId: string | null, at?: number) => directClient.current?.setKeepFrom(rowId, at),
+    [],
+  );
   const composerRef = useCallback((handle: ComposerHandle | null) => {
     composerHandle.current = handle;
     if (handle && pendingWake.current) {
@@ -8772,24 +8785,33 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             }
             // Only a running command's output grew: the row that draws it reads it
             // (liveToolOutput.ts); the pane, its header and Session Info keep what they drew.
-            const call = drawn && received && !streamingRowBlocked() ? toolOutputOnly(received, next) : undefined;
+            // Not while the pane's own draw is pending (paneSnapshotLane.ts `PendingPaneDraw`).
+            const call =
+              drawn && received && !streamingRowBlocked() && !pendingPaneDraw.pending
+                ? toolOutputOnly(received, next)
+                : undefined;
             if (call) {
               liveToolOutput.set(call.id, call.output, call.before);
               return;
             }
             streamingRow.clear();
             toolOutputEpoch.current = liveToolOutput.redraw();
+            // A redraw of the whole pane is a transition a key can go before, unless it answers what
+            // the person just did or opens another chat (paneSnapshotLane.ts).
+            const drewBefore = drawnSnapshot.current;
             drawnSnapshot.current = next;
-            setSnapshot((previous) => {
-              if (
-                next.canHandoff &&
-                !next.handoff?.ready &&
-                next.sessionId === previous.sessionId &&
-                previous.handoff?.record
-              )
-                return { ...next, handoff: { ...next.handoff, record: previous.handoff.record } };
-              return next;
-            });
+            drawPaneSnapshot(drewBefore, next, pendingPaneDraw, () =>
+              setSnapshot((previous) => {
+                if (
+                  next.canHandoff &&
+                  !next.handoff?.ready &&
+                  next.sessionId === previous.sessionId &&
+                  previous.handoff?.record
+                )
+                  return { ...next, handoff: { ...next.handoff, record: previous.handoff.record } };
+                return next;
+              }),
+            );
           },
           () => {
             // The daemon went away. Ask Swift again: a restarted daemon has a new port and token.
@@ -10366,7 +10388,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       notifyDraftActionsChanged();
     };
     // These are stable for the pane's life (state, provider client, a memoized bridge callback, and
-    // the early New Tab flag, one object from a useState initializer).
+    // the early New Tab flag and the pending pane draw, objects from useState initializers).
   }, [
     connectedClients,
     folderContinuation,
@@ -10384,6 +10406,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     notices,
     quoteReply,
     inheritedFolderRef,
+    pendingPaneDraw,
   ]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
     | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
@@ -12230,6 +12253,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                               undefined,
                                                                               fill,
                                                                               rising,
+                                                                              true,
                                                                             ) ?? Promise.resolve()
                                                                         : undefined
                                                                   }
@@ -12253,6 +12277,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                   sends={childRows ? undefined : sends}
                                                                   onFollowingChange={
                                                                     childRows ? undefined : onTranscriptFollowingChange
+                                                                  }
+                                                                  onKeepFrom={
+                                                                    childRows ? undefined : onTranscriptKeepFrom
                                                                   }
                                                                   onAnchor={
                                                                     quick || childRows || !shownSessionId
@@ -12362,16 +12389,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     snapshot.permissionGroups?.supported &&
     (snapshot.permissionGroups.groups.length > 0 || snapshot.permissionGroups.error),
   );
+  const trustOpen = Boolean(trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted"));
+  // The trust question folds out on the fold's clock when it is answered (conversation/fold.ts), so
+  // the stack's top and the transcript's rows over it travel together, instead of the stack dropping
+  // its height in one frame (gallery `agent-pane.bottom-stack` trust-fold-*). While it folds it draws
+  // the question as it last stood, inert, and holds no keys.
+  const trustLast = useRef(trustAsk.ask);
+  useLayoutEffect(() => {
+    if (trustOpen) trustLast.current = trustAsk.ask;
+  });
+  const trustShown = trustOpen ? trustAsk.ask : trustLast.current;
+  const trustFold = useFold(trustOpen, () => !trustOpen, false);
   const liveBottomAsk = Boolean(
-    (trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted")) ||
-    hasPermissionGroups ||
-    individualPermission ||
-    childAsk ||
-    secret ||
-    toolCards.length > 0,
+    trustOpen || hasPermissionGroups || individualPermission || childAsk || secret || toolCards.length > 0,
   );
   // Pinned questions join the stack but never take the composer's keys (waitingAskStore.ts).
-  const bottomStack = bottomAsks(liveBottomAsk, pinnedAsks.length);
+  const bottomStack = bottomAsks(liveBottomAsk, pinnedAsks.length, trustFold.present);
   const hasBottomAsk = bottomStack.holdsKeys;
   // A folder confirmation can be pending while the New Tab stays mounted. Keep the same ask in
   // that surface too: the regular composer is deliberately hidden behind the New Tab, so leaving
@@ -12440,7 +12473,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       />
     ) : undefined;
   const asks = bottomStack.shows ? (
-    <div className="acpmux-permission acpmux-asks-stack">
+    <div className="acpmux-permission acpmux-asks-stack" data-leaving={bottomStack.leaving || undefined}>
       {pinnedAsks.length > 0 && (
         <PendingAsks
           asks={pinnedAsks}
@@ -12450,27 +12483,29 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           asker={turnActions.asker}
         />
       )}
-      {trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted") && (
-        <TrustAsk
-          ask={trustAsk.ask}
-          agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
-          onTrust={trustAsk.trust}
-          onTrustRepo={trustAsk.trustRepo}
-          onDistrust={trustAsk.distrust}
-          onUndo={trustAsk.undo}
-          onContinueWithoutFolder={
-            healthLocal &&
-            !remoteChat &&
-            Boolean(snapshot.sessionId) &&
-            !directClient.current?.startsOnSend &&
-            trustAsk.ask?.state === "decided" &&
-            trustAsk.ask.level === "untrusted" &&
-            !isAgentHome(trustAsk.ask.cwd)
-              ? continueWithoutFolder
-              : undefined
-          }
-          answers={answersTrust}
-        />
+      {trustFold.present && trustShown && (
+        <div ref={trustFold.ref} className="cv-fold acpmux-trust-fold" inert={!trustOpen || undefined}>
+          <TrustAsk
+            ask={trustShown}
+            agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
+            onTrust={trustAsk.trust}
+            onTrustRepo={trustAsk.trustRepo}
+            onDistrust={trustAsk.distrust}
+            onUndo={trustAsk.undo}
+            onContinueWithoutFolder={
+              healthLocal &&
+              !remoteChat &&
+              Boolean(snapshot.sessionId) &&
+              !directClient.current?.startsOnSend &&
+              trustAsk.ask?.state === "decided" &&
+              trustAsk.ask.level === "untrusted" &&
+              !isAgentHome(trustAsk.ask.cwd)
+                ? continueWithoutFolder
+                : undefined
+            }
+            answers={answersTrust}
+          />
+        </div>
       )}
 
       {hasPermissionGroups && snapshot.permissionGroups && (

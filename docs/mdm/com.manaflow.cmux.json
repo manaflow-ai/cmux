@@ -80,6 +80,14 @@
       "title" : "Play Sound When Work Finishes",
       "type" : "boolean"
     },
+    "agentPane.display.font.faces" : {
+      "description" : "A font file for each family, such as \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\".",
+      "properties" : {
+
+      },
+      "title" : "Chat Font Files",
+      "type" : "object"
+    },
     "agentPane.display.font.lineHeight" : {
       "default" : 1.625,
       "description" : "agentPane.display.font.lineHeight",
@@ -98,6 +106,11 @@
         "mono"
       ],
       "title" : "Chat Font",
+      "type" : "string"
+    },
+    "agentPane.display.font.proseFamily" : {
+      "description" : "The font of the agent's replies. When set, it replaces the Chat Font.",
+      "title" : "Chat Reply Font Family",
       "type" : "string"
     },
     "agentPane.display.font.size" : {
@@ -126,6 +139,11 @@
         "atkinson"
       ],
       "title" : "Chat Interface Font",
+      "type" : "string"
+    },
+    "agentPane.display.font.uiFamily" : {
+      "description" : "A font family or a comma list of them. When set, it replaces the Chat Interface Font.",
+      "title" : "Chat Interface Font Family",
       "type" : "string"
     },
     "agentPane.display.fullWidth" : {
@@ -517,7 +535,7 @@
     },
     "agents.chats.sessionRecap" : {
       "default" : true,
-      "description" : "A line on where a chat stands when you come back. Each is a small model call.",
+      "description" : "A line on where a Claude chat stands when you come back. Each is a small model call.",
       "title" : "Session Recap",
       "type" : "boolean"
     },
@@ -1663,6 +1681,18 @@
       "minimum" : 0.05,
       "title" : "Spring Response",
       "type" : "number"
+    },
+    "appearance.cornerFlush" : {
+      "default" : "flush",
+      "description" : "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water.",
+      "enum" : [
+        "off",
+        "flush",
+        "flush-tight",
+        "flush-goo"
+      ],
+      "title" : "Selected Tab Shape",
+      "type" : "string"
     },
     "appearance.customDensities" : {
       "default" : [
@@ -4968,9 +4998,10 @@
       "type" : "string"
     },
     "sidebar.groupHeader.background" : {
-      "default" : "auto",
+      "default" : "folder",
       "description" : "How a group draws. Folders shows plain folders; Sections shows plain headings.",
       "enum" : [
+        "folder",
         "auto",
         "glass",
         "solid",
