@@ -892,5 +892,121 @@ class Issue(unittest.TestCase):
             ns.write_issue({"records": []}, "o/hq", "t", ".", run=FakeGh(fail_list=True))
 
 
+class PublicationReceipt(unittest.TestCase):
+    """A record is a publication only when the write-gated read-back after the upload passed: write_feed exits zero
+    without writing on a refused (superseded) write and on an already-live replay."""
+
+    @staticmethod
+    def jobs(readback):
+        jobs = copy.deepcopy(one_job_jobs())
+        if readback:
+            jobs[1]["steps"].append({"name": ns.READBACK_STEP, "conclusion": readback, "started_at": "2026-11-13T01:20:40Z",
+                                     "completed_at": "2026-11-13T01:20:42Z" if readback != "skipped" else None})
+        return jobs
+
+    def test_an_upload_whose_read_back_was_skipped_wrote_nothing_and_is_unpublished(self):
+        rec, why = ns.build_record(one_job_run(), one_job_run(), [], self.jobs("skipped"), None)
+        self.assertEqual((rec, why), (None, ns.NO_FRESH_WRITE))
+        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": [one_job_run()]},
+                         "runs/43300000001/attempts/1/jobs": {"jobs": self.jobs("skipped")}})
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+        self.assertEqual((st["new"], st["new_unpublished"]), ([], [43300000001]))
+        self.assertEqual(st["unpublished"][0]["conclusion"], "success, no fresh write")
+        self.assertEqual(st["feeds"], [], "no feed entry either")
+        rec, why = ns.build_record(one_job_run(), one_job_run(), [], self.jobs("failure"), None)
+        self.assertEqual((rec, why), (None, "read-back failed"))
+
+    def test_an_upload_and_its_read_back_publish_at_the_upload_time(self):
+        rec, why = ns.build_record(one_job_run(), one_job_run(), [], self.jobs("success"), None)
+        self.assertIsNone(why)
+        self.assertEqual((rec["feed_at"], rec["confirmed"]), ("2026-11-13T01:20:40Z", True), "the upload's completed_at")
+        self.assertTrue(ns.sound_record(rec))
+        self.assertEqual(ns.feed_list([], [rec], ns.ts("2026-11-14T00:00:00Z"))[0]["confirmed"], True)
+        # A pipeline without the read-back step keeps its record, unconfirmed.
+        rec, _ = ns.build_record(one_job_run(), one_job_run(), [], self.jobs(None), None)
+        self.assertIs(rec["confirmed"], False)
+
+    def test_a_failed_run_that_published_is_recorded(self):
+        # cmux run 44087850352: nightly-next-one uploaded the feed at 13:20:56Z and read it back at 13:20:58Z; a later
+        # job (attest-nightly-remote-daemon) failed the run. It was missing from the history.
+        doc = load("run-44087850352-1.json")
+        run, jobs = doc["run"], doc["jobs"]
+        self.assertEqual((run["conclusion"], next(j for j in jobs if j["name"] == "nightly-next-one")["conclusion"]),
+                         ("failure", "success"))
+        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": [run]},
+                         "runs/44087850352/attempts/1/jobs": {"jobs": jobs}})
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+        self.assertEqual((st["new"], st["new_unpublished"]), (["4408785035201"], []))
+        r = st["records"][0]
+        self.assertEqual((r["feed_at"], r["confirmed"], r["sha"]),
+                         ("2026-11-17T13:20:56Z", True, "99b627ab8ac5011f3e2732936f63178bf614baea"))
+        self.assertEqual(st["feeds"][0]["feed_at"], "2026-11-17T13:20:56Z")
+        # Its read-back skipped (nothing written): a failed run is unpublished, with its own conclusion.
+        unread = copy.deepcopy(jobs)
+        for j in unread:
+            for step in j["steps"]:
+                if step["name"] == ns.READBACK_STEP:
+                    step["conclusion"] = "skipped"
+        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": [run]},
+                         "runs/44087850352/attempts/1/jobs": {"jobs": unread}})
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+        self.assertEqual((st["new"], st["new_unpublished"]), ([], [44087850352]))
+        self.assertEqual(st["unpublished"][0]["conclusion"], "failure")
+
+    def test_seeded_unconfirmed_feeds_keep_the_partial_label(self):
+        end, feeds, git = PrAttribution.busy_week()
+        span = {"from": ns.iso(end - 8 * 86400), "to": ns.iso(end)}
+        seeded = [{k: v for k, v in f.items() if k != "confirmed"} for f in feeds]  # records from before receipts
+        data = ns.pr_attribution([], ".", run=git, now=end, feeds=seeded, classified=span)
+        self.assertEqual((data["attributed"], data["unconfirmed"], data["feeds"]), (len(feeds) - 1, len(feeds), len(feeds)),
+                         "attribution uses them")
+        self.assertTrue(data["partial"])
+        verdict = {"build": "b59", "sha": feeds[-1]["sha"], "merge_to_feed": 20.0, "verdict": "in budget",
+                   "budget_min": 30.0, "window": 1, "over": False, "p50": 20.0, "p95": 20.0,
+                   "feed_at": feeds[-1]["feed_at"], "slow": {}, "diff": None, "bisect": []}
+        text = ns.render_verdict({**verdict, "pr_attribution": data})
+        self.assertIn("(partial: observed window)", text)
+        self.assertIn(f"{len(feeds)} of {len(feeds)} feeds are unconfirmed (no read-back receipt).", text)
+        # One unconfirmed feed among confirmed ones is enough to keep it.
+        mixed = feeds[:30] + seeded[30:31] + feeds[31:]
+        self.assertTrue(ns.pr_attribution([], ".", run=git, now=end, feeds=mixed, classified=span)["partial"])
+        self.assertFalse(ns.pr_attribution([], ".", run=git, now=end, feeds=feeds, classified=span)["partial"])
+        # A stored confirmed entry is not downgraded by its unconfirmed record.
+        self.assertTrue(ns.feed_list(feeds[-1:], seeded[-1:], end)[0]["confirmed"])
+
+    def test_coverage_needs_every_run_classified(self):
+        end, feeds, git = PrAttribution.busy_week()
+        since = end - 7 * 86400
+        # Classified only from inside the window, or only up to before the newest attributed feed: partial.
+        for span in ({"from": ns.iso(since + 3600), "to": ns.iso(end)},
+                     {"from": ns.iso(end - 8 * 86400), "to": feeds[-2]["feed_at"]}):
+            data = ns.pr_attribution([], ".", run=git, now=end, feeds=feeds, classified=span)
+            self.assertTrue(data["partial"], span)
+            verdict = {"build": "b59", "sha": feeds[-1]["sha"], "merge_to_feed": 20.0, "verdict": "in budget",
+                       "budget_min": 30.0, "window": 1, "over": False, "p50": 20.0, "p95": 20.0,
+                       "feed_at": feeds[-1]["feed_at"], "slow": {}, "diff": None, "bisect": []}
+            self.assertIn(f"runs are classified from {span['from']} to {span['to']}",
+                          ns.render_verdict({**verdict, "pr_attribution": data}))
+
+    def test_the_classified_span_grows_only_over_a_contiguous_run_list(self):
+        def run(i, start, status="completed"):
+            return {"id": i, "event": "push", "status": status, "conclusion": "success", "run_attempt": 1,
+                    "display_title": "x", "created_at": start, "run_started_at": start}
+        state = {"records": [{"sign_run": 1}], "unpublished": [{"sign_run": 2, "attempt": 1}]}
+        runs = [run(1, "2026-11-20T01:00:00Z"), run(2, "2026-11-20T02:00:00Z")]
+        now = "2026-11-20T03:00:00Z"
+        self.assertEqual(ns.classified_span(None, runs, set(), state, "", now), {"from": "", "to": now},
+                         "a list shorter than a page holds every run")
+        prev = {"from": "2026-11-10T00:00:00Z", "to": "2026-11-19T00:00:00Z"}
+        self.assertEqual(ns.classified_span(prev, runs, set(), state, "", now)["from"], prev["from"])
+        full = runs + [run(100 + i, "2026-11-19T12:00:00Z") for i in range(ns.LIST_PAGE)]
+        state["unpublished"] += [{"sign_run": 100 + i, "attempt": 1} for i in range(ns.LIST_PAGE)]
+        self.assertEqual(ns.classified_span(prev, full, set(), state, "", now)["from"], "2026-11-19T12:00:00Z",
+                         "a full page that does not reach back to the stored span starts a new one")
+        waiting = runs + [run(3, "2026-11-20T02:30:00Z", "in_progress")]
+        self.assertEqual(ns.classified_span(prev, waiting, set(), state, "", now)["to"], "2026-11-20T02:30:00Z",
+                         "the span ends where a run is not classified yet")
+
+
 if __name__ == "__main__":
     unittest.main()

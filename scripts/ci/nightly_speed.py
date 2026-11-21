@@ -764,23 +764,41 @@ def find_issue(repo: str, token: Optional[str], run: Callable = subprocess.run) 
 
 # record
 
+# The earlier attempts of a newly listed run read for a publication, past its newest one (the list's).
+EARLIER_ATTEMPTS = 2
+
+
+def nightly_run(r: Dict[str, Any], signed: set) -> bool:
+    """A run of the list that may publish: any but one a sign run names (that sign run publishes it)."""
+    return bool(SIGN_RE.match(r.get("display_title") or "")) or r.get("id") not in signed
+
+
+def attempts_known(hist: Dict[str, Any]) -> set:
+    """(run id, attempt) of every record and unpublished line held."""
+    return ({(r["sign_run"], r.get("sign_attempt") or 1) for r in hist["records"]}
+            | {(u["sign_run"], u.get("attempt") or 1) for u in hist["unpublished"]})
+
+
+def superseded_line(u: Dict[str, Any], records: List[Dict[str, Any]]) -> bool:
+    """An unpublished line of a run a record holds at that attempt or a later one."""
+    return any(r["sign_run"] == u["sign_run"] and (r.get("sign_attempt") or 1) >= (u.get("attempt") or 1)
+               for r in records)
+
+
 def classified_span(prev: Optional[Dict[str, str]], runs: List[Dict[str, Any]], signed: set, state: Dict[str, Any],
                     oldest: str, now: str) -> Dict[str, str]:
-    """The span {from, to} in which every nightly run (a sign run, or a push run no sign run names) is classified,
+    """The span {from, to} in which every nightly run (nightly_run: any run but one a sign run names) is classified,
     recorded or unpublished with its reason. The run list covers back to its oldest run (everything, when it is not a
     full page); it extends the stored span when it reaches back to that span's end, and otherwise starts a new one (at
     the newest of its start and the oldest record's, before which nothing is read). The span ends at the start of the
     oldest run left unclassified (in progress, past --newest, or unreadable), or now."""
-    recorded = {r["sign_run"] for r in state["records"]}
-    seen = {(u["sign_run"], u.get("attempt") or 1) for u in state["unpublished"]}
+    seen = attempts_known(state)
     listed = "" if len(runs) < LIST_PAGE else min((started(r) for r in runs), default="")
     if sound_span(prev) and prev["to"] >= listed:
         start, floor = prev["from"], prev["to"]
     else:
         start = floor = max(listed, oldest)
-    pending = [started(r) for r in runs
-               if (SIGN_RE.match(r.get("display_title") or "") or (r.get("event") == "push" and r.get("id") not in signed))
-               and started(r) >= floor and r.get("id") not in recorded
+    pending = [started(r) for r in runs if nightly_run(r, signed) and started(r) >= floor
                and (r.get("id"), r.get("run_attempt") or 1) not in seen]
     return {"from": start, "to": min(pending, default=now)}
 
@@ -798,13 +816,12 @@ def record(repo: str, hq_repo: str, newest: int, git_dir: str, base_ref: str, to
         hist = parse_history(issue["body"]) if issue else {"records": [], "unpublished": []}
     except SourceError as e:
         history_why, hist = str(e), {"records": [], "unpublished": []}
-    # GitHub keeps a run's id when it is re-run, so an unpublished run is known only at the attempt it was seen at (a
-    # line from before attempts were kept saw attempt 1); a recorded one is known at any attempt.
-    recorded = {r["sign_run"] for r in hist["records"]}
-    seen = {(u["sign_run"], u.get("attempt") or 1) for u in hist["unpublished"]}
+    # GitHub keeps a run's id when it is re-run, so a run is known only at the attempt it was seen at (a line or record
+    # from before attempts were kept saw attempt 1): a rerun of a published run may publish again.
+    seen = attempts_known(hist)
 
     def known(r: Dict[str, Any]) -> bool:
-        return r.get("id") in recorded or (r.get("id"), r.get("run_attempt") or 1) in seen
+        return (r.get("id"), r.get("run_attempt") or 1) in seen
 
     # Nothing that started before the oldest record is read: it fell off the history. A rerun keeps its run's
     # created_at, so the time is the newest attempt's start, or a rerun of an old run would never be read.
@@ -818,32 +835,32 @@ def record(repo: str, hq_repo: str, newest: int, git_dir: str, base_ref: str, to
         state["why"] = f"no run list: {e}"
         return state
     by_id = {r.get("id"): r for r in runs}
-    signs = [r for r in runs if SIGN_RE.match(r.get("display_title") or "") and r.get("status") == "completed"
-             and not known(r) and started(r) >= oldest]
-    # A one-job nightly: a push run that succeeded and that no sign run names. With the two-run pipeline a push run
-    # that succeeded has dispatched its sign run before it ends (48 of 48 on 2026-11-11 and 12; the superseded ones
-    # are cancelled), so none is read here for nothing. One listed before its sign run is forgotten once that run is.
+    # Every completed run of the list may have published, whatever its event (push, a sign run's workflow_dispatch, a
+    # "Retry nightly-next" or manual dispatch), title or conclusion: each is judged by its write-gated steps alone
+    # (write_receipt). Only a run a sign run names is left out: its sign run publishes it, and a two-run push run
+    # that succeeded has dispatched its sign run before it ends; one listed before that is forgotten once it is.
     signed = {int(SIGN_RE.match(r["display_title"]).group(1)) for r in runs if SIGN_RE.match(r.get("display_title") or "")}
-    # A failed or cancelled one is read too: a job after the publisher can fail a run that published (write_receipt).
-    signs += [r for r in runs if r.get("event") == "push" and not SIGN_RE.match(r.get("display_title") or "")
-              and r.get("status") == "completed" and r.get("id") not in signed
-              and not known(r) and started(r) >= oldest]
+    signs = [r for r in runs if nightly_run(r, signed) and r.get("status") == "completed"
+             and not known(r) and started(r) >= oldest]
     signs.sort(key=started, reverse=True)
     landed = landing_times(git_dir, base_ref, run) if signs else {}
-    new_recs, new_unp, whys = [], [], []
+    new_recs, new_unp, whys, extra_feeds = [], [], [], []
+
+    def jobs_of(run_id: Any, attempt: Any) -> List[Dict[str, Any]]:
+        return gh_api(f"repos/{repo}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100",
+                      token, run).get("jobs") or []
+
     for sign in signs[:newest]:
         ok = sign.get("conclusion") == "success"
         m = SIGN_RE.match(sign.get("display_title") or "")
         push_id, push_attempt = m.groups() if m else (sign["id"], sign.get("run_attempt") or 1)
         try:
-            sign_jobs = gh_api(f"repos/{repo}/actions/runs/{sign['id']}/attempts/{sign.get('run_attempt') or 1}/jobs?per_page=100",
-                               token, run).get("jobs") or [] if m else []
+            sign_jobs = jobs_of(sign["id"], sign.get("run_attempt") or 1) if m else []
             if m and not ok and not write_receipt(sign_jobs):  # a failed sign run that wrote no feed: one read
                 new_unp.append(unpublished_line(sign))
                 continue
             push = by_id.get(int(push_id)) or gh_api(f"repos/{repo}/actions/runs/{push_id}", token, run)
-            push_jobs = gh_api(f"repos/{repo}/actions/runs/{push_id}/attempts/{push_attempt}/jobs?per_page=100",
-                               token, run).get("jobs") or []
+            push_jobs = jobs_of(push_id, push_attempt)
         except (SourceError, AttributeError) as e:
             whys.append(f"sign run {sign.get('id')}: {e}")
             continue
@@ -854,16 +871,32 @@ def record(repo: str, hq_repo: str, newest: int, git_dir: str, base_ref: str, to
             new_unp.append(unpublished_line(sign, f"success, {why}"))
         else:
             new_unp.append(unpublished_line(sign))
+        # The list shows a run's newest attempt only: an earlier one no pass saw may have published. Its feed (not a
+        # record: a run keeps one) joins the feed list; at most EARLIER_ATTEMPTS more reads per run.
+        attempt = sign.get("run_attempt") or 1
+        for k in range(attempt - 1, max(0, attempt - 1 - EARLIER_ATTEMPTS), -1):
+            if (sign.get("id"), k) in seen:
+                break
+            try:
+                earlier = {**sign, "run_attempt": k}
+                e_sign_jobs = jobs_of(sign["id"], k) if m else []
+                e_push = push if m else earlier
+                e_push_jobs = push_jobs if m else jobs_of(sign["id"], k)
+            except (SourceError, AttributeError) as e:
+                whys.append(f"run {sign.get('id')} attempt {k}: {e}")
+                break
+            e_rec, _ = build_record(earlier, e_push, e_sign_jobs, e_push_jobs, landed.get(push.get("head_sha") or ""))
+            if e_rec and e_rec["confirmed"]:
+                extra_feeds.append(feed_entry(e_rec))
     state["records"] = merge(state["records"], new_recs, "feed_at", HISTORY_KEEP)
-    # A rerun that published is no longer an unpublished run.
-    published = {r["sign_run"] for r in state["records"]}
+    # A rerun that published is no longer an unpublished run (a later attempt's line stays: it is how it is known).
     state["unpublished"] = [u for u in merge(state["unpublished"], new_unp, "created_at", UNPUBLISHED_KEEP)
-                            if u["sign_run"] not in signed and u["sign_run"] not in published]
+                            if u["sign_run"] not in signed and not superseded_line(u, state["records"])]
     state["new"] = [r["build"] for r in sorted(new_recs, key=lambda r: r["feed_at"])]
     state["new_unpublished"] = [u["sign_run"] for u in new_unp]
     now = time.time()
     state["classified"] = classified_span(hist.get("classified"), runs, signed, state, oldest, iso(now))
-    state["feeds"] = feed_list(hist.get("feeds") or [], state["records"], now)
+    state["feeds"] = feed_list((hist.get("feeds") or []) + extra_feeds, state["records"], now)
     state["pr_attribution"] = pr_attribution(state["records"], git_dir, base_ref, run=run, now=now,
                                              feeds=state["feeds"], classified=state["classified"])
     state["why"] = "; ".join(whys) or None
@@ -1215,9 +1248,8 @@ def write_issue(state: Dict[str, Any], hq_repo: str, token: Optional[str], git_d
         return f"#{issue['number']} (nothing new, not written)"
     old = parse_history(issue["body"]) if issue else {"records": [], "unpublished": []}
     records = merge(old["records"], state.get("records") or [], "feed_at", HISTORY_KEEP)
-    published = {r["sign_run"] for r in records}
     unpublished = [u for u in merge(old["unpublished"], state.get("unpublished") or [], "created_at", UNPUBLISHED_KEEP)
-                   if u["sign_run"] not in published]
+                   if not superseded_line(u, records)]
     feeds = feed_list((old.get("feeds") or []) + (state.get("feeds") or []), records)
     span = state.get("classified") if sound_span(state.get("classified")) else old.get("classified")
     body = issue_body(records, unpublished, git_dir, run, state.get("pr_attribution"), feeds, span)
