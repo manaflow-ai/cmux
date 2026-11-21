@@ -43,7 +43,7 @@ afterAll(async () => {
 /// The rows the pane's reducer folds `events` into, as a reopen reads them (finalReplyDrawn.test.ts).
 function replay(events: readonly EventRecord[]): AcpmuxRow[] {
   let rows: readonly AcpmuxRow[] = [];
-  const client = AcpmuxDirectClient.replay(SESSION, [...events], (snapshot) => {
+  const client = AcpmuxDirectClient.replay(SESSION, events.slice(), (snapshot) => {
     rows = snapshot.rows;
   });
   try {
