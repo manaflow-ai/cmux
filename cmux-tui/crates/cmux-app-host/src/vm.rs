@@ -24,7 +24,8 @@ use serde_json::{Value, json};
 use crate::protocol::{AppInfo, FatalReason, FromHost};
 
 /// The engine-neutral runtime, built from `js/src` by `js/build.ts`.
-pub const RUNTIME_JS: &str = include_str!("../js/dist/cmux-app-runtime.js");
+pub static RUNTIME_JS: cmux_embed::PackedStr =
+    cmux_embed::packed_str!(include_str!("../js/dist/cmux-app-runtime.js"));
 
 /// Longest log message kept; longer ones are cut.
 const MAX_LOG_CHARS: usize = 4096;
@@ -421,7 +422,7 @@ impl AppVm {
         let (shared, gate) = (vm.shared.clone(), vm.gate.clone());
         vm.enter("runtime", move |ctx| {
             install_native(ctx, &shared, &gate)?;
-            ctx.eval::<(), _>(RUNTIME_JS)
+            ctx.eval::<(), _>(RUNTIME_JS.get())
         })
         .map_err(|e| format!("{e:?}"))?
         .map_err(|e| format!("runtime: {e}"))?;
@@ -488,6 +489,12 @@ impl AppVm {
     ) -> Result<(), VmError> {
         let args = (mount.to_string(), node.to_string(), event.to_string(), payload.to_string());
         self.entry_unit("dispatch", move |ctx| call_global::<_, ()>(ctx, "__cmuxAppDispatch", args))
+    }
+
+    /// A widget mount's host-owned tick: sets its `now()` clock to `now_ms`.
+    pub fn tick(&mut self, mount: &str, now_ms: u64) -> Result<(), VmError> {
+        let args = (mount.to_string(), now_ms as f64);
+        self.entry_unit("tick", move |ctx| call_global::<_, ()>(ctx, "__cmuxAppTick", args))
     }
 
     /// Answers one `call`. Unknown callback ids are ignored.

@@ -69,7 +69,7 @@ enum MainMenu {
     /// here or palette-only by a reason in the catalog's tests/main_menu_bar.rs, so none goes missing silently.
     static let compactActionIDs: [ActionMainMenu: [ActionID]] = [
         .app: [
-            "about", "openSettings", "customize.open", "palette.checkForUpdates", "updates.installEarlierBuild", "keepMacAwake", "quit",
+            "about", "openSettings", "customize.open", "home.showSetup", "palette.checkForUpdates", "updates.installEarlierBuild", "keepMacAwake", "quit",
         ],
         .file: [
             "newTab", "newBrowserWorkspace", "newTab.default", "palette.newAgentChat", "palette.quickAgentChat",

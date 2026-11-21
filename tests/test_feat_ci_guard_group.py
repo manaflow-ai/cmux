@@ -27,6 +27,8 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
 import workflow_jobs  # noqa: E402
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+import docs_only_paths  # noqa: E402
 WORKFLOWS = ROOT / ".github/workflows"
 
 
@@ -39,18 +41,22 @@ def covers_feat(trigger) -> bool:
     if trigger is None:
         return True
     branches = (trigger or {}).get("branches")
-    return not (trigger or {}).get("paths") and (branches is None or "feat-cmux-next" in branches)
+    # The docs-only block (scripts/ci/docs_only_paths.py) still covers every change the group can judge.
+    paths = (trigger or {}).get("paths")
+    unfiltered = not paths or [str(p) for p in paths] == list(docs_only_paths.DOCS_ONLY_PATHS)
+    return unfiltered and (branches is None or "feat-cmux-next" in branches)
 
 
 def runs_ci_group(job: dict) -> bool:
     """The job runs guards-local.sh's default set (the `ci` group) and nothing keeps it off feat-cmux-next."""
-    condition = str(job.get("if", ""))
+    # The pull_request_skip guard's base clause runs the job on other bases; it never keeps it off feat-cmux-next.
+    condition = str(job.get("if", "")).replace("github.event.pull_request.base.ref != 'feat-cmux-next' ||", "")
     if "feat-cmux-next" in condition and "!=" in condition:
         return False
     for step in job.get("steps") or []:
         command = str(step.get("run", ""))
         # No --group runs the fast set (the ci group) plus the groups --feat-routes picks.
-        if ("scripts/ci/guards-local.sh" in command and "--list" not in command
+        if (any("scripts/ci/guards-local.sh" in line and "--list" not in line for line in command.splitlines())
                 and ("--group" not in command or "--group ci " in command)):
             return True
     return False
@@ -263,8 +269,13 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
         measured = entry("cmux-next-guards.yml", "ci-guard-group")
         pool_route = (f"vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_{measured['failover']}"
                       f" || fromJSON(vars.RUNNER_POOLS).linux_{measured['size']}")
-        self.assertNotIn("needs", self.job())
-        self.assertEqual(self.job()["if"], "${{ !cancelled() }}")
+        # The window gate (base-coalesce.yml) and the 2-vCPU path route (fast_check_route.py): a pull request that
+        # touches nothing a guard group reads skips it; an empty route (a push, a router failure) runs it.
+        self.assertEqual(self.job()["needs"], ["coalesce", "fast-check-route"])
+        self.assertEqual(self.job()["if"],
+                         "${{ !cancelled() && needs.coalesce.outputs.run != 'false' && "
+                         "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
+                         "(github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}")
         self.assertEqual(
             workflow_jobs.single_runs_on(self.job()),
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"
@@ -275,7 +286,7 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
 
     def test_each_guard_pass_uses_a_worker_per_core(self):
         run = "\n".join(str(step.get("run", "")) for step in self.job()["steps"])
-        calls = [line for line in run.splitlines() if "scripts/ci/guards-local.sh" in line]
+        calls = [line for line in run.splitlines() if "scripts/ci/guards-local.sh" in line and "--list" not in line]
         # The head (one call for a pull request and a push), then the base.
         self.assertEqual(len(calls), 2, calls)
         for call in calls:
