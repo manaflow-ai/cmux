@@ -36,10 +36,10 @@ extension DebugKey {
             if let refusal = makeKey(wanted, params, services: services) { return .object(["error": .string(refusal)]) }
             keyWindow = .string(wanted)
         }
-        // The start in the event system's own units (``DebugKeySequence/Stamp``): the probe's, else the host clock.
+        // The start in the event system's own units (``DebugKeySequence/Stamp``): the probe's, else the host clock in
+        // the unit that AppKit reads from the probe once it has a timestamp.
         let source = CGEventSource(stateID: .privateState), probe = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true)
-        guard let stamp = DebugKeySequence.Stamp.start(probeTimestamp: probe?.timestamp ?? 0,
-                                                       probeSeconds: probe.flatMap { NSEvent(cgEvent: $0)?.timestamp }) else {
+        guard let stamp = DebugKeySequence.Stamp.start(probe: probe, read: { NSEvent(cgEvent: $0)?.timestamp }) else {
             return .object(["error": .string("no event timestamp to start the sequence from")])
         }
         let baseSeconds = Double(stamp.base) / stamp.ticksPerSecond
