@@ -89,6 +89,8 @@ PINNED: dict[str, tuple[str, set[str]]] = {
      {'write'}),
     'nightly-sign.yml': ('nightly signing admission: an ephemeral label the signing rule checks literally',
      {'admit'}),
+    'web-complexity-trusted.yml': ('reads untrusted pull_request_target source: hosted ubuntu-24.04 is the one ephemeral Linux label outside the persistent pool',
+     {'complexity'}),
     'nightly-tag-permission-probe.yml': ('not yet on a pool; moves in its own PR',
      {'probe'}),
     'nightly.yml': ('NEXT nightly: never moved mid-train here; its runner change is its own PR',
