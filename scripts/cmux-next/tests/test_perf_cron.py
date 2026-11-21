@@ -3325,6 +3325,37 @@ class BisectGoneHostTests(unittest.TestCase):
                     self.assertEqual((plan["action"], plan["sha"], plan["worker"]), ("part", "b" * 40, "cmux21"))
 
 
+class StaleTipFirstTests(unittest.TestCase):
+    """2026-11-21 (run 44846739082): the rows were 136.8 h old, a tip measurement that waited for the fleet was just
+    abandoned, and that abandon made the next tick start a bisect step. Only a tip stores rows, so while the rows are
+    stale (no complete tip within STALE_HOURS) the tip goes before any bisect step."""
+
+    def state(self, measured_h, tried_h):
+        state = cron.empty_state(T0)
+        state["last"] = {"sha": "e" * 40, "measured_at": cron.iso(at(measured_h))}
+        state["last_tried"] = {"sha": "f" * 40, "at": cron.iso(at(tried_h))}
+        return state
+
+    def test_a_tip_tried_lately_still_waits_while_the_rows_are_fresh(self):
+        self.assertFalse(cron.tip_due(self.state(measured_h=20, tried_h=29), at(30)))
+
+    def test_stale_rows_make_the_tip_due_even_right_after_a_tip_was_tried(self):
+        self.assertTrue(cron.tip_due(self.state(measured_h=0, tried_h=29), at(30)))
+
+    def test_an_abandoned_tip_in_the_history_does_not_hold_a_stale_tip_back(self):
+        state = self.state(measured_h=0, tried_h=0)
+        state["history"] = [{"sha": "d" * 40, "kind": "tip", "status": "abandoned", "at": cron.iso(at(29.9))}]
+        self.assertTrue(cron.tip_due(state, at(30)))
+
+    def test_decide_starts_the_tip_not_the_bisect_when_the_rows_are_stale(self):
+        tip, step = "a" * 40, "b" * 40
+        for measured_h, kind, sha in ((20, "bisect", step), (0, "tip", tip)):
+            state = self.state(measured_h=measured_h, tried_h=29)
+            bisect = {"sha": step, "range": {"good": "c" * 40, "bad": "d" * 40}, "rows": ["tab_switch.e2e@cmux21"]}
+            cron.decide(state, at(30), tip, bisect, lambda sha: [p["name"] for p in cron.PARTS], None)
+            self.assertEqual((state["current"]["kind"], state["current"]["sha"]), (kind, sha), measured_h)
+
+
 
 class DiffBenchVersionTests(unittest.TestCase):
     """Lead 2026-10-24: a change to the diff benches at the measured commit is version-gated like split-spring.sh."""

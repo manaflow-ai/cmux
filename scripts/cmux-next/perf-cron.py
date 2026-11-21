@@ -1325,8 +1325,16 @@ def tip_pin_host(state, t):
 
 
 def tip_due(state, t):
-    """A tip measurement may start: none finished (or was dropped) in the last TIP_EVERY_HOURS. Only consulted while
-    a bisect step is also possible."""
+    """A tip measurement may start: none finished (or was dropped) in the last TIP_EVERY_HOURS, or no complete tip
+    measurement finished within STALE_HOURS (stale_hours). Only consulted while a bisect step is also possible.
+
+    Stale first: only a tip measurement stores rows (a bisect step only narrows its range), and cmuxterm-hq's NOW
+    Benches reads those rows within 48 h. On 2026-11-21 the rows were 136.8 h old when a tip measurement that waited
+    for the fleet was abandoned; that abandon counted as a tip tried, so the next tick started a bisect step instead
+    (run 44846739082), and the rows could not refresh before the bisect finished. A bisect against a reference that
+    old also judges less than a fresh tip would."""
+    if stale_hours(state, t) > STALE_HOURS:
+        return True
     times = [(state.get("last_tried") or {}).get("at")]
     times += [h.get("at") for h in state.get("history") or [] if isinstance(h, dict) and h.get("kind") == "tip"]
     times = [parse_iso(x) for x in times if isinstance(x, str)]
