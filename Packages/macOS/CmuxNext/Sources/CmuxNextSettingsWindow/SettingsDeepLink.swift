@@ -23,6 +23,22 @@ public struct SettingsDeepLink: Equatable, Sendable {
         setting = Self.text(invocation["setting"])
     }
 
+    /// Settings > Appearance's page route, on its background picker when `background` (Change
+    /// Background…) and for `workspace` (the picker's This Workspace) when given. Personalization
+    /// folded into Appearance (one settings area, David Beyer 2026-11-20), so Personalization… opens
+    /// the bare route. A background route is new at each request (`open`, which the page reads only
+    /// to show the picker again): the host opens a route only when it differs from the last one it
+    /// opened, and the person may have scrolled away since, so a repeat Change Background… lands again.
+    public static func appearanceRoute(background: Bool = false, workspace: String? = nil,
+                                       open: UInt64? = nil) -> String {
+        var query: [String] = []
+        if background {
+            query.append(contentsOf: ["focus=appearance.background", "open=\(open ?? DispatchTime.now().uptimeNanoseconds)"])
+        }
+        if let workspace, let id = workspace.addingPercentEncoding(withAllowedCharacters: .alphanumerics) { query.append("workspace=\(id)") }
+        return "#/settings/appearance" + (query.isEmpty ? "" : "?" + query.joined(separator: "&"))
+    }
+
     /// Where the window scrolls: nil without a setting, or when nothing in
     /// Settings has that name (the caller reports it).
     public var anchor: SettingsAnchor? { setting.flatMap { SettingsAnchor(key: $0) } }

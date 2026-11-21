@@ -4,12 +4,14 @@ import AppKit
 @testable import CmuxNextDaemon
 @testable import CmuxNextDesign
 @testable import CmuxNextTerminal
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
 /// Leo 2026-10-13: a brand-new terminal showed a preview in its tab's hover card: a picture of
 /// an empty prompt. A terminal with no output yet has no preview (the card shows its plain
 /// state); once it has output, it has one.
+@Suite(.closesItsWindows)
 @MainActor struct EmptyTerminalPreviewTests {
     @Test func aTerminalWithNoOutputYetHasNoPreview() async throws {
         _ = NSApplication.shared

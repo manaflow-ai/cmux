@@ -46,6 +46,8 @@ pub async fn run(
     // Its own process group, so a timeout stops what it started too.
     #[cfg(unix)]
     cmd.process_group(0);
+    // A harness CLI: never the daemon's OOM protection (`oom_rank.rs`).
+    crate::oom_rank::agent_at_exec(&mut cmd);
     let mut child = cmd.spawn().map_err(|e| RunError::Spawn(e.to_string()))?;
     // The group id, kept: once the leader is reaped `child.id()` is None.
     let group = child.id();
@@ -145,11 +147,8 @@ impl RunDir {
             super::places::RUN_PREFIX,
             std::process::id()
         ));
-        let mut builder = std::fs::DirBuilder::new();
-        #[cfg(unix)]
-        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
         // `create`, never `create_all`: a folder that exists is not fresh.
-        builder.create(&path)?;
+        crate::home_fs::create_dir(&path, 0o700)?;
         Ok(Self { path })
     }
 
@@ -171,6 +170,6 @@ impl RunDir {
 
 impl Drop for RunDir {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.path);
+        let _ = crate::home_fs::remove_dir_all(&self.path);
     }
 }

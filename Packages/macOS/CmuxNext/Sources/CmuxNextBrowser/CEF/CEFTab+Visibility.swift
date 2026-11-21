@@ -29,9 +29,21 @@ extension CEFTab: BrowserContentVisibilityReporting {
         return Self.frame(window.frame, isPlacedAt: owner.convertToScreen(host.hostView.convert(host.hostView.bounds, to: nil)))
     }
 
+    /// Chromium's page window over this tab's content view (``isPageWindow(_:)``), if it shows one.
+    var pageWindow: NSWindow? { container.window?.childWindows?.first(where: isPageWindow) }
+
     /// A page window sits at the host view's screen rect to within 2 points.
     nonisolated static func frame(_ frame: CGRect, isPlacedAt rect: CGRect) -> Bool {
         abs(frame.minX - rect.minX) <= 2 && abs(frame.minY - rect.minY) <= 2
             && abs(frame.width - rect.width) <= 2 && abs(frame.height - rect.height) <= 2
     }
+}
+
+public extension BrowserTab {
+    /// The page can take keys: Chromium created its browser, a real document loaded, and no focus ask of it waits for its
+    /// grant (a page shown in this turn gets the keys after the turn's frame commit; a key typed before that reached no
+    /// view). A non-Chromium page always can.
+    var pageReady: Bool { (self as? CEFTab).map { $0.browserID != nil && $0.hasDocument && !$0.pendingFocus } ?? true }
+    /// Chromium created the page (its address bar works; its document may still load).
+    var pageCreated: Bool { (self as? CEFTab).map { $0.browserID != nil } ?? true }
 }

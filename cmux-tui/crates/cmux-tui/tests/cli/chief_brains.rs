@@ -970,9 +970,16 @@ fn chief_engine_and_stop_cli_take_a_chief() {
     assert_eq!(report["engine"]["harness"], "default", "{report}");
     assert_eq!(counts(), [1, 3]);
 
-    // --chief goes with engine or stop only.
-    let stray = chief_cli(&server, &["--chief", &scout, "-p", "hi"], "");
-    assert_eq!(stray.status.code(), Some(2), "{stray:?}");
+    // With -p, --chief names the Chief whose chat gets the prompt (a0b83a33a53, u19922): here,
+    // Scout's chat, which this test's daemon has none of, so the send says so; it is no usage error.
+    let prompt = chief_cli(&server, &["--chief", &scout, "-p", "hi"], "");
+    assert_eq!(prompt.status.code(), Some(1), "{prompt:?}");
+    let said = String::from_utf8_lossy(&prompt.stderr);
+    assert!(said.contains(&format!("no chat {scout}")), "{prompt:?}");
+    // It names the chat --chat would, so the two together are a usage error.
+    let both = chief_cli(&server, &["--chief", &scout, "--chat", "other", "-p", "hi"], "");
+    assert_eq!(both.status.code(), Some(2), "{both:?}");
+    assert_eq!(counts(), [1, 3], "a prompt goes to no brain's tools socket");
 }
 
 /// The record is a Chief's backend (u2586, 2026-10-19): a committed write

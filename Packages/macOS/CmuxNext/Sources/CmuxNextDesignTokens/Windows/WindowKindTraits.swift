@@ -2,12 +2,13 @@
 public nonisolated enum WindowCloseSemantics: Equatable, Sendable {
     /// Close the focused content first (a main window: its focused tab).
     case contentFirst
-    /// Close the window (`performClose`, so its delegate may decline, as
-    /// with the close button).
+    /// Close the window as its close button does, in the key's turn
+    /// (`NSWindow.closeFromCloseKey()`, so its delegate may decline), with
+    /// no button flash.
     case window
 }
 
-/// The background a window of a kind gets from ``NSWindow/install(kind:content:scope:)``.
+/// The background a window of a kind gets from ``NSWindow/install(kind:content:scope:activeLook:)``.
 /// Every kind has the one backdrop of the main window (the material and
 /// the tint at the theme's opacity); only who draws it differs.
 public nonisolated enum WindowSurface: Equatable, Sendable {

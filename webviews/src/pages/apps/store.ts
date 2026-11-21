@@ -4,6 +4,7 @@
 // answers, and install, uninstall, update and grant changes go through the host's native
 // confirmation (coordinator Q4), so the page shows the owner's result, never its own guess.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { userMessage } from "../shared/userMessage";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import { fromDetail, listCatalog, listInstalled, listUpdates, type WireDetail } from "./wire";
 import {
@@ -12,6 +13,8 @@ import {
   listedInStore,
   parseRoute,
   type CardStyle,
+  type DiscoverShelf,
+  type ExamplesStyle,
   type StoreLayout,
   type StoreTab,
 } from "./model";
@@ -40,10 +43,17 @@ export interface AppsSnapshot {
   layout: StoreLayout;
   /** The Discover card style (`card=`); `standard` unless a DEV route asks for another. */
   card: CardStyle;
+  /** Where Discover offers the Examples shelf (`examples=`); `chip` unless a DEV route asks. */
+  examplesStyle: ExamplesStyle;
+  /** The owner offers the Examples shelf (developer mode, or a `cmux ext dev` app). */
+  examplesOffered: boolean;
+  /** The shelf Discover shows; `store` whenever the owner does not offer Examples. */
+  shelf: DiscoverShelf;
   query: string;
   category?: string;
+  /** Every listing on every shelf (the `cmux ext dev` apps too, for Installed's icons). */
   catalog: CatalogApp[];
-  /** The catalog filtered by query and category. */
+  /** The catalog's listings on the shelf, filtered by query and category. */
   visible: CatalogApp[];
   categories: string[];
   installed: InstalledApp[];
@@ -84,10 +94,13 @@ export class AppsStore {
   /** Icon data URLs by `app\u0000asset`; a failed load is "" so it is not asked again. */
   private readonly icons = new Map<string, string>();
   private starting = false;
+  private lifetime = 0;
   private generation = 0;
   /** Monotonic token so a slower updates.list response cannot replace a newer one. */
   private updatesGeneration = 0;
   private detailGeneration = 0;
+  private grantsGeneration = 0;
+  private logsGeneration = 0;
   /**
    * The idempotency key of each action still in flight or failed with a retryable error, by op and
    * params: the person's next try of the same action sends the same key, so a retry after a
@@ -104,6 +117,9 @@ export class AppsStore {
       tab: route.tab,
       layout: route.layout,
       card: route.card,
+      examplesStyle: route.examples,
+      examplesOffered: false,
+      shelf: route.shelf,
       query: "",
       catalog: [],
       visible: [],
@@ -135,31 +151,46 @@ export class AppsStore {
 
   /** Watches the owner and loads the first view. Idempotent, also while a start is in flight. */
   async start(): Promise<void> {
-    if (!this.client || this.unwatch || this.starting) return;
+    if (!this.client || this.unwatch || this.unpage || this.starting) return;
+    const lifetime = ++this.lifetime;
     this.starting = true;
     try {
-      const unwatch = await this.client.subscribe<AppsChanged>(AppsOps.watch, () => void this.reload());
-      if (!this.starting) {
-        unwatch();
-        return;
+      try {
+        const unwatch = await this.client.subscribe<AppsChanged>(AppsOps.watch, () => {
+          if (lifetime === this.lifetime) void this.reload();
+        });
+        if (lifetime !== this.lifetime) {
+          unwatch();
+          return;
+        }
+        this.unwatch = unwatch;
+      } catch (error) {
+        if (lifetime !== this.lifetime) return;
+        // Older owners without a change stream can still answer reads.
+        if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op")) {
+          this.set({ connection: "disconnected", loading: false, error: message(error) });
+          return;
+        }
       }
-      this.unwatch = unwatch;
-    } catch (error) {
-      if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op")) {
-        this.set({ connection: "disconnected", loading: false, error: message(error) });
-        return;
+      try {
+        const unpage = await subscribePageStreams(this.client, {
+          onConnection: (connected) => {
+            if (lifetime === this.lifetime) this.onConnection(connected);
+          },
+        });
+        if (lifetime !== this.lifetime) {
+          unpage();
+          return;
+        }
+        this.unpage = unpage;
+      } catch (error) {
+        if (lifetime !== this.lifetime) return;
+        this.set(failure(error));
       }
+      if (lifetime === this.lifetime) await this.reload();
     } finally {
-      this.starting = false;
+      if (lifetime === this.lifetime) this.starting = false;
     }
-    try {
-      this.unpage = await subscribePageStreams(this.client, {
-        onConnection: (connected) => this.onConnection(connected),
-      });
-    } catch (error) {
-      this.set(failure(error));
-    }
-    await this.reload();
   }
 
   /** The host reports the owner link: down shows the disconnected state; back up re-reads. */
@@ -173,6 +204,12 @@ export class AppsStore {
   }
 
   stop(): void {
+    ++this.lifetime;
+    ++this.generation;
+    ++this.updatesGeneration;
+    ++this.detailGeneration;
+    ++this.grantsGeneration;
+    ++this.logsGeneration;
     this.unpage?.();
     this.unpage = undefined;
     this.starting = false;
@@ -218,10 +255,14 @@ export class AppsStore {
           failure: update.failure ?? app.failure,
         };
       });
+      const examplesOffered = catalog.examples === true;
+      const shelf: DiscoverShelf = examplesOffered ? this.snapshot.shelf : "store";
       this.set({
         catalog: listed,
-        visible: filterApps(listed, this.snapshot.query, this.snapshot.category),
-        categories: categories(listed),
+        examplesOffered,
+        shelf,
+        visible: filterApps(listed, this.snapshot.query, this.snapshot.category, shelf),
+        categories: categories(listed, shelf),
         installed: mergedInstalled,
         updates,
         updatesLoading: acceptUpdates ? false : this.snapshot.updatesLoading,
@@ -240,9 +281,13 @@ export class AppsStore {
         connection: "connected",
         error: undefined,
       });
+      if (generation !== this.generation) return;
       if (this.snapshot.selection) await this.loadDetail(this.snapshot.selection);
+      if (generation !== this.generation) return;
       if (this.snapshot.grantsShown) await this.loadGrants(this.snapshot.grantsShown);
+      if (generation !== this.generation) return;
       if (this.snapshot.logsShown) await this.loadLogs(this.snapshot.logsShown);
+      if (generation !== this.generation) return;
       this.showIcons();
       void this.loadIcons(generation);
     } catch (error) {
@@ -281,7 +326,11 @@ export class AppsStore {
         installed: this.snapshot.installed.map((app) => {
           const update = updatesByApp.get(app.id);
           if (!update) return app.update ? { ...app, update: undefined, failure: undefined } : app;
-          return { ...app, update: { version: update.version }, failure: update.failure ?? app.failure };
+          return {
+            ...app,
+            update: { version: update.version },
+            failure: update.failure ?? app.failure,
+          };
         }),
       });
     } catch (error) {
@@ -301,19 +350,40 @@ export class AppsStore {
 
   setTab(tab: StoreTab): void {
     if (tab !== this.snapshot.tab)
-      this.set({ tab, selection: this.snapshot.layout === "split" ? this.snapshot.selection : undefined });
+      this.set({
+        tab,
+        selection: this.snapshot.layout === "split" ? this.snapshot.selection : undefined,
+      });
   }
 
   setQuery(query: string): void {
     this.set({
       query,
-      visible: filterApps(this.snapshot.catalog, query, this.snapshot.category),
+      visible: filterApps(this.snapshot.catalog, query, this.snapshot.category, this.snapshot.shelf),
     });
   }
 
   setCategory(category: string | undefined): void {
     const next = this.snapshot.category === category ? undefined : category;
-    this.set({ category: next, visible: filterApps(this.snapshot.catalog, this.snapshot.query, next) });
+    this.set({
+      category: next,
+      visible: filterApps(this.snapshot.catalog, this.snapshot.query, next, this.snapshot.shelf),
+    });
+  }
+
+  /** Shows `shelf` on Discover; Examples only while the owner offers it. A category resets. */
+  setShelf(shelf: DiscoverShelf): void {
+    const next: DiscoverShelf = this.snapshot.examplesOffered ? shelf : "store";
+    if (next === this.snapshot.shelf && this.snapshot.tab === "discover") return;
+    const { catalog, query } = this.snapshot;
+    this.set({
+      tab: "discover",
+      shelf: next,
+      category: undefined,
+      selection: this.snapshot.layout === "split" ? this.snapshot.selection : undefined,
+      visible: filterApps(catalog, query, undefined, next),
+      categories: categories(catalog, next),
+    });
   }
 
   async select(app: string | undefined): Promise<void> {
@@ -339,7 +409,8 @@ export class AppsStore {
           detailStatus: "ready",
           detailError: undefined,
         });
-      if (detail.installed) await this.loadGrants(app);
+      if (detail.installed && generation === this.detailGeneration && this.snapshot.selection === app)
+        await this.loadGrants(app);
     } catch (error) {
       if (generation === this.detailGeneration && this.snapshot.selection === app) {
         const failed = failure(error);
@@ -362,10 +433,14 @@ export class AppsStore {
 
   private async loadGrants(app: string): Promise<void> {
     if (!this.client) return;
+    const lifetime = this.lifetime;
+    const generation = ++this.grantsGeneration;
     try {
       const grants = await this.client.call<Grants>(AppsOps.grantsGet, { app });
+      if (lifetime !== this.lifetime || generation !== this.grantsGeneration) return;
       this.set({ grants: { ...this.snapshot.grants, [app]: grants } });
     } catch (error) {
+      if (lifetime !== this.lifetime || generation !== this.grantsGeneration) return;
       this.set(failure(error));
     }
   }
@@ -379,12 +454,17 @@ export class AppsStore {
   /** Shows or hides an installed app's logs: the owner's last lines, read again on each reload. */
   async toggleLogs(app: string): Promise<void> {
     const shown = this.snapshot.logsShown === app ? undefined : app;
-    this.set({ logsShown: shown, logs: shown ? { ...this.snapshot.logs, [app]: [] } : this.snapshot.logs });
+    this.set({
+      logsShown: shown,
+      logs: shown ? { ...this.snapshot.logs, [app]: [] } : this.snapshot.logs,
+    });
     if (shown) await this.loadLogs(shown);
   }
 
   private async loadLogs(app: string): Promise<void> {
     if (!this.client) return;
+    const lifetime = this.lifetime;
+    const generation = ++this.logsGeneration;
     try {
       const wire = await this.client.call<WireLogs>(AppsOps.logs, { app, limit: LOG_LINES });
       const lines: LogLine[] = wire.lines.map((line) => ({
@@ -392,8 +472,10 @@ export class AppsStore {
         message: line.message,
         at_ms: line.ts_ms,
       }));
-      if (this.snapshot.logsShown === app) this.set({ logs: { ...this.snapshot.logs, [app]: lines } });
+      if (lifetime === this.lifetime && generation === this.logsGeneration && this.snapshot.logsShown === app)
+        this.set({ logs: { ...this.snapshot.logs, [app]: lines } });
     } catch (error) {
+      if (lifetime !== this.lifetime || generation !== this.logsGeneration) return;
       this.set(failure(error));
     }
   }
@@ -433,9 +515,11 @@ export class AppsStore {
         const asset = app.icon?.asset ?? "";
         try {
           const wire = await client.call<WireAsset>(AppsOps.assetGet, { app: app.id, path: asset });
+          if (generation !== this.generation) return;
           this.icons.set(`${app.id}\u0000${asset}`, wire.data_url.startsWith("data:image/") ? wire.data_url : "");
         } catch {
           // No icon is not an error: the generic glyph stays.
+          if (generation !== this.generation) return;
           this.icons.set(`${app.id}\u0000${asset}`, "");
         }
       }),
@@ -494,6 +578,7 @@ export class AppsStore {
     { reread = true, mutation = true }: { reread?: boolean; mutation?: boolean } = {},
   ): Promise<void> {
     if (!this.client) return;
+    const lifetime = this.lifetime;
     const action = `${op}\u0000${JSON.stringify(params)}`;
     let key = mutation ? this.pendingKeys.get(action) : undefined;
     if (mutation && !key) {
@@ -502,13 +587,17 @@ export class AppsStore {
     }
     try {
       await this.client.call(op, key ? { ...params, idempotency_key: key } : params);
-      this.pendingKeys.delete(action);
+      if (key && this.pendingKeys.get(action) === key) this.pendingKeys.delete(action);
+      if (lifetime !== this.lifetime) return;
       if (this.snapshot.error) this.set({ error: undefined });
     } catch (error) {
-      if (!(isPageError(error) && error.retryable)) this.pendingKeys.delete(action);
+      if (!(isPageError(error) && error.retryable) && (!key || this.pendingKeys.get(action) === key))
+        this.pendingKeys.delete(action);
+      if (lifetime !== this.lifetime) return;
       if (!(isPageError(error) && error.code === CANCELLED)) this.set(failure(error));
       return;
     }
+    if (lifetime !== this.lifetime) return;
     if (reread) await this.reload();
   }
 
@@ -524,9 +613,8 @@ function newKey(): string {
   return `pg_${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+/** The plain sentence of a failure; the owner's own text stays in the error, for logs. */
+const message = (error: unknown): string => userMessage(error);
 
 function updateFromInstalled(app: InstalledApp): AppUpdate[] {
   return app.update
@@ -543,6 +631,6 @@ function updateFromInstalled(app: InstalledApp): AppUpdate[] {
 }
 
 function failure(error: unknown): Partial<AppsSnapshot> {
-  if (isPageError(error) && error.code === LINK_CLOSED) return { connection: "disconnected", error: error.message };
+  if (isPageError(error) && error.code === LINK_CLOSED) return { connection: "disconnected", error: message(error) };
   return { error: message(error) };
 }

@@ -11,17 +11,21 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
 
 const css = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/composerLocation.css"), "utf8").replace(
   /\/\*[\s\S]*?\*\//g,
   "",
 );
-const baseStyles = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/styles.css"), "utf8");
+const sharedFooter = readFileSync(
+  join(import.meta.dir, "../src/agent-session/acpmux/composerFooterShared.css"),
+  "utf8",
+).replace(/\/\*[\s\S]*?\*\//g, "");
 
 /** The declarations of every rule whose selector is exactly `selector`, in source order. */
-function rules(selector: string): string[] {
+function rules(selector: string, source = css): string[] {
   const found: string[] = [];
-  for (const [, sel = "", body = ""] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g))
+  for (const [, sel = "", body = ""] of source.matchAll(/([^{}]+)\{([^{}]*)\}/g))
     if (sel.trim().replace(/\s+/g, " ") === selector) found.push(body);
   return found;
 }
@@ -34,9 +38,14 @@ function px(body: string, property: string): number | undefined {
 test("the quiet row's chips get the native pill inset, 8 px from the text", () => {
   const foot = rules(".acpmux-composer-foot");
   expect(foot.length).toBeGreaterThan(0);
-  // The last declaration wins, as in the cascade.
-  const insets = foot.map((body) => px(body, "--acpmux-row-inset")).filter((value) => value !== undefined);
-  expect(insets[insets.length - 1]).toBe(8);
+  // The last declaration wins, as in the cascade. Since #27559 the row takes the grid's composer
+  // inset token (design/grid.md 5.1, schemas/layout-grid/layout-grid.json `composer-inset`) instead
+  // of a literal 8px, so the declaration names the token and the token is 8.
+  const insets = foot
+    .map((body) => body.match(/--acpmux-row-inset\s*:\s*([^;]+)/)?.[1]?.trim())
+    .filter((value) => value !== undefined);
+  expect(insets[insets.length - 1]).toBe("var(--grid-composer-inset)");
+  expect(gridLength("composer-inset")).toBe(8);
 });
 
 test("each chip's pill is padded by the row's inset", () => {
@@ -59,24 +68,31 @@ test("neighbouring chips on the right keep their labels 8 px apart, as with the 
   // The model, Plan and a harness's Options sit side by side with no gap. Each one after the first
   // tucks its leading padding under the one before it: two insets of 8 px less the 8 px the labels
   // were apart. Without it the model's label moves 8 px per neighbour.
-  const neighbour = rules(".acpmux-composer-foot .acpmux-chips > :not(.acpmux-access) ~ :not(.acpmux-access)").join(
-    ";",
-  );
+  const neighbour = rules(".acpmux-composer-foot .acpmux-chips > :not(.acpmux-access):not(:first-child)").join(";");
   expect(neighbour).toMatch(/margin-inline-start\s*:\s*calc\(8px - 2 \* var\(--acpmux-row-inset\)\)/);
   // The effort chip kept 1 px more (its own margin) and still does.
-  const effort = rules(".acpmux-composer-foot .acpmux-chips > :not(.acpmux-access) ~ .acpmux-effort").join(";");
+  const effort = rules(".acpmux-composer-foot .acpmux-chips > .acpmux-effort:not(:first-child)").join(";");
   expect(effort).toMatch(/margin-inline-start\s*:\s*calc\(9px - 2 \* var\(--acpmux-row-inset\)\)/);
   expect(px(rules(".acpmux-composer-foot .acpmux-effort").join(";"), "margin-inline-start")).toBe(1);
 });
 
 test("the context ring keeps its place past the model's text", () => {
-  const ring = rules(".acpmux-composer-foot .acpmux-context-ring").join(";");
-  expect(ring).toMatch(/margin-inline-start\s*:\s*4px/);
+  // The shared owner outranks composerLocation.css's legacy 4 px margin.
+  // composer-model-quiet.test.ts also measures the resulting glyph-to-label gap in Chromium.
+  const ring = rules(".acpmux-composer.acpmux-composer .acpmux-composer-foot .acpmux-context-ring", sharedFooter).join(
+    ";",
+  );
+  expect(px(ring, "margin-inline-start")).toBe(2);
 });
 
 test("the context ring uses one compact control size in the main and quiet rows", () => {
-  expect(baseStyles).toMatch(/\.acpmux-context-ring\{[^}]*width:22px;height:22px/);
-  const ring = rules(".acpmux-composer-foot .acpmux-context-ring").join(";");
-  expect(ring).toMatch(/width\s*:\s*22px/);
-  expect(ring).toMatch(/height\s*:\s*22px/);
+  expect(px(rules(":root", sharedFooter).join(";"), "--acpmux-context-control-size")).toBe(22);
+  for (const selector of [
+    ".acpmux-context-ring",
+    ".acpmux-composer.acpmux-composer .acpmux-composer-foot .acpmux-context-ring",
+  ]) {
+    const ring = rules(selector, sharedFooter).join(";");
+    expect(ring).toMatch(/width\s*:\s*var\(--acpmux-context-control-size\)/);
+    expect(ring).toMatch(/height\s*:\s*var\(--acpmux-context-control-size\)/);
+  }
 });

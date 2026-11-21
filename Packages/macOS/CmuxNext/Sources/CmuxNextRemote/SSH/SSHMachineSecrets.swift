@@ -16,7 +16,8 @@ public import Foundation
 ///
 /// The values never cross a daemon link: the person's delivery writes them to the machine, and its
 /// shells and agents read them from the file.
-public enum SSHMachineSecrets {
+public struct SSHMachineSecrets {
+    public init() {}
     /// The machine's folder for the receiver and its ticket, as a remote shell expands it.
     public static let directory = "$HOME/.cmux/machine-config"
     public static let receiverPath = directory + "/receive-secrets"
@@ -206,6 +207,7 @@ final class SSHPTYRun: Sendable {
             var offset = 0
             while offset < raw.count {
                 guard !Task.isCancelled, !self.running.withLock({ $0.stopped }) else { return false }
+                // concurrency-allow: @concurrent, and the descriptor is O_NONBLOCK with a poll deadline: never the main thread, never unbounded
                 let wrote = Darwin.write(fd, base + offset, raw.count - offset)
                 if wrote > 0 { offset += wrote; continue }
                 guard wrote < 0, errno == EINTR || errno == EAGAIN else { return false }

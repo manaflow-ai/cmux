@@ -1,0 +1,68 @@
+{
+  "title": "The chat Session Info open over a narrow agent pane",
+  "settings": null,
+  "launch_args": [
+    "--showcase"
+  ],
+  "steps": [
+    {
+      "title": "Seed the showcase window and open its agent tab (mock daemon)",
+      "rpc": {
+        "method": "debug.showcase.seed",
+        "params": {
+          "focus": true
+        }
+      },
+      "wait": 6,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl.swift:212 -> Control/DebugShowcase.swift:14 (needs --showcase, AppEnvironment.swift:84)"
+    },
+    {
+      "title": "Agent page ready",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "readiness"
+        }
+      },
+      "wait": 2,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl.swift:342 -> Control/DebugAgentPane.swift:79",
+      "optional": "the page may still be loading"
+    },
+    {
+      "title": "Agent page ready (retry)",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "readiness"
+        }
+      },
+      "wait": 1,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl.swift:342 -> Control/DebugAgentPane.swift:79",
+      "optional": "the page may still be loading"
+    },
+    {
+      "title": "Open mock session mock-session",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "select_session",
+          "session": "mock-session"
+        }
+      },
+      "wait": 2.5,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl.swift:342 -> Control/DebugAgentPane.swift:79 (select_session: DebugAgentPane.swift:53,318; webviews/src/agent-session/acpmux/automation.ts selectSession)"
+    },
+    {
+      "title": "Open the chat Session Info (default size: it overlays the 447 pt chat)",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "open_menu",
+          "label": "Session Info"
+        }
+      },
+      "wait": 2,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl.swift:342 -> Control/DebugAgentPane.swift:79 (registerPicker SessionInfo.tsx:160; overlay below PUSH_MIN_CHAT 440 + width 320: SessionInfo.tsx:73-80)"
+    }
+  ]
+}

@@ -9,12 +9,17 @@ public struct ImportEnvironment: Sendable {
     /// Finds an app by name ("Fellou" for Fellou.app), for registry rows
     /// whose bundle id is not verified; nil when it is not installed.
     public var locateAppNamed: @Sendable (String) -> URL?
+    /// The browser storage Keychain items by name (never their passwords), so
+    /// a browser the registry names no item for still finds its own.
+    public var safeStorageNames: @Sendable () -> [SafeStorageName]
 
     public init(homeDirectory: URL, locateApp: @escaping @Sendable (String) -> URL?,
-                locateAppNamed: @escaping @Sendable (String) -> URL? = { _ in nil }) {
+                locateAppNamed: @escaping @Sendable (String) -> URL? = { _ in nil },
+                safeStorageNames: @escaping @Sendable () -> [SafeStorageName] = { [] }) {
         self.homeDirectory = homeDirectory
         self.locateApp = locateApp
         self.locateAppNamed = locateAppNamed
+        self.safeStorageNames = safeStorageNames
     }
 
     /// `/Applications/<name>.app` or `~/Applications/<name>.app`.
@@ -50,10 +55,13 @@ public struct ImportEnvironment: Sendable {
         locateApp: @escaping @Sendable (String) -> URL?
     ) -> ImportEnvironment {
         if allowsFixtures, let fixture = environment[fixtureHomeKey], !fixture.isEmpty {
-            return ImportEnvironment(homeDirectory: URL(fileURLWithPath: fixture, isDirectory: true), locateApp: { _ in nil })
+            // The fixture key file's services stand in for the Keychain's items.
+            let names = FixtureSafeStorage(environment: environment)?.names ?? []
+            return ImportEnvironment(homeDirectory: URL(fileURLWithPath: fixture, isDirectory: true), locateApp: { _ in nil },
+                                     safeStorageNames: { names })
         }
         return ImportEnvironment(homeDirectory: FileManager.default.homeDirectoryForCurrentUser, locateApp: locateApp,
-                                 locateAppNamed: applicationNamed)
+                                 locateAppNamed: applicationNamed, safeStorageNames: { KeychainSafeStorageNames().list() })
     }
 
     /// The browser's data folder in this home: the first registry folder

@@ -177,6 +177,23 @@ await requireBrowserLane("glass-lens.test.ts", async () => {
         await page.close();
       });
 
+      // The sidebar's Updated card (surface.tsx): the host draws the glass natively under the page,
+      // so the lens draws nothing over it, from the start or once the page says so.
+      test("a page whose host draws its glass (data-glass-native) gets no lens", async () => {
+        const page = await open(browser, "lens", "data-glass-native");
+        expect(await canvases(page)).toBe(0);
+        expect((await state(page)).running).toBe(false);
+        await page.close();
+        if (!webgl) return;
+        const later = await open(browser, "lens");
+        expect(await canvases(later)).toBe(1);
+        await later.evaluate(() => document.documentElement.setAttribute("data-glass-native", ""));
+        await later.evaluate(() => new Promise(requestAnimationFrame));
+        expect(await canvases(later)).toBe(0);
+        expect((await state(later)).running).toBe(false);
+        await later.close();
+      });
+
       test("lens glass bends the stripes at the rim and leaves the center", async () => {
         if (!webgl) return;
         const page = await open(browser, "lens");
@@ -201,6 +218,36 @@ await requireBrowserLane("glass-lens.test.ts", async () => {
         expect(meanDifference(lens, plain, center - 30, center + 30)).toBeLessThan(25);
         expect(meanDifference(lens, plain, 4, BOX.x - 4)).toBeLessThan(25);
         await page.close();
+      });
+
+      test("the gloss (--glass-gloss) lights the top rim and leaves the center", async () => {
+        if (!webgl) return;
+        const page = await open(browser, "lens");
+        // Linux WebKit's headless compositor leaves WebGL out of screenshots (above).
+        if (name === "webkit" && process.platform === "linux") {
+          await page.close();
+          return;
+        }
+        const setGloss = (gloss: string) =>
+          page.evaluate(async (value) => {
+            const box = document.querySelector<HTMLElement>(".box")!;
+            box.style.setProperty("--glass-gloss", value);
+            // A class change marks the surface stale, so the lens reads its tokens again.
+            box.classList.toggle("relit");
+            for (let i = 0; i < 10; i++) await new Promise(requestAnimationFrame);
+          }, gloss);
+        await setGloss("0");
+        const topDark = await row(page, BOX.y + 2);
+        const midDark = await row(page);
+        await setGloss("1");
+        const topLit = await row(page, BOX.y + 2);
+        const midLit = await row(page);
+        await page.close();
+        const center = BOX.x + BOX.width / 2;
+        // Two px under the top edge the rim faces the light: the black stripes there brighten.
+        expect(meanDifference(topLit, topDark, center - 40, center + 40)).toBeGreaterThan(25);
+        // The middle of the glass is past the rim: no light there.
+        expect(meanDifference(midLit, midDark, center - 30, center + 30)).toBeLessThan(5);
       });
 
       test("a joined edge (--glass-join) bends no rim: the side band runs straight up to it", async () => {

@@ -14,24 +14,14 @@ import Foundation
 /// to keep every host, and rolls back otherwise. The new build serves `fs-v1`, so the machine's
 /// later updates go in place.
 ///
-/// Nothing the CLI or an agent passes reaches it: the build is the app bundle's own pin
-/// (`Resources/bin/cmux-tui-ssh/manifest.json`, the one `cmux link machine update` reads), the
-/// machine checks the download against that pin's SHA-256 before it replaces anything, and the
-/// script is the app's own resource.
+/// Nothing the CLI or an agent passes reaches it: the build is the app's own pin (``CloudLegacyPin``:
+/// the bundle's manifest, or for a DEV build the published pin of its own commit or cmux-tui tree,
+/// as `cmux link machine update` resolves it), the machine checks the download against that pin's
+/// SHA-256 before it replaces anything, and the script is the app's own resource.
 nonisolated enum CloudLegacyMachineUpdate {
     /// The app's pinned Linux build for Cloud machines.
-    struct Pin: Sendable, Equatable {
-        /// The build's commit: the `build` its daemon reports.
-        var commit: String
-        /// SHA-256 of the binary at ``url``.
-        var sha256: String
+    typealias Pin = CloudLegacyPin
 
-        /// The immutable per-commit release `cmux link machine update` downloads too.
-        var url: String { "\(RemoteInstallPlan.base.absoluteString)/\(commit)/cmux-tui-\(CloudLegacyMachineUpdate.target)" }
-    }
-
-    /// The Rust target of every Cloud machine's binary (x86_64, the release's static build).
-    static let target = "x86_64-unknown-linux-musl"
     /// The fleet upgrade's directory: its runs share `lock`, so the app's run and an operator's
     /// never overlap on one machine.
     static let directory = "/var/lib/cmux-tui-upgrade"
@@ -41,26 +31,6 @@ nonisolated enum CloudLegacyMachineUpdate {
     /// for a healthy daemon, like `cmux link machine update`'s 25). A run that goes on after it
     /// ends by itself, and the machine then reports its build.
     static let waits = 6
-
-    /// The pin in the manifest beside the app's `cmux` client, nil when the app ships none (dev
-    /// builds) or it is malformed.
-    static func pin(besideCLI cli: URL) -> Pin? {
-        let manifest = cli.deletingLastPathComponent().appendingPathComponent("cmux-tui-ssh/manifest.json")
-        return (try? Data(contentsOf: manifest)).flatMap(pin(manifest:))
-    }
-
-    /// The pin in a `cmux-tui-ssh/manifest.json`: `commit` (40 hex) and the x86_64 Linux binary's
-    /// digest (64 hex). Both reach a shell, so anything else is refused.
-    static func pin(manifest: Data) -> Pin? {
-        struct Manifest: Decodable {
-            var commit: String
-            var binaries: [String: String]
-        }
-        guard let manifest = try? JSONDecoder().decode(Manifest.self, from: manifest),
-              let sha256 = manifest.binaries["cmux-tui-\(target)"]?.lowercased(),
-              isHex(manifest.commit.lowercased(), count: 40), isHex(sha256, count: 64) else { return nil }
-        return Pin(commit: manifest.commit.lowercased(), sha256: sha256)
-    }
 
     /// The guest script, from the app's resources.
     static var script: String? {
@@ -89,15 +59,15 @@ nonisolated enum CloudLegacyMachineUpdate {
         // run: the waits read what it left. Only a start that ended on its own and said otherwise
         // started nothing, so one wait is enough to read the run that never began.
         let started = try? await exec(startCommand(pin: pin, script: script, nonce: nonce, directory: directory, expected: expected), 60_000)
-        if let started, lastLine(started) == "NOROOT" { return answer(started, pin: pin) }
-        let refused = started.map { lastLine($0) != "started" && $0.exitCode != 124 } ?? false
+        if let started, started.lastLine == "NOROOT" { return answer(started, pin: pin) }
+        let refused = started.map { $0.lastLine != "started" && $0.exitCode != 124 } ?? false
         let wait = waitCommand(nonce: nonce, directory: directory, seconds: waitSeconds)
         for _ in 0..<(refused ? 1 : waits) {
             guard let ran = try? await exec(wait, (waitSeconds + 20) * 1000) else { continue }
             let reply = answer(ran, pin: pin)
             if reply.errorCode != "machine_update_unresolved" { return reply }
         }
-        if refused, let started { return CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_failed", error: detail(started)) }
+        if refused, let started { return CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_failed", error: started.failureDetail) }
         return unresolved("the machine's update did not end within \(waits * waitSeconds / 60) minutes")
     }
 
@@ -112,7 +82,7 @@ nonisolated enum CloudLegacyMachineUpdate {
         let args = "\(pin.sha256) \(pin.commit) \"$r\""
         // It reaches a shell: only a 40-hex commit.
         let expected = expected?.lowercased()
-        let expectBuild = expected.flatMap { isHex($0, count: 40) ? [writeFile($0 + "\n", to: "$r/expect-build")] : nil } ?? []
+        let expectBuild = expected.flatMap { CloudLegacyPin.isHex($0, count: 40) ? [writeFile($0 + "\n", to: "$r/expect-build")] : nil } ?? []
         let lines: [String] = [
             "set -eu",
             rootHelper,
@@ -177,45 +147,10 @@ nonisolated enum CloudLegacyMachineUpdate {
     /// The guest script's result line (the last line of a wait's stdout) as a `link machine
     /// update` answer. No line yet, `running`, or an exec the provider ended (exit 124: the run
     /// may still go on) is `machine_update_unresolved`: the next wait asks again.
-    static func answer(_ ran: CloudExecResult, pin: Pin) -> CloudMoveCLI.Answer {
-        let line = lastLine(ran)
-        func failed(_ code: String) -> CloudMoveCLI.Answer { CloudMoveCLI.Answer(ok: false, errorCode: code, error: detail(ran)) }
-        switch line.split(separator: " ").first.map(String.init) ?? "" {
-        // UNVERIFIED: the new daemon serves and kept every host; only the terminal count was unreadable.
-        // `OK already-current`: the daemon already ran the pinned build; nothing restarted.
-        case "OK", "UNVERIFIED":
-            return CloudMoveCLI.Answer(ok: true, updated: !line.hasPrefix("OK already-current"), build: pin.commit)
-        case "ROLLBACK":
-            return failed("machine_update_rolled_back")
-        case "FAIL":
-            return failed("machine_update_failed")
-        case "NOROOT":
-            return failed("machine_update_unsupported")
-        case "SKIP":
-            // A daemon the fleet upgrade does not replace (no trusted carrier): not this way.
-            if line.hasPrefix("SKIP unsupported-cloud-auth") { return failed("machine_update_unsupported") }
-            // Between restarts of a crash-looping daemon: ask again later.
-            if line.hasPrefix("SKIP no-daemon") { return failed("machine_unreachable") }
-            // Another run holds the lock, too little disk, any other skip: nothing changed; ask
-            // again later, never a failure kept for the build.
-            return failed("machine_update_busy")
-        default:
-            if line.isEmpty || line == "running" || line.hasPrefix("PENDING") || ran.exitCode == 124 { return failed("machine_update_unresolved") }
-            return failed("machine_update_failed")
-        }
-    }
+    static func answer(_ ran: CloudExecResult, pin: Pin) -> CloudMoveCLI.Answer { ran.legacyUpdateAnswer(pinned: pin.commit) }
 
     /// The transient unit of run `nonce`.
     static func unit(_ nonce: String) -> String { "cmux-app-tui-update-\(nonce)" }
-
-    /// The pin of the legacy update to `build`: this app's own (`besideCLI`), and only when it is
-    /// that build; nil otherwise (a dev build with no pin, or a manifest of another build).
-    static func pin(for build: String, besideCLI cli: URL) -> Pin? {
-        pin(besideCLI: cli).flatMap { pin in
-            let build = build.lowercased()
-            return build.count >= 7 && (pin.commit.hasPrefix(build) || build.hasPrefix(pin.commit)) ? pin : nil
-        }
-    }
 
     /// 16 hex characters: names the run's directory and unit.
     static func newNonce() -> String {
@@ -233,22 +168,13 @@ nonisolated enum CloudLegacyMachineUpdate {
         CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_unresolved", error: why)
     }
 
-    private static func lastLine(_ ran: CloudExecResult) -> String {
-        ran.stdout.split(whereSeparator: \.isNewline).last.map(String.init) ?? ""
-    }
-
-    /// What a failure says: the result line, else the end of stderr.
-    private static func detail(_ ran: CloudExecResult) -> String {
-        let line = lastLine(ran)
-        return line.isEmpty ? String(ran.stderr.suffix(400)) : line
-    }
-
     /// `echo BASE64 | base64 -d | root tee FILE`: the exec body carries no quoting of its own.
     private static func writeFile(_ contents: String, to file: String) -> String {
         "echo \(Data(contents.utf8).base64EncodedString()) | base64 -d | root tee \"\(file)\" >/dev/null"
     }
+}
 
-    private static func isHex(_ text: String, count: Int) -> Bool {
-        text.count == count && text.allSatisfy { $0.isHexDigit && ($0.isNumber || $0.isLowercase) }
-    }
+nonisolated extension CloudLegacyPin {
+    /// The immutable per-commit release `cmux link machine update` downloads too.
+    var url: String { "\(RemoteInstallPlan.base.absoluteString)/\(commit)/cmux-tui-\(Self.target)" }
 }

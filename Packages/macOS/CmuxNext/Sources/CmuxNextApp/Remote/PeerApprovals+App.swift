@@ -6,15 +6,15 @@ import Foundation
 /// Peer-route approvals in the app (acpmux `hub/mac_approvers.rs`): where this Mac's approver key
 /// lives, and what the pane's Enroll this Mac runs.
 enum PeerApprovalsApp {
-    /// A signed build keeps the key in the Secure Enclave (its blob in this app's data-protection
-    /// Keychain); a DEV build without a Team ID keeps a memory key for this launch. Enroll runs the
-    /// app's own cmux-tui, `acp host approvals enroll PEER`, which enrolls the key on that machine
-    /// over the person's ssh.
-    @MainActor static func install() {
+    /// The app's one approver (made once at launch, before any pane connects). A signed
+    /// build keeps the key in the Secure Enclave (its blob in this app's data-protection Keychain); a
+    /// DEV build without a Team ID keeps a memory key for this launch. Enroll runs the app's own
+    /// cmux-tui, `acp host approvals enroll PEER`, which enrolls the key on that machine over the person's ssh.
+    @MainActor static func approver() -> AgentPanePeerApprover {
         let service = (Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.next") + ".mac-approver"
-        AcpmuxMacApprover.shared.configure(keychainService: CodeSigningTeam.current() == nil ? nil : service)
-        guard let binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment) else { return }
-        AgentPanePeerApprovals.enroll = { peer, daemon in
+        let key = AcpmuxMacApprover(keychainService: CodeSigningTeam.current() == nil ? nil : service)
+        guard let binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment) else { return .init(key: key) }
+        return AgentPanePeerApprover(key: key) { peer, daemon in
             // The person's ssh environment, and the daemon the pane talks to (a DEV or tagged
             // build's own acpmux home), which knows the peer and holds this Mac's key.
             let cli = HostCLI(binary: binary) { await SSHService.environment().merging(daemon) { _, own in own } }

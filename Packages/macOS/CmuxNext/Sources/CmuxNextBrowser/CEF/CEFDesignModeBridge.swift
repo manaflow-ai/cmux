@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Design mode's messages in a Chromium page (`BrowserDesignModeScript`), through the DevTools
@@ -31,10 +32,10 @@ final class CEFDesignModeBridge {
 
     /// A `Runtime.bindingCalled` of the design mode binding: emits its JSON payload. False for
     /// every other message.
-    func handle(_ json: String) -> Bool {
+    func handle(_ head: DevToolsMessageHead) -> Bool {
         let binding = BrowserDesignModeScript.chromiumBinding
-        guard json.contains("\"Runtime.bindingCalled\""), json.contains("\"\(binding)\""),
-              let data = json.data(using: .utf8),
+        guard head.method == "Runtime.bindingCalled", head.contains("\"\(binding)\""),
+              let data = head.json.data(using: .utf8),
               let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               message["method"] as? String == "Runtime.bindingCalled",
               let params = message["params"] as? [String: Any], params["name"] as? String == binding

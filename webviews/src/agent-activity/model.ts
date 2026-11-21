@@ -46,6 +46,8 @@ export type ActivityState = {
   scrubSeq?: number;
   /** The frame viewer is open over the timeline or grid (this page only; the host never sends it). */
   viewing?: boolean;
+  /** The viewer fills the page (Full Screen; this page only, the host never sends it). */
+  fullFrame?: boolean;
   filter: string;
   watching: string[];
   lastOperationError?: string;
@@ -79,6 +81,8 @@ export type ActivityState = {
     previous: string;
     next: string;
     close: string;
+    fullScreen: string;
+    exitFullScreen: string;
     stepClick: string;
     stepType: string;
     stepKeys: string;
@@ -106,8 +110,11 @@ export function connectionText(connection: ActivityConnection, strings: Activity
 export const isLive = (status: ActivityStatus) => typeof status === "string";
 export const displayFrame = (event: ActivityEvent) => event.afterFrame ?? event.beforeFrame;
 
-export function matches(session: ActivitySession, filter: string): boolean {
-  const needle = filter.trim().toLocaleLowerCase();
+export function normalizeFilter(filter: string): string {
+  return filter.trim().toLocaleLowerCase();
+}
+
+function matchesNeedle(session: ActivitySession, needle: string): boolean {
   if (!needle) return true;
   return [
     session.label,
@@ -120,13 +127,31 @@ export function matches(session: ActivitySession, filter: string): boolean {
   ].some((value) => value.toLocaleLowerCase().includes(needle));
 }
 
+export function matches(session: ActivitySession, filter: string): boolean {
+  return matchesNeedle(session, normalizeFilter(filter));
+}
+
 export function listOrder(a: ActivitySession, b: ActivitySession): number {
   if (isLive(a.status) !== isLive(b.status)) return isLive(a.status) ? -1 : 1;
   if (a.lastActionAt !== b.lastActionAt) return b.lastActionAt - a.lastActionAt;
   return a.id.localeCompare(b.id);
 }
 
+let lastGroups: { inputs: unknown[]; result: ActivityGroup[] } | undefined;
+
+/** The grouped, filtered, ordered session list. One render asks for it from several places (the
+ * follow subscription, then the layout), and a frame event changes none of its inputs, so the last
+ * projection is reused while the inputs are the same values. Callers treat the result as read-only. */
 export function groups(state: ActivityState): ActivityGroup[] {
+  const inputs = [state.sessionsByMachine, state.machineNames, state.connections, state.filter, state.strings.thisMac];
+  if (lastGroups && inputs.every((input, index) => input === lastGroups!.inputs[index])) return lastGroups.result;
+  const result = projectGroups(state);
+  lastGroups = { inputs, result };
+  return result;
+}
+
+function projectGroups(state: ActivityState): ActivityGroup[] {
+  const needle = normalizeFilter(state.filter);
   const machines = new Set([...Object.keys(state.sessionsByMachine), ...Object.keys(state.connections)]);
   return [...machines]
     .sort((a, b) => {
@@ -137,7 +162,7 @@ export function groups(state: ActivityState): ActivityGroup[] {
       id,
       name: state.machineNames[id] ?? (id === "local" ? state.strings.thisMac : id),
       connection: state.connections[id] ?? "connected",
-      sessions: (state.sessionsByMachine[id] ?? []).filter((s) => matches(s, state.filter)).sort(listOrder),
+      sessions: (state.sessionsByMachine[id] ?? []).filter((s) => matchesNeedle(s, needle)).sort(listOrder),
     }));
 }
 
@@ -295,7 +320,8 @@ export function reduceActivity(state: ActivityState, action: any): ActivityState
       ...reduceActivity(reduceActivity(state, { type: "select", id: action.id }), { type: "scrub", seq: action.seq }),
       viewing: true,
     };
-  if (action.type === "close") next = { ...state, viewing: false };
+  if (action.type === "close") next = { ...state, viewing: false, fullFrame: false };
+  if (action.type === "full") next = { ...state, fullFrame: action.on };
   if (action.type === "filter") next = { ...state, filter: action.value };
   if (action.type === "layout") next = { ...state, layout: action.value };
   if (action.type === "scrub") {
@@ -348,6 +374,8 @@ export const initialActivityState = (): ActivityState => ({
     previous: "Previous",
     next: "Next",
     close: "Close",
+    fullScreen: "Full Screen",
+    exitFullScreen: "Exit Full Screen",
     stepClick: "Click",
     stepType: "Type",
     stepKeys: "Press Keys",

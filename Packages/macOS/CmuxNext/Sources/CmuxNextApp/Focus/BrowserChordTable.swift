@@ -6,7 +6,7 @@ import CmuxNextFocus
 /// the keyboard (plans/cmux-next/focus.md section 5, "Browser context").
 ///
 /// The key router resolves a chord in this order: the binding table
-/// (catalog defaults, the tab-switch defaults of `KeyBindingDefaults`,
+/// (catalog defaults, the aliases and scoped defaults of `KeyBindingDefaults`,
 /// `cmux.json`), then, only when no entry applies, the user's Ghostty
 /// keybinds for window, tab and split actions. In a
 /// browser context that fallback is refused for every chord listed here,
@@ -88,7 +88,7 @@ enum BrowserChordTable {
     /// Like `ActionRegistry.resolveShortcut`: the key as typed and its
     /// unshifted base (Cmd-Shift-[ arrives as "{", Ctrl-Shift-Tab as
     /// back-tab U+0019).
-    private static func shortcuts(of event: NSEvent) -> [Shortcut] {
+    private nonisolated static func shortcuts(of event: NSEvent) -> [Shortcut] {
         guard event.type == .keyDown else { return [] }
         let keys = [event.charactersIgnoringModifiers, event.characters(byApplyingModifiers: [])].compactMap { $0 }
         return keys.map { Shortcut($0, modifiers: event.modifierFlags) }

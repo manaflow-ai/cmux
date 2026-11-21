@@ -13,9 +13,9 @@ use crate::paths::Paths;
 pub struct Detected {
     /// The `import-from` source name: `claude-code`, `claude-memory`, `codex`, `zip:/path`.
     pub source: String,
-    /// `claude-code`, `claude-memory`, `codex`, `chatgpt-export`, `claude-ai-export`, `export`.
+    /// `claude-code`, `claude-memory`, `codex`, `codex-sessions`, `chatgpt-export`, `claude-ai-export`, `export`.
     pub kind: String,
-    /// Conversations (claude-code), notes (memory kinds) or 1 (a zip).
+    /// Conversations (claude-code, codex-sessions), notes (memory kinds) or 1 (a zip).
     pub count: usize,
     pub bytes: u64,
     /// The folder or file it was found in.
@@ -23,8 +23,11 @@ pub struct Detected {
 }
 
 /// Finds what this Mac holds, fast (no transcript is converted): Claude Code
-/// transcripts and memory notes, Codex memory notes, and export zips of
-/// claude.ai or ChatGPT in `~/Downloads` and `~/Desktop`.
+/// transcripts and memory notes and Codex memory notes, all in the agents' own
+/// folders. Never a privacy-protected folder (LAUNCH-NO-TCC-PROMPTS): Home's
+/// first-run offer runs this at launch with no action of the person, and a read
+/// in `~/Downloads` or `~/Desktop` raises a macOS prompt for cmux. Export zips
+/// are `detect_with_exports`, for when the person asks.
 pub fn detect(user_home: &Path, claude_config_dir: Option<String>) -> Vec<Detected> {
     let mut found = Vec::new();
     let projects = crate::claude_import::default_projects_dir(user_home, claude_config_dir);
@@ -36,6 +39,20 @@ pub fn detect(user_home: &Path, claude_config_dir: Option<String>) -> Vec<Detect
             count: sessions,
             bytes,
             path: projects.display().to_string(),
+        });
+    }
+    let codex_sessions = crate::codex_sessions_import::default_sessions_dir(
+        user_home,
+        std::env::var("CODEX_HOME").ok(),
+    );
+    let (sessions, bytes) = crate::codex_sessions_import::count_sessions(&codex_sessions);
+    if sessions > 0 {
+        found.push(Detected {
+            source: "codex-sessions".into(),
+            kind: "codex-sessions".into(),
+            count: sessions,
+            bytes,
+            path: codex_sessions.display().to_string(),
         });
     }
     for (codex, kind, dir) in [
@@ -53,8 +70,118 @@ pub fn detect(user_home: &Path, claude_config_dir: Option<String>) -> Vec<Detect
             });
         }
     }
-    found.extend(detect_zips(user_home));
     found
+}
+
+/// `detect` plus recent export zips in the usual places. This is only called
+/// from a person-visible import surface (`detect --exports`); macOS can ask for
+/// access to Downloads/Desktop the first time the person opens that surface.
+pub fn detect_with_exports(user_home: &Path, claude_config_dir: Option<String>) -> Vec<Detected> {
+    let mut found = detect(user_home, claude_config_dir);
+    found.extend(detect_zips(user_home));
+    found.extend(detect_app_data(user_home));
+    found
+}
+
+/// Local app data is only a presence hint for the paste-summary rows. These
+/// products do not provide a portable memory export, so cmux never parses the
+/// files and never sends them to the Chief. The paths include the documented
+/// CLI roots and the common macOS Application Support roots.
+fn detect_app_data(user_home: &Path) -> Vec<Detected> {
+    const CANDIDATES: [(&str, &str, &[&str]); 4] = [
+        (
+            "grok-bot",
+            "grok-bot",
+            &[
+                ".grok/sessions",
+                ".grok/grok.db",
+                "Library/Application Support/Grok",
+                "Library/Application Support/xAI/Grok",
+                "Library/Application Support/com.x.ai.grok",
+            ],
+        ),
+        (
+            "muse",
+            "muse",
+            &[
+                ".local/share/muse",
+                "Library/Application Support/muse",
+                "Library/Application Support/Muse",
+            ],
+        ),
+        (
+            "dots",
+            "dots",
+            &[
+                "Library/Application Support/Dot",
+                "Library/Application Support/New Computer/Dot",
+            ],
+        ),
+        (
+            "instinct",
+            "instinct",
+            &[
+                ".instinct",
+                "Library/Application Support/Instinct",
+                "Library/Application Support/instinct",
+            ],
+        ),
+    ];
+
+    CANDIDATES
+        .into_iter()
+        .filter_map(|(source, kind, paths)| {
+            let path = paths
+                .iter()
+                .map(|relative| user_home.join(relative))
+                .find(|path| has_data(path))?;
+            Some(Detected {
+                source: source.into(),
+                kind: kind.into(),
+                count: data_entry_count(&path),
+                bytes: data_bytes(&path),
+                path: path.display().to_string(),
+            })
+        })
+        .collect()
+}
+
+fn has_data(path: &Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    if metadata.is_file() {
+        return metadata.len() > 0;
+    }
+    metadata.is_dir()
+        && std::fs::read_dir(path)
+            .map(|mut entries| entries.next().is_some())
+            .unwrap_or(false)
+}
+
+fn data_entry_count(path: &Path) -> usize {
+    if path.is_file() {
+        return 1;
+    }
+    std::fs::read_dir(path)
+        .map(|entries| entries.flatten().count())
+        .unwrap_or(1)
+        .max(1)
+}
+
+fn data_bytes(path: &Path) -> u64 {
+    if path.is_file() {
+        return std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    }
+    std::fs::read_dir(path)
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter_map(|entry| entry.metadata().ok())
+                .map(|metadata| metadata.len())
+                .sum()
+        })
+        .unwrap_or(0)
 }
 
 /// `*.jsonl` sessions under `projects/<project>/` (one level, as Claude Code writes them).
@@ -81,7 +208,7 @@ fn count_transcripts(projects: &Path) -> (usize, u64) {
     (n, bytes)
 }
 
-const ZIP_FOLDERS: [&str; 2] = ["Downloads", "Desktop"];
+const ZIP_FOLDERS: [&str; 3] = ["Downloads", "Desktop", "Documents"];
 /// An export older than this is probably not what the person means to bring now.
 const ZIP_MAX_AGE_DAYS: u64 = 400;
 const ZIP_LIMIT: usize = 8;
@@ -142,13 +269,22 @@ fn export_kind(zip: &Path) -> Option<&'static str> {
     if !has("conversations.json") {
         return None;
     }
-    Some(if has("chat.html") || has("message_feedback.json") {
-        "chatgpt-export"
-    } else if has("projects.json") || has("users.json") {
-        "claude-ai-export"
-    } else {
-        "export"
-    })
+    let file_name = zip
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    Some(
+        if file_name.contains("dot") || file_name.contains("newcomputer") {
+            "dots-export"
+        } else if has("chat.html") || has("message_feedback.json") {
+            "chatgpt-export"
+        } else if has("projects.json") || has("users.json") {
+            "claude-ai-export"
+        } else {
+            "export"
+        },
+    )
 }
 
 /// One write, as the log keeps it.
@@ -241,18 +377,42 @@ pub fn forget(paths: &Paths, batch: &str) -> Result<(), String> {
 /// Returns what it did.
 pub fn undo_local(paths: &Paths, batch: Option<&str>) -> Result<(usize, String), String> {
     let all = runs(paths);
-    let run = match batch {
-        Some(b) => all.iter().rev().find(|r| r.batch == b),
-        None => all.iter().rev().find(|r| r.to == "local"),
+    let batch = match batch {
+        Some(b) => b.to_owned(),
+        None => all
+            .iter()
+            .rev()
+            .find(|r| r.to == "local")
+            .map(|r| r.batch.clone())
+            .ok_or("nothing to undo: no earlier import into this memory")?,
+    };
+    // One UI Import can write several source rows with the same batch. Treat
+    // them as one append: restore the first backup, validate the total tail,
+    // and remove all keys/records together.
+    let grouped: Vec<&Run> = all.iter().filter(|r| r.batch == batch).collect();
+    if grouped.is_empty() {
+        return Err("nothing to undo: no earlier import into this memory".into());
     }
-    .ok_or("nothing to undo: no earlier import into this memory")?
-    .clone();
-    if run.to != "local" {
+    if grouped.iter().any(|r| r.to != "local") {
         return Err(format!(
             "batch {} went to the cloud: undo it with --to cloud",
-            run.batch
+            batch
         ));
     }
+    let run = Run {
+        batch: batch.clone(),
+        to: "local".into(),
+        source: grouped
+            .iter()
+            .map(|r| r.source.as_str())
+            .collect::<Vec<_>>()
+            .join(", "),
+        written: grouped.iter().map(|r| r.written).sum(),
+        messages_before: grouped[0].messages_before,
+        backup: grouped[0].backup.clone(),
+        chief: None,
+        keys: grouped.iter().flat_map(|r| r.keys.clone()).collect(),
+    };
     let now = crate::claude_import::existing_messages(&paths.chat, &paths.memory_db)?;
     if now != run.messages_before + run.written as u64 {
         return Err(format!(
@@ -394,7 +554,7 @@ mod tests {
     }
 
     #[test]
-    fn detect_finds_claude_code_notes_codex_and_export_zips() {
+    fn detect_with_exports_finds_claude_code_notes_codex_and_export_zips() {
         let home = temp("detect");
         write(
             &home.join(".claude/projects/-Users-me-app/s1.jsonl"),
@@ -409,6 +569,23 @@ mod tests {
             "I like Rust",
         );
         write(&home.join(".codex/memories/MEMORY.md"), "codex note");
+        write(
+            &home.join(".codex/sessions/2026/11/02/rollout-a.jsonl"),
+            "{\"type\":\"session_meta\"}\n",
+        );
+        write(&home.join(".grok/sessions/project/summary.json"), "{}\n");
+        write(
+            &home.join("Library/Application Support/Muse/session-index.db"),
+            "sqlite fixture",
+        );
+        write(
+            &home.join("Library/Application Support/Dot/threads.json"),
+            "{}\n",
+        );
+        write(
+            &home.join("Library/Application Support/Instinct/memory.json"),
+            "{}\n",
+        );
         let stage = temp("stage");
         write(&stage.join("conversations.json"), "[]");
         write(&stage.join("chat.html"), "<html>");
@@ -421,13 +598,31 @@ mod tests {
         );
         // A zip with no conversations.json is not an export.
         zip_of(&stage, &home.join("Downloads/photos.zip"), &["a.txt"]);
-        let found = detect(&home, None);
+        zip_of(
+            &stage,
+            &home.join("Documents/dot-export.zip"),
+            &["conversations.json"],
+        );
+        let found = detect_with_exports(&home, None);
         let kinds: Vec<&str> = found.iter().map(|d| d.kind.as_str()).collect();
         assert!(kinds.contains(&"claude-code"), "{kinds:?}");
         assert!(kinds.contains(&"claude-memory"), "{kinds:?}");
         assert!(kinds.contains(&"codex"), "{kinds:?}");
+        if std::env::var("CODEX_HOME").is_err() {
+            let codex = found.iter().find(|d| d.kind == "codex-sessions").unwrap();
+            assert_eq!(codex.count, 1);
+        }
         assert!(kinds.contains(&"chatgpt-export"), "{kinds:?}");
-        assert_eq!(found.len(), 4, "photos.zip is not an export: {found:?}");
+        assert!(kinds.contains(&"grok-bot"), "{kinds:?}");
+        assert!(kinds.contains(&"muse"), "{kinds:?}");
+        assert!(kinds.contains(&"dots"), "{kinds:?}");
+        assert!(kinds.contains(&"instinct"), "{kinds:?}");
+        assert!(kinds.contains(&"dots-export"), "{kinds:?}");
+        assert_eq!(
+            found.iter().filter(|d| d.kind != "codex-sessions").count(),
+            9,
+            "photos.zip is not an export: {found:?}"
+        );
         let code = found.iter().find(|d| d.kind == "claude-code").unwrap();
         assert_eq!(code.count, 2);
         assert!(
@@ -435,6 +630,42 @@ mod tests {
                 .iter()
                 .any(|d| d.source.starts_with("zip:") && d.source.ends_with("data-2026.zip"))
         );
+    }
+
+    /// The unasked CLI detector remains safe for scripts: export folders are
+    /// only read with `--exports` after the person opens the import surface.
+    /// It never reads privacy-protected folders (LAUNCH-NO-TCC-PROMPTS): the
+    /// first-run offer calls `detect` at launch with no action from the person.
+    #[test]
+    fn unasked_detect_never_lists_downloads_or_desktop() {
+        let home = temp("unasked");
+        let stage = temp("unasked-stage");
+        write(&stage.join("conversations.json"), "[]");
+        zip_of(
+            &stage,
+            &home.join("Downloads/data-2026.zip"),
+            &["conversations.json"],
+        );
+        zip_of(
+            &stage,
+            &home.join("Desktop/claude-export.zip"),
+            &["conversations.json"],
+        );
+        write(&home.join(".codex/memories/MEMORY.md"), "codex note");
+        write(
+            &home.join("Library/Application Support/Instinct/memory.json"),
+            "{}\n",
+        );
+        let found = detect(&home, None);
+        assert!(
+            found.iter().all(|d| !d.source.starts_with("zip:")),
+            "detect listed a protected folder: {found:?}"
+        );
+        assert_eq!(
+            found.iter().map(|d| d.kind.as_str()).collect::<Vec<_>>(),
+            ["codex"]
+        );
+        assert!(found.iter().all(|d| d.kind != "instinct"));
     }
 
     #[test]
@@ -500,6 +731,49 @@ mod tests {
             &local_known(&paths).unwrap(),
         );
         assert_eq!(again.0.new, 1);
+    }
+
+    #[test]
+    fn undo_local_coalesces_sources_with_one_batch() {
+        let dir = temp("undo-batch");
+        let paths = Paths::new(&dir);
+        crate::browse::import(
+            &paths.chat,
+            &paths.memory_db,
+            &[Imported {
+                kind: optchat_core::Kind::Note,
+                text: "mine".into(),
+                date: None,
+            }],
+        )
+        .unwrap();
+        let before =
+            crate::claude_import::existing_messages(&paths.chat, &paths.memory_db).unwrap();
+        for (source, text) in [("codex", "one"), ("grok-bot", "two")] {
+            let fresh = vec![item("note", text, "2026-10-02T00:00:00Z", source)];
+            let (n, backup) = write_local(&paths, &fresh).unwrap();
+            record(
+                &paths,
+                &Run {
+                    batch: "shared".into(),
+                    to: "local".into(),
+                    source: source.into(),
+                    written: n,
+                    messages_before: before + if source == "codex" { 0 } else { 1 },
+                    backup,
+                    chief: None,
+                    keys: fresh.iter().map(|i| i.key.clone()).collect(),
+                },
+            )
+            .unwrap();
+        }
+        let (removed, _) = undo_local(&paths, Some("shared")).unwrap();
+        assert_eq!(removed, 2);
+        assert_eq!(
+            crate::claude_import::existing_messages(&paths.chat, &paths.memory_db).unwrap(),
+            before
+        );
+        assert!(runs(&paths).is_empty());
     }
 
     #[test]

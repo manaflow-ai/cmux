@@ -77,6 +77,154 @@ fn receive(hub: &Hub, session: &Session, id: &str) -> bool {
 }
 
 #[tokio::test]
+async fn cloud_turn_prepare_replays_and_serializes_fifo_ids() {
+    let (hub, _) = hub();
+    let session = session(&hub);
+    let (first, queued, replay, _, _) = session.prepare_turn("p1", 1, "a1", "c1").await.unwrap();
+    assert_eq!(first, "p1", "the owner capability uses the immutable prompt id");
+    assert!(!queued && !replay);
+    let (again, _, replay, _, _) = session.prepare_turn("p1", 1, "a1", "c1").await.unwrap();
+    assert_eq!(again, first);
+    assert!(!replay, "pending reservation is not accepted yet");
+    session.accept_prepared("p1", &first);
+    let (accepted, accepted_queued, replay, _, attempt) =
+        session.prepare_turn("p1", 1, "fresh", "c2").await.unwrap();
+    assert!(replay);
+    assert_eq!((accepted, accepted_queued, attempt.as_str()), (first, false, "fresh"));
+    assert!(
+        session.validate_prepared("p1", "p1", 1, "fresh", Some("c2")).is_err(),
+        "fresh accepted replay acknowledges only; it must not authorize reexecution"
+    );
+    session.validate_prepared("p1", "p1", 1, "a1", Some("c1")).unwrap();
+    session.prepare_turn("p2", 1, "a2", "c1").await.unwrap();
+    assert!(session.abandon_prepared("p2", 1, "a2", "c1"));
+    let (retry, _, replay, _, _) = session.prepare_turn("p2", 1, "a3", "c1").await.unwrap();
+    assert_eq!(retry, "p2");
+    assert!(!replay);
+    assert!(!session.abandon_prepared("p2", 1, "a2", "c1"), "old attempt cannot abandon retry");
+    session.accept_prepared("p2", "p2");
+    assert_eq!(session.prepare_turn("p3", 1, "a4", "c1").await.unwrap().0, "p3");
+    assert!(session.prepare_turn("stale", 0, "a0", "c1").await.is_err());
+    assert_eq!(session.prepare_turn("fresh", 2, "a5", "c1").await.unwrap().3, 2);
+    assert!(
+        session.prepared_done.lock().unwrap().is_empty(),
+        "rewind clears old accepted replay state"
+    );
+}
+
+#[tokio::test]
+async fn cloud_turn_waiter_is_fenced_when_generation_advances() {
+    let (hub, _) = hub();
+    let session = session(&hub);
+    session.prepare_turn("p1", 1, "a1", "c1").await.unwrap();
+    let mut waiting = Box::pin(session.prepare_turn("p2", 1, "a2", "c1"));
+    assert!(futures::poll!(&mut waiting).is_pending());
+    session.prepare_turn("new", 2, "new-attempt", "c2").await.unwrap();
+    assert!(waiting.await.is_err(), "old waiter must not return a reservation in a new generation");
+    assert!(!session.abandon_prepared("new", 1, "new-attempt", "c2"));
+    session.validate_prepared("new", "new", 2, "new-attempt", Some("c2")).unwrap();
+    assert!(session.prepare_turn("late", 1, "late-attempt", "c1").await.is_err());
+    assert_eq!(session.cloud_generation.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn cloud_turn_canceled_waiter_releases_only_its_slot() {
+    let (hub, _) = hub();
+    let session = session(&hub);
+    session.prepare_turn("p1", 1, "a1", "c1").await.unwrap();
+    let mut waiting = Box::pin(session.prepare_turn("p2", 1, "a2", "c2"));
+    assert!(futures::poll!(&mut waiting).is_pending());
+    drop(waiting);
+    assert!(session.prepared_turn_id("p2").is_none());
+    assert_eq!(session.prepared_turn_id("p1").as_deref(), Some("p1"));
+    session.accept_prepared("p1", "p1");
+    assert_eq!(session.prepare_turn("p3", 1, "a3", "c3").await.unwrap().0, "p3");
+}
+
+#[tokio::test]
+async fn cloud_turn_abandoned_retry_joins_fifo_tail_and_rebinds_attempt() {
+    let (hub, _) = hub();
+    let session = session(&hub);
+    session.prepare_turn("p1", 1, "old", "c1").await.unwrap();
+    let mut second = Box::pin(session.prepare_turn("p2", 1, "a2", "c2"));
+    assert!(futures::poll!(&mut second).is_pending());
+    assert!(session.abandon_prepared("p1", 1, "old", "c1"));
+    let mut retry = Box::pin(session.prepare_turn("p1", 1, "new", "c1"));
+    assert!(futures::poll!(&mut retry).is_pending(), "retry cannot jump the queued turn");
+    assert_eq!(second.await.unwrap().0, "p2");
+    assert!(!session.abandon_prepared("p1", 1, "old", "c1"));
+    session.accept_prepared("p2", "p2");
+    assert_eq!(retry.await.unwrap().0, "p1");
+    session.validate_prepared("p1", "p1", 1, "new", Some("c1")).unwrap();
+    assert!(session.validate_prepared("p1", "p1", 1, "old", Some("c1")).is_err());
+}
+
+#[tokio::test]
+async fn cloud_turn_connection_cannot_take_or_release_another_preparation() {
+    let (hub, _) = hub();
+    let session = session(&hub);
+    session.prepare_turn("p1", 1, "a1", "c1").await.unwrap();
+    assert!(session.prepare_turn("p1", 1, "a1", "c2").await.is_err());
+    assert!(!session.abandon_prepared("p1", 1, "a1", "c2"));
+    assert!(session.validate_prepared("p1", "p1", 1, "a1", Some("c2")).is_err());
+    session.validate_prepared("p1", "p1", 1, "a1", Some("c1")).unwrap();
+    session.abandon_prepared_connection("c2");
+    assert_eq!(session.prepared_turn_id("p1").as_deref(), Some("p1"));
+    session.abandon_prepared_connection("c1");
+    assert!(session.prepared_turn_id("p1").is_none());
+    session.prepare_turn("p1", 1, "fresh", "c2").await.unwrap();
+    session.accept_prepared("p1", "p1");
+    session.abandon_prepared_connection("c2");
+    assert!(
+        session.prepare_turn("p1", 1, "replay", "c3").await.unwrap().2,
+        "disconnect must not discard accepted identity"
+    );
+}
+
+#[tokio::test]
+async fn cloud_turn_generation_cannot_replace_a_prompt_in_handoff() {
+    let (hub, _) = hub();
+    let session = session(&hub);
+    session.prepare_turn("p1", 1, "a1", "c1").await.unwrap();
+    let _handoff = session.turn_lock.lock().await;
+    assert!(session.prepare_turn("p2", 2, "a2", "c2").await.is_err());
+    assert_eq!(session.cloud_generation.load(Ordering::SeqCst), 1);
+    session.validate_prepared("p1", "p1", 1, "a1", Some("c1")).unwrap();
+}
+
+#[tokio::test]
+async fn cloud_turn_handoff_release_wakes_prepare_without_another_queue_notification() {
+    let (hub, _) = hub();
+    let session = session(&hub);
+    session.prepare_turn("p1", 1, "a1", "c1").await.unwrap();
+    session.accept_prepared("p1", "p1");
+    let handoff = session.turn_lock.lock().await;
+    let mut next = Box::pin(session.prepare_turn("p2", 1, "a2", "c2"));
+    assert!(futures::poll!(&mut next).is_pending());
+    drop(handoff);
+    assert_eq!(
+        tokio::time::timeout(std::time::Duration::from_secs(1), next).await.unwrap().unwrap().0,
+        "p2"
+    );
+}
+
+#[tokio::test]
+async fn cloud_turn_stale_waiter_cleanup_cannot_remove_a_new_attempt() {
+    let (hub, _) = hub();
+    let session = session(&hub);
+    session.prepare_turn("p1", 1, "a1", "c1").await.unwrap();
+    let mut old = Box::pin(session.prepare_turn("p2", 1, "old", "c2"));
+    assert!(futures::poll!(&mut old).is_pending());
+    assert!(session.abandon_prepared("p2", 1, "old", "c2"));
+    let mut new = Box::pin(session.prepare_turn("p2", 1, "new", "c2"));
+    assert!(futures::poll!(&mut new).is_pending());
+    assert!(old.await.is_err());
+    session.accept_prepared("p1", "p1");
+    assert_eq!(new.await.unwrap().4, "new");
+    session.validate_prepared("p2", "p2", 1, "new", Some("c2")).unwrap();
+}
+
+#[tokio::test]
 async fn information_never_queues_a_turn_and_retries_deduplicate_across_restarts() {
     let (hub, faults) = hub();
     let session = session(&hub);
@@ -129,7 +277,8 @@ async fn unreadable_logs_and_failed_appends_never_acknowledge_or_consume_informa
 async fn heartbeat_claims_follow_the_labs_flag() {
     let (hub, _) = hub();
     let session = session(&hub);
-    hub.sessions.lock().unwrap().insert(session.id.clone(), session);
+    hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+    hub.update_live_session_index(&session);
     assert_eq!(hub.mesh_rows().await[0].team_address.as_deref(), Some("coordinator"));
     hub.config.write().await.mesh_relay.as_mut().unwrap().team_messaging = false;
     assert_eq!(hub.mesh_rows().await[0].team_address, None);

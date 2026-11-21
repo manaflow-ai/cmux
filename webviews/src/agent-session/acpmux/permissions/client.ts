@@ -144,6 +144,12 @@ export class PermissionGroupClient {
   /// The shown groups and grant are `lastRead`'s, not this selection's read: a failed refresh drops them.
   private restored = false;
 
+  /// This chat's groups have been read from acpmux (and no read failed since): a re-read keeps it, so
+  /// an ask a group holds stays the group's card while the next read is out.
+  get read(): boolean {
+    return this.authoritative && this.state.supported;
+  }
+
   constructor(request: Request, changed: () => void, storage: PermissionStorage = defaultStorage) {
     this.request = request;
     this.changed = changed;

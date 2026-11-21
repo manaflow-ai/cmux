@@ -9,6 +9,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -79,12 +80,8 @@ afterEach(async () => {
   dom.window.localStorage.clear();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 type Summary = Record<string, unknown> | undefined;
@@ -486,4 +483,39 @@ test("a new connection forgets the managed mark, and a late answer from the old 
   await act(async () => {
     startMode.setStartModeSource(undefined);
   });
+});
+
+// cmux#27847: a chat Chief or its subagents started ran in Claude Code's Manual (`default`) while
+// acpmux's policy for it (approve-all) answered every prompt, so it acted without asking yet the
+// chip read Manual. The chip says what the chat does; the menu still marks the agent's own mode.
+const approveAll = { policy: "approve-all", label: "native_policy", isolation: "unverified", detail: null };
+
+test("a chat whose policy approves every request reads as full access, not Manual", async () => {
+  const picked: string[] = [];
+  await render({ ...reported("s1", "default"), enforcement: approveAll }, (modeId) => void picked.push(modeId));
+  expect(chipText()).toBe("Full access");
+  expect(host.querySelector(".acpmux-mode")!.classList.contains("acpmux-unrestricted")).toBe(true);
+  expect(trigger()?.getAttribute("title") ?? "").toContain("Runs in Manual, and cmux approves every request");
+  const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
+  await act(async () => void openPicker("Mode"));
+  expect(item("Manual")?.getAttribute("aria-checked")).toBe("true");
+  await act(async () => item("Bypass permissions")!.click());
+  await flush();
+  expect(picked).toEqual(["bypassPermissions"]);
+});
+
+test("a full-access mode and an asking policy keep the agent's own name", async () => {
+  await render({ ...reported("s1", "bypassPermissions"), enforcement: approveAll }, () => undefined);
+  expect(chipText()).toBe("Bypass permissions");
+  await render({ ...reported("s2", "default"), enforcement: { ...approveAll, policy: "ask" } }, () => undefined);
+  expect(chipText()).toBe("Manual");
+  expect(host.querySelector(".acpmux-mode")!.classList.contains("acpmux-unrestricted")).toBe(false);
+});
+
+test("Plan under a policy that approves every request keeps its own name", async () => {
+  const summary = reported("s1", "plan") as { modes: { availableModes: unknown[] } };
+  summary.modes.availableModes.push({ id: "plan", name: "Plan" });
+  await render({ ...summary, enforcement: approveAll }, () => undefined);
+  expect(chipText()).toBe("Plan");
+  expect(host.querySelector(".acpmux-mode")!.classList.contains("acpmux-unrestricted")).toBe(false);
 });

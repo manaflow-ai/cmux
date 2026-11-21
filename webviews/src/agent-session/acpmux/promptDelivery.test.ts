@@ -1,13 +1,15 @@
 // Each prompt the pane sends carries where it is on its way (plans/cmux-next/composer-delivery-DESIGN.md):
 // sending, then delivered once acpmux took it, read once the agent started on it, or failed with the
-// hop it stopped at. A send with no answer says so and then fails, Retry sends the same prompt id
-// again (acpmux runs a prompt id once), and a late acceptance still lands. Every prompt's
+// hop it stopped at. A send with no answer stays pending well past a slow acknowledgement (longer on
+// this Mac's acpmux, whose native relay journals it), then fails with Retry under the same prompt
+// id, and a late acceptance still lands. Every prompt's
 // `_meta.acpmux` holds only keys the host lets through (policy.json `known_params`): Retry once
 // sent `resend`, which only the host may set, and the host refused every Retry.
 import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { JSDOM } from "jsdom";
+import { settleReact } from "../../../test/support/domTeardown";
 
 /// The `_meta.acpmux` keys the cmux host's pane policy lets through on `session/prompt`.
 const policyPath = path.resolve(import.meta.dir, "../../../../cmux-tui/crates/cmux-agent-pane-policy/policy.json");
@@ -25,7 +27,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];
@@ -44,6 +47,7 @@ type Row = {
   id: string;
   kind: string;
   text?: string;
+  promptId?: string;
   failed?: boolean;
   delivery?: { state: string; promptId: string; slow?: boolean; hop?: string; code?: string; acceptedAt?: number };
 };
@@ -76,11 +80,61 @@ test("a prompt goes from sending to delivered to read", async () => {
   }
 });
 
-test("a send with no answer says it is still sending, fails, and Retry sends the same prompt id again", async () => {
+test("the optimistic prompt keeps its row key and position through the echo and turn start", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  type ManualHooks = Hooks & { emit: (target: string, step: unknown) => void };
+  class ManualHost extends MockAcpmuxSocket {
+    constructor() {
+      super(() => Promise.resolve());
+      const hooks = this as unknown as ManualHooks;
+      const answer = hooks.answer.bind(this);
+      hooks.answer = (method, params) =>
+        method === "session/prompt" ? new Promise(() => undefined) : answer(method, params);
+    }
+  }
+  let snapshot: { rows: Row[]; isWorking?: boolean } = { rows: [] };
+  const host = new ManualHost();
+  const hooks = host as unknown as ManualHooks;
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (next) => (snapshot = next as typeof snapshot),
+    undefined,
+    () => host as unknown as WebSocket,
+  );
+  const promptId = "stable-prompt";
+  try {
+    void client.send("ship it", [], promptId).catch(() => undefined);
+    await settle(() => snapshot.rows.some((row) => row.id === `local-${promptId}`));
+    const optimisticIndex = snapshot.rows.findIndex((row) => row.id === `local-${promptId}`);
+    const optimistic = snapshot.rows[optimisticIndex];
+    expect(optimisticIndex).toBeGreaterThanOrEqual(0);
+
+    hooks.emit(mockHost.sessionId!, {
+      mux: "user_message",
+      msg: { text: "ship it", promptId, turnId: "turn-1" },
+    });
+    await settle(() => snapshot.rows.some((row) => row.promptId === promptId && row.delivery?.state === "read"));
+    const echoedIndex = snapshot.rows.findIndex((row) => row.promptId === promptId);
+    const echoed = snapshot.rows[echoedIndex];
+    expect(echoed?.id).toBe(optimistic?.id);
+    expect(echoedIndex).toBe(optimisticIndex);
+
+    hooks.emit(mockHost.sessionId!, { mux: "turn_started", msg: { turnId: "turn-1" } });
+    await settle(() => snapshot.isWorking === true);
+    const startedIndex = snapshot.rows.findIndex((row) => row.promptId === promptId);
+    expect(snapshot.rows[startedIndex]?.id).toBe(optimistic?.id);
+    expect(startedIndex).toBe(optimisticIndex);
+  } finally {
+    client.close?.();
+  }
+});
+
+test("a slow acknowledgement stays pending past the former failure deadline and accepts a late ack", async () => {
   const { AcpmuxDirectClient, deliveryTiming } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const timing = { ...deliveryTiming };
-  Object.assign(deliveryTiming, { slowMs: 20, failMs: 80 });
+  Object.assign(deliveryTiming, { slowMs: 20, failMs: 80 }); // motion-allow: delivery timeouts, not motion
   const prompts: any[] = [];
   let hooks: Hooks | undefined;
   class SilentHost extends MockAcpmuxSocket {
@@ -107,12 +161,13 @@ test("a send with no answer says it is still sending, fails, and Retry sends the
     void client.send("anyone there").catch(() => undefined);
     await settle(() => mine()?.delivery?.slow === true);
     expect(mine()?.delivery?.state).toBe("sending");
-    await settle(() => mine()?.failed === true);
-    expect(mine()?.delivery).toMatchObject({ state: "failed", hop: "acpmux", code: "timeout" });
+    // fixed-wait: proving the row does not fail means outwaiting the remote deadline (failMs) once.
+    await new Promise((resolve) => setTimeout(resolve, deliveryTiming.failMs + 20));
+    expect(mine()?.failed).toBeFalsy();
+    expect(mine()?.delivery?.state).toBe("sending");
+    expect(client.swapHold()).toBe("composer.send-untaken");
+    expect(prompts.length).toBe(1);
     const promptId = mine()!.delivery!.promptId;
-    void client.retryPrompt(mine()!.id).catch(() => undefined);
-    await settle(() => prompts.length === 2);
-    expect(prompts[1]._meta.acpmux.promptId).toBe(promptId);
     // The host refuses a page prompt with a key outside its policy (transport.intent_invalid).
     for (const prompt of prompts) {
       const unknown = Object.keys(prompt._meta.acpmux).filter((key) => !allowedPromptMeta.includes(key));
@@ -122,12 +177,192 @@ test("a send with no answer says it is still sending, fails, and Retry sends the
     hooks!.deliver({
       jsonrpc: "2.0",
       method: "_acpmux/prompt_accepted",
-      params: { sessionId: prompts[1].sessionId, promptId, turnId: "t", queued: false },
+      params: { sessionId: prompts[0].sessionId, promptId, turnId: "t", queued: false },
     });
     await settle(() => mine()?.delivery?.state === "delivered");
     expect(mine()?.failed).toBeFalsy();
   } finally {
     Object.assign(deliveryTiming, timing);
+    client.close?.();
+  }
+});
+
+test("a remote-origin send with no answer still fails after the deadline, for Retry", async () => {
+  const { AcpmuxDirectClient, deliveryTiming } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const timing = { ...deliveryTiming };
+  Object.assign(deliveryTiming, { slowMs: 20, failMs: 80 }); // motion-allow: delivery timeouts, not motion
+  const prompts: any[] = [];
+  class SilentRemoteHost extends MockAcpmuxSocket {
+    constructor() {
+      super(() => Promise.resolve());
+      const hooks = this as unknown as Hooks;
+      const answer = hooks.answer.bind(this);
+      hooks.answer = async (method, params) => {
+        if (method === "initialize") {
+          // A connection with no native relay journal behind it (another machine's acpmux).
+          const result = (await answer(method, params)) as { _meta: { acpmux: Record<string, unknown> } };
+          return { ...result, _meta: { ...result._meta, acpmux: { ...result._meta.acpmux, origin: "remote" } } };
+        }
+        if (method !== "session/prompt") return answer(method, params);
+        prompts.push(params);
+        return new Promise(() => undefined);
+      };
+    }
+  }
+  let rows: Row[] = [];
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (snapshot) => (rows = snapshot.rows as Row[]),
+    undefined,
+    () => new SilentRemoteHost() as unknown as WebSocket,
+  );
+  const mine = () => rows.find((row) => row.kind === "user" && row.text === "anyone there");
+  try {
+    void client.send("anyone there").catch(() => undefined);
+    await settle(() => mine()?.failed === true);
+    expect(mine()?.delivery).toMatchObject({ state: "failed", hop: "acpmux", code: "timeout" });
+    expect(prompts.length).toBe(1);
+  } finally {
+    Object.assign(deliveryTiming, timing);
+    client.close?.();
+  }
+});
+
+test("a local send nobody answers stays sending past the remote deadline, then fails for Retry", async () => {
+  // The host's journal may not keep a prompt (over its size cap, evicted, no journal at all), and
+  // the page cannot see that: a local send still fails, only later than a remote one.
+  const { AcpmuxDirectClient, deliveryTiming } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const timing = { ...deliveryTiming };
+  Object.assign(deliveryTiming, { slowMs: 20, failMs: 80, localFailMs: 240 }); // motion-allow: delivery timeouts, not motion
+  const socket = new MockAcpmuxSocket(() => Promise.resolve());
+  const hooks = socket as unknown as Hooks;
+  const answer = hooks.answer.bind(socket);
+  const prompts: any[] = [];
+  hooks.answer = (method, params) => {
+    if (method !== "session/prompt") return answer(method, params);
+    prompts.push(params);
+    return new Promise(() => undefined);
+  };
+  let rows: Row[] = [];
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (snapshot) => (rows = snapshot.rows as Row[]),
+    undefined,
+    () => socket as unknown as WebSocket,
+  );
+  const mine = () => rows.find((row) => row.kind === "user" && row.text === "too big to journal");
+  try {
+    void client.send("too big to journal").catch(() => undefined);
+    // fixed-wait: proving the row does not fail at the remote deadline means outwaiting it once.
+    await new Promise((resolve) => setTimeout(resolve, deliveryTiming.failMs + 20));
+    expect(mine()?.failed).toBeFalsy();
+    expect(mine()?.delivery?.state).toBe("sending");
+    await settle(() => mine()?.failed === true);
+    expect(mine()?.delivery).toMatchObject({ state: "failed", hop: "acpmux", code: "timeout" });
+    expect(prompts.length).toBe(1);
+  } finally {
+    Object.assign(deliveryTiming, timing);
+    client.close?.();
+  }
+});
+
+test("a busy session keeps an unacknowledged eight-image prompt queued with previews", async () => {
+  const { AcpmuxDirectClient, deliveryTiming } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const timing = { ...deliveryTiming };
+  Object.assign(deliveryTiming, { slowMs: 20, failMs: 80 }); // motion-allow: delivery timeouts, not motion
+  const socket = new MockAcpmuxSocket(() => Promise.resolve());
+  const hooks = socket as unknown as Hooks & { emit(target: string, step: unknown): void };
+  const answer = hooks.answer.bind(socket);
+  const prompts: any[] = [];
+  hooks.answer = (method, params) => {
+    if (method !== "session/prompt") return answer(method, params);
+    prompts.push(params);
+    return new Promise(() => undefined);
+  };
+  let snapshot: { rows: Row[]; isWorking?: boolean; queue?: Array<{ id: string; images?: unknown[] }> } = { rows: [] };
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (next) => (snapshot = next as typeof snapshot),
+    undefined,
+    () => socket as unknown as WebSocket,
+  );
+  const attachments = Array.from({ length: 8 }, (_, n) => ({
+    id: `shot-${n}`,
+    kind: "image" as const,
+    name: `shot-${n}.png`,
+    mimeType: "image/png",
+    size: 3,
+    data: "YWJj",
+  }));
+  try {
+    hooks.emit(mockHost.sessionId!, { mux: "turn_started", msg: {} });
+    await settle(() => snapshot.isWorking === true);
+    void client.send("keep all screenshots", attachments, "slow-busy").catch(() => undefined);
+    await settle(() => snapshot.queue?.some((entry) => entry.id === "slow-busy") === true);
+    // fixed-wait: proving the row does not fail means outwaiting the remote deadline (failMs) once.
+    await new Promise((resolve) => setTimeout(resolve, deliveryTiming.failMs + 40));
+    expect(snapshot.rows.some((row) => row.failed)).toBe(false);
+    expect(snapshot.queue?.find((entry) => entry.id === "slow-busy")?.images).toHaveLength(8);
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0].prompt.filter((block: { type: string }) => block.type === "image")).toHaveLength(8);
+    expect(prompts[0]._meta.acpmux.promptId).toBe("slow-busy");
+    expect(client.swapHold()).toBe("composer.send-untaken");
+  } finally {
+    Object.assign(deliveryTiming, timing);
+    client.close?.();
+  }
+});
+
+// Leo, 2026-11-05: "when i send a message it "sends" at least the picture and then it shoots up
+// into the queue". acpmux lists the chat as running before this page saw its turn open (a turn
+// that started before the attach): the composer says the prompt queues, so it shows in the queue
+// from the send on, never first as a sent bubble.
+test("a send while acpmux lists the chat running, before its turn opened here, never draws as sent", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const socket = new MockAcpmuxSocket(() => Promise.resolve());
+  const hooks = socket as unknown as Hooks & {
+    emit(target: string, step: unknown): void;
+    touch(target: string, patch: Record<string, unknown>): void;
+  };
+  const answer = hooks.answer.bind(socket);
+  hooks.answer = (method, params) =>
+    method === "session/prompt" ? new Promise(() => undefined) : answer(method, params);
+  let snapshot: {
+    rows: Row[];
+    isWorking?: boolean;
+    summary?: unknown;
+    queue?: Array<{ id: string; sending?: boolean }>;
+  } = {
+    rows: [],
+  };
+  let drawnSent = false;
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (next) => {
+      snapshot = next as typeof snapshot;
+      if (snapshot.rows.some((row) => row.kind === "user" && row.text === "look at this")) drawnSent = true;
+    },
+    undefined,
+    () => socket as unknown as WebSocket,
+  );
+  const id = mockHost.sessionId!;
+  const shot = { id: "shot", kind: "image" as const, name: "shot.png", mimeType: "image/png", size: 3, data: "YWJj" };
+  try {
+    await settle(() => snapshot.summary !== undefined);
+    hooks.touch(id, { status: "running", indicator: "working" });
+    await settle(() => snapshot.isWorking === true);
+    void client.send("look at this", [shot], "behind-turn").catch(() => undefined);
+    await settle(() => snapshot.queue?.some((entry) => entry.id === "behind-turn") === true);
+    // acpmux took it: its queue row is the record's, no longer sending.
+    hooks.emit(id, { mux: "queued", msg: { promptId: "behind-turn", text: "look at this" } });
+    await settle(() => snapshot.queue?.find((entry) => entry.id === "behind-turn")?.sending !== true);
+    expect(drawnSent).toBe(false);
+    expect(snapshot.queue?.some((entry) => entry.id === "behind-turn")).toBe(true);
+  } finally {
     client.close?.();
   }
 });

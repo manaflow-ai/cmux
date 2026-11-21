@@ -54,6 +54,25 @@ struct FrameRateTests {
         }
     }
 
+    /// A known picture's ceiling is 0.18 bits per encoded pixel per frame
+    /// (Petal's rule), at least 4 Mbps and at most 16 Mbps, or 200 kbit a
+    /// frame above 80 fps, so 120 fps keeps its 24 Mbps.
+    @Test(arguments: [ScreenQuality.auto, .smooth])
+    func adaptiveBitrateFollowsTheEncodedPixels(quality: ScreenQuality) {
+        // A 16" MacBook Pro's display: the most at 60, and 120 as before.
+        #expect(quality.settings(sourceWidth: 3456, sourceHeight: 2234, frameRate: 60).maxBitrate == 16_000_000)
+        #expect(quality.settings(sourceWidth: 3456, sourceHeight: 2234, frameRate: 120).maxBitrate == 24_000_000)
+        #expect(quality.settings(sourceWidth: 3456, sourceHeight: 2234, frameRate: 90).maxBitrate == 18_000_000)
+        // A small picture gets what its pixels need.
+        #expect(quality.settings(sourceWidth: 1280, sourceHeight: 800, frameRate: 60).maxBitrate == 11_059_200)
+        #expect(quality.settings(sourceWidth: 960, sourceHeight: 600, frameRate: 60).maxBitrate == 6_220_800)
+        // Never under the floor.
+        #expect(quality.settings(sourceWidth: 640, sourceHeight: 400, frameRate: 60).maxBitrate == 4_000_000)
+        // Pixels counted after the scale-down that keeps the encoder within its rate.
+        let scaled = quality.settings(sourceWidth: 1920, sourceHeight: 1080, frameRate: 60)
+        #expect(scaled.scaleDown == 1 && scaled.maxBitrate == 16_000_000, "1080p60 wants 22 Mbps, held at 16")
+    }
+
     /// Above 60 fps Auto and Smooth Motion scale the picture down just enough
     /// for the hardware H.264 encoder to keep up (measured: an M1 Max encodes
     /// a 3456×2234 display at 55 fps, an M4 Pro at 66; both hold 2160×1396 at

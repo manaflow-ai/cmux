@@ -34,8 +34,12 @@ public nonisolated struct PageConfirmation: Sendable, Hashable {
     public var webOrigins: [String]
     /// For `custom` and `delete`: the sentence under the title.
     public var detail: String?
+    /// For `install` with a deploy: where the app's server runs (`self-hosted:<host>`, `cloud-vm:<machine>`).
+    public var deployTarget: String?
 
-    public init(kind: Kind, name: String, scopes: [Scope] = [], webURL: String? = nil, webOrigins: [String] = [], detail: String? = nil) {
+    public init(kind: Kind, name: String, scopes: [Scope] = [], webURL: String? = nil, webOrigins: [String] = [], detail: String? = nil,
+                deployTarget: String? = nil) {
+        self.deployTarget = deployTarget
         self.kind = kind
         self.name = name
         self.scopes = scopes
@@ -75,6 +79,7 @@ public nonisolated struct PageConfirmation: Sendable, Hashable {
     public var lines: [String] {
         var lines: [String] = []
         if let detail { lines.append(detail) }
+        if let deployTarget { lines.append(String(format: PageStrings.deploysTo, deployTarget)) }
         let order = ["restricted": 0, "sensitive": 1, "standard": 2]
         let sorted = scopes.sorted { (order[$0.risk] ?? 3, $0.scope) < (order[$1.risk] ?? 3, $1.scope) }
         if !sorted.isEmpty, kind != .grant {
@@ -134,7 +139,12 @@ public extension PageConfirmation {
         case "cmux.cloud.billing.open": return PageConfirmation(kind: .custom, name: PageStrings.cloudBilling)
         case "cmux.cloud.auth.sign_in": return PageConfirmation(kind: .custom, name: PageStrings.cloudSignIn)
         case "cmux.cloud.auth.sign_out": return PageConfirmation(kind: .custom, name: PageStrings.cloudSignOut)
-        case "cmux.cloud.machine.connect": return PageConfirmation(kind: .custom, name: String(format: PageStrings.cloudConnect, name))
+        case "cmux.cloud.machine.connect":
+            let displayName = args["displayName"].map { value in
+                value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? PageStrings.cloudMachine : value
+            } ?? PageStrings.cloudMachine
+            return PageConfirmation(kind: .custom, name: String(format: PageStrings.cloudConnect, displayName),
+                                    detail: PageStrings.cloudConnectDetail)
         default: return PageConfirmation(kind: kind, name: name)
         }
     }

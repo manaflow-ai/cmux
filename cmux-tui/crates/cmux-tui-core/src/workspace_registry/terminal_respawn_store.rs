@@ -55,11 +55,12 @@ impl WorkspaceRegistry {
     /// receipt of `old_incarnation` qualifies, or any receipt of it for an
     /// explicit user restart (`any_end`, `restart-tab`); returns the terminal
     /// revision, or `None` when the terminal was closed, relaunched or ended
-    /// otherwise.
+    /// otherwise. `old_incarnation` None matches only a user restart of a row
+    /// left without one by a respawn launch that failed after this step.
     pub(crate) fn begin_terminal_respawn(
         &mut self,
         terminal_id: &str,
-        old_incarnation: &str,
+        old_incarnation: Option<&str>,
         any_end: bool,
     ) -> anyhow::Result<Option<u64>> {
         let db = self.connection.get();
@@ -68,7 +69,8 @@ impl WorkspaceRegistry {
         let host_lost =
             matches!(TerminalEnd::from_receipt(terminal.exit.as_ref()), TerminalEnd::HostLost(_));
         if terminal.lifecycle != TerminalLifecycle::Exited
-            || terminal.incarnation.as_deref() != Some(old_incarnation)
+            || terminal.incarnation.as_deref() != old_incarnation
+            || (old_incarnation.is_none() && !any_end)
             || !(host_lost || any_end)
         {
             return Ok(None);

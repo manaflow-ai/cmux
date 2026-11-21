@@ -14,7 +14,6 @@
 </p>
 
 <p align="center">
-  <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
   <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
@@ -384,7 +383,7 @@ Da, cmux je besplatan za korištenje. Izvorni kod je dostupan na [GitHub-u](http
 
 ### Kako mogu podržati cmux?
 
-cmux je besplatan i otvorenog koda, i uvijek će biti. Ako želite podržati razvoj i dobiti rani pristup onome što slijedi, uključujući cmux AI, iOS aplikaciju i Cloud VMs, pogledajte [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
+cmux je besplatan i otvorenog koda, i uvijek će biti.
 
 ### Imam zahtjev za funkciju ili sam pronašao grešku?
 
@@ -404,7 +403,7 @@ cmux je besplatan i otvorenog koda, i uvijek će biti. Ako želite podržati raz
 
 Načini da se uključite:
 
-- Pratite nas na X za ažuriranja [@manaflowai](https://x.com/manaflowai), [@lawrencecchen](https://x.com/lawrencecchen) i [@austinywang](https://x.com/austinywang)
+- Pratite nas na X za ažuriranja [@lawrencecchen](https://x.com/lawrencecchen) i [@austinywang](https://x.com/austinywang)
 - Pridružite se razgovoru na [Discordu](https://discord.gg/xsgFEVrWCZ)
 - Kreirajte i učestvujte u [GitHub issues](https://github.com/manaflow-ai/cmux/issues) i [diskusijama](https://github.com/manaflow-ai/cmux/discussions)
 - Javite nam šta gradite sa cmux
@@ -414,7 +413,6 @@ Načini da se uključite:
 - [Discord](https://discord.gg/xsgFEVrWCZ)
 - [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
-- [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
@@ -423,19 +421,6 @@ Načini da se uključite:
   <strong>WeChat:</strong> Skenirajte QR kod da se pridružite zajednici.<br />
   <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat QR kod za pridruživanje cmux zajednici" width="240" />
 </p>
-
-## Osnivačko izdanje
-
-cmux je besplatan, otvorenog koda i uvijek će biti. Ako želite podržati razvoj i dobiti rani pristup onome što dolazi:
-
-**[Nabavite Osnivačko izdanje](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **Prioritetni zahtjevi za funkcije/ispravke grešaka**
-- **Rani pristup: cmux AI koji vam daje kontekst o svakom radnom prostoru, tabu i panelu**
-- **Rani pristup: iOS aplikacija sa terminalima sinhroniziranim između desktopa i telefona**
-- **Rani pristup: Cloud VM-ovi**
-- **Rani pristup: Glasovni režim**
-- **Moj lični iMessage/WhatsApp**
 
 ## Licenca
 

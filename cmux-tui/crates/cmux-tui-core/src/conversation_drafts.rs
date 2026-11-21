@@ -8,10 +8,6 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-/// The largest delta text (`fresh` false).
-pub(crate) const MAX_DELTA_BYTES: usize = 16 * 1024;
-/// The largest whole-segment text (`fresh` true).
-pub(crate) const MAX_FRESH_BYTES: usize = 64 * 1024;
 const RATE_PER_SECOND: f64 = 10.0;
 const BURST: f64 = 10.0;
 /// Turns remembered at once; the least recently used goes first.
@@ -21,14 +17,12 @@ const MAX_TURNS: usize = 256;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DraftRefusal {
     RateLimited,
-    TextTooLarge,
 }
 
 impl DraftRefusal {
     pub(crate) const fn reason(self) -> &'static str {
         match self {
             Self::RateLimited => "rate_limited",
-            Self::TextTooLarge => "text_too_large",
         }
     }
 }
@@ -39,8 +33,6 @@ pub(crate) struct DraftAdmission<'a> {
     pub participant: &'a str,
     pub turn: &'a str,
     pub seq: u64,
-    pub fresh: bool,
-    pub text_bytes: usize,
 }
 
 #[derive(Debug)]
@@ -65,11 +57,7 @@ impl DraftGate {
         draft: DraftAdmission<'_>,
         now: Instant,
     ) -> Result<bool, DraftRefusal> {
-        let DraftAdmission { conversation, participant, turn, seq, fresh, text_bytes } = draft;
-        let limit = if fresh { MAX_FRESH_BYTES } else { MAX_DELTA_BYTES };
-        if text_bytes > limit {
-            return Err(DraftRefusal::TextTooLarge);
-        }
+        let DraftAdmission { conversation, participant, turn, seq } = draft;
         let key = (conversation.to_owned(), participant.to_owned(), turn.to_owned());
         if !self.turns.contains_key(&key) && self.turns.len() >= MAX_TURNS {
             self.evict_oldest();

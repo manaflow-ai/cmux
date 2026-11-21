@@ -1,0 +1,8 @@
+{
+  "source": "schemas/settings/source/tabs.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Tabs.generated.swift",
+  "type": "TabSettingsSchema",
+  "lists": {
+    "tabs": ["descriptors", "CmuxConfigSnapshot"]
+  }
+}

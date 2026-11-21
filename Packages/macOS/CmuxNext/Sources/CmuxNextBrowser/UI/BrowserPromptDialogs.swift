@@ -18,18 +18,21 @@ final class BrowserPromptDialogs {
         self.center = center
     }
 
-    func render(_ prompt: BrowserPrompt?, in view: NSView, bar: PromptBarView) {
+    /// Shows `prompt`: a dialog, or the prompt bar (`makeBar` makes it the first time one shows);
+    /// `shownBar` is the bar made so far, hidden when nothing asks.
+    func render(_ prompt: BrowserPrompt?, in view: NSView, shownBar: PromptBarView?, makeBar: () -> PromptBarView) {
         guard let prompt, let spec = Self.spec(for: prompt) else {
             dismissShown()
             if let prompt {
+                let bar = makeBar()
                 bar.show(prompt)
                 bar.isHidden = false
             } else {
-                bar.isHidden = true
+                shownBar?.isHidden = true
             }
             return
         }
-        bar.isHidden = true
+        shownBar?.isHidden = true
         if shown?.prompt == ObjectIdentifier(prompt) { return }
         dismissShown()
         guard view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return }
@@ -55,16 +58,16 @@ final class BrowserPromptDialogs {
         case .credentials(let host, let realm):
             return BrowserHTTPAuth.spec(host: host, realm: realm, isSecure: true, failedBefore: false, user: nil)
         case .alert(let message):
-            return CmuxDialogSpec(title: title, lines: [message], buttons: [ok], identifier: identifier)
+            return CmuxDialogSpec(usesTransientMaterial: true, title: title, lines: [message], buttons: [ok], identifier: identifier)
         case .confirm(let message):
-            return CmuxDialogSpec(title: title, lines: [message], buttons: [cancel, ok], identifier: identifier)
+            return CmuxDialogSpec(usesTransientMaterial: true, title: title, lines: [message], buttons: [cancel, ok], identifier: identifier)
         case .textInput(let message, let defaultText):
-            return CmuxDialogSpec(title: title, lines: [message],
+            return CmuxDialogSpec(usesTransientMaterial: true, title: title, lines: [message],
                                   fields: [.text("text", initial: defaultText ?? "")], buttons: [cancel, ok], identifier: identifier)
         case .beforeUnload(let isReload):
             // Chrome's dialog: the page's own text never shows (spec).
             let leave = CmuxDialogButton(id: "ok", title: isReload ? Strings.beforeUnloadReload : Strings.beforeUnloadLeave, role: .default)
-            return CmuxDialogSpec(title: isReload ? Strings.beforeUnloadReloadTitle : Strings.beforeUnloadLeaveTitle,
+            return CmuxDialogSpec(usesTransientMaterial: true, title: isReload ? Strings.beforeUnloadReloadTitle : Strings.beforeUnloadLeaveTitle,
                                   lines: [Strings.beforeUnloadMessage], buttons: [cancel, leave], identifier: "browser.dialog.beforeunload")
         }
     }

@@ -13,7 +13,7 @@ base, a head the branch has moved past, a cut history, or a previous run that
 was cancelled, held or never ran.
 
 None of the skipped jobs can fail a pull request, so a skipped one hides no
-verdict; pr-capture-check, which can, is not in this workflow.
+verdict; pr-capture-check, which can, is not in this workflow (pr-body-checks.yml).
 
 The step runs here as the workflow runs it, against a local origin, with `gh`
 replaced by a stub that answers the previous head's run.
@@ -29,7 +29,13 @@ import unittest
 
 import yaml
 
-import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/pr-checks.yml"
@@ -37,7 +43,7 @@ WORKFLOW = yaml.safe_load(WORKFLOW_PATH.read_text())
 JOBS = WORKFLOW["jobs"]
 STEP = next(s for s in JOBS["base-only"]["steps"] if s.get("id") == "decide")
 # PR size answers on every push: a base-only skip would keep an older answer.
-SKIPPED_ON_BASE_ONLY = ("link", "split")
+SKIPPED_ON_BASE_ONLY = ("link", "swift-logic", "split", "ui-review")
 ALWAYS = ("size",)
 ANSWER = "needs.base-only.outputs.base_only != 'true'"
 LINES = "".join(f"let a{i} = {i}\n" for i in range(60))
@@ -275,9 +281,11 @@ class WorkflowShapeTests(unittest.TestCase):
         for job_id in SKIPPED_ON_BASE_ONLY:
             with self.subTest(job=job_id):
                 job = JOBS[job_id]
+                placed = job_id in {"ui-review", "split"}
                 self.assertEqual(job["needs"], "base-only")
                 # A skipped or failed answer runs the job: no implicit success().
-                self.assertTrue(str(job["if"]).startswith("${{ !cancelled() && " + ANSWER))
+                prefix = "${{ always() && !cancelled() && " if placed else "${{ !cancelled() && "
+                self.assertTrue(str(job["if"]).startswith(prefix + ANSWER))
                 self.assertNotIn("continue-on-error", job)
         self.assertNotIn("pull_request_target", WORKFLOW_PATH.read_text())
 
@@ -286,7 +294,7 @@ class WorkflowShapeTests(unittest.TestCase):
             job = JOBS[job_id]
             self.assertNotIn("needs", job)
             self.assertNotIn("base_only", str(job["if"]))
-            self.assertTrue(str(job["if"]).startswith("${{ !cancelled() && "))
+            self.assertTrue(str(job["if"]).startswith("${{ always() && !cancelled() && "))
             self.assertNotIn("continue-on-error", job)
 
     def test_the_run_title_names_the_event_the_previous_run_check_reads(self):
@@ -299,7 +307,7 @@ class WorkflowShapeTests(unittest.TestCase):
 
     def test_a_description_edit_never_cancels_a_push_run(self):
         group = WORKFLOW["concurrency"]["group"]
-        self.assertIn("github.event.action == 'edited' && 'edited' || 'push'", group)
+        self.assertIn("&& 'edited' || github.event.action == 'edited' && format('edit-{0}', github.run_id) || 'push'", group)
         self.assertTrue(WORKFLOW["concurrency"]["cancel-in-progress"])
         for job_id in (*SKIPPED_ON_BASE_ONLY, *ALWAYS):
             self.assertNotIn("concurrency", JOBS[job_id])
@@ -318,6 +326,7 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertEqual(names["link"], "link")
         self.assertEqual(names["size"], "PR size")
         self.assertEqual(names["split"], "split-plan advisory")
+        self.assertEqual(names["ui-review"], "UI review advisory")
 
 
 if __name__ == "__main__":

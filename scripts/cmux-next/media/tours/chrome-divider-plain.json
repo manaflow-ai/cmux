@@ -1,0 +1,265 @@
+{
+  "title": "Title area: One Color (the default: the sidebar's edge line, the split panes' lines and the tab row's divider) against Subtle Tone at four shades, over art and plain, then sidebar.border off (plain window)",
+  "settings": {
+    "appearance": {
+      "background": "hokusai-great-wave"
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch over art",
+      "wait": 4,
+      "shot": false
+    },
+    {
+      "title": "Plain window",
+      "cmux": [
+        "settings",
+        "unset",
+        "appearance.background"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Workspace Glass",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Glass"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Show it",
+      "cmux": [
+        "workspace",
+        "name:Glass",
+        "focus"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Quiet prompt",
+      "cmux": [
+        "workspace",
+        "name:Glass",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "export PS1='$ ' PROMPT='$ '; printf '\\033[2J\\033[3J\\033[H'\n"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Name the first tab",
+      "cmux": [
+        "workspace",
+        "name:Glass",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "rename",
+        "shell"
+      ],
+      "shot": false,
+      "optional": "a name only for the focus step"
+    },
+    {
+      "title": "Browser tab Docs",
+      "cmux": [
+        "tab",
+        "create",
+        "browser",
+        "--url",
+        "https://example.com",
+        "--name",
+        "Docs",
+        "--workspace",
+        "name:Glass"
+      ],
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Browser tab Notes",
+      "cmux": [
+        "tab",
+        "create",
+        "browser",
+        "--url",
+        "https://example.net",
+        "--name",
+        "Notes",
+        "--workspace",
+        "name:Glass"
+      ],
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Select the middle tab",
+      "cmux": [
+        "workspace",
+        "name:Glass",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "name:Docs",
+        "focus"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Split right",
+      "cmux": [
+        "action",
+        "run",
+        "splitRight"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Split down",
+      "cmux": [
+        "action",
+        "run",
+        "splitDown"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Plain, One Color (default)",
+      "wait": 1
+    },
+    {
+      "title": "Title area subtleTone",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.titleAreaTone",
+        "subtleTone"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Contrast 0.7",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.titleAreaContrast",
+        "0.7"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Plain, Subtle Tone at 0.35 of the frame shade",
+      "wait": 1
+    },
+    {
+      "title": "Contrast 1",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.titleAreaContrast",
+        "1"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Plain, Subtle Tone at 0.5, the default of the frame shade",
+      "wait": 1
+    },
+    {
+      "title": "Contrast 1.4",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.titleAreaContrast",
+        "1.4"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Plain, Subtle Tone at 0.7 of the frame shade",
+      "wait": 1
+    },
+    {
+      "title": "Contrast 2",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.titleAreaContrast",
+        "2"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Plain, Subtle Tone at 1, the older two tones of the frame shade",
+      "wait": 1
+    },
+    {
+      "title": "Contrast default",
+      "cmux": [
+        "settings",
+        "unset",
+        "appearance.titleAreaContrast"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Back to One Color",
+      "cmux": [
+        "settings",
+        "unset",
+        "appearance.titleAreaTone"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Plain, One Color, sidebar.border off (configuration)",
+      "cmux": [
+        "settings",
+        "set",
+        "sidebar.border",
+        "false"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "Restore sidebar.border",
+      "cmux": [
+        "settings",
+        "unset",
+        "sidebar.border"
+      ],
+      "wait": 1,
+      "shot": false
+    }
+  ]
+}

@@ -5,6 +5,8 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
+import { teardownDom } from "./support/domTeardown";
+import { JUMP_LATEST } from "../src/agent-session/acpmux/transcriptSelectors";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -58,13 +60,10 @@ dom.window.HTMLElement.prototype.scrollTo = function (this: HTMLElement, options
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+const { FOLLOW_BOTTOM_DEADBAND_PX } = await import("../src/agent-session/acpmux/virtualTranscriptModel");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const row = (id: string, kind: string, text?: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
@@ -74,6 +73,118 @@ const turns = Array.from({ length: 30 }, (_, index) => [
   { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
 ]).flat();
 const nextFrame = () => new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
+
+test("a stale queued latest frame reports the live parked state to its parent", async () => {
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const expanded = new Set<string>();
+  const rows = turnView(turns, expanded);
+  const changes: boolean[] = [];
+  const onFollowingChange = (following: boolean) => changes.push(following);
+  const draw = (shown: AcpmuxRow[]) =>
+    root.render(
+      <VirtualTranscript
+        rows={shown}
+        jumpButton
+        onToggleActivity={() => {}}
+        expanded={expanded}
+        onFollowingChange={onFollowingChange}
+      />,
+    );
+  try {
+    await act(async () => draw(rows));
+    const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    const latest = scroller.scrollHeight - VIEWPORT;
+    const parked = latest - VIEWPORT;
+    changes.length = 0;
+    await act(async () => {
+      // Queue bottom-follow, then a rail/native default moves the DOM before the queued RAF.
+      scroller.dispatchEvent(new dom.window.Event("scroll"));
+      scroller.scrollTop = parked;
+      await nextFrame();
+    });
+    expect(changes.at(-1)).toBe(false);
+    expect(scroller.scrollTop).toBe(parked);
+    // A later placement uses the same authoritative intent and cannot snap back to the latest row.
+    await act(async () => draw([...rows, row("later-reply", "assistant", "New output below the reader.")]));
+    expect(scroller.scrollTop).toBe(parked);
+    expect(changes.at(-1)).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a parked reader's processed or non-upward input does not double-apply a row above that shrank, even just after an upward wheel", async () => {
+  // Astra P2 on #26718: recent non-upward input (a click, a downward key or wheel) must not make the
+  // live offset, which the browser already moved up for a row above that shrank, the anchor base.
+  const long = `Answer 1.\n\n${"A long paragraph that later collapses. ".repeat(80)}`;
+  const tall = turns.map((r) => (r.id === "t1-answer" ? { ...r, text: long } : r));
+  const short = turns.map((r) => (r.id === "t1-answer" ? { ...r, text: "Answer 1.", version: 2 } : r));
+  const expanded = new Set<string>();
+  const heightOf = async (shown: AcpmuxRow[]) => {
+    const host = dom.window.document.createElement("div");
+    dom.window.document.body.append(host);
+    const probe = createRoot(host);
+    await act(async () =>
+      probe.render(
+        <VirtualTranscript rows={turnView(shown, expanded)} onToggleActivity={() => {}} expanded={expanded} />,
+      ),
+    );
+    const height = parseFloat(host.querySelector<HTMLElement>(".acpmux-spacer")!.style.height);
+    await act(async () => probe.unmount());
+    host.remove();
+    return height;
+  };
+  const shrink = (await heightOf(tall)) - (await heightOf(short));
+  expect(shrink).toBeGreaterThan(FOLLOW_BOTTOM_DEADBAND_PX * 4);
+  const realNow = performance.now;
+  // Astra P2 (third round): with no click at all, the upward wheel's scroll event has already been
+  // processed, so the shrink inside its 1 s window is layout work, not unprocessed reader movement.
+  for (const { lapse, click } of [
+    { lapse: 1_100, click: true },
+    { lapse: 0, click: true },
+    { lapse: 0, click: false },
+  ]) {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const draw = (shown: AcpmuxRow[]) =>
+      root.render(
+        <VirtualTranscript rows={turnView(shown, expanded)} onToggleActivity={() => {}} expanded={expanded} />,
+      );
+    try {
+      await act(async () => draw(tall));
+      const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const parked = Math.round(scrollerEnd(scroller) / 2);
+      await act(async () => {
+        scroller.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -120 }));
+        scroller.scrollTop = parked;
+        scroller.dispatchEvent(new dom.window.Event("scroll"));
+        await nextFrame();
+        await nextFrame();
+      });
+      expect(scroller.scrollTop).toBe(parked);
+      const anchor = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].find(
+        (el) => parseFloat(el.style.top) >= parked,
+      )!;
+      const id = anchor.dataset.rowId!;
+      const seen = parseFloat(anchor.style.top) - parked;
+      // With the upward wheel's input window (1 s) lapsed, and inside it: the click that follows is
+      // the reader's latest input either way, and it does not move the view up.
+      if (lapse) performance.now = () => realNow.call(performance) + lapse;
+      await act(async () => {
+        // A click (not upward movement), then the shrink above lands with the browser's own offset
+        // adjustment already applied before its scroll event.
+        if (click) scroller.dispatchEvent(new dom.window.Event("pointerdown"));
+        scroller.scrollTop = parked - shrink;
+        draw(short);
+      });
+      const row = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].find((el) => el.dataset.rowId === id)!;
+      // The scroller keeps whole pixels while the shrink is fractional: at most a pixel of rounding.
+      expect(Math.abs(parseFloat(row.style.top) - scroller.scrollTop - seen)).toBeLessThanOrEqual(1);
+    } finally {
+      performance.now = realNow;
+      await act(async () => root.unmount());
+    }
+  }
+});
 
 test("scrolled up, a static button above the composer jumps to the latest message while a reply streams", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
@@ -87,7 +198,7 @@ test("scrolled up, a static button above the composer jumps to the latest messag
     const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const latest = scrollerEnd(scroller);
     expect(latest).toBeGreaterThan(VIEWPORT);
-    const button = () => dom.window.document.querySelector<HTMLButtonElement>(".acpmux-jump-latest");
+    const button = () => dom.window.document.querySelector<HTMLButtonElement>(JUMP_LATEST);
     // It opens at the latest message: no button to show.
     expect(scroller.scrollTop).toBe(latest);
     expect(button()?.dataset.shown).toBeUndefined();
@@ -158,7 +269,7 @@ test("once shown, the button stays shown back inside its distance and hides only
     );
     const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const latest = scrollerEnd(scroller);
-    const button = () => dom.window.document.querySelector<HTMLButtonElement>(".acpmux-jump-latest");
+    const button = () => dom.window.document.querySelector<HTMLButtonElement>(JUMP_LATEST);
     const scrollTo = async (top: number) => {
       scroller.scrollTop = top;
       await act(async () => {
@@ -188,6 +299,52 @@ test("once shown, the button stays shown back inside its distance and hides only
   }
 });
 
+test("the transcript tells its pane when Jump to latest shows and hides, so the toast deck can clear it", async () => {
+  // A router review of the toast deck (#37629): the deck stood on the same bottom edge as Jump to
+  // latest, a layer over it, so a toast could cover the button and take its clicks. The pane lifts
+  // the deck while the button shows (toastLayer.css); it learns that from here.
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const rows = turnView(turns, new Set());
+  const reports: boolean[] = [];
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={rows}
+          jumpButton
+          onJumpShownChange={(shown: boolean) => reports.push(shown)}
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+    const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    const latest = scrollerEnd(scroller);
+    const button = () => dom.window.document.querySelector<HTMLButtonElement>(JUMP_LATEST);
+    const scrollTo = async (top: number) => {
+      scroller.scrollTop = top;
+      await act(async () => {
+        scroller.dispatchEvent(new dom.window.Event("scroll"));
+        await nextFrame();
+      });
+    };
+    await scrollTo(latest);
+    expect(reports.at(-1) ?? false).toBe(false);
+    await scrollTo(latest - 120);
+    expect(button()?.dataset.shown).toBe("");
+    expect(reports.at(-1)).toBe(true);
+    await scrollTo(latest);
+    expect(button()?.dataset.shown).toBeUndefined();
+    expect(reports.at(-1)).toBe(false);
+    // Shown again, then gone with the transcript: the pane is told it is not shown any more.
+    await scrollTo(latest - 120);
+    expect(reports.at(-1)).toBe(true);
+  } finally {
+    await act(async () => root.unmount());
+  }
+  expect(reports.at(-1)).toBe(false);
+});
+
 test("a keyboard jump hands focus to the composer instead of losing it with the hidden button", async () => {
   const doc = dom.window.document;
   const composer = doc.createElement("textarea");
@@ -207,7 +364,7 @@ test("a keyboard jump hands focus to the composer instead of losing it with the 
       ),
     );
     const scroller = doc.querySelector<HTMLElement>(".acpmux-scroll")!;
-    const button = doc.querySelector<HTMLButtonElement>(".acpmux-jump-latest")!;
+    const button = doc.querySelector<HTMLButtonElement>(JUMP_LATEST)!;
     scroller.scrollTop = 0;
     await act(async () => {
       scroller.dispatchEvent(new dom.window.Event("scroll"));
@@ -245,4 +402,36 @@ test("a keyboard jump hands focus to the composer instead of losing it with the 
     await act(async () => root.unmount());
     composer.remove();
   }
+});
+
+// Jump up (jumpUp.experiment.ts): off by default, Jump to latest stands alone (two up arrows read as
+// one too many); its `on` arm stacks Jump up on it as before (#40326).
+test("Jump up draws only under its on arm; off, Jump to latest stands alone", async () => {
+  const draw = async (arm: "on" | "off" | undefined) => {
+    // The pair look: `single`, the default, draws no Jump up under either arm.
+    if (arm) globalThis.cmuxExperiments = { "jump-up": arm, "jump-pair-look": "frosted" };
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      await act(async () =>
+        root.render(
+          <VirtualTranscript
+            rows={turnView(turns, new Set())}
+            jumpButton
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+          />,
+        ),
+      );
+      return {
+        up: dom.window.document.querySelector(".acpmux-jump-up") !== null,
+        latest: dom.window.document.querySelector(JUMP_LATEST) !== null,
+      };
+    } finally {
+      await act(async () => root.unmount());
+      delete globalThis.cmuxExperiments;
+    }
+  };
+  expect(await draw(undefined)).toEqual({ up: false, latest: true });
+  expect(await draw("off")).toEqual({ up: false, latest: true });
+  expect(await draw("on")).toEqual({ up: true, latest: true });
 });

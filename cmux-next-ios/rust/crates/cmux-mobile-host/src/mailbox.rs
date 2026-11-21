@@ -600,6 +600,7 @@ mod tests {
                 id: PHONE.into(),
                 identity_key: vectors()["phoneIdentityKey"].as_str().unwrap().into(),
                 approval_key: String::new(),
+                ..Default::default()
             }],
             denied: vec![],
         }

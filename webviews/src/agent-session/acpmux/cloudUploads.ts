@@ -4,41 +4,71 @@
 import { base64 } from "./attachments";
 import { translate } from "./i18n";
 
-export type UploadResult = { paths: string[] } | { error: string } | undefined;
+/// Cancellation checks between chunks and notifications while the native finish is in flight.
+export type UploadCancelled = ((index: number) => boolean) & {
+  subscribe?(index: number, changed: () => void): () => void;
+};
+
+/// `final`: the host refused the file outright (the app could not save it), so trying again would
+/// fail the same way; any other error (a link down, a timeout) may pass on the next try.
+export type UploadResult =
+  | { paths: string[] }
+  | { paths: string[]; error: string; final?: boolean }
+  | { error: string; final?: boolean }
+  | undefined;
+/// How much of file `index` of an upload reached the host, 0 to 1 (its tile's progress ring).
+export type UploadProgressReport = (index: number, done: number) => void;
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 const NOT_TAKEN = new Set(["unsupported", "native.invalid_request"]);
+/// Host error codes that fail the same way every time: the app could not save the file.
+const REFUSED = new Set(["io", ...NOT_TAKEN]);
 const CHUNK_BYTES = 512 * 1024;
 const LEGACY_FRAME_SAFE_BYTES = 24 * 1024 * 1024;
-
-/// How long one step of an upload (begin, one chunk, finish) may wait for the host: past it the
-/// upload fails with a note and its chip offers Retry, never loading forever (Leo, 2026-10-24: "I
-/// can't even cancel these... supposedly in-progress attachments").
-export const UPLOAD_STEP_DEADLINE_MS = 30_000;
 export const UPLOAD_TIMED_OUT = "The upload timed out: the app did not answer.";
 
-/// `call`, refused with UPLOAD_TIMED_OUT when the host does not answer within `ms`.
-export function callWithin(call: Call, ms = UPLOAD_STEP_DEADLINE_MS): Call {
+/// `call`, refused when the host does not answer within `ms`; null delegates its deadline to native.
+export function callWithin(call: Call, ms: number | null = null, signal?: AbortSignal): Call {
   return (method, params) =>
     new Promise((resolve, reject) => {
       let late = false;
-      const timer = setTimeout(() => {
+      const stop = () => {
+        if (timer !== undefined) clearTimeout(timer);
+        signal?.removeEventListener("abort", abort);
+      };
+      const abort = () => {
         late = true;
-        reject(new Error(UPLOAD_TIMED_OUT));
-      }, ms);
-      call(method, params).then(
-        (value) => {
-          clearTimeout(timer);
-          // An upload the host started after the page gave up on it: the host drops its stage.
-          const token = (value as { token?: unknown } | null)?.token;
-          if (late && method === "chat.upload.begin" && typeof token === "string")
-            void call("chat.upload.cancel", { token }).catch(() => undefined);
-          resolve(value);
-        },
-        (error: unknown) => {
-          clearTimeout(timer);
-          reject(error);
-        },
-      );
+        stop();
+        reject(CANCELLED);
+      };
+      const timer =
+        ms === null
+          ? undefined
+          : setTimeout(() => {
+              late = true;
+              stop();
+              reject(new Error(UPLOAD_TIMED_OUT));
+            }, ms);
+      signal?.addEventListener("abort", abort, { once: true });
+      if (signal?.aborted) {
+        abort();
+        return;
+      }
+      Promise.resolve()
+        .then(() => call(method, params))
+        .then(
+          (value) => {
+            stop();
+            // An upload the host started after the page gave up on it: the host drops its stage.
+            const token = (value as { token?: unknown } | null)?.token;
+            if (late && method === "chat.upload.begin" && typeof token === "string")
+              void call("chat.upload.cancel", { token }).catch(() => undefined);
+            resolve(value);
+          },
+          (error: unknown) => {
+            stop();
+            reject(error);
+          },
+        );
     });
 }
 
@@ -66,6 +96,17 @@ function notTaken(error: unknown): boolean {
   return NOT_TAKEN.has((error as { code?: string } | null)?.code ?? "");
 }
 
+/// The answer for a failed upload: its words, and whether the host refused it outright.
+function uploadError(error: unknown, paths?: string[]): UploadResult {
+  const text = error instanceof Error ? error.message : String(error);
+  const failure = REFUSED.has((error as { code?: string } | null)?.code ?? "")
+    ? { error: text, final: true }
+    : { error: text };
+  return paths?.some(Boolean)
+    ? { paths: Array.from({ length: paths.length + 1 }, (_, index) => paths[index] ?? ""), ...failure }
+    : failure;
+}
+
 function object(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
@@ -87,7 +128,12 @@ function uploadedPaths(value: unknown): string[] {
 export async function uploadToMachine(
   files: File[],
   host: Call,
-  cancelled: (index: number) => boolean = () => false,
+  cancelled: UploadCancelled = () => false,
+  progress?: UploadProgressReport,
+  /// The person's Send these files go with (sendUploads.ts): each begin holds its ticket instead of
+  /// a gesture, with no batch, and an older host's one-frame upload, which needs the gesture, is
+  /// not tried.
+  send?: { sessionId: string; promptId: string; ticket: string },
 ): Promise<UploadResult> {
   const call = callWithin(host);
   if (!files.length || files.some((file) => !file.name)) return undefined;
@@ -104,24 +150,33 @@ export async function uploadToMachine(
       started = await call("chat.upload.begin", {
         name: file.name,
         size: file.size,
-        ...(index === 0 && files.length > 1 ? { batch: manifest } : {}),
+        // A Send's files begin one by one, each under its ticket: the host refuses a held begin
+        // with a batch, whose token would let the later files skip the ticket.
+        ...(index === 0 && files.length > 1 && !send ? { batch: manifest } : {}),
         ...(batchToken ? { batchToken } : {}),
+        ...send,
       });
     } catch (error) {
-      if (!begun && notTaken(error)) {
+      if (!begun && notTaken(error) && !send) {
         // An old host can only accept one complete JSON frame. Refuse oversized files
         // explicitly instead of rebuilding the removed composer cap as a connection reset.
         if (files.some((entry, at) => !cancelled(at) && entry.size > LEGACY_FRAME_SAFE_BYTES))
           return { error: translate("upload.hostTooLarge") };
         return legacyUpload(files, call, cancelled);
       }
-      return { error: error instanceof Error ? error.message : String(error) };
+      return uploadError(error, paths);
     }
     begun = true;
     const begin = object(started);
     if (index === 0 && typeof begin.batchToken === "string" && begin.batchToken) batchToken = begin.batchToken;
     const token = begin.token;
-    if (typeof token !== "string" || !token) return { error: translate("upload.notStarted") };
+    if (typeof token !== "string" || !token) return uploadError(new Error(translate("upload.notStarted")), paths);
+    const controller = new AbortController();
+    const unsubscribe = cancelled.subscribe?.(index, () => {
+      if (cancelled(index)) controller.abort();
+    });
+    const step = callWithin(host, null, controller.signal);
+    const finishCall = callWithin(host, null, controller.signal);
     try {
       if (begin.size !== file.size || !Number.isSafeInteger(begin.chunkSize) || Number(begin.chunkSize) <= 0)
         throw new Error(translate("upload.notStarted"));
@@ -131,25 +186,29 @@ export async function uploadToMachine(
         const end = Math.min(file.size, offset + chunkSize);
         const slice = file.slice(offset, end);
         if (slice.size !== end - offset) throw new Error(translate("upload.notRead"));
-        const answer = object(await call("chat.upload.chunk", { token, offset, data: await blobBase64(slice) }));
+        const answer = object(await step("chat.upload.chunk", { token, offset, data: await blobBase64(slice) }));
         if (answer.offset !== end) throw new Error(translate("upload.notCompleted"));
         offset = end;
+        progress?.(index, end / file.size);
       }
       if (cancelled(index)) throw CANCELLED;
-      const [path, extra] = uploadedPaths(await call("chat.upload.finish", { token }));
+      const [path, extra] = uploadedPaths(await finishCall("chat.upload.finish", { token }));
       if (!path || extra) throw new Error(translate("upload.notCompleted"));
-      paths.push(path);
+      if (cancelled(index)) throw CANCELLED;
+      paths[index] = path;
     } catch (error) {
-      // Straight to the host, not behind another step deadline.
-      void host("chat.upload.cancel", { token }).catch(() => undefined);
+      // Keep cancellation owned until the host has stopped reading and removed its stage.
+      await call("chat.upload.cancel", { token }).catch(() => undefined);
       if (error === CANCELLED) {
-        paths.push("");
+        paths[index] = "";
         continue;
       }
-      return { error: error instanceof Error ? error.message : String(error) };
+      return uploadError(error, paths);
+    } finally {
+      unsubscribe?.();
     }
   }
-  return { paths };
+  return { paths: paths.map((path) => path ?? "") };
 }
 
 /// An older host's one-frame upload (24 MiB at most): it cannot stop once sent, so a file cancelled
@@ -157,7 +216,7 @@ export async function uploadToMachine(
 async function legacyUpload(
   files: File[],
   call: Call,
-  cancelled: (index: number) => boolean = () => false,
+  cancelled: UploadCancelled = () => false,
 ): Promise<UploadResult> {
   try {
     const sending = files.flatMap((file, index) => (cancelled(index) ? [] : [{ file, index }]));

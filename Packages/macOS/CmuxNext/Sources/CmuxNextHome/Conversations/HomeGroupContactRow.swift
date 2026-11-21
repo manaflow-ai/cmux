@@ -1,5 +1,6 @@
 import CmuxHomeCore
 import CmuxNextDesign
+import CmuxNextHomeModel
 import SwiftUI
 
 /// One person Add People offers: a check, the name and where they come from (team or contact).
@@ -26,7 +27,7 @@ struct HomeGroupContactRow: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .frame(height: Metrics.sidebarRowHeight)
         .accessibilityValue(isChosen ? "1" : "0")
         .accessibilityIdentifier("cmux.home.groupInfo.add.\(contact.id.rawValue)")

@@ -105,6 +105,8 @@ fn a_named_pane_wins_over_the_callers_terminal() {
     let [call] = run.app.as_slice() else { panic!("one app call expected: {:?}", run.app) };
     assert_eq!(call["params"]["action"], "openBrowser", "{call}");
     assert_eq!(call["params"]["target"], format!("tab:{SHOWN_TAB}"), "{call}");
+    // A named pane gets the tab, also when it holds an agent chat.
+    assert!(call["params"].get("beside_chat").is_none(), "{call}");
     let lookup = run
         .daemon
         .iter()
@@ -127,6 +129,25 @@ fn a_named_screen_opens_in_its_shown_pane() {
     let [call] = run.app.as_slice() else { panic!("one app call expected: {:?}", run.app) };
     assert_eq!(call["params"]["action"], "openBrowser", "{call}");
     assert_eq!(call["params"]["target"], format!("tab:{SHOWN_TAB}"), "{call}");
+    assert_eq!(call["params"]["beside_chat"], true, "{call}");
+}
+
+/// `cmux tab create browser --workspace <an agent's>` (the Chief's "show the
+/// work in the subagent's workspace"): the workspace's shown pane is its
+/// chat's, so the run tells the app the command named no pane, and the app
+/// opens the tab right of the chat (Lawrence 2026-11-19: "agent chat that is
+/// on left, will open stuff to the right").
+#[test]
+fn a_named_workspace_leaves_the_pane_to_the_app() {
+    let run = Run::new(true).cli(
+        &["--json", "tab", "create", "browser", "--url", URL, "--workspace", WORKSPACE],
+        Some(CALLER_TERMINAL),
+    );
+    assert!(run.output.status.success(), "{}", run.stderr());
+    let [call] = run.app.as_slice() else { panic!("one app call expected: {:?}", run.app) };
+    assert_eq!(call["params"]["action"], "openBrowser", "{call}");
+    assert_eq!(call["params"]["target"], format!("tab:{SHOWN_TAB}"), "{call}");
+    assert_eq!(call["params"]["beside_chat"], true, "{call}");
 }
 
 #[test]
@@ -373,6 +394,12 @@ fn fake_daemon(socket: &Path) -> JoinHandle<Vec<Value>> {
         while reader.read_line(&mut line).unwrap_or(0) > 0 {
             let request: Value = serde_json::from_str(&line).expect("CLI sent invalid JSON");
             line.clear();
+            if request["cmd"] == "set-client-info" {
+                writeln!(writer, "{}", json!({"id": request["id"], "ok": true, "data": {}}))
+                    .and_then(|()| writer.flush())
+                    .unwrap();
+                continue;
+            }
             let result = match incomplete_chain(&request["params"]) {
                 Some(message) => Err(("selector.invalid", message)),
                 None => daemon_result(&request).map_err(|message| ("resource.not_found", message)),

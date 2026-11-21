@@ -1,0 +1,256 @@
+{
+ "title": "Tab bar trailing buttons, long titles and the top-right corner (Lawrence 2026-11-07)",
+ "settings": {
+  "appearance": {
+   "density": "compact"
+  }
+ },
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3
+  },
+  {
+   "title": "New workspace",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Tabs"
+   ],
+   "shot": false
+  },
+  {
+   "title": "Show the Tabs workspace",
+   "cmux": [
+    "workspace",
+    "name:Tabs",
+    "focus"
+   ],
+   "shot": false
+  },
+  {
+   "title": "Rename the first tab",
+   "cmux": [
+    "tab",
+    "current",
+    "rename",
+    "--name",
+    "Austin's Weekly Planning Review (7 days)"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Browser tab",
+   "cmux": [
+    "tab",
+    "new-browser",
+    "--url",
+    "https://example.com"
+   ],
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "Tab 0",
+   "cmux": [
+    "action",
+    "run",
+    "newSurface"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Rename tab 0",
+   "cmux": [
+    "tab",
+    "current",
+    "rename",
+    "--name",
+    "Quarterly roadmap and launch checklist"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab 1",
+   "cmux": [
+    "action",
+    "run",
+    "newSurface"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Rename tab 1",
+   "cmux": [
+    "tab",
+    "current",
+    "rename",
+    "--name",
+    "Design review notes (Nov 7)"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab 2",
+   "cmux": [
+    "action",
+    "run",
+    "newSurface"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Rename tab 2",
+   "cmux": [
+    "tab",
+    "current",
+    "rename",
+    "--name",
+    "Release train: nightly build status"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab 3",
+   "cmux": [
+    "action",
+    "run",
+    "newSurface"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Rename tab 3",
+   "cmux": [
+    "tab",
+    "current",
+    "rename",
+    "--name",
+    "Leo's sidebar feedback thread"
+   ],
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Tab bar at rest: long titles fade at the end",
+   "rpc": {
+    "method": "debug.pointer_hover",
+    "params": {
+     "point": null
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "Hover the pane-type chevron",
+   "rpc": {
+    "method": "debug.pointer_hover",
+    "params": {
+     "identifier": "cmux.tabs.newTabMenu"
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "Variant: Plates (before)",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "tabs.trailingButtons",
+     "value": "plates"
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Plates (before): hover",
+   "rpc": {
+    "method": "debug.pointer_hover",
+    "params": {
+     "identifier": "cmux.tabs.newTabMenu"
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "Variant: Circles",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "tabs.trailingButtons",
+     "value": "circles"
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Circles: hover",
+   "rpc": {
+    "method": "debug.pointer_hover",
+    "params": {
+     "identifier": "cmux.tabs.newTabMenu"
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "Variant: Plus and More only",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "tabs.trailingButtons",
+     "value": "merged"
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Plus and More only: hover",
+   "rpc": {
+    "method": "debug.pointer_hover",
+    "params": {
+     "identifier": "cmux.tabs.newTab"
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "Variant: Glyphs only (default)",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "tabs.trailingButtons",
+     "value": "glyphs"
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Glyphs only (default): hover",
+   "rpc": {
+    "method": "debug.pointer_hover",
+    "params": {
+     "identifier": "cmux.tabs.newTabMenu"
+    }
+   },
+   "wait": 1.5
+  }
+ ]
+}

@@ -17,8 +17,8 @@ use crate::workspace_registry::personal_mutations::{
     PersonalWorkspaceUpdate, ProfileDeletion, ProfileInput, ProfileUpdate,
 };
 use crate::workspace_registry::personal_store::{
-    PersonalGroup, PersonalPin, PersonalProfile, PersonalWorkspace, read_group, read_groups,
-    read_pins, read_profile, read_profiles, read_workspace, read_workspaces,
+    DEFAULT_PROFILE_ID, PersonalGroup, PersonalPin, PersonalProfile, PersonalWorkspace, read_group,
+    read_groups, read_pins, read_profile, read_profiles, read_workspace, read_workspaces,
 };
 
 fn group_value(group: &PersonalGroup) -> Value {
@@ -44,6 +44,20 @@ pub(crate) fn workspace_group_snapshots(
         .filter(|group| room.is_none_or(|room| group.profile == room))
         .map(group_value)
         .collect())
+}
+
+/// The id of room `room`'s (default: the default room's) first group, in group order, named `name`
+/// once outer spaces are trimmed on both sides; case counts, as the app compares an exact name first.
+pub(crate) fn group_named(
+    connection: &Connection,
+    room: Option<&str>,
+    name: &str,
+) -> anyhow::Result<Option<String>> {
+    let room = room.unwrap_or(DEFAULT_PROFILE_ID);
+    Ok(read_groups(connection)?
+        .into_iter()
+        .find(|group| group.profile == room && group.name.trim() == name.trim())
+        .map(|group| group.id))
 }
 
 pub(crate) fn workspace_group_snapshot(

@@ -156,8 +156,24 @@ await requireBrowserLane("transcript-follow.test.ts", async () => {
     const bottom = () =>
       page.locator('[data-row-id="room-stream"]').evaluate((node) => node.getBoundingClientRect().bottom);
     const before = await bottom();
-    const box = (await page.locator(".acpmux-scroll").boundingBox())!;
-    await page.touchscreen.tap(box.x + 12, box.y + 120);
+    // A tap on the transcript's text, not its pane edge: the prompt rail sits at the pane edge (#26641),
+    // and a tap on one of its ticks jumps to that prompt.
+    const spot = await page.evaluate(() => {
+      const view = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
+      for (const node of document.querySelectorAll<HTMLElement>('[data-row-id^="room-answer-"]')) {
+        const box = node.getBoundingClientRect();
+        if (box.top >= view.top && box.bottom <= view.top + view.height / 2)
+          return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+      }
+      return undefined;
+    });
+    expect(spot).toBeDefined();
+    const onRail = await page.evaluate(
+      ({ x, y }) => Boolean(document.elementFromPoint(x, y)?.closest(".acpmux-minimap")),
+      spot!,
+    );
+    expect(onRail).toBe(false);
+    await page.touchscreen.tap(spot!.x, spot!.y);
     await frames(page, 3);
     const moved = (await bottom()) - before;
     if (process.env.CMUX_TOUCH_CAPTURE) {
@@ -166,6 +182,58 @@ await requireBrowserLane("transcript-follow.test.ts", async () => {
     console.log(`touch tap reserved-room movement: ${moved}px`);
     expect(Math.abs(moved)).toBeLessThanOrEqual(1);
     await page.close();
+  });
+
+  test("a queued latest frame cannot restore follow after upward intent at the same offset", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 900, height: 560 } });
+    try {
+      await installPaintedFrames(page);
+      await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
+      await page.waitForFunction(() => "__showRows" in window);
+      const history = Array.from({ length: 18 }, (_, index) => [
+        row(`history-user-${index}`, "user", `Prompt ${index}`),
+        row(`history-answer-${index}`, "assistant", paragraph(index)),
+      ]).flat();
+      const text = paragraph(18);
+      await show(page, [...history, row("stream", "assistant", text, { streaming: true })]);
+      await frames(page, 3);
+      expect(await belowView(page)).toBeLessThanOrEqual(2);
+      const input = await page.evaluate(() => {
+        const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const before = node.scrollTop;
+        // Queue a followed scroll frame, then deliver upward intent before its physical default.
+        // A synthetic wheel has no default; hold that write to isolate the same-offset RAF path.
+        node.dispatchEvent(new Event("scroll"));
+        node.dispatchEvent(new WheelEvent("wheel", { deltaY: -2, bubbles: true, cancelable: true }));
+        return { before, after: node.scrollTop };
+      });
+      expect(input.after).toBe(input.before);
+      await frames(page, 2);
+      await show(page, [
+        ...history,
+        row("stream", "assistant", `${text}\n\n${paragraph(19)}\n\n${paragraph(20)}`, {
+          version: 2,
+          streaming: true,
+        }),
+      ]);
+      await frames(page, 3);
+      const state = await page.evaluate(() => {
+        const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        return {
+          gap: node.scrollHeight - node.clientHeight - node.scrollTop,
+          fadeBottom: node.dataset.fadeBottom === "true",
+          intent: (window as unknown as { __followSnapshot(): { following: boolean } }).__followSnapshot().following,
+        };
+      });
+      console.log(`queued-follow-intent: ${JSON.stringify({ input, ...state })}`);
+      expect(state.intent).toBe(false);
+      expect(state.gap).toBeGreaterThan(20);
+      // The rendered reader state must agree with intent: growing rows below remain indicated.
+      expect(state.fadeBottom).toBe(true);
+    } finally {
+      await page.close();
+    }
   });
 
   test("a small upward wheel before a stream snapshot releases bottom follow", async () => {

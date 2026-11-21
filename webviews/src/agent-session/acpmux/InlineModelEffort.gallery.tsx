@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import React, { useRef, useState } from "react";
 import { componentEntry } from "../../gallery/format";
-import type { QuickMenu } from "./QuickModelMenu";
+import type { QuickMenu } from "./quickModelMenuModel";
 
 type Props = { look?: QuickMenu["effortLook"]; chat?: boolean; placement?: QuickMenu["harnessPlacement"] };
 
@@ -16,7 +16,7 @@ export default componentEntry<Props>({
   load: () =>
     Promise.all([import("./QuickModelMenu"), import("./newTabComposer")]).then(
       ([{ QuickModelMenu }, { OnNewTab }]) =>
-        function InlineModelEffort({ look = "joined", chat = false, placement = "left" }: Props) {
+        function InlineModelEffort({ look = "list", chat = false, placement = "left" }: Props) {
           const trigger = useRef<HTMLButtonElement | null>(null);
           const [open, setOpen] = useState(false);
           const [model, setModel] = useState("opus");
@@ -54,7 +54,12 @@ export default componentEntry<Props>({
                     harnessPlacement: placement,
                     effort: {
                       current: effort,
-                      levels: ["low", "medium", "high", "max"].map((id) => ({ id, name: id })),
+                      // Medium is the model's own pick: the list names it Recommended.
+                      levels: ["low", "medium", "high", "max"].map((id) => ({
+                        id,
+                        name: id,
+                        ...(id === "medium" ? { recommended: true } : {}),
+                      })),
                       onPick: setEffort,
                     },
                     families: {
@@ -74,23 +79,30 @@ export default componentEntry<Props>({
           );
         },
     ),
+  // A model's effort as a vertical side dropdown beside it (Leo 2026-10-30: "we dont like
+  // horizontal text for effort. just make it vertical. hell, why not do a vertical slider?"):
+  // `list` (the default, the recommended level named), `plain`, `slider`; `list-open` hovers the
+  // running model so its dropdown shows.
   variants: {
-    joined: {
+    list: {
       props: {},
       play: async (ctx) => {
         await ctx.click({ selector: "button[data-menu='model']" });
+        await ctx.hover({ selector: ".acpmux-quick-model-effort[data-running] > .acpmux-quick-item" });
       },
     },
-    spaced: {
-      props: { look: "spaced" },
+    plain: {
+      props: { look: "plain" },
       play: async (ctx) => {
         await ctx.click({ selector: "button[data-menu='model']" });
+        await ctx.hover({ selector: ".acpmux-quick-model-effort[data-running] > .acpmux-quick-item" });
       },
     },
-    underline: {
-      props: { look: "underline" },
+    slider: {
+      props: { look: "slider" },
       play: async (ctx) => {
         await ctx.click({ selector: "button[data-menu='model']" });
+        await ctx.hover({ selector: ".acpmux-quick-model-effort[data-running] > .acpmux-quick-item" });
       },
     },
     chat: {

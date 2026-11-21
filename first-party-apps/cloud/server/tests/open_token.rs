@@ -107,8 +107,8 @@ fn a_reconnect_needs_a_new_token_and_never_sends_the_old_one() {
     s.connector().connect(connect(&new)).expect("a reconnect with a new token");
     // New link details respawn the live link (C10 link.changed).
     let p = attach_common::paths();
-    let details = json!({ "binary": p.binary, "hub_socket": p.hub_socket,
-        "state_dir": p.state_dir, "socket_dir": p.socket_dir, "device_name": "another-mac" });
+    let details = json!({ "state_dir": p.state_dir, "socket_dir": p.socket_dir,
+        "device_name": "another-mac" });
     s.host_frame(&json!({ "t": "host.event", "op": "cmux.host.link.changed", "data": details }));
     s.connector().connect(connect(&new)).expect("the respawned link");
     assert!(spawner.spawns() >= 3, "connect, reconnect and respawn spawned links");

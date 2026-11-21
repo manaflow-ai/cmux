@@ -415,6 +415,124 @@ fn a_turn_the_next_daemon_adopted_runs_to_its_end_and_is_not_ended() {
     assert!(failures(&h).is_empty(), "{:?}", failures(&h));
 }
 
+/// Leo, 2026-11-03, after an app restart left his message unread for
+/// minutes: "why does this happen? the app restart/tui restart ?". A
+/// turn the next daemon adopted holds every new turn until it ends (up to
+/// `ORPHAN_WAIT`); a person's message must not wait for it. It folds and
+/// ends that turn at once, and the next turn reads the message.
+#[test]
+fn a_persons_message_does_not_wait_for_an_adopted_turn() {
+    let mut h = Harness::new(cut_first_script());
+    h.agents.hold(true);
+    h.connect();
+    h.say("user_local", "rebase a187 and report");
+    while h.agents.inner.lock().unwrap().prompts.is_empty() {
+        h.step();
+    }
+    let session = h.agents.inner.lock().unwrap().prompt_sessions[0].clone();
+    h.brain.step(Input::from(AgentEvent::Down));
+    h.agents.inner.lock().unwrap().lose = true;
+    h.agents.hold(false);
+    h.agents.release();
+    drain(&mut h, Duration::from_millis(500));
+    h.agents
+        .inner
+        .lock()
+        .unwrap()
+        .session_status
+        .insert(session.clone(), "running".into());
+    h.connect();
+    drain(&mut h, Duration::from_millis(300));
+    assert_eq!(
+        h.agents.inner.lock().unwrap().prompts.len(),
+        1,
+        "the adopted turn still runs"
+    );
+    let asked = h.say("user_local", "are you there?");
+    {
+        let inner = h.agents.inner.lock().unwrap();
+        assert!(
+            inner.ended.contains(&session),
+            "the adopted turn is folded and ended for the message: {:?}",
+            inner.ended
+        );
+    }
+    let started = Instant::now();
+    while h.agents.inner.lock().unwrap().prompts.len() < 2 {
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "no turn took the message"
+        );
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(50)) {
+            h.brain.step(input);
+        }
+    }
+    h.settle_posts();
+    assert!(
+        h.owner
+            .lock()
+            .unwrap()
+            .cursors()
+            .iter()
+            .any(|c| *c >= asked.seq),
+        "the message is read"
+    );
+    assert!(failures(&h).is_empty(), "{:?}", failures(&h));
+}
+
+/// The same, when the message comes before the agent link is back (it
+/// was sent while the app restarted): the adoption that follows does not
+/// wait for the turn either (router review of #33216).
+#[test]
+fn a_message_sent_during_the_restart_does_not_wait_for_an_adopted_turn() {
+    let mut h = Harness::new(cut_first_script());
+    h.agents.hold(true);
+    h.connect();
+    h.say("user_local", "rebase a187 and report");
+    while h.agents.inner.lock().unwrap().prompts.is_empty() {
+        h.step();
+    }
+    let session = h.agents.inner.lock().unwrap().prompt_sessions[0].clone();
+    h.brain.step(Input::from(AgentEvent::Down));
+    h.agents.inner.lock().unwrap().lose = true;
+    h.agents.hold(false);
+    h.agents.release();
+    drain(&mut h, Duration::from_millis(500));
+    h.agents
+        .inner
+        .lock()
+        .unwrap()
+        .session_status
+        .insert(session.clone(), "running".into());
+    let asked = h.say("user_local", "are you there?");
+    h.connect();
+    assert!(
+        h.agents.inner.lock().unwrap().ended.contains(&session),
+        "the adopted turn is folded and ended for the waiting message"
+    );
+    let started = Instant::now();
+    while h.agents.inner.lock().unwrap().prompts.len() < 2 {
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "no turn took the message"
+        );
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(50)) {
+            h.brain.step(input);
+        }
+    }
+    h.settle_posts();
+    assert!(
+        h.owner
+            .lock()
+            .unwrap()
+            .cursors()
+            .iter()
+            .any(|c| *c >= asked.seq),
+        "the message is read"
+    );
+    assert!(failures(&h).is_empty(), "{:?}", failures(&h));
+}
+
 /// Steps the brain until it stops (a fatal), at most `within`.
 fn until_stopped(h: &mut Harness, within: Duration) -> String {
     let deadline = Instant::now() + within;

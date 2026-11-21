@@ -15,7 +15,12 @@ extension UpdaterService: UpdateActionDelegate {
         UpdateHarness.mark("will_relaunch")
         #endif
         recordRelaunchFocus()
+        UpdateInstallCheck.write(installingBuild.map { .init(fromBuild: identity.build, targetBuild: $0, recordedAt: now()) }, defaults: defaults)
         willRelaunch?()
+        // Only a relaunch the person asked for (a click, or a click that took an automatic install
+        // over) takes the windows off the screen; its failure and stall paths bring them back. An
+        // install nobody clicked relaunches with the windows as they are, as before #22919.
+        if !automaticInstallInFlight { hidesForRelaunch?() }
     }
 
     /// An install nobody clicked, in an app the user was not in when it started (and is not in now),
@@ -40,6 +45,10 @@ extension UpdaterService: UpdateActionDelegate {
     public func updaterDefersAutomaticInstall(until ready: @escaping @MainActor () -> Void) -> Bool {
         relaunchMomentHold.hold(ready)
     }
+
+    /// The automatic install the moment holds, with its reason and age, or nil (observable): the
+    /// staged update card, the Settings Updates card and `updates.status` read it.
+    public var relaunchHold: UpdateRelaunchHoldState? { relaunchMomentHold.state }
 
     /// A click, a cancel or the end of the update session took over: the hold goes, with its observers and timer.
     public func updaterEndsAutomaticInstallHold() {

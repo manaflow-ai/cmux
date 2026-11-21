@@ -859,3 +859,68 @@ fn closing_a_middle_viewport_column_recomputes_fallback_ratios() {
         assert!((*ratio - (0.75 / 1.15)).abs() < 0.0001);
     });
 }
+
+/// A stale resource undo whose revision read fails is indeterminate, and it
+/// leaves the registry lock free: the read's guard must not live on into the
+/// branch that marks the effect indeterminate (that relock blocked forever).
+#[test]
+fn a_stale_undo_whose_revision_read_fails_leaves_the_registry_unlocked() {
+    let mux = test_mux();
+    let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+    let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+    let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+    let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+    assert!(mux.set_viewport_pane_width_in_transaction(right_pane, 0.6, 7, 11));
+    let selectors = {
+        let registry = mux.workspace_registry.lock().unwrap();
+        let state = mux.state.lock().unwrap();
+        let (workspace, screen) = state.screen_of(right_pane).unwrap();
+        crate::ResourceSelectors {
+            machine: Some(registry.machine_id().to_string()),
+            session: Some(registry.session_id().to_string()),
+            workspace: Some(state.workspaces[workspace].public_id.to_string()),
+            screen: Some(state.workspaces[workspace].screens[screen].public_id.to_string()),
+            ..crate::ResourceSelectors::default()
+        }
+    };
+    // Read after the state lock is gone (lock order: registry, connection, state).
+    let revision =
+        mux.workspace_registry.lock().unwrap().resource_topology_snapshot().unwrap().revision;
+    // Between the intent and the effect, a new resize makes the undo stale,
+    // and the revision read that follows fails.
+    let hook_mux = Arc::downgrade(&mux);
+    *mux.topology_effect_before_execute.lock().unwrap() = Some(Arc::new(move || {
+        let mux = hook_mux.upgrade().unwrap();
+        assert!(mux.set_viewport_pane_width_in_transaction(right_pane, 0.7, 8, 12));
+        mux.workspace_registry.lock().unwrap().fail_next_topology_snapshots_for_test(1);
+    }));
+
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    let worker = {
+        let mux = mux.clone();
+        std::thread::spawn(move || {
+            let mutation = WorkspaceMutation::daemon("stale-undo-read-failure", "test").unwrap();
+            let result = mux.resource_topology_operation(
+                ResourceOperation::ScreenLayoutUndo,
+                selectors,
+                Map::new(),
+                Some(revision),
+                &mutation,
+            );
+            let code = result
+                .err()
+                .and_then(|error| error.downcast_ref::<ResourceError>().map(|e| e.code.clone()));
+            let _ = done_tx.send(code);
+        })
+    };
+    let code = done_rx
+        .recv_timeout(Duration::from_secs(30))
+        .expect("the stale undo kept the registry locked while it marked the effect indeterminate");
+    worker.join().unwrap();
+    assert_eq!(code.as_deref(), Some("mutation.indeterminate"));
+    *mux.topology_effect_before_execute.lock().unwrap() = None;
+
+    assert!(mux.workspace_registry.try_lock().is_ok(), "the registry lock is still held");
+    let later = mux.new_workspace(None, Some((80, 22))).err();
+    assert!(later.is_none(), "a later topology operation failed: {later:?}");
+}

@@ -11,7 +11,7 @@ import Testing
 /// (180 s without a test finishing), so it is one simulation in phases, in
 /// order: the launch and the first part of the run, then waiting for the
 /// rest, then the checks and a relaunch.
-@MainActor @Suite(.serialized, .ownsSidebarDocStore, .timeLimit(.minutes(15)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(15)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct ClassicUpgradeHugeSimulationTests {
     /// The simulation every phase works on.
     private final class Run {
@@ -61,13 +61,14 @@ struct ClassicUpgradeHugeSimulationTests {
             }
             let outcome = try #require(run.outcome, "the migration of 512 workspaces did not finish in 15 minutes (\(run.sim.made().count) made)")
             print("CLASSIC-SIM huge opened=\(outcome.opened.count) failed=\(outcome.failures.count) first=\(outcome.failures.values.first ?? "-")")
+            print("CLASSIC-SIM huge \(run.sim.perWorkspaceReport())")
             // macOS hands out at most kern.tty.ptmx_max (511) PTYs, shared with every process:
             // background workspaces come over parked, so none runs out.
             let ptys = outcome.failures.values.filter { $0.contains("PTY capacity exhausted") }
             #expect(ptys.isEmpty, "\(ptys.count) workspaces found no free PTY")
             #expect(outcome.failures.isEmpty, "\(outcome.failures.values.prefix(3))")
             await run.sim.settle()
-            try run.sim.verify(profile, classicBefore: run.before)
+            try await run.sim.verify(profile, classicBefore: run.before)
             let clock = ContinuousClock()
             let start = clock.now
             let again = try await run.sim.relaunch()

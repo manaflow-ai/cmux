@@ -146,10 +146,27 @@ static void probe_fire(CFRunLoopTimerRef timer, void *info) {
 /// Defined beside this file: a run that lists its tests rather than running any.
 int cmux_next_test_lists_tests(void);
 
+/// Only `swift test`'s Swift Testing helper has the main thread this guard protects: its `main` is
+/// `swift_task_asyncMainDrainQueue`, which exits when its run of the main run loop returns. Every
+/// other host of this bundle runs its own main, and the block below would take that main thread for
+/// good the first time anything turns the main run loop. That is how `swift test`'s XCTest phase
+/// (the `xctest` tool, which loads the same bundle) hung for about 10 minutes and then died on
+/// signal 6 after every Swift Testing test had passed (2026-11-02, five fleet Macs and Blacksmith):
+/// `-[XCTestDriver _runTests]` waits on its start-up future with a turn of the main run loop
+/// (`+[XCTWaiter _synchronouslyWaitForTimeInterval:]`) whenever that work is not done yet, the
+/// guard's block ran in that turn, and XCTest never ran its suite (XCTestPhaseTests). #33023 first
+/// stopped the hold in a process whose argv has `-XCTest`; this name check covers that leg and every
+/// other host (an Xcode test host, `xctest` started without `-XCTest`), and installs nothing there.
+int cmux_next_test_runloop_guard_holds_in(const char *process_name) {
+    return process_name != NULL && strcmp(process_name, "swiftpm-testing-helper") == 0;
+}
+
 __attribute__((constructor)) static void cmux_next_test_runloop_guard_install(void) {
     // A listing run reports its tests and ends; holding its run loop open could only hang it, and
     // nothing in a listing run needs the depth count either.
     if (cmux_next_test_lists_tests()) return;
+    // Nothing at all in another host (xctest, an Xcode test host): no observer, no source, no block.
+    if (!cmux_next_test_runloop_guard_holds_in(getprogname())) return;
     const char *setting = getenv("CMUX_NEXT_TEST_RUNLOOP_GUARD");
     int hold = !(setting && strcmp(setting, "0") == 0);
     CFRunLoopRef main_loop = CFRunLoopGetMain();

@@ -3,12 +3,25 @@
 use super::*;
 
 impl Mux {
+    /// The revision of what `list-workspaces` shows (`list-workspaces-known-v1`,
+    /// mux/tree_revision.rs). Read it before reading the tree.
+    pub(crate) fn tree_revision(&self) -> String {
+        self.tree_revision.current()
+    }
+
     pub fn subscribe(&self) -> MuxEventReceiver {
         self.subscribers.subscribe()
     }
 
     pub fn subscribe_config_reload(&self) -> MuxEventReceiver {
         self.subscribers.subscribe_config_reload()
+    }
+
+    /// The events that can change which terminals are live (topology,
+    /// terminal registry, surface exits): the terminal reaper's filter, for
+    /// the owner's keepers watch (server/owner_keepers.rs).
+    pub(crate) fn subscribe_terminal_lifecycle(&self) -> MuxEventReceiver {
+        self.subscribers.subscribe_terminal_topology()
     }
 
     /// Request one owner config reload and wait until the owner applies it.
@@ -68,6 +81,20 @@ impl Mux {
     }
 
     pub fn emit(&self, event: MuxEvent) {
+        // A selection may show a workspace whose respawns wait in line: they
+        // check again (terminal_respawn.rs). Free when none waits.
+        if matches!(
+            event,
+            MuxEvent::TreeChanged
+                | MuxEvent::TreeSelectionChanged(_)
+                | MuxEvent::WorkspacePresentationChanged(_)
+                | MuxEvent::TreeDelta(_)
+        ) {
+            self.respawn_gate.wake_waiters();
+        }
+        if tree_revision::changes_tree(&event) {
+            self.tree_revision.bump();
+        }
         self.activity.observe(&event);
         if let MuxEvent::Conversation(conversation) = &event {
             self.chiefs().brains.observe(conversation);
@@ -81,6 +108,7 @@ impl Mux {
         }
     }
 
+    #[track_caller]
     pub(super) fn terminal_event_placements(&self, surface_id: SurfaceId) -> Vec<SurfaceId> {
         let state = self.state.lock().unwrap();
         let Some(surface) =
@@ -110,7 +138,7 @@ impl Mux {
 
     pub(crate) fn emit_terminal_title(&self, surface: SurfaceId, title: Arc<str>) {
         for placement in self.terminal_event_placements(surface) {
-            self.emit(MuxEvent::TitleChanged { surface: placement, title: title.clone() });
+            self.emit(MuxEvent::terminal_title(placement, title.clone()));
         }
     }
 
@@ -162,19 +190,28 @@ impl Mux {
         {
             hook(revision);
         }
+        let workspace = delta.workspace;
         self.emit(MuxEvent::TreeDelta(delta));
         if selection_resync {
-            self.emit(MuxEvent::TreeSelectionChanged);
+            // The selection a delta moves (the focused workspace, the pane's active tab) is in its
+            // workspace: a client that reads `selection-changed` applies it without a snapshot (#32408).
+            self.emit(MuxEvent::TreeSelectionChanged(Some(workspace)));
         }
     }
 
     pub(super) fn emit_committed_workspace_delta(
         &self,
-        _registry: &WorkspaceRegistry,
-        delta: TreeDelta,
+        registry: &WorkspaceRegistry,
+        mut delta: TreeDelta,
         selection_resync: bool,
     ) {
         debug_assert!(delta.workspace_revision.is_some());
+        // One read per delta, here, instead of one per subscriber in
+        // `tree_delta_json`. A failed read leaves the fields out, as before.
+        delta.mutation = delta
+            .workspace_revision
+            .and_then(|revision| registry.event_mutation(revision).ok().flatten())
+            .map(|(origin, mutation_id)| Arc::new(DeltaMutation { origin, mutation_id }));
         self.emit_tree_delta(delta, selection_resync);
     }
 
@@ -207,6 +244,8 @@ impl Mux {
             }
         }
 
+        #[cfg(test)]
+        crate::walk_counters::index_rebuild_visited(state.workspaces.len());
         let mut index = HashMap::new();
         for (workspace_index, workspace) in state.workspaces.iter().enumerate() {
             for (screen_index, screen) in workspace.screens.iter().enumerate() {

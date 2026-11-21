@@ -151,7 +151,7 @@ struct AgentCLIIntentLedgerTests {
           else:raise RuntimeError('recovery must not execute '+str(cmd))
           print(json.dumps({'id':frame.get('id'),'ok':True,'data':result}),flush=True)
         """#
-        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", script, mode])
+        let bridge = DaemonBridge.fakePython(["-c", script, mode])
         let endpoint = DaemonEndpoint(socketPath: "/tmp/cmux-recovery-\(UUID().uuidString).sock", bridge: bridge)
         var configuration = DaemonConnection.Configuration(requiredCapabilities: [], terminalEnvironment: nil, clientHello: .init(installKey: nil))
         configuration.heartbeat = .seconds(300)

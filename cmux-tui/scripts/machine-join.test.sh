@@ -39,7 +39,7 @@ fi
 shims="$root/shims"
 fakes="$root/fakes"
 mkdir -p "$shims" "$fakes"
-for tool in awk basename cat chmod cp grep head hostname id install loginctl \
+for tool in awk basename bash cat chmod cp grep head hostname id install loginctl \
   mkdir mktemp mv rm sed shasum sha256sum tr launchctl systemctl; do
   real="$(command -v "$tool" 2>/dev/null || true)"
   case "$tool" in
@@ -90,7 +90,29 @@ case "\$1" in -s) echo "\$JT_OS" ;; -m) echo "\$JT_ARCH" ;; *) echo fake ;; esac
 EOF
 chmod 755 "$shims/uname"
 
+# The fake systemctl: JT_UNIT=1 has acpmux.service loaded, and JT_UNIT_UP=0
+# keeps it from coming up; otherwise nothing is loaded and every call is a no-op.
+cat >"$shims/systemctl" <<EOF
+#!/bin/sh
+. "$fakes/record.sh"
+[ "\${JT_UNIT:-0}" = 1 ] || exit 0
+case "\$*" in
+  "--user show -p LoadState --value acpmux.service") echo loaded ;;
+  "--user is-active --quiet acpmux.service") [ "\${JT_UNIT_UP:-1}" = 1 ] ;;
+esac
+EOF
+chmod 755 "$shims/systemctl"
+
+# sleep records its argv and returns at once: a retry's wait costs the suite nothing.
+cat >"$shims/sleep" <<EOF
+#!/bin/sh
+. "$fakes/record.sh"
+EOF
+chmod 755 "$shims/sleep"
+
 # The fake curl: serves \$JT_SERVE/<kind> by the URL's shape, honours -o.
+# \$JT_LOG/curl-fails, one curl exit code per line: the acpmux download
+# fails with each in turn (a reset is 56, an HTTP status 22), then succeeds.
 cat >"$shims/curl" <<EOF
 #!/bin/sh
 . "$fakes/record.sh"
@@ -109,7 +131,17 @@ case "\$url" in
   https://files.cmux.com/cmux-tui/tree/*/cmux-tui-acpmux-*) src="\$JT_SERVE/acpmux" ;;
   https://files.cmux.com/cmux-tui/latest/manifest.json) src="\$JT_SERVE/manifest.json" ;;
   https://files.cmux.com/cmux-tui/*/cmux-tui-*) src="\$JT_SERVE/cmux" ;;
+  https://claude.ai/install.sh) src="\$JT_SERVE/claude-install.sh" ;;
   *) exit 6 ;;
+esac
+case "\$url" in
+  */tree/*)
+    if [ -s "\$JT_LOG/curl-fails" ]; then
+      code="\$("$(command -v head)" -n 1 "\$JT_LOG/curl-fails")"
+      "$(command -v sed)" 1d "\$JT_LOG/curl-fails" >"\$JT_LOG/curl-fails.next"
+      "$(command -v mv)" "\$JT_LOG/curl-fails.next" "\$JT_LOG/curl-fails"
+      exit "\$code"
+    fi ;;
 esac
 [ -f "\$src" ] || exit 22
 if [ -n "\$out" ]; then "$(command -v cat)" "\$src" >"\$out"; else "$(command -v cat)" "\$src"; fi
@@ -118,7 +150,10 @@ chmod 755 "$shims/curl"
 
 # The fake acpmux, "downloaded" from the channel. Behaviour from env:
 # JT_CAPS (capability lines), JT_JOIN_EXIT (with JT_JOIN_ERR, its message), JT_STATE (a file; present = joined),
-# JT_DOCTOR=1 (it has `host doctor --here`), JT_SERVICE=1 (`daemon service`).
+# JT_DOCTOR=1 (it has `host doctor --here`), JT_SERVICE=1 (`daemon service`),
+# JT_SVC=fail (`daemon service install` fails), JT_RESTART=fail (`daemon restart` fails),
+# JT_VAULT (what `host vault pull --json` answers: ok, not_granted or fail),
+# JT_CODEX_RT=1 (it has `harness codex-runtime`; install records a ready runtime).
 # Recovery, as acpmux's cloud_join/recovery.rs does it: JT_PENDING (a file;
 # present = joinIncomplete, a pending proposal on disk; it holds the
 # proposal's hub when a case sets one) with JT_PROBE (what
@@ -133,8 +168,14 @@ refuse() { printf '{"error":{"code":"runtime","exit":%s,"detail":"join.incomplet
 case "\$*" in
   capabilities) printf '%s\n' \$JT_CAPS ;;
   "daemon service --help") [ "\${JT_SERVICE:-0}" = 1 ] || exit 2 ;;
+  "daemon service install")
+    case "\${JT_SVC:-ok}" in
+      fail) echo "launchd did not load com.acpmux.daemon" >&2; exit 1 ;;
+      *) echo "acpmux.service runs" ;;
+    esac ;;
+  "daemon restart") [ "\${JT_RESTART:-ok}" != fail ] || exit 1 ;;
   "host doctor --help") [ "\${JT_DOCTOR:-0}" = 1 ] && echo "  --here" || exit 2 ;;
-  "host doctor --here") echo '{"step":"credential","state":"ok"}' ;;
+  "host doctor --here --fix") echo '{"step":"credential","state":"ok"}' ;;
   "host join --status --json")
     inc=false
     [ ! -f "\$JT_PENDING" ] || inc=true
@@ -146,6 +187,22 @@ case "\$*" in
       printf '{\n  "credentialPath": "/h/.acpmux/machine-credential.json",\n  "credentialPresent": false,\n  "joinIncomplete": %s,\n  "revoked": false\n}\n' "\$inc"
     fi ;;
   "host join --status") echo "credential: present" ;;
+  "host vault pull --json")
+    case "\${JT_VAULT:-fail}" in
+      ok) printf '{\n  "state": "ok",\n  "env": ["OPENAI_API_KEY", "GITHUB_TOKEN"],\n  "note": "sk-must-not-print"\n}\n' ;;
+      not_granted) printf '{"state": "not_granted"}\n' ;;
+      off) printf '{"state": "off"}\n' ;;
+      partial) printf '{"state": "partial", "env": ["OPENAI_API_KEY"], "note": "sk-must-not-print"}\n'; exit 1 ;;
+      *) echo "acpmux: vault failed sk-must-not-print" >&2; exit 1 ;;
+    esac ;;
+  "harness codex-runtime --help") [ "\${JT_CODEX_RT:-0}" = 1 ] || exit 2 ;;
+  "harness codex-runtime install") [ "\${JT_CODEX_RT:-0}" = 1 ] || exit 2; : >"\$HOME/codex-ready" ;;
+  "harness codex-runtime status")
+    if [ -f "\$HOME/codex-ready" ]; then
+      printf '{\n  "path": "%s",\n  "ready": true\n}\n' "\$JT_SERVE/codex dir/codex"
+    else
+      printf '{"path": "/nowhere", "ready": false}\n'
+    fi ;;
   "host join "*)
     got="\$("$(command -v cat)")"
     [ -z "\$got" ] || printf '%s\n' "\$got" >>"\$JT_LOG/join-stdin"
@@ -206,6 +263,30 @@ serve_dir() { # serve_dir DIR [WRONG_SHA]
 }
 EOF
   printf '#!/bin/sh\necho cmux\n' >"$1/cmux"
+  # Claude Code's installer puts a fake claude in ~/.local/bin; `auth status`
+  # says signed in when ~/claude-in exists. The fake codex reads ~/codex-in.
+  cat >"$1/claude-install.sh" <<EOS
+mkdir -p "\$HOME/.local/bin"
+cat >"\$HOME/.local/bin/claude" <<'EOC'
+#!/bin/sh
+. "$fakes/record.sh"
+case "\$*" in
+  "auth status") if [ -f "\$HOME/claude-in" ]; then echo '{"loggedIn": true, "email": "x@example.com"}'; else echo '{"loggedIn": false}'; exit 1; fi ;;
+esac
+EOC
+chmod 755 "\$HOME/.local/bin/claude"
+EOS
+  cat >"$1/codex" <<EOS
+#!/bin/sh
+. "$fakes/record.sh"
+case "\$*" in
+  "login status") [ -f "\$HOME/codex-in" ] ;;
+esac
+EOS
+  chmod 755 "$1/codex"
+  # The managed runtime's path has a space in it, as ~/Library/Application Support does.
+  mkdir -p "$1/codex dir"
+  cp "$1/codex" "$1/codex dir/codex"
   c="$(sha "$1/cmux")"
   printf '{"commit": "a6d89d443f5f9ffb66c296d7a9680e307bbe6c58", "cmux-tui-x86_64-unknown-linux-gnu": "%s", "cmux-tui-aarch64-apple-darwin": "%s"}\n' "$c" "$c" >"$1/manifest.json"
 }
@@ -220,6 +301,7 @@ new_case() {
   JT_OS=Linux JT_ARCH=x86_64
   JT_CAPS="acpmux-v1 machine.join.stdin.v1"
   JT_JOIN_EXIT=0 JT_DOCTOR=0 JT_SERVICE=1 JT_PROBE=unknown JT_JOIN_ERR=""
+  JT_VAULT=fail JT_CODEX_RT=0 JT_SVC=ok JT_RESTART=ok JT_UNIT=0 JT_UNIT_UP=1
   : >"$d/log/argv"
 }
 
@@ -232,7 +314,8 @@ run_join() {
     JT_OS="$JT_OS" JT_ARCH="$JT_ARCH" JT_CAPS="$JT_CAPS" JT_JOIN_EXIT="$JT_JOIN_EXIT" \
     JT_DOCTOR="$JT_DOCTOR" JT_SERVICE="$JT_SERVICE" JT_PROBE="$JT_PROBE" JT_JOIN_ERR="$JT_JOIN_ERR" \
     JT_PENDING="$d/home/pending" JT_REVOKED="$d/home/revoked" \
-    CMUX_PLATFORM_URL="$origin" "$@"
+    JT_VAULT="$JT_VAULT" JT_CODEX_RT="$JT_CODEX_RT" JT_SVC="$JT_SVC" JT_RESTART="$JT_RESTART" \
+    JT_UNIT="$JT_UNIT" JT_UNIT_UP="$JT_UNIT_UP" CMUX_PLATFORM_URL="$origin" "$@"
   rc=0
   case "$form" in
     env) "$@" CMUX_JOIN="$token" $shell_cmd -s <"$script_under_test" >"$d/out" 2>&1 || rc=$? ;;
@@ -270,7 +353,8 @@ suite() {
   check "acpmux installed" installed
   check "joins with --hub and --name" grep -q -- "--hub $origin --name" "$d/log/joins"
   check "the cmux CLI installed" test -x "$d/home/.cmux/bin/cmux"
-  check "the consent line" out_has "Screen sharing and control are off on this machine."
+  check "linux without cmux-rd: says the screen is not shared and why" out_has "This machine's screen is not shared: cmux-rd is not installed at $d/home/.local/bin/cmux-rd."
+  check "linux: no consent line (cmux-rd's host serves your own account)" eval '! out_has "Screen sharing and control are off"'
   check "no token in output" no_token_in_output
   check "no printf binary was exec'd (it is a builtin)" eval '! grep -q "^printf" "$d/log/argv"'
 
@@ -373,11 +457,45 @@ suite() {
   check "the temp dir was kept for the disk check" eval 'ls "$d/tmp"/cmux-join.*/join.err >/dev/null 2>&1'
   check "acpmux's stderr is redacted before it reaches disk" no_token_on_disk
 
+  # A transport reset is retried (run 44192875334: a 23 s blip reset every
+  # connection); an HTTP status the server sent is not.
+  new_case fetch-reset
+  printf '56\n56\n' >"$d/log/curl-fails"
+  run_join env
+  check "two resets, then the download: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "one line per retry" test "$(grep -c 'retrying in' "$d/out")" = 2
+  check "the retry line names the curl exit" out_has "(curl exit 56); retrying in 2 s"
+  check "waits 2 s, then 8 s" test "$(grep '^sleep' "$d/log/argv" | tr '\n' ' ')" = "sleep 2 sleep 8 "
+  check "three tries of the download" test "$(grep -c '^curl .*tree/' "$d/log/argv")" = 3
+  check "acpmux installed" installed
+  check "the token reaches acpmux on stdin, once" token_on_stdin_once
+  check "no token in output" no_token_in_output
+
+  new_case fetch-reset-gives-up
+  printf '56\n7\n28\n35\n' >"$d/log/curl-fails"
+  run_join env
+  check "four transport failures: exit 1 (got $rc)" rc_is 1
+  check "it stops after four tries" test "$(grep -c '^curl .*tree/' "$d/log/argv")" = 4
+  check "waits 2, 8 and 20 s" test "$(grep '^sleep' "$d/log/argv" | tr '\n' ' ')" = "sleep 2 sleep 8 sleep 20 "
+  check "it says the download failed" out_has "cannot download acpmux for x86_64-unknown-linux-musl"
+  check "nothing installed" eval '! installed'
+  check "nothing redeemed" no_redeem
+
+  new_case fetch-http-status
+  printf '22\n' >"$d/log/curl-fails"
+  run_join env
+  check "an HTTP status: exit 1 (got $rc)" rc_is 1
+  check "an HTTP status is not retried" test "$(grep -c '^curl .*tree/' "$d/log/argv")" = 1
+  check "no wait" eval '! grep -q "^sleep" "$d/log/argv"'
+  check "no retry line" eval '! out_has "retrying in"'
+  check "nothing redeemed" no_redeem
+
   new_case sha-mismatch
   serve_dir "$d/serve" "0000000000000000000000000000000000000000000000000000000000000000"
   run_join env
   check "mismatch fails (got $rc)" rc_is 1
   check "mismatch says so" out_has "checksum verification failed for acpmux"
+  check "a mismatch is not retried" test "$(grep -c '^curl .*tree/' "$d/log/argv")" = 1
   check "nothing installed" eval '! installed'
   check "nothing redeemed" no_redeem
 
@@ -392,7 +510,76 @@ suite() {
   check "the channel build replaced it" test "$(sha "$d/home/.local/bin/acpmux")" = "$(sha "$d/serve/acpmux")"
   check "the old one kept as acpmux.prev" grep -q "a different build" "$d/home/.local/bin/acpmux.prev"
   check "the replaced daemon restarted" grep -q "^acpmux daemon restart" "$d/log/argv"
+  check "replace and redeem restart the daemon once, not twice" test "$(grep -c "^acpmux daemon restart" "$d/log/argv")" = 1
   check "token on stdin of the verified binary" token_on_stdin_once
+
+  # acpmux.prev still runs (processes started before an earlier update): on
+  # Linux, writing over it fails with "Text file busy"; the join goes on.
+  if [ "$(uname -s)" = Linux ]; then
+    new_case prev-busy
+    bin="$d/home/.local/bin"
+    mkdir -p "$bin"
+    { cat "$root/acpmux.src"; echo "# a different build"; } >"$bin/acpmux"
+    chmod 755 "$bin/acpmux"
+    cp "$(command -v sleep)" "$bin/acpmux.prev"
+    chmod 755 "$bin/acpmux.prev"
+    "$bin/acpmux.prev" 120 &
+    busy=$!
+    tries=0
+    while [ "$(readlink "/proc/$busy/exe" 2>/dev/null)" != "$bin/acpmux.prev" ] && [ "$tries" -lt 50 ]; do
+      sleep 0.1
+      tries=$((tries + 1))
+    done
+    # Live: the copy-over this replaced fails on this file.
+    check "prev-busy: acpmux.prev is running, so cp over it fails" eval '! cp "$bin/acpmux" "$bin/acpmux.prev" 2>/dev/null'
+    run_join env
+    kill "$busy" 2>/dev/null || :
+    wait "$busy" 2>/dev/null || :
+    check "prev-busy: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+    check "prev-busy: the channel build replaced it" test "$(sha "$bin/acpmux")" = "$(sha "$d/serve/acpmux")"
+    check "prev-busy: the old one kept as acpmux.prev" grep -q "a different build" "$bin/acpmux.prev"
+    check "prev-busy: no staged copy left" test ! -e "$bin/.acpmux.prev.new"
+    check "prev-busy: token on stdin" token_on_stdin_once
+  fi
+
+  # systemd's acpmux.service runs the daemon: restarts go through it after
+  # reset-failed, once per run (two within seconds hit its start limit).
+  new_case unit-replace-join
+  JT_UNIT=1
+  mkdir -p "$d/home/.local/bin"
+  { cat "$root/acpmux.src"; echo "# a different build"; } >"$d/home/.local/bin/acpmux"
+  chmod 755 "$d/home/.local/bin/acpmux"
+  run_join env
+  check "unit: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "unit: one systemd restart" test "$(grep -c "^systemctl --user restart acpmux.service" "$d/log/argv")" = 1
+  check "unit: reset-failed before it" grep -q "^systemctl --user reset-failed acpmux.service" "$d/log/argv"
+  check "unit: never acpmux daemon restart or start" eval '! grep -qE "^acpmux daemon (restart|start)" "$d/log/argv"'
+  check "unit: the restart comes after the redeem" eval '[ "$(grep -n "^acpmux host join --hub" "$d/log/argv" | head -n 1 | cut -d: -f1)" -lt "$(grep -n "^systemctl --user restart" "$d/log/argv" | cut -d: -f1)" ]'
+  check "unit: says it is active" out_has "restarted acpmux.service; it is active"
+  : >"$d/log/argv"
+  run_join env
+  check "unit re-run: exit 0 (got $rc)" rc_is 0
+  check "unit re-run: no restart" eval '! grep -q "^systemctl --user restart" "$d/log/argv"'
+
+  # A replaced binary on a joined machine (nothing redeemed) still restarts, once.
+  new_case unit-replace-joined
+  JT_UNIT=1
+  mkdir -p "$d/home/.local/bin"
+  { cat "$root/acpmux.src"; echo "# a different build"; } >"$d/home/.local/bin/acpmux"
+  chmod 755 "$d/home/.local/bin/acpmux"
+  : >"$d/home/joined"
+  run_join env
+  check "unit, joined: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "unit, joined: nothing redeemed" no_redeem
+  check "unit, joined: one systemd restart" test "$(grep -c "^systemctl --user restart acpmux.service" "$d/log/argv")" = 1
+
+  # The unit does not come back: fail with the way out.
+  new_case unit-down
+  JT_UNIT=1
+  JT_UNIT_UP=0
+  run_join env
+  check "unit down: exit 1 (got $rc)" rc_is 1
+  check "unit down: names reset-failed and start" out_has "systemctl --user reset-failed acpmux.service; systemctl --user start acpmux.service"
 
   # Without a token (repair), a capable different build is kept.
   new_case capable-mismatch-repair
@@ -431,17 +618,44 @@ suite() {
   check "bad token downloads nothing" eval '! grep -q "^curl" "$d/log/argv"'
 
   new_case no-token
+  # cmux-rd is installed, but nothing joined this machine: its screen is not shared.
+  mkdir -p "$d/home/.local/bin"
+  printf '#!/bin/sh\n. "%s/record.sh"\nexit 0\n' "$fakes" >"$d/home/.local/bin/cmux-rd"
+  chmod 755 "$d/home/.local/bin/cmux-rd"
   run_join none
   check "no token: exit 0 (got $rc)" rc_is 0
   check "no token: installed" installed
   check "no token: service and daemon" grep -q "^acpmux daemon start" "$d/log/argv"
   check "no token: nothing redeemed" no_redeem
+  check "no token, not joined: the screen is not shared" out_has "This machine is not joined, so its screen is not shared."
+  check "no token, not joined: never says it is shared" eval '! out_has "Your own account can view this machine'"'"'s screen"'
 
   new_case doctor
   JT_DOCTOR=1
   run_join env
   check "doctor run" grep -q "^acpmux host doctor --here" "$d/log/argv"
   check "doctor lines printed" out_has '"step":"credential"'
+
+  new_case service
+  run_join env
+  check "service: exit 0 (got $rc)" rc_is 0
+  check "service: installed" grep -q "^acpmux daemon service install" "$d/log/argv"
+  check "service: before the daemon starts" eval '[ "$(grep -n "^acpmux daemon service install" "$d/log/argv" | head -n 1 | cut -d: -f1)" -lt "$(grep -n "^acpmux daemon start" "$d/log/argv" | head -n 1 | cut -d: -f1)" ]'
+  check "service: says where it stands" out_has "cmux join: acpmux.service runs"
+  check "service: no warning" eval '! grep -q "did not install" "$d/out"'
+
+  new_case service-fails
+  JT_SVC=fail
+  run_join env
+  check "service fails: still joins (got $rc)" rc_is 0
+  check "service fails: warns with acpmux's words" out_has "warning: the acpmux service did not install: launchd did not load com.acpmux.daemon"
+  check "service fails: daemon start" grep -q "^acpmux daemon start" "$d/log/argv"
+
+  new_case restart-fails
+  JT_RESTART=fail
+  run_join env
+  check "restart fails: still joins (got $rc)" rc_is 0
+  check "restart fails: says the daemon has no heartbeat yet" out_has "did not restart onto the new acpmux or the join, so it sends no heartbeat yet"
 
   new_case no-service
   JT_SERVICE=0
@@ -455,6 +669,20 @@ suite() {
   run_join env
   check "macos exit 0 (got $rc): $(cat "$d/out")" rc_is 0
   check "macos fetches the darwin build" grep -q "cmux-tui-acpmux-aarch64-apple-darwin" "$d/log/argv"
+  check "macos: the consent line" out_has "Screen sharing and control are off on this machine."
+
+  # Linux with cmux-rd where the screen host unit runs it: the daemon shares the
+  # screen with the joining account by itself, after the join's restart.
+  new_case linux-cmux-rd
+  mkdir -p "$d/home/.local/bin"
+  printf '#!/bin/sh\n. "%s/record.sh"\nexit 0\n' "$fakes" >"$d/home/.local/bin/cmux-rd"
+  chmod 755 "$d/home/.local/bin/cmux-rd"
+  run_join env
+  check "linux-cmux-rd exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "linux-cmux-rd: your own account, nothing to do here" out_has "Your own account can view this machine's screen from your other devices, with nothing to do here. Other accounts can't reach it."
+  check "linux-cmux-rd: no consent line" eval '! out_has "Screen sharing and control are off"'
+  check "linux-cmux-rd: the daemon restarts onto the join" grep -q "^acpmux daemon restart" "$d/log/argv"
+  check "linux-cmux-rd: the script never runs cmux-rd itself" eval '! grep -q "^cmux-rd" "$d/log/argv"'
 
   # A join cut off after redeem (joinIncomplete) wins over a present
   # credential: the rerun resumes through acpmux, never "already joined".
@@ -555,6 +783,128 @@ suite() {
   check "revoked, no token: exit 3 (got $rc)" rc_is 3
   check "revoked, no token: asks for a new line" out_has "enrollment was revoked or has expired; paste a new line: cmux machine add"
   check "revoked, no token: no join attempted" test ! -e "$d/log/joins"
+
+  # Once joined: Claude Code from its own installer, Codex from acpmux's
+  # runtime (macOS and Linux), and a sign-in line for each, through its own flow.
+  new_case harnesses
+  JT_OS=Darwin JT_ARCH=arm64 JT_CODEX_RT=1
+  run_join env
+  check "harnesses: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "harnesses: claude's own installer fetched" grep -q "^curl .*https://claude.ai/install.sh" "$d/log/argv"
+  check "harnesses: claude installed" test -x "$d/home/.local/bin/claude"
+  check "harnesses: says so" out_has "installed Claude Code"
+  check "harnesses: codex through acpmux's runtime" grep -q "^acpmux harness codex-runtime install" "$d/log/argv"
+  check "harnesses: claude sign-in line" out_has "sign in to Claude Code: run '$d/home/.local/bin/claude' here and sign in with its /login"
+  check "harnesses: codex sign-in line" out_has "sign in to Codex: run '$d/serve/codex dir/codex' login here"
+  check "harnesses: no login was run without a terminal" eval '! grep -q "auth login\|^codex login$" "$d/log/argv"'
+  check "harnesses: the sign-in is last" eval '[ "$(tail -n 1 "$d/out")" = "cmux join: sign in to Codex: run '"'"'$d/serve/codex dir/codex'"'"' login here" ]'
+  check "harnesses: no env leak: $(cat "$d/log/env-leak" 2>/dev/null)" no_env_leak
+  check "harnesses: no cmj_ in any argv" no_token_in_argv
+  check "harnesses: no token in output" no_token_in_output
+
+  # Signed in already: said so, nothing offered.
+  new_case harnesses-signed-in
+  JT_OS=Darwin JT_ARCH=arm64 JT_CODEX_RT=1
+  : >"$d/home/claude-in"
+  : >"$d/home/codex-in"
+  run_join env
+  check "signed in: exit 0 (got $rc)" rc_is 0
+  check "signed in: claude" out_has "Claude Code is signed in"
+  check "signed in: codex" out_has "Codex is signed in"
+  check "signed in: the runtime path with a space was used" grep -q "^codex login status" "$d/log/argv"
+  check "signed in: no sign-in line" eval '! out_has "sign in to"'
+  check "signed in: nothing of claude's status is shown" eval '! out_has "x@example.com"'
+
+  new_case harnesses-none
+  # A fixed name: the host name (gcp-codex-lane-11) would put "codex" in the join's argv.
+  run_join env CMUX_JOIN_HARNESSES=none CMUX_JOIN_NAME=box
+  check "none: exit 0 (got $rc)" rc_is 0
+  check "none: no installer" eval '! grep -q "claude.ai" "$d/log/argv"'
+  check "none: no codex" eval '! grep -q "codex" "$d/log/argv"'
+  check "none: no sign-in" eval '! out_has "sign in to"'
+
+  new_case harnesses-linux
+  JT_CODEX_RT=1 JT_DOCTOR=1
+  run_join env CMUX_JOIN_HARNESSES=codex
+  check "linux codex: exit 0 (got $rc)" rc_is 0
+  check "linux codex: installed" test -f "$d/home/codex-ready"
+  check "linux codex: uses managed installer" grep -q "^acpmux harness codex-runtime install" "$d/log/argv"
+  check "linux sandbox: join repairs prerequisites" grep -q "^acpmux host doctor --here --fix$" "$d/log/argv"
+  check "linux codex: no claude" eval '! grep -q "claude.ai" "$d/log/argv"'
+
+  new_case harnesses-bad
+  run_join env CMUX_JOIN_HARNESSES='claude;rm'
+  check "bad harnesses: exit 2 (got $rc)" rc_is 2
+  check "bad harnesses: nothing redeemed" no_redeem
+
+  # A repair run of a machine that never joined installs no harness and pulls nothing.
+  new_case not-joined-repair
+  JT_CAPS="acpmux-v1 machine.join.stdin.v1 machine.vault.pull.v1"
+  JT_VAULT=ok
+  run_join none
+  check "repair: exit 0 (got $rc)" rc_is 0
+  check "repair: no installer" eval '! grep -q "claude.ai" "$d/log/argv"'
+  check "repair: no vault pull" eval '! grep -q "host vault pull" "$d/log/argv"'
+
+  # The vault: names and a count, never anything else acpmux says.
+  new_case vault-ok
+  JT_CAPS="acpmux-v1 machine.join.stdin.v1 machine.vault.pull.v1"
+  JT_VAULT=ok
+  run_join env CMUX_JOIN_HARNESSES=none
+  check "vault ok: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "vault ok: pulled" grep -q "^acpmux host vault pull --json" "$d/log/argv"
+  check "vault ok: names and count" out_has "vault: 2 env vars (OPENAI_API_KEY GITHUB_TOKEN)"
+  check "vault ok: nothing else" eval '! out_has "sk-must-not-print"'
+  check "vault ok: acpmux's answer never reached disk" eval '! grep -rq --exclude=acpmux "sk-must-not-print" "$d/tmp"'
+  check "vault ok: no env leak" no_env_leak
+
+  new_case vault-not-granted
+  JT_CAPS="acpmux-v1 machine.join.stdin.v1 machine.vault.pull.v1"
+  JT_VAULT=not_granted
+  run_join env CMUX_JOIN_HARNESSES=none
+  check "vault not granted: still exit 0 (got $rc)" rc_is 0
+  check "vault not granted: says how" out_has "vault: not shared with this machine (from your Mac: cmux machine vault grant"
+
+  new_case vault-fail
+  JT_CAPS="acpmux-v1 machine.join.stdin.v1 machine.vault.pull.v1"
+  JT_VAULT=fail
+  run_join env CMUX_JOIN_HARNESSES=none
+  check "vault fail: still exit 0 (got $rc)" rc_is 0
+  check "vault fail: warns with the exit code only" out_has "the vault pull did not finish (acpmux exit 1)"
+  check "vault fail: acpmux's words are not shown" eval '! out_has "sk-must-not-print"'
+
+  new_case vault-off
+  JT_CAPS="acpmux-v1 machine.join.stdin.v1 machine.vault.pull.v1"
+  JT_VAULT=off
+  run_join env CMUX_JOIN_HARNESSES=none
+  check "vault off: exit 0 (got $rc)" rc_is 0
+  check "vault off: says nothing of the vault" eval '! grep -q "vault:\|vault pull" "$d/out"'
+
+  new_case vault-partial
+  JT_CAPS="acpmux-v1 machine.join.stdin.v1 machine.vault.pull.v1"
+  JT_VAULT=partial
+  run_join env CMUX_JOIN_HARNESSES=none
+  check "vault partial: the join still exits 0 (got $rc)" rc_is 0
+  check "vault partial: warns with names" out_has "warning: the vault pull got 1 env vars (OPENAI_API_KEY), not all of them"
+  check "vault partial: nothing else" eval '! out_has "sk-must-not-print"'
+
+  new_case vault-no-capability
+  JT_VAULT=ok
+  run_join env CMUX_JOIN_HARNESSES=none
+  check "no vault capability: no pull" eval '! grep -q "host vault pull" "$d/log/argv"'
+
+  # The sign-in step alone (`machine add USER@HOST` runs it over ssh -t).
+  new_case signin-step
+  HOME="$d/home" sh "$d/serve/claude-install.sh"
+  run_join none CMUX_JOIN_STEP=signin
+  check "signin step: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "signin step: the claude line" out_has "sign in to Claude Code: run '$d/home/.local/bin/claude' here"
+  check "signin step: no download, no join" eval '! grep -q "^curl\|host join" "$d/log/argv"'
+  run_join env CMUX_JOIN_STEP=signin
+  check "signin step with a token: exit 2 (got $rc)" rc_is 2
+  check "signin step with a token: no token in output" no_token_in_output
+  run_join none CMUX_JOIN_STEP=bogus
+  check "unknown step: exit 2 (got $rc)" rc_is 2
 
   new_case unsupported
   JT_OS=FreeBSD

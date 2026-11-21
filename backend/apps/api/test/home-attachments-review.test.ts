@@ -1,4 +1,4 @@
-/** Home attachments: the backend lead's review and re-check fixes, presigned large uploads. Helpers: home-attachments-support.ts. */
+/** Home attachments: the backend lead's review and re-check fixes, multipart and legacy presigned large uploads. Helpers: home-attachments-support.ts. */
 import { describe, expect, it } from "vitest"
 
 import { createHash } from "node:crypto"
@@ -169,7 +169,8 @@ describe("Home attachments: review fixes (P2/P3)", { timeout: 120_000 }, () => {
   })
 })
 
-describe("Home attachments: presigned R2 PUT for 32-100 MB", { timeout: 120_000 }, () => {
+// A client that does not send `multipart: true` (older builds) still gets the presigned PUT; current clients use multipart.
+describe("Home attachments: legacy presigned R2 PUT (an intent without multipart)", { timeout: 120_000 }, () => {
 
   it("a large file gets a presigned PUT that signs length and checksum; commit HEADs size and checksum before it is referenceable", async () => {
     const alice = await signIn("att-big-alice")
@@ -225,6 +226,50 @@ describe("Home attachments: re-check blockers (sweep cursor, orphan slots, requi
     return n
   }
   const keyOfPresigned = (uploadUrl: string) => decodeURIComponent(new URL(uploadUrl).pathname).split("/").slice(2).join("/")
+
+  it("an expired multipart slot aborts its R2 upload and refunds the reservation; each stored part renews its idle lease", async () => {
+    const alice = await signIn("att-expire-multipart")
+    const g = await group(alice)
+    const stub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(g.id))
+    const piece = new Uint8Array(32 * 1024 * 1024).fill(3)
+    const r = await intent(alice, g.id, piece, { multipart: true, byte_count: piece.byteLength + 17 })
+    expect(r.json.value).toMatchObject({ mode: "multipart", part_size: piece.byteLength, part_count: 2 })
+    // A long upload stays live while each next part arrives before the idle lease ends.
+    await runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_slots SET expires_at = ?", Date.now() + 60_000))
+    expect((await worker.fetch(r.json.value.upload_url, { method: "PUT", body: piece, headers: { "content-length": String(piece.byteLength), "x-cmux-part-number": "1" } })).status).toBe(200)
+    const row = await runInDurableObject(stub, async (_i, state) => state.storage.sql.exec("SELECT object_key, expires_at, multipart_upload_id FROM home_attachment_slots").toArray()[0] as { object_key: string; expires_at: number; multipart_upload_id: string })
+    expect(row.expires_at).toBeGreaterThan(Date.now() + 14 * 60_000)
+    await expireSlots(stub)
+    await drainAlarms(stub)
+    expect(await slotRows(stub)).toEqual([])
+    expect(await usageRows(alice.user)).toEqual([])
+    await expect(testEnv.HOME_ATTACHMENTS.resumeMultipartUpload(row.object_key, row.multipart_upload_id).uploadPart(2, new Uint8Array(17))).rejects.toThrow()
+  })
+
+  it("expiry pages through every due multipart slot, at most 100 per wake, and an upload that is already gone does not stop the rest", async () => {
+    const alice = await signIn("att-expire-pages")
+    const g = await group(alice)
+    const stub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(g.id))
+    const conv = stub as unknown as {
+      createUploadSlot(e: string, actor: string, quotaUser: string, meta: unknown, mode: string, id: string): Promise<{ id: string; object_key: string }>
+      setMultipartUpload(e: string, id: string, uploadId: string, objectKey?: string): Promise<boolean>
+    }
+    const uploads: Array<R2MultipartUpload> = []
+    for (let i = 0; i < 150; i++) {
+      const slot = await conv.createUploadSlot(g.id, alice.user, alice.user, { hash: sha(bytesOf(`f${i}`)), byte_count: 40_000_000, mime_type: "application/octet-stream" }, "multipart", crypto.randomUUID().replaceAll("-", ""))
+      const upload = await testEnv.HOME_ATTACHMENTS.createMultipartUpload(slot.object_key)
+      expect(await conv.setMultipartUpload(g.id, slot.id, upload.uploadId, slot.object_key)).toBe(true)
+      uploads.push(upload)
+    }
+    await expireSlots(stub)
+    // The first slot due names an upload R2 no longer knows (its abort throws), as after R2's own cleanup.
+    await runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_slots SET expires_at = expires_at - 1, multipart_upload_id = 'gone' WHERE multipart_upload_id = ?", uploads[0]!.uploadId))
+    await fireAlarm(stub)
+    expect(await slotRows(stub)).toHaveLength(50)
+    await drainAlarms(stub)
+    expect(await slotRows(stub)).toEqual([])
+    for (const upload of uploads.slice(1)) await expect(upload.uploadPart(1, new Uint8Array(1))).rejects.toThrow()
+  })
 
   it("P1: the sweep keeps a cursor past 500 referenced old records, collects the unreferenced ones after them, and stops rescheduling", async () => {
     const alice = await signIn("att-cursor-alice")
@@ -352,18 +397,61 @@ describe("Home attachments: re-check blockers (sweep cursor, orphan slots, requi
     expect(await testEnv.HOME_ATTACHMENTS.head(key)).toBeNull()
   })
 
-  it("files over 32 MB answer 503 attachment.large_unavailable without the S3 settings", async () => {
+  it("without the S3 settings no large file gets 503: a legacy intent streams through the Worker, a multipart intent gets parts", async () => {
     const alice = await signIn("att-nos3-alice")
     const g = await group(alice)
     const { handleAttachmentIntent } = await import("../src/home-attachments.ts")
     const noS3 = { ...testEnv, HOME_ATTACHMENTS_S3_ENDPOINT: undefined } as Env
-    const req = new Request("https://api.test/v1/home/attachments/intent", {
-      method: "POST",
-      headers: { authorization: `Bearer ${alice.token}`, "content-type": "application/json" },
-      body: JSON.stringify({ conversation: g.id, sha256: "a".repeat(64), byte_count: 40_000_000, mime_type: "video/mp4", name: "v.mp4" })
-    })
-    const res = await handleAttachmentIntent(req, noS3)
-    expect(res.status).toBe(503)
-    expect(((await res.json()) as any).error.code).toBe("attachment.large_unavailable")
+    const big = new Uint8Array(40_000_000).fill(5)
+    const ask = async (over: Record<string, unknown>) => {
+      const res = await handleAttachmentIntent(
+        new Request("https://api.test/v1/home/attachments/intent", {
+          method: "POST",
+          headers: { authorization: `Bearer ${alice.token}`, "content-type": "application/json" },
+          body: JSON.stringify({ conversation: g.id, sha256: sha(big), byte_count: big.byteLength, mime_type: "video/mp4", name: "v.mp4", ...over })
+        }),
+        noS3
+      )
+      return { status: res.status, json: (await res.json()) as any }
+    }
+    // An older client (no `multipart`) streams the whole file through the Worker, one bounded R2 put.
+    const legacy = await ask({})
+    expect([legacy.status, legacy.json.value?.mode]).toEqual([200, "stream"])
+    expect(new URL(legacy.json.value.upload_url).pathname).toMatch(/^\/v1\/home\/attachments\/upload\//)
+    const stored = await put(legacy.json.value.upload_url, big)
+    expect([stored.status, ((await stored.json()) as any).value.state]).toEqual([200, "stored"])
+    const multipart = await ask({ multipart: true, sha256: "c".repeat(64) })
+    expect(multipart.status).toBe(200)
+    expect(multipart.json.value).toMatchObject({ state: "upload", mode: "multipart", method: "PUT", part_size: 32 * 1024 * 1024, part_count: 2 })
+    expect(new URL(multipart.json.value.upload_url).pathname).toMatch(/^\/v1\/home\/attachments\/multipart\//)
+    expect(multipart.json.value.upload_url).not.toContain("X-Amz-")
+  })
+
+  it("every size has a transport: a client that can send parts is never refused for size; an older one only past what one request can carry", async () => {
+    const { uploadModeFor } = await import("../src/home-attachments.ts")
+    const MB = 1_000_000
+    const GB = 1_000 * MB
+    const TB = 1_000 * GB
+    const worker = 100 * MB
+    const code = (r: ReturnType<typeof uploadModeFor>) => (typeof r === "string" ? r : r.code)
+    // [byte count, multipart client, S3 settings] -> transport
+    const cases: Array<[number, boolean, boolean, string]> = [
+      [10 * MB, false, false, "stream"],
+      [10 * MB, true, true, "stream"],
+      [40 * MB, false, false, "stream"],
+      [100 * MB, false, false, "stream"],
+      [40 * MB, false, true, "presigned"],
+      [5 * GB, false, true, "presigned"],
+      [40 * MB, true, false, "multipart"],
+      [40 * MB, true, true, "multipart"],
+      [900 * GB, true, false, "multipart"],
+      [101 * MB, false, false, "attachment.multipart_required"],
+      [6 * GB, false, true, "attachment.multipart_required"]
+    ]
+    expect(cases.map(([bytes, multipart, s3]) => code(uploadModeFor(bytes, multipart, s3, worker)))).toEqual(cases.map((c) => c[3]))
+    // A Business or Enterprise zone carries larger requests: an older client streams more through the Worker.
+    expect(uploadModeFor(150 * MB, false, false, 200 * MB)).toBe("stream")
+    // No answer is a "too large" refusal for a client that sends parts while the deployment can take them.
+    expect(code(uploadModeFor(TB / 2, true, true, worker))).toBe("multipart")
   })
 })

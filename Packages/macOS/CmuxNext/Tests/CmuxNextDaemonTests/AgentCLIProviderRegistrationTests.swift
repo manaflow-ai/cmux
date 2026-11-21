@@ -39,7 +39,7 @@ struct AgentCLIProviderRegistrationTests {
         """#
         let caps = modern ? ["apps-v1", "agent-cli-app-provider-v1"] : ["apps-v1"]
         let encoded = String(decoding: try JSONEncoder().encode(caps), as: UTF8.self)
-        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", script, encoded])
+        let bridge = DaemonBridge.fakePython(["-c", script, encoded])
         let endpoint = DaemonEndpoint(socketPath: "/tmp/cmux-provider-test-\(UUID().uuidString).sock", bridge: bridge)
         let connection = DaemonConnection(endpoint: endpoint, configuration: .init(requiredCapabilities: [], terminalEnvironment: nil))
         do {

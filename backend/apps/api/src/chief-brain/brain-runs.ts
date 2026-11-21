@@ -168,10 +168,28 @@ export const readRun = (sql: SqlStorage, agent: string, id: string): Run | null 
 }
 
 /** The conversation's runs of this chief, newest first. */
-export const readRuns = (sql: SqlStorage, agent: string, conversation: string, before: number | undefined, limit: number): { runs: Array<Run>; has_more: boolean } => {
+export type RunPageRow = { id: string; started: number }
+
+/** Reads a page without dropping rows that tie at the page's timestamp boundary. */
+export const readRunPage = (sql: SqlStorage, conversation: string, before: number | undefined, limit: number): { rows: Array<RunPageRow>; has_more: boolean } => {
   const rows = sql
-    .exec<{ id: string }>(`SELECT id FROM cb_turn WHERE conversation = ? AND started < ? ORDER BY started DESC LIMIT ?`, conversation, before ?? Number.MAX_SAFE_INTEGER, limit + 1)
+    .exec<RunPageRow>(`SELECT id, started FROM cb_turn WHERE conversation = ? AND started < ? ORDER BY started DESC, id DESC LIMIT ?`, conversation, before ?? Number.MAX_SAFE_INTEGER, limit + 1)
     .toArray()
-  const runs = rows.slice(0, limit).flatMap((r) => readRun(sql, agent, String(r.id)) ?? [])
-  return { runs, has_more: rows.length > limit }
+  if (rows.length <= limit) return { rows, has_more: false }
+  const boundary = Number(rows[limit - 1]!.started)
+  const prefix = rows.filter((row) => Number(row.started) > boundary)
+  const ties = sql
+    .exec<RunPageRow>(`SELECT id, started FROM cb_turn WHERE conversation = ? AND started = ? ORDER BY started DESC, id DESC`, conversation, boundary)
+    .toArray()
+  const hasMore = sql
+    .exec(`SELECT 1 FROM cb_turn WHERE conversation = ? AND started < ? LIMIT 1`, conversation, boundary)
+    .toArray().length > 0
+  return { rows: [...prefix, ...ties], has_more: hasMore }
+}
+
+export const readRuns = (sql: SqlStorage, agent: string, conversation: string, before: number | undefined, limit: number): { runs: Array<Run>; has_more: boolean } => {
+  const page = readRunPage(sql, conversation, before, limit)
+  const rows = page.rows
+  const runs = rows.flatMap((r) => readRun(sql, agent, String(r.id)) ?? [])
+  return { runs, has_more: page.has_more }
 }

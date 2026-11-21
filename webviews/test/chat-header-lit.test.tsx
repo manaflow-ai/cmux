@@ -6,6 +6,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -25,12 +26,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 test("a toggle lights while the App reports its split open, and not in open mode", async () => {
@@ -38,6 +36,9 @@ test("a toggle lights while the App reports its split open, and not in open mode
   const { ChatHeaderTools } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
   const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
   const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
+  // Other header cases change these shared stores; this case starts from its own toggle state.
+  configureQuickActions({});
+  applyHostEvent({ kind: "headerState", value: { lit: [] } });
   root = createRoot(host);
   act(() =>
     root!.render(<ChatHeaderTools onTerminal={() => {}} onBrowser={() => {}} summary={null} menu={() => []} />),
@@ -60,4 +61,8 @@ test("a toggle lights while the App reports its split open, and not in open mode
   // In open mode every click opens another browser: there is no one panel to show as on.
   act(() => configureQuickActions({ quickActions: ["terminal", { id: "browser", mode: "open" }] }));
   expect(pressed()).toMatchObject({ Terminal: "false", Browser: null });
+  act(() => {
+    configureQuickActions({});
+    applyHostEvent({ kind: "headerState", value: { lit: [] } });
+  });
 });

@@ -91,7 +91,11 @@ impl ChatModel for HttpModel {
             .post(&self.url)
             .set("x-api-key", &self.key)
             .set("anthropic-version", API_VERSION)
-            .set(optchat_host::AGENT_HEADER.0, optchat_host::AGENT_HEADER.1);
+            .set(optchat_host::AGENT_HEADER.0, optchat_host::AGENT_HEADER.1)
+            .set(
+                optchat_host::SESSION_HEADER,
+                &optchat_host::session_key("chief", body, false),
+            );
         if let Some(beta) = self.beta {
             request = request.set("anthropic-beta", beta);
         }

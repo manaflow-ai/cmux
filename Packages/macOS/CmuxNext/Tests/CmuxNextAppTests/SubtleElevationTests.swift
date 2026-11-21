@@ -1,11 +1,13 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextBridge
 @testable import CmuxNextBrowser
 @testable import CmuxNextDesign
 @testable import CmuxNextLayout
 @testable import CmuxNextPalette
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Leo, 2026-10-14: no dramatic shadows. The tab drag ghost cast black at 28% with a 10 pt radius,
@@ -13,6 +15,7 @@ import Testing
 /// Every native shadow now comes from one scale, `PopupStyle.elevation1`/`elevation2` (the web's
 /// `--elevation-1`/`--elevation-2`): a tight, low-alpha drop, with the thin rim carrying the edge.
 @MainActor
+@Suite(.closesItsWindows)
 struct SubtleElevationTests {
     private let raised = PopupStyle.elevation2
     /// The largest blur any native shadow may cast (CSS terms), and the darkest alpha.
@@ -35,17 +38,12 @@ struct SubtleElevationTests {
         expectRaised(host.shadowLayer, flipped: false)
     }
 
-    @Test func aToastCastsTheRaisedStep() throws {
-        let view = CmuxToastView(toast: CmuxToast(id: "t", message: "Saved"))
-        expectRaised(try #require(view.layer), flipped: false)
-    }
-
     @Test func thePaletteCastsTheRaisedStep() throws {
         _ = NSApplication.shared
         let content = PaletteContentView(model: PaletteModel())
         let window = NSWindow(contentRect: content.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = content
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let shadow = try #require(Self.shadows(in: content).first)
         #expect(shadow.shadowBlurRadius == raised.blur)
         #expect(shadow.shadowOffset == NSSize(width: 0, height: -raised.offset))
@@ -95,8 +93,7 @@ struct SubtleElevationTests {
         cell.isLifted = true
         let ghost = TabDragGhostPanel(tabImage: nil, tabSize: CGSize(width: 160, height: 28),
                                       grabOffset: CGPoint(x: 20, y: 14), aspect: 1.6, scale: 2, onGlass: false)
-        let views: [NSView] = [dock, try #require(ghost.panel.contentView),
-                               CmuxToastView(toast: CmuxToast(id: "t", message: "Saved"))]
+        let views: [NSView] = [dock, try #require(ghost.panel.contentView)]
         // Each view's layer tree, and its subviews' (a layer-backed subview outside a window is
         // not yet a sublayer of its parent's layer).
         let layers = views.flatMap(Self.layers(of:)) + Self.layers(in: cell.layer)

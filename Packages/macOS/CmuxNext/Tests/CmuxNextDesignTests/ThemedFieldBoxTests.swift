@@ -1,14 +1,16 @@
 import AppKit
+import CmuxNextTestSupport
 import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
 import CmuxNextDesignTokens
 
-/// Review of #19830: a dialog field's themed box must act like a field. A click in its padding
+/// Review of #19830: a native card's field box (`ThemedFieldBox`) must act like a field. A click in its padding
 /// focuses the input, and the box shows focus in the theme's focus ring while the input edits (the
 /// group editors' field does the same), back to the hairline when editing ends.
-@MainActor @Suite(.serialized) struct ThemedFieldBoxTests {
-    private static func dialog() throws -> (NSWindow, CmuxDialogView, ThemeScope) {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ThemedFieldBoxTests {
+    /// A form as a native card lays it out: a name field in its themed box over an "Always" box.
+    private static func dialog() throws -> (NSWindow, NSView, ThemeScope) {
         let input = ThemeInput(background: ThemeRGB(hex: 0x2B1650), foreground: ThemeRGB(hex: 0xF4E3FF))
         let scope = ThemeScope(level: .room)
         scope.setOverride(ThemeSpec("Field Box Purple"), input: input, animated: false)
@@ -17,16 +19,24 @@ import CmuxNextDesignTokens
         window.isReleasedWhenClosed = false
         let root = try #require(window.contentView)
         scope.root(root)
-        let dialog = CmuxDialogView(spec: CmuxDialogSpec(title: "Rename Workspace", fields: [
-            .text(id: "name", label: nil, initial: "api", placeholder: "Workspace name", secure: false),
-            .check(id: "always", title: "Always", on: false),
-        ], buttons: [.ok("Save")]))
-        root.addSubview(dialog)
+        let name = ThemedTextField(string: "api")
+        name.font = Typography.body
+        name.placeholderString = "Workspace name"
+        name.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.name")
+        let box = ThemedFieldBox(field: name, height: 24)
+        box.widthAnchor.constraint(equalToConstant: 340).isActive = true
+        let check = ThemedCheckbox(checkboxWithTitle: "Always", target: nil, action: nil)
+        check.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.always")
+        let form = NSStackView(views: [box, check])
+        form.orientation = .vertical
+        form.alignment = .leading
+        form.frame = NSRect(x: 20, y: 20, width: 380, height: 120)
+        root.addSubview(form)
         root.layoutSubtreeIfNeeded()
-        return (window, dialog, scope)
+        return (window, form, scope)
     }
 
-    private static func field(_ dialog: CmuxDialogView) throws -> NSTextField {
+    private static func field(_ dialog: NSView) throws -> NSTextField {
         try #require(find(dialog, id: "cmux.dialog.field.name") as? NSTextField)
     }
 

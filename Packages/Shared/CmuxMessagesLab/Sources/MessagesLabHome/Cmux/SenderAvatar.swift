@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAgentBrands
 
 /// The avatar a group transcript draws beside the last bubble of another
 /// person's run (iMessage group chats): their monogram on a grey disc, or
@@ -11,6 +12,8 @@ enum SenderAvatar: Hashable {
     case monogram(String)
     /// A picture by asset reference (`Images.load`).
     case image(String)
+    /// An agent brand's mark in its own colors on a white disc (CmuxAgentBrands; HomeAgentSender).
+    case brand(String)
 
     /// The disc's diameter.
     static let diameter: CGFloat = 28
@@ -25,6 +28,7 @@ enum SenderAvatar: Hashable {
         switch avatar {
         case let .monogram(text)?: self = .monogram(text)
         case let .image(ref)?: self = .image(ref)
+        case let .brand(id)?: self = .brand(id)
         case nil: return nil
         }
     }
@@ -45,6 +49,18 @@ enum SenderAvatar: Hashable {
             let s = max(rect.width / max(1, img.size.width), rect.height / max(1, img.size.height))
             let w = img.size.width * s, h = img.size.height * s
             img.draw(in: CGRect(x: rect.midX - w / 2, y: rect.midY - h / 2, width: w, height: h))
+            return
+        }
+        if case let .brand(id) = self, let spec = AgentBrandCatalog.spec(for: AgentBrandID(rawValue: id))?
+            .variant(forPointSize: Double(rect.width)) {
+            ctx.setFillColor(UIColor.white.cgColor)
+            ctx.fill(rect)
+            ctx.setStrokeColor(UIColor(white: 0, alpha: 0.08).cgColor)
+            ctx.setLineWidth(1)
+            ctx.strokeEllipse(in: rect.insetBy(dx: 0.5, dy: 0.5))
+            let side = rect.width * 0.62
+            AgentBrandRenderer.draw(spec, in: ctx, rect: CGRect(x: rect.midX - side / 2, y: rect.midY - side / 2, width: side, height: side),
+                                    style: .brand, dark: false, monoColor: UIColor.black.cgColor, flipped: true)
             return
         }
         // Messages' monogram disc: a grey gradient, lighter at the top, white letters.

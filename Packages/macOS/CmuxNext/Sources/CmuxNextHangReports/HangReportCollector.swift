@@ -68,6 +68,22 @@ public final class HangReportCollector: Sendable {
         keepLater(HangSample(source: .watchdog, kind: .hang, durationMs: ms, frames: []), addresses: addresses)
     }
 
+    /// ``noteStall(durationNanos:cpuNanos:addresses:)`` with the watchdog's durations.
+    public func noteStall(duration: Duration, cpu: Duration, addresses: [UInt]) {
+        noteStall(durationNanos: Self.nanos(duration), cpuNanos: Self.nanos(cpu), addresses: addresses)
+    }
+
+    /// ``noteHang(durationNanos:addresses:)`` with the watchdog's duration.
+    public func noteHang(duration: Duration, addresses: [UInt]) {
+        noteHang(durationNanos: Self.nanos(duration), addresses: addresses)
+    }
+
+    /// A non-negative duration in nanoseconds, clamped.
+    static func nanos(_ duration: Duration) -> UInt64 {
+        let (seconds, attoseconds) = duration.components
+        return UInt64(clamping: max(Int64(0), seconds)) &* 1_000_000_000 &+ UInt64(clamping: max(Int64(0), attoseconds / 1_000_000_000))
+    }
+
     /// Takes what was recorded and starts over.
     public func drain() -> StallAggregate {
         aggregate.withLock { aggregate in

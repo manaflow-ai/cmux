@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "revision": {
     "sha": "025db075fae19040c3d3c3eb686e2aca4f353b81",
-    "source": "src/agent-session/acpmux/inspector/ChatInspector.gallery.tsx"
+    "source": "src/agent-session/acpmux/session-info/SessionInfo.gallery.tsx"
   },
   "required": [
     {
@@ -14,6 +14,54 @@
       "caseId": "session-info-dark",
       "engine": "chromium",
       "theme": "dark"
+    },
+    {
+      "caseId": "session-status-claude-light",
+      "engine": "chromium",
+      "theme": "light",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
+    },
+    {
+      "caseId": "session-status-claude-dark",
+      "engine": "chromium",
+      "theme": "dark",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
+    },
+    {
+      "caseId": "session-status-codex-light",
+      "engine": "chromium",
+      "theme": "light",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
+    },
+    {
+      "caseId": "session-status-codex-dark",
+      "engine": "chromium",
+      "theme": "dark",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
+    },
+    {
+      "caseId": "session-status-opencode-light",
+      "engine": "chromium",
+      "theme": "light",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
+    },
+    {
+      "caseId": "session-status-opencode-dark",
+      "engine": "chromium",
+      "theme": "dark",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
+    },
+    {
+      "caseId": "session-status-header-light",
+      "engine": "chromium",
+      "theme": "light",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
+    },
+    {
+      "caseId": "session-status-header-dark",
+      "engine": "chromium",
+      "theme": "dark",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
     }
   ],
   "rules": [
@@ -25,7 +73,53 @@
       "measure": "start",
       "tolerancePx": 0.5,
       "minCount": 7,
-      "source": "dom-rect"
+      "source": "dom-rect",
+      "appliesTo": [
+        "session-info-light",
+        "session-info-dark"
+      ]
+    },
+    {
+      "id": "status-action-center",
+      "kind": "container-peer-alignment",
+      "group": "status-actions",
+      "containerGroup": "status-headers",
+      "axis": "y",
+      "measure": "center",
+      "tolerancePx": 0.5,
+      "minCount": 2,
+      "source": "dom-rect",
+      "appliesTo": [
+        "session-status-claude-light",
+        "session-status-claude-dark",
+        "session-status-codex-light",
+        "session-status-codex-dark",
+        "session-status-opencode-light",
+        "session-status-opencode-dark",
+        "session-status-header-light",
+        "session-status-header-dark"
+      ]
+    },
+    {
+      "id": "status-visible-center",
+      "kind": "container-peer-alignment",
+      "group": "status-visible-content",
+      "containerGroup": "status-headers",
+      "axis": "y",
+      "measure": "center",
+      "tolerancePx": 0.5,
+      "minCount": 2,
+      "source": "dom-rect",
+      "appliesTo": [
+        "session-status-claude-light",
+        "session-status-claude-dark",
+        "session-status-codex-light",
+        "session-status-codex-dark",
+        "session-status-opencode-light",
+        "session-status-opencode-dark",
+        "session-status-header-light",
+        "session-status-header-dark"
+      ]
     }
   ],
   "acceptedFindings": {
@@ -51,7 +145,7 @@
         "colorScheme": "light",
         "width": 420,
         "height": 900,
-        "source": "src/agent-session/acpmux/inspector/ChatInspector.gallery.tsx"
+        "source": "src/agent-session/acpmux/session-info/SessionInfo.gallery.tsx"
       }
     },
     {
@@ -66,7 +160,127 @@
         "colorScheme": "dark",
         "width": 420,
         "height": 900,
-        "source": "src/agent-session/acpmux/inspector/ChatInspector.gallery.tsx"
+        "source": "src/agent-session/acpmux/session-info/SessionInfo.gallery.tsx"
+      }
+    },
+    {
+      "id": "session-status-claude-light",
+      "path_or_url": "frame.html",
+      "params": {
+        "entry": "agent-pane.harness-status",
+        "variant": "claude",
+        "frame": "component",
+        "locale": "en",
+        "theme": "Apple System Colors Light",
+        "colorScheme": "light",
+        "width": 620,
+        "height": 360,
+        "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
+      }
+    },
+    {
+      "id": "session-status-claude-dark",
+      "path_or_url": "frame.html",
+      "params": {
+        "entry": "agent-pane.harness-status",
+        "variant": "claude",
+        "frame": "component",
+        "locale": "en",
+        "theme": "Apple System Colors",
+        "colorScheme": "dark",
+        "width": 620,
+        "height": 360,
+        "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
+      }
+    },
+    {
+      "id": "session-status-codex-light",
+      "path_or_url": "frame.html",
+      "params": {
+        "entry": "agent-pane.harness-status",
+        "variant": "codex",
+        "frame": "component",
+        "locale": "en",
+        "theme": "Apple System Colors Light",
+        "colorScheme": "light",
+        "width": 620,
+        "height": 360,
+        "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
+      }
+    },
+    {
+      "id": "session-status-codex-dark",
+      "path_or_url": "frame.html",
+      "params": {
+        "entry": "agent-pane.harness-status",
+        "variant": "codex",
+        "frame": "component",
+        "locale": "en",
+        "theme": "Apple System Colors",
+        "colorScheme": "dark",
+        "width": 620,
+        "height": 360,
+        "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
+      }
+    },
+    {
+      "id": "session-status-opencode-light",
+      "path_or_url": "frame.html",
+      "params": {
+        "entry": "agent-pane.harness-status",
+        "variant": "opencode",
+        "frame": "component",
+        "locale": "en",
+        "theme": "Apple System Colors Light",
+        "colorScheme": "light",
+        "width": 620,
+        "height": 360,
+        "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
+      }
+    },
+    {
+      "id": "session-status-opencode-dark",
+      "path_or_url": "frame.html",
+      "params": {
+        "entry": "agent-pane.harness-status",
+        "variant": "opencode",
+        "frame": "component",
+        "locale": "en",
+        "theme": "Apple System Colors",
+        "colorScheme": "dark",
+        "width": 620,
+        "height": 360,
+        "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
+      }
+    },
+    {
+      "id": "session-status-header-light",
+      "path_or_url": "frame.html",
+      "params": {
+        "entry": "agent-pane.harness-status",
+        "variant": "header-action-alignment",
+        "frame": "component",
+        "locale": "en",
+        "theme": "Apple System Colors Light",
+        "colorScheme": "light",
+        "width": 620,
+        "height": 360,
+        "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
+      }
+    },
+    {
+      "id": "session-status-header-dark",
+      "path_or_url": "frame.html",
+      "params": {
+        "entry": "agent-pane.harness-status",
+        "variant": "header-action-alignment",
+        "frame": "component",
+        "locale": "en",
+        "theme": "Apple System Colors",
+        "colorScheme": "dark",
+        "width": 620,
+        "height": 360,
+        "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
       }
     }
   ],
@@ -74,19 +288,140 @@
     "session-info-light": [
       {
         "group": "top-block-label",
-        "selector": "[data-section=environment] .acpmux-chat-inspector-row__name, .acpmux-chat-inspector-section[data-section=context] .acpmux-chat-inspector-section__title, .acpmux-chat-inspector-section[data-section=connectors] .acpmux-chat-inspector-section__title"
+        "selector": "[data-section=environment] .acpmux-session-info-row__name, .acpmux-session-info-section[data-section=context] .acpmux-session-info-section__title, .acpmux-session-info-section[data-section=connectors] .acpmux-session-info-section__title"
       }
     ],
     "session-info-dark": [
       {
         "group": "top-block-label",
-        "selector": "[data-section=environment] .acpmux-chat-inspector-row__name, .acpmux-chat-inspector-section[data-section=context] .acpmux-chat-inspector-section__title, .acpmux-chat-inspector-section[data-section=connectors] .acpmux-chat-inspector-section__title"
+        "selector": "[data-section=environment] .acpmux-session-info-row__name, .acpmux-session-info-section[data-section=context] .acpmux-session-info-section__title, .acpmux-session-info-section[data-section=connectors] .acpmux-session-info-section__title"
+      }
+    ],
+    "session-status-claude-light": [
+      {
+        "group": "status-actions",
+        "selector": ".acpmux-harness-status__copy-all, .acpmux-harness-status__close",
+        "containerSelector": ".acpmux-harness-status__head",
+        "containerGroup": "status-headers"
+      },
+      {
+        "group": "status-visible-content",
+        "selector": ".acpmux-harness-status__copy-all > span[aria-hidden=false], .acpmux-harness-status__close",
+        "measurement": "text-range",
+        "containerSelector": ".acpmux-harness-status__head",
+        "containerGroup": "status-headers"
+      }
+    ],
+    "session-status-claude-dark": [
+      {
+        "group": "status-actions",
+        "selector": ".acpmux-harness-status__copy-all, .acpmux-harness-status__close",
+        "containerSelector": ".acpmux-harness-status__head",
+        "containerGroup": "status-headers"
+      },
+      {
+        "group": "status-visible-content",
+        "selector": ".acpmux-harness-status__copy-all > span[aria-hidden=false], .acpmux-harness-status__close",
+        "measurement": "text-range",
+        "containerSelector": ".acpmux-harness-status__head",
+        "containerGroup": "status-headers"
+      }
+    ],
+    "session-status-codex-light": [
+      {
+        "group": "status-actions",
+        "selector": ".acpmux-harness-status__copy-all, .acpmux-harness-status__close",
+        "containerSelector": ".acpmux-harness-status__head",
+        "containerGroup": "status-headers"
+      },
+      {
+        "group": "status-visible-content",
+        "selector": ".acpmux-harness-status__copy-all > span[aria-hidden=false], .acpmux-harness-status__close",
+        "measurement": "text-range",
+        "containerSelector": ".acpmux-harness-status__head",
+        "containerGroup": "status-headers"
+      }
+    ],
+    "session-status-codex-dark": [
+      {
+        "group": "status-actions",
+        "selector": ".acpmux-harness-status__copy-all, .acpmux-harness-status__close",
+        "containerSelector": ".acpmux-harness-status__head",
+        "containerGroup": "status-headers"
+      },
+      {
+        "group": "status-visible-content",
+        "selector": ".acpmux-harness-status__copy-all > span[aria-hidden=false], .acpmux-harness-status__close",
+        "measurement": "text-range",
+        "containerSelector": ".acpmux-harness-status__head",
+        "containerGroup": "status-headers"
+      }
+    ],
+    "session-status-opencode-light": [
+      {
+        "group": "status-actions",
+        "selector": ".acpmux-harness-status__copy-all, .acpmux-harness-status__close",
+        "containerSelector": ".acpmux-harness-status__head",
+        "containerGroup": "status-headers"
+      },
+      {
+        "group": "status-visible-content",
+        "selector": ".acpmux-harness-status__copy-all > span[aria-hidden=false], .acpmux-harness-status__close",
+        "measurement": "text-range",
+        "containerSelector": ".acpmux-harness-status__head",
+        "containerGroup": "status-headers"
+      }
+    ],
+    "session-status-opencode-dark": [
+      {
+        "group": "status-actions",
+        "selector": ".acpmux-harness-status__copy-all, .acpmux-harness-status__close",
+        "containerSelector": ".acpmux-harness-status__head",
+        "containerGroup": "status-headers"
+      },
+      {
+        "group": "status-visible-content",
+        "selector": ".acpmux-harness-status__copy-all > span[aria-hidden=false], .acpmux-harness-status__close",
+        "measurement": "text-range",
+        "containerSelector": ".acpmux-harness-status__head",
+        "containerGroup": "status-headers"
+      }
+    ],
+    "session-status-header-light": [
+      {
+        "group": "status-actions",
+        "selector": ".acpmux-harness-status__copy-all, .acpmux-harness-status__close",
+        "containerSelector": ".acpmux-harness-status__head",
+        "containerGroup": "status-headers"
+      },
+      {
+        "group": "status-visible-content",
+        "selector": ".acpmux-harness-status__copy-all > span[aria-hidden=false], .acpmux-harness-status__close",
+        "measurement": "text-range",
+        "containerSelector": ".acpmux-harness-status__head",
+        "containerGroup": "status-headers"
+      }
+    ],
+    "session-status-header-dark": [
+      {
+        "group": "status-actions",
+        "selector": ".acpmux-harness-status__copy-all, .acpmux-harness-status__close",
+        "containerSelector": ".acpmux-harness-status__head",
+        "containerGroup": "status-headers"
+      },
+      {
+        "group": "status-visible-content",
+        "selector": ".acpmux-harness-status__copy-all > span[aria-hidden=false], .acpmux-harness-status__close",
+        "measurement": "text-range",
+        "containerSelector": ".acpmux-harness-status__head",
+        "containerGroup": "status-headers"
       }
     ]
   },
   "coverageGaps": [
     "Native AX frames require an authorized capture provider; view frames do not satisfy that coverage.",
     "Text baselines need measured glyph-baseline data; rectangle bottoms are not a substitute.",
-    "This initial baseline covers Session Info label columns only. Other audit surfaces require measured selectors and rules."
+    "Sidebar trailing column, row centers and hover exclusivity require native artifact input with row identity and true AX frames. The collector owner must supply that route before these classes cover native captures.",
+    "Session status visible-text checks measure DOM text-range centers, not glyph baselines. Actual glyph-baseline measurement is unsupported."
   ]
 }

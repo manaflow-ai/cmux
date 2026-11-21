@@ -1,3 +1,4 @@
+public import AppKit
 import CmuxNextSettings
 import Foundation
 
@@ -6,6 +7,12 @@ import Foundation
 extension AgentPaneView {
     /// Toggles Session Info through the same page callback as the header button.
     public func toggleSessionInfo() { send("toggleSessionInfo") }
+    /// Runs a header toggle the page offers now (``AgentPageCommand``, ``AgentPaneModel/pageCommands``).
+    public func run(_ command: AgentPageCommand) {
+        // A queued command belongs to this chat, even if the page selects another before delivery.
+        let value = "header:\(command.rawValue)|\(model.sessionId ?? "")"
+        deliver([.command(value)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\(JSONValue.string(value).compactText));"])
+    }
 
     /// Opens the frontend's Continue In… chooser. The chooser owns target selection and
     /// preparation; native actions do not create a second handoff pipeline.
@@ -26,9 +33,32 @@ extension AgentPaneView {
     /// then opens its model picker, or the composer's file search (a pick mentions the file).
     public func showModelPicker() { showWithKeyboard("openModelPicker") }
     public func showFileSearch() { showWithKeyboard("searchFiles") }
+    /// One of the composer bar's controls from its shortcut: the page takes the keyboard, then
+    /// opens the control as a click does. `byPerson` and `event`: whether the run is the person's
+    /// own, and the input event in dispatch (the App's `InputDispatchContext`, never
+    /// `NSApp.currentEvent`, which keeps an old key). Toggle Plan Mode switches the mode at once, with
+    /// no click in the page, and the key router takes its key before the pane's gesture monitor sees
+    /// it, so the person's own key is recorded here as the gesture the page's session/set_mode spends.
+    /// The other controls only open a menu: the person's pick there is the gesture.
+    public func showComposerControl(_ control: AgentComposerControl, byPerson: Bool = false, event: NSEvent? = nil) {
+        if control == .togglePlan {
+            AgentPanePersonInput.record(model.transport.gestures, sources: eventSources, if: byPerson, event: event)
+        }
+        showWithKeyboard(control.pageCommand)
+    }
+    /// Ask a Side Question… focuses this chat's composer and prefills `/btw `.
+    /// The session id travels with the event so a palette run cannot land in a replacement chat.
+    public func askSideQuestion() {
+        guard let sessionId = model.sessionId else { return }
+        focusChat()
+        let json = JSONValue.string(sessionId).compactText
+        deliver([.sideQuestion(sessionId)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"sideQuestion\",\(json));"])
+    }
     /// A chat that just opened from a fork (``AgentForkDestination``): the keyboard goes to its
     /// composer, so the next words go to the fork.
     public func focusComposer() { showWithKeyboard("focusComposer") }
+    /// A click on a chat's notification: a waiting permission card takes the keyboard, so one key answers it.
+    public func focusAsk() { showWithKeyboard("permissionFocus") }
     private func showWithKeyboard(_ command: String) {
         focusChat()
         send(command)
@@ -46,7 +76,7 @@ extension AgentPaneView {
                        "permissionRetry", "permissionRevoke", "permissionRefresh"]
         guard allowed.contains(command) else { return }
         // The person's shortcut is the gesture its answer uses; a posted key or script grants nothing.
-        AgentPanePersonInput.record(model.transport.gestures, if: byPerson, answer: true)
+        AgentPanePersonInput.record(model.transport.gestures, sources: eventSources, if: byPerson, answer: true)
         send(command)
     }
 }

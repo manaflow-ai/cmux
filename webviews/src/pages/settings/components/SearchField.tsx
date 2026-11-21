@@ -1,35 +1,32 @@
-import { Tooltip } from "../../../ui/Tooltip";
+import { useId } from "react";
+import { Input } from "../../../ui/Input";
+import { focusRoute } from "../../../ui/focusRoute";
 import { Icon } from "../icons";
 import { t } from "../strings";
 
 const focusOnMount = (element: HTMLInputElement | null) => element?.focus();
 
 /**
- * The search field (P5), focused when the page opens, with the Show Only Changed filter (P4) at
- * its end. Esc clears the query; a second Esc moves focus to the category list. Return reveals
- * the first result.
+ * The search field (P5), focused when the page opens, the sidebar's full width. Esc clears the
+ * query; a second Esc moves focus to the category list. Return reveals the first result.
  */
 export function SearchField({
   query,
   onQuery,
   onSubmit,
-  changedOnly,
-  changedCount,
-  onChangedOnly,
 }: {
   query: string;
   onQuery: (query: string) => void;
   onSubmit: () => void;
-  changedOnly: boolean;
-  changedCount: number;
-  onChangedOnly: (on: boolean) => void;
 }) {
-  const filterLabel = t("settingsPage.changedOnly");
+  const searchId = useId();
   return (
     <div className="search-bar">
-      <label className="search">
+      <label className="search" htmlFor={searchId}>
         <Icon name="search" />
-        <input
+        <Input
+          id={searchId}
+          size="lg"
           ref={focusOnMount}
           className="field search-input"
           type="search"
@@ -43,10 +40,12 @@ export function SearchField({
             if (event.key === "Escape") {
               event.preventDefault();
               if (query) onQuery("");
-              else
-                event.currentTarget.ownerDocument
-                  .querySelector<HTMLElement>("[data-section-link][aria-current]")
-                  ?.focus();
+              else {
+                const current = event.currentTarget.ownerDocument.querySelector<HTMLElement>(
+                  ".section-list .section-link[aria-current]",
+                );
+                focusRoute(current, "person", "Escape from Settings search to the current sidebar link");
+              }
             } else if (event.key === "Enter") {
               event.preventDefault();
               onSubmit();
@@ -54,19 +53,6 @@ export function SearchField({
           }}
         />
       </label>
-      <Tooltip /* tooltip-allow: an icon and a count; the tooltip names the filter */ label={filterLabel}>
-        <button
-          type="button"
-          className="icon-button filter-button"
-          data-changed-only=""
-          aria-label={filterLabel}
-          aria-pressed={changedOnly}
-          onClick={() => onChangedOnly(!changedOnly)}
-        >
-          <Icon name="filter" />
-          {changedCount > 0 && <span className="filter-count">{changedCount}</span>}
-        </button>
-      </Tooltip>
     </div>
   );
 }

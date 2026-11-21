@@ -29,8 +29,8 @@ enum CertificateWarningHandlers {
     /// The warning page's buttons run their action, targeted at the page's
     /// own tab (it may not be the focused pane's).
     static func installRouter(on entry: BrowserEntry, registry: ActionRegistry) {
-        let tabID = entry.tab.id.rawValue
-        entry.chrome.certificateWarningRouter = { [weak registry] command in
+        let tabID = entry.key
+        entry.state.certificateWarningRouter = { [weak registry] command in
             guard let registry else { return false }
             let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tabID))
             return registry.perform(ActionID(rawValue: command.actionID), invocation: invocation)

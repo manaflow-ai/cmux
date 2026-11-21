@@ -8,14 +8,15 @@
 // no index and stay still; Reduce Motion, the app's motion gate (`data-cmux-motion`), static status
 // indicators and a hidden page stop it.
 import type { CSSProperties } from "react";
-import { spinnerStartTime, type SpinnerAnimation } from "./spinnerClock";
+import { PAGE_HIDDEN_ATTRIBUTE, spinnerStartTime, type SpinnerAnimation } from "./spinnerClock";
 
 /** The class every running indicator in a wave carries. */
 export const WAVE_CLASS = "acpmux-wave-item";
 /** The keyframes of the wave (wave.css). */
 export const WAVE_KEYFRAMES = "cmux-wave";
-/** On `<html>` while the page is hidden: the wave stops, and starts again in phase when it shows. */
-export const PAGE_HIDDEN_ATTRIBUTE = "data-cmux-page-hidden";
+/** On `<html>` while the page is hidden: the wave stops, and starts again in phase when it shows
+ * (the spinner clock realigns it, ui/spinnerClock.ts). */
+export { PAGE_HIDDEN_ATTRIBUTE };
 
 /** Each item's place in the wave, in display order: consecutive indices for the items that `live`
  * says are running, undefined for the rest (finished, failed), so the wave skips them. */
@@ -43,8 +44,8 @@ export function alignWave(animation: SpinnerAnimation, timelineNow: number, time
 const installed = new WeakSet<Document>();
 
 /** Once per document: every wave loop that starts takes the shared start, and `<html>` is marked
- * while the page is hidden (`visibilityState`) so no wave runs unseen. Showing it again restarts the
- * loops, which take the shared start again. */
+ * while the page is hidden (`visibilityState`) so no wave runs unseen. Showing it again resumes the
+ * loops, and the spinner clock puts them back on the shared start (`realignSpinners`). */
 export function installWave(doc: Document = document): void {
   if (installed.has(doc)) return;
   installed.add(doc);
@@ -55,6 +56,8 @@ export function installWave(doc: Document = document): void {
     "animationstart",
     (event) => {
       if (event.animationName !== WAVE_KEYFRAMES || !(event.target instanceof Element)) return;
+      // Hidden, the loop stays paused; the spinner clock aligns it when the page shows.
+      if (doc.documentElement.hasAttribute(PAGE_HIDDEN_ATTRIBUTE)) return;
       const now = doc.timeline?.currentTime;
       const origin = doc.defaultView?.performance.timeOrigin;
       if (typeof now !== "number" || typeof origin !== "number") return;

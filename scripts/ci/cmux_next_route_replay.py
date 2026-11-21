@@ -3,9 +3,11 @@
 
 The checks job runs it when a pull request changes the router: the old router is the merge
 commit's base parent (HEAD^1), the new one is the working tree. A tier change is explained only
-when the new router drops tiers and names the change as a fast tier (its "no Mac tier" reason);
-any other change (an added tier, a dropped tier without that reason, different Swift test
-targets) is unexplained and fails.
+when the new router drops tiers or narrows the Swift test targets and says why: its "(no Mac
+tier)" reason (a fast tier, or a doc no test reads), or, for the Mac fast tier alone, its "(no Mac
+fast tier)" reason. Any other change (an added tier, a widened or unexplained target set, a dropped
+tier without such a reason) is unexplained and fails. A base router without the fast_tier output
+ran the fast tier on every pull request with a Mac tier, so its fast_tier is its macos.
 
 Usage: cmux_next_route_replay.py [--base HEAD^1] [--limit 30] [--repo manaflow-ai/cmux]
 """
@@ -26,10 +28,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gh_pages  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
-TIERS = ("native", "macos", "scheme", "generated", "swift", "daemon", "full")
+TIERS = ("native", "macos", "scheme", "generated", "swift", "daemon", "full", "fast_tier")
 FAST_REASON = "(no Mac tier)"
+NO_FAST_TIER_REASON = "(no Mac fast tier)"
 # The router imports these from scripts/ci; the old router gets its own copies.
 ROUTER_FILES = ("cmux_next_route.py", "select_package_tests.py")
+# Read by the router when the ref has them (the daemon tier's map, cmux#45464); an older base has none.
+OPTIONAL_ROUTER_FILES = ("affected-jobs.json",)
 
 Router = Callable[[list[str]], tuple[dict[str, str], list[str]]]
 
@@ -40,18 +45,56 @@ class Verdict:
     detail: str = ""
 
 
+def tier(outputs: dict[str, str], name: str) -> str:
+    # A router from before the fast_tier output ran the Mac fast tier whenever it ran any Mac tier.
+    return outputs.get(name, outputs.get("macos", "false")) if name == "fast_tier" else outputs[name]
+
+
 def compare(old: dict[str, str], new: dict[str, str], new_reasons: list[str]) -> Verdict:
-    added = [t for t in TIERS if old[t] == "false" and new[t] == "true"]
-    dropped = [t for t in TIERS if old[t] == "true" and new[t] == "false"]
-    targets = old.get("swift_targets", "") != new.get("swift_targets", "") and not dropped
-    if not added and not dropped and not targets:
+    added = [t for t in TIERS if tier(old, t) == "false" and tier(new, t) == "true"]
+    dropped = [t for t in TIERS if tier(old, t) == "true" and tier(new, t) == "false"]
+    before, after = set(old.get("swift_targets", "").split()), set(new.get("swift_targets", "").split())
+    widened = bool(after - before) and "all" not in before
+    narrowed = before != after and not widened
+    if not added and not dropped and before == after:
         return Verdict("same")
-    if added or targets:
+    if added or widened or (narrowed and not dropped and not any(FAST_REASON in r for r in new_reasons)):
         return Verdict("unexplained", f"added {', '.join(added) or 'none'}; swift targets "
                                       f"{old.get('swift_targets') or '-'} -> {new.get('swift_targets') or '-'}")
+    change = ", ".join(dropped) if dropped else f"swift targets {old.get('swift_targets') or '-'} -> {new.get('swift_targets') or '-'}"
     if any(FAST_REASON in reason for reason in new_reasons):
-        return Verdict("explained", f"dropped {', '.join(dropped)}: {next(r for r in new_reasons if FAST_REASON in r)}")
-    return Verdict("unexplained", f"dropped {', '.join(dropped)} with no fast-tier reason")
+        return Verdict("explained", f"dropped {change}: {next(r for r in new_reasons if FAST_REASON in r)}")
+    if dropped == ["fast_tier"] and before == after and any(NO_FAST_TIER_REASON in r for r in new_reasons):
+        return Verdict("explained", f"dropped fast_tier: {next(r for r in new_reasons if NO_FAST_TIER_REASON in r)}")
+    return Verdict("unexplained", f"dropped {change} with no fast-tier reason")
+
+
+# A path no Swift compile reads (the router's NO_SWIFT_COMPILE_REASON: cmux-tui Rust, a CI file, a tree in
+# NO_SWIFT_COMPILE_ROOTS) drops only the Swift compiles: native and scheme, and `macos` when they were its only
+# Mac tier (macos is derived: any Mac tier), nothing else, and the same Swift test targets.
+NO_SWIFT_COMPILE_REASON = "(no Swift compile reads it)"
+SWIFT_COMPILE_TIERS = frozenset(("native", "scheme", "macos"))
+# A pull request a running app takes live (the router's hot_only) drops the app build and test tiers, never the
+# daemon tier or `full`.
+HOT_ONLY_REASON = "(hot-only: no app build)"
+HOT_ONLY_TIERS = frozenset(("native", "macos", "scheme", "generated", "swift", "fast_tier"))
+
+
+def explain(old: dict[str, str], new: dict[str, str], new_reasons: list[str]) -> Verdict:
+    """compare(), and a drop of the Swift compiles alone is explained by the router's no-Swift-compile reason."""
+    verdict = compare(old, new, new_reasons)
+    if verdict.kind != "unexplained":
+        return verdict
+    added = [t for t in TIERS if tier(old, t) == "false" and tier(new, t) == "true"]
+    dropped = {t for t in TIERS if tier(old, t) == "true" and tier(new, t) == "false"}
+    reason = next((r for r in new_reasons if NO_SWIFT_COMPILE_REASON in r), None)
+    if (reason and dropped and dropped <= SWIFT_COMPILE_TIERS and not added
+            and old.get("swift_targets", "") == new.get("swift_targets", "")):
+        return Verdict("explained", f"dropped {', '.join(sorted(dropped))}: {reason}")
+    hot = next((r for r in new_reasons if HOT_ONLY_REASON in r), None)
+    if hot and dropped and dropped <= HOT_ONLY_TIERS and not added and new.get("hot_only") == "true":
+        return Verdict("explained", f"dropped {', '.join(sorted(dropped))}: {hot}")
+    return verdict
 
 
 def replay(prs: list[tuple[int, list[str]]], old: Router, new: Router) -> tuple[list[str], bool]:
@@ -59,7 +102,7 @@ def replay(prs: list[tuple[int, list[str]]], old: Router, new: Router) -> tuple[
     for number, files in prs:
         before, _ = old(files)
         after, reasons = new(files)
-        verdict = compare(before, after, reasons)
+        verdict = explain(before, after, reasons)
         failed |= verdict.kind == "unexplained"
         label = "UNEXPLAINED" if verdict.kind == "unexplained" else verdict.kind
         lines.append(f"#{number} {label} ({len(files)} files){': ' + verdict.detail if verdict.detail else ''}")
@@ -95,6 +138,11 @@ def load_router(root: Path, ref: str | None) -> Router:
         text = subprocess.run(["git", "show", f"{ref}:scripts/ci/{name}"], cwd=root, check=True,
                               capture_output=True, text=True).stdout
         (directory / name).write_text(text)
+    for name in OPTIONAL_ROUTER_FILES:
+        found = subprocess.run(["git", "show", f"{ref}:scripts/ci/{name}"], cwd=root, check=False,
+                               capture_output=True, text=True)
+        if found.returncode == 0:
+            (directory / name).write_text(found.stdout)
     return _router(_load(directory, "cmux_next_route_old"), root)
 
 

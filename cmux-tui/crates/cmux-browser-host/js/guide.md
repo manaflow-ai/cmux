@@ -51,6 +51,30 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
 - `screenshot(target?, options?)`: an image of the viewport, `{ fullPage }`, a
   locator or a ref. `{ annotate: true }` draws each ref's box and label.
   Printing an image saves it to a file and prints the path.
+- `previewProof(port, { path: "/", settleMs: 0, timeout: 30000, screenshot: { fullPage: false } })`: open
+  a local web preview in a background tab, wait for load, and return its URL, a PNG attachment path,
+  `consoleErrors` and uncaught `pageErrors`. The transcript renders the image
+  beside the report. The helper closes its tab even on failure and preserves
+  the user's active tab and the REPL's current page. The screenshot is taken
+  after load; `settleMs` then waits before reading errors to include late
+  diagnostics (default `0`). `timeout` bounds navigation
+  in milliseconds (default `30000`, `0` disables it). Both must be finite and
+  nonnegative. For UI changes, inspect this evidence before reporting
+  completion; page load alone does not prove the UI works.
+- `verifyFlow(portOrUrl, steps, { timeout: 5000 })`: before you say a UI
+  change is done, click through it and attach the proof. Steps run in order
+  in a background tab: `{ open: "/path" }`, `{ click: "text=Save" }` (any
+  locator selector), `{ type: "#name", text: "Ada" }`, `{ expect: "Saved" }`
+  (visible text; `in: "#out"` scopes it). Each may carry `note`, its one line.
+  A flow that does not start with `open` opens the target first. Every step
+  gets a JPEG (a step whose page can't be drawn fails); the first failure
+  skips the rest. `timeout` bounds each step, and page loads too when given
+  (otherwise a load gets 30 s). It returns
+  `{ passed, url, error?, steps: [{ n, line, ok, skipped?, error?, screenshot }] }`
+  (`url` is the last page the flow reached)
+  and prints PASS or FAIL per step; the chat draws it as a walkthrough under
+  your final message. No server on the port fails with "No dev server answers
+  at …". At most 12 steps; the newest 96 screenshots are kept.
 - `fetch(url, init)`: standard fetch with the current tab's cookies
   (`credentials: "same-origin"` or `"omit"` to send fewer); bodies over
   64 MiB fail, download those in a tab.

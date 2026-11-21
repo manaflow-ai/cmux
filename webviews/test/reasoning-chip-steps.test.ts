@@ -11,6 +11,11 @@
 // That width checks the form the row's fit chose (`data-fit-effort`), whole; 760 px (full) and
 // 300 px (short) are well clear of the boundary.
 //
+// The held New Tab's quiet row holds only the mode and the model since #27956 moved its folder and
+// computer above the box (Leo 2026-10-29: "project and cloudness at the top"), so at 300 px it has
+// room near the boundary for "Medium" (CI reads "Medium" there): that width checks the fit's form,
+// and 240 px is the narrow one that must read "Med".
+//
 // The gallery's real panes in Chromium: `agent-pane.new-tab` (`reasoning-chip`) and
 // `agent-pane.composer` (`new-chat-reasoning`), and a New Tab whose agent reported its levels
 // (`agent-pane.narrow` `new-tab`, "Medium Fast"), at 760, 400 and 300 px.
@@ -105,8 +110,15 @@ await requireBrowserLane("reasoning-chip-steps.test.ts", async () => {
     return { labels, cut };
   }
 
-  /** Each width's label; at 400 px, [full, short]: the row's own fit picks (above). */
+  /** Each width's label; [full, short] where the row's own fit picks (above). */
   const held: Record<number, string | [string, string]> = { 760: "Medium", 400: ["Medium", "Med"], 300: "Med" };
+  // New Tab's quiet row without the folder and computer (#27956): 240 px is its narrow width.
+  const heldNewTab: Record<number, string | [string, string]> = {
+    760: "Medium",
+    400: ["Medium", "Med"],
+    300: ["Medium", "Med"],
+    240: "Med",
+  };
   // Its level is one option named "Medium Fast": the short form is its first word's.
   const reported: Record<number, string | [string, string]> = {
     760: "Medium Fast",
@@ -116,12 +128,14 @@ await requireBrowserLane("reasoning-chip-steps.test.ts", async () => {
   const title = (label: string | [string, string]) =>
     typeof label === "string" ? `"${label}"` : `"${label[0]}" or "${label[1]}", as the row fits`;
   const cases: [string, string, string, Record<number, string | [string, string]>][] = [
-    ["New Tab", "agent-pane.new-tab", "reasoning-chip", held],
+    ["New Tab", "agent-pane.new-tab", "reasoning-chip", heldNewTab],
     ["new chat", "agent-pane.composer", "new-chat-reasoning", held],
     ["New Tab, reported", "agent-pane.narrow", "new-tab", reported],
   ];
   for (const [where, entry, variant, expected] of cases)
-    for (const width of [760, 400, 300])
+    for (const width of Object.keys(expected)
+      .map(Number)
+      .sort((a, b) => b - a))
       test(`${where} at ${width} px: the model button's effort reads ${title(expected[width]!)} whole`, async () => {
         const page = await open(entry, variant, width);
         const chip = await page.evaluate(effortChip);

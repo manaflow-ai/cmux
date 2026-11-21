@@ -1,3 +1,4 @@
+import { artifactRuntimeVite } from "./scripts/agent-pane/artifactRuntimePlugin.mjs";
 import { reactWithCompiler } from "./reactCompiler.mjs";
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
@@ -20,7 +21,7 @@ export default defineConfig({
       ignored: ["**/node_modules/**"],
     },
   },
-  plugins: [...reactWithCompiler()],
+  plugins: [artifactRuntimeVite(), ...reactWithCompiler()],
   build: {
     outDir: path.join(webviewsRoot, "dist/acpmux-agent-session-preview"),
     emptyOutDir: true,

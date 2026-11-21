@@ -1,4 +1,5 @@
 import CmuxConversationCore
+import enum CmuxMobileModel.UserFacingError
 import Foundation
 
 /// The Mac Chief while the Mac is offline or asleep: its cloud copy
@@ -155,7 +156,7 @@ public final class ChiefReplicaBackend: ConversationBackend, @unchecked Sendable
                 throw ConversationBackendError(code: -32601, message: String(localized: "Your Mac is offline. Only text can wait for it."))
             }
             guard let socket else {
-                throw ConversationBackendError(code: -1, message: String(localized: "Not connected to the Cloud copy of your Mac's Chief yet."))
+                throw ConversationBackendError(code: -1, message: String(localized: "mobile.chief.offline", defaultValue: "Chief is offline.", bundle: .module))
             }
             let key = draft.clientMessageID
             let frame: [String: Any] = ["t": "op", "stream": stream, "op": "conversation.message.send",
@@ -164,7 +165,7 @@ public final class ChiefReplicaBackend: ConversationBackend, @unchecked Sendable
             do {
                 try await socket.send(.string(try ChiefCloudBackend.Core.text(frame)))
             } catch {
-                throw ConversationBackendError(code: -1, message: error.localizedDescription)
+                throw ConversationBackendError(code: -1, message: UserFacingError.message(error, fallback: "Couldn't send. Try again."))
             }
             let outcome: Outcome
             if let known = early.removeValue(forKey: key) {
@@ -198,7 +199,7 @@ public final class ChiefReplicaBackend: ConversationBackend, @unchecked Sendable
             while !closed, !Task.isCancelled {
                 let welcomed = await connectOnce()
                 if closed || Task.isCancelled { return }
-                continuation?.yield(.disconnected(reason: String(localized: "Reconnecting to the Cloud copy of your Mac's Chief")))
+                continuation?.yield(.disconnected(reason: String(localized: "mobile.chief.reconnecting", defaultValue: "Reconnecting…", bundle: .module)))
                 attempt = welcomed ? 0 : attempt + 1
                 // A bounded, cancellable wait between dials (close() cancels the runner).
                 try? await Task.sleep(for: ChiefCloudBackend.Core.retryDelay(attempt: attempt))
@@ -215,9 +216,7 @@ public final class ChiefReplicaBackend: ConversationBackend, @unchecked Sendable
 
         private func connectOnce() async -> Bool {
             guard let url = socketURL(), let token = try? await http.token(forceRefresh: false) else { return false }
-            var request = URLRequest(url: url)
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
-            request.setValue("cmux.wire.v1", forHTTPHeaderField: "Sec-WebSocket-Protocol")
+            guard let request = try? http.socketRequest(url, token: token) else { return false }
             let task = http.session.webSocketTask(with: request)
             socket = task
             task.resume()

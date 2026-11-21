@@ -76,3 +76,18 @@ export type TeamDetail = {
   readonly links: TeamInviteLink[];
   readonly billing: TeamBillingSummary;
 };
+
+/** One row of `GET /api/teams`: a team the signed-in user belongs to. */
+export type TeamListing = {
+  readonly id: string;
+  readonly displayName: string;
+  readonly profileImageUrl: string | null;
+  readonly role: TeamRole;
+  readonly permissions: TeamViewerPermissions;
+};
+
+/** `GET /api/teams`. `selectedTeamId` is null when no listed team is selected. */
+export type TeamListResponse = {
+  readonly teams: TeamListing[];
+  readonly selectedTeamId: string | null;
+};

@@ -33,11 +33,11 @@ struct AcpmuxStrayDaemonTests {
         let pids: Result<(Int32?, Int32?), any Error>
         do {
             // The CLI's autostart (or launchd) runs `~/.local/bin/acpmux` on the app's home.
-            try await AcpmuxHost(environment: try environment(localBin)).prewarm()
+            try await AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: try environment(localBin)).prewarm()
             let before = try await AcpmuxStatusClient.status(socketPath: socket, deadline: .seconds(15)).pid
             // The app's launch: its chats connect, to an acpmux run from its own bundle.
             step = "the app's launch"
-            try await AcpmuxHost(environment: try environment(bin)).prewarm()
+            try await AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: try environment(bin)).prewarm()
             pids = .success((before, try await AcpmuxStatusClient.status(socketPath: socket, deadline: .seconds(15)).pid))
         } catch {
             pids = .failure(error)
@@ -46,7 +46,7 @@ struct AcpmuxStrayDaemonTests {
             .map { $0.split(separator: "\n").suffix(30).joined(separator: "\n") } ?? "no daemon.log"
         let running: String? = if case .success(let (_, after?)) = pids { AcpmuxVersionHandoff.executablePath(pid: after) } else { nil }
         // Whatever failed, every daemon this test started ends with it.
-        _ = try? await AcpmuxStatusClient.shutdown(socketPath: socket, home: home, deadline: .seconds(10))
+        _ = try? await AcpmuxStatusClient.shutdown(socketPath: socket, home: home, reason: "test", deadline: .seconds(10))
         guard case .success(let (before, after)) = pids, let pid = after else {
             Issue.record("\(step) failed: \(pids)\n--- daemon.log\n\(log)")
             return

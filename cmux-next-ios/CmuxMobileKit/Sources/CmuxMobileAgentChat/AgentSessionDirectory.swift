@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 
 /// Owns one `AgentChatStore` per agent tab so the chat, Home and Feed share
@@ -27,6 +28,37 @@ public final class AgentSessionDirectory {
         return DisconnectedAgentSource(summary: summary)
     }
 
+    /// New Agent Chat from Shortcuts with a prompt: the message waits for the chat of the
+    /// workspace it made (`workspaceID`, the placeholder's id until the Mac names it) and goes
+    /// into that chat's composer, unsent, once. One left over (the person went elsewhere) is
+    /// dropped after `expiresAt`.
+    public struct NewChatDraft: Sendable {
+        public var workspaceID: String
+        public var text: String
+        public var expiresAt: Date
+
+        public init(workspaceID: String, text: String, expiresAt: Date) {
+            self.workspaceID = workspaceID
+            self.text = text
+            self.expiresAt = expiresAt
+        }
+    }
+
+    @ObservationIgnored public var newChatDraft: NewChatDraft?
+
+    /// The draft for the chat of workspace `id` (`resolve` maps a placeholder's id to the Mac's),
+    /// taken once; nil when there is none for it, or it is too old.
+    public func takeNewChatDraft(for id: String, now: Date = Date(), resolve: (String) -> String) -> String? {
+        guard let draft = newChatDraft else { return nil }
+        if draft.expiresAt < now {
+            newChatDraft = nil
+            return nil
+        }
+        guard resolve(draft.workspaceID) == resolve(id) else { return nil }
+        newChatDraft = nil
+        return draft.text
+    }
+
     public init() {}
 
     /// A tab's store key: tab ids (`s<surface>`) repeat across Macs, so a
@@ -40,6 +72,9 @@ public final class AgentSessionDirectory {
         let key = Self.key(id: summary.id, macID: summary.macID)
         if let store = stores[key] { return store }
         let store = AgentChatStore(source: makeSource(summary))
+        // Kept for the tab while the person is elsewhere: it spills and answers memory warnings
+        // on its own, as the chat on screen does.
+        store.boundsMemoryOffScreen()
         stores[key] = store
         return store
     }
@@ -56,6 +91,14 @@ public final class AgentSessionDirectory {
     /// `makeSource` again (the tab's session changed on the Mac).
     public func invalidate(id: String, macID: String = "") {
         guard stores.removeValue(forKey: Self.key(id: id, macID: macID)) != nil else { return }
+        generation += 1
+    }
+
+    /// Sign-out: no account's chats stay in memory (notification previews save `loadedStores`, and a
+    /// later sign-in must not meet a store bound to the old account's link).
+    public func removeAll() {
+        guard !stores.isEmpty else { return }
+        stores.removeAll()
         generation += 1
     }
 
@@ -95,8 +138,29 @@ public struct AgentChatDestinationView: View {
             let mac = appStore.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? "Mac"
             AgentChatScreen(store: AgentSessionDirectory.shared.store(workspace: workspace, tab: tab, macName: mac))
                 .onAppear { appStore.noteOpened(tabID: tab.id, in: workspace.id) }
+        } else if isLoading {
+            // The workspaces are still on their way (a cold open from a notification): the
+            // chat loads, it is not "closed".
+            CmuxSpinner(label: Text("Loading chat…"))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("agentChat.destination.loading")
         } else {
             ContentUnavailableView("Tab closed", systemImage: "sparkle", description: Text("This agent tab is no longer open."))
+        }
+    }
+
+    /// The tab may still come: the team's data or a Mac's list is loading (or showing last-known
+    /// rows while its link comes up). Only a live list that lacks the tab means it closed.
+    private var isLoading: Bool {
+        if appStore.teamDataState == .loading { return true }
+        let workspace = appStore.workspaces.first { $0.id == destination.workspaceID }
+        let macs = workspace.map { [$0.macID] } ?? Array(appStore.macData.keys)
+        if workspace == nil, appStore.tracksMacData, appStore.macData.isEmpty { return true }
+        return macs.contains { macID in
+            switch appStore.macDataPhase(macID) {
+            case .loading, .cached: true
+            case .live, .empty, .failed, .offline, .idle: false
+            }
         }
     }
 }

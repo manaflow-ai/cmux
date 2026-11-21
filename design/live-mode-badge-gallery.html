@@ -1,0 +1,87 @@
+<!doctype html>
+<!-- Where Swift live mode's "Live mode" mark sits (cmux#36812). Leo 2026-11-06: "but why are you
+     putting live mode like that instead of in a more nice place say just to the left of the
+     rightmost top icons? or at the bottom just to the right of the profile circle in the sidebar?"
+     Open in a browser; each card is the window's top row and the sidebar's footer line. -->
+<html lang="en">
+<meta charset="utf-8">
+<title>Live mode mark placement</title>
+<style>
+  :root { --bg:#1e1e20; --side:#252528; --line:#3a3a3e; --text:#e6e6e8; --sec:#9a9aa0; --hover:#ffffff14; --accent:#4a8cff; }
+  body { margin:24px; background:#111; color:var(--text); font:13px -apple-system, system-ui, sans-serif; }
+  h1 { font-size:16px; font-weight:600; }
+  .grid { display:grid; grid-template-columns:repeat(2, 1fr); gap:24px; }
+  figure { margin:0; }
+  figcaption { color:var(--sec); margin-top:8px; line-height:1.4; }
+  figcaption b { color:var(--text); }
+  .win { height:220px; border-radius:10px; overflow:hidden; display:grid; grid-template-columns:220px 1fr; background:var(--bg); border:1px solid var(--line); }
+  .side { background:var(--side); display:flex; flex-direction:column; }
+  .top { height:38px; display:flex; align-items:center; gap:8px; padding:0 10px; }
+  .lights { display:flex; gap:7px; } .lights i { width:12px; height:12px; border-radius:50%; background:#555; display:block; }
+  .btn { width:22px; height:22px; border-radius:6px; color:var(--sec); display:grid; place-items:center; font-size:13px; }
+  .list { flex:1; padding:6px 10px; color:var(--sec); }
+  .list div { height:24px; line-height:24px; }
+  .foot { height:34px; display:flex; align-items:center; gap:6px; padding:0 12px; position:relative; }
+  .avatar { width:20px; height:20px; border-radius:50%; background:var(--accent); color:white; font-size:11px; display:grid; place-items:center; flex:none; position:relative; }
+  .dots { flex:1; display:flex; justify-content:center; gap:8px; } .dots i { width:6px; height:6px; border-radius:50%; background:var(--sec); display:block; } .dots i.on { background:var(--text); }
+  .chip { font-size:11px; color:var(--sec); background:var(--hover); border-radius:999px; padding:2px 8px; white-space:nowrap; flex:none; }
+  .main { display:flex; flex-direction:column; }
+  .tabs { height:38px; display:flex; align-items:center; gap:6px; padding:0 8px; border-bottom:1px solid var(--line); }
+  .tab { padding:4px 10px; border-radius:6px; background:var(--hover); color:var(--text); font-size:12px; }
+  .spacer { flex:1; }
+  .live-dot { position:absolute; right:-2px; bottom:-2px; width:8px; height:8px; border-radius:50%; background:#3fb950; border:2px solid var(--side); }
+  .pick { outline:2px solid var(--accent); outline-offset:6px; border-radius:10px; }
+</style>
+<h1>Live mode mark: four placements</h1>
+<div class="grid">
+
+<figure>
+  <div class="win">
+    <div class="side">
+      <div class="top"><span class="lights"><i></i><i></i><i></i></span><span class="btn">▤</span><span class="btn">‹</span><span class="btn">›</span><span class="btn">+</span><span class="chip">Live mode</span></div>
+      <div class="list"><div>cmux</div><div>docs</div></div>
+      <div class="foot"><span class="avatar">L</span><span class="dots"><i class="on"></i><i></i></span><span class="btn">⌕</span></div>
+    </div>
+    <div class="main"><div class="tabs"><span class="tab">zsh</span><span class="spacer"></span><span class="btn">⊞</span><span class="btn">+</span></div></div>
+  </div>
+  <figcaption><b>A. Before: titlebar, after the toolbar band.</b> It crowds back, forward and +, and pushes the strips under the top row to the right.</figcaption>
+</figure>
+
+<figure>
+  <div class="win">
+    <div class="side">
+      <div class="top"><span class="lights"><i></i><i></i><i></i></span><span class="btn">▤</span><span class="btn">‹</span><span class="btn">›</span><span class="btn">+</span></div>
+      <div class="list"><div>cmux</div><div>docs</div></div>
+      <div class="foot"><span class="avatar">L</span><span class="dots"><i class="on"></i><i></i></span><span class="btn">⌕</span></div>
+    </div>
+    <div class="main"><div class="tabs"><span class="tab">zsh</span><span class="spacer"></span><span class="chip">Live mode</span><span class="btn">⊞</span><span class="btn">+</span></div></div>
+  </div>
+  <figcaption><b>B. Titlebar, left of the rightmost icons.</b> Those icons belong to the top-right pane's tab strip, so the mark would move with every split and take tab room from that one pane.</figcaption>
+</figure>
+
+<figure class="pick">
+  <div class="win">
+    <div class="side">
+      <div class="top"><span class="lights"><i></i><i></i><i></i></span><span class="btn">▤</span><span class="btn">‹</span><span class="btn">›</span><span class="btn">+</span></div>
+      <div class="list"><div>cmux</div><div>docs</div></div>
+      <div class="foot"><span class="avatar">L</span><span class="chip">Live mode</span><span class="dots"><i class="on"></i><i></i></span><span class="btn">⌕</span></div>
+    </div>
+    <div class="main"><div class="tabs"><span class="tab">zsh</span><span class="spacer"></span><span class="btn">⊞</span><span class="btn">+</span></div></div>
+  </div>
+  <figcaption><b>C. Picked: sidebar footer, right of the profile circle.</b> It is part of the window, not a pane, and it is next to the identity of the app you are running. The dots stay centered and start after it. With the sidebar hidden it shows in the top row, as the incognito badge does.</figcaption>
+</figure>
+
+<figure>
+  <div class="win">
+    <div class="side">
+      <div class="top"><span class="lights"><i></i><i></i><i></i></span><span class="btn">▤</span><span class="btn">‹</span><span class="btn">›</span><span class="btn">+</span></div>
+      <div class="list"><div>cmux</div><div>docs</div></div>
+      <div class="foot"><span class="avatar">L<span class="live-dot"></span></span><span class="dots"><i class="on"></i><i></i></span><span class="btn">⌕</span></div>
+    </div>
+    <div class="main"><div class="tabs"><span class="tab">zsh</span><span class="spacer"></span><span class="btn">⊞</span><span class="btn">+</span></div></div>
+  </div>
+  <figcaption><b>D. A green dot on the profile circle.</b> It takes the least room, but it reads as a presence or online status, and the words "Live mode" only appear on hover.</figcaption>
+</figure>
+
+</div>
+</html>

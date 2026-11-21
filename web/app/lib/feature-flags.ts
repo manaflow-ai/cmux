@@ -38,7 +38,7 @@ export const FEATURE_FLAGS = {
     key: "go-plan-enabled-release",
     owner: "lawrencecchen",
     description:
-      "Shows and sells the $10/month Go personal Cloud VM plan. Off until Go capacity and support are ready for public rollout.",
+      "Enables Go purchases in the App Store. Web Plus is publicly available independently of this rollout.",
     reviewBy: "2026-12-01",
     defaultWhenUnavailable: false,
   },

@@ -4,9 +4,11 @@
 // (the host keeps the old values in the file). Data: the host lists' `theme_overrides`, live
 // through cmux.settings.host.changed.
 import { useState } from "react";
+import { Button } from "../../../ui/Button";
 import { useSettingsState, useStore } from "../context";
 import { Icon } from "../icons";
-import type { ThemeOverride } from "../ops";
+import { SETTINGS_SENTENCES, type ThemeOverride } from "../ops";
+import { userMessage } from "../../shared/userMessage";
 import { locale, t } from "../strings";
 
 /** "background and foreground" in the page's language. */
@@ -40,7 +42,7 @@ export function ThemeOverrides({ disabled }: { disabled: boolean }) {
     setBusy(true);
     try {
       const reply = await store.releaseThemeOverrides();
-      setError(reply.ok ? null : reply.error.message);
+      setError(reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES));
     } finally {
       setBusy(false);
     }
@@ -59,7 +61,7 @@ export function ThemeOverrides({ disabled }: { disabled: boolean }) {
           {error && <span className="theme-overrides-error">{error}</span>}
         </div>
         <div className="theme-overrides-actions">
-          <button
+          <Button
             type="button"
             className="button"
             disabled={disabled || busy}
@@ -68,15 +70,16 @@ export function ThemeOverrides({ disabled }: { disabled: boolean }) {
             onClick={() => void release()}
           >
             {t("settingsPage.theme.overrides.release")}
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
             type="button"
             className="link-button"
             data-theme-overrides-action="open"
             onClick={() => store.openThemeOverrides()}
           >
             {t("settingsPage.theme.overrides.open")}
-          </button>
+          </Button>
         </div>
       </div>
     </output>

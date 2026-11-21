@@ -109,7 +109,13 @@ async fn a_restart_over_long_chats_loads_within_budget_and_keeps_queues_and_tail
     );
 
     let first = hub.resolve("01a15800-0000-7000-8000-000000000000").unwrap();
-    assert_eq!(first.meta().last_seq, events + 3, "the log's tail past lastSeq was not caught up");
+    // The 3 records past the saved lastSeq are caught up, and the restored queue adds its one
+    // `queue_restored` notice after them (`hub/queue.rs` `restore_queue`, #28098).
+    assert_eq!(
+        first.meta().last_seq,
+        events + 4,
+        "the log's tail past lastSeq was not caught up, or the queue restore's notice is not one record"
+    );
     let queue = first.queue();
     assert_eq!(queue.iter().map(|q| q.prompt_id.as_str()).collect::<Vec<_>>(), ["p-1"]);
     assert_eq!(hub.sessions().len() as u64, sessions);

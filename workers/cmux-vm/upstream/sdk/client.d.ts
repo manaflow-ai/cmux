@@ -22,15 +22,22 @@ interface TransportOptions {
 export type FreestyleOptions = ({
     apiKey?: string;
     identityAccessToken?: never;
+    accessToken?: never;
 } & TransportOptions) | ({
     identityAccessToken: string;
     apiKey?: never;
+    accessToken?: never;
+} & TransportOptions) | ({
+    accessToken: string;
+    apiKey?: never;
+    identityAccessToken?: never;
 } & TransportOptions) | ({
     /** Stack access token used by the CLI; resolved to `teamId` at the gateway. */
     stackAccessToken: string;
     teamId: string;
     apiKey?: never;
     identityAccessToken?: never;
+    accessToken?: never;
 } & TransportOptions);
 /** `undefined`/`null` query values are dropped; everything else is stringified. */
 export type QueryValue = string | number | boolean | undefined | null;
@@ -51,14 +58,13 @@ export declare function segment(value: string): string;
  * errors — is ready. If a finished result was too large to store (the API
  * caps stored bodies), idempotent GETs are re-fetched once directly: by then
  * the slow part (e.g. waking the VM) has already happened. Identity-token
- * clients are the one exception: their scope cannot reach the poll route,
- * so none of their requests are backgrounded.
+ * clients background only execs: the poll route rechecks their VM and Linux-user grant.
  */
 export declare class FreestyleClient {
     readonly baseUrl: string;
     private readonly authenticationHeaders;
     private readonly fetchImpl;
-    /** Identity-token callers cannot poll `/v5/background-requests`, so their requests are never backgrounded. */
+    /** Whether calls other than exec may use background requests. */
     private readonly backgroundEligible;
     constructor(options?: FreestyleOptions);
     /** Headers this client authenticates every request with, e.g. for a raw WebSocket handshake. */
@@ -73,10 +79,12 @@ export declare class FreestyleClient {
      * way to reach the unversioned `/status` and `/openapi.json`.
      */
     fetch(path: string, init?: RequestInit): Promise<Response>;
+    private fetchAuthenticated;
     /** A path or URL as this client's `fetch` resolves it: absolute URLs are
      * followed as given, everything else hangs off `baseUrl` with no version
      * segment added — the caller already supplied whatever version it wants. */
     private absoluteUrl;
+    private send;
     private request;
     /**
      * Follow a 202 from a backgrounded request: poll its result URL until the

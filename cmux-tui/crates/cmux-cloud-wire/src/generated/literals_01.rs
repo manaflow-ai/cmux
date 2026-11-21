@@ -117,7 +117,15 @@ wire_literal! {
 }
 
 wire_literal! {
+    LitSlack = "slack"
+}
+
+wire_literal! {
     LitSleep = "sleep"
+}
+
+wire_literal! {
+    LitSpendCap = "spend_cap"
 }
 
 wire_literal! {

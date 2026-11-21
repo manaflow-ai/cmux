@@ -7,26 +7,47 @@ import { AppDetailView } from "./AppDetailView";
 import { CloudFeature } from "./CloudFeature";
 import { InstalledView } from "./InstalledView";
 import { CategoryBar, ItemCard, ItemRow } from "./items";
-import type { StoreTab } from "./model";
+import { filterApps, type StoreTab } from "./model";
 import type { AppsSnapshot, AppsStore } from "./store";
+import { Skeleton } from "../../ui/Skeleton";
+import { SplitEdge } from "../../ui/SplitEdge";
 import { useUiDirection } from "../../ui/UiProvider";
+import { useLasting } from "../../ui/lasting";
+
+/** The toolbar's tabs: the store's tabs, plus Examples in the `tab` placement. */
+type ToolbarTab = StoreTab | "examples";
 
 export function AppsPage({ store, strings }: { store: AppsStore; strings: Strings }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
-  const tabRefs = useRef<Partial<Record<StoreTab, HTMLButtonElement>>>({});
+  const tabRefs = useRef<Partial<Record<ToolbarTab, HTMLButtonElement>>>({});
   const { t } = strings;
-  const tabs: StoreTab[] = ["discover", "installed"];
+  // A lost owner link shows nothing until it lasts past the grace (a launch, a daemon restart:
+  // the store re-reads once the link is back); then the disconnected state.
+  const down = snap.connection === "disconnected";
+  const downLasting = useLasting(down);
+  // The `tab` placement of Examples (DEV, examples=tab) is a third toolbar tab: Discover on the
+  // Examples shelf. Every other placement keeps two tabs.
+  const examplesTab = snap.examplesOffered && snap.examplesStyle === "tab";
+  const tabs: ToolbarTab[] = examplesTab ? ["discover", "examples", "installed"] : ["discover", "installed"];
+  const current: ToolbarTab =
+    snap.tab === "installed" ? "installed" : examplesTab && snap.shelf === "example" ? "examples" : "discover";
+  // Discover is a plain tab change unless the Examples shelf is the one showing.
+  const show = (tab: ToolbarTab) => {
+    if (tab === "examples") store.setShelf("example");
+    else if (tab === "discover" && snap.shelf === "example") store.setShelf("store");
+    else store.setTab(tab);
+  };
   const direction = useUiDirection() === "rtl" ? -1 : 1;
-  const moveTab = (event: KeyboardEvent<HTMLButtonElement>, tab: StoreTab) => {
+  const moveTab = (event: KeyboardEvent<HTMLButtonElement>, tab: ToolbarTab) => {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const step = event.key === "ArrowRight" ? direction : event.key === "ArrowLeft" ? -direction : null;
     if (event.key !== "Home" && event.key !== "End" && step === null) return;
-    const current = tabs.indexOf(tab);
+    const index = tabs.indexOf(tab);
     const next =
-      event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (current + step! + tabs.length) % tabs.length;
+      event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + step! + tabs.length) % tabs.length;
     const nextTab = tabs[next]!;
     event.preventDefault();
-    store.setTab(nextTab);
+    show(nextTab);
     tabRefs.current[nextTab]?.focus();
   };
   return (
@@ -41,13 +62,13 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
               ref={(element) => {
                 tabRefs.current[tab] = element ?? undefined;
               }}
-              tabIndex={snap.tab === tab ? 0 : -1}
-              aria-selected={snap.tab === tab}
-              className={`apps-tab${snap.tab === tab ? " selected" : ""}`}
-              onClick={() => store.setTab(tab)}
+              tabIndex={current === tab ? 0 : -1}
+              aria-selected={current === tab}
+              className={`apps-tab${current === tab ? " selected" : ""}`}
+              onClick={() => show(tab)}
               onKeyDown={(event) => moveTab(event, tab)}
             >
-              {t(`store.tab.${tab}`)}
+              {tab === "examples" ? t("store.shelf.examples") : t(`store.tab.${tab}`)}
             </button>
           ))}
         </div>
@@ -81,7 +102,7 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
       {snap.error && snap.connection !== "disconnected" && (
         <output className="apps-error selectable">{snap.error}</output>
       )}
-      {snap.connection === "disconnected" ? (
+      {down && !downLasting ? null : down ? (
         <output className="apps-state">
           <span className="apps-state-mark" aria-hidden="true">
             !
@@ -104,7 +125,13 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
   if (snap.layout !== "split" && selected) {
     return <AppDetailView snap={snap} store={store} strings={strings} showsBack />;
   }
-  const framed = !snap.query.trim() && !snap.category && snap.layout === "grid";
+  const onStore = snap.shelf !== "example";
+  const framed = onStore && !snap.query.trim() && !snap.category && snap.layout === "grid";
+  // The `section` placement (DEV, examples=section) lists the examples under the store's apps.
+  const examplesSection =
+    snap.examplesOffered && snap.examplesStyle === "section" && onStore
+      ? filterApps(snap.catalog, snap.query, undefined, "example")
+      : [];
   const featured = framed
     ? [...snap.visible]
         .filter((app) => app.tier === "first-party")
@@ -115,11 +142,16 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
   const catalog = featured.length ? snap.visible.filter((app) => !featuredIds.has(app.id)) : snap.visible;
   const listing = (
     <div className="apps-discover-list">
-      {!snap.query.trim() && !snap.category && <CloudFeature store={store} strings={strings} />}
+      {onStore && !snap.query.trim() && !snap.category && <CloudFeature store={store} strings={strings} />}
       <CategoryBar
         categories={snap.categories}
         selected={snap.category}
         onSelect={(category) => store.setCategory(category)}
+        examples={
+          snap.examplesOffered && snap.examplesStyle === "chip"
+            ? { selected: !onStore, onToggle: () => store.setShelf(onStore ? "example" : "store") }
+            : undefined
+        }
         strings={strings}
       />
       {snap.loading && snap.visible.length === 0 ? (
@@ -174,6 +206,28 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
               </div>
             </section>
           )}
+          {examplesSection.length > 0 && (
+            <section className="apps-catalog-section" aria-labelledby="apps-examples-title">
+              <div className="apps-section-heading">
+                <h3 id="apps-examples-title">{t("store.shelf.examples")}</h3>
+              </div>
+              <div className={snap.layout === "grid" ? "apps-grid" : "apps-rows"}>
+                {examplesSection.map((app) =>
+                  snap.layout === "grid" ? (
+                    <ItemCard key={app.id} app={app} store={store} strings={strings} style={snap.card} />
+                  ) : (
+                    <ItemRow
+                      key={app.id}
+                      app={app}
+                      selected={snap.layout === "split" && app.id === selected}
+                      store={store}
+                      strings={strings}
+                    />
+                  ),
+                )}
+              </div>
+            </section>
+          )}
         </>
       )}
     </div>
@@ -181,7 +235,18 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
   if (snap.layout !== "split") return <div className="apps-scroll">{listing}</div>;
   return (
     <div className="apps-split">
-      <div className="apps-split-list">{listing}</div>
+      <div className="apps-split-side">
+        <div className="apps-split-list">{listing}</div>
+        {/* The list's line is the split's divider and drags as one (ui/SplitEdge.tsx). */}
+        <SplitEdge
+          side="right"
+          property="--apps-list-width"
+          storageKey="cmux.apps.list.width"
+          min={200}
+          max={560}
+          on="parent"
+        />
+      </div>
       <div className="apps-split-detail">
         {selected ? (
           <AppDetailView snap={snap} store={store} strings={strings} />
@@ -198,10 +263,10 @@ function LoadingGrid({ strings }: { strings: Strings }) {
     <div className="apps-grid apps-grid-loading" aria-busy="true" aria-label={strings.t("store.detail.loading")}>
       {Array.from({ length: 6 }, (_, index) => (
         <div className="apps-card-skeleton" key={index} aria-hidden="true">
-          <span className="apps-skeleton-icon" />
-          <span className="apps-skeleton-line wide" />
-          <span className="apps-skeleton-line" />
-          <span className="apps-skeleton-footer" />
+          <Skeleton className="apps-skeleton-icon" />
+          <Skeleton className="apps-skeleton-line wide" />
+          <Skeleton className="apps-skeleton-line" />
+          <Skeleton className="apps-skeleton-footer" />
         </div>
       ))}
     </div>

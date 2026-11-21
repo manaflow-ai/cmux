@@ -29,9 +29,11 @@ public nonisolated struct OmnibarPresentation: Equatable, Sendable {
         /// User input, or nothing to describe: search, or the highlighted
         /// suggestion's kind.
         case input(symbol: String)
-        /// The page's indicator (`PageInfoIndicator`). While focused it keeps
-        /// the icon but drops the text label.
-        case page(focused: Bool)
+        /// The page's indicator (`PageInfoIndicator`), its text label
+        /// included, at rest and while focused: as in Chromium, only user
+        /// input replaces it (`LocationIconView::GetShowText`), so focusing
+        /// moves nothing (Lawrence 2026-10-30, msg 18159).
+        case page
         /// An extension keyword session: the extension's name.
         case keyword(name: String)
         /// A search engine keyword session: "Search YouTube".
@@ -65,12 +67,11 @@ public nonisolated struct OmnibarPresentation: Equatable, Sendable {
             }
             return .input(symbol: search)
         case .focused:
-            // A focusing press keeps the label until its release: dropping it
-            // moves the field under the still-down pointer.
-            let pressing = state.mouse?.pressed == true && state.mouse?.selectAllOnRelease == true
-            return state.pageURL == nil ? .input(symbol: search) : .page(focused: !pressing)
+            // Chromium `OmniboxView::IsEditingOrEmpty`: an empty box (the New
+            // Tab page) shows the search icon, at rest and focused alike.
+            return state.permanentText.isEmpty ? .input(symbol: search) : .page
         case .idle, .committing:
-            return state.fieldText.isEmpty || state.retainedText != nil ? .input(symbol: search) : .page(focused: false)
+            return state.fieldText.isEmpty || state.retainedText != nil ? .input(symbol: search) : .page
         }
     }
 }

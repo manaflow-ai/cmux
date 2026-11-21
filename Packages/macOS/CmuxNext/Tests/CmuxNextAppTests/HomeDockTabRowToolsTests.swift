@@ -5,6 +5,7 @@ import CmuxNextAgentActivity
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 import CmuxNextSidebar
 import Testing
 
@@ -106,7 +107,10 @@ import Testing
         let tools = ChiefPaneTools(chief: chief, registry: registry)
         let rows = chief.allSubagents(), items = tools.subagentsMenu().items
         #expect(rows.count == 2)
-        #expect(items.map(\.title) == rows.map(\.info.title))
+        // An untitled subagent's sidebar row stays icon-led under the Chief header; the menu, which has no
+        // such header, names it Subagent (Leo 2026-10-29).
+        #expect(rows.map(\.info.title) == ["", ""])
+        #expect(items.map(\.title) == rows.map { $0.info.title.isEmpty ? ChiefToolStrings.subagent : $0.info.title })
         #expect(items.map(\.toolTip) == rows.map(\.info.activity.shortLabel))
         let runs = items.compactMap(ActionRegistry.menuRun(of:))
         #expect(runs.map(\.id) == Array(repeating: ActionID("chief.openSubagent"), count: rows.count))
@@ -159,7 +163,7 @@ import Testing
         channels.rowTools = [.messages: ChiefPaneTools(chief: ChiefSidebar(lanes: AgentLaneStore()), registry: registry)]
         #expect(channels.paneMoreMenuItems().isEmpty)
         let standard = ActionRegistry.standard()
-        let toolbar = PaneToolbar(registry: { standard }, newTabMenu: { nil }, contentMenu: { dock.paneMoreMenuItems() })
+        let toolbar = PaneToolbar(registry: { standard }, contentMenu: { dock.paneMoreMenuItems() })
         toolbar.update(target: "tab0", kind: .other)
         let menu = try #require(toolbar.view.moreMenu?())
         let ids = menu.items.prefix(ChiefPaneTools.actions.count).compactMap { $0.identifier?.rawValue }

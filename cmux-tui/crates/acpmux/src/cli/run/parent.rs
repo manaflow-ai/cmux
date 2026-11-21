@@ -14,8 +14,9 @@ use std::sync::Arc;
 /// Flags a sub-session start takes no part of, and why.
 fn refused_flags(args: &NewArgs) -> Option<String> {
     let flags = [
-        (args.host.is_some(), "--host", "a family lives on one daemon"),
+        (args.host.is_some(), "--machine", "a family lives on one daemon"),
         (args.preset.is_some(), "--preset", "the child takes -m and -e"),
+        (args.harness_from.is_some(), "--harness-from", "the child takes -m and -e"),
         (args.policy.is_some(), "--policy", "the child runs its parent's policy"),
         (args.mode.is_some(), "--mode", "the child starts in the mode its parent's allows"),
         (args.ephemeral, "--ephemeral", "the child stays under its parent's chat"),
@@ -57,7 +58,11 @@ fn start_params(args: &NewArgs, parent: &str, prompt: &str) -> Result<Value> {
     Ok(p)
 }
 
-pub(super) async fn run(args: NewArgs, json_out: bool) -> Result<()> {
+pub(super) async fn run(
+    args: NewArgs,
+    json_out: bool,
+    deadline: Option<tokio::time::Instant>,
+) -> Result<()> {
     if let Some(why) = refused_flags(&args) {
         return Err(errors::AppError::usage(why).into());
     }
@@ -70,14 +75,22 @@ pub(super) async fn run(args: NewArgs, json_out: bool) -> Result<()> {
         .into());
     };
     let parent = args.parent.clone().unwrap_or_default();
-    let client = connect(true).await?;
-    let started = client
-        .request(method::MUX_SUBSESSION_START, start_params(&args, &parent, &prompt)?)
-        .await?;
+    let client = before_deadline(deadline, &parent, connect(true)).await?;
+    let started = before_deadline(
+        deadline,
+        &parent,
+        client.request(method::MUX_SUBSESSION_START, start_params(&args, &parent, &prompt)?),
+    )
+    .await?;
     let id = started["sessionId"].as_str().unwrap_or_default().to_owned();
     let name = started["name"].as_str().unwrap_or(&id).to_owned();
     if !args.tags.is_empty() {
-        client.request(method::MUX_TAG, json!({"sessionId": id, "set": tags})).await?;
+        before_deadline(
+            deadline,
+            &id,
+            client.request(method::MUX_TAG, json!({"sessionId": id, "set": tags})),
+        )
+        .await?;
     }
     if args.detach {
         if json_out {
@@ -87,9 +100,12 @@ pub(super) async fn run(args: NewArgs, json_out: bool) -> Result<()> {
         }
         return Ok(());
     }
-    let row = wait_turn(&client, &id, args.timeout).await?;
+    let row = before_deadline(deadline, &id, wait_turn(&client, &id, args.timeout)).await?;
     // Masked as the sub-session tools mask what they hand another session's agent; whole, not cut.
-    let reply = last_replies(&client, &id, 1).await?.pop().map(|r| crate::secret_scan::mask(&r));
+    let reply = before_deadline(deadline, &id, last_replies(&client, &id, 1))
+        .await?
+        .pop()
+        .map(|r| crate::secret_scan::mask(&r));
     let last = &row["lastTurn"];
     let (state, error) = turn_end(last);
     if json_out {
@@ -196,7 +212,10 @@ mod tests {
     #[test]
     fn flags_a_child_start_takes_no_part_of_are_refused() {
         let why = refused_flags(&new_args(&["--parent", "lead", "--host", "box", "go"]));
-        assert_eq!(why.as_deref(), Some("--parent takes no --host: a family lives on one daemon"));
+        assert_eq!(
+            why.as_deref(),
+            Some("--parent takes no --machine: a family lives on one daemon")
+        );
         assert!(refused_flags(&new_args(&["--parent", "lead", "--policy", "ask"])).is_some());
         assert!(refused_flags(&new_args(&["--parent", "lead", "--ephemeral"])).is_some());
     }

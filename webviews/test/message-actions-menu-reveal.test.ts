@@ -1,6 +1,6 @@
 // l10n-allow-file: browser fixture labels, not shipped UI.
 // Real conversation CSS on the action groups rendered by UserBubble/IncomingMessageLine.
-// A row's unrelated popup must not reveal its message actions or steer delivery label.
+// A row's unrelated popup must not reveal its message actions.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -66,21 +66,17 @@ await requireBrowserLane("message-actions-menu-reveal.test.ts", async () => {
           const actions = kind === "user" ? "cv-user__actions" : "cv-received-actions";
           await page.setContent(`<!doctype html><style>${css}</style>
             <button id="outside" style="position:fixed;top:300px;left:600px">Outside</button>
-            <div class="cv-received__queued-head">Read after this turn</div>
             <div id="row" class="cv-${kind}" style="width:400px;min-height:100px">
               <button id="unrelated" aria-haspopup="dialog" aria-expanded="false">Details</button>
               <div id="actions" class="${actions}">
                 <button id="menu" aria-haspopup="menu" aria-expanded="false">Actions</button>
                 <button id="other-action" aria-haspopup="listbox" aria-expanded="false">Choose</button>
               </div>
-              ${kind === "received" ? '<span id="status" class="cv-received__queued">Read after this step</span>' : ""}
             </div>`);
           const opacity = (selector: string) =>
             page.locator(selector).evaluate((node) => getComputedStyle(node).opacity);
           const expectState = async (value: string) => {
             expect(await opacity("#actions")).toBe(value);
-            if (kind === "received") expect(await opacity("#status")).toBe(value);
-            expect(await opacity(".cv-received__queued-head")).toBe("1");
           };
           const leave = async () => {
             await page.locator("#outside").focus();

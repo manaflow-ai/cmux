@@ -171,6 +171,12 @@ change, and its credential question (B3) had no default.
 User: "For subagents in the cloud we need to have aggressive auto-pausing
 behavior."
 
+- `cloud.autoPause` (Chief settings, default false): the host pauses cloud
+  VMs on its own only when this is true. Leo, 2026-10-30: "we're saying no
+  auto pausing of the freestyle vms for now"; so by default no pool VM, own
+  VM at its final report, or idle VM at host shutdown is paused by the host
+  (`optchat-chief settings set cloud.autoPause true` opts in). Pausing by
+  hand (`deploy.sh pause`) is unchanged. The rules below hold when it is on.
 - `cloud.autoPauseIdleSeconds` (Chief settings, default 60; `optchat-chief
   settings set cloud.autoPauseIdleSeconds N`): a VM pauses this long after its
   last cloud subagent stops being live. Live = starting or running: a turn, a

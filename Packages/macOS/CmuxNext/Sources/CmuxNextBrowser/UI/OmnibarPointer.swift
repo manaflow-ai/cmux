@@ -11,9 +11,13 @@ import CmuxNextDesign
 ///   at rest and while editing, as in Safari and Chrome (Lawrence
 ///   2026-10-13). The same rectangle takes the press that focuses the
 ///   field, so wherever the I-beam shows, a click focuses.
-/// - Arrow everywhere else in the toolbar: the bar beside the chip and the
-///   badges, the page-info chip, the badges, the star and every button. A
-///   toolbar control is not a link, so it never shows the pointing hand.
+/// - The arrow over every button (`ClickableButton`: Back, Forward, Reload,
+///   the toolbar and extension buttons) and the bookmark star, enabled or
+///   not, as native macOS controls show (user 2026-10-30: "change all
+///   pointers back to cursor-default"; this replaces Leo's 2026-10-21
+///   pointing hand).
+/// - Arrow everywhere else in the toolbar too: the bar beside the chip and
+///   the badges, the page-info chip and the badges.
 /// - The toolbar row sets the arrow over its whole frame, so a cursor the
 ///   page set (a link's hand, a text I-beam) never stays when the pointer
 ///   moves up into the toolbar, and no edge between two rects shows a stale
@@ -44,7 +48,9 @@ enum OmnibarPointer {
         case bar
         /// The bar outside the text area (beside the chip and the badges).
         case barEdge
-        /// A chip, badge, star or button.
+        /// An enabled button (`ClickableButton`) or the bookmark star.
+        case button
+        /// A chip, badge or disabled button.
         case control
         /// The toolbar row outside the bar and its buttons.
         case toolbar
@@ -54,22 +60,44 @@ enum OmnibarPointer {
         case arrow
         case iBeam
 
-        var cursor: NSCursor { self == .iBeam ? .iBeam : .arrow }
+        var cursor: NSCursor {
+            switch self {
+            case .arrow: .arrow
+            case .iBeam: .iBeam
+            }
+        }
     }
 
     /// The cursor for `region`, the same at rest and while editing.
     static func cursor(_ region: Region) -> Cursor {
-        region == .text || region == .bar ? .iBeam : .arrow
+        switch region {
+        case .text, .bar: .iBeam
+        case .button, .barEdge, .control, .toolbar: .arrow
+        }
+    }
+
+    /// The clickable control `view` is or sits in, below `row`: an enabled button
+    /// (`ClickableButton`) or the bookmark star (`debug.omnibar` reports it as `button`).
+    @MainActor
+    static func clickable(at view: NSView, below row: NSView) -> NSView? {
+        sequence(first: view, next: \.superview).prefix(while: { $0 !== row }).first { isClickable($0) }
+    }
+
+    @MainActor
+    static func isClickable(_ view: NSView) -> Bool {
+        if let button = view as? ClickableButton { return button.isEnabled }
+        return view is BookmarkStarButton
     }
 }
 
 extension OmnibarPointer {
-    /// The cursor at a window point over `row`: the I-beam inside an
-    /// omnibar's text area (the rectangle of its cursor rects), the arrow
-    /// everywhere else in the row.
+    /// The cursor at a window point over `row`: the I-beam inside an omnibar's
+    /// text area (the rectangle of its cursor rects), the arrow everywhere
+    /// else in the row, buttons included.
     @MainActor
     static func cursor(atWindowPoint point: NSPoint, in row: NSView) -> Cursor {
         guard let parent = row.superview, let hit = row.hitTest(parent.convert(point, from: nil)) else { return cursor(.toolbar) }
+        if clickable(at: hit, below: row) != nil { return cursor(.button) }
         let bar = sequence(first: hit, next: \.superview).prefix(while: { $0 !== row }).lazy.compactMap { $0 as? AddressBarView }.first
         guard let bar else { return cursor(.toolbar) }
         return bar.textArea.contains(bar.convert(point, from: nil)) ? cursor(.bar) : cursor(.barEdge)

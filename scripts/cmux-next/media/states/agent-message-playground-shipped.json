@@ -1,0 +1,33 @@
+{
+ "title": "Agent Messages Playground: shipped look, collapsed",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Playground {'style': 0, 'expanded': False, 'team': False}",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "home.agentMessagePlayground",
+     "args": {
+      "style": 0,
+      "expanded": false,
+      "team": false
+     },
+     "origin": "script"
+    }
+   },
+   "wait": 4,
+   "shot": true
+  }
+ ],
+ "windows": [
+  {
+   "name": "playground",
+   "title": "Agent Messages Playground"
+  }
+ ]
+}

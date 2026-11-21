@@ -28,7 +28,7 @@ import {
 import type { ExternalReply } from "./external.ts"
 import type { Env } from "../env.ts"
 import { ProviderError } from "./providers.ts"
-import { principalForOwner } from "../team-select.ts"
+import { resolveConnectionPrincipal } from "../agent-gateway-principal.ts"
 import type { ApprovalSource } from "../domains/feed-approvals.ts"
 
 /** A gate answer: a final refusal or pending state for the caller, or a replay of the approved run. */
@@ -66,7 +66,7 @@ export const runApproved =
   (env: Env, allowed: (p: Principal, op: string, params: unknown) => boolean, run: (p: Principal, row: ApprovalRow) => Promise<ExternalReply>) =>
   async (row: ApprovalRow): Promise<ExternalReply | "refused"> => {
     // Review P2-2: the role is asked again too, so a member demoted to guest or billing runs nothing.
-    const resolved = await principalForOwner(env, "cloud:ConnectionDO", row.principal)
+    const resolved = await resolveConnectionPrincipal(env, row.principal)
     const now = resolved && !("refused" in resolved) ? resolved : undefined
     const risk = cloudOpByName.get(row.op)?.risk
     if (!now || !risk || !allowed(withApprovalClass(now, risk), row.op, row.params)) return "refused"
@@ -279,9 +279,7 @@ export const APPROVAL_ITEM_OPS: ReadonlySet<string> = new Set(["integration.appr
  * names the posting owner of `team`: its ConnectionDO (integrations) or its CloudDO (cx-wb5.65).
  */
 export const postIntegrationApproval = async (env: Env, user: string, team: string, prompt: unknown, expiresInMs: number, key: string, source: ApprovalSource = "connections"): Promise<string> => {
-  const feed = env.FEED_DO.get(env.FEED_DO.idFromName(user)) as unknown as {
-    integrationApproval(user: string, team: string, prompt: unknown, expiresInMs: number, key: string, source: ApprovalSource): Promise<{ ok: true; item: string } | { ok: false; message: string }>
-  }
+  const feed = env.FEED_DO.get(env.FEED_DO.idFromName(user))
   const r = await feed.integrationApproval(user, team, prompt, expiresInMs, key, source)
   if (!r.ok) throw new Error(r.message)
   return r.item

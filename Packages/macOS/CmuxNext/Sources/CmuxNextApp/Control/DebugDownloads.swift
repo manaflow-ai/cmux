@@ -3,10 +3,10 @@ import CmuxNextControl
 import CmuxNextSettings
 import Foundation
 
-// `debug.downloads` (DEBUG builds): the App's downloads list, oldest first,
-// each row's id, file name, status, progress and what the Downloads menu
-// offers for it. `pause`, `resume`, `retry` or `cancel` (a row's id) first
-// runs that menu item on the row, as a click there does.
+// `debug.downloads` (DEBUG builds): the App's downloads list, oldest first, each row's id, file name, status,
+// progress and what the Downloads menu offers for it, and `folder`, where a download with no chosen file goes
+// (CMUX_NEXT_DOWNLOADS_DIR when set; scripts/cmux-next/kit_downloads.py). `pause`, `resume`, `retry` or `cancel`
+// (a row's id) first runs that menu item on the row, as a click there does.
 enum DebugDownloads {
     static func register(on router: ControlRouter?, services: AppServices) {
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -22,13 +22,13 @@ enum DebugDownloads {
 
 #if DEBUG || CMUX_BENCH_HOOKS
 extension DebugDownloads {
-    static func handle(_ params: [String: JSONValue], list: BrowserDownloadList) -> JSONValue {
+    static func handle(_ params: [String: JSONValue], list: BrowserDownloadList, folder: URL = DownloadDestination.defaultDirectory) -> JSONValue {
         let row = { (key: String) in params[key]?.stringValue.flatMap { id in list.items.first { $0.id.uuidString == id } } }
         if let item = row("pause") { item.setPaused(true) }
         if let item = row("resume") { item.setPaused(false) }
         if let item = row("retry") { list.retry(item) }
         if let item = row("cancel") { item.cancel() }
-        return .object(["downloads": .array(list.items.map(report))])
+        return .object(["downloads": .array(list.items.map(report)), "folder": .string(folder.path(percentEncoded: false))])
     }
 
     private static func report(_ item: BrowserDownload) -> JSONValue {

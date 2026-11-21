@@ -2,14 +2,16 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
-/// Some separator between tabs, minimal but noticeable (Leo 2026-10-14): a short 1 pt line in
-/// the gap between two tabs, in the theme's separator tone, and none beside the selected or the
-/// hovered tab (Safari, Chrome), so it never cuts into the selected tab's shape. Read from the
-/// strip as drawn, in the default and the compact strip. Behind the Debug Settings toggle
-/// `tabs.separators`, off by default.
-@MainActor @Suite(.serialized) struct TabSeparatorTests {
+/// Some separator between tabs, minimal but noticeable (Leo 2026-10-14; Lawrence 2026-11-05: "subtle
+/// border between all the tabs (and also between the last tab and plus button)"): a short 1 pt line
+/// in the gap between two tabs and before +, in the theme's separator tone, and none beside the
+/// selected tab, so it never cuts into the selected tab's shape. Hover keeps the lines. Read from
+/// the strip as drawn, in the default and the compact strip. Debug Settings toggle
+/// `tabs.separators`, on by default.
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabSeparatorTests {
     /// What the eye gets in the gap after each tab: the luminance step (0-255) a line there makes
     /// over the strip's background, 0 with no visible line. A line is a sublayer of the tab at most
     /// 1 pt wide, on the pixel grid, inside the gap after the pill, shown and colored.
@@ -47,11 +49,11 @@ import Testing
         return (strip, window)
     }
 
-    /// Tab 1 is selected and tab 3 hovered: the gaps after tabs 0, 1, 2 and 3 touch one of them
-    /// and stay clear; the gap after tab 4 (to the +) shows the line, as does none other.
+    /// Tab 1 is selected and tab 3 hovered: the gaps after tabs 0 and 1 touch the selected tab and
+    /// stay clear; the gaps after tabs 2, 3 and 4 (the last one to the +) show the line, hover or not.
     func checkSeparators() throws {
         let (strip, window) = Self.strip(tabs: 5)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let hovered = try #require(strip.cells[TabID("tab3")])
         let frame = strip.convert(hovered.frame, from: strip.tabsClip)
         TabStripDebug.pointerMoved(in: strip, to: CGPoint(x: frame.midX, y: frame.midY))
@@ -59,7 +61,8 @@ import Testing
 
         let noticeable = 20, clear = 4
         #expect(contrast[4] >= noticeable, "the line after the last tab is \(contrast[4])/255 from the strip: \(contrast)")
-        #expect(contrast[0...3].allSatisfy { $0 <= clear }, "a line beside the selected or hovered tab: \(contrast)")
+        #expect([2, 3].allSatisfy { contrast[$0] >= noticeable }, "hover hid a line beside the hovered tab: \(contrast)")
+        #expect(contrast[0] <= clear && contrast[1] <= clear, "a line beside the selected tab: \(contrast)")
 
         TabStripDebug.pointerMoved(in: strip, to: CGPoint(x: -50, y: -50))
         let rested = try Self.gapContrast(strip, tabs: 5)
@@ -83,7 +86,7 @@ import Testing
         try body()
     }
 
-    @Test func aShortLineSitsBetweenTabsAndNeverBesideTheSelectedOrHoveredOne() throws {
+    @Test func aShortLineSitsBetweenTabsAndNeverBesideTheSelectedOne() throws {
         try withOverrides(separators: true, compact: false) { try checkSeparators() }
     }
 
@@ -91,11 +94,11 @@ import Testing
         try withOverrides(separators: true, compact: true) { try checkSeparators() }
     }
 
-    /// Lawrence removed the lines (7f9fc1ed): they are opt-in until the default call is made.
+    /// The Debug Settings toggle still turns the lines off.
     @Test func theStripDrawsNoLinesWhileTheToggleIsOff() throws {
         try withOverrides(separators: false, compact: false) {
             let (strip, window) = Self.strip(tabs: 5)
-            defer { window.orderOut(nil) }
+            defer { window.closeAfterTest() }
             let contrast = try Self.gapContrast(strip, tabs: 5)
             #expect(contrast.allSatisfy { $0 <= 4 }, "a line between tabs with the toggle off: \(contrast)")
         }

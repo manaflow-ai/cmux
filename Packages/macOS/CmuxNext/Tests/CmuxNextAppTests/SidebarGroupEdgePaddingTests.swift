@@ -12,7 +12,8 @@ import Testing
     @Test(arguments: SidebarGroupRailAlignmentTests.cases)
     func headersAndRailsKeepLeftPadding(_ c: SidebarGroupRailAlignmentTests.Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
-            let want = SidebarStyle.horizontalInset - Metrics.space1
+            // 63d46f831c0a kept the rail gap from member fills; the old contract put the rail flush against them.
+            let want = SidebarStyle.horizontalInset - SidebarStyle.groupRailReach
             let (list, window) = SidebarGroupRailAlignmentTests.list(SidebarNestedFixture(scenario: c.scenario))
             defer { window.close() }
             let lines = list.groupLines(list.displayed)

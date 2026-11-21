@@ -1,3 +1,4 @@
+import type { CloudEnvironmentPick } from "./cloudEnvironmentChoice";
 import type { StringKey } from "./i18n";
 
 /// A Sandboxed send (hq#3367, preview): the composer's environment picker can run a new chat's
@@ -5,11 +6,19 @@ import type { StringKey } from "./i18n";
 /// (`sandbox.run`, AgentPaneModel.onSandboxRun) and answers the Run's receipt
 /// (`cmux.run.receipt/v1`, web/services/runs/model.ts); nothing of the VM is kept.
 
-/// Where a new chat's first message runs: as a chat (the existing behavior), or once in a sandbox.
-export type RunMode = "persistent" | "sandboxed";
+/// Where a new chat's first message runs: as a chat (the existing behavior), once in a sandbox, or
+/// as a chat on a Cloud machine picked for it (cloudRun.ts).
+export type RunMode = "persistent" | "sandboxed" | "cloud";
 
 /// The picker's Run as rows (EnvironmentPicker `runMode`).
-export type RunModeRows = { mode: RunMode; onMode(mode: RunMode): void };
+export type RunModeRows = {
+  mode: RunMode;
+  onMode(mode: RunMode): void;
+  /// The new chat's Cloud environment (CloudEnvironmentChip.tsx), held per chat with its mode.
+  environment?: CloudEnvironmentPick;
+  /// false: Cloud alone, with no Sandboxed face (a new chat whose empty local session already opened).
+  sandbox?: false;
+};
 
 /// The parts of a receipt the chat shows; every field may be missing from an older server.
 export type SandboxReceipt = {
@@ -107,6 +116,23 @@ export function sandboxRetryable(run: SandboxRun): boolean {
   return run.state === "failed" && DEFINITE_REFUSALS.has(run.code);
 }
 
+/// The New Tab page's Run as rows: the chat composer's rule, Cloud whenever this new chat may still
+/// start there (`cloud`, held until the tab's check answers), and Sandboxed only while no session opened here (`sandbox`). A model pick
+/// of another agent (GPT-6.1 Sol on a Claude page) opens that agent's empty session at once; Cloud
+/// is still this chat's choice then. Without rows the location chip's Cloud is New Cloud Machine,
+/// which opened another chat beside this page with the default agent (cmux#45774).
+export function newTabRunModeRows(
+  rows: RunModeRows,
+  offered: { sandbox: boolean; cloud: boolean; sandboxPicked: boolean; cloudPicked: boolean },
+): RunModeRows | undefined {
+  if (offered.sandbox || offered.sandboxPicked) return rows;
+  // Sandboxed can't run once a session opened here: a pick of it left over reads as This Mac, so the
+  // page never sends through a sandbox it hides (the chat composer's rule, `sandboxing`).
+  if (offered.cloud || offered.cloudPicked)
+    return { ...rows, ...(rows.mode === "sandboxed" ? { mode: "persistent" as const } : {}), sandbox: false };
+  return undefined;
+}
+
 /// A refusal the page can tell before asking the host: attachments, or an agent a sandbox can't run.
 export function sandboxPageRefusal(attachmentCount: number, harness: string | undefined): string | undefined {
   // Attachments first: a pasted image alone is a send too, and it is the one a sandbox can't take.
@@ -200,7 +226,7 @@ export class SandboxTab {
 
   setMode(mode: RunMode) {
     this.mode = mode;
-    if (mode === "persistent") this.refusal = undefined;
+    if (mode !== "sandboxed") this.refusal = undefined;
     this.emit();
   }
 

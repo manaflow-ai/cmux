@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDesign
+import CmuxNextImportCards
 import CmuxNextSettings
 
 #if DEBUG || CMUX_BENCH_HOOKS
@@ -20,6 +21,7 @@ import CmuxNextSettings
 /// - `{stop_all: {<chief.stop {all} answer>}, window?}` shows the Stop all
 ///   agents toast for that answer, decoded as the daemon's is, until closed
 ///   (captures of the toast with no Chief or subagents to stop).
+/// - `{classic_toast: "before" | "short" | "action", window?}`: a classic import toast variant (`CmuxToast.classicImportGallery`).
 /// Every reply also has `undo_steps`: the sidebar and pin undo steps registered so far.
 @MainActor
 enum DebugToast {
@@ -42,7 +44,9 @@ enum DebugToast {
                     }
                 }
             }
-            let invocation = ActionInvocation(target: target, arguments: arguments, origin: .user)
+            var invocation = ActionInvocation(target: target, arguments: arguments, origin: .user)
+            // A person's run as far as the action goes, but carried by the socket: a screenshot stays masked.
+            invocation.viaControlSocket = true
             result["performed"] = .bool(services.registry.perform(ActionID(rawValue: id), invocation: invocation))
         }
         let windowID = params["window"]?.stringValue
@@ -57,15 +61,16 @@ enum DebugToast {
                 return true
             } ?? false)
         }
+        if let variant = params["classic_toast"]?.stringValue, let toast = CmuxToast.classicImportGallery[variant], let window {
+            _ = CmuxToastCenter.shared.show(toast, in: window)  // `action` is the landed look.
+        }
         if let answer = params["stop_all"] {
             result["stop_all"] = showStopAll(answer, in: window)
         }
         if let toastID = params["press"]?.stringValue {
             result["pressed"] = .bool(window.map { CmuxToastCenter.shared.runAction(id: toastID, in: $0) } ?? false)
         }
-        if let toastID = params["close"]?.stringValue {
-            result["closed"] = .bool(window.map { CmuxToastCenter.shared.close(id: toastID, in: $0) } ?? false)
-        }
+        if let id = params["close"]?.stringValue { result["closed"] = .bool(window.map { CmuxToastCenter.shared.close(id: id, in: $0) } ?? false) }
         var windows: [JSONValue] = []
         for controller in services.windows.controllers {
             let toasts = controller.window.map { CmuxToastCenter.shared.toasts(in: $0) } ?? []
@@ -74,6 +79,7 @@ enum DebugToast {
         result["windows"] = .array(windows)
         // Every refusal HUD message so far, newest last.
         result["refusals"] = .array(services.refusalHUD.history.map(JSONValue.string))
+        result["pane_not_ready"] = .array(services.daemon.paneNotReadyCauses.map(JSONValue.string)) // which request named a stand-in
         // Sidebar and pin undo steps registered so far (a change's step comes with its daemon reply, after the change shows).
         result["undo_steps"] = .number(Double(PinUndoStep.registered))
         return .object(result)

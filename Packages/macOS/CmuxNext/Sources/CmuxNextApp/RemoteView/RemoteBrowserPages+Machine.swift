@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextDaemon
 import Foundation
 #if DEBUG

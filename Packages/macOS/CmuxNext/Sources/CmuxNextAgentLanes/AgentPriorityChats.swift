@@ -1,3 +1,6 @@
+public import AppKit
+import CmuxAgentBrands
+public import CmuxNextActions
 public import CmuxNextAgentActivity
 public import CmuxNextSidebar
 public import Foundation
@@ -126,6 +129,72 @@ public final class AgentPriorityChats {
         ranking.entries(snapshot.lanes, marks: marks.state, now: now, failingChecks: snapshot.failingChecks) { snapshot.tags[$0.id] }
     }
 
+    /// The chats waiting for the person, in the order Go to Next Agent Needing Input visits them
+    /// (``AgentPriorityRanking/needingInput(_:marks:now:)``). Reads each store's waiting index
+    /// (``AgentLaneStore/waiting``) and the other machines' tabs with an unread question, never
+    /// every lane's row: this runs on the action's own turn and for the menu bar's count. A
+    /// session an earlier store lists is that store's, as in ``snapshot()``.
+    public func needingInput(now: Date = Date()) -> [AgentActivityLane] {
+        var waiting: [AgentActivityLane] = []
+        var seen = Set<String>()
+        for (index, store) in stores.enumerated() {
+            let lanes = store.lanes
+            for id in store.waiting.sorted() where !stores[..<index].contains(where: { $0.lanes[id] != nil }) {
+                if let lane = lanes[id], seen.insert(id).inserted { waiting.append(lane) }
+            }
+        }
+        for machine in machines.remote() {
+            for lane in machine.waitingLanes() where seen.insert(lane.id).inserted
+                && !stores.contains(where: { $0.lanes[lane.id] != nil }) {
+                waiting.append(lane)
+            }
+        }
+        return AgentPriorityRanking.needingInput(waiting, marks: marks.state, now: now)
+    }
+
+    /// The menu bar's Unread chats (``AgentPriorityRanking/unread(_:marks:now:)``), from each
+    /// store's unread index (``AgentLaneStore/unread``), never every lane: this runs each time the
+    /// menu opens. This Mac's and the Chief home's chats only; the other machines' trees keep no
+    /// unread index.
+    public func unread(now: Date = Date()) -> [AgentActivityLane] {
+        AgentPriorityRanking.unread(indexed(\.unread), marks: marks.state, now: now)
+    }
+
+    /// The menu bar's Running chats (``AgentPriorityRanking/running(_:marks:now:)``), from each
+    /// store's working index (``AgentLaneStore/working``), as ``unread(now:)`` reads.
+    public func running(now: Date = Date()) -> [AgentActivityLane] {
+        AgentPriorityRanking.running(indexed(\.working), marks: marks.state, now: now)
+    }
+
+    /// ``unread(now:)`` and ``running(now:)`` as the menu bar's rows: the sidebar's title and harness.
+    public func menuBarChats(running: Bool) -> [MenuBarMenuState.Chat] {
+        (running ? self.running() : unread()).map { MenuBarMenuState.Chat(id: $0.id, title: $0.title, harness: $0.harness) }
+    }
+
+    /// A menu bar chat row's harness mark (the sidebar's), the sidebar's person mark for an unknown harness.
+    public static func menuBarImage(harness: String?) -> NSImage? {
+        let side = NSFont.menuFont(ofSize: 0).pointSize + 2
+        if let brand = AgentBrandCatalog.brand(for: harness), let image = AgentBrandCatalog.templateImage(brand: brand.rawValue, size: side) {
+            return image
+        }
+        let image = NSImage(systemSymbolName: "person.crop.circle", accessibilityDescription: harness)
+        image?.isTemplate = true
+        return image
+    }
+
+    /// The lanes of each store's `index`, a session an earlier store lists being that store's.
+    private func indexed(_ index: KeyPath<AgentLaneStore, Set<String>>) -> [AgentActivityLane] {
+        var out: [AgentActivityLane] = []
+        var seen = Set<String>()
+        for (position, store) in stores.enumerated() {
+            let lanes = store.lanes
+            for id in store[keyPath: index] where !stores[..<position].contains(where: { $0.lanes[id] != nil }) {
+                if let lane = lanes[id], seen.insert(id).inserted { out.append(lane) }
+            }
+        }
+        return out
+    }
+
     /// The chat's row, nil when the view does not list it (archived, snoozed, idle too long).
     public func entry(_ id: String, now: Date = Date()) -> SidebarPriorityEntry? {
         entries(now: now).first { $0.id == id }
@@ -142,6 +211,20 @@ public final class AgentPriorityChats {
     public func togglePin(_ id: String) -> Bool {
         guard lane(id) != nil else { return false }
         marks.togglePin(id)
+        return true
+    }
+
+    /// Moves the chat one place earlier (`by: -1`) or later (`by: 1`) among the rows the view shows, and keeps it
+    /// there, as a drag to that place does (`AgentPriorityMarks.place`). At the first or last place it stays put.
+    /// False when the view does not list the chat.
+    @discardableResult
+    public func move(_ id: String, by step: Int, now: Date = Date()) -> Bool {
+        var order = entries(now: now).map(\.id)
+        guard let from = order.firstIndex(of: id) else { return false }
+        let to = from + step
+        guard order.indices.contains(to) else { return true }
+        order.swapAt(from, to)
+        marks.place(id, in: order)
         return true
     }
 

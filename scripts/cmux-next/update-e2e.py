@@ -267,9 +267,11 @@ class App:
     def status(self):
         return self.rpc("updates.status")
 
-    def quit(self):
+    def quit(self, end_everything=False):
         pids = self.pids()
-        self.rpc("action.run", {"id": "quit"})
+        # A remembered End Everything keeps the workspaces on a scripted quit;
+        # the flag asks for End Everything outright.
+        self.rpc("action.run", {"id": "quit", "args": {"endEverything": True}} if end_everything else {"id": "quit"})
         # Only the app's own quit ends it; a quit that hangs is reported, not signalled.
         if not wait(lambda: not any(run("kill", "-0", str(p)).returncode == 0 for p in pids), 90):
             print(f"quit did not end {pids} within 90 s; not signalling them")
@@ -609,7 +611,7 @@ def main():
             with open(config, "w") as f:
                 json.dump({"app": {"quitBehavior": "end-everything"}}, f)
             time.sleep(1)  # the app reloads cmux.json from its file watcher
-            app.quit()
+            app.quit(end_everything=True)
         except Exception as error:  # noqa: BLE001 - cleanup continues
             print(f"final quit: {error}")
         log.close()

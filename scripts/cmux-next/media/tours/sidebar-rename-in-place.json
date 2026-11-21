@@ -1,0 +1,18 @@
+{
+  "title": "Sidebar rename in place: workspaces and groups (no layout shift)",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "A workspace to rename", "cmux": ["workspace", "new", "--name", "Release notes"], "wait": 1.5, "shot": false},
+    {"title": "A group to rename", "cmux": ["workspace", "group", "create", "--name", "Frontend"], "wait": 1.5},
+    {"title": "Double-click the workspace: its name becomes the editor in the same place",
+     "rpc": {"method": "debug.mouse", "params": {"action": "double_click", "row": "Release notes"}}, "wait": 1.5},
+    {"title": "Escape: the row is as it was", "rpc": {"method": "debug.key", "params": {"key": "escape"}}, "wait": 1.5},
+    {"title": "Double-click the group's name: it renames in place, the group does not fold",
+     "rpc": {"method": "debug.mouse", "params": {"action": "double_click", "row": "Frontend"}}, "wait": 1.5},
+    {"title": "Escape", "rpc": {"method": "debug.key", "params": {"key": "escape"}}, "wait": 1.5, "shot": false},
+    {"title": "Dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 1.5, "optional": "debug.appearance is DEBUG only"},
+    {"title": "Dark: double-click the workspace", "rpc": {"method": "debug.mouse", "params": {"action": "double_click", "row": "Release notes"}}, "wait": 1.5},
+    {"title": "Escape", "rpc": {"method": "debug.key", "params": {"key": "escape"}}, "wait": 1, "shot": false},
+    {"title": "Dark: double-click the group's name", "rpc": {"method": "debug.mouse", "params": {"action": "double_click", "row": "Frontend"}}, "wait": 1.5}
+  ]
+}

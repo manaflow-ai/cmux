@@ -34,6 +34,21 @@ public struct AuthLaunchOptions: Equatable, Sendable {
     /// allowed to sign in during this same launch.
     public let replaceStoredSessionWithAutoLogin: Bool
 
+    /// Whether a build compiled without DEBUG may still sign in from the launch environment's
+    /// automatic-login credentials (`CMUX_UITEST_STACK_*`). Only cmux NEXT's PR capture builds set it
+    /// (CloudConfiguration.isCaptureBuild: the bench hooks, never shipped, and a `cap<sha10>` tag), so a
+    /// capture can drive Release paths signed in to its test account. DEBUG builds always may.
+    public let allowsEnvironmentAutoLogin: Bool
+
+    /// Whether this launch signs in from the environment's automatic-login credentials.
+    public var environmentAutoLogin: Bool {
+        #if DEBUG
+        true
+        #else
+        allowsEnvironmentAutoLogin
+        #endif
+    }
+
     /// Whether normal priming must begin from an empty persisted session.
     public var shouldClearStoredSessionBeforePriming: Bool {
         clearStaleAuthOnLaunch || replaceStoredSessionWithAutoLogin
@@ -46,7 +61,8 @@ public struct AuthLaunchOptions: Equatable, Sendable {
         environment: [String: String],
         includesDevAuth: Bool,
         clearStaleAuthOnLaunch: Bool = false,
-        replaceStoredSessionWithAutoLogin: Bool = false
+        replaceStoredSessionWithAutoLogin: Bool = false,
+        allowsEnvironmentAutoLogin: Bool = false
     ) {
         self.clearAuthRequested = clearAuthRequested
         self.mockDataEnabled = mockDataEnabled
@@ -54,6 +70,7 @@ public struct AuthLaunchOptions: Equatable, Sendable {
         self.includesDevAuth = includesDevAuth
         self.clearStaleAuthOnLaunch = clearStaleAuthOnLaunch
         self.replaceStoredSessionWithAutoLogin = replaceStoredSessionWithAutoLogin
+        self.allowsEnvironmentAutoLogin = allowsEnvironmentAutoLogin
     }
 
     /// Whether the coordinator should begin auto-login: credentials present and

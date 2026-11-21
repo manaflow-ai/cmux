@@ -11,6 +11,17 @@ extension ChatController {
 
     @MainActor func menu(at p: CGPoint) -> NSMenu? {
         guard let hit = demo?.hit(p) else { return previewMenu(at: p) }
+        // cmux: an agent's pill has the host's menu for that agent (Start now on a queued one).
+        if let agentPillMenu, case let .custom(custom) = hit.row.part,
+           let pill = HomeAgentFoldRowProvider.pill(custom, at: CGPoint(x: p.x - hit.body.minX, y: p.y - hit.body.minY),
+                                                    width: hit.body.width) {
+            let items = agentPillMenu(pill.peer)
+            if !items.isEmpty {
+                let menu = NSMenu()
+                items.forEach(menu.addItem)
+                return menu
+            }
+        }
         let ref = hit.row.ref
         let content = contentMenu
         let current = hit.row.reactions.first { $0.senderId == store?.state.me }?.kind
@@ -40,7 +51,8 @@ extension ChatController {
             menu.addItem(.separator())
         }
         // cmux: tapbacks only while the owner takes them (`canReact`, false offline).
-        let canReact = intents?.canReact == true
+        let interactive = intents?.canInteract(with: ref.messageId) != false
+        let canReact = intents?.canReact == true && interactive
         if canReact {
             // MessagesLab 7518134: timed from the choosing input (PaneTapback.swift).
             TapbackMenuRows.items(current: current, react: { [weak self] in self?.chooseTapback(ref, $0) },
@@ -48,9 +60,11 @@ extension ChatController {
         }
         // Then (real order, macOS 27): Tapback Details…, Reply…, Attach Sticker…; Edit
         // (mine); Copy; Share…; Delete…, with separators between the groups.
-        menu.addItem(MenuAction(title: Strings.menuTapbackDetails, symbol: "plus.magnifyingglass") { [weak self] in self?.showTapbackDetails(hit) })
+        if interactive {
+            menu.addItem(MenuAction(title: Strings.menuTapbackDetails, symbol: "plus.magnifyingglass") { [weak self] in self?.showTapbackDetails(hit) })
+        }
         // cmux: Reply… only when the owner can take a reply (HomeOp has none yet, as SwipeReply).
-        if intents?.canReply == true {
+        if intents?.canReply == true && interactive {
             // cmux: Reply to Selection (plans/cmux-next/reply-to-selection-DESIGN.md): text selected in this
             // message is the reply's quote; Reply… still answers the whole message.
             if let quote = selectionQuote(at: hit) {
@@ -88,6 +102,9 @@ extension ChatController {
                 let playing = intents.videoState(ref) == .playing
                 menu.addItem(MenuAction(title: playing ? CmuxStrings.pauseVideo : CmuxStrings.playVideo,
                                         symbol: playing ? "pause.fill" : "play.fill") { [weak self] in self?.intents?.toggleVideo(ref, a.id) })
+                menu.addItem(MenuAction(title: CmuxStrings.viewVideoLarger, symbol: "arrow.up.left.and.arrow.down.right") { [weak self] in
+                    self?.intents?.openVideo(ref, a.id)
+                })
             }
             content.attachmentItems(name: a.fileName, resolve: attachmentResolver(ref.messageId, a.id)) { [weak self] in
                 self?.intents?.openAttachment(ref.messageId, a.id)
@@ -100,6 +117,9 @@ extension ChatController {
             menu.addItem(MenuAction(title: CmuxStrings.tryAgain, symbol: "arrow.clockwise") { [weak self] in self?.intents?.retrySend(ref.messageId) })
             menu.addItem(MenuAction(title: CmuxStrings.deleteFailed, symbol: "trash") { [weak self] in self?.intents?.deleteFailedSend(ref.messageId) })
             menu.addItem(.separator())
+        } else if intents?.canRetryChiefTurn(ref.messageId) == true {
+            menu.addItem(MenuAction(title: CmuxStrings.retryReply, symbol: "arrow.clockwise") { [weak self] in self?.intents?.retryChiefTurn(ref.messageId) })
+            menu.addItem(.separator())
         } else if intents?.canCancelSend(ref.messageId) == true {
             menu.addItem(MenuAction(title: CmuxStrings.cancelUpload, symbol: "xmark.circle") { [weak self] in self?.intents?.cancelSend(ref.messageId) })
             menu.addItem(.separator())
@@ -107,8 +127,12 @@ extension ChatController {
         if !Self.shareItems(hit).isEmpty {
             menu.addItem(MenuAction(title: Strings.menuShare, symbol: "square.and.arrow.up") { [weak self] in self?.share(hit) })
         }
-        // cmux: no Delete…: MessagesLab's `.delete` hides the message on this device, and
-        // HomeStore has no local hide (HomeOp has no delete), so nothing could honour it.
+        // cmux: Delete (#36019) on my committed message in a Chief chat: it leaves the transcript at once
+        // (MessagesLab's `.delete`), its owner retracts it, and the Chief's memory keeps its tombstone.
+        if intents?.canDeleteMessage(ref.messageId) == true {
+            if menu.items.last.map({ !$0.isSeparatorItem }) == true { menu.addItem(.separator()) }
+            menu.addItem(MenuAction(title: CmuxStrings.deleteMessage, symbol: "trash") { [weak self] in self?.intents?.deleteMessage(ref.messageId) })
+        }
         while menu.items.last?.isSeparatorItem == true { menu.removeItem(at: menu.items.count - 1) }
         return menu
     }
@@ -138,7 +162,7 @@ extension ChatController {
             let r = cell.convert(cell.bounds, to: demo)
             guard r.contains(p) else { continue }
             let width = max(pv.box.width, 90)
-            let inside = pv.outgoing ? p.x >= r.minX + spec.metrics.rightEdge - width : p.x <= r.minX + Fixture.leftEdge + width
+            let inside = pv.outgoing ? p.x >= r.minX + spec.metrics.rightEdge - width : p.x <= r.minX + pv.cmuxLeft + width
             guard inside else { continue }
             let root = pv.root
             let rows = contentMenu.partItems(part, resolve: { [weak self] a in

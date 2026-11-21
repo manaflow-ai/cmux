@@ -89,7 +89,7 @@ final class SessionTransferService {
             for surface in surfaces {
                 guard let id = UInt64(surface).map(SurfaceID.init(rawValue:)) else { continue }
                 group.addTask {
-                    let info = try? await connection.request(TerminalProcessInfoRequest(surface: id), timeout: .milliseconds(500))
+                    let info = await connection.readProcessInfo(id, timeout: .milliseconds(500))
                     guard let info, info.foregroundExecutable?.isEmpty == false else { return (surface, nil) }
                     return (surface, .some(info.runningProgram))
                 }
@@ -255,10 +255,7 @@ final class SessionTransferService {
     func hasConversationTab(_ workspace: String) async throws -> Bool {
         guard let store = services?.daemon.store else { throw Failure.unavailable }
         let listed = Task { @MainActor () -> Bool in
-            let opened = ObservationStream({
-                store.workspaces.first(where: { $0.key?.rawValue == workspace })?.screens
-                    .flatMap(\.panes).flatMap(\.tabs).contains(where: { $0.kind == .conversation }) ?? false
-            })
+            let opened = ObservationStream({ store.listsConversationTab(inWorkspace: workspace) })
             for await found in opened where found { return true }
             return false
         }

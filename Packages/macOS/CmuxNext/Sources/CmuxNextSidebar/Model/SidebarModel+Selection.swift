@@ -13,6 +13,9 @@ extension SidebarModel {
     /// A placeholder row (a machine still connecting) is never selected,
     /// renamed, dragged or shown.
     public func isPlaceholder(_ id: WorkspaceID) -> Bool { workspace(id)?.rowState.isPending == true }
+    /// A row this app is creating (`SidebarRowState.creating`): like a placeholder it is never selected, but it
+    /// drags, and its drop is the slot the create takes once the daemon lists the workspace.
+    public func isCreating(_ id: WorkspaceID) -> Bool { workspace(id)?.rowState == .creating }
 
     /// Plain click: select only `id` and activate it.
     public func click(_ id: WorkspaceID) {
@@ -23,6 +26,19 @@ extension SidebarModel {
         send(.select(id))
     }
 
+    /// Whether a click on `id` shows a workspace the window does not show now. The one test of a press that
+    /// switches, for the list's rows and the rail's marks: such a press moves no key (`KeyNeutralPressTarget`).
+    public func clickShowsAnotherWorkspace(_ id: WorkspaceID) -> Bool { !isPlaceholder(id) && shownWorkspaceID != id }
+
+    /// The workspace the window shows: the active workspace, or the one a
+    /// selected pinned tile names (its `SidebarItem.topItem`). Selection
+    /// ranges start from it, as from a list row.
+    public var shownWorkspaceID: WorkspaceID? {
+        if let activeWorkspaceID { return activeWorkspaceID }
+        guard case let .topItem(item)? = selectedItem else { return nil }
+        return itemInfo[item]?.workspace
+    }
+
     /// Cmd-click: toggle `id` in the selection without changing the active
     /// workspace, unless it is the only selected item.
     public func toggleSelection(_ id: WorkspaceID) {
@@ -30,7 +46,7 @@ extension SidebarModel {
         if selection.contains(id) {
             guard selection.count > 1 else { return }
             selection.remove(id)
-            if activeWorkspaceID == id, let next = orderedSelection.first { select(next, preserving: selection) }
+            if shownWorkspaceID == id, let next = orderedSelection.first { select(next, preserving: selection) }
         } else {
             selection.insert(id)
             selectionAnchor = id
@@ -40,13 +56,15 @@ extension SidebarModel {
 
     /// The row a Shift range starts from: the anchor while it is still
     /// selected (the App may have replaced the selection since), else the
-    /// active workspace.
+    /// shown workspace (a pinned one too).
     private var rangeAnchor: WorkspaceID? {
-        selectionAnchor.flatMap { selection.contains($0) ? $0 : nil } ?? activeWorkspaceID
+        selectionAnchor.flatMap { selection.contains($0) ? $0 : nil } ?? shownWorkspaceID
     }
 
-    /// Shift-click: select the visual range from the anchor to `id`.
-    public func extendSelection(to id: WorkspaceID, visibleOrder: [WorkspaceID]) {
+    /// Shift-click: select the visual range from the anchor to `id`, across
+    /// pinned and listed rows (`visibleOrder`). `adding` (Cmd-Shift-click)
+    /// adds the range to the selection instead of replacing it, as classic does.
+    public func extendSelection(to id: WorkspaceID, visibleOrder: [WorkspaceID], adding: Bool = false) {
         guard !isPlaceholder(id) else { return }
         let visibleOrder = visibleOrder.filter { !isPlaceholder($0) }
         guard let anchor = rangeAnchor,
@@ -55,7 +73,8 @@ extension SidebarModel {
             click(id)
             return
         }
-        selection = Set(visibleOrder[min(a, b)...max(a, b)])
+        let range = Set(visibleOrder[min(a, b)...max(a, b)])
+        selection = adding ? selection.union(range) : range
         selectionAnchor = anchor
         selectionExtent = id
     }
@@ -67,10 +86,16 @@ extension SidebarModel {
         let visibleOrder = visibleOrder.filter { !isPlaceholder($0) }
         guard !visibleOrder.isEmpty else { return }
         // A Shift step continues from the range's moving end, which a Shift-click leaves off the active row.
-        let from = extending ? selectionExtent.flatMap { selection.contains($0) ? $0 : nil } ?? activeWorkspaceID : activeWorkspaceID
+        let from = extending ? selectionExtent.flatMap { selection.contains($0) ? $0 : nil } ?? shownWorkspaceID : shownWorkspaceID
         let current = from.flatMap { visibleOrder.firstIndex(of: $0) }
         let next = current.map { max(0, min(visibleOrder.count - 1, $0 + delta)) } ?? (delta > 0 ? 0 : visibleOrder.count - 1)
         let id = visibleOrder[next]
+        // Clamped at an end, on the workspace already shown: nothing moves. Selecting it again would write
+        // `.workspace` over a shown pinned tile's `.topItem`, and the window's echo would then drop the range.
+        if next == current, id == shownWorkspaceID {
+            if !extending { (selection, selectionAnchor, selectionExtent) = ([id], id, nil) }
+            return
+        }
         if extending {
             let anchor = rangeAnchor ?? id
             let a = visibleOrder.firstIndex(of: anchor) ?? next

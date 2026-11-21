@@ -7,6 +7,9 @@ public import Foundation
 /// password, key or token (authentication is the user's OpenSSH).
 public struct SSHHost: Hashable, Sendable {
     public static let defaultRemoteBinary = "~/.local/bin/cmux-tui"
+    /// The binary install-static.sh puts on a machine, which the person runs by hand over ssh.
+    /// The app never replaces it while a session server runs it; it stages a newer build beside it.
+    public static let staticInstallBinary = "~/.cmux/bin/cmux"
     public static let transportKind = "ssh"
 
     public let destination: SSHDestination
@@ -56,12 +59,16 @@ public struct SSHHost: Hashable, Sendable {
         return line?.isEmpty == false ? line : nil
     }
 
+    /// The prefix of every ``machineID``: how the app tells an SSH machine's id from a Cloud one
+    /// (`MachineRegistry.isCloudMachineID`).
+    public static let machineIDPrefix = "ssh-"
+
     /// Stable id of this machine in the app (`MachineRegistry`), distinct per
     /// route, session and state directory, never `local` or a Cloud `vm-…` id.
     public var machineID: String {
         let key = ([destination.route, session, remoteStateDir ?? ""] + (remoteMuxSocket.map { [$0] } ?? [])).joined(separator: "\n")
         let digest = SHA256.hash(data: Data(key.utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
-        return "ssh-" + digest
+        return Self.machineIDPrefix + digest
     }
 
     /// Sidebar name: the given name, else the host plus the session when it is not `main`.

@@ -46,7 +46,8 @@ enum HomeThemePalette {
         // One window background (plans/cmux-next/windows.md): the scene
         // paints the pane's fill, never a tint of its own, active or not,
         // unless the user set Home's background (`appearance.surfaces.home`).
-        palette.background = color(Palette.fill(for: .home, default: Palette.paneFill), opaque: false)
+        // The secondary text reads on that fill over the window, not on the window alone.
+        palette = palette.onBackground(color(Palette.fill(for: .home, default: Palette.paneFill), opaque: false), over: theme.background)
         return palette
     }
 

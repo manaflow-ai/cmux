@@ -44,15 +44,22 @@ public final class ActiveTeam {
         self.source = source
     }
 
-    /// The account's teams this device may use.
+    /// The account's teams this device may use (Rust's `cloud_auth_team`: only the managed one on a managed device).
     public var teams: [CMUXAuthTeam] {
-        Self.allowedTeams(source.availableTeams, managed: managedTeamID)
+        let available = source.availableTeams
+        guard managedTeamID != nil else { return available }
+        let allowed = Set(Self.answer(requesting: nil, resolved: source.resolvedTeamID, available: available.map(\.id),
+                                      managed: managedTeamID)?.allowed ?? [])
+        return available.filter { allowed.contains($0.id) }
     }
 
     /// The active team's id, or nil (signed out, no team, or the managed team missing).
     /// It can be set before ``teams`` loads: the cached selection stays in effect meanwhile.
     public var id: String? {
-        Self.allowedTeamID(resolved: source.resolvedTeamID, available: source.availableTeams.map(\.id), managed: managedTeamID)
+        // Unmanaged, the active team is the resolved one (Rust's `allowed_team_id`); the read stays local.
+        guard managedTeamID != nil else { return source.resolvedTeamID }
+        return Self.answer(requesting: nil, resolved: source.resolvedTeamID, available: source.availableTeams.map(\.id),
+                           managed: managedTeamID)?.active
     }
 
     /// The active team, once membership has loaded.
@@ -65,7 +72,7 @@ public final class ActiveTeam {
     public var canSwitch: Bool { managedTeamID == nil && teams.count > 1 && !isSwitching }
 
     /// Why a switch was refused.
-    public enum Refusal: Error, Equatable, Sendable {
+    public enum Refusal: String, Error, Equatable, Sendable {
         case signedOut
         /// The device is restricted to another team.
         case managed
@@ -82,10 +89,24 @@ public final class ActiveTeam {
     }
 
     nonisolated static func refusal(requesting requested: String?, active: String?, managed: String?) -> Refusal? {
-        let named = requested.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
-        if let managed, active != managed || (named != nil && named != managed) { return .managed }
-        if let named, named != active { return .notActive }
-        return nil
+        // An FFI that does not answer refuses as managed: a call never acts in a team unchecked.
+        guard let answer = answer(requesting: requested, resolved: active, available: active.map { [$0] } ?? [], managed: managed) else {
+            return .managed
+        }
+        return answer.refusal.flatMap(Refusal.init(rawValue:))
+    }
+
+    /// Rust's team rules (cmux-cloud-config `auth::allowed_team_id`, `team_refusal`).
+    struct Answer: Decodable {
+        var active: String?
+        var refusal: String?
+        var allowed: [String]
+    }
+
+    nonisolated static func answer(requesting requested: String?, resolved: String?, available: [String], managed: String?) -> Answer? {
+        struct Request: Encodable { var requested: String?, resolved: String?, available: [String], managed: String? }
+        return CloudStartCore().call("cloud_auth_team", Request(requested: requested, resolved: resolved, available: available, managed: managed),
+                                     as: Answer.self)
     }
 
     /// Makes `id` the active team: saved for the account first, so a refused
@@ -121,17 +142,5 @@ public final class ActiveTeam {
     public func refresh() async {
         guard source.isAuthenticated else { return }
         await source.refreshTeams()
-    }
-
-    nonisolated static func allowedTeams(_ teams: [CMUXAuthTeam], managed: String?) -> [CMUXAuthTeam] {
-        guard let managed else { return teams }
-        return teams.filter { $0.id == managed }
-    }
-
-    /// The resolved team, or only the managed one (when the account belongs
-    /// to it) while the device is restricted.
-    nonisolated static func allowedTeamID(resolved: String?, available: [String], managed: String?) -> String? {
-        guard let managed else { return resolved }
-        return available.contains(managed) ? managed : nil
     }
 }

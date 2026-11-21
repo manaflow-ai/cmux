@@ -2,16 +2,15 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextPalette
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
-/// Leo 2026-10-27, on a workspace's listed tabs in the sidebar: "we need to be able to middle-click and, you know,
-/// just deal with the stuff here. Like just closing tabs fundamentally." A middle-click closes exactly the tab under
-/// it wherever a tab is listed: a sidebar tab row (`.closeTab`, which the App runs as Close Tab), and a Search Tabs
-/// row (its Cmd-W close). The tab strip's own middle-click is unchanged. A workspace row keeps closing its workspace.
-@MainActor @Suite(.serialized)
+/// Leo 2026-10-27: "we need to be able to middle-click and, you know, just deal with the stuff here. Like just closing
+/// tabs fundamentally." A middle-click on a Search Tabs row closes exactly that row's tab (its Cmd-W close). The tab
+/// strip's own middle-click is unchanged. A sidebar workspace row closes its workspace.
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarTabMiddleClickTests {
-    typealias Fixture = SidebarTabGroupControlsTests
-    typealias Gallery = SidebarTabMiddleClickGalleryTests
+    typealias Fixture = SidebarRowCloseSpotTests
 
     /// The sidebar fixture with every intent it sends recorded instead of applied.
     static func recording() -> (SidebarListView, NSWindow, () -> [SidebarIntent]) {
@@ -22,100 +21,38 @@ struct SidebarTabMiddleClickTests {
         return (sidebar.list, window, { sent })
     }
 
-    @Test func aMiddleClickOnATabRowClosesExactlyThatTab() throws {
-        let (list, window, sent) = Self.recording()
-        defer { window.close() }
-        try Gallery.middleClick(list, .tab(Fixture.shown, Fixture.second))
-        #expect(sent() == [.closeTab(workspace: Fixture.shown, tab: Fixture.second)])
-    }
-
-    /// A tab of a workspace that is not shown closes too, and the shown workspace stays as it is.
-    @Test func aTabOfAnotherWorkspaceClosesWithoutSwitching() throws {
-        let (list, window, sent) = Self.recording()
-        defer { window.close() }
-        let tab = CmuxNextSidebar.TabID("tg-tab-4")
-        try Gallery.middleClick(list, .tab(Fixture.other, tab))
-        #expect(sent() == [.closeTab(workspace: Fixture.other, tab: tab)])
-        #expect(list.model.activeWorkspaceID == Fixture.shown)
-    }
-
-    /// A press on one tab released on another closes nothing, as on the tab strip.
-    @Test func aReleaseOnAnotherRowClosesNothing() throws {
-        let (list, window, sent) = Self.recording()
-        defer { window.close() }
-        try Gallery.middleClick(list, .tab(Fixture.shown, Fixture.first), releasedOn: .tab(Fixture.shown, Fixture.second))
-        try Gallery.middleClick(list, .tab(Fixture.shown, Fixture.first), releasedOn: .workspace(Fixture.shown))
-        #expect(sent().isEmpty)
-    }
-
     /// The workspace row keeps its own middle-click: its workspace closes (MIDDLE-CLICK-CLOSES-WORKSPACE).
     @Test func aMiddleClickOnAWorkspaceRowStillClosesTheWorkspace() throws {
         let (list, window, sent) = Self.recording()
         defer { window.close() }
-        try Gallery.middleClick(list, .workspace(Fixture.other))
+        try Self.middleClick(list, .workspace(Fixture.other))
         #expect(sent() == [.close([Fixture.other])])
     }
 
-    /// Leo 2026-10-28: "when you're hovering over that, I think it also wants the close button on there as well."
-    /// A hovered tab row shows the workspace row's ✕ (one button, `SidebarRowCloseButton`) on the trailing column,
-    /// where the tab's status gives way; its press closes the tab as the middle-click does; the hover's end hides it.
-    @Test func aHoveredTabRowShowsTheCloseAtItsEnd() throws {
-        let (list, window, sent) = Self.recording()
-        defer { window.close() }
-        let row = try Fixture.tabRow(list, Fixture.shown, Fixture.first)
-        row.layoutSubtreeIfNeeded()
-        #expect(row.closeButton.isHidden, "a tab row at rest shows a ✕")
-        row.isHovered = true
-        row.layoutSubtreeIfNeeded()
-        #expect(!row.closeButton.isHidden && row.closeButton.alphaValue == 1, "a hovered tab row shows no ✕")
-        let b = row.layoutBounds
-        #expect(row.closeButton.frame == SidebarStyle.rowCloseFrame(rowWidth: b.width, centerY: b.height / 2))
-        // The row hands a click there to the ✕ alone; the rest of the row stays the list's.
-        let center = NSPoint(x: row.closeButton.frame.midX, y: row.closeButton.frame.midY)
-        #expect(row.hitTest(row.convert(center, to: row.superview)) === row.closeButton)
-        #expect(row.hitTest(row.convert(NSPoint(x: b.midX / 2, y: b.midY), to: row.superview)) == nil)
-        // The same ✕ as a workspace row's (both from `SidebarIconButton.rowClose`).
-        let workspace = try #require(list.rowViews[.workspace(Fixture.shown)] as? WorkspaceRowView)
-        #expect(workspace.closeButton.icon == row.closeButton.icon)
-        // A middle-click on the ✕ itself is the row's: it reaches the list and closes the tab.
-        let onClose = row.convert(center, to: list)
-        row.closeButton.otherMouseDown(with: try Gallery.middle(.otherMouseDown, at: onClose, in: list))
-        row.closeButton.otherMouseUp(with: try Gallery.middle(.otherMouseUp, at: onClose, in: list))
-        #expect(sent() == [.closeTab(workspace: Fixture.shown, tab: Fixture.first)])
-        row.closeButton.onPress?()
-        #expect(sent() == [.closeTab(workspace: Fixture.shown, tab: Fixture.first), .closeTab(workspace: Fixture.shown, tab: Fixture.first)])
-        row.isHovered = false
-        row.layoutSubtreeIfNeeded()
-        #expect(row.closeButton.isHidden, "the ✕ stayed after the hover ended")
+    /// A middle-button event (button number 2, as a real one) at `point` in `list`, through DebugMouse's mapping.
+    static func middle(_ type: NSEvent.EventType, at point: NSPoint, in list: SidebarListView) throws -> NSEvent {
+        let window = try #require(list.window)
+        let base = list.convert(point, to: nil)
+        let height = window.contentView?.bounds.height ?? window.frame.height
+        let event = try #require(DebugMouse.mouse(type, at: NSPoint(x: base.x, y: height - base.y), in: window, flags: [], clicks: 1))
+        #expect(event.buttonNumber == 2)
+        return event
     }
 
-    /// With #26622's column: a tab row's unread dot alone sits on the trailing column; on hover the ✕ takes it and
-    /// the dot gives way at once, never both; leaving hides the ✕ and the dot is back. A dot beside a status stays
-    /// left of the column, where the status gave way to the ✕.
-    @Test func theCloseTakesTheColumnFromTheTabsMark() throws {
-        let workspace = Fixture.shown, section = SectionID.machine(.local)
-        for working in [false, true] {
-            let tab = SidebarTrailingColumnTests.tab(TabID("tab-mark"), "zsh", unread: true, working: working)
-            let key = SidebarRowKey.tab(workspace, tab.id)
-            let view = SidebarTabRowView(key: key)
-            view.frame = NSRect(x: 0, y: 0, width: 260, height: 28)
-            view.configure(tab, row: SidebarRow(key: key, y: 0, height: 28, section: section, workspace: workspace, siblingIndex: 0,
-                                                isLastInGroup: true, isCollapsed: false, childCount: 1))
-            view.onClose = {}
-            view.layoutSubtreeIfNeeded()
-            let column = SidebarStyle.rowCloseFrame(rowWidth: 260, centerY: 14)
-            let dot = try #require(view.subviews.first { $0 is UnreadBadgeView })
-            #expect(dot.frame.midX == column.midX || working, "a lone dot is off the column")
-            view.isHovered = true
-            view.layoutSubtreeIfNeeded()
-            #expect(!view.closeButton.isHidden && view.closeButton.frame == column)
-            let onColumn = view.subviews.filter { $0 !== view.closeButton && !$0.isHidden && $0.alphaValue > 0 && $0.frame.intersects(column) }
-            #expect(onColumn.isEmpty, "the ✕ shares the column with \(onColumn)")
-            #expect(dot.alphaValue == (working ? 1 : 0))
-            view.isHovered = false
-            view.layoutSubtreeIfNeeded()
-            #expect(view.closeButton.isHidden && dot.alphaValue == 1, "leaving left the ✕ up or the dot down")
-        }
+    /// A middle press on `down`'s row and its release on `up`'s (the same row by default).
+    static func middleClick(_ list: SidebarListView, _ down: SidebarRowKey, releasedOn up: SidebarRowKey? = nil) throws {
+        let pressed = try SidebarIncrementalMatchesRebuildGapsTests.center(list, down)
+        let released = try SidebarIncrementalMatchesRebuildGapsTests.center(list, up ?? down)
+        list.otherMouseDown(with: try middle(.otherMouseDown, at: pressed, in: list))
+        list.otherMouseUp(with: try middle(.otherMouseUp, at: released, in: list))
+    }
+
+    /// A press on one workspace row released on another closes nothing.
+    @Test func aReleaseOnAnotherRowClosesNothing() throws {
+        let (list, window, sent) = Self.recording()
+        defer { window.close() }
+        try Self.middleClick(list, .workspace(Fixture.shown), releasedOn: .workspace(Fixture.other))
+        #expect(sent().isEmpty)
     }
 
     // MARK: - Search Tabs rows

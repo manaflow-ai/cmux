@@ -68,6 +68,7 @@ final class SimulatorKitRuntime {
 
     private static func open(_ paths: [String]) -> UnsafeMutableRawPointer? {
         for path in paths where FileManager.default.fileExists(atPath: path) {
+            // concurrency-allow: KNOWN one-time main-thread stall (SimulatorKitHID is @MainActor): maps Xcode's CoreSimulator/SimulatorKit at the first live simulator screen of a process, not at launch; moving it off main is a follow-up
             if let handle = dlopen(path, RTLD_NOW | RTLD_GLOBAL) { return handle }
         }
         return nil

@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-19 (u2605): "Pressing Command-1 or Command-2 doesn't scroll all the way
@@ -10,7 +11,7 @@ import Testing
 /// padding when nothing selectable lies above it, the bottom padding when nothing lies below it.
 /// A top item the list draws inside a block (the sidebar document's Pinned/top section) is a
 /// selection the list reveals too.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarRevealSelectionTests {
     static let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
 
@@ -74,7 +75,7 @@ struct SidebarRevealSelectionTests {
     @Test func cmd1FromTheBottomScrollsAllTheWayToTheTop() throws {
         defer { Motion.reduceMotionOverride = nil }
         let h = Harness(sections: Self.sections(Self.loose(1...40)), active: Self.id(40))
-        defer { h.window.orderOut(nil) }
+        defer { h.window.close() }
         try #require(h.clip.bounds.height > 0)
         h.scroll(to: h.maxOffset)
         try #require(h.offset > 100)
@@ -85,7 +86,7 @@ struct SidebarRevealSelectionTests {
     @Test func cmd1WithTheTopPaddingCutOffScrollsToTheTop() throws {
         defer { Motion.reduceMotionOverride = nil }
         let h = Harness(sections: Self.sections(Self.loose(1...40)), active: Self.id(2))
-        defer { h.window.orderOut(nil) }
+        defer { h.window.close() }
         try #require(h.clip.bounds.height > 0)
         // The first row is still wholly in view, only the padding above it is cut.
         h.scroll(to: 3)
@@ -98,7 +99,7 @@ struct SidebarRevealSelectionTests {
         defer { Motion.reduceMotionOverride = nil }
         let group = SidebarGroup(id: GroupID("grp-top"), name: "Top", workspaces: (1...3).map(Self.ws))
         let h = Harness(sections: Self.sections([.group(group)] + Self.loose(4...40)), active: Self.id(40))
-        defer { h.window.orderOut(nil) }
+        defer { h.window.close() }
         try #require(h.clip.bounds.height > 0)
         h.scroll(to: h.maxOffset)
         h.select(Self.id(1))
@@ -110,7 +111,7 @@ struct SidebarRevealSelectionTests {
         defer { Motion.reduceMotionOverride = nil }
         let group = SidebarGroup(id: GroupID("grp-mid"), name: "Mid", isCollapsed: true, workspaces: (11...14).map(Self.ws))
         let h = Harness(sections: Self.sections(Self.loose(1...10) + [.group(group)] + Self.loose(15...50)), active: Self.id(50))
-        defer { h.window.orderOut(nil) }
+        defer { h.window.close() }
         try #require(h.clip.bounds.height > 0)
         h.scroll(to: h.maxOffset)
         h.select(Self.id(12))
@@ -122,7 +123,7 @@ struct SidebarRevealSelectionTests {
         defer { Motion.reduceMotionOverride = nil }
         let group = SidebarGroup(id: GroupID("grp-open"), name: "Open", workspaces: (11...14).map(Self.ws))
         let h = Harness(sections: Self.sections(Self.loose(1...10) + [.group(group)] + Self.loose(15...50)), active: Self.id(50))
-        defer { h.window.orderOut(nil) }
+        defer { h.window.close() }
         try #require(h.clip.bounds.height > 0)
         h.scroll(to: h.maxOffset)
         h.select(Self.id(11))
@@ -133,7 +134,7 @@ struct SidebarRevealSelectionTests {
     @Test func theLastRowShowsTheListsEnd() throws {
         defer { Motion.reduceMotionOverride = nil }
         let h = Harness(sections: Self.sections(Self.loose(1...40)), active: Self.id(1))
-        defer { h.window.orderOut(nil) }
+        defer { h.window.close() }
         try #require(h.clip.bounds.height > 0)
         h.select(Self.id(40))
         #expect(try h.shows(.workspace(Self.id(40))))
@@ -143,7 +144,7 @@ struct SidebarRevealSelectionTests {
     @Test func everySelectionInALongListIsInViewAndTheFirstIsAtTheTop() throws {
         defer { Motion.reduceMotionOverride = nil }
         let h = Harness(sections: Self.sections(Self.loose(1...150)), active: Self.id(1))
-        defer { h.window.orderOut(nil) }
+        defer { h.window.close() }
         try #require(h.clip.bounds.height > 0)
         for n in [150, 1, 75, 2, 149, 76, 1] {
             h.select(Self.id(n))
@@ -163,7 +164,7 @@ struct SidebarRevealSelectionTests {
             ? [.group(SidebarGroup(id: GroupID("grp-twice"), name: "Twice", workspaces: (1...3).map(Self.ws)))] + Self.loose(4...40)
             : Self.loose(1...40)
         let h = Harness(sections: Self.sections(nodes), active: Self.id(40))
-        defer { h.window.orderOut(nil) }
+        defer { h.window.close() }
         try #require(h.clip.bounds.height > 0)
         let key = SidebarRowKey.workspace(Self.id(n))
         h.select(Self.id(n))
@@ -190,7 +191,7 @@ struct SidebarRevealSelectionTests {
         let block = CmuxNextSidebar.SidebarSection(kind: .custom(SidebarCustomSection(id: SidebarLayoutDocument.topSectionID.rawValue)), nodes: [])
         let h = Harness(sections: [block] + Self.sections(Self.loose(1...40)), active: Self.id(40),
                         layout: SidebarLayoutDocument(sections: [top]))
-        defer { h.window.orderOut(nil) }
+        defer { h.window.close() }
         try #require(h.clip.bounds.height > 0)
         try #require(h.list.displayed.row(for: .block(SidebarLayoutDocument.topSectionID.rawValue)) != nil, "the list draws no top block")
         h.scroll(to: h.maxOffset)
@@ -198,5 +199,39 @@ struct SidebarRevealSelectionTests {
         h.model.selectedItem = .topItem(store)
         h.sidebar.renderNow()
         #expect(abs(h.offset) < 0.5, "Cmd-2 on a top item left the list at \(h.offset), not at its top")
+    }
+
+    /// Leo 2026-11-07 (Cmd-1…7 next to a group): a collapsed group right above the selection is a stop of its own,
+    /// not the selection's header. A row already in view under it does not scroll the list up to the group.
+    @Test func aRowRightBelowACollapsedGroupInViewDoesNotScroll() throws {
+        defer { Motion.reduceMotionOverride = nil }
+        let group = SidebarGroup(id: GroupID("grp-shut"), name: "Shut", isCollapsed: true, workspaces: (11...14).map(Self.ws))
+        let h = Harness(sections: Self.sections(Self.loose(1...10) + [.group(group)] + Self.loose(15...50)), active: Self.id(50))
+        defer { h.window.close() }
+        try #require(h.clip.bounds.height > 0)
+        let below = try h.row(.workspace(Self.id(15)))
+        h.scroll(to: below.y - SidebarLayout.revealPadding - 1)
+        let before = h.offset
+        try #require(!(try h.shows(.group(GroupID("grp-shut")))))
+        h.select(Self.id(15))
+        #expect(abs(h.offset - before) < 0.5, "selecting a row in view under a collapsed group scrolled \(before) -> \(h.offset)")
+    }
+
+    /// Collapsed groups below the selection are stops: a row in view above them does not scroll the list to its end.
+    @Test func aRowRightAboveCollapsedGroupsAtTheEndInViewDoesNotScroll() throws {
+        defer { Motion.reduceMotionOverride = nil }
+        let groups: [SidebarNode] = [
+            .group(SidebarGroup(id: GroupID("grp-a"), name: "A", isCollapsed: true, workspaces: (41...44).map(Self.ws))),
+            .group(SidebarGroup(id: GroupID("grp-b"), name: "B", isCollapsed: true, workspaces: (45...48).map(Self.ws))),
+        ]
+        let h = Harness(sections: Self.sections(Self.loose(1...40) + groups), active: Self.id(1))
+        defer { h.window.close() }
+        try #require(h.clip.bounds.height > 0)
+        let above = try h.row(.workspace(Self.id(40)))
+        h.scroll(to: above.maxY + SidebarLayout.revealPadding + 1 - h.clip.bounds.height)
+        let before = h.offset
+        try #require(before < h.maxOffset - 0.5)
+        h.select(Self.id(40))
+        #expect(abs(h.offset - before) < 0.5, "selecting a row in view above collapsed groups scrolled \(before) -> \(h.offset)")
     }
 }

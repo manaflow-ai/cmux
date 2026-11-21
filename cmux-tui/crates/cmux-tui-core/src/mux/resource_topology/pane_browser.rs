@@ -14,6 +14,26 @@ use crate::Actor;
 /// URL instead of a terminal.
 pub(crate) const PANE_BROWSER_URL_FIELD: &str = "pane_browser_url";
 
+/// A new pane on the `direction` side of `pane` (`right`, `down`, `left` or
+/// `up`) that holds only one new tab: one `pane.split` commit and one
+/// `pane-added` delta, under the caller-minted `pane_id` and `split_id` when
+/// given. A conversation tab's split (`conversation-tab-split-v1`) and a
+/// frontend browser tab's split (`frontend-browser-tab-split-v1`) both use it,
+/// and so does a Reopen Closed tab whose pane is gone, split off its neighbor
+/// again at its old share (`ratio`).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct TabSplit {
+    pub(crate) pane: PaneId,
+    pub(crate) direction: &'static str,
+    pub(crate) pane_id: Option<String>,
+    pub(crate) split_id: Option<String>,
+    /// The new pane's share of the split (default one half).
+    pub(crate) ratio: Option<f32>,
+    /// `split-around-v1`: the split whose whole subtree the new split wraps;
+    /// `pane` must be its last leaf.
+    pub(crate) around: Option<SplitId>,
+}
+
 /// Fields that only a terminal pane can use.
 const TERMINAL_ONLY_FIELDS: [&str; 5] = ["cwd", "env", "argv", "shell", RESERVED_TERMINAL_ID_FIELD];
 
@@ -116,7 +136,7 @@ impl Mux {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff =
-            self.resource_creation_handoff.lock().unwrap_or_else(PoisonError::into_inner);
+            self.resource_creation_handoff.read().unwrap_or_else(PoisonError::into_inner);
         if let Some(width) = viewport_width
             && (!width.is_finite()
                 || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width))
@@ -150,6 +170,42 @@ impl Mux {
             })?;
         self.emit_resource_topology_legacy_events(ResourceOperation::PaneSplit, &commit);
         self.ordinary_created_surface(&commit)
+    }
+
+    /// A tab at `url` created directly in the new pane of `split`, with the
+    /// caller's `pane.split` fields (a reserved `frontend_browser_id`, a
+    /// client transaction): the source pane never lists the tab.
+    /// `pinned-dock-alone-v1`: a split right of Home's dock alone is a new
+    /// column beside it, as wide as a link Home opens there
+    /// (`workspace.open_url`).
+    pub(crate) fn split_tab_pane_with_fields_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        split: TabSplit,
+        url: String,
+        mut fields: Map<String, Value>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let TabSplit { pane, direction, pane_id, split_id, ratio, around } = split;
+        fields.insert(PANE_BROWSER_URL_FIELD.into(), Value::String(url));
+        if let Some(around) = around {
+            fields.insert(AROUND_SPLIT_FIELD.into(), Value::from(around));
+        }
+        if let Some(ratio) = ratio {
+            fields.insert("ratio".into(), Value::from(f64::from(ratio)));
+        }
+        // A Reopen Closed creation takes the closed tab's own id here too.
+        tab_strip::reopen_identity::insert_field(&mut fields);
+        if let Some(pane_id) = pane_id {
+            fields.insert(CLIENT_PANE_ID_FIELD.into(), Value::String(pane_id));
+        }
+        if let Some(split_id) = split_id {
+            fields.insert(CLIENT_SPLIT_ID_FIELD.into(), Value::String(split_id));
+        }
+        let beside_lone_dock = direction == "right"
+            && self.with_state(|state| pane_in_lone_pinned_column(state, pane));
+        let width = beside_lone_dock.then_some(LONE_DOCK_NEIGHBOR_WIDTH);
+        self.split_browser_pane_with_fields_as(actor, pane, direction, width, fields, size)
     }
 
     /// Spawn the content of a pane that `effect_add_pane` attaches: a browser
@@ -250,44 +306,5 @@ pub(super) fn effect_browser_cell_size(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn fields(value: Value) -> Map<String, Value> {
-        value.as_object().unwrap().clone()
-    }
-
-    /// Restart recovery looks for the right evidence: a browser-pane split
-    /// was a browser creation, a plain split a terminal creation.
-    #[test]
-    fn browser_pane_split_recovers_as_a_browser_creation() {
-        let browser = fields(json!({"direction":"right", PANE_BROWSER_URL_FIELD:"https://a.test"}));
-        let terminal = fields(json!({"direction":"right"}));
-        assert_eq!(
-            creation_identity_kind(ResourceOperation::PaneSplit, &browser),
-            Some(CreatedIdentityKind::Browser)
-        );
-        assert_eq!(
-            creation_identity_kind(ResourceOperation::PaneSplit, &terminal),
-            Some(CreatedIdentityKind::Terminal)
-        );
-        assert_eq!(
-            creation_identity_kind(ResourceOperation::PaneCreate, &browser),
-            Some(CreatedIdentityKind::Terminal),
-            "only pane.split reads the browser field"
-        );
-    }
-
-    #[test]
-    fn browser_pane_fields_refuse_terminal_fields_and_empty_urls() {
-        let url = "https://a.test";
-        assert!(validate_pane_browser_fields(&fields(json!({PANE_BROWSER_URL_FIELD:url}))).is_ok());
-        assert!(validate_pane_browser_fields(&fields(json!({PANE_BROWSER_URL_FIELD:""}))).is_err());
-        assert!(validate_pane_browser_fields(&fields(json!({PANE_BROWSER_URL_FIELD:3}))).is_err());
-        for field in TERMINAL_ONLY_FIELDS {
-            let mut request = fields(json!({PANE_BROWSER_URL_FIELD:url}));
-            request.insert(field.to_string(), json!("x"));
-            assert!(validate_pane_browser_fields(&request).is_err(), "{field}");
-        }
-    }
-}
+#[path = "pane_browser_tests.rs"]
+mod tests;

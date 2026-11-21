@@ -15,16 +15,21 @@ public final class OneReadSafeStorage: SafeStorageKeyProviding {
     }
 
     public func password(service: String) throws(CookieImportError) -> SecretBytes {
+        try password(service: service, account: nil)
+    }
+
+    public func password(service: String, account: String?) throws(CookieImportError) -> SecretBytes {
+        let key = account.map { "\(service)\u{0}\($0)" } ?? service
         // Held across the read: a second caller waits for the one prompt rather than raising its own.
         let result = read.withLock { reads in
-            if let earlier = reads[service] { return earlier }
+            if let earlier = reads[key] { return earlier }
             let result: Result<SecretBytes, CookieImportError>
             do throws(CookieImportError) {
-                result = .success(try source.password(service: service))
+                result = .success(try source.password(service: service, account: account))
             } catch {
                 result = .failure(error)
             }
-            reads[service] = result
+            reads[key] = result
             return result
         }
         // Every caller shares the one copy; it is zeroed when the run drops this cache.

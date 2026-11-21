@@ -15,18 +15,32 @@ public actor MockHomeSource: HomeSource {
         /// Delay before a Chief starts typing and before it answers.
         public var replyDelay: Duration
         public var startsOnline: Bool
+        /// The Hosted Chief's brain at start: on, off, or nil for none (``HomeChiefBrainControlling``).
+        public var hostedChiefBrain: Bool?
 
         public init(chiefHistory: Int = 2_000, latency: Duration = .milliseconds(120),
-                    replyDelay: Duration = .milliseconds(900), startsOnline: Bool = true) {
+                    replyDelay: Duration = .milliseconds(900), startsOnline: Bool = true, hostedChiefBrain: Bool? = nil) {
             self.chiefHistory = chiefHistory
             self.latency = latency
             self.replyDelay = replyDelay
             self.startsOnline = startsOnline
+            self.hostedChiefBrain = hostedChiefBrain
         }
 
         /// No delays: for tests.
         public static let immediate = Options(chiefHistory: 300, latency: .zero, replyDelay: .zero)
     }
+
+    /// The Hosted Chief's brain (``setHostedChiefBrain(enabled:failingTurnOns:)``): nil is no Hosted Chief brain.
+    var hostedChiefBrain: Bool?
+    /// Turn Ons that fail before one succeeds.
+    var failingChiefTurnOns = 0
+
+    /// What ``agentSessions(_:of:)`` answers (``setAgentSessions(_:)``).
+    private var agentSessionRefs: [HomeAgentSessionRef] = []
+    /// What ``agentStarts()`` yields (``setStartedAgents(_:)``), and its readers.
+    private var startedAgentPeers = HomeAgentStarts()
+    private var agentStartReaders: [UUID: AsyncStream<HomeAgentStarts>.Continuation] = [:]
 
     private let options: Options
     private let clock: any Clock<Duration>
@@ -98,6 +112,7 @@ public actor MockHomeSource: HomeSource {
         self.options = options
         self.clock = clock
         self.online = options.startsOnline
+        self.hostedChiefBrain = options.hostedChiefBrain
         self.epoch = now
         let seed = MockHomeSeed.make(now: now, chiefHistory: options.chiefHistory)
         self.me = seed.me
@@ -460,6 +475,16 @@ public actor MockHomeSource: HomeSource {
     /// Submits waiting for `releaseSubmits` now.
     public var heldSubmitCount: Int { heldSubmits.count }
 
+    /// Changes a mock conversation's owner for local-versus-cloud UI fixtures, through the
+    /// same summary event as the owner. This source never reaches a real conversation service.
+    public func setOwner(_ owner: ConversationSummary.Owner, in conversation: ConversationID) {
+        guard var summary = conversations[conversation], summary.owner != owner else { return }
+        summary.owner = owner
+        summary.rev += 1
+        conversations[conversation] = summary
+        publish(.conversationChanged(summary, stream: .conversation(conversation), rev: summary.rev))
+    }
+
     /// Posts `text` as `author` under `key` (a Chief's reply carries its turn key) and returns its seq.
     @discardableResult
     public func post(_ text: String, from author: ParticipantID, in conversation: ConversationID, key: IdempotencyKey) -> Seq? {
@@ -467,11 +492,13 @@ public actor MockHomeSource: HomeSource {
     }
 
     /// Posts `parts` as `author` under `key`, in `threadRoot`'s thread when one is given (a Chief's
-    /// done marker answers the message it closes), and returns its seq.
+    /// done marker answers the message it closes), and returns its seq. `parent` is the message of
+    /// that thread the post answers (a nested reply, conversation-tree-v1); nil answers the root.
     @discardableResult
     public func post(_ parts: [MessagePart], from author: ParticipantID, in conversation: ConversationID, key: IdempotencyKey,
-                     threadRoot: MessageID? = nil) -> Seq? {
-        guard (try? commitMessage(in: conversation, author: author, parts: parts, key: key, threadRoot: threadRoot)) != nil else { return nil }
+                     threadRoot: MessageID? = nil, parent: MessageID? = nil) -> Seq? {
+        guard (try? commitMessage(in: conversation, author: author, parts: parts, key: key, threadRoot: threadRoot,
+                                  parent: parent)) != nil else { return nil }
         return conversations[conversation]?.lastSeq
     }
 
@@ -493,6 +520,21 @@ public actor MockHomeSource: HomeSource {
         return true
     }
 
+    /// `reader` reads `conversation` up to its newest message, as the owner moves another
+    /// member's read cursor ("Read" under my message); nothing when it already has.
+    ///
+    /// - Parameters:
+    ///   - reader: The member whose read cursor moves (the Chief, a teammate).
+    ///   - conversation: The conversation they read.
+    public func markRead(by reader: ParticipantID, in conversation: ConversationID) {
+        guard var summary = conversations[conversation], (summary.readCursors[reader] ?? 0) < summary.lastSeq else { return }
+        summary.readCursors[reader] = summary.lastSeq
+        summary.readCursorTimes[reader] = Date()
+        summary.rev += 1
+        conversations[conversation] = summary
+        publish(.conversationChanged(summary, stream: .conversation(conversation), rev: summary.rev))
+    }
+
     /// Posts a message as someone else (incoming traffic for demos).
     public func receive(_ text: String, from author: ParticipantID, in conversation: ConversationID) {
         _ = try? commitMessage(in: conversation, author: author, parts: [.text(text)], key: .make())
@@ -503,6 +545,45 @@ public actor MockHomeSource: HomeSource {
     public func streamDraft(_ update: HomeDraftUpdate) {
         publish(.draft(update))
     }
+
+    /// Publishes one live run frame (``HomeLiveEvent``), as an owner sends a running Chief's
+    /// "working on" line (the DEBUG Home fixture's status-line captures). Nothing is stored.
+    ///
+    /// - Parameter event: The frame, for example an `.activity` frame with the step running now.
+    public func streamLive(_ event: HomeLiveEvent) {
+        publish(.live(event))
+    }
+
+    /// Sets where the mock Chief's agents run (tests and the DEBUG Home fixture's move captures).
+    ///
+    /// - Parameter refs: Every agent's session and place; ``agentSessions(_:of:)`` answers those of the asked
+    ///   agents, for any chat.
+    public func setAgentSessions(_ refs: [HomeAgentSessionRef]) {
+        agentSessionRefs = refs
+    }
+
+    public func agentSessions(_ peers: [String], of conversation: ConversationID) async -> [HomeAgentSessionRef] {
+        agentSessionRefs.filter { peers.contains($0.peer) }
+    }
+
+    /// Sets the mock Chief's agents that have a session, and when each began; every ``agentStarts()`` reader gets them.
+    ///
+    /// - Parameter starts: The agent ids (`a<n>`) with a session, and their session starts.
+    public func setStartedAgents(_ starts: HomeAgentStarts) {
+        startedAgentPeers = starts
+        for reader in agentStartReaders.values { reader.yield(starts) }
+    }
+
+    public func agentStarts() async -> AsyncStream<HomeAgentStarts> {
+        let (stream, continuation) = AsyncStream.makeStream(of: HomeAgentStarts.self, bufferingPolicy: .bufferingNewest(1))
+        let id = UUID()
+        agentStartReaders[id] = continuation
+        continuation.yield(startedAgentPeers)
+        continuation.onTermination = { [weak self] _ in Task { await self?.dropAgentStartReader(id) } }
+        return stream
+    }
+
+    private func dropAgentStartReader(_ id: UUID) { agentStartReaders[id] = nil }
 
     // MARK: Owner logic
 
@@ -583,8 +664,8 @@ public actor MockHomeSource: HomeSource {
             let id = createConversation(title: "", participants: [me, agent])
             _ = try? commitMessage(in: id, author: agent.id, parts: [.text(MockHomeSeed.chiefGreeting(trimmed))], key: .make())
             return HomeOpResult(rev: inboxRev, conversation: id)
-        case .createGroup(let title, let ids):
-            let participants = [me] + ids.compactMap { people[$0] }
+        case .createGroup(let title, let ids, let invites):
+            let participants = [me] + ids.compactMap { people[$0] } + invites.map { personFor($0).0 }
             guard participants.count >= 3 else { throw HomeRejection.invalid("group_needs_three") }
             let id = createConversation(title: title, participants: participants)
             return HomeOpResult(rev: inboxRev, conversation: id)
@@ -800,6 +881,17 @@ public actor MockHomeSource: HomeSource {
     /// Sets a participant's activity for demos without starting a timed reply.
     public func typing(_ who: ParticipantID, in conversation: ConversationID, on: Bool) {
         publish(.typing(conversation, who, on: on))
+    }
+
+    /// Who has `conversation` open, the whole set, as an owner's presence frame (fixtures and
+    /// captures: `debug.home.drive` `presence`); an empty set is nobody.
+    public func showPresence(_ viewing: Set<ParticipantID>, in conversation: ConversationID) {
+        publish(.presence(conversation, viewing: viewing))
+    }
+
+    /// `who` starts or stops typing in `conversation`, as an owner's typing frame (fixtures).
+    public func showTyping(_ who: ParticipantID, in conversation: ConversationID, on: Bool) {
+        typing(who, in: conversation, on: on)
     }
 
     private func reply(as responder: Participant, in conversation: ConversationID) {

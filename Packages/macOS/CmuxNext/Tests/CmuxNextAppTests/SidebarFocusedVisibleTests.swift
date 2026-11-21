@@ -3,13 +3,14 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The sidebar invariant (Lawrence 2026-10-19): "if we focus on workspace, or our
 /// focused workspace moves, invariant is it needs to always be in user's sidebar,
 /// visible". A selection opens the collapsed section that hides the workspace,
 /// and the list scrolls the focused row into view when it moves, by anyone.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarFocusedVisibleTests {
     /// The local machine's section with the workspaces `ids`, in that order.
     private static func sections(_ ids: [Int]) -> [CmuxNextSidebar.SidebarSection] {
@@ -73,7 +74,7 @@ struct SidebarFocusedVisibleTests {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let (model, sidebar, window, ids) = try Self.makeSidebar()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         let list = sidebar.list
         try #require(list.enclosingScrollView?.contentView.bounds.height ?? 0 > 0)
         try #require(try Self.isInView(list, ids[0]))
@@ -87,7 +88,7 @@ struct SidebarFocusedVisibleTests {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let (model, sidebar, window, ids) = try Self.makeSidebar()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         let list = sidebar.list
         try #require(list.enclosingScrollView?.contentView.bounds.height ?? 0 > 0)
         let section = try #require(model.sections.first?.id)
@@ -102,7 +103,7 @@ struct SidebarFocusedVisibleTests {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let (model, sidebar, window, ids) = try Self.makeSidebar()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         let list = sidebar.list
         try #require(list.enclosingScrollView?.contentView.bounds.height ?? 0 > 0)
         try #require(try !Self.isInView(list, ids[35]))

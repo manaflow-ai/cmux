@@ -1,3 +1,4 @@
+import CmuxNextFiles
 import CmuxNextDesign
 import Foundation
 
@@ -16,7 +17,7 @@ final class FileQuitDocument: QuitUnsavedParticipant {
     /// The last text a page reported, and the file hash it was edited from.
     private(set) var latestText: String?
     private(set) var baseHash: String?
-    /// `FileDocument.hash` of `latestText`, taken once per edit so a save does not hash it again;
+    /// `FileDocument().hash` of `latestText`, taken once per edit so a save does not hash it again;
     /// nil when no edit compared it (an edit with no base hash).
     private var latestHash: String?
     private var flushers: [UUID: () async -> Bool] = [:]
@@ -49,7 +50,7 @@ final class FileQuitDocument: QuitUnsavedParticipant {
         self.baseHash = baseHash
         let contents = Data(text.utf8)
         // Without a base hash the text never equals the file's: no hash needed.
-        latestHash = baseHash == nil ? nil : FileDocument.hash(contents)
+        latestHash = baseHash == nil ? nil : FileDocument().hash(contents)
         guard baseHash == nil || latestHash != baseHash else {
             markClean()
             return .kept
@@ -64,7 +65,7 @@ final class FileQuitDocument: QuitUnsavedParticipant {
     /// A normal save wrote `hash`: clean when it is the last reported text.
     func saved(hash: String) {
         baseHash = hash
-        if let latestText, (latestHash ?? FileDocument.hash(Data(latestText.utf8))) != hash { return }
+        if let latestText, (latestHash ?? FileDocument().hash(Data(latestText.utf8))) != hash { return }
         markClean()
     }
 
@@ -144,7 +145,7 @@ final class FileQuitDocument: QuitUnsavedParticipant {
 
     @concurrent private static func write(_ text: String, to url: URL, baseHash: String?,
                                           inWorkspace: Bool) async throws(FileSaveFailure) -> FileSaveResult {
-        try FileDocument.save(text, to: url, baseHash: baseHash, inWorkspace: inWorkspace)
+        try FileDocument().save(text, to: url, baseHash: baseHash, inWorkspace: inWorkspace)
     }
 }
 

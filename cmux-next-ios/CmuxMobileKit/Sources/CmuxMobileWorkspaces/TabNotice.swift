@@ -64,8 +64,8 @@ public struct TabNotice: Equatable, Sendable {
             switch cause {
             case .folderNotAllowed:
                 // An older Mac, a folder acpmux has not been told of yet, or a symlink out.
-                if isAgent { return "\(macName) doesn't allow agent chats in this folder from your iPhone yet." }
-                return "Can't open \(thing) in this folder from your iPhone yet."
+                if isAgent { return "\(macName) doesn't allow agent chats in this folder from your iPhone." }
+                return "Can't open \(thing) in this folder from your iPhone."
             case .offline: return "Connect to \(macName) first."
             case .gone: return "This workspace is no longer on \(macName)."
             case .notAllowed: return "\(macName) didn't allow \(thing) from your iPhone."

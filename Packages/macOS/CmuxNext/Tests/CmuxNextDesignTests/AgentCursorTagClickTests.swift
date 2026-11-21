@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 import CmuxNextDesignTokens
 
@@ -8,6 +9,7 @@ import CmuxNextDesignTokens
 /// goes to the tag's source; the overlay panel takes the mouse there, and
 /// VoiceOver sees each tag as a button.
 @MainActor
+@Suite(.closesItsWindows)
 struct AgentCursorTagClickTests {
     final class Tags: AgentCursorTagSource {
         var tags: [AgentCursorTagTarget] = [
@@ -21,14 +23,15 @@ struct AgentCursorTagClickTests {
         func hoverAgentCursorTag(_ id: String?) { hovered.append(id) }
     }
 
-    private func setUp() throws -> (WindowOverlayHost, AgentCursorCarrierView, Tags) {
+    /// The window comes back too: each test closes it (`closeWithOverlayHost`), which also lets its host go.
+    private func setUp() throws -> (NSWindow, WindowOverlayHost, AgentCursorCarrierView, Tags) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: true)
         let host = WindowOverlayHost.host(for: window)
         let tags = Tags()
         host.agentCursorTags = tags
         _ = host.agentCursorLayer
-        return (host, try #require(host.agentCursorCarrier), tags)
+        return (window, host, try #require(host.agentCursorCarrier), tags)
     }
 
     /// A y-down cursor-layer point in the carrier's own (y-up) coordinates.
@@ -38,7 +41,8 @@ struct AgentCursorTagClickTests {
 
     @Test func onlyATagTakesTheMouse() throws {
         // The host holds the source weakly (the window controller owns it): keep it.
-        let (_, carrier, tags) = try setUp()
+        let (owner, _, carrier, tags) = try setUp()
+        defer { owner.closeWithOverlayHost() }
         let inSuper = { (p: NSPoint) in carrier.convert(p, to: carrier.superview) }
         withExtendedLifetime(tags) {
             #expect(carrier.hitTest(inSuper(point(carrier, x: 150, y: 61))) === carrier, "on the tag")
@@ -48,7 +52,8 @@ struct AgentCursorTagClickTests {
     }
 
     @Test func aClickOnATagPressesIt() throws {
-        let (_, carrier, tags) = try setUp()
+        let (owner, _, carrier, tags) = try setUp()
+        defer { owner.closeWithOverlayHost() }
         let window = try #require(carrier.window)
         let inWindow = carrier.convert(point(carrier, x: 150, y: 61), to: nil)
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
@@ -61,7 +66,8 @@ struct AgentCursorTagClickTests {
     }
 
     @Test func voiceOverSeesEachTagAsAButton() throws {
-        let (_, carrier, tags) = try setUp()
+        let (owner, _, carrier, tags) = try setUp()
+        defer { owner.closeWithOverlayHost() }
         let children = try #require(carrier.accessibilityChildren() as? [NSAccessibilityElement])
         let button = try #require(children.first)
         #expect(children.count == 1)
@@ -75,7 +81,8 @@ struct AgentCursorTagClickTests {
     }
 
     @Test func theOverlayPanelTakesTheMouseOverATag() throws {
-        let (host, carrier, tags) = try setUp()
+        let (owner, host, carrier, tags) = try setUp()
+        defer { owner.closeWithOverlayHost() }
         host.setPlanesWantPanel(true)
         #expect(carrier.window === host.panel)
         host.agentCursorTagsDidChange()

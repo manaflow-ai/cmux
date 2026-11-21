@@ -342,3 +342,108 @@ fn shutdown_daemon_keep_layout_renames_the_dead_tab_after_restart() {
     let cleared = tab(&harness, 11);
     assert!(cleared["name"].is_null(), "an empty rename did not clear the name: {cleared}");
 }
+
+/// A kept tab whose terminal ran a plain shell or a command starts on its
+/// workspace's first show (`relaunch.on_show`), not when a frontend
+/// connects: a session with hundreds of workspaces nobody opens otherwise
+/// started a shell, a host and a PTY for each of them at the next launch,
+/// past the 511 PTYs macOS gives the machine (a913, Lawrence 2026-10-30).
+/// A kept tab whose terminal ran an agent session still restarts at connect,
+/// so the agent resumes as before.
+#[test]
+fn shutdown_daemon_keep_layout_starts_unshown_shells_on_show_and_agents_at_connect() {
+    use std::io::Write as _;
+    let mut harness = RecoveryHarness::start("shutdown-keep-layout-on-show");
+    let tab_of = |tree: &serde_json::Value, name: &str| {
+        tree["workspaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|workspace| workspace["name"] == name)
+            .and_then(first_tab)
+            .cloned()
+            .unwrap_or_else(|| panic!("workspace {name} has no tab: {tree}"))
+    };
+    for (id, name) in [(1, "shell"), (2, "agent")] {
+        request(
+            &harness.socket,
+            serde_json::json!({"id": id, "cmd": "new-workspace", "name": name}),
+        );
+    }
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 3, "cmd": "run", "argv": ["/bin/cat"], "new_workspace": true, "name": "command",
+        }),
+    );
+    let tree = request(&harness.socket, serde_json::json!({"id": 4, "cmd": "list-workspaces"}));
+    let agent = tab_of(&tree, "agent");
+    let mut hook = Command::new(bin())
+        .args(["__agent-hook", "claude", "SessionStart"])
+        .env("CMUX_TUI_SOCKET", &harness.socket)
+        .env("CMUX_TUI_TERMINAL_ID", agent["terminal_resource_id"].as_str().unwrap())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn the agent hook");
+    hook.stdin
+        .take()
+        .expect("hook stdin")
+        .write_all(b"{\"session_id\":\"abc-123\"}\n")
+        .expect("write the hook payload");
+    assert!(hook.wait().expect("wait for the hook").success());
+    let surface = agent["surface"].as_u64().unwrap();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let agents = request(&harness.socket, serde_json::json!({"cmd": "list-agents"}));
+        let claimed =
+            agents["agents"].as_array().into_iter().flatten().any(|agent| {
+                agent["surface"].as_u64() == Some(surface) && agent["agent"] == "claude"
+            });
+        if claimed {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the hook never reached the terminal: {agents}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    let identify = request(&harness.socket, serde_json::json!({"id": 5, "cmd": "identify"}));
+    let accepted = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 6,
+            "cmd": "shutdown-daemon",
+            "pid": identify["pid"],
+            "generation": identify["generation"],
+            "end_terminals": true,
+            "keep_layout": true,
+        }),
+    );
+    assert_eq!(accepted["accepted"], true);
+    let mut daemon = harness.child.take().unwrap();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while daemon.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline, "daemon did not exit after shutdown");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    wait_for_no_host_records(&harness.host_root());
+
+    harness.restart();
+    let tree = request(&harness.socket, serde_json::json!({"id": 7, "cmd": "list-workspaces"}));
+    for name in ["shell", "command"] {
+        let tab = tab_of(&tree, name);
+        assert_eq!(tab["dead"], true, "a kept tab came back live: {tab}");
+        assert_eq!(
+            tab["relaunch"]["on_show"], true,
+            "a kept {name} tab restarts at connect, not on its first show: {tab}"
+        );
+    }
+    let agent = tab_of(&tree, "agent");
+    assert_eq!(agent["dead"], true, "a kept tab came back live: {agent}");
+    assert!(agent["relaunch"]["cwd"].is_string(), "the agent tab is not kept: {agent}");
+    assert!(
+        agent["relaunch"]["on_show"].is_null(),
+        "a kept agent tab waits for its first show; its agent would not resume: {agent}"
+    );
+}

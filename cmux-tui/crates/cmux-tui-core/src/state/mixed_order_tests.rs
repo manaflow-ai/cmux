@@ -94,6 +94,7 @@ fn personal_rows(mux: &Arc<Mux>) -> usize {
 /// so a group slot counts it from the start.
 #[test]
 fn a_new_workspace_gets_a_personal_row_at_create() {
+    let _top = crate::user_settings::NewWorkspacePlacement::Top.set_for_test();
     let session = Session::new("mixed-create");
     let mux = session.open();
     let before = personal_rows(&mux);
@@ -147,13 +148,14 @@ fn a_group_slot_before_home_is_refused() {
     mux.shutdown();
 }
 
-/// `workspaces.newPlacement` defaults to `top` for every client: a workspace
+/// `workspaces.newPlacement` `top` applies to every client: a workspace
 /// made by a plain `workspace.create` (what the TUI, the CLI, iOS and agents
 /// send; no app places it afterwards) gets the first row below Home in the
 /// commit that creates it, before a group placed right below Home, and keeps
 /// it across a restart.
 #[test]
-fn a_new_workspace_from_any_client_lands_at_the_top_by_default() {
+fn a_new_workspace_from_any_client_lands_at_the_top_under_top() {
+    let _top = crate::user_settings::NewWorkspacePlacement::Top.set_for_test();
     let session = Session::new("new-top");
     let mux = session.open();
     let home = send(&mux, "workspace.ensure_home", json!({}), Some("connect")).unwrap()["value"]
@@ -215,7 +217,16 @@ fn a_new_workspace_follows_the_after_current_and_bottom_settings() {
         .to_string();
     let a = empty_workspace(&mux, "a");
     let b = empty_workspace(&mux, "b");
-    let work = group(&mux, "Work");
+    // An explicit index: a group made with none forms below Home under top.
+    let work = mutate(
+        &mux,
+        "workspace_group.create",
+        json!({"name": "Work", "index": 0}),
+        "group-Work",
+    )["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
     mutate(&mux, "workspace.place", json!({"workspace": a, "group": work}), "a-in-work");
     // Personal order now: home, b, then Work [a] after every loose row.
     let after = NewWorkspacePlacement::AfterCurrent.set_for_test();

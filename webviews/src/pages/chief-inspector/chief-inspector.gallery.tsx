@@ -97,8 +97,26 @@ function fixtureFetcher(unreachable: boolean): Fetcher {
 
 type Props = { tab: Tab; unreachable?: boolean };
 
+/** The URLs the Prompt and Timeline tabs read when they open (App.tsx, PromptView.tsx). */
+const FIRST_SCREEN = ["/api/status", "/api/turns", "/api/turn?key=now"];
+
+/** A store whose first screen's answers are in before the stage mounts, so the first frame is the
+    final one: the fixture's replies settle a tick after the first paint in some renders and not in
+    others, and the summary line and prompt then drew under a frame of "Loading…" (a 0.0159 load
+    shift in one render of two). */
+async function readyStore(unreachable: boolean): Promise<ApiStore> {
+  const store = new ApiStore(fixtureFetcher(unreachable));
+  for (const url of FIRST_SCREEN) store.get(url);
+  await Promise.all(FIRST_SCREEN.map((url) => store.load(url)));
+  return store;
+}
+
+let stores: Record<"reachable" | "unreachable", ApiStore> | undefined;
+
 function ChiefInspectorGallery({ tab, unreachable = false }: Props) {
-  const [store] = useState(() => new ApiStore(fixtureFetcher(unreachable)));
+  const [store] = useState(
+    () => stores?.[unreachable ? "unreachable" : "reachable"] ?? new ApiStore(fixtureFetcher(unreachable)),
+  );
   return (
     <StoreContext.Provider value={store}>
       <App initialTab={tab} />
@@ -112,7 +130,11 @@ export default componentEntry<Props>({
   area: "Pages",
   height: 640,
   covers: ["page:cmux.chief-inspector"],
-  load: async () => ChiefInspectorGallery,
+  load: async () => {
+    const [reachable, unreachable] = await Promise.all([readyStore(false), readyStore(true)]);
+    stores = { reachable, unreachable };
+    return ChiefInspectorGallery;
+  },
   styles: () => import("../../optchat-inspector/styles.css"),
   variants: {
     prompt: { note: "The next turn's prompt: system parts, view and new messages.", props: { tab: "prompt" } },

@@ -3,13 +3,14 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// While the display sleeps nothing draws, so an AppKit animation never advances: a sidebar row
 /// inserted then (a session seeded over the socket) stayed at alpha 0 until Reduce Motion was
 /// turned on. An animation completes or is skipped when nothing draws, and one already running
 /// when the display goes to sleep ends at once.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarInsertWhileDisplayAsleepTests {
     /// The local machine's section with the workspaces `ids`.
     private static func sections(_ ids: [Int]) -> [CmuxNextSidebar.SidebarSection] {
@@ -56,6 +57,12 @@ struct SidebarInsertWhileDisplayAsleepTests {
     /// (dea9671b35d5/5763d7372701) or, out of the list, takes it out.
     private static func recycled(_ row: SidebarRowView) -> Bool { row.superview == nil || row.isHidden }
 
+    /// The row fades in on the render server (m23 F4: its model opacity is 1 at once, its layer's animation starts lower).
+    private static func fadesIn(_ row: SidebarRowView) -> Bool {
+        let fade = row.layer?.animation(forKey: "opacity") as? CABasicAnimation
+        return ((fade?.fromValue as? NSNumber)?.floatValue ?? 1) < 1
+    }
+
     /// Shows the workspaces `ids` (the selection stays, so new rows open with motion) and
     /// returns the last one's row.
     private static func show(_ ids: [Int], in model: SidebarModel, _ sidebar: SidebarView) throws -> SidebarRowView {
@@ -69,7 +76,7 @@ struct SidebarInsertWhileDisplayAsleepTests {
     @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") { await Self.animatesHere() })
     func aRowInsertedWhileTheDisplaySleepsShowsWhole() throws {
         let (model, sidebar, window) = try Self.sidebar()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         let restoreKinds = Self.newWorkspaceMotionOn()
         defer { restoreKinds() }
         try #require(window.screen != nil)
@@ -91,7 +98,7 @@ struct SidebarInsertWhileDisplayAsleepTests {
     @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") { await Self.animatesHere() })
     func rowsStillMovingWhenTheDisplaySleepsEndAtOnce() throws {
         let (model, sidebar, window) = try Self.sidebar()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         let restoreKinds = Self.newWorkspaceMotionOn()
         defer { restoreKinds() }
         try #require(window.screen != nil)
@@ -105,7 +112,7 @@ struct SidebarInsertWhileDisplayAsleepTests {
         let shown = Set(list.rowViews.values.map(ObjectIdentifier.init))
         let leaving = list.subviews.compactMap { $0 as? SidebarRowView }
             .filter { before.contains(ObjectIdentifier($0)) && !shown.contains(ObjectIdentifier($0)) && !Self.recycled($0) }
-        try #require(opening.alphaValue < 1, "the new row appeared in one frame with the display awake")
+        try #require(Self.fadesIn(opening), "the new row appeared in one frame with the display awake")
         try #require(leaving.count == 1, "the removed row did not stay to close its slot")
 
         // Synchronous from the sleep to the wake: both notifications are process-wide.
@@ -115,6 +122,7 @@ struct SidebarInsertWhileDisplayAsleepTests {
 
         // No frame draws from here: what was moving must be final now.
         #expect(opening.alphaValue == 1, "the opening row stopped at alpha \(opening.alphaValue)")
+        #expect(opening.layer?.animation(forKey: "opacity") == nil, "the opening row still fades on the render server")
         #expect(opening.frame.height > 0, "the opening row stopped at height \(opening.frame.height)")
         #expect(leaving.allSatisfy(Self.recycled), "the closing row stays in the list: its completion never ran")
     }
@@ -124,7 +132,7 @@ struct SidebarInsertWhileDisplayAsleepTests {
     @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") { await Self.animatesHere() })
     func rowsANewerReloadPlacedKeepTheirPlacesWhenTheDisplaySleeps() throws {
         let (model, sidebar, window) = try Self.sidebar()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         let restoreKinds = Self.newWorkspaceMotionOn()
         defer { restoreKinds() }
         try #require(window.screen != nil)
@@ -135,7 +143,7 @@ struct SidebarInsertWhileDisplayAsleepTests {
         // Workspace 4 opens with motion; before it ends, two reloads without motion close
         // workspace 2 (its view goes back to the pool) and add workspace 5 (which can reuse it).
         let opening = try Self.show([1, 2, 3, 4], in: model, sidebar)
-        try #require(opening.alphaValue < 1, "the new row appeared in one frame with the display awake")
+        try #require(Self.fadesIn(opening), "the new row appeared in one frame with the display awake")
         model.sections = Self.sections([1, 3, 4])
         list.reload(animated: false)
         model.sections = Self.sections([1, 3, 4, 5])
@@ -158,7 +166,7 @@ struct SidebarInsertWhileDisplayAsleepTests {
     @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") { await Self.animatesHere() })
     func aClosingRowLeavesEvenAfterItsReplayExpired() async throws {
         let (model, sidebar, window) = try Self.sidebar()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         let restoreKinds = Self.newWorkspaceMotionOn()
         defer { restoreKinds() }
         try #require(window.screen != nil)
@@ -187,7 +195,7 @@ struct SidebarInsertWhileDisplayAsleepTests {
     @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") { await Self.animatesHere() })
     func aRowInsertedWhileTheDisplayIsAwakeStillOpens() throws {
         let (model, sidebar, window) = try Self.sidebar()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         let restoreKinds = Self.newWorkspaceMotionOn()
         defer { restoreKinds() }
         try #require(window.screen != nil)
@@ -195,6 +203,6 @@ struct SidebarInsertWhileDisplayAsleepTests {
         defer { Motion.reduceMotionOverride = nil }
 
         let row = try Self.show([1, 2, 3, 4], in: model, sidebar)
-        #expect(row.alphaValue < 1, "the inserted row appeared in one frame with the display awake")
+        #expect(Self.fadesIn(row), "the inserted row appeared in one frame with the display awake")
     }
 }

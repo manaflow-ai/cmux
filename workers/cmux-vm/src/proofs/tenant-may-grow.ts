@@ -10,7 +10,7 @@ export interface TenantMayGrow<C> extends Proof<"TenantMayGrow", [C]> {}
 const MayGrow = defineProof("TenantMayGrow");
 export const tenantMayGrow = <C>(caller: Named<C, Principal>) => Effect.gen(function* () {
   if (keyHasScope(caller, "vm:write") === null) return yield* Effect.fail(missingScope("vm:write"));
-  if (!(yield* (yield* Entitlements).mayCreate(caller.value.tenantId, "vm"))) {
+  if (!(yield* (yield* Entitlements).mayCreate(caller.value, "vm"))) {
     return yield* Effect.fail(new PaymentRequired({ message: "This team's plan does not include VMs" }));
   }
   const proof: TenantMayGrow<C> = Object.freeze({ ...MayGrow.prove(caller) });

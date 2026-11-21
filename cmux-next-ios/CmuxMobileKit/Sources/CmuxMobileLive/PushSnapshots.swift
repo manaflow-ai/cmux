@@ -74,9 +74,38 @@ public struct PushSnapshots {
         if let chief = Self.chief(.shared) { snapshots.append(chief) }
         guard !snapshots.isEmpty else { return }
         let toSave = snapshots
-        await Task.detached(priority: .utility) { for snapshot in toSave { store.save(snapshot) } }.value
+        // Writes and the sign-out wipe run one after another; a save that read its chats before a
+        // sign-out writes nothing (it would put the signed-out account's chats back).
+        let epoch = Self.epoch
+        let previous = Self.writes
+        let write = Task.detached(priority: .utility) {
+            await previous?.value
+            guard await MainActor.run(body: { Self.epoch == epoch }) else { return }
+            for snapshot in toSave { store.save(snapshot) }
+        }
+        Self.writes = write
+        await write.value
     }
     #endif
+
+    /// Counts sign-outs: a save that began before one must not write after it (`save`).
+    private static var epoch = 0
+    /// The newest disk job (a save's write or a wipe); the next one waits for it.
+    private static var writes: Task<Void, Never>?
+
+    /// Sign-out: no account's chats stay on disk, whatever save was already writing or about to
+    /// write (off the main thread). Await the result before work that must follow the wipe.
+    public static func clearForSignOut() -> Task<Void, Never> {
+        epoch += 1
+        let previous = writes
+        let clear = Task.detached(priority: .utility) {
+            await previous?.value
+            let group = await PushAppGroup.resolved(timeout: PushAppGroupResolver.cleanupTimeout)
+            PushSnapshotStore(group: group)?.removeAll()
+        }
+        writes = clear
+        return clear
+    }
 
     /// Sign-out: no account's chats stay on disk (off the main thread).
     public func removeAll() async {

@@ -16,7 +16,7 @@ final class FileIconGridView: NSObject, FileContentView, NSCollectionViewDataSou
             collection.reloadData()
         }
     }
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private let collection = FileCollectionView()
     private let layout = NSCollectionViewFlowLayout()
     private let actions: FilesPaneActions
@@ -24,6 +24,7 @@ final class FileIconGridView: NSObject, FileContentView, NSCollectionViewDataSou
     private var entries: [FileEntry] = []
     private var folder: URL?
     private var applyingSelection = false
+    private var fontSize = TypeScale.caption
 
     init(actions: FilesPaneActions, icons: FileIconProvider, tileSize: CGFloat = 96) {
         self.actions = actions
@@ -66,6 +67,10 @@ final class FileIconGridView: NSObject, FileContentView, NSCollectionViewDataSou
         self.entries = entries
         self.folder = folder
         if !same { collection.reloadData() }
+        if fontSize != TypeScale.caption {
+            fontSize = TypeScale.caption
+            for case let item as FileIconItem in collection.visibleItems() { item.refreshTypography() }
+        }
         var paths = Set<IndexPath>()
         if !selection.isEmpty {
             for (index, entry) in entries.enumerated() where selection.contains(entry.name) { paths.insert(IndexPath(item: index, section: 0)) }

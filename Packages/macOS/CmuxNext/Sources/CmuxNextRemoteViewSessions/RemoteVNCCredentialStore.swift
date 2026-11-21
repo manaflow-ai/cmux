@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxVNC
 import Foundation
 import Security
@@ -7,6 +8,8 @@ import Security
 /// `host:port`. Never in the tab record: records persist and travel.
 nonisolated struct RemoteVNCCredentialStore {
     static let service = "cmux-next VNC"
+    /// The app's one guard of the Keychain UI switch.
+    let loginKeychain: LoginKeychain
 
     private struct Stored: Codable {
         var username: String?
@@ -36,7 +39,9 @@ nonisolated struct RemoteVNCCredentialStore {
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data,
+        // No UI: the service is shared by every development build, so another build's item is
+        // refused (and the sign-in asked for again), never prompted for.
+        guard loginKeychain.withoutUI({ SecItemCopyMatching(query as CFDictionary, &result) }) == errSecSuccess, let data = result as? Data,
               let stored = try? JSONDecoder().decode(Stored.self, from: data) else { return nil }
         return VNCCredentials(username: stored.username, password: stored.password)
     }
@@ -45,16 +50,19 @@ nonisolated struct RemoteVNCCredentialStore {
         guard let data = try? JSONEncoder().encode(Stored(username: credentials.username, password: credentials.password)) else { return }
         let query = baseQuery(endpoint)
         let update = [kSecValueData as String: data]
-        if SecItemUpdate(query as CFDictionary, update as CFDictionary) == errSecItemNotFound {
-            var add = query
-            add[kSecValueData as String] = data
-            add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
-            SecItemAdd(add as CFDictionary, nil)
+        // No UI: a refused update is not errSecItemNotFound, so it never adds a second item.
+        loginKeychain.withoutUI {
+            if SecItemUpdate(query as CFDictionary, update as CFDictionary) == errSecItemNotFound {
+                var add = query
+                add[kSecValueData as String] = data
+                add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
+                SecItemAdd(add as CFDictionary, nil)
+            }
         }
     }
 
     func remove(for endpoint: VNCEndpoint) {
-        SecItemDelete(baseQuery(endpoint) as CFDictionary)
+        _ = loginKeychain.withoutUI { SecItemDelete(baseQuery(endpoint) as CFDictionary) }
     }
 
     private func baseQuery(_ endpoint: VNCEndpoint) -> [String: Any] {

@@ -155,3 +155,72 @@ fn a_request_waiting_behind_a_writer_commit_does_not_hold_state() {
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// A rename commits on its request thread, and waits for the registry
+/// connection while a journal writer commit holds it. The request held the
+/// mux state lock across such a wait, so every state reader (list-workspaces,
+/// identify, terminal I/O placement) queued behind the disk. State must be
+/// free while it waits.
+#[test]
+fn a_rename_waiting_behind_a_writer_commit_does_not_hold_state() {
+    let (mux, root) = persistent_mux("rename-receipt");
+    mux.new_workspace(None, Some((80, 24))).unwrap();
+    let workspace = mux.with_state(|state| state.workspaces[0].id);
+    mux.flush_terminal_journal().unwrap();
+    let (entered, entered_receiver) = sync_channel(1);
+    let (release, release_receiver) = sync_channel(1);
+    mux.install_journal_before_commit_for_test(entered, release_receiver);
+    let terminal_id = Arc::new(TerminalPublicId::parse(format!("term_{:032x}", 44)).unwrap());
+    mux.journal_terminal_output(
+        terminal_id,
+        Arc::from("rename-receipt-generation"),
+        b"output that pauses the writer".to_vec(),
+    );
+    // The writer is paused inside a batch, holding the registry connection.
+    entered_receiver.recv_timeout(Duration::from_secs(10)).unwrap();
+
+    let renaming_mux = mux.clone();
+    let renamer = std::thread::spawn(move || {
+        renaming_mux.rename_workspace_at_revision(workspace, "renamed under load".into(), None)
+    });
+    // The rename (registry held) waits for the connection.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while mux.workspace_registry.try_lock().is_ok() {
+        assert!(Instant::now() < deadline, "the rename never took the registry");
+        std::thread::yield_now();
+    }
+    std::thread::sleep(Duration::from_millis(50));
+    let old_name = mux.with_state(|state| state.workspaces[0].name.clone());
+    let mut state_free = false;
+    let mut names_seen_while_waiting = Vec::new();
+    for _ in 0..20 {
+        if let Ok(state) = mux.state.try_lock() {
+            state_free = true;
+            names_seen_while_waiting.push(state.workspaces[0].name.clone());
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!renamer.is_finished(), "the rename replied before its commit was durable");
+    release.send(()).unwrap();
+    let renamed = renamer.join().unwrap();
+    // Other readers may see the old name only while the rename waits for
+    // durability; the rename's own reply comes after the new name is in
+    // state, so a caller that renames and then lists sees the new name.
+    assert!(
+        names_seen_while_waiting.iter().all(|name| *name == old_name),
+        "readers saw a name the journal had not made durable: {names_seen_while_waiting:?}"
+    );
+
+    assert!(
+        state_free,
+        "a request that waits for its journal writer receipt must not hold the state lock"
+    );
+    assert!(renamed.unwrap().is_some(), "the rename committed");
+    assert_eq!(
+        mux.with_state(|state| state.workspaces[0].name.clone()),
+        "renamed under load",
+        "the committed name is in state after the receipt"
+    );
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}

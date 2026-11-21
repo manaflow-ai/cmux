@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextTestSupport
 import CoreGraphics
 @testable import CmuxNextTerminal
 import Foundation
@@ -10,7 +11,7 @@ import Testing
 /// arrive as whole reports. Drives a real Ghostty mirror surface (`GHOSTTY_SURFACE_IO_MANUAL_MIRROR`,
 /// the daemon's mode) with the modes Codex 0.163 sets, then real `NSEvent` scrolls: wheel notches,
 /// trackpad gestures with momentum, sideways swipes, and the same after a replay swaps the surface.
-@MainActor @Suite(.serialized) struct TerminalWheelReportTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TerminalWheelReportTests {
     /// What Codex 0.163 prints on start (captured from its PTY): alt screen, button and any-motion
     /// mouse tracking in SGR, focus reports, no alternate scroll, bracketed paste, kitty keys.
     static let codexModes = "\u{1b}[?1049h\u{1b}[?1000h\u{1b}[?1002h\u{1b}[?1003h\u{1b}[?1004h\u{1b}[?1006h\u{1b}[?1007l\u{1b}[?2004h\u{1b}[>5u"

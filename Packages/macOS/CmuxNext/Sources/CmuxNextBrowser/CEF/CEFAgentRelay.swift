@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// What a raw DevTools send did (`cmux_shim_devtools_send`).
@@ -64,18 +65,17 @@ public final class CEFAgentRelay {
     /// True once the Chromium browser exists.
     public var hasBrowser: Bool { tab?.browserID != nil }
 
-    /// No pane shows the tab, nor any other tab of its pane's Chromium window:
-    /// that window is in no app window, so Chromium draws no frame for it
-    /// (screenshots never answer). The App then moves the tab's content
-    /// view into its off-screen render window, which presents the tab there.
-    /// False while a pane shows another tab of the same window: the tab is a
-    /// background tab of a drawn window then, and moving it would take the
-    /// window from that pane.
+    /// No pane shows the tab: Chromium draws no frame for it (screenshots
+    /// never answer, animation frames run at 1 a second). The App then moves
+    /// the tab's content view into its off-screen render window, which
+    /// presents the tab there. A background tab of a pane that shows another
+    /// tab first moves to a Chromium window of its own
+    /// (`CEFPaneHost.lendToAgent`), so the pane keeps its page window.
     public var needsRenderWindow: Bool {
         // A tab its pane parked hidden (PaneContentView+Parking) is in the
         // window but not drawn: a background tab too.
         guard let tab, !tab.isClosed, tab.contentView.window == nil || tab.contentView.isHiddenOrHasHiddenAncestor else { return false }
-        return tab.host.visibleTab == nil
+        return tab.host.visibleTab == nil || tab.host.lendsToAgent(tab)
     }
 
     /// Creates the Chromium browser of a tab that was never shown, in the
@@ -84,6 +84,13 @@ public final class CEFAgentRelay {
     public func createBrowser() {
         guard let tab, !tab.isClosed else { return }
         tab.host.ensureCreated(tab)
+    }
+
+    /// Creates the browser in the background when it has none (``createBrowser()``) and awaits it
+    /// (``browserCreated()``): true once it exists. Agents drive hidden tabs.
+    public func started() async -> Bool {
+        if !hasBrowser { createBrowser() }
+        return await browserCreated()
     }
 
     /// Resumes with true once the browser exists, false when its creation
@@ -102,12 +109,22 @@ public final class CEFAgentRelay {
     // MARK: Tab lifetime (CEFTab)
 
     func deliver(_ json: String) {
-        // Reads the stream and always returns false, so a relayed agent that
-        // subscribed to page lifecycle events still sees them.
-        _ = firstPaint?.handle(json)
-        if media?.handle(json) == true { return }
-        if verification?.handle(json) == true { return }
-        if designMode?.handle(json) == true { return }
+        // The method comes from the message's first bytes; only the bridges
+        // of that method look further (NIGHTLY 2026-10-29: five whole-message
+        // scans per message were most of the main thread's idle time).
+        let head = DevToolsMessageHead(json: json)
+        switch head.method {
+        case "Page.lifecycleEvent":
+            // Reads the stream and always returns false, so a relayed agent that
+            // subscribed to page lifecycle events still sees them.
+            _ = firstPaint?.handle(head)
+        case "Runtime.bindingCalled":
+            if media?.handle(head) == true { return }
+            if verification?.handle(head) == true { return }
+            if designMode?.handle(head) == true { return }
+        default:
+            break
+        }
         sink?(json)
     }
 

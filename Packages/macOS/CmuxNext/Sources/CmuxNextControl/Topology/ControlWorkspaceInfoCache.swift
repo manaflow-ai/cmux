@@ -58,6 +58,8 @@ public final class ControlWorkspaceInfoCache {
     /// Runs after an entry went stale: cached entries are not re-read by the
     /// publisher's own tracking, so their changes must schedule the publish.
     public var onStale: @MainActor () -> Void = {}
+    /// Search Tabs' agent chat titles, kept per workspace like the entries; a stale one schedules a publish.
+    public private(set) lazy var tabTitles = ControlTabTitleCache { [weak self] in self?.onStale() }
     /// Workspaces a topology pass looked up, rebuilt or applied app facts
     /// to, since the cache was made (tests read the per-publish delta).
     private(set) var workspaceVisits = 0

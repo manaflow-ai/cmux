@@ -7,6 +7,7 @@
 // every card at once, and a failed ask (an older host, the page not yet connected) is not kept.
 import { useEffect, useSyncExternalStore } from "react";
 import { postNative } from "./native";
+import { useTranscriptReadOnly } from "./conversation/readOnly";
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 let call: Call = postNative;
@@ -101,19 +102,19 @@ export function agentAvatarChanged(sessionId: string): void {
   void refresh(sessionId, false);
 }
 
-/// Set Avatar…: the host's open panel, then every card of the session draws what the host keeps
+/// Set Chat Avatar…: the host's open panel, then every card of the session draws what the host keeps
 /// now. The reply itself is never kept: a slow one could undo a change made after it.
 export async function setAgentAvatar(sessionId: string): Promise<void> {
   if (src(await call("agent.avatar.set", { sessionId }))) await refresh(sessionId, true);
 }
 
-/// Remove Avatar: the session's harness mark again, once the host says it keeps none.
+/// Remove Chat Avatar: the session's harness mark again, once the host says it keeps none.
 export async function removeAgentAvatar(sessionId: string): Promise<void> {
   await call("agent.avatar.remove", { sessionId });
   await refresh(sessionId, true);
 }
 
-/// Whether the session has an avatar the page knows of (the menu offers Remove Avatar then).
+/// Whether the session has an avatar the page knows of (the menu offers Remove Chat Avatar then).
 export function hasAgentAvatar(sessionId: string | undefined): boolean {
   return sessionId !== undefined && typeof avatars.get(sessionId) === "string";
 }
@@ -121,7 +122,9 @@ export function hasAgentAvatar(sessionId: string | undefined): boolean {
 /// Session `sessionId`'s avatar as a data URL once the host answers; undefined for none, and for
 /// no session. It reads the page's answers as an external store, so every answer and change
 /// redraws the card (a memoized read of the map would keep the first, empty, answer).
-export function useAgentAvatar(sessionId: string | undefined): string | undefined {
+export function useAgentAvatar(given: string | undefined): string | undefined {
+  // Read only (a guest), the owner's host is never asked for an agent's picture.
+  const sessionId = useTranscriptReadOnly() ? undefined : given;
   const avatar = useSyncExternalStore(subscribe, () => (sessionId ? avatars.get(sessionId) : undefined));
   useEffect(() => (sessionId ? drawAgentAvatar(sessionId) : undefined), [sessionId]);
   useEffect(() => {

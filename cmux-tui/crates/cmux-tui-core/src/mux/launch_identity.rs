@@ -89,6 +89,11 @@ impl Mux {
             return CredentialCheck::Refused("credential_foreign_host");
         }
         match (claims.terminal, claims.acp_session) {
+            // A poisoned session state cannot show the terminal is still open (a panicked change may have half
+            // removed it): fail closed, as the other auth checks do on a poisoned lock.
+            (Some(_), None) if self.state.is_poisoned() => {
+                CredentialCheck::Refused("credential_closed")
+            }
             (Some(terminal), None) => {
                 // A terminal minted for but not committed yet (its child may
                 // call cmux before the creation commits) counts as live.

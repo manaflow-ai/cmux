@@ -5,12 +5,12 @@ import CmuxNextDaemon
 import Foundation
 
 /// The home daemon side (`bookmarks-v1`): fetches on demand, refetches on
-/// `bookmarks-changed`, writes each operation as its command, and copies the
-/// local file into the daemon once it serves the capability.
+/// `bookmarks-changed`, writes each operation as its command, and copies an
+/// older build's local file into the daemon once it serves the capability.
 extension BookmarkService {
-    /// Follows the home daemon's capability: when it appears, copy the file
-    /// over and switch every tree to the daemon's; when it goes (an older
-    /// daemon after a downgrade), fall back to the file.
+    /// Follows the home daemon's capability: when it appears, copy an older
+    /// build's file over and read every tree from the daemon. When it goes,
+    /// the trees stay as they were and edits are refused until it is back.
     func observeHome() {
         // task-owner: lives as long as the service; event-driven (Observation)
         homeObservation = Task { [weak self] in
@@ -29,9 +29,11 @@ extension BookmarkService {
                         await fetching[profile]?.value
                         fetch(profile)
                     }
-                } else if fileLoaded {
-                    trees = fileTrees.mapValues(BookmarkTree.init(ordered:))
-                    changed(profiles: Set(trees.keys))
+                    // Earlier browser imports become bookmarks once, on the daemon's
+                    // trees (a replace finds its folder there); it writes its marker
+                    // after, so it must not run before the daemon takes the writes.
+                    for task in Array(fetching.values) { await task.value }
+                    await migrateLegacyImports()
                 }
             }
         }
@@ -152,7 +154,6 @@ extension BookmarkService {
                 }
             }
             try await file.remove()
-            fileTrees = [:]
             logger.info("bookmarks moved into the home daemon")
         } catch {
             logger.error("copy bookmarks to the daemon: \(String(describing: error), privacy: .public)")

@@ -17,6 +17,11 @@ export const HOST_CONFIG_PATH = "/etc/cmux/host.json";
 /** The frozen unit command: `<current>/bin/cmux host run`; argv[0] named `cmux` selects the `host` verb. */
 export const HOST_RUN = `${CURRENT_BIN}/cmux host run --mode system`;
 export const HOST_CLI = `${CURRENT_BIN}/cmux host`;
+/**
+ * While this file exists the machine's updater role (cmux host update) changes nothing: the bake
+ * writes it while the builder runs and removes it at park; the smoke writes it on its clones.
+ */
+export const SELF_UPDATE_OFF = "/etc/cmux/no-self-update";
 /** The Cloud role's log lines (journal of the host unit). */
 export const HOST_JOURNAL = `journalctl -m -u ${HOST_UNIT} --no-pager -o cat`;
 

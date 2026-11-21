@@ -1,6 +1,7 @@
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextCompat
+@testable import CmuxNextNotifications
 import CmuxNextSettings
 import Foundation
 import Testing

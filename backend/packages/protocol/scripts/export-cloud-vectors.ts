@@ -54,6 +54,9 @@ const machine = (
   last_active_at: 1790000600000 + n * 1000,
   idle_policy: { idle_seconds: idle },
   error: null,
+  // Freestyle's vCPU and memory list price for the size (backend/apps/api/src/domains/cloud-cost.ts).
+  hourly_rate_usd: Math.round((size[0]! * 0.04032 + (size[1]! / 1024) * 0.0129) * 10_000) / 10_000,
+  running_since: status === "running" ? 1790000300000 + n * 1000 : null,
   revision: String(rev)
 })
 
@@ -229,13 +232,13 @@ kase(
   [opErr("cloud.machine.start", "key-start-quota", "cloud.quota.exceeded", "this plan allows 2 active machines", false, { limit: 2, used: 2, resource: "active", plan: PLAN_ID })],
   { key: "key-start-quota" }
 )
-kase("machine.pause", "cloud.machine.pause", { machine: vm(1) }, [opOk("cloud.machine.pause", "key-pause-1", { machine: { ...M1, status: "pausing", revision: "49" } }, "49")], {
+kase("machine.pause", "cloud.machine.pause", { machine: vm(1) }, [opOk("cloud.machine.pause", "key-pause-1", { machine: { ...M1, status: "pausing", running_since: null, revision: "49" } }, "49")], {
   key: "key-pause-1"
 })
 kase("machine.pause.not_running", "cloud.machine.pause", { machine: vm(2) }, [opErr("cloud.machine.pause", "key-pause-2", "cloud.machine.not_running", "only a running machine can be paused", false, { machine: vm(2), state: "paused" })], { key: "key-pause-2" })
 kase("machine.start.not_paused", "cloud.machine.start", { machine: vm(1) }, [opErr("cloud.machine.start", "key-start-2", "cloud.machine.not_paused", "only a paused machine can be started", false, { machine: vm(1), state: "running" })], { key: "key-start-2" })
 const big = { cpu: 4, memory_mb: 8192, disk_mb: 32768 }
-kase("machine.resize", "cloud.machine.resize", { machine: vm(1), size: big }, [opOk("cloud.machine.resize", "key-resize-1", { machine: { ...M1, size: big, revision: "50" } }, "50")], {
+kase("machine.resize", "cloud.machine.resize", { machine: vm(1), size: big }, [opOk("cloud.machine.resize", "key-resize-1", { machine: { ...M1, size: big, hourly_rate_usd: 0.2645, revision: "50" } }, "50")], {
   key: "key-resize-1"
 })
 kase("machine.resize.grow_only", "cloud.machine.resize", { machine: vm(1), size: { cpu: 1 } }, [opErr("cloud.machine.resize", "key-resize-2", "cloud.size.grow_only", "a machine can only grow (vCPU, memory and disk)", false, { size: M1.size as Json })], { key: "key-resize-2" })
@@ -289,7 +292,7 @@ kase(
 /** transport.md 3.1: the real derivation (fd7c:6d78::/32 + 96 bits of sha256(host id)). */
 const overlay = new Map<number, string>()
 for (const n of [1, 2, 4]) overlay.set(n, await overlayAddress(host(n)))
-const connectInfo = (n: number, state: string, rev: number): Obj => ({
+const connectInfo = (n: number, state: string, rev: number, vmKind: "owner" | "team" = "owner"): Obj => ({
   machine: vm(n),
   host: host(n),
   epoch: 1,
@@ -298,12 +301,13 @@ const connectInfo = (n: number, state: string, rev: number): Obj => ({
   gateway: null,
   services: ["daemon", "ssh"],
   daemon: { version: "0.40.0", capabilities: ["terminal", "files", "ports"] },
+  vm_kind: vmKind,
   revision: String(rev)
 })
 kase("machine.connect_info", "cloud.machine.connect_info", { machine: vm(1) }, [readOk("cloud.machine.connect_info", connectInfo(1, "running", 7), "7")])
 kase("machine.connect_info.by_host", "cloud.machine.connect_info", { host: host(1) }, [readOk("cloud.machine.connect_info", connectInfo(1, "running", 7), "7")])
-kase("machine.connect_info.paused", "cloud.machine.connect_info", { machine: vm(2) }, [readOk("cloud.machine.connect_info", connectInfo(2, "paused", 4), "4")], {
-  note: "A paused machine is not an error: the result says state paused (contract 1.7)."
+kase("machine.connect_info.paused", "cloud.machine.connect_info", { machine: vm(2) }, [readOk("cloud.machine.connect_info", connectInfo(2, "paused", 4, "team"), "4")], {
+  note: "A paused machine is not an error: the result says state paused (contract 1.7). vm_kind team: a shared-team machine, or a caller who is not its creator (only the exact value owner grants owner privileges)."
 })
 kase("machine.connect_info.not_bound", "cloud.machine.connect_info", { machine: vm(4) }, [readErr(400, "BadRequest", "cloud.machine.not_bound", "the machine is still provisioning")])
 
@@ -315,7 +319,7 @@ const mintOk = (value: Obj): Obj => ({
   http: { path: "/v1/ops", status: 200 },
   body: { ok: true, op: "cloud.machine.link_token", value, transaction: tx(), idempotency_key: "", replayed: false, stream: "", sequence: 0 }
 })
-const linkToken = (n: number) => ({ token: `lt_vector_${String(n).padStart(4, "0")}`, expires_at: 1790000300000 + n * 1000, host: host(1), epoch: 1, services: ["daemon", "ssh"] })
+const linkToken = (n: number) => ({ token: `lt_vector_${String(n).padStart(4, "0")}`, expires_at: 1790000300000 + n * 1000, host: host(1), epoch: 1, services: ["daemon", "ssh"], vm_kind: "owner" })
 kase(
   "machine.link_token",
   "cloud.machine.link_token",
@@ -451,9 +455,9 @@ const event = (name: string, ev: string, data: Obj, note?: string) => {
   if (note) e.note = note
   events.push(e)
 }
-event("machine.upsert.newer", "cloud.machine.upsert", { machine: { ...M1, status: "pausing", revision: "55" } })
+event("machine.upsert.newer", "cloud.machine.upsert", { machine: { ...M1, status: "pausing", running_since: null, revision: "55" } })
 event("machine.upsert.stale", "cloud.machine.upsert", { machine: { ...M1, status: "running", revision: "6" } }, "Older than the projection's revision 7 (or 55): dropped.")
-event("machine.upsert.bound", "cloud.machine.upsert", { machine: { ...M4, status: "running", host: host(4), revision: "46" } }, "Provisioning done: the host is bound.")
+event("machine.upsert.bound", "cloud.machine.upsert", { machine: { ...M4, status: "running", host: host(4), running_since: 1790000304000, revision: "46" } }, "Provisioning done: the host is bound.")
 event("machine.upsert.new", "cloud.machine.upsert", { machine: machine(8, "made elsewhere", "provisioning", 45, { bound: false }) })
 event("machine.removed", "cloud.machine.removed", { machine: vm(3), revision: "56" })
 event("machine.removed.stale", "cloud.machine.removed", { machine: vm(1), revision: "3" }, "Older than the record: dropped (the machine stays).")

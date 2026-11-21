@@ -149,6 +149,9 @@ struct Record {
     /// target is a Web turn, held to the remote floor.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     web: bool,
+    /// A Cloud mobile start keeps the target under the strict phone floor.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    cloud_mobile: bool,
 }
 
 /// Draft writes remembered per handoff for `draftKey` replays.
@@ -306,8 +309,7 @@ impl Handoffs {
             let write = || -> Result<()> {
                 #[cfg(unix)]
                 {
-                    use std::os::unix::fs::DirBuilderExt;
-                    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+                    crate::home_fs::create_dir_all(dir, 0o700)?;
                 }
                 #[cfg(windows)]
                 crate::owner_only::create_dir_all(dir)?;

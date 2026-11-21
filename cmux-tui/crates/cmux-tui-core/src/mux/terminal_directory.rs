@@ -34,8 +34,9 @@ impl Mux {
         }
         // A shell can report its first directory before the terminal's
         // resource row commits or its launch settles. Keep the report pending
-        // until then; the reader, the public snapshot, and every topology
-        // commit retry it. Only an ended terminal settles without publishing.
+        // until then; the reader, adoption, a reconnect and every topology
+        // commit retry it (a read never does: it writes nothing). Only an
+        // ended terminal settles without publishing.
         let Some(host_id) = registry.live_terminal_host_id(id)? else { return Ok(false) };
         let Some(durable) = registry.terminal_record(&host_id)? else { return Ok(false) };
         match durable.lifecycle {
@@ -91,10 +92,22 @@ impl Mux {
     }
 
     /// Close the startup race where the first prompt preceded runtime registration.
+    #[track_caller]
     pub(crate) fn publish_pending_terminal_directories(&self) {
-        let terminals =
-            self.state.lock().unwrap().terminal_catalog.values().cloned().collect::<Vec<_>>();
-        for surface in terminals {
+        // Every resource commit runs this: clone only the terminals with a
+        // report waiting, not the whole catalog, under the state lock.
+        let pending = self
+            .state
+            .lock()
+            .unwrap()
+            .terminal_catalog
+            .values()
+            .filter(|surface| surface.directory_publication_pending())
+            .cloned()
+            .collect::<Vec<_>>();
+        #[cfg(test)]
+        crate::walk_counters::terminals_cloned(pending.len());
+        for surface in pending {
             surface.publish_pending_directory();
         }
     }

@@ -42,8 +42,8 @@ pub async fn run(client: &Client, session: &str, change: Change, json_out: bool)
 
 /// The cap as a line a person reads.
 pub fn describe(reply: &Value) -> String {
-    let own = reply["turnCapMs"].as_u64();
-    match reply["effectiveTurnCapMs"].as_u64() {
+    let own = reply.get("turnCapMs").and_then(Value::as_u64);
+    match reply.get("effectiveTurnCapMs").and_then(Value::as_u64) {
         None if own == Some(0) => "no turn cap (turned off for this session)".to_owned(),
         None => "no turn cap".to_owned(),
         Some(ms) => {

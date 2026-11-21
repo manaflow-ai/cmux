@@ -8,6 +8,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -68,12 +69,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   for (const key of added) delete scope[key];
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const noop = () => {};
@@ -115,7 +113,13 @@ test("the player shows what plays, and its controls reach the host", async () =>
     await act(async () =>
       root.render(
         <QueryClientProvider client={new QueryClient()}>
-          <NewTabScreen snapshot={noChat()} lastAgent="claude" cwd="/Users/you/src/app" {...actions} />
+          <NewTabScreen
+            template="default"
+            snapshot={noChat()}
+            lastAgent="claude"
+            cwd="/Users/you/src/app"
+            {...actions}
+          />
         </QueryClientProvider>,
       ),
     );
@@ -127,11 +131,14 @@ test("the player shows what plays, and its controls reach the host", async () =>
     expect(host.querySelector(".nt-player-artist")?.textContent).toBe("Marconi Union");
     expect(host.querySelector<HTMLImageElement>(".nt-player-art img")?.getAttribute("src")).toBe(ART);
     const played = host.querySelector<HTMLElement>(".nt-player-played");
-    expect(parseFloat(played?.style.width ?? "0")).toBeGreaterThanOrEqual(12.5);
-    expect(parseFloat(played?.style.width ?? "0")).toBeLessThan(14);
-    // Under the create actions, before the lists.
-    const create = host.querySelector(".nt-create")!;
-    expect(create.compareDocumentPosition(player!) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Progress is a compositor-only scaleX of a full-width bar, not a width.
+    const scale = Number(/scaleX\(([^)]+)\)/.exec(played?.style.transform ?? "")?.[1] ?? "0");
+    expect(scale).toBeGreaterThanOrEqual(0.125);
+    expect(scale).toBeLessThan(0.14);
+    expect(played?.style.width ?? "").toBe("");
+    // Under the stage cards, before the lists and the composer at the foot.
+    const cards = host.querySelector(".nt-stage-cards")!;
+    expect(cards.compareDocumentPosition(player!) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     const button = (command: string) =>
       host.querySelector<HTMLButtonElement>(`.nt-player [data-command="${command}"]`)!;
@@ -175,7 +182,7 @@ async function mount(calls: { method: string; params?: Record<string, unknown> }
   await act(async () =>
     root.render(
       <QueryClientProvider client={new QueryClient()}>
-        <NewTabScreen snapshot={noChat()} lastAgent="claude" cwd="/Users/you/src/app" {...actions} />
+        <NewTabScreen template="default" snapshot={noChat()} lastAgent="claude" cwd="/Users/you/src/app" {...actions} />
       </QueryClientProvider>,
     ),
   );

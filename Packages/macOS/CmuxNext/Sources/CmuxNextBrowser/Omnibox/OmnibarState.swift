@@ -70,6 +70,16 @@ public nonisolated struct OmnibarState: Equatable, Sendable {
 
     public enum EditKind: Equatable, Sendable { case insert, delete, paste }
 
+    /// How a keyword session started (Chromium `keyword_mode_entry_method_`).
+    public enum KeywordEntry: Equatable, Sendable {
+        /// The keyword and a typed space.
+        case space
+        /// Tab after the exact keyword.
+        case tab
+        /// A shortcut with no keyword typed (Opt-Cmd-F, Search the Web).
+        case shortcut
+    }
+
     /// The mouse press the field is tracking (Chromium `OmniboxViewViews`
     /// `is_mouse_pressed_` and `select_all_on_mouse_release_`).
     public struct Mouse: Equatable, Sendable {
@@ -96,8 +106,15 @@ public nonisolated struct OmnibarState: Equatable, Sendable {
     /// The extension keyword session in progress (`OmnibarKeyword`): the
     /// field holds only the text after the keyword.
     public var keyword: OmnibarKeyword?
+    /// How the keyword session started: what leaving it puts back in the
+    /// field (Chromium `OmniboxEditModel::ClearKeyword`).
+    public var keywordEntry: KeywordEntry = .space
     public var pageURL: URL?
     public var retainedText: String?
+    /// The selection in `retainedText` when focus left (Chromium
+    /// `saved_selection_for_focus_change_`): a focus that is neither a click
+    /// nor Cmd-L (Tab into the field, a return to the tab) puts it back.
+    public var savedSelection: NSRange?
     public var edit = Edit()
     public var popup = Popup()
     /// Bumped by every suggestion query; results carry it back.

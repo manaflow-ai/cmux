@@ -3,7 +3,9 @@ import CmuxHomeCore
 @testable import CmuxNextApp
 import CmuxNextDaemon
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 @testable import CmuxNextHomeEngine
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import UniformTypeIdentifiers
@@ -14,7 +16,7 @@ import UniformTypeIdentifiers
 /// The first frame must already be the list as it was at the last quit, and each live answer that
 /// says the same must not move, resize or redraw a row.
 @MainActor
-@Suite(.serialized) struct HomeLaunchListTests {
+@Suite(.serialized, .closesItsWindows) struct HomeLaunchListTests {
     static let me = Participant(id: ParticipantID("user_me"), kind: .human, displayName: "Me")
     static let account = "acct_lawrence"
 
@@ -96,11 +98,11 @@ import UniformTypeIdentifiers
 
         init() {
             let suite = "cmux.tests.homeLaunchList.\(UUID().uuidString)"
-            defaults = UserDefaults(suiteName: suite)!
+            defaults = UserDefaults(testSuiteName: suite)!
             defaults.removePersistentDomain(forName: suite)
             let ref = Ref()
             let rows: @MainActor @Sendable () -> [InboxRow] = {
-                TopHomePageView.visible(HomeLaunchListTests.storeRows(), archivedChiefs: ref.launch?.archived ?? [], me: HomeLaunchListTests.me.id)
+                HomeArchivedChiefs(ref.launch?.archived ?? [], me: HomeLaunchListTests.me.id).visible(HomeLaunchListTests.storeRows())
             }
             source = HomeSidebarSource(
                 store: HomePinStore(defaults: defaults), inboxes: [local, cloud], account: { HomeLaunchListTests.account },

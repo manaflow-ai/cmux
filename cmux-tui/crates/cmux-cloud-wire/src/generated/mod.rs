@@ -4,7 +4,7 @@
 //! The catalog types, literals and ops (`types_*`, `literals_*`, `ops_*`) and the op index.
 
 #[allow(unused_imports)]
-use crate::{BoolLit, WireNumber};
+use crate::{BoolLit, IntLit, WireNumber};
 #[allow(unused_imports)]
 use serde_json::Value;
 #[allow(unused_imports)]
@@ -26,6 +26,7 @@ mod ops_08;
 mod ops_09;
 mod ops_10;
 mod ops_11;
+mod ops_12;
 mod index;
 
 pub use types_01::*;
@@ -44,4 +45,5 @@ pub use ops_08::*;
 pub use ops_09::*;
 pub use ops_10::*;
 pub use ops_11::*;
+pub use ops_12::*;
 pub use index::{op_names, visit_op};

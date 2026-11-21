@@ -33,13 +33,13 @@ export const PRO_PRICING_USD = {
   },
 } as const satisfies MonthlyOrYearlyPlanPricing;
 
-/** Entry Cloud plan, billed monthly with a small capped VM allowance. */
+/** Plus keeps the historical `go` plan ID for existing subscriptions. */
 export const GO_PRICING_USD = {
   month: {
-    billedAmount: 10,
-    monthlyEquivalent: 10,
+    billedAmount: 15,
+    monthlyEquivalent: 15,
     discountPercent: 0,
-    lookupKey: "cmux-go-monthly-10",
+    lookupKey: "cmux-starter-monthly-15",
   },
 } as const satisfies MonthlyOnlyPlanPricing;
 
@@ -89,7 +89,7 @@ export const GO_BILLING_INTERVALS: readonly BillingInterval[] = ["month"];
  * can pick. Yearly subscribers switch in the dashboard, which keeps their
  * interval, so Pro yearly is not listed: it would only let a monthly
  * subscriber move onto it. Neither a grandfathered price nor the
- * release-gated Go plan is listed; a subscription on one switches in the
+ * monthly-only Plus plan is listed; a subscription on one switches in the
  * dashboard instead, which prices any subscription.
  */
 export const PORTAL_SWITCHABLE_LOOKUP_KEYS: readonly string[] = [
@@ -108,6 +108,8 @@ export function isPortalSwitchableLookupKey(lookupKey: string | null | undefined
  * the subscription's own Stripe amount, never from these keys.
  */
 export const LEGACY_PRICE_LOOKUP_KEYS = [
+  "cmux-starter-monthly-20", // $20/mo; existing Plus subscriptions only
+  "cmux-go-monthly-10", // $10/mo; existing Go subscriptions only
   "cmux-pro-monthly", // $30/mo
   "cmux-pro-yearly", // $240/yr
   "cmux-pro-yearly-288", // $288/yr

@@ -1,5 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -10,7 +11,8 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const settings = await import("../src/agent-session/acpmux/composerSettings");
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];

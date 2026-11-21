@@ -96,14 +96,14 @@ export default function IosLanding() {
           data-dev="ios-cta"
           style={{ marginTop: 21, marginBottom: 16 }}
         >
-          <a
-            href="https://github.com/manaflow-ai/cmux#founders-edition"
+          <Link
+            href="/dashboard/testflight"
             className={`${ctaButtonBase} ${ctaButtonDefaultSize}`}
             style={ctaButtonStyle}
           >
             <AppleMark size={19} />
             {t("ctaBeta")}
-          </a>
+          </Link>
           <GitHubButton />
         </div>
 
@@ -201,14 +201,14 @@ export default function IosLanding() {
           className="flex flex-wrap items-center justify-center gap-3 mt-12"
           data-dev="ios-cta-bottom"
         >
-          <a
-            href="https://github.com/manaflow-ai/cmux#founders-edition"
+          <Link
+            href="/dashboard/testflight"
             className={`${ctaButtonBase} ${ctaButtonDefaultSize}`}
             style={ctaButtonStyle}
           >
             <AppleMark size={19} />
             {t("ctaBeta")}
-          </a>
+          </Link>
           <GitHubButton location="ios-bottom" />
         </div>
 

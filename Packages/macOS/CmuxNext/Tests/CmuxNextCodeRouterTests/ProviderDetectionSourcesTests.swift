@@ -16,17 +16,27 @@ struct ProviderDetectionSourcesTests {
 
     struct Keychain: KeychainProbing {
         let services: Set<String>
+        var values: [String: Data] = [:]
         func hasGenericPassword(service: String) -> Bool { services.contains(service) }
+        func genericPassword(service: String) -> Data? { values[service] }
     }
 
     struct NoServers: LocalServerProbing {
         func isReachable(_ url: URL) async -> Bool { false }
     }
 
-    static func detector(files: [String: String] = [:], env: [String: String] = [:], keychain: Set<String> = []) -> ProviderDetector {
+    struct EmptyKeys: ProviderKeyStoring {
+        func savedProviders() -> Set<AIProvider> { [] }
+        func save(_ key: String, for provider: AIProvider) throws {}
+        func key(for provider: AIProvider) throws -> String? { nil }
+        func delete(for provider: AIProvider) throws {}
+    }
+
+    static func detector(files: [String: String] = [:], env: [String: String] = [:], keychain: Set<String> = [],
+                         savedKeys: Set<AIProvider> = []) -> ProviderDetector {
         ProviderDetector(environment: DetectionEnvironment(
             home: home, environment: env, files: Files(files: files), keychain: Keychain(services: keychain),
-            servers: NoServers(), labeler: AccountLabeler(salt: Data(repeating: 7, count: 32))))
+            servers: NoServers(), labeler: AccountLabeler(salt: Data(repeating: 7, count: 32)), savedKeys: savedKeys))
     }
 
     static let codexConfig = "/fixture/home/.codex/config.toml"
@@ -93,11 +103,47 @@ struct ProviderDetectionSourcesTests {
         #expect(Self.detector(files: [Self.codexConfig: config]).detectCodex().status == .signedIn)
     }
 
-    @Test(arguments: ["short", "contains\nnewline"])
+    @Test func codexKeyringCredentialCanConnect() throws {
+        let idToken = "eyJhbGciOiJub25lIn0.eyJlbWFpbCI6ImZvdW5kZXJAZXhhbXBsZS5jb20ifQ."
+        let auth = Data("{\"tokens\":{\"access_token\":\"access\",\"refresh_token\":\"refresh\",\"id_token\":\"\(idToken)\",\"account_id\":\"acct\"}}".utf8)
+        let files = Files(files: ["/fixture/home/.codex/config.toml": "cli_auth_credentials_store = \"keyring\""])
+        let keychain = Keychain(services: [ProviderDetector.codexKeychainService], values: [ProviderDetector.codexKeychainService: auth])
+        let environment = DetectionEnvironment(home: Self.home, environment: [:], files: files, keychain: keychain,
+                                                servers: NoServers(), labeler: AccountLabeler(salt: Data(repeating: 7, count: 32)))
+        let credential = try CredentialResolver(environment: environment, keys: EmptyKeys()).codexCredential()
+        #expect(credential.accountID == "acct")
+        #expect(credential.email == "founder@example.com")
+    }
+
+    @Test func codexKeyringSignInWinsOverAStaleAuthFile() throws {
+        let idToken = "eyJhbGciOiJub25lIn0.eyJlbWFpbCI6ImZvdW5kZXJAZXhhbXBsZS5jb20ifQ."
+        let auth = Data("{\"tokens\":{\"access_token\":\"access\",\"refresh_token\":\"refresh\",\"id_token\":\"\(idToken)\",\"account_id\":\"keychain-acct\"}}".utf8)
+        let stale = "{\"tokens\":{\"access_token\":\"old\",\"id_token\":\"\(idToken)\",\"account_id\":\"file-acct\"}}"
+        let files = Files(files: ["/fixture/home/.codex/config.toml": "cli_auth_credentials_store = \"keyring\"",
+                                  "/fixture/home/.codex/auth.json": stale])
+        let keychain = Keychain(services: [ProviderDetector.codexKeychainService], values: [ProviderDetector.codexKeychainService: auth])
+        let environment = DetectionEnvironment(home: Self.home, environment: [:], files: files, keychain: keychain,
+                                                servers: NoServers(), labeler: AccountLabeler(salt: Data(repeating: 7, count: 32)))
+        let credential = try CredentialResolver(environment: environment, keys: EmptyKeys()).codexCredential()
+        #expect(credential.accountID == "keychain-acct")
+        let detection = ProviderDetector(environment: environment).detectCodexLogin()
+        #expect(detection.status == .signedIn)
+        #expect(detection.sources == [.keychain(ProviderDetector.codexKeychainService)])
+    }
+
+    @Test(arguments: ["", "short", "contains\nnewline"])
     func malformedAPIKeyIsUnknownBeforeTheFirstPrompt(key: String) {
+        // An empty environment value is still a configured source: it must be
+        // reported as malformed, rather than disappearing as "missing".
         let detection = Self.detector(env: ["OPENAI_API_KEY": key]).detectLocal(.openAI)
         #expect(detection.status == .unknown)
         #expect(detection.sources == [.environment("OPENAI_API_KEY")])
+    }
+
+    @Test func emptyEnvironmentKeyFallsBackToSavedKey() {
+        let detection = Self.detector(env: ["OPENAI_API_KEY": ""], savedKeys: [.openAI]).detectLocal(.openAI)
+        #expect(detection.status == .signedIn)
+        #expect(detection.sources == [.cmuxKeychain, .environment("OPENAI_API_KEY")])
     }
 
     /// Gemini reads `GEMINI_API_KEY` before `GOOGLE_API_KEY`: only the key that would be sent is judged.
@@ -140,12 +186,6 @@ struct ProviderDetectionSourcesTests {
         let resolver = CredentialResolver(environment: detector.environment, keys: NoSavedKeys())
         let connects = (try? resolver.credential(for: c.provider, pasted: nil)) != nil
         #expect(connects == c.accepted)
-    }
-
-    @Test func emptyAPIKeyUsesMissingStateBecauseConnectIgnoresIt() {
-        let detection = Self.detector(env: ["OPENAI_API_KEY": ""]).detectLocal(.openAI)
-        #expect(detection.status == .missing)
-        #expect(detection.sources.isEmpty)
     }
 
     @Test(arguments: [

@@ -12,18 +12,14 @@ public nonisolated struct SurfaceBackgroundSetting {
     public init() {}
     /// `appearance.surfaces`.
     public static let rootPath = ["appearance", "surfaces"]
-    /// The opacity range (a fraction, as `appearance.backgroundOpacity`).
-    public static let opacityRange: ClosedRange<Double> = 0...1
+    /// The opacity range (a fraction, as `appearance.backgroundOpacity`): every surface's is the same
+    /// (schemas/settings/source/surfaces.json, which also holds each surface's paths).
+    public static let opacityRange = sidebarOpacityRange
 
     /// `appearance.surfaces.<surface>.color`.
     public static func colorPath(_ kind: SurfaceKind) -> [String] { rootPath + [kind.rawValue, "color"] }
     /// `appearance.surfaces.<surface>.opacity`.
     public static func opacityPath(_ kind: SurfaceKind) -> [String] { rootPath + [kind.rawValue, "opacity"] }
-
-    /// Every dotted key, color and opacity per surface.
-    public static var keys: [String] {
-        SurfaceKind.allCases.flatMap { [colorPath($0), opacityPath($0)] }.map { $0.joined(separator: ".") }
-    }
 
     /// A bad value keeps that field's default and adds a diagnostic at its
     /// key; unknown surfaces and fields are reported too.

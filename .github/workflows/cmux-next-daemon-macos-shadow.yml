@@ -14,14 +14,8 @@ name: cmux_next_ macOS-only daemon tests (shadow)
 # that owner gave up waiting, so failed-publication recovery stalled behind a
 # Mac queue. Here a red or queued run touches no promotion, publication or
 # marker (tests/test_cmux_tui_daemon_tests_gate.py).
+# Moved from every feat-cmux-next push touching cmux-tui to workflow_dispatch only on 2026-11-21 (ci-time-map: nothing waits for it, ~0.8k Mac-min a day).
 on:
-  push:
-    branches: [feat-cmux-next]
-    paths:
-      - "cmux-tui/**"
-      - "ghostty-next"
-      - ".github/actions/setup-cmux-tui-rust/**"
-      - ".github/workflows/cmux-next-daemon-macos-shadow.yml"
   workflow_dispatch:
 
 permissions: {}
@@ -46,7 +40,7 @@ jobs:
     # shadow that gates nothing takes no owned Mac from the promotion path.
     # One running and one waiting per ref (concurrency above) bounds its use.
     # No dispatch runner override: it could name the promote pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_15 }}
     timeout-minutes: 60
     env:
       CARGO_NET_RETRY: "10"

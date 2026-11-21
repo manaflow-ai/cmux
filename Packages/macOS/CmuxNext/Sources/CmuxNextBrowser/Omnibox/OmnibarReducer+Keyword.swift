@@ -13,7 +13,7 @@ nonisolated extension OmnibarStep {
         guard state.keyword == nil, kind == .insert, !state.isComposing,
               state.edit.selection == Self.caretAtEnd(text),
               let match = OmnibarKeyword.match(text, in: resolver.keywords) else { return false }
-        startKeyword(match.keyword, text: match.rest)
+        startKeyword(match.keyword, text: match.rest, entry: .space)
         return true
     }
 
@@ -25,12 +25,13 @@ nonisolated extension OmnibarStep {
               let keyword = OmnibarKeyword.exact(state.edit.userText, in: resolver.keywords)
                 ?? OmnibarKeyword.exact(state.fieldText, in: resolver.keywords.filter { $0.searchEngine != nil })
         else { return false }
-        startKeyword(keyword, text: "")
+        startKeyword(keyword, text: "", entry: .tab)
         return true
     }
 
-    mutating func startKeyword(_ keyword: OmnibarKeyword, text: String) {
+    mutating func startKeyword(_ keyword: OmnibarKeyword, text: String, entry: OmnibarState.KeywordEntry) {
         state.keyword = keyword
+        state.keywordEntry = entry
         state.phase = .editing
         state.elided = false
         state.edit = .init(userText: text, selection: Self.caretAtEnd(text), suppressCompletion: true)
@@ -42,8 +43,11 @@ nonisolated extension OmnibarStep {
         query()
     }
 
-    /// Ends the session without Enter. `restoreText` puts the keyword back
-    /// in front of the typed text (Backspace at the start).
+    /// Ends the session without Enter. `restoreText` puts back what
+    /// Chromium's `OmniboxEditModel::ClearKeyword` does (Backspace at the
+    /// start, Cmd-L): the keyword alone, caret after it, right after a Tab
+    /// entry with nothing typed; nothing after a shortcut entry; else the
+    /// keyword and a space, so typing on does not start the session again.
     mutating func leaveKeyword(restoreText: Bool) {
         guard let keyword = state.keyword else { return }
         state.keyword = nil
@@ -52,8 +56,13 @@ nonisolated extension OmnibarStep {
         state.generation &+= 1
         effects.append(.cancelQuery)
         guard restoreText else { return }
-        let text = keyword.keyword + state.edit.userText
-        state.edit = .init(userText: text, selection: NSRange(location: OmnibarRules.length(keyword.keyword), length: 0),
+        let prefix = switch state.keywordEntry {
+        case .tab where state.edit.userText.isEmpty: keyword.keyword
+        case .shortcut: ""
+        case .tab, .space: keyword.keyword + " "
+        }
+        let text = prefix + state.edit.userText
+        state.edit = .init(userText: text, selection: NSRange(location: OmnibarRules.length(prefix), length: 0),
                            suppressCompletion: true)
         query()
     }
@@ -69,7 +78,7 @@ nonisolated extension OmnibarStep {
         let keyword = resolver.keywords.first { $0.searchEngine?.id == engine.id } ?? OmnibarKeyword(searchEngine: engine)
         if state.keyword == keyword, state.edit.userText.isEmpty { return }
         leaveKeyword(restoreText: false)
-        startKeyword(keyword, text: "")
+        startKeyword(keyword, text: "", entry: .shortcut)
     }
 
     /// Backspace at the start of a session's text leaves the session.
