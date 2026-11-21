@@ -20,6 +20,9 @@ import yaml
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/cmux-next.yml"
 ARM = ("github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && "
        "'cmux-gcp-pr-control-jit-x64'")
+# A same-repo pull request's five control hops take the label too, on attempt 1 (tests/test_cmux_next_pr_control_on_jit.py).
+PR_ARM = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && "
+          "github.run_attempt == 1 && 'cmux-gcp-pr-control-jit-x64'")
 FORK = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
 ROOTS = ("push-head-preflight", "portable-placement", "macos-placement", "app-compile-placement",
          "release-compile-fast-admission", "dev-landing-place", "compile-status", "compile-status-handoff")
@@ -35,11 +38,12 @@ class PushRootsOnControlJit(unittest.TestCase):
                 head = self.jobs[name]["runs-on"].removeprefix("${{ ").removeprefix(FORK)
                 self.assertTrue(head.startswith(ARM), f"{name}: the push arm comes before any pool")
 
-    def test_only_a_feat_cmux_next_push_attempt_1_names_the_jit_label(self) -> None:
+    def test_only_a_feat_cmux_next_push_or_same_repo_pr_attempt_1_names_the_jit_label(self) -> None:
         for name, job in self.jobs.items():
             runs_on = str(job.get("runs-on", ""))
             with self.subTest(job=name):
-                self.assertEqual(runs_on.count("cmux-gcp-pr-control-jit-x64"), runs_on.count(ARM))
+                self.assertEqual(runs_on.count("cmux-gcp-pr-control-jit-x64"),
+                                 runs_on.count(ARM) + runs_on.count(PR_ARM))
 
     def test_no_job_takes_the_nightly_jit_label(self) -> None:
         for name, job in self.jobs.items():

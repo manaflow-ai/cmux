@@ -24,6 +24,10 @@ every flag and ends with examples.
 | Background processes agents left running | `cmux agent process list` |
 | Follow one's output (Claude Code sessions) | `cmux agent process show coord/b7x2k1q --follow` |
 | Stop a dev server an agent left running | `cmux agent process kill coord/b7x2k1q` |
+| Only the ones still running | `cmux agent process list --running` |
+| Which session owns a pid, and whether it may be ended | `cmux agent process owner 4242` |
+| What ended agent hosts left running here | `cmux agent process left-behind` |
+| End a pid that is yours or left behind (logged in `process-kills.jsonl`) | `cmux agent process kill --pid 4242` |
 | Move a Claude Code chat's running commands to the background | `cmux agent process background coord` |
 | Worktrees a cleanup would touch | `cmux agent worktree list` |
 | What a cleanup would do, without doing it | `cmux agent worktree clean --dry-run` |
