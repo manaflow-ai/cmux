@@ -260,10 +260,12 @@ async function typedSuggestions(
 /// The suggestion kinds in their displayed order.
 const navigationTypes = (rows: SuggestionRow[]) => rows.map((row) => row.type);
 
-/// "ff": Ask first, no workspace that only holds "ff" inside a word, the web search last, no create row.
+/// "ff": Return asks the chip's agent, so no Ask row leads (David Beyer 2026-11-20: "Ask Claude Code"
+/// under a chip that already says Claude Code); no workspace that only holds "ff" inside a word, the
+/// web search last, no create row.
 function ffProblem(rows: SuggestionRow[]): string | undefined {
   const types = navigationTypes(rows);
-  if (types[0] !== "ask") return "the first row is not Ask";
+  if (types[0] === "ask") return "an Ask row for the chip's agent leads";
   if (rows.some((row) => row.type === "workspace" && /toolbar-diffviewer|app-efficiency/.test(row.title)))
     return "a workspace that only has ff inside a word shows";
   if (types.at(-1) !== "search") return "the web search is not the last row";
@@ -294,6 +296,18 @@ function checkSuggestionSurface(ctx: PlayContext): void {
       throw new Error(`suggestions differ from the composer: ${property}`);
   }
   if (popover.hasAttribute("data-host-glass")) throw new Error("suggestions draw a separate native popup material");
+}
+
+/// Return asks the chip's agent with no row for it; the first drawn row is `first`, titled `title`,
+/// and the web search is last.
+function askLeadsProblem(first: string, title: string) {
+  return (rows: SuggestionRow[]): string | undefined => {
+    if (rows[0]?.type === "ask") return "an Ask row for the chip's agent leads";
+    if (rows[0]?.type !== first) return `the first row is not ${first}`;
+    if (rows[0]?.title !== title) return `the first row is not ${title}`;
+    if (navigationTypes(rows).at(-1) !== "search") return "the web search is not the last row";
+    return undefined;
+  };
 }
 
 /// The first two rows' kinds are `first` and `second` (one of them Ask); the other one is `title`.
@@ -1157,7 +1171,8 @@ export default agentPaneEntry({
       snapshot: noChat([]),
       play: async (ctx) => {
         await typePrompt(ctx, "release");
-        await ctx.waitFor(() => ctx.document.querySelectorAll('.nt-rows [role="option"]').length >= 6);
+        // Four matching tabs and the web search; Ask is Return's, with no row (David Beyer 2026-11-20).
+        await ctx.waitFor(() => ctx.document.querySelectorAll('.nt-rows [role="option"]').length >= 5);
       },
     },
     "workspace-switch-animation-audit": {
@@ -1290,7 +1305,7 @@ export default agentPaneEntry({
       },
     },
     "suggestions-ff": {
-      note: "Suggestions use the composer's surface. Ask comes first, web search last, and unrelated creation commands stay hidden.",
+      note: "Suggestions use the composer's surface. Return asks the chip's agent (no row for it), web search last, and unrelated creation commands stay hidden.",
       ready: newTab({ omnibar: FF_OMNIBAR }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
@@ -1422,13 +1437,13 @@ export default agentPaneEntry({
       },
     },
     "suggestions-chat-ff": {
-      note: "Chat order asks first and keeps web search last. Create actions stay outside suggestions.",
+      note: "Chat order asks first (Return's, with no row for the chip's agent) and keeps web search last. Create actions stay outside suggestions.",
       ready: newTab({ suggestionOrder: "chat", omnibar: FF_OMNIBAR }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await typedSuggestions(ctx, "ff", (rows) => {
           const types = navigationTypes(rows);
-          if (types[0] !== "ask") return "the first row is not Ask";
+          if (types[0] === "ask") return "an Ask row for the chip's agent leads";
           if (types.at(-1) !== "search") return "the web search is not last";
           if (rows.some((row) => row.type === "create")) return "create actions are suggestions";
           return undefined;
@@ -1436,15 +1451,15 @@ export default agentPaneEntry({
       },
     },
     "suggestions-chat-url": {
-      note: "The chat order: Ask first even for an address an open tab shows; Switch to tab right under it.",
+      note: "The chat order: Return asks even for an address an open tab shows (no row for the chip's agent); Switch to tab is the first row.",
       ready: newTab({ suggestionOrder: "chat", omnibar: FF_OMNIBAR }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
-        await typedSuggestions(ctx, "github.com/manaflow-ai/cmux", leadProblem("ask", "tab", "manaflow-ai/cmux"));
+        await typedSuggestions(ctx, "github.com/manaflow-ai/cmux", askLeadsProblem("tab", "manaflow-ai/cmux"));
       },
     },
     "suggestions-minimal-ff": {
-      note: 'The minimal order (newTab.suggestionOrder "minimal"): as the default, at most three matches and no create rows while typing; "ff" lists Ask, then the web search.',
+      note: 'The minimal order (newTab.suggestionOrder "minimal"): as the default, at most three matches and no create rows while typing; "ff" asks on Return (no row) and lists the web search.',
       ready: newTab({ suggestionOrder: "minimal", omnibar: FF_OMNIBAR }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
