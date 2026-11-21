@@ -422,6 +422,7 @@
               "sidebar.noFade",
               "sidebar.controlsOnHover",
               "sidebar.minimal",
+              "sidebar.look",
               "sidebar.style",
               "sidebar.density",
               "sidebar.textSize",
@@ -1181,7 +1182,6 @@
               "agentPane.display.thinking.shimmerPeriod",
               "agentPane.display.thinking.shimmerBand",
               "agentPane.display.thinking.jumpButton",
-              "agentPane.display.thinking.glyphSize",
               "agentPane.needsYou.enabled",
               "agentPane.showMachineLoadWarnings"
             ],
@@ -1218,7 +1218,10 @@
             "key" : "chat.2",
             "rows" : [
               "agentPane.display.font.ui",
+              "agentPane.display.font.uiFamily",
               "agentPane.display.font.preset",
+              "agentPane.display.font.proseFamily",
+              "agentPane.display.font.faces",
               "agentPane.display.font.size",
               "agentPane.display.font.lineHeight",
               "agentPane.display.code.family",
@@ -53671,6 +53674,439 @@
     },
     {
       "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.uiFamily.help",
+        "text" : "A font family or a comma list of them. When set, it replaces the Chat Interface Font."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.uiFamily",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "font",
+        "interface",
+        "ui",
+        "family",
+        "typeface",
+        "custom"
+      ],
+      "kind" : "font_family",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "uiFamily"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.font.uiFamily"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.uiFamily",
+        "text" : "Chat Interface Font Family"
+      },
+      "validation" : "domain:font_family"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.proseFamily.help",
+        "text" : "The font of the agent's replies. When set, it replaces the Chat Font."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.proseFamily",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "font",
+        "reply",
+        "prose",
+        "family",
+        "serif",
+        "typeface",
+        "custom"
+      ],
+      "kind" : "font_family",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "proseFamily"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.font.proseFamily"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.proseFamily",
+        "text" : "Chat Reply Font Family"
+      },
+      "validation" : "domain:font_family"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "*" : "★",
+          "Work" : ""
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.fontFaces.help",
+        "text" : "A font file for each family, such as \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.faces",
+      "keywords" : [
+        "agent",
+        "chat",
+        "display",
+        "font",
+        "file",
+        "woff2",
+        "ttf",
+        "otf",
+        "face",
+        "typeface",
+        "custom"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "faces"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "★",
+        [
+
+        ],
+        {
+          "Work" : 1
+        }
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.font.faces"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.fontFaces",
+        "text" : "Chat Font Files"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         10,
         28,
         19
@@ -55979,8 +56415,7 @@
     {
       "accepts" : [
         "arrow",
-        "dots",
-        "glyph"
+        "dots"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -55998,13 +56433,6 @@
             "text" : "Dots"
           },
           "value" : "dots"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.thinkingJumpGlyph",
-            "text" : "Thinking Glyph"
-          },
-          "value" : "glyph"
         }
       ],
       "consumers" : [
@@ -56140,389 +56568,6 @@
       "title" : {
         "key" : "settings.agentPane.display.thinking.jumpButton",
         "text" : "Jump to Latest While Working"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        {
-          "$schema" : "cmux.particles/1",
-          "particle" : {
-            "max" : 1,
-            "size" : 3
-          },
-          "phases" : {
-            "lone" : {
-              "duration" : 400,
-              "frames" : [
-                {
-                  "at" : 0,
-                  "dots" : [
-                    [
-                      0,
-                      0,
-                      0.7
-                    ]
-                  ]
-                }
-              ]
-            }
-          }
-        },
-        {
-          "$schema" : "cmux.particles/1",
-          "particle" : {
-            "color" : "accent",
-            "max" : 3,
-            "shape" : "circle",
-            "size" : 3
-          },
-          "phases" : {
-            "row" : {
-              "duration" : 1200,
-              "ease" : "easeInOut",
-              "frames" : [
-                {
-                  "at" : 0,
-                  "formation" : "row"
-                },
-                {
-                  "at" : 1,
-                  "dots" : [
-                    [
-                      -6,
-                      0,
-                      1
-                    ],
-                    [
-                      0,
-                      0,
-                      0.6
-                    ],
-                    [
-                      6,
-                      0,
-                      1
-                    ]
-                  ]
-                }
-              ]
-            }
-          },
-          "triggers" : {
-            "cycle" : [
-              "row"
-            ],
-            "execute" : [
-              "row"
-            ]
-          }
-        }
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : null,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.agentChat",
-        "text" : "Agent Chat"
-      },
-      "help" : {
-        "key" : "settings.agentPane.display.thinking.glyph.help",
-        "text" : "Dots a look plays while the agent works, as a cmux.particles/1 document."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "agentPane.display.thinking.glyph",
-      "keywords" : [
-        "agent",
-        "chat",
-        "acp",
-        "display",
-        "thinking",
-        "glyph",
-        "particles",
-        "dots",
-        "choreography",
-        "animation",
-        "claude"
-      ],
-      "kind" : "text",
-      "page_hidden" : true,
-      "path" : [
-        "agentPane",
-        "display",
-        "thinking",
-        "glyph"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "thinking-glyph.json",
-        {
-
-        },
-        {
-          "$schema" : "cmux.particles/2",
-          "particle" : {
-            "size" : 3
-          },
-          "phases" : {
-            "lone" : {
-              "duration" : 400,
-              "frames" : [
-                {
-                  "at" : 0,
-                  "dots" : [
-
-                  ]
-                }
-              ]
-            }
-          }
-        }
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : false,
-          "operations" : [
-
-          ],
-          "reason" : "a cmux.particles/1 document a look or cmux settings set writes, edited in cmux-next.json",
-          "row" : null
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.agentPane.display.thinking.glyph",
-        "text" : "Thinking Glyph"
-      },
-      "validation" : "domain:particles_document"
-    },
-    {
-      "accepts" : [
-        0,
-        16,
-        8
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : 0,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.agentChat",
-        "text" : "Agent Chat"
-      },
-      "help" : {
-        "key" : "settings.agentPane.display.thinking.glyphSize.help",
-        "text" : "The dot size of the thinking glyph in Jump to latest. 0 uses the glyph's own size."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "agentPane.display.thinking.glyphSize",
-      "keywords" : [
-        "agent",
-        "chat",
-        "acp",
-        "display",
-        "thinking",
-        "glyph",
-        "particles",
-        "dots",
-        "size",
-        "jump",
-        "claude"
-      ],
-      "kind" : "number",
-      "page_hidden" : false,
-      "path" : [
-        "agentPane",
-        "display",
-        "thinking",
-        "glyphSize"
-      ],
-      "placeholder" : null,
-      "range" : {
-        "max" : 16,
-        "min" : 0,
-        "placeholder" : 0,
-        "step" : 0.1,
-        "unit" : "points"
-      },
-      "refuses" : [
-        -16,
-        32,
-        "1"
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "options",
-          "offered" : true,
-          "operations" : [
-
-          ],
-          "reason" : null,
-          "row" : "setting:agentPane.display.thinking.glyphSize"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.agentPane.display.thinking.glyphSize",
-        "text" : "Jump Button Glyph Size"
       },
       "validation" : "portable"
     },
@@ -67429,6 +67474,176 @@
       "title" : {
         "key" : "settings.sidebar.minimal",
         "text" : "Minimal Mode"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "cmux",
+        "claude",
+        "codex",
+        "studio"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.sidebarLookCmux",
+            "text" : "cmux"
+          },
+          "value" : "cmux"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sidebarLookClaude",
+            "text" : "Claude"
+          },
+          "value" : "claude"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sidebarLookCodex",
+            "text" : "Codex"
+          },
+          "value" : "codex"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sidebarLookStudio",
+            "text" : "Studio"
+          },
+          "value" : "studio"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "cmux",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.look.help",
+        "text" : "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.look",
+      "keywords" : [
+        "sidebar",
+        "look",
+        "preset",
+        "style",
+        "claude",
+        "codex",
+        "studio",
+        "like",
+        "app"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "look"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.look"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.look",
+        "text" : "Sidebar Look"
       },
       "validation" : "portable"
     },
