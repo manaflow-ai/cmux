@@ -94,6 +94,15 @@ impl Schema {
                 "additionalProperties": false,
             }),
         );
+        root.insert(
+            "fonts".into(),
+            json!({
+                "type": "array",
+                "description": "Font files the app registers for itself while the file applies (a theme pack's own faces), as absolute file: paths; the look names their families (terminal.fontFamily).",
+                "items": { "type": "string", "pattern": "^file:/" },
+                "maxItems": 32,
+            }),
+        );
         for row in self.rows.iter().filter(|row| is_look(row)) {
             root.insert(row.key.clone(), leaf(row));
             if row.path.len() > 1 {
