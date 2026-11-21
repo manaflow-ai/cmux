@@ -33,6 +33,15 @@ public struct StatusMapping {
         statusSeen.markSeen(tabs.flatMap(reports) + reports(status), workspaceID: workspaceID)
     }
 
+    /// A look at `tab` (focus, a click, opening it; typing and the timeout do not call this) sees its
+    /// workspace row's error and success symbols, as it reads the row's blue dot. O(1) lookup by the
+    /// store's indexes; client view state, the daemon keeps the reports.
+    @discardableResult
+    public func markSeen(workspaceOf tab: TabModel, in store: DaemonStore) -> Bool {
+        guard let pane = store.pane(holding: tab), let workspace = store.workspace(containing: pane.handle) else { return false }
+        return markSeen(tabs: workspace.screens.flatMap(\.panes).flatMap(\.tabs), status: workspace.status, workspaceID: workspace.id)
+    }
+
     /// The reports one tab contributes.
     public func reports(_ tab: TabModel) -> [StatusReport] {
         var reports: [StatusReport] = []

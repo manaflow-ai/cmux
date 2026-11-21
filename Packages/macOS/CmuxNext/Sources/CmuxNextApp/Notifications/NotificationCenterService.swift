@@ -398,10 +398,9 @@ final class NotificationCenterService {
         let owner = known ?? self.owner(of: tab), local = owner?.isLocal ?? true
         // Going into a tab a strip press held ends the hold: its focus is a look again.
         if [.click, .keystroke, .open].contains(trigger), !viewHolds.isEmpty { viewHolds.remove(tab.id) }
-        // Any look at the tab sees its OSC 7501 done and error records and an
-        // agent chat's completed turn (client view state; the owners keep the facts).
+        // Any look sees OSC 7501 done/error, a chat's done turn, its row's error/success (view state; owners keep facts).
         ProgramStatusSeenStore.shared.markSeen(tab)
-        markWorkspaceStatusSeen(trigger, tab: tab, owner: owner)
+        if [.focus, .click, .open].contains(trigger), let store = (owner ?? services?.daemon)?.store { StatusMapping.shared.markSeen(workspaceOf: tab, in: store) }
         if local, agentFinished[tab.id] != nil, NotificationPolicy(prefs: preferences).clears(trigger, for: .agent) {
             note("\(trigger.rawValue) read agent turn \(tab.id)")
             agentFinished[tab.id] = nil
@@ -417,17 +416,6 @@ final class NotificationCenterService {
         note("\(trigger.rawValue) read \(tab.id)")
         if DesignSettings.shared.attention.flashesOnEntry(trigger) { entryReads.insert(tab.id) }
         acknowledge(tab, owner: owner)
-    }
-
-    /// A look at a tab (focus, a click, opening it) sees its workspace row's error and success
-    /// symbols, as it reads the row's blue dot: the sidebar hides those exact reports until they
-    /// change (``SidebarStatusSeenStore``). Client view state; the daemon keeps the reports. Typing
-    /// and the timeout skip it: the pane was already focused, and typing runs per keystroke.
-    private func markWorkspaceStatusSeen(_ trigger: NotificationTrigger, tab: TabModel, owner: DaemonService?) {
-        guard [.focus, .click, .open].contains(trigger), let store = (owner ?? services?.daemon)?.store,
-              let pane = store.pane(holding: tab), let workspace = store.workspace(containing: pane.handle) else { return }
-        StatusMapping.shared.markSeen(tabs: Array(workspace.screens.lazy.flatMap(\.panes).flatMap(\.tabs)),
-                                      status: workspace.status, workspaceID: workspace.id)
     }
 
     /// The person went into a tab an agent marked (a click, a key, opening it, or focus under the `focus` dismissal): its ring has done its job,
