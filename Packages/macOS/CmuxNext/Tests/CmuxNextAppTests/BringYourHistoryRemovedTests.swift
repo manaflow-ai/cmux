@@ -42,7 +42,7 @@ import Testing
         #expect(setup.begin(isFirstRun: true, replacedKeys: FirstRunSetupTests.replaced))
         let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: SetupCardEnvironment(
             account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in }, openAgents: {},
-            screenReader: { false }, historySources: { true }, importHistory: { true }))
+            screenReader: { false }))
         defer { provider.stop() }
         // The card's start-up reads (all immediate here) settle within a few main-actor turns.
         for _ in 0..<50 { await Task.yield() }
