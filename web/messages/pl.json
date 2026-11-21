@@ -80,6 +80,11 @@
       "message": "Ta maszyna się uruchamia, wstrzymuje albo nie działa, więc nie może teraz tego zrobić.",
       "action": "Poczekaj chwilę i spróbuj ponownie. Sprawdź stan maszyny za pomocą cmux vm ls i najpierw ją wznów, jeśli jest wstrzymana."
     },
+    "hostRecovery": {
+      "title": "Host maszyny jest przywracany",
+      "message": "Dysk tej maszyny znajduje się na hoście Cloud, który jest przywracany, więc nie może się jeszcze uruchomić. Jej pliki są zachowane.",
+      "action": "Spróbuj ponownie za kilka minut. Nie usuwaj ani nie twórz maszyny od nowa: jej dysk jest zachowany i wróci razem z nią. Jeśli po godzinie nadal się nie uruchamia, skontaktuj się z pomocą techniczną, podając identyfikator śledzenia."
+    },
     "networkRuleCapacity": {
       "title": "Osiągnięto limit reguł sieciowych",
       "message": "Twoja polityka sieciowa została zapisana, ale nie została zastosowana: cmux Cloud osiągnął limit reguł sieciowych.",
@@ -375,6 +380,7 @@
     "typingCodingAgents": "agentów kodowania",
     "typingMultitasking": "multitaskingu",
     "subtitle": "Darmowy i otwartoźródłowy natywny terminal dla macOS zbudowany na Ghostty. Pionowe karty, pierścienie powiadomień gdy agenci potrzebują uwagi, dzielone panele oraz <cliLink>CLI</cliLink> do programowania.",
+    "nextCallout": "Nowość: wypróbuj <link>cmux NEXT</link>, zapowiedź kolejnej wersji cmux.",
     "features": "Funkcje",
     "faq": "FAQ",
     "communitySection": "Społeczność",
@@ -979,7 +985,12 @@
         "deleteConfirmBody": "Tej operacji nie można cofnąć. Usunie ona wszystkie dane powiązane z Twoim kontem.",
         "deleteAcknowledge": "Rozumiem, że moje konto i jego dane zostaną trwale usunięte.",
         "deleteConfirm": "Usuń konto",
-        "deleteError": "Nie udało się usunąć konta. Spróbuj ponownie."
+        "deleteError": "Nie udało się usunąć konta. Spróbuj ponownie.",
+        "deleteErrorPending": "Twoje konto jest już usuwane. Spróbuj ponownie za chwilę.",
+        "deleteErrorRetryable": "Nie udało się dokończyć usuwania konta. Sprawdź połączenie i spróbuj ponownie.",
+        "deleteAppStoreTitle": "Twoja subskrypcja w App Store będzie nadal odnawiana",
+        "deleteAppStoreBody": "Usunięcie konta cmux nie anuluje subskrypcji w App Store. Apple będzie pobierać opłaty, dopóki nie anulujesz jej w App Store.",
+        "deleteAppStoreManage": "Zarządzaj subskrypcją w App Store"
       }
     },
     "teams": {
@@ -1257,7 +1268,10 @@
           "failed": "błąd",
           "paused": "wstrzymana",
           "destroyed": "usunięta"
-        }
+        },
+        "wake": "Wybudź",
+        "waking": "Wybudzanie…",
+        "wakeError": "Nie udało się wybudzić tej maszyny. Spróbuj ponownie."
       },
       "network": {
         "open": "Sieć",

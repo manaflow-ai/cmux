@@ -298,10 +298,10 @@ final class MobilePairingModel {
                 localized: "mobile.pairing.target.internal",
                 defaultValue: "cmux INTERNAL"
             )
-        case "dev.cmux.app.demo":
+        case "dev.cmux.app.classic":
             return String(
-                localized: "mobile.pairing.target.demo",
-                defaultValue: "cmux DEMO"
+                localized: "mobile.pairing.target.classic",
+                defaultValue: "cmux CLASSIC"
             )
         default:
             let format = String(
