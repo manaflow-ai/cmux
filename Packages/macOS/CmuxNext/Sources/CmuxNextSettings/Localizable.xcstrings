@@ -85993,6 +85993,268 @@
         }
       }
     },
+    "settings.updates.autoRollback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go Back Automatically When an Update Breaks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートで不具合が出たら自動で戻す"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الرجوع تلقائيًا عند تعطل تحديث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatski se vrati kad ažuriranje pokvari nešto"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gå automatisk tilbage, når en opdatering går i stykker"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatisch zurück, wenn ein Update etwas kaputt macht"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Volver automáticamente si una actualización falla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revenir automatiquement quand une mise à jour casse quelque chose"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Torna indietro automaticamente se un aggiornamento si guasta"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ត្រឡប់ក្រោយដោយស្វ័យប្រវត្តិ ពេលបច្ចុប្បន្នភាពខូច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "업데이트가 고장 나면 자동으로 되돌리기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gå automatisk tilbake når en oppdatering ødelegger noe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wróć automatycznie, gdy aktualizacja coś zepsuje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Voltar automaticamente quando uma atualização quebrar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Автоматически возвращаться, если обновление что-то сломало"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย้อนกลับอัตโนมัติเมื่ออัปเดตทำให้ใช้งานไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir güncelleme bozulduğunda otomatik geri dön"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Автоматично повертатися, якщо оновлення щось зламало"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tự động quay lại khi bản cập nhật bị lỗi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新出问题时自动返回"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新出問題時自動返回"
+          }
+        }
+      }
+    },
+    "settings.updates.autoRollback.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When chat, the model picker or terminals fail after an update, restart into the previous version without asking."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデート後にチャット、モデル選択、ターミナルが動かないとき、確認せずに前のバージョンで再起動します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عند تعطل الدردشة أو منتقي النموذج أو الطرفيات بعد تحديث، يُعاد التشغيل بالإصدار السابق دون سؤال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kad chat, birač modela ili terminali ne rade nakon ažuriranja, ponovo pokreni prethodnu verziju bez pitanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når chat, modelvælgeren eller terminaler fejler efter en opdatering, genstartes den forrige version uden at spørge."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wenn Chat, Modellauswahl oder Terminals nach einem Update ausfallen, ohne Nachfrage mit der vorherigen Version neu starten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Si el chat, el selector de modelos o las terminales fallan tras una actualización, reinicia en la versión anterior sin preguntar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Si le chat, le sélecteur de modèle ou les terminaux échouent après une mise à jour, redémarre sur la version précédente sans demander."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se chat, selettore del modello o terminali non funzionano dopo un aggiornamento, riavvia nella versione precedente senza chiedere."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពេលជជែក ឧបករណ៍ជ្រើសម៉ូដែល ឬ terminal បរាជ័យក្រោយបច្ចុប្បន្នភាព ចាប់ផ្ដើមឡើងវិញក្នុងកំណែមុនដោយមិនសួរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "업데이트 후 채팅, 모델 선택기 또는 터미널이 실패하면 묻지 않고 이전 버전으로 다시 시작합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når chat, modellvelgeren eller terminaler feiler etter en oppdatering, startes forrige versjon på nytt uten å spørre."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdy po aktualizacji czat, wybór modelu lub terminale zawiodą, uruchom ponownie poprzednią wersję bez pytania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando o chat, o seletor de modelos ou os terminais falham após uma atualização, reinicia na versão anterior sem perguntar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Если после обновления не работают чат, выбор модели или терминалы, перезапустить предыдущую версию без вопроса."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อแชท ตัวเลือกโมเดล หรือเทอร์มินัลใช้งานไม่ได้หลังอัปเดต จะรีสตาร์ทเป็นเวอร์ชันก่อนหน้าโดยไม่ถาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir güncellemeden sonra sohbet, model seçici veya terminaller çalışmazsa sormadan önceki sürümle yeniden başlat."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Якщо після оновлення не працюють чат, вибір моделі чи термінали, перезапустити попередню версію без запиту."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi trò chuyện, bộ chọn mô hình hoặc terminal lỗi sau khi cập nhật, khởi động lại vào phiên bản trước mà không hỏi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新后聊天、模型选择器或终端出现故障时，不经询问直接重启到上一个版本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新後聊天、模型選擇器或終端機出現故障時，不經詢問直接重新啟動到上一個版本。"
+          }
+        }
+      }
+    },
     "settings.updates.whatsNewInstall": {
       "extractionState": "manual",
       "localizations": {

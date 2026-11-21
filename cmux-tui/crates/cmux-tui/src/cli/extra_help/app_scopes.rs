@@ -147,6 +147,7 @@ usage: cmux app ping | identify | capabilities
        cmux app try <PR|branch|sha> [--dry-run] | undo | status  (another commit's cmux in this app, live when it can)
        cmux app join-line [--mint] [--name <name>] [--no-open]  (Add Device's join line)
        cmux app launch-times [--limit <n>] [--file <path>] [--phases]  (the last launches' times and phases, from a file; no app needed)
+       cmux app health [--since-ms <ms>] [--open-chat] [--json]  (chat, model picker, relay refusals, terminal echo; exit 1 on a failure)
        cmux app call <method> [<json-object>]   (debug builds only)
        cmux app <verb...> [--<argument> <value>]...";
 

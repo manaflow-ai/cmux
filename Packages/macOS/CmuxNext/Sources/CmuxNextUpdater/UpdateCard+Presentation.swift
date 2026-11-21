@@ -67,6 +67,9 @@ extension UpdateCard {
             return UpdateCardPresentation(symbol: "arrow.down.circle", title: UpdaterStrings.gettingNewest,
                                           detail: pulled ? UpdaterStrings.runningBuildPulled : transfer?.bytesText,
                                           showsProgress: true, progress: transfer?.fraction, dismissible: false)
+        case .healthFailed(let previous, let reason):
+            return UpdateCardPresentation(symbol: "exclamationmark.triangle", title: UpdaterStrings.healthFailedTitle,
+                                          detail: UpdaterStrings.healthFailedDetail(reason, previous), actions: [.goBack])
         }
     }
 
@@ -112,6 +115,7 @@ extension UpdateCard {
         case .note(.found): "found"
         case .note(.needsNewerMacOS): "requires_newer_macos"
         case .gettingNewest: "getting_newest"
+        case .healthFailed: "health_failed"
         }
     }
 }
