@@ -182,7 +182,7 @@ jobs:
       - build
       - preflight
     if: needs.preflight.outputs.need_publish == 'true'
-    runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-latest' || fromJSON(vars.RUNNER_POOLS).provenance }} # github-hosted-required: npm provenance publishing
     timeout-minutes: 10
     permissions:
       id-token: write
@@ -272,7 +272,7 @@ jobs:
       - preflight
       - publish
     if: >-
-      always() &&
+      !cancelled() &&
       needs.build.result == 'success' &&
       needs.preflight.result == 'success' &&
       (needs.publish.result == 'success' || needs.publish.result == 'skipped')
