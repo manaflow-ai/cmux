@@ -162,7 +162,7 @@ private final class FakeUnixSocketServer: @unchecked Sendable {
 }
 
 /// Line-oriented TCP client for the relay handshake.
-private final class RelayTestClient: @unchecked Sendable {
+final class RelayTestClient: @unchecked Sendable {
     private let connection: NWConnection
     private let queue = DispatchQueue(label: "relay-test-client")
     private let lock = NSLock()
@@ -230,7 +230,7 @@ private final class RelayTestClient: @unchecked Sendable {
 
 @Suite("RemoteCLIRelayServer", .serialized)
 struct RemoteCLIRelayServerTests {
-    private let tokenHex = "00112233445566778899aabbccddeeff"
+    let tokenHex = "00112233445566778899aabbccddeeff"
 
     @Test("authenticated relay sessions are capacity bounded")
     func authenticatedSessionsAreCapacityBounded() throws {
@@ -642,7 +642,7 @@ struct RemoteCLIRelayServerTests {
         })
     }
 
-    private func authenticate(_ client: RelayTestClient) throws {
+    func authenticate(_ client: RelayTestClient) throws {
         #expect(client.wait { data, _ in data.contains(0x0A) })
         let challenge = try #require(client.receivedJSONLines().first)
         let nonce = try #require(challenge["nonce"] as? String)
