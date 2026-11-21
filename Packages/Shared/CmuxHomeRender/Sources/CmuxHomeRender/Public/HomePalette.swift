@@ -147,6 +147,9 @@ public struct HomePalette: Hashable, Sendable {
     public var placeholder: HomeColor
     /// The grey under the flying bubble while it is translucent (the field's glass).
     public var morphUnderlay: HomeColor
+    /// The composer field's fill over a see-through window (the web composer's surface there); nil
+    /// on an opaque window, where the field keeps its own glass.
+    public var composeFillOverGlass: HomeColor? = nil
     public var typingDot: HomeColor
     public var typingDotHighlight: HomeColor
     /// The composer's own text and symbols: the received text unless a chat
@@ -320,8 +323,11 @@ public struct HomePalette: Hashable, Sendable {
     ///   - window: the opaque colour under `fill`.
     ///   - placeholderOverGlass: the composer's placeholder when `fill` is see-through (the host's
     ///     secondary text token); nil keeps the field-tier placeholder.
+    ///   - fieldFillOverGlass: the composer field's fill when `fill` is see-through (the web
+    ///     composer's surface there); nil keeps the field's clear glass.
     /// - Returns: the palette with `fill` as its background.
-    public func onBackground(_ fill: HomeColor, over window: HomeColor, placeholderOverGlass: HomeColor? = nil) -> HomePalette {
+    public func onBackground(_ fill: HomeColor, over window: HomeColor, placeholderOverGlass: HomeColor? = nil,
+                             fieldFillOverGlass: HomeColor? = nil) -> HomePalette {
         var p = self
         p.background = fill
         p.secondaryText = secondaryText.readable(on: window.with(alpha: 1).mixed(with: fill.with(alpha: 1), fill.alpha))
@@ -330,6 +336,10 @@ public struct HomePalette: Hashable, Sendable {
         // token, the ink every web field's placeholder takes over a see-through window
         // (--cmux-text-secondary, ui/controls.css), so native and web draw the same pixels.
         if fill.alpha < 1, let placeholderOverGlass { p.placeholder = placeholderOverGlass }
+        // The token alone held 2.7:1 (light) and 2.4:1 (dark) on art (be805d96): the clear field shows
+        // the picture under the text. The web composer lays its surface there (the solid at the chrome
+        // glass tint, composerStates.css), so the native field takes the same fill.
+        p.composeFillOverGlass = nil
         return p
     }
 
