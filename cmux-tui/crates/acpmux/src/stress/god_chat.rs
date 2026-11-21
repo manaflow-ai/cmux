@@ -463,23 +463,19 @@ fn restart(home: &std::path::Path) -> (u64, f64) {
     cost
 }
 
-/// The god chat loaded, grown by [`grow_bytes`] of turns and quiet, then restarted from two
-/// copies of its home: one as it stands, one after its restore point moved to the log's end.
-/// Returns the two restarts' (bytes read, ms).
-fn grown() -> ((u64, f64), (u64, f64)) {
-    let (home, _, _) = fill(god_bytes());
-    let (unrolled, rolled) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+/// Restart 1 over `home` (the load of a quiet chat saves its point), then [`grow_bytes`] of
+/// turns as a running agent writes them, each closed by its result, and with `roll` the point
+/// moved to the log's end.
+fn grow(home: &std::path::Path, roll: bool) {
     let runtime =
         tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
     runtime.block_on(async {
-        // Restart 1: the load of a quiet chat saves its point.
         let cfg = config();
-        let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, home.path()).unwrap());
+        let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, home).unwrap());
         hub.load_logs();
         let session =
             hub.sessions().into_iter().find(|s| s.id == GOD).expect("the god chat is listed");
-        // Turns as a running agent writes them, each closed by its result.
-        let (start, mut seq, mut n) = (disk_bytes(home.path()), 0, 0);
+        let (start, mut seq, mut n) = (disk_bytes(home), 0, 0);
         loop {
             for r in turn(n, &mut seq, 0) {
                 hub.append(&session, &r.dir, &r.kind, r.msg);
@@ -487,20 +483,31 @@ fn grown() -> ((u64, f64), (u64, f64)) {
             n += 1;
             if n % 64 == 0 {
                 hub.flush();
-                if disk_bytes(home.path()) - start >= grow_bytes() {
+                if disk_bytes(home) - start >= grow_bytes() {
                     break;
                 }
             }
         }
-        crate::lost_home_race_tests::copy_tree(home.path(), unrolled.path());
-        assert!(hub.roll_restore_point(&session, 0), "the quiet chat did not move its point");
-        hub.flush();
-        crate::lost_home_race_tests::copy_tree(home.path(), rolled.path());
+        if roll {
+            assert!(hub.roll_restore_point(&session, 0), "the quiet chat did not move its point");
+            hub.flush();
+        }
         drop(session);
         drop(hub);
     });
     runtime.shutdown_timeout(Duration::from_secs(5));
-    (restart(unrolled.path()), restart(rolled.path()))
+}
+
+/// The god chat grown while loaded and restarted, without and with its point moved: the two
+/// restarts' (bytes read, ms). Two homes from one fill, copied before any start: the store's
+/// caches name files by inode, so a copy made later reads as a new log.
+fn grown() -> ((u64, f64), (u64, f64)) {
+    let (home, _, _) = fill(god_bytes());
+    let rolled = tempfile::tempdir().unwrap();
+    crate::lost_home_race_tests::copy_tree(home.path(), rolled.path());
+    grow(home.path(), false);
+    grow(rolled.path(), true);
+    (restart(home.path()), restart(rolled.path()))
 }
 
 fn print(size: &str, c: &Costs) {
