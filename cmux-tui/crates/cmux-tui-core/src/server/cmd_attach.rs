@@ -4,7 +4,7 @@
 //! arm of `handle_command_with_cancellation`.
 
 use super::size_state_for_client;
-use crate::panic_free::RecoverPoison;
+use crate::panic_free::{JsonFields, RecoverPoison};
 
 use super::ATTACH_OUTPUT_COALESCE_CAPABILITY;
 use super::ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY;
