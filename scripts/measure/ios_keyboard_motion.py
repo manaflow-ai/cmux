@@ -251,25 +251,42 @@ def analyze_surface(name, trace_path: Path, marks):
     return out
 
 
-NETCOND_METRICS = ("kb_notif_ms", "kb_frames_ms", "field_ms", "content_ms", "after_kb_ms", "off_frames",
-                   "content_off_frames", "hitches", "hitch_max_ms", "tti_ms", "pty_resizes")
+# The shared names (net-conditions-harness): this report's metric each one carries.
+NETCOND_METRICS = (
+    ("keyboard_duration_ms", "kb_frames_ms"),
+    ("keyboard_notification_ms", "kb_notif_ms"),
+    ("motion_duration_ms", "motion_ms"),
+    ("motion_after_keyboard_ms", "after_kb_ms"),
+    ("offset_frames_gt_1pt", "off_frames"),
+    ("content_offset_frames_gt_1pt", "content_off_frames"),
+    ("hitches", "hitches"),
+    ("hitch_max_ms", "hitch_max_ms"),
+    ("pty_resizes", "pty_resizes"),
+)
 
 
 def netcond_lines(report):
     """The mobile benches' shared line shape (scripts/measure/ios-network-conditions-report.py):
-    surface = the bench's surface, profile = keyboard-<method>@1 (no network shaping), phase =
-    show|hide|drag, run = the step's round. A metric a step did not reach is null (a miss)."""
+    one line per measured value; surface terminal|terminal-vim|chat|chief|search, profile none@1 (no
+    network shaping), phase show|hide|drag, run the step's round, and `method` (tap|key|drag|tti) as an
+    extra key. A value a step did not reach is null (a miss); a tti step carries interactive_ms only."""
     for name, s in report["surfaces"].items():
         if "error" in s:
-            yield f"NETCOND-ERROR keyboard-motion {name}: {s['error']}"
+            yield f"NETCOND-ERROR {name}: {s['error']}"
             continue
         for step in s["steps"]:
-            for metric in NETCOND_METRICS:
-                if metric not in step or (step["method"] == "tti") != (metric == "tti_ms"):
+            pairs = [("interactive_ms", "tti_ms")] if step["method"] == "tti" else NETCOND_METRICS
+            for metric, key in pairs:
+                if key == "motion_ms":
+                    moves = [step[k] for k in ("field_ms", "content_ms") if step.get(k) is not None]
+                    value = max(moves) if moves else None
+                elif key == "pty_resizes" and key not in step:
                     continue
-                yield "NETCOND " + json.dumps({"surface": name, "profile": f"keyboard-{step['method']}@1",
-                                               "phase": step["direction"], "scale": "1x", "metric": metric,
-                                               "value": step[metric], "run": step["round"], "seed": 0},
+                else:
+                    value = step.get(key)
+                yield "NETCOND " + json.dumps({"surface": name, "profile": "none@1", "phase": step["direction"],
+                                               "scale": "1x", "metric": metric, "value": value,
+                                               "run": step["round"], "seed": 0, "method": step["method"]},
                                               separators=(",", ":"))
 
 

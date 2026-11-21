@@ -53,7 +53,7 @@ final class KeyboardMotionBenchUITests: XCTestCase {
     @MainActor
     func testTerminalShell() throws {
         try bench(Surface(
-            name: "terminal-shell",
+            name: "terminal",
             arguments: ["-cmux-mobile-demo", "ws-terminal-idle"],
             field: { $0.textViews["terminal.composer.field"] },
             key: { $0.buttons["terminal.key.keyboard"] }))
@@ -82,7 +82,7 @@ final class KeyboardMotionBenchUITests: XCTestCase {
     @MainActor
     func testAgentChatComposer() throws {
         try bench(Surface(
-            name: "agent-chat",
+            name: "chat",
             arguments: ["-cmux-mobile-demo", "kbd-chat"],
             field: { $0.textViews["chat.composer.field"] },
             hideByTap: { $0.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap() }))
