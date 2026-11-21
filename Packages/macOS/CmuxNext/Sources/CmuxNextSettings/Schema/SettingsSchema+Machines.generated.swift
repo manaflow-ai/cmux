@@ -85,6 +85,12 @@ extension MacScreenSettings {
     public nonisolated static let shareWithoutAskingDefault = false
 }
 
+extension MacScreenSettings {
+    /// `macScreen.onlyPersonStartsViewing`: Read by MacScreenPages.agentMayStartViewing: off (the default), an agent's or the CLI's macScreen.open with a device of the person's own starts viewing at once (MacScreenPages.isOwnDevice); on, it waits at the Connect card for the person's click, as before. Leo 2026-11-17: "why should it get held only be aperson's click? i dont like that".
+    public nonisolated static let onlyPersonStartsViewingPath = ["macScreen", "onlyPersonStartsViewing"]
+    public nonisolated static let onlyPersonStartsViewingDefault = false
+}
+
 extension MacScreenDebugSettings {
     /// `macScreen.debug.relayOnly`.
     public nonisolated static let relayOnlyPath = ["macScreen", "debug", "relayOnly"]
@@ -336,50 +342,6 @@ extension MachineSettingsSchema {
                 default: .bool(CloudNewWorkspaceSetting.turnCheckpointsDefault),
                 keywords: ["cloud", "checkpoint", "snapshot", "undo", "rewind", "restore", "turn", "back", "machine"]
             ),
-        ]
-    }
-}
-
-extension MachineSettingsSchema {
-    static var mobile: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.mobile", "iPhone")
-        return [
-            SettingDescriptor(
-                MobileSettings.allowIPhoneConnectionsPath,
-                section: .accounts,
-                group: group,
-                title: SettingsText.keyed("settings.mobile.allowIPhoneConnections", "Allow iPhone Connections"),
-                help: SettingsText.keyed("settings.mobile.allowIPhoneConnections.help", "The cmux app on your iPhone can open this Mac's workspaces, on the same account."),
-                summary: SettingsText.keyed("settings.mobile.allowIPhoneConnections.summary", "Lets your iPhone reach this Mac"),
-                kind: .toggle,
-                default: .bool(MobileSettings.allowIPhoneConnectionsDefault),
-                keywords: ["iphone", "phone", "mobile", "remote", "connect"]
-            ),
-            SettingDescriptor(
-                MobileSettings.terminalSizingPath,
-                section: .accounts,
-                group: group,
-                title: SettingsText.keyed("settings.mobile.terminalSizing", "Terminal Size When Shared"),
-                help: SettingsText.keyed("settings.mobile.terminalSizing.help", "The size of a terminal shown on this Mac and a phone at once."),
-                kind: .choice([
-                    SettingChoice(MobileTerminalSizing.smallest.rawValue, SettingsText.keyed("settings.choice.terminalSizing.smallest", "Fit the Smallest Viewer")),
-                    SettingChoice(MobileTerminalSizing.mac.rawValue, SettingsText.keyed("settings.choice.terminalSizing.mac", "Prefer This Mac")),
-                    SettingChoice(MobileTerminalSizing.latest.rawValue, SettingsText.keyed("settings.choice.terminalSizing.latest", "Prefer the Active Device")),
-                    SettingChoice(MobileTerminalSizing.priority.rawValue, SettingsText.keyed("settings.choice.terminalSizing.priority", "Priority Order")),
-                ]),
-                default: .string(MobileSettings.terminalSizingDefault.rawValue),
-                keywords: ["iphone", "phone", "mobile", "terminal", "size", "sizing", "shared", "priority", "columns"]
-            ),
-            SettingDescriptor(
-                MobileSettings.terminalSizingOrderPath,
-                section: .accounts,
-                group: group,
-                title: SettingsText.keyed("settings.mobile.terminalSizingOrder", "Terminal Size Priority"),
-                help: SettingsText.keyed("settings.mobile.terminalSizingOrder.help", "The devices a shared terminal sizes to first, highest first."),
-                kind: .stringList,
-                default: .array(MobileSettings.terminalSizingOrderDefault.map { .string($0) }),
-                keywords: ["iphone", "phone", "terminal", "size", "priority", "order"]
-            ).hiddenFromSettingsPage("device ids, set in the cmux app on the iPhone"),
         ]
     }
 }
