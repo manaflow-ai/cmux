@@ -562,7 +562,14 @@ public final class TerminalModel {
             return
         }
         holdComposerText()
-        controller?.surface.sendText(composerText, pressReturn: true, fullScreenApp: isTUI)
+        // A draft that goes as a paste goes to the Mac's terminal as one paste
+        // plus Return (`sendPasteAndSubmit`), when the session can; a one-line
+        // draft typed into a full-screen app, a bare Return, or a session with
+        // no Mac daemon goes through the mirror as before.
+        let submit = ComposerSubmit(text: composerText, pressReturn: true, fullScreenApp: isTUI)
+        if submit.steps.first != .paste(composerText) || !session.sendPasteAndSubmit(composerText) {
+            controller?.surface.sendText(composerText, pressReturn: true, fullScreenApp: isTUI)
+        }
         finishComposerSend()
     }
 
