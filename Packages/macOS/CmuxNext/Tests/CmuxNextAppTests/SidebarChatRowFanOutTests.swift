@@ -58,7 +58,7 @@ import Testing
             AgentTurnStateStore.shared.mirroredHosts.insert(SidebarChatRowFanOutTests.host)
             for index in 0..<count { AgentTurnStateStore.shared.sessionEnded(SidebarChatRowFanOutTests.session(index)) }
             for index in 0..<(recorded ?? count - 1) {
-                AgentTurnStateStore.shared.apply(session: SidebarChatRowFanOutTests.session(index), state: .idle, lastMessage: "hello \(index)",
+                AgentTurnStateStore.shared.apply(session: SidebarChatRowFanOutTests.session(index), state: nil, lastMessage: "hello \(index)",
                                                  muted: false, title: "chat \(index)", detail: nil, recordsTimeline: false)
             }
             services = AppServices(environment: AppEnvironment.current([:]))
