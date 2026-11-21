@@ -1885,9 +1885,13 @@ The placement code from the base branch, as macos-placement's.
 
 ## note-181
 
-Above `app-compile-fleet: Compile-check the app at the pull request's head on the build fleet` in `.github/workflows/cmux-next.yml`.
+Above `app-compile-fleet: Read the build fleet's compile of the pull request's head` in `.github/workflows/cmux-next.yml`.
 
-The gateway checks nothing out: the fleet fetches the commit itself.
+The job checks nothing out and submits nothing. The fleet compiles every same-repository pull request head on its own
+(Release, -Onone, recipe 2), and cmux-next/compile is posted from that result; this job reads the same result on the
+smallest Linux runner and fails closed on sha, repo, recipe and configuration. Until 2026-11-21 it ran
+`cmux-ci compile-check --app` on a Mac gateway runner, which only waited: 42 runner-hours a day at 0.01 cores over
+11-13..21, with a second Debug compile of the same head. `release-compile-fast` (the base push) reads the same way.
 
 ## note-182
 
@@ -3412,12 +3416,10 @@ Release after the merge, and push-attribution names the PR on a red.
 
 Above `app-compile-fleet.if` in `.github/workflows/cmux-next.yml`.
 
-It takes the gateway, or a wider class of it, only while app-compile-placement saw a runner idle
-(gateway_runner). With none idle it does not run: release-compile then runs, and
-macos-placement puts it in the cascade (CASCADE_RUNS), so it takes a free Blacksmith
-slot rather than the queue PR #24155's compile sat in three times on 2026-10-26.
-It does not wait for the PR quiet period: its runner only hands the head to the build fleet's
-Linux compile, and the run's group cancels it on a newer push, as does its own group below.
+It runs on every same-repository pull request the native tier reaches, without the PR quiet period, on a Linux runner
+(note-181): it holds no Mac and no gateway runner, so it has no idle-gateway reading to wait for. app-compile-placement
+still runs and feeds macos-placement's cascade reading. With no verdict it fails, and release-compile (a Mac) takes over
+only where path_route's mac_release sends it. The run's group cancels it on a newer push, as does its own group below.
 
 ## note-372
 

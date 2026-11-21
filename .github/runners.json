@@ -382,7 +382,6 @@
       "class": "apple-app-build",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
-    "cmux-next.yml#app-compile-fleet": "apple-app-build",
     "cmux-next.yml#checks": "portable-checks",
     "cmux-next.yml#path_route": "portable-checks",
     "cmux-next.yml#cmux-scheme-compile": "apple-app-build",
@@ -392,7 +391,6 @@
     "cmux-next.yml#fast-tier-fleet": "apple-swift-tests",
     "cmux-next.yml#generated-files": "apple-app-build",
     "cmux-next.yml#release-compile": "apple-app-build",
-    "cmux-next.yml#release-compile-fast": "apple-app-build",
     "cmux-next.yml#swift-canary": "apple-app-build",
     "cmux-next.yml#swift-canary-fleet": "apple-app-build",
     "cmux-next.yml#swift-test": "apple-swift-tests",
