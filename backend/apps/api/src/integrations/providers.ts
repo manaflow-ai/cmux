@@ -9,7 +9,7 @@ import type { Env } from "../env.ts"
  * Tokens are returned to the ConnectionDO only, which seals them.
  */
 
-import { effectCall, failed, form, json, MAX_LINKED_REPOS, ProviderError, type Credential, type Http, type ProviderImpl } from "./provider-core.ts"
+import { effectCall, failed, form, json, MAX_LINKED_REPOS, ProviderError, rateLimitMessage, rateLimitWait, type Credential, type Http, type ProviderImpl } from "./provider-core.ts"
 
 import { gmail } from "./gmail.ts"
 import { googleCalendar } from "./google-calendar.ts"
@@ -26,18 +26,51 @@ export const ghHeaders = (token: string) => ({
   "user-agent": "cmux-cloud"
 })
 
+/**
+ * The App's own JWT (nine minutes), signed once and reused per isolate until a minute before it expires, for the
+ * same App id and key: every mint, configure lookup and connect check used to import the key and sign anew.
+ */
+const appJwts = new Map<string, { jwt: string; expires_at: number; key: string }>()
 export const appJwt = async (env: Env) => {
-  const key = await importPKCS8(env.GITHUB_APP_PRIVATE_KEY!, "RS256")
+  const [issuer, pem] = [env.GITHUB_APP_CLIENT_ID!, env.GITHUB_APP_PRIVATE_KEY!]
+  const cached = appJwts.get(issuer)
+  if (cached && cached.key === pem && cached.expires_at - 60_000 > Date.now()) return cached.jwt
   const now = Math.floor(Date.now() / 1000)
-  return new SignJWT({}).setProtectedHeader({ alg: "RS256" }).setIssuer(env.GITHUB_APP_CLIENT_ID!).setIssuedAt(now - 60).setExpirationTime(now + 540).sign(key)
+  const jwt = await new SignJWT({}).setProtectedHeader({ alg: "RS256" }).setIssuer(issuer).setIssuedAt(now - 60).setExpirationTime(now + 540).sign(await importPKCS8(pem, "RS256"))
+  // Only the signed string is shared, never a pending promise: Workers keep I/O per request context.
+  appJwts.set(issuer, { jwt, expires_at: (now + 540) * 1000, key: pem })
+  return jwt
+}
+
+/**
+ * Quota headroom, for Axiom (`msg: github.ratelimit`): GitHub's `x-ratelimit-*` headers on an answer cmux-api got
+ * with the App's JWT (`auth: app`) or an installation token (`auth: installation`, the installation's own budget).
+ * At most one line per installation, auth and resource a minute, and every answer under a tenth of the limit.
+ */
+const headroomLogged = new Map<string, number>()
+export const logGithubHeadroom = (res: Response, at: { readonly installation: number; readonly auth: "app" | "installation"; readonly op: string }) => {
+  const [limit, remaining] = [Number(res.headers.get("x-ratelimit-limit")), Number(res.headers.get("x-ratelimit-remaining"))]
+  if (!Number.isFinite(limit) || !Number.isFinite(remaining) || res.headers.get("x-ratelimit-limit") === null) return
+  const resource = res.headers.get("x-ratelimit-resource") ?? "core"
+  const key = `${at.installation}:${at.auth}:${resource}`
+  const now = Date.now()
+  const low = remaining < limit / 10
+  if (!low && now - (headroomLogged.get(key) ?? 0) < 60_000) return
+  headroomLogged.set(key, now)
+  if (headroomLogged.size > 1000) headroomLogged.delete(headroomLogged.keys().next().value!)
+  const reset = Number(res.headers.get("x-ratelimit-reset"))
+  console.log(JSON.stringify({ msg: "github.ratelimit", installation: at.installation, auth: at.auth, op: at.op, resource, limit, remaining, used: Number(res.headers.get("x-ratelimit-used") ?? limit - remaining), reset_at: Number.isFinite(reset) ? new Date(reset * 1000).toISOString() : null, low, status: res.status }))
 }
 
 /** GitHub narrows an installation token to repository names inside the installation's account and exact permissions (it mints that or refuses). */
 export type TokenNarrowing = { readonly repositories: ReadonlyArray<string>; readonly permissions: Readonly<Record<string, "read" | "write">> }
 
 /** POST /app/installations/{id}/access_tokens with a narrowing body: the raw response, whose refusals github-tokens.ts maps. */
-export const requestInstallationToken = async (env: Env, http: Http, installation: number, narrow: TokenNarrowing): Promise<Response> =>
-  http(new Request(`${GH_API}/app/installations/${installation}/access_tokens`, { method: "POST", headers: { ...ghHeaders(await appJwt(env)), "content-type": "application/json" }, body: JSON.stringify(narrow) }))
+export const requestInstallationToken = async (env: Env, http: Http, installation: number, narrow: TokenNarrowing): Promise<Response> => {
+  const res = await http(new Request(`${GH_API}/app/installations/${installation}/access_tokens`, { method: "POST", headers: { ...ghHeaders(await appJwt(env)), "content-type": "application/json" }, body: JSON.stringify(narrow) }))
+  logGithubHeadroom(res, { installation, auth: "app", op: "mint" })
+  return res
+}
 
 /** A 201's token (never logged), its expiry and the permissions GitHub granted. */
 export const mintedToken = async (res: Response) => {
@@ -57,15 +90,33 @@ export const revokeInstallationToken = async (http: Http, token: string): Promis
  * Per isolate, never stored. Tokens handed to callers are narrowed and kept per principal in the ledger (github-tokens.ts).
  */
 const installationTokens = new Map<number, { token: string; expires_at: number }>()
+/**
+ * Mints in flight, per `http` (one per ConnectionDO, so a shared promise, and the refused Response it may carry,
+ * never crosses a Workers I/O context) and installation: concurrent asks while none is cached share one mint.
+ */
+const inflightFor = <K>(table: WeakMap<Http, Map<K, Promise<string>>>, http: Http) => {
+  let m = table.get(http)
+  if (!m) table.set(http, (m = new Map()))
+  return m
+}
+const installationMintsByHttp = new WeakMap<Http, Map<number, Promise<string>>>()
 export const installationToken = async (env: Env, http: Http, installation: number) => {
   const cached = installationTokens.get(installation)
   if (cached && cached.expires_at - 5 * 60_000 > Date.now()) return cached.token
-  const res = await http(new Request(`${GH_API}/app/installations/${installation}/access_tokens`, { method: "POST", headers: ghHeaders(await appJwt(env)) }))
-  if (!res.ok) throw new InstallationTokenRefused(res)
-  const body = await json(res)
-  const token = String(body.token ?? "")
-  installationTokens.set(installation, { token, expires_at: Date.parse(String(body.expires_at ?? "")) || Date.now() + 50 * 60_000 })
-  return token
+  const installationMints = inflightFor(installationMintsByHttp, http)
+  const running = installationMints.get(installation)
+  if (running) return running
+  const mint = (async () => {
+    const res = await http(new Request(`${GH_API}/app/installations/${installation}/access_tokens`, { method: "POST", headers: ghHeaders(await appJwt(env)) }))
+    logGithubHeadroom(res, { installation, auth: "app", op: "discovery_mint" })
+    if (!res.ok) throw new InstallationTokenRefused(res)
+    const body = await json(res)
+    const token = String(body.token ?? "")
+    installationTokens.set(installation, { token, expires_at: Date.parse(String(body.expires_at ?? "")) || Date.now() + 50 * 60_000 })
+    return token
+  })().finally(() => installationMints.delete(installation))
+  installationMints.set(installation, mint)
+  return mint
 }
 
 /** GitHub refused an installation token: its response rides along, so a caller can read the refusal (github-tokens.ts). */
@@ -83,18 +134,31 @@ export const forgetInstallationToken = (installation: number, token: string) => 
 
 /** Comment mutations use a separate cache: a repository-list token must never supply a write. */
 const commentTokens = new Map<string, { token: string; expires_at: number }>()
+const commentMintsByHttp = new WeakMap<Http, Map<string, Promise<string>>>()
 const commentTokenKey = (installation: number, repo: string) => `${installation}:${repo.toLowerCase()}:issues:write`
 const commentToken = async (env: Env, http: Http, installation: number, repo: string) => {
   const key = commentTokenKey(installation, repo)
   const cached = commentTokens.get(key)
   if (cached && cached.expires_at - 5 * 60_000 > Date.now()) return cached.token
-  const res = await requestInstallationToken(env, http, installation, { repositories: [repo.split("/")[1]!], permissions: { issues: "write" } })
-  if (!res.ok) throw failed("github", res, "installation token")
-  const body = await json(res)
-  const token = String(body.token ?? "")
-  commentTokens.set(key, { token, expires_at: Date.parse(String(body.expires_at ?? "")) || Date.now() + 50 * 60_000 })
-  return token
+  // Concurrent comments on one repository share one mint.
+  const commentMints = inflightFor(commentMintsByHttp, http)
+  const running = commentMints.get(key)
+  if (running) return running
+  const mint = (async () => {
+    const res = await requestInstallationToken(env, http, installation, { repositories: [repo.split("/")[1]!], permissions: { issues: "write" } })
+    if (!res.ok) throw failed("github", res, "installation token")
+    const body = await json(res)
+    const token = String(body.token ?? "")
+    commentTokens.set(key, { token, expires_at: Date.parse(String(body.expires_at ?? "")) || Date.now() + 50 * 60_000 })
+    return token
+  })().finally(() => commentMints.delete(key))
+  commentMints.set(key, mint)
+  return mint
 }
+
+/** A GitHub App installation's `permissions` as a connection's scopes_granted (`contents:write`, sorted), at link time and on webhooks. */
+export const githubScopesOf = (permissions: Readonly<Record<string, unknown>>): Array<string> =>
+  Object.entries(permissions).filter((e): e is [string, string] => typeof e[1] === "string").map(([k, v]) => `${k}:${v}`).sort()
 
 export const github: ProviderImpl = {
   configured: (env) => Boolean(env.GITHUB_APP_SLUG && env.GITHUB_APP_CLIENT_ID && env.GITHUB_APP_CLIENT_SECRET && env.GITHUB_APP_PRIVATE_KEY),
@@ -121,6 +185,9 @@ export const github: ProviderImpl = {
       })
     )
     const t = await json(tok)
+    // A rate-limited exchange is a wait, not an invalid link.
+    const limited = tok.ok ? null : rateLimitWait(tok, Date.now())
+    if (limited !== null) throw new ProviderError("provider.error", rateLimitMessage("github", limited), true, tok.status)
     if (!tok.ok || typeof t.access_token !== "string") throw new ProviderError("integration.state_invalid", "GitHub code exchange failed")
     const userToken = t.access_token
     const res = await http(new Request(`${GH_API}/user/installations?per_page=100`, { headers: ghHeaders(userToken) }))
@@ -129,6 +196,10 @@ export const github: ProviderImpl = {
     const inst = list.find((i) => i.id === installation)
     if (!inst) throw new ProviderError("integration.state_invalid", "this GitHub user cannot access that installation")
     const login = inst.account?.login ?? ""
+    // The linking user's GitHub account (GET /user), read at most once per link.
+    let me: Promise<{ ok: boolean; body: Record<string, unknown> }> | undefined
+    const linkingUser = () =>
+      (me ??= http(new Request(`${GH_API}/user`, { headers: ghHeaders(userToken) })).then(async (r) => ({ ok: r.ok, body: await json(r) })))
 
     if (p.policy.requireOrgAdmin) {
       if (inst.account?.type === "Organization") {
@@ -137,8 +208,8 @@ export const github: ProviderImpl = {
         const mb = await json(m)
         if (!m.ok || mb.state !== "active" || mb.role !== "admin") throw new ProviderError("integration.state_invalid", `the team policy requires a ${login} organization admin to link GitHub`)
       } else {
-        const me = await json(await http(new Request(`${GH_API}/user`, { headers: ghHeaders(userToken) })))
-        if (String(me.login ?? "").toLowerCase() !== login.toLowerCase()) throw new ProviderError("integration.state_invalid", "the team policy requires the account owner to link GitHub")
+        const { body: user } = await linkingUser()
+        if (String(user.login ?? "").toLowerCase() !== login.toLowerCase()) throw new ProviderError("integration.state_invalid", "the team policy requires the account owner to link GitHub")
       }
     }
 
@@ -157,11 +228,20 @@ export const github: ProviderImpl = {
       }
       repos.sort()
     }
+    // Who linked, so a repository this same GitHub user later adds to the installation joins the recorded
+    // list (connection-do.ts githubInstallationEvent). Unreadable: the connection records no id and an
+    // added repository waits for a relink, as before.
+    let linkedBy: number | undefined
+    if (repos !== null) {
+      const user = await linkingUser().catch(() => undefined)
+      const id = user?.ok ? user.body.id : undefined
+      if (typeof id === "number" && Number.isSafeInteger(id) && id > 0) linkedBy = id
+    }
     return {
       account: { key: `github:installation:${installation}`, name: login || String(installation), ...(inst.account?.html_url ? { url: inst.account.html_url } : {}) },
-      scopes_granted: Object.entries(inst.permissions ?? {}).map(([k, v]) => `${k}:${v}`).sort(),
+      scopes_granted: githubScopesOf(inst.permissions ?? {}),
       credential: { kind: "github_installation", installation_id: installation },
-      resources: { repos }
+      resources: { repos, ...(linkedBy !== undefined ? { linked_by_github_id: linkedBy } : {}) }
     }
   },
   call: async (env, http, credential, op, params, beforeEffect) => {
