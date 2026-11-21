@@ -62,6 +62,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-signed-bundle",
  "cmux-source-scan",
+ "cmux-stack-auth",
  "cmux-supervise-core",
  "cmux-tailnet",
  "cmux-transport",

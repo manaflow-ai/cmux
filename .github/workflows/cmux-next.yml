@@ -118,6 +118,9 @@ on:
       # The web bundles' sources (build output since cx-vn5; the package tests
       # read the built pages; cmux_next_route.py BUNDLE_INPUTS).
       - webviews/src/**
+      # acpmux embeds the production pane: its binaries' tree key holds all of webviews/
+      # and private-bun.sh (scripts/cmux-next/cmux-tui-tree-inputs.txt).
+      - webviews/**
       - webviews/scripts/**
       - webviews/package.json
       - webviews/bun.lock
@@ -485,6 +488,10 @@ on:
       # The web bundles' sources (build output since cx-vn5; the package tests
       # read the built pages; cmux_next_route.py BUNDLE_INPUTS).
       - webviews/src/**
+      # acpmux embeds the production pane: its binaries' tree key holds all of webviews/
+      # and private-bun.sh (scripts/cmux-next/cmux-tui-tree-inputs.txt).
+      - webviews/**
+      - scripts/cmux-next/private-bun.sh
       - webviews/scripts/**
       - webviews/package.json
       - webviews/bun.lock

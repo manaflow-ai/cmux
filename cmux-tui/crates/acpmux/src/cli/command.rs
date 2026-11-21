@@ -551,6 +551,9 @@ pub enum Command {
     },
     /// Print the dashboard URL and open it in the browser.
     Web {
+        /// Open the shipped NEXT agent pane instead of the dashboard.
+        #[arg(long)]
+        app: bool,
         /// Only print the URL.
         #[arg(long)]
         no_open: bool,
