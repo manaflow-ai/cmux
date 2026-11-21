@@ -14,12 +14,15 @@ extension NSWindow {
     /// page has the keyboard and leaves this window main (`ChromiumPageWindowMain`). The focus model's
     /// `windowKey` is false then (only the window AppKit made key holds it); a "does the person see this
     /// window" rule asks this. A page window with no parent yet acts for the main window, as
-    /// ``KeyWindowRole`` resolves it. A panel, sheet or other window that holds the key does not count.
-    @MainActor public func holdsKeyboard(key: NSWindow?) -> Bool {
+    /// ``KeyWindowRole`` resolves it, and so for `active`, the window the person works in: a chat still loading
+    /// when its pane was focused has a page window with the keys before it is attached here, and that pane is the
+    /// one looked at from the focus on, not from the attach (cmux#46908). A panel, sheet or other window that holds
+    /// the key does not count.
+    @MainActor public func holdsKeyboard(key: NSWindow?, active: Bool = false) -> Bool {
         var current = key
         while let window = current, window !== self {
             guard window.isChromiumPageWindow, window.sheetParent == nil else { return false }
-            guard let parent = window.parent else { return isMainWindow }
+            guard let parent = window.parent else { return isMainWindow || active }
             current = parent
         }
         return current != nil
