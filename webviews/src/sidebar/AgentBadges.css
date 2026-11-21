@@ -40,7 +40,7 @@
 .abg-tab {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--grid-gap);
   flex: none;
   width: 168px;
   height: 24px;
@@ -72,7 +72,7 @@
 /* The sidebar rows. */
 .abg-sidebar {
   width: 260px;
-  padding: 6px 0;
+  padding: var(--grid-gap) 0;
   border-radius: 8px;
   background: var(--abg-tone);
 }
@@ -83,14 +83,14 @@
   column-gap: 8px;
   align-items: center;
   height: var(--abg-row);
-  margin-inline: 6px;
-  padding-inline: 10px;
+  margin-inline: var(--grid-gap);
+  padding-inline: var(--grid-composer-block-inset);
   border-radius: 8px;
 }
 .abg-row::before {
   content: "";
   position: absolute;
-  inset: 2px 0;
+  inset: var(--grid-half-step) 0;
   border-radius: 8px;
 }
 .abg-row > :not(.abg-beam) {
@@ -136,7 +136,7 @@
   display: inline-grid;
   align-items: center;
   justify-items: end;
-  font-size: var(--text-caption, 11px);
+  font-size: var(--text-caption);
   line-height: var(--abg-badge);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -145,7 +145,7 @@
   grid-area: 1 / 1;
   height: var(--abg-badge);
   box-sizing: border-box;
-  padding: 0 6px;
+  padding: 0 var(--grid-base);
   border-radius: calc(var(--abg-badge) / 2);
 }
 .abg-sizer {
@@ -176,19 +176,19 @@
 .abg-countdot .abg-sizer {
   min-width: var(--abg-badge);
   padding: 0 4px;
-  font-size: 10px;
-  font-weight: 700;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-strong);
   text-align: center;
 }
 .abg-countdot .abg-face {
-  color: #fff;
+  color: var(--ds-color-on-accent);
   background: var(--abg-blue);
 }
 
 /* One tinted status pill per row; the tone carries the state, the words say it. */
 .abg-pill .abg-sizer,
 .abg-pill .abg-face {
-  font-weight: 500;
+  font-weight: var(--weight-emphasis);
 }
 .abg-pill[data-tone="running"] {
   --abg-pill-tone: var(--abg-green);
@@ -209,9 +209,9 @@
  * says Running. */
 .abg-beam {
   position: absolute;
-  inset: 2px 0;
+  inset: var(--grid-half-step) 0;
   width: 100%;
-  height: calc(100% - 4px);
+  height: calc(100% - 2 * var(--grid-half-step));
   overflow: visible;
   pointer-events: none;
 }
@@ -239,7 +239,7 @@
 .abg-beam-seg[data-part="head"] {
   --abg-from: -13;
   stroke-dasharray: 3 97;
-  stroke: color-mix(in srgb, var(--abg-green) 55%, #fff);
+  stroke: color-mix(in srgb, var(--abg-green) 55%, var(--ds-color-on-accent));
 }
 @keyframes abg-beam {
   from {
@@ -271,7 +271,7 @@
   margin: 0;
 }
 .abg-caption {
-  font-size: var(--text-caption, 11px);
+  font-size: var(--text-caption);
   color: var(--abg-ink-3);
 }
 .abg-frame .abg-strip {
