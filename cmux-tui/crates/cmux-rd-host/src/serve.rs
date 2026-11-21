@@ -11,7 +11,9 @@
 //! On Linux the display is the session's X display (`--display`, else `$DISPLAY`, else
 //! `:0`; `--xauthority` or `XAUTHORITY` for its cookie) and the capture backend is
 //! `capture_backend::CaptureBackend` (`--capture`, else portal in a Wayland session).
-//! stdin, later: {"candidate":"host 192.168.1.4:51000"} or {"stop":true}
+//! stdin, later: {"candidate":"host 192.168.1.4:51000"} or {"stop":true}, and
+//!   {"exclude_windows":[123,456]}: the app's window ids (CGWindowID) the capture leaves out,
+//!   the whole list each time, sent before the capture starts and on every change (macOS)
 //! stdout: {"key":"<this side's session key>"} first (the app signs it for the
 //!   viewer), then {"candidate":".."}, {"candidates_done":true},
 //!   {"connected":true}, {"path":{"kind":"direct_wan","rtt_ms":3.2}},
@@ -79,6 +81,9 @@ struct Setup {
     /// scope alone decides.
     #[serde(default)]
     floor: Option<FloorLine>,
+    /// The person sharing turned clipboard text sync on for this session (default off).
+    #[serde(default)]
+    clipboard: bool,
 }
 
 #[derive(Deserialize)]
@@ -90,6 +95,11 @@ struct Later {
     /// The floor changed: control passed to or from this session.
     #[serde(default)]
     floor: Option<FloorLine>,
+    /// SECURITY: the app windows only the person at this Mac may see (the join consent ask, a
+    /// revealed password), which the capture must leave out; the whole list, replacing the last.
+    #[serde(default)]
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    exclude_windows: Option<Vec<u32>>,
 }
 
 /// Prints one line for the app (`AppLine`, the type the app's line reader reads back).
@@ -275,6 +285,10 @@ impl ServeCarrier {
             }
             if let Some(c) = later.candidate.as_deref().and_then(Candidate::from_wire) {
                 self.link.net.add_remote_candidate(c);
+            }
+            #[cfg(target_os = "macos")]
+            if let Some(ids) = later.exclude_windows {
+                crate::mac::capture::set_excluded_windows(ids);
             }
         }
         Ok(())
@@ -542,6 +556,12 @@ fn serve_session(
     if crate::desktop::reports_cursor() {
         host_caps.push(cmux_rd_core::service::caps::CURSOR);
     }
+    // Clipboard text only when the app's setup turned it on and this host has a clipboard it
+    // can watch (macOS). A `view` scope session still never applies or sends one: it never
+    // holds control (clipboard.rs).
+    if crate::clipboard::offered(setup.clipboard) {
+        host_caps.push(cmux_rd_core::service::caps::CLIPBOARD_TEXT);
+    }
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
         Err(refusal) => {
@@ -638,6 +658,16 @@ fn serve_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clipboard_sync_is_off_unless_the_setup_turns_it_on() {
+        let base = r#"{"session":"s","peer_key":"00","viewer":{"user":"u","install":"i"},"scope":"control"}"#;
+        let off: Setup = serde_json::from_str(base).expect("setup");
+        assert!(!off.clipboard);
+        let on = r#"{"session":"s","peer_key":"00","viewer":{"user":"u","install":"i"},"scope":"control","clipboard":true}"#;
+        let on: Setup = serde_json::from_str(on).expect("setup");
+        assert!(on.clipboard);
+    }
 
     /// A writer that keeps what reached it only at a flush, as a pipe's reader sees it.
     #[derive(Default)]
@@ -830,5 +860,16 @@ mod tests {
         )
         .unwrap();
         assert_eq!(setup.floor, None);
+    }
+
+    #[test]
+    fn later_lines_carry_the_excluded_windows() {
+        let later: Later = serde_json::from_str(r#"{"exclude_windows":[123,456]}"#).unwrap();
+        assert_eq!(later.exclude_windows, Some(vec![123, 456]));
+        assert!(!later.stop && later.candidate.is_none());
+        let emptied: Later = serde_json::from_str(r#"{"exclude_windows":[]}"#).unwrap();
+        assert_eq!(emptied.exclude_windows, Some(Vec::new()));
+        let stop: Later = serde_json::from_str(r#"{"stop":true}"#).unwrap();
+        assert_eq!(stop.exclude_windows, None);
     }
 }
