@@ -3327,6 +3327,7 @@ jobs:
             scripts/ci/deadline_http.py
             scripts/ci/upload-r2-object.py
             scripts/ci/gh_budget_wait.sh
+            scripts/ci/ensure-gh-attestation.sh
             cmux-tui/scripts/verify_published_manifest.py
           sparse-checkout-cone-mode: false
 
@@ -3384,6 +3385,8 @@ jobs:
           SIGNER: ${{ github.repository }}/.github/workflows/cmux-tui-artifacts.yml
         run: |
           set -euo pipefail
+          # A cmux-fleet-linux pool VM's apt gh (2.45) has no `gh attestation` (run 44833264148, job 136690901390).
+          source scripts/ci/ensure-gh-attestation.sh
           source="$(python3 -c 'import json; print(json.load(open("assets/cmux-tui/manifest.json"))["adoptedFrom"]["commit"])')"
           mv assets/cmux-tui/source-manifest.json "$RUNNER_TEMP/source-manifest.json"
           digest="$(sha256sum "$RUNNER_TEMP/source-manifest.json" | awk '{print $1}')"
