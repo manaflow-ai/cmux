@@ -48,6 +48,11 @@ if [[ -x "$repo/scripts/cmux-next/pin-cmux-tui.sh" ]]; then
       printf '%s\n' "$path"
       exit 0
     fi
+    # The fetch worked but the cache did not take it: say why (build-acpmux.sh's own reason), not "could not be
+    # fetched" (air-blue, 2026-11-21: the fetched acpmux sat verified beside cmux-tui while this said it was never fetched).
+    why="$(cd "$repo" && "$repo/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path 2>&1 >/dev/null || true)"
+    echo "error: the published acpmux of this checkout's cmux-tui tree was fetched, but build-acpmux.sh did not take it into its cache: ${why:-it gave no reason}; set CMUX_NEXT_ACPMUX_BIN to the fetched file to go on" >&2
+    exit 1
   fi
 fi
 echo "error: no cached acpmux for this checkout, this machine never runs Cargo, and no published acpmux of its cmux-tui tree could be fetched; build through nx-remote or the fleet, or set CMUX_NEXT_ACPMUX_BIN" >&2

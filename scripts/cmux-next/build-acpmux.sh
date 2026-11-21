@@ -81,6 +81,16 @@ cache_bin="$cache_dir/acpmux"
 
 sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
 
+# The architectures of a Mach-O, as `lipo -archs` names them. A Mac with no developer tools has only the
+# /usr/bin/lipo stub, which fails, so `file` answers there; empty when neither can read it.
+binary_archs() {
+  local out
+  if out="$(lipo -archs "$1" 2>/dev/null)" && [[ -n "$out" ]]; then printf '%s\n' "$out"; return 0; fi
+  out="$(file -b "$1" 2>/dev/null || true)"
+  [[ "$out" == *Mach-O* ]] || return 0
+  printf '%s\n' "$(grep -oE 'arm64|x86_64' <<<"$out" | sort -u | tr '\n' ' ' | sed 's/ $//')"
+}
+
 # An nx-remote --app-from-fleet job (NX_APP set, for example
 # `nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA -- scripts/cmux-next/build-acpmux.sh --print-path`):
 # the fleet-built app carries acpmux in Resources/bin, with acpmux.version
@@ -91,7 +101,7 @@ sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
 if [[ -n "${NX_APP:-}" && ! -x "$cache_bin" ]]; then
   app_bin="$NX_APP/Contents/Resources/bin/acpmux"
   app_commit="$(awk -F= '$1 == "commit" { print $2; exit }' "$NX_APP/Contents/Resources/bin/acpmux.version" 2>/dev/null || true)"
-  app_archs="$(lipo -archs "$app_bin" 2>/dev/null || true)"
+  app_archs="$(binary_archs "$app_bin")"
   why=""
   if [[ ! -f "$app_bin" || -L "$app_bin" || ! -x "$app_bin" ]]; then
     why="no regular executable at $app_bin"
@@ -122,12 +132,15 @@ fi
 if [[ ! -x "$cache_bin" && -x "$repo_root/scripts/cmux-next/pin-cmux-tui.sh" ]]; then
   tree_bin="$("$repo_root/scripts/cmux-next/pin-cmux-tui.sh" acpmux-path 2>/dev/null || true)"
   if [[ -n "$tree_bin" && -f "$tree_bin" && ! -L "$tree_bin" && -x "$tree_bin" ]]; then
-    tree_archs="$(lipo -archs "$tree_bin" 2>/dev/null || true)"
+    tree_archs="$(binary_archs "$tree_bin")"
     missing=""
     for arch in $archs; do
       [[ " $tree_archs " == *" $arch "* ]] || missing+=" $arch"
     done
-    if [[ -z "$missing" ]]; then
+    if [[ -n "$missing" ]]; then
+      # Said, not silent: resolve-acpmux.sh reports this line instead of "could not be fetched".
+      echo "warning: not using the same-tree acpmux $tree_bin: it has architectures ${tree_archs:-unknown (neither lipo nor file could read it)}, this build needs $archs" >&2
+    else
       mkdir -p "$cache_dir"
       cp -f "$tree_bin" "$cache_bin.tmp.$$"
       chmod 755 "$cache_bin.tmp.$$"
