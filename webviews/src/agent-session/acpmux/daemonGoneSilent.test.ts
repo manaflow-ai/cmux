@@ -233,6 +233,80 @@ test("the bridge's own answers every 4 s do not put off the probe of a silent da
   }
 });
 
+// Leo's Mac at load 130, its daemon at 228% CPU: the probe's answer came late, while the daemon
+// kept answering the pane's other reads and streaming its chats. The pane cut the socket 15 s after
+// the probe went, every pane of that daemon at once ("the connection between the daemon and the
+// display broke"). A frame only the daemon makes proves it alive, probe answered or not.
+test("a daemon whose probe answer is late but that answers other reads keeps its socket", async () => {
+  const { client, socket, request, lost, mockHost } = await connected(["_acpmux/events", "_acpmux/peers"]);
+  try {
+    jest.useFakeTimers();
+    const read = request("_acpmux/events", { sessionId: mockHost.sessionId, afterSeq: 0, limit: 1 }, 1_000);
+    read.catch(() => undefined);
+    let answered = 0;
+    for (let second = 0; second < 60; second++) {
+      // The daemon answers these: a chat's bookmarks, read as the pane draws it. 7 s apart, so the
+      // probe goes out between them and stays unanswered past its 15 s bound.
+      if (second % 7 === 0)
+        void request("_acpmux/bookmark_get", { sessionId: mockHost.sessionId }, 1_000).then(() => (answered += 1));
+      jest.advanceTimersByTime(1_000);
+      await settle();
+    }
+    expect(socket.sent.some((raw) => raw.includes('"_acpmux/peers"'))).toBe(true);
+    expect(answered).toBeGreaterThan(5);
+    expect(lost()).toBe(0);
+    expect(socket.readyState).toBe(1);
+  } finally {
+    client.close();
+  }
+});
+
+test("a daemon whose probe answer is late but that streams keeps its socket", async () => {
+  const { client, socket, request, lost, mockHost } = await connected(["_acpmux/events", "_acpmux/peers"]);
+  try {
+    jest.useFakeTimers();
+    const read = request("_acpmux/events", { sessionId: mockHost.sessionId, afterSeq: 0, limit: 1 }, 1_000);
+    read.catch(() => undefined);
+    for (let second = 0; second < 60; second++) {
+      // Who is in another chat, as the daemon sends it: never a frame the bridge makes.
+      const presence = { jsonrpc: "2.0", method: "_acpmux/presence", params: { sessionId: "other", viewers: [] } };
+      socket.onmessage?.({ data: JSON.stringify(presence) });
+      jest.advanceTimersByTime(1_000);
+      await settle();
+    }
+    expect(lost()).toBe(0);
+    expect(socket.readyState).toBe(1);
+  } finally {
+    client.close();
+  }
+});
+
+test("frames the app's host makes itself do not keep a silent daemon's socket", async () => {
+  const { client, socket, request, lost, mockHost } = await connected([]);
+  try {
+    jest.useFakeTimers();
+    socket.silence();
+    const read = request("_acpmux/events", { sessionId: mockHost.sessionId, afterSeq: 0, limit: 1 }, 1_000);
+    read.catch(() => undefined);
+    for (let second = 0; second < 25 && lost() === 0; second++) {
+      // The host's lag notice (AcpmuxPaneShedding.swift) and its status answer (an error, no daemon).
+      const lagged = {
+        jsonrpc: "2.0",
+        method: "_acpmux/lagged",
+        params: { dropped: 1, reason: "host_queue_full", watch: true },
+      };
+      socket.onmessage?.({ data: JSON.stringify(lagged) });
+      void request("_acpmux/status", {}, 1_000).catch(() => undefined);
+      jest.advanceTimersByTime(1_000);
+      await settle();
+    }
+    expect(lost()).toBe(1);
+    await expect(read).rejects.toMatchObject({ interrupted: true });
+  } finally {
+    client.close();
+  }
+});
+
 // A chat switch after acpmux restarted: the pane sent its attach, detach and transcript reads with
 // no deadline, so none of them ever counted as waiting and the probe above never ran. The click
 // did nothing and the pane kept the dead socket until the app restarted (ask-fdfc5d8abb).
