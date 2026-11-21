@@ -369,9 +369,6 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         var windowY: CGFloat
         var width: CGFloat
         var offsetY: CGFloat
-        /// The next row's edge in the window (the committed-frame measure: the row it follows when the
-        /// reference row itself changes height).
-        var nextY: CGFloat?
     }
     private var shiftSample: ShiftSample?
     /// The committed-frame measure's last sample, where the last committed frame drew the list, and
@@ -1049,39 +1046,24 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         let frame = listFrame
         committedFrames += 1
         if probe.shiftDetail != nil {
-            let nextY = current?.next.flatMap { windowY(of: $0, bottom: current?.bottom ?? false) }
+            let nextY = current?.next.flatMap { windowY(of: $0, bottom: false) }
             if drawnFrames.count == 6 { drawnFrames.removeFirst() }
             drawnFrames.append(DrawnFrame(number: committedFrames, read: current?.windowY ?? .nan, next: nextY ?? .nan,
                                           offset: offsetY, explained: ledger.committedExplained, spring: spring.isRunning,
                                           trail: commitTrail))
         }
         defer {
-            committedSample = current.map { ShiftSample(id: $0.id, next: $0.next, gap: $0.gap, bottom: $0.bottom, windowY: $0.windowY, width: width, offsetY: offsetY, nextY: nextY) }
+            committedSample = current.map { ShiftSample(id: $0.id, next: $0.next, gap: $0.gap, bottom: $0.bottom, windowY: $0.windowY, width: width, offsetY: offsetY) }
             committedFrame = frame
             ledger.resetCommitted()
             commitTrail.removeAll(keepingCapacity: true)
         }
         guard let last = committedSample, abs(last.width - width) < 0.5,
-              let indexPath = dataSource.indexPath(for: last.id), var now = windowY(of: last.id, bottom: last.bottom) else { return }
-        // A reference row that was not on the list in the last drawn frame (its attributes put it
-        // outside the list's bounds: a windowed model's swap between the offset write and the layout
-        // that answers it) was not something the reader saw: no shift to measure.
-        let shown = collectionView.convert(collectionView.bounds, to: nil)
-        guard last.windowY > shown.minY - 1, last.windowY < shown.maxY + 1 else { return }
-        var was = last.windowY
+              let indexPath = dataSource.indexPath(for: last.id), let now = windowY(of: last.id, bottom: last.bottom) else { return }
         if let next = last.next, let gap = last.gap {
             guard let nextPath = dataSource.indexPath(for: next), nextPath.item - indexPath.item == gap else { return }
-            // The reference row itself changed height (a row straddling the reader's edge that grew
-            // or shrank): one of its two edges moves with its size, not with what the reader sees.
-            // Take the edge that moved less (its own top, or the next row's); a move of everything
-            // the reader sees moves both, and still counts.
-            if let lastNext = last.nextY, let nextNow = windowY(of: next, bottom: last.bottom),
-               abs((nextNow - now) - (lastNext - last.windowY)) > 0.5,
-               abs(nextNow - lastNext + ledger.committedExplained) < abs(now - last.windowY + ledger.committedExplained) {
-                was = lastNext
-                now = nextNow
-            }
         }
+        let was = last.windowY
         let shift = (now - was) + ledger.committedExplained
         report(shift)
         if abs(shift) > 0.5, let detail = probe.shiftDetail {
