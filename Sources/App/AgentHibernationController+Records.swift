@@ -9,7 +9,8 @@ extension AgentHibernationRecord {
             !containsUnrelatedProcess &&
             !processIDs.isEmpty &&
             processIDs.count <= AgentHibernationController.maximumScopedProcessTerminationCount &&
-            Set(processIdentities.keys) == processIDs
+            Set(processIdentities.keys) == processIDs &&
+            cmuxHelperProcessIDs.isSubset(of: processIDs)
     }
 
     /// Background work the transcript records before this belongs to an earlier
@@ -36,7 +37,8 @@ extension AgentHibernationRecord {
                 !hasLiveProcess &&
                 panelProcessIDs.isEmpty &&
                 processIDs.isEmpty &&
-                processIdentities.isEmpty
+                processIdentities.isEmpty &&
+                cmuxHelperProcessIDs.isEmpty
         case .running:
             return hasPressureSafeProcessEvidence
         case .unknown:
@@ -54,13 +56,15 @@ extension RestorableAgentSessionIndex.Entry {
                 processIDs.isEmpty &&
                 hibernationPanelProcessIDs.isEmpty &&
                 terminationProcessIDs.isEmpty &&
-                terminationProcessIdentities.isEmpty
+                terminationProcessIdentities.isEmpty &&
+                cmuxHelperProcessIDs.isEmpty
         case .running:
             return !processIDs.isEmpty &&
                 !containsUnrelatedProcess &&
                 !terminationProcessIDs.isEmpty &&
                 terminationProcessIDs.count <= AgentHibernationController.maximumScopedProcessTerminationCount &&
-                Set(terminationProcessIdentities.keys) == terminationProcessIDs
+                Set(terminationProcessIdentities.keys) == terminationProcessIDs &&
+                cmuxHelperProcessIDs.isSubset(of: terminationProcessIDs)
         case .unknown:
             return false
         }
@@ -136,6 +140,7 @@ extension AppDelegate {
                             panelProcessIDs: processEntry?.hibernationPanelProcessIDs ?? [],
                             processIDs: processEntry?.terminationProcessIDs ?? [],
                             processIdentities: processEntry?.terminationProcessIdentities ?? [:],
+                            cmuxHelperProcessIDs: processEntry?.cmuxHelperProcessIDs ?? [],
                             processLiveness: processEntry?.processLiveness ?? .unknown
                         )
                     )

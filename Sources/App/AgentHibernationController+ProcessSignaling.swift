@@ -91,8 +91,11 @@ extension AgentHibernationController {
                 return .exited
             }
         }
+        // A refreshed epoch can hold only cmux helpers once the agent has
+        // exited; each still has to match its own scope below.
         guard terminations.count <= maximumScopedProcessTerminationCount,
-              commonTTYDevice(in: terminations) != nil else {
+              terminations.allSatisfy(\.isCmuxHelper) ||
+                commonTTYDevice(in: terminations) != nil else {
             return .rejected
         }
 
@@ -119,18 +122,15 @@ extension AgentHibernationController {
         }
 
         guard terminations.allSatisfy({ termination in
-                  guard let ttyDevice = termination.ttyDevice else {
-                      return false
-                  }
-                  return processTTYDeviceProvider(
-                      pid_t(termination.processID)
-                  ) == ttyDevice
+                  termination.terminalStillMatches(
+                      processTTYDeviceProvider(pid_t(termination.processID))
+                  )
               }),
               terminations.allSatisfy({ termination in
-                  processArgumentsProvider(termination.processID)?.matchesCMUXScope(
-                      workspaceId: processScopeKey.workspaceId,
-                      surfaceId: processScopeKey.panelId
-                  ) == true
+                  termination.argumentsStillMatch(
+                      processArgumentsProvider(termination.processID),
+                      processScopeKey: processScopeKey
+                  )
               }),
               terminations.allSatisfy({ termination in
                   let processID = pid_t(termination.processID)
@@ -149,13 +149,10 @@ extension AgentHibernationController {
         return await MainActor.run {
             guard terminations.allSatisfy({ termination in
                       let processID = pid_t(termination.processID)
-                      guard let ttyDevice = termination.ttyDevice else {
-                          return false
-                      }
                       return processIdentityProvider(processID) ==
                             termination.processIdentity &&
                           processGroupProvider(processID) == termination.processGroupID &&
-                          processTTYDeviceProvider(processID) == ttyDevice
+                          termination.terminalStillMatches(processTTYDeviceProvider(processID))
                   }),
                   signalableProcessGroupIDs.allSatisfy({ processGroupID in
                       guard let expectedLeader =

@@ -71,11 +71,15 @@ actor AgentHibernationProcessSnapshotCoordinator {
         }
     }
 
+    /// - Parameter knownSurvivors: the panel's processes that the census
+    ///   allowed but does not terminate: the agent's shell ancestors, such as
+    ///   `login` and the shell, which stay on the terminal until it closes.
     func refreshedExitEpoch(
         processGroupLeaders: [pid_t: AgentPIDProcessIdentity],
         processScopeKey: AgentHibernationPanelKey?,
         ttyDevice: Int64?,
-        excluding exitedIdentities: Set<AgentPIDProcessIdentity>
+        excluding exitedIdentities: Set<AgentPIDProcessIdentity>,
+        knownSurvivors: Set<AgentPIDProcessIdentity> = []
     ) async -> AgentHibernationProcessExitEpoch? {
         guard let snapshot = await nextSnapshot(), snapshot.enumerationIsComplete,
               !Task.isCancelled else { return nil }
@@ -87,7 +91,8 @@ actor AgentHibernationProcessSnapshotCoordinator {
             processArgumentsProvider: processArgumentsProvider,
             processIdentityProvider: processIdentityProvider,
             processGroupProvider: processGroupProvider,
-            excluding: exitedIdentities
+            excluding: exitedIdentities,
+            knownSurvivors: knownSurvivors
         )
     }
 
@@ -155,7 +160,8 @@ actor AgentHibernationProcessSnapshotCoordinator {
         processArgumentsProvider: ProcessArgumentsProvider,
         processIdentityProvider: ProcessIdentityProvider,
         processGroupProvider: ProcessGroupProvider,
-        excluding exitedIdentities: Set<AgentPIDProcessIdentity>
+        excluding exitedIdentities: Set<AgentPIDProcessIdentity>,
+        knownSurvivors: Set<AgentPIDProcessIdentity>
     ) -> AgentHibernationProcessExitEpoch? {
         var authorizedLeaders: [pid_t: AgentPIDProcessIdentity] = [:]
         for (processGroupID, leaderIdentity) in processGroupLeaders {
@@ -184,9 +190,52 @@ actor AgentHibernationProcessSnapshotCoordinator {
                 AgentHibernationController.maximumScopedProcessTerminationCount else {
             return nil
         }
+        // Three kinds of listed process are no part of the next epoch, and
+        // are set aside before any scope check:
+        // - an exited generation not yet reaped, whose argv can no longer be
+        //   read;
+        // - one of the panel's known survivors (its `login` and shell), still
+        //   the exact generation the caller recorded. It stays on the
+        //   terminal until the terminal closes, and `login` is setuid, so its
+        //   argv cannot be read either;
+        // - the shell's own work in a known survivor's process group, such as
+        //   the command substitutions that draw its next prompt once the agent
+        //   exits. It ends with the shell, and often exits before its argv
+        //   can be read. A job the shell starts gets a group of its own.
+        // Each is outside the agent's groups and still the generation the
+        // snapshot listed. Anything else on the terminal or in the agent's
+        // groups still has to pass every check below.
+        let survivorProcessGroupIDs = Set(knownSurvivors.compactMap { survivor -> Int? in
+            guard let leader = snapshot.process(pid: Int(survivor.pid)),
+                  leader.processIdentity == survivor,
+                  leader.processGroupID == Int(survivor.pid),
+                  authorizedLeaders[survivor.pid] == nil else {
+                return nil
+            }
+            return Int(survivor.pid)
+        })
+        let settledProcessIDs = observedProcessIDs.filter { processID in
+            guard let process = snapshot.process(pid: processID),
+                  let capturedIdentity = process.processIdentity else {
+                return false
+            }
+            if exitedIdentities.contains(capturedIdentity) {
+                return true
+            }
+            guard let processGroupID = process.processGroupID,
+                  authorizedLeaders[pid_t(processGroupID)] == nil,
+                  knownSurvivors.contains(capturedIdentity) ||
+                    survivorProcessGroupIDs.contains(processGroupID) else {
+                return false
+            }
+            let currentIdentity = processIdentityProvider(pid_t(processID))
+            return currentIdentity == nil || currentIdentity == capturedIdentity
+        }
+        let candidateProcessIDs = observedProcessIDs.subtracting(settledProcessIDs)
         var validatedIdentities: [Int: AgentPIDProcessIdentity] = [:]
+        var cmuxHelperProcessIDs: Set<Int> = []
         if let processScopeKey {
-            guard observedProcessIDs.allSatisfy({ processID in
+            guard candidateProcessIDs.allSatisfy({ processID in
                 guard let process = snapshot.process(pid: processID),
                       let capturedIdentity = process.processIdentity,
                       let currentIdentity = processIdentityProvider(pid_t(processID)),
@@ -200,6 +249,17 @@ actor AgentHibernationProcessSnapshotCoordinator {
                     return false
                 }
                 validatedIdentities[processID] = currentIdentity
+                // A detached helper leads its own authorized group; it has
+                // no terminal to match.
+                if process.ttyDevice == nil,
+                   process.processGroupID == processID,
+                   CmuxAgentHelperProcess.isRegistered(
+                       arguments,
+                       workspaceId: processScopeKey.workspaceId,
+                       surfaceId: processScopeKey.panelId
+                   ) {
+                    cmuxHelperProcessIDs.insert(processID)
+                }
                 return true
             }) else {
                 return nil
@@ -210,7 +270,7 @@ actor AgentHibernationProcessSnapshotCoordinator {
             AgentHibernationController.ScopedProcessTermination] = [:]
         var liveAuthorizedLeaders: [pid_t: AgentPIDProcessIdentity] = [:]
         var signalableProcessIdentities: Set<AgentPIDProcessIdentity> = []
-        for processID in observedProcessIDs {
+        for processID in candidateProcessIDs {
             guard processID > 0,
                   let process = snapshot.processesByPID[processID],
                   let rawProcessGroupID = process.processGroupID,
@@ -225,7 +285,6 @@ actor AgentHibernationProcessSnapshotCoordinator {
             // listed PID between the census and this authoritative probe.
             guard let capturedIdentity = process.processIdentity,
                   capturedIdentity == identity else { return nil }
-            guard !exitedIdentities.contains(identity) else { continue }
             guard processGroupProvider(pid_t(processID)) == processGroupID else {
                 return nil
             }
@@ -233,7 +292,8 @@ actor AgentHibernationProcessSnapshotCoordinator {
                 processID: processID,
                 processIdentity: identity,
                 processGroupID: processGroupID,
-                ttyDevice: process.ttyDevice
+                ttyDevice: process.ttyDevice,
+                isCmuxHelper: cmuxHelperProcessIDs.contains(processID)
             )
             if let leaderIdentity = authorizedLeaders[processGroupID] {
                 liveAuthorizedLeaders[processGroupID] = leaderIdentity

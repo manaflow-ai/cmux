@@ -7,7 +7,9 @@ extension AgentHibernationRecord {
         AgentHibernationController.ProcessTerminationScope(
             key: key,
             processIDs: processIDs,
-            processIdentities: processIdentities
+            processIdentities: processIdentities,
+            cmuxHelperProcessIDs: cmuxHelperProcessIDs,
+            knownSurvivorProcessIDs: panelProcessIDs.subtracting(processIDs)
         )
     }
 }
@@ -22,6 +24,25 @@ extension AgentHibernationController {
         let key: AgentHibernationPanelKey
         let processIDs: Set<Int>
         let processIdentities: [Int: AgentPIDProcessIdentity]
+        let cmuxHelperProcessIDs: Set<Int>
+        /// The panel's processes the census allowed but does not terminate:
+        /// the agent's shell ancestors, such as `login` and the shell. They
+        /// stay on the terminal after the agent exits, until it closes.
+        let knownSurvivorProcessIDs: Set<Int>
+
+        init(
+            key: AgentHibernationPanelKey,
+            processIDs: Set<Int>,
+            processIdentities: [Int: AgentPIDProcessIdentity],
+            cmuxHelperProcessIDs: Set<Int> = [],
+            knownSurvivorProcessIDs: Set<Int> = []
+        ) {
+            self.key = key
+            self.processIDs = processIDs
+            self.processIdentities = processIdentities
+            self.cmuxHelperProcessIDs = cmuxHelperProcessIDs
+            self.knownSurvivorProcessIDs = knownSurvivorProcessIDs
+        }
     }
 
     struct ScopedProcessTermination: Equatable, Sendable {
@@ -29,17 +50,52 @@ extension AgentHibernationController {
         let processIdentity: AgentPIDProcessIdentity
         let processGroupID: pid_t
         let ttyDevice: Int64?
+        /// A registered cmux helper (``CmuxAgentHelperProcess``): it has no
+        /// terminal, and must still run that helper when it is signaled.
+        let isCmuxHelper: Bool
 
         init(
             processID: Int,
             processIdentity: AgentPIDProcessIdentity,
             processGroupID: pid_t,
-            ttyDevice: Int64? = nil
+            ttyDevice: Int64? = nil,
+            isCmuxHelper: Bool = false
         ) {
             self.processID = processID
             self.processIdentity = processIdentity
             self.processGroupID = processGroupID
             self.ttyDevice = ttyDevice
+            self.isCmuxHelper = isCmuxHelper
+        }
+
+        /// Whether `liveTTYDevice` is still the terminal this process was
+        /// scoped with: the agent's, or none at all for a cmux helper.
+        func terminalStillMatches(_ liveTTYDevice: Int64?) -> Bool {
+            if isCmuxHelper {
+                return ttyDevice == nil && liveTTYDevice == nil
+            }
+            guard let ttyDevice else { return false }
+            return liveTTYDevice == ttyDevice
+        }
+
+        /// Whether `arguments` still place this process in the panel, and
+        /// still run the registered helper when it was scoped as one.
+        func argumentsStillMatch(
+            _ arguments: CmuxTopProcessArguments?,
+            processScopeKey: AgentHibernationPanelKey
+        ) -> Bool {
+            guard let arguments,
+                  arguments.matchesCMUXScope(
+                      workspaceId: processScopeKey.workspaceId,
+                      surfaceId: processScopeKey.panelId
+                  ) else {
+                return false
+            }
+            return !isCmuxHelper || CmuxAgentHelperProcess.isRegistered(
+                arguments,
+                workspaceId: processScopeKey.workspaceId,
+                surfaceId: processScopeKey.panelId
+            )
         }
     }
 
@@ -54,6 +110,18 @@ extension AgentHibernationController {
             }
             return (processID, identity)
         })
+    }
+
+    /// The exact process generations of a scope's known survivors, read at
+    /// the commit boundary while the agent they lead to still runs, before any
+    /// signal. From then on a refreshed exit epoch accepts only these
+    /// generations, so a PID reused after the signal is not taken for one.
+    /// The census records survivors by PID only; the pre-signal revalidation
+    /// requires the same panel PIDs.
+    nonisolated static func knownSurvivorIdentities(
+        for processIDs: Set<Int>
+    ) -> Set<AgentPIDProcessIdentity> {
+        Set(processIdentities(for: processIDs).values)
     }
 
     #if compiler(>=6.2)
@@ -124,7 +192,8 @@ extension AgentHibernationController {
                     processID: processID,
                     processIdentity: expectedIdentity,
                     processGroupID: processGroupProvider(processID),
-                    ttyDevice: processTTYDeviceProvider(processID)
+                    ttyDevice: processTTYDeviceProvider(processID),
+                    isCmuxHelper: scope.cmuxHelperProcessIDs.contains(processID)
                 )
             )
         }
@@ -225,6 +294,12 @@ extension AgentHibernationController {
             }
             return false
         }
+        // The agent still runs here, so its shell ancestors do too. Their
+        // exact generations let each refreshed exit epoch tell them apart
+        // from new work on the terminal.
+        let knownSurvivors = Self.knownSurvivorIdentities(
+            for: record.processTerminationScope.knownSurvivorProcessIDs
+        )
 
         let lastActivityAt = Date(
             timeIntervalSince1970: request.effectiveLastActivityAt
@@ -345,7 +420,8 @@ extension AgentHibernationController {
                 processGroupLeaders: processGroupLeaders,
                 processScopeKey: processScopeKey,
                 ttyDevice: Self.commonTTYDevice(in: scopedProcessTerminations),
-                excluding: []
+                excluding: [],
+                knownSurvivors: knownSurvivors
             ) else {
                 return .rejected
             }
@@ -413,6 +489,7 @@ extension AgentHibernationController {
                     requestID: committedTerminationRequestID,
                     terminations: [],
                     processScopeKey: nil,
+                    knownSurvivors: knownSurvivors,
                     processExitCompletion: processExitCompletion,
                     retryTermination: retryTermination,
                     waitForRecoveryReadiness: waitForRecoveryReadiness,
@@ -437,6 +514,7 @@ extension AgentHibernationController {
                 requestID: committedTerminationRequestID,
                 terminations: scopedProcessTerminations,
                 processScopeKey: record.key,
+                knownSurvivors: knownSurvivors,
                 processExitCompletion: processExitCompletion,
                 retryTermination: retryTermination,
                 waitForRecoveryReadiness: waitForRecoveryReadiness,
@@ -447,11 +525,41 @@ extension AgentHibernationController {
                 onRecoveryFailure: handleRecoveryFailure,
                 onRecoveryRetry: beginRecoveryRetry
             )
-            return false
+            return await committedTerminationOutcome(
+                trigger: request.trigger,
+                panelID: panelID,
+                requestID: committedTerminationRequestID,
+                terminalPanel: record.terminalPanel
+            )
         }
 
         return record.terminalPanel.isAgentHibernated &&
             !record.terminalPanel.isAgentHibernationTerminating
     }
 
+    /// Whether a teardown whose termination committed and awaits its exit
+    /// hibernated its pane. Routine reclaim moves on and lets the observation
+    /// finish. A manual request answers for this one pane, so it waits for
+    /// the exit to be observed and reports the pane's settled phase; the
+    /// commit alone is neither a hibernation nor a refusal.
+    func committedTerminationOutcome(
+        trigger: AgentHibernationReclaimTrigger,
+        panelID: UUID,
+        requestID: UUID,
+        terminalPanel: TerminalPanel
+    ) async -> Bool {
+        guard trigger == .manual else { return false }
+        // A failed exit observation hands the same request over to a recovery
+        // task, which may still hibernate the pane; wait for that one too.
+        var awaitedTask: Task<Void, Never>?
+        while let observation = committedTerminationObservationsByPanelID[panelID],
+              observation.requestID == requestID,
+              let task = observation.task,
+              task != awaitedTask {
+            awaitedTask = task
+            await task.value
+        }
+        return terminalPanel.isAgentHibernated &&
+            !terminalPanel.isAgentHibernationCommitPending
+    }
 }
