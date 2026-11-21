@@ -809,7 +809,7 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(risk.unowned_takebacks("", []), [])
 
     def test_a_held_takeback_names_the_line_to_paste_in_its_error(self):
-        """cmux#41154, a revert of #41113: merge_hold quoted only the check's error annotation, which said "the job
+        """cmux#41154, a revert of #41113: land-judge quoted only the check's error annotation, which said "the job
         summary says how", so the revert sat refused until someone opened the summary. The annotation now carries the
         line itself, its PR number filled in."""
         self.assertEqual(risk.takeback_fix([41113]), "If the base is stale, merge it and push; if it's on purpose, "

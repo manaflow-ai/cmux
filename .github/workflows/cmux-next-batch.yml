@@ -235,6 +235,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # The minis share ~/.bun with workflows that install another bun; this
       # job runs on its own copy of the pinned one (private-bun.sh).
@@ -326,6 +327,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # setup-node reads node-version-file from the workspace, whose root is another commit
       # here (or nothing): read the pins (.node-version*) of this workflow's own commit.

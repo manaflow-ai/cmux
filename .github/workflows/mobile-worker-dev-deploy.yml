@@ -1,10 +1,12 @@
 # Deploys the cmux-next-ios mobile Worker (cmux-next-ios/backend) to its dev environment,
 # `cmux-mobile-api-dev` (https://cmux-mobile-api-dev.debussy.workers.dev).
 #
-# Manual runs from feat-cmux-next. The push trigger (this file only) registers the workflow,
-# since a dispatch needs it on the default branch or already known (as in
-# pair-machine-join-check.yml), and deploys dev once when this file lands or changes. The env is
-# fixed to `dev`: this workflow has no input that picks one and no production target.
+# Runs on every feat-cmux-next push that changes the mobile Worker (cmux-next-ios/backend), its
+# mobile_* migrations or this file, and on a manual run from feat-cmux-next. Dev builds talk to this
+# Worker, so it follows the branch they are built from: before 2026-11-20 it deployed only by hand,
+# and dev ran 2026-11-13 code for a week after build spaces (#43648) landed, so a tagged dev phone
+# still listed every dev build's Mac. The env is fixed to `dev`: this workflow has no input that
+# picks one and no production target.
 # `cmux-mobile-api-prod` stays a hand deploy
 # (cmux-next-ios/backend/README.md, "Test and deploy").
 #
@@ -36,7 +38,10 @@ name: Mobile Worker dev deploy
 on:
   push:
     branches: [feat-cmux-next]
-    paths: [.github/workflows/mobile-worker-dev-deploy.yml]
+    paths:
+      - .github/workflows/mobile-worker-dev-deploy.yml
+      - cmux-next-ios/backend/**
+      - backend/db/drizzle-mysql/**
   workflow_dispatch:
 
 permissions:
@@ -48,8 +53,11 @@ concurrency:
 
 env:
   # Newest backend/db/drizzle-mysql migration touching mobile_* tables that is applied to
-  # cmux-next-vitess development. 0002_mobile created them; dev served API 0.14.0 from them on 2026-11-09.
-  DEV_DB_LATEST_MOBILE_MIGRATION: "0002_mobile"
+  # cmux-next-vitess development. 0002_mobile created them; 0004_mobile_build_space (the `space`
+  # column on mobile_devices, mobile_push_tokens and mobile_team_prefs, #43648) is applied to
+  # development, staging and production (deploy request #6, 2026-11-18; checked with
+  # `pscale branch schema cmux-next-vitess development --org cmux` on 2026-11-20).
+  DEV_DB_LATEST_MOBILE_MIGRATION: "0004_mobile_build_space"
 
 jobs:
   deploy-dev:
@@ -77,6 +85,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # Wrangler and workerd need Node >= 22; the Blacksmith ubuntu-2404 image ships Node 20.
       - name: Setup Node

@@ -137,7 +137,8 @@ jobs:
 
   publish:
     needs: validate-version
-    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-latest' || fromJSON(vars.RUNNER_POOLS).provenance }} # github-hosted-required: npm provenance needs a github-hosted runner
+    timeout-minutes: 30
     permissions:
       actions: read
       contents: read
