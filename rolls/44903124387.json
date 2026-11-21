@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44903124387",
+  "recorded_at": "2026-11-21T12:32:36Z",
+  "reason": "cmux-tui 956c434a7045 changes the image's cmux-tui (pinned 1d7831f7e874)",
+  "dry_run": false,
+  "cmux_tui": "956c434a70454ab444dfbfcfbe6c9fcf188133bd",
+  "fixes": [
+    {
+      "sha": "956c434a70454ab444dfbfcfbe6c9fcf188133bd",
+      "mergedAt": "2026-11-21T11:34:13Z",
+      "subject": "cmux-rd: --help prints usage; a command left out of this build says so (#48873)"
+    },
+    {
+      "sha": "ad4bb477236663d89c7510a6f362d327243cd692",
+      "mergedAt": "2026-11-21T11:34:02Z",
+      "subject": "action catalog: sync Ask Chief About This… and add the env secrets playground re-pin marker (base autofix swift_parity red) (#48695)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-21T12:32:36Z",
+    "snapshot_id": "sh-56fb0c9d611f485fa5f0c6f8439b7c9c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44903124387): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "613b0fc5c81a2c79f8c640bcea2971e9d69d5451",
+    "image": "cloud-native-auto-956c434a-44903124387-1",
+    "revision": "ci-44903124387-1",
+    "at": "2026-11-21T12:32:36Z"
+  },
+  "rolled_back": false
+}
