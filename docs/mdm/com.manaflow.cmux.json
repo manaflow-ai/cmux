@@ -5036,6 +5036,18 @@
       "title" : "Show Waits in Workspace Cards",
       "type" : "boolean"
     },
+    "sidebar.look" : {
+      "default" : "cmux",
+      "description" : "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win.",
+      "enum" : [
+        "cmux",
+        "claude",
+        "codex",
+        "studio"
+      ],
+      "title" : "Sidebar Look",
+      "type" : "string"
+    },
     "sidebar.minimal" : {
       "default" : false,
       "description" : "Sidebar and tab bar buttons show only while the pointer is over them.",
