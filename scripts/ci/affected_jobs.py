@@ -597,6 +597,15 @@ def uncovered_by_push(pulled: list[str], pushed: list[str]) -> set[str]:
             and not any(p.startswith(prefix) for prefix in prefixes)}
 
 
+def router_affects(root: Path, workflow: str) -> list[str] | None:
+    """The paths pr-router.yml calls WORKFLOW on for a feat-cmux-next pull request (scripts/ci/pr_router.json), or None."""
+    path = root / "scripts/ci/pr_router.json"
+    if not path.exists():
+        return None
+    callee = json.loads(path.read_text(encoding="utf-8")).get("callees", {}).get(Path(workflow).name)
+    return list(callee["affects"]) if callee and "affects" in callee else None
+
+
 def check_pr_skip(root: Path, skipped: list[tuple[str, str]], routed: set[tuple[str, str]] = frozenset()) -> list[str]:
     """Each pull_request_skip job: its `if:` carries PR_SKIP_IF; its workflow starts on a feat-cmux-next push, on every
     path its pull_request trigger starts on (the push is the safety net that runs it), or, for a job the crate graph
@@ -625,6 +634,9 @@ def check_pr_skip(root: Path, skipped: list[tuple[str, str]], routed: set[tuple[
                             f"a pull request skips it ({MAP} pull_request_skip)")
         else:
             pushed, pulled = workflow_paths(text, "push"), workflow_paths(text, "pull_request")
+            if pulled is None:
+                # A pr-router callee has no pull_request trigger: its pull request paths are the router's `affects`.
+                pulled = router_affects(root, workflow)
             narrower = pushed is not None and (pulled is None or bool(uncovered_by_push(pulled, pushed)))
             gated = PUSH_PATHS_GATE in if_line and "needs: changes" in block and PUSH_PATHS_ROUTER in text
             if narrower and (workflow, job_id) not in routed and not gated:

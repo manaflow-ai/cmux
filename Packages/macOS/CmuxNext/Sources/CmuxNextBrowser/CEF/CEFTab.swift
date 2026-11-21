@@ -721,6 +721,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// could land on a page shown again meanwhile).
     public func setContentVisible(_ visible: Bool) {
         host.lifecycleTrace.record(id, "visible(\(visible)) was=\(!isOccluded) shown=\(host.visibleTab === self)")
+        // A page view syncs its visibility when it is parked or taken back (`PageWebView.setChromiumVisibility`): its
+        // page window leaves the window while the view lies outside it (`CEFLayerHosting.isParkedAway`).
+        if host.visibleTab === self { host.hostView.layerHosting.placementChanged() }
         guard visible == isOccluded else { return }
         isOccluded = !visible
         // A hidden cmux page gets cheaper 10 s later: Chromium's memory purge, nothing reloaded (CEFHiddenPageTrim).

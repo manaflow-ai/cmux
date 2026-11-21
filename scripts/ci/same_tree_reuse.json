@@ -474,9 +474,6 @@
   "swift-acpmux-protocol.yml": {
    "check": "below break-even: 25 runs, 16 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves"
   },
-  "swift-linux-packages.yml": {
-   "swift-linux-packages": "matrix: a job-level skip cannot see one leg's receipt"
-  },
   "terminal-hang-diagnostics.yml": {
    "release-gate": "publish, release, deploy, live or cloud work (by its name)",
    "phase-attribution": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
@@ -511,7 +508,9 @@
   "pr-router.yml": {
    "route": "its outputs feed later jobs; a skipped run leaves them empty",
    "size-budget": "calls a reusable workflow: no step here can record its pass",
-   "classic-api-guard": "calls a reusable workflow: no step here can record its pass"
+   "classic-api-guard": "calls a reusable workflow: no step here can record its pass",
+   "swift-linux-packages": "calls a reusable workflow: no step here can record its pass",
+   "web-validation": "calls a reusable workflow: no step here can record its pass"
   }
  }
 }
