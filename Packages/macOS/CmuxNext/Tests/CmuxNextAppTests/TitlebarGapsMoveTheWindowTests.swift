@@ -59,7 +59,8 @@ import Testing
         if strip.isInNewTabButton(local) || strip.isInNewTabMenuButton(local) { return "new tab button" }
         if strip.chipGroup(at: local) != nil { return "group chip" }
         let inClip = strip.convert(local, to: strip.tabsClip)
-        for cell in strip.cells.values where cell.frame.width > 0.5 {
+        for (id, cell) in strip.cells where cell.frame.width > 0.5 {
+            if strip.isInCloseButton(id, local) || strip.isInAudioButton(id, local) { return "tab button" }
             let pill = strip.metrics.pillFrame(slotWidth: cell.frame.width, height: cell.frame.height)
             if inClip.x >= cell.frame.minX, inClip.x < cell.frame.minX + pill.width { return "tab pill" }
         }
@@ -135,5 +136,21 @@ import Testing
         #expect(TitlebarDragPolicy.decide(at: gap, in: row.window) == .movesWindow)
         let pill = strip.tabsClip.convert(CGPoint(x: first.frame.midX - inset, y: gapInClip.y), to: nil)
         #expect(TitlebarDragPolicy.decide(at: pill, in: row.window) == .staysPut, "a tab keeps its press")
+    }
+
+    /// A strip that is not the titlebar (a lower pane's, or one that never drags the window) keeps each tab's whole
+    /// slot: a press in the gap after a pill selects or drags that tab as before and never arms a pane swap
+    /// (`PaneSwapDrag` starts only on `.empty`).
+    @Test func aStripOutsideTheTitlebarKeepsTheWholeSlot() throws {
+        let row = makeRow()
+        defer { row.window.close() }
+        let strip = row.pane.stripView
+        strip.dragsWindowFromEmptySpace = false
+        let first = try #require(strip.cells[TabID("new")])
+        let inset = strip.metrics.tabBackgroundInset
+        try #require(inset > 0, "the density spaces its pills")
+        let gap = strip.convert(CGPoint(x: first.frame.maxX - inset, y: strip.tabsClip.bounds.midY), from: strip.tabsClip)
+        #expect(strip.titlebarHit(at: gap) == .strip)
+        #expect(strip.titlebarPress(atWindowPoint: strip.convert(gap, to: nil)) == .staysPut)
     }
 }
