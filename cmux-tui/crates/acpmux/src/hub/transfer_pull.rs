@@ -20,6 +20,8 @@
 //!    control's result: `{sessionId, cwd, branch?, commit?, timings}`, `timings` the freeze's split
 //!    on this side (`dialMs`, `pages`, `pageBytes`, `pagesMs`, `finishMs`). A repeat of a move that
 //!    landed answers the same chat and folder without a second import (and no `timings`).
+//! A pre-copied move (`transfer_hub_precopy.rs`) stages the history here before the freeze, and
+//! its `move` names the `stageId`.
 //! 4. The client commits the move on the source with `movedTo {host, via: "hub", ...}`, or aborts
 //!    it on a refusal. A move whose client goes away is ended by the source's watch, which asks
 //!    the target with op `move_forget` (`transfer_watch.rs`).
@@ -47,7 +49,7 @@ const ANSWER_WAIT: std::time::Duration = std::time::Duration::from_secs(25);
 /// How long the source's watch waits for a `move_forget` answer.
 const FORGET_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
-fn pull_error(what: &str, message: impl std::fmt::Display) -> RpcError {
+pub(super) fn pull_error(what: &str, message: impl std::fmt::Display) -> RpcError {
     RpcError::new(-32000, format!("transfer.{what}: {message}"))
 }
 
@@ -66,7 +68,7 @@ pub trait TransferDial: Send + Sync {
 }
 
 /// A daemon id as the hub stamps it: base64 of a 32-byte key, or the hub's plain id.
-fn plain_daemon(id: &str) -> bool {
+pub(super) fn plain_daemon(id: &str) -> bool {
     (8..=128).contains(&id.len())
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || b"+/=_-".contains(&b))
 }
@@ -133,7 +135,7 @@ impl Hub {
         *self.transfer_dial.lock().unwrap_or_else(|e| e.into_inner()) = Some(dial);
     }
 
-    fn transfer_dial(&self) -> Option<Arc<dyn TransferDial>> {
+    pub(super) fn transfer_dial(&self) -> Option<Arc<dyn TransferDial>> {
         self.transfer_dial.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
@@ -236,32 +238,13 @@ impl Hub {
         let mut pages = dial.open(source).await.map_err(|e| pull_error("unreachable", e))?;
         let dial_ms = dialing.elapsed().as_millis() as u64;
         let paging = std::time::Instant::now();
-        let (mut page_count, mut page_bytes) = (0u64, 0u64);
-        let received =
-            self.transfer_receive(&json!({"manifest": manifest, "guard": guard_value})).await?;
+        let received = self
+            .transfer_receive(&json!({"manifest": manifest, "guard": guard_value,
+                                      "stageId": body.get("stageId")}))
+            .await?;
         let receive_id = received.get("receiveId").cloned().unwrap_or(Value::Null);
-        for file in manifest["files"].as_array().into_iter().flatten() {
-            let path = file["path"].clone();
-            let mut offset = 0u64;
-            loop {
-                let read = json!({"transferId": transfer_id, "path": path, "offset": offset,
-                                  "limit": PULL_PAGE, "epoch": epoch});
-                let page = pages.call("read", read).await?;
-                page_count += 1;
-                page_bytes += page["data"].as_str().map_or(0, |d| d.len() as u64);
-                let write = json!({"receiveId": receive_id, "path": path, "offset": offset,
-                                   "data": page["data"], "epoch": epoch});
-                self.transfer_write(&write)?;
-                let next = page["next"].as_u64().ok_or_else(|| pull_error("read", "no next"))?;
-                if next <= offset && page["eof"] != true {
-                    return Err(pull_error("read", "the source's page did not move on"));
-                }
-                offset = next;
-                if page["eof"] == true {
-                    break;
-                }
-            }
-        }
+        let (page_count, page_bytes) =
+            self.pull_files(&mut *pages, manifest, transfer_id, &receive_id, Some(epoch)).await?;
         let mut from = json!({"sessionId": session_id, "via": "hub", "daemonId": source});
         if let Some(host) = source_host.filter(|h| !h.is_empty()) {
             from.set("host", json!(host));
@@ -280,6 +263,48 @@ impl Hub {
                    "pagesMs": pages_ms, "finishMs": finish_ms}),
         );
         Ok(answer(moved))
+    }
+
+    /// Every file `manifest` lists, read page by page from the source's `transfer_id` and
+    /// written into the receive `receive_id` here; the pages and their base64 bytes.
+    pub(super) async fn pull_files(
+        &self,
+        pages: &mut dyn PageSource,
+        manifest: &Value,
+        transfer_id: &str,
+        receive_id: &Value,
+        epoch: Option<u64>,
+    ) -> Result<(u64, u64), RpcError> {
+        let (mut page_count, mut page_bytes) = (0u64, 0u64);
+        for file in manifest["files"].as_array().into_iter().flatten() {
+            let path = file["path"].clone();
+            let mut offset = 0u64;
+            loop {
+                let mut read = json!({"transferId": transfer_id, "path": path, "offset": offset,
+                                      "limit": PULL_PAGE});
+                if let Some(epoch) = epoch {
+                    read.set("epoch", json!(epoch));
+                }
+                let page = pages.call("read", read).await?;
+                page_count += 1;
+                page_bytes += page["data"].as_str().map_or(0, |d| d.len() as u64);
+                let mut write = json!({"receiveId": receive_id, "path": path, "offset": offset,
+                                       "data": page["data"]});
+                if let Some(epoch) = epoch {
+                    write.set("epoch", json!(epoch));
+                }
+                self.transfer_write(&write)?;
+                let next = page["next"].as_u64().ok_or_else(|| pull_error("read", "no next"))?;
+                if next <= offset && page["eof"] != true {
+                    return Err(pull_error("read", "the source's page did not move on"));
+                }
+                offset = next;
+                if page["eof"] == true {
+                    break;
+                }
+            }
+        }
+        Ok((page_count, page_bytes))
     }
 
     /// Op `move_forget`: the source's watch gave the move up. Any receive of it here is dropped
@@ -320,7 +345,7 @@ impl Hub {
 
     /// One control message to the daemon `daemon` through the hub, and its answer: `Ok(Ok(result))`
     /// delivered, `Ok(Err(why))` refused, `Err` when it was not answered within `wait`.
-    async fn hub_control(
+    pub(super) async fn hub_control(
         &self,
         daemon: &str,
         op: &str,
@@ -398,6 +423,9 @@ impl Hub {
         if params.get("resolve").is_some() {
             return self.resolve_hub_machine(text("resolve"));
         }
+        if params.get("stage").is_some() || params.get("prepare").is_some() {
+            return self.transfer_hub_stage(params).await;
+        }
         let transfer_id = text("transferId");
         let session = self.resolve(text("sessionId"))?;
         let dir = inside(&transfers_dir(), transfer_id)?;
@@ -415,7 +443,7 @@ impl Hub {
             "manifest": params.get("manifest").cloned().unwrap_or(Value::Null),
             "folder": params.get("folder").cloned().unwrap_or(Value::Null),
         });
-        for key in ["branch", "commit"] {
+        for key in ["branch", "commit", "stageId"] {
             if let Some(v) = params.get(key).and_then(Value::as_str) {
                 body.set(key, json!(v));
             }
