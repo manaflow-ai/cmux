@@ -422,7 +422,11 @@ const InlineChip = memo(function InlineChip({
   if (!attachment && !pending) return null;
   if (!attachment && pending && !pending.image && !pending.video)
     return (
-      <span className="acpmux-md-inline-chip" data-chip="strip">
+      <span
+        className="acpmux-md-inline-chip"
+        data-chip="strip"
+        {...(!pending.failed && pending.sizing ? { "data-sizing": "" } : {})}
+      >
         <PendingChip chip={pending} onCancel={onCancel} onRetry={onRetry} />
       </span>
     );

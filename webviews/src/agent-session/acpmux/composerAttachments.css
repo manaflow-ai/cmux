@@ -289,6 +289,16 @@
 .acpmux-md-inline > .acpmux-md-inline-chip[data-sizing] {
   margin-inline: 0;
 }
+/* A file's chip held with a sibling still being sized (attachmentIntakeModel.ts `sizingWith`): zero
+   wide and unseen too, so the gesture's chips show in one frame. */
+.acpmux-attachment-file.acpmux-attachment-pending[data-sizing],
+.acpmux-md-inline-chip[data-chip="strip"][data-sizing] {
+  visibility: hidden;
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+}
 /* A loading image's own picture (composer/attachmentIntake.tsx InstantPreview), there the moment it
    is pasted or dropped, filling its tile under the spinner until its chip takes the tile's place
    (Leo, 2026-11-07: "can't we make this all "appear" a lot faster"). */

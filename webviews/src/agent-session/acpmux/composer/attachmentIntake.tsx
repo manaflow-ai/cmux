@@ -208,6 +208,7 @@ export function PendingChip({
         aria-label={name}
         aria-busy={failed ? undefined : "true"}
         data-paste-look={failed ? undefined : look}
+        {...(!failed && chip.sizing ? { "data-sizing": "" } : {})}
         /* tooltip-allow: the tile shows no reason; the tooltip says why it failed */ title={chip.failed}
       >
         <FileAttachment
@@ -426,7 +427,7 @@ function AttachmentChipPreview({
   );
   /// The image's natural size, from its thumbnail or from the image itself once it loads.
   const [size, setSize] = useState<{ width: number; height: number }>();
-  const videoPlayer = useAttachedVideoPlayer(attachment.path, attachment.name);
+  const videoPlayer = useAttachedVideoPlayer(attachment.path, attachment.name, attachment.video);
   const isImage = attachment.kind === "image" && Boolean(attachment.data);
   const image = isImage && !broken;
   const source = image ? `data:${attachment.mimeType};base64,${attachment.data}` : undefined;

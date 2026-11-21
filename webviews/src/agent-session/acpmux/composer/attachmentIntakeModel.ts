@@ -175,7 +175,23 @@ export type PendingAttachment = {
   /// wide and unseen, so it first shows at its thumbnail's size, never a stand-in width. For
   /// HEADER_WAIT_MS at most; one whose header does not answer by then shows at the stand-in.
   sizing?: boolean;
+  /// The paste or drop it came in with, when a sibling of it is held for its header (`sizing`): it
+  /// is held unseen with that sibling, so the gesture's chips show in one frame, one change to the
+  /// prompt's lines, instead of each as its own header answers (a file's chip first, then the
+  /// picture's and the video's a few frames later, the prompt growing twice). Never past the
+  /// sibling's own bound (HEADER_WAIT_MS, PICTURE_WAIT_MS).
+  sizingWith?: string;
 };
+
+/// The chips as drawn: one held with a sibling still being sized (`sizingWith`) is `sizing` too.
+export function heldWithSiblings(chips: PendingAttachment[]): PendingAttachment[] {
+  const sizing = new Set<string>();
+  for (const chip of chips) if (chip.sizing && !chip.failed && chip.sizingWith) sizing.add(chip.sizingWith);
+  if (sizing.size === 0) return chips;
+  return chips.map((chip) =>
+    !chip.sizing && !chip.failed && chip.sizingWith && sizing.has(chip.sizingWith) ? { ...chip, sizing: true } : chip,
+  );
+}
 
 /// The style that gives a tile its image's thumbnail shape (`size`, the image's pixels; imageWork.ts
 /// thumbRatio): its CSS (composerAttachments.css `[data-sized]`) holds the height and the width bounds
@@ -450,7 +466,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const batch = { scope: current.scope };
     const linkImages = !current.allowImages && Boolean((dropped && current.localPaths) || (uploads && current.upload));
     // In the paste's or drop's own task, so React draws them before the next frame.
-    const shown: PendingAttachment[] = files.map((file) => {
+    const unsized: PendingAttachment[] = files.map((file) => {
       const video = isVideoName(file.name);
       const image = isImageFile(file) && (video || !linkImages);
       return {
@@ -463,6 +479,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         scope: batch.scope,
       };
     });
+    // One held for its header holds the gesture's other chips with it (`sizingWith`).
+    const sizingWith = unsized.length > 1 && unsized.some((chip) => chip.sizing) ? crypto.randomUUID() : undefined;
+    const shown = sizingWith ? unsized.map((chip) => ({ ...chip, sizingWith })) : unsized;
     // Each image's own picture, on its tile while the tile still loads.
     files.forEach((file, index) => {
       const { id, image, video, sizing } = shown[index]!;
@@ -995,7 +1014,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       document.removeEventListener("paste", paste);
     };
   }, [attach, showDrop, refused]);
-  const shown = pending.filter((chip) => chip.scope === scope);
+  const shown = heldWithSiblings(pending.filter((chip) => chip.scope === scope));
   /// The chips a send waits for. One still reading, one streaming to the session's machine and
   /// one whose upload failed (until its Retry makes it or its x takes it out) all hold the send,
   /// so a prompt never goes without a file the person added. Before, a send made while a pasted
