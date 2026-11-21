@@ -1,5 +1,7 @@
 // The running turn's Thinking line sits one gap under the last row that takes room (T4, Leo 2026-11-21:
-// "we can't afford to have these thrown together"): 16 under a step or status row, 8 under a reply,
+// "we can't afford to have these thrown together"): 8 under a step or status row (variant B, the live
+// line's gap, transcriptGrid.ts TRANSCRIPT_LIVE_STEP_GAP; Leo 05:23Z: "see the space/gap between tool
+// calls and the current shimmer? this isnt great."), 8 under a reply,
 // 24 under a prompt or steer. A pure sweep: each step of seeded coordinator turns through turnViewFrom
 // and layoutConversation; thinking-gap-browser.test.ts reads the same scenes drawn, frame by frame.
 import { describe, expect, test } from "bun:test";
@@ -9,6 +11,7 @@ import { projectInboxRows } from "../src/agent-session/acpmux/conversation/laneN
 import { mergeInboxNotices } from "../src/agent-session/acpmux/conversation/inboxNotice";
 import { pendingMessagesRow, withWaitingRows } from "../src/agent-session/acpmux/conversation/pendingMessages";
 import { subagentRowsFrom } from "../src/agent-session/acpmux/subagents/subagentRows";
+import { TRANSCRIPT_LIVE_STEP_GAP } from "../src/agent-session/acpmux/transcriptGrid";
 import { playTurn, randomTurn, type GapEvent } from "./support/thinkingGapScenes";
 
 const MAX_GAP = 24;
@@ -48,7 +51,7 @@ function overs(events: GapEvent[]): string[] {
 }
 
 describe("the Thinking line's gap, as laid out", () => {
-  test("Leo's scene: a closed run, then thought and command rows, Thinking one run gap under the last", () => {
+  test("Leo's scene: a closed run, then thought and command rows, Thinking one live-step gap under the last", () => {
     const steps = playTurn([
       { kind: "message" },
       ...Array.from({ length: 3 }, (): GapEvent[] => [{ kind: "tool" }, { kind: "finish" }]).flat(),
@@ -59,7 +62,8 @@ describe("the Thinking line's gap, as laid out", () => {
         { kind: "finish" },
       ]).flat(),
     ]);
-    expect(lineGap(steps.at(-1)!.rows)?.gap).toBe(16);
+    expect(lineGap(steps.at(-1)!.rows)?.gap).toBe(TRANSCRIPT_LIVE_STEP_GAP);
+    expect(TRANSCRIPT_LIVE_STEP_GAP).toBe(8);
   });
 
   // Seed 2, step 32: a steer, then a thought, then a new call. The run holding the thought draws
