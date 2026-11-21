@@ -41,10 +41,10 @@ import Testing
         tabs.localHost = host
         tabs.holdsTabs = { _ in true }
         tabs.reachable = { _ in true }
-        tabs.locate = { [weak services] _ in services.map { (pane: PaneID(rawValue: 1), daemon: $0.daemon) } }
-        tabs.rightColumn = { _ in .init(sourceWidth: 1400) }
-        tabs.serially = { _, turn in turn({}); return true }
-        tabs.openInMainPane = { _, _, _, _, _ in nil }
+        tabs.locateScoped = { [weak services] _ in services.map { (pane: PaneID(rawValue: 1), daemon: $0.daemon) } }
+        tabs.rightColumnScoped = { _ in .init(sourceWidth: 1400) }
+        tabs.seriallyScoped = { _, turn in turn({}); return true }
+        tabs.openInMainPaneScoped = { _, _, _, _, _ in nil }
         let seen = Seen()
         tabs.holdOutbound = { pane, _ in
             seen.held.append(pane)
@@ -126,7 +126,7 @@ import Testing
         tabs.moveToNewWorkspace = { [weak services] _, _, newWindow in
             // The store lists the fork in its new pane now, outside the chat's pane; the move's reply, and the
             // window's placement after it, wait.
-            tabs.locate = { _ in services.map { (pane: PaneID(rawValue: 2), daemon: $0.daemon) } }
+            tabs.locateScoped = { _ in services.map { (pane: PaneID(rawValue: 2), daemon: $0.daemon) } }
             moveStarted.yield(newWindow)
             return await withCheckedContinuation { gate.open = $0 }
         }

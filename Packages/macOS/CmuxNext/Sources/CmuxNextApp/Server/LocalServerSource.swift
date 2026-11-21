@@ -20,9 +20,10 @@ extension ConfigFileWatcher: ServerFileWatching {}
 /// intent; never on a timer. A missing CLI, or a CLI without the server
 /// verbs, reports `.unavailable`.
 ///
-/// Intents reach it only from `ServerModel`, which only the menu bar
-/// views drive, so a fix is always a user's click (the action catalog has
-/// no fix action, so MCP and the socket cannot start one).
+/// Intents reach it only from `ServerModel`, which only the server pages
+/// drive, and their provider takes a fix only from the person's own click or
+/// key (the action catalog has no fix action, so MCP and the socket cannot
+/// start one).
 @MainActor
 final class LocalServerSource: ServerSource {
     nonisolated struct CLIResult: Sendable, Equatable {
@@ -116,8 +117,6 @@ final class LocalServerSource: ServerSource {
                 self?.work[intent.key] = nil
                 self?.settle(intent.key, reject: reject)
             }
-        case .openHealth:
-            settle(intent.key, reject: nil)
         case .setEnabled, .showPairingCode:
             _ = controls?.send(intent)
         case .lookupCode, .approveCode, .revokeDevice:

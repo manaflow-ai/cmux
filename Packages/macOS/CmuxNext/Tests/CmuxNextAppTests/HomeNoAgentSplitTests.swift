@@ -41,7 +41,7 @@ import Testing
         if hosted { view.onAppLink = { opened.append($0) } }
         let before = view.subviews.map(ObjectIdentifier.init)
         let click = try #require(view.transcript.onAgentPill)
-        click("a1034")
+        click("a1034", .zero)
         view.needsLayout = true
         view.layoutSubtreeIfNeeded()
         #expect(view.subviews.map(ObjectIdentifier.init) == before, "a pill click added a column to Home")

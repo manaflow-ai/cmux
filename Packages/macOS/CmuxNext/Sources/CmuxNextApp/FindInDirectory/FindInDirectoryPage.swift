@@ -20,7 +20,7 @@ enum FindInDirectoryPage {
         }
         return PalettePageSpec(id: "findInDirectory.results", title: query,
                                placeholder: (root as NSString).abbreviatingWithTildeInPath,
-                               symbol: "folder.badge.magnifyingglass", providers: [provider])
+                               symbol: "doc.text.magnifyingglass", providers: [provider])
     }
 
     static func items(for outcome: RipgrepSearch.Outcome, effects: any FileExplorerEffects,

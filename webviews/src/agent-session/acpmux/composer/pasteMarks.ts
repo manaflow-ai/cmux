@@ -12,9 +12,9 @@
 // (their notes, a dictation app's text, a quote) stays their prompt's text, as it was before marks
 // (ask-42dfdea96c; Leo, 2026-11-07: "You don't want to show it as pasted text when it wasn't pasted
 // text in the first place. This is a misattribution."). The bubble draws a marked paste as the prompt's
-// own text too (PromptText.tsx, sentPasteLook): the mark is for the agent. A paste the person edited is
+// own text too (PromptText.tsx, its one body): the mark is for the agent. A paste the person edited is
 // theirs; acpmux still notes typed text that reads as another agent's (`agentText`).
-import { type ComposerAttachment, INLINE_ATTACHMENT_MARK, inlineToken } from "../attachments";
+import { type ComposerAttachment, escapeTextMarks, INLINE_ATTACHMENT_MARK, inlineToken } from "../attachments";
 import { isLargePaste, pastedTextAttachment } from "../pastedText";
 import { readsAsAgent } from "../agentText";
 
@@ -78,4 +78,30 @@ export function markPastes(
   }
   if (!added.length) return prompt;
   return { text: runs.map((run) => run.text).join(""), attachments: [...prompt.attachments, ...added] };
+}
+
+/// A prompt coming back to the composer (refused, taken back, a steer withdrawn, edited from the
+/// queue) with each placed paste chip `markPastes` made at its send put back in its place as text,
+/// and that text in `pastes` to remember (`remember`), so the next send marks it as pasted again if
+/// it still reads as another agent's. Only a paste past the chip's limit (pastedText.ts
+/// `isLargePaste`) comes back as a chip, as it went in: a dictation-length paste was text in the
+/// draft (one an older composer marked included), and coming back it stays text, never a "Pasted
+/// text · 1.2K characters" chip (ask-14d16a6247). The text goes back as the draft writes the
+/// person's text (`escapeTextMarks`), so a U+FFFC run in it never reads as an attachment's place.
+export function unmarkPastes(prompt: { text: string; attachments: ComposerAttachment[] }): {
+  text: string;
+  attachments: ComposerAttachment[];
+  pastes: string[];
+} {
+  const pastes: string[] = [];
+  let text = prompt.text;
+  const attachments = prompt.attachments.filter((chip) => {
+    if (chip.kind !== "pasted" || chip.text === undefined || isLargePaste(chip.text)) return true;
+    const token = inlineToken(chip.id);
+    if (!text.includes(token)) return true;
+    text = text.replace(token, () => escapeTextMarks(chip.text!));
+    pastes.push(chip.text);
+    return false;
+  });
+  return pastes.length ? { text, attachments, pastes } : { ...prompt, pastes };
 }

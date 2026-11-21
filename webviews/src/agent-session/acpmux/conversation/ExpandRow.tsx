@@ -3,8 +3,11 @@
 // one button as wide as its block and the block's whole bottom row (Leo, 2026-11-07: "what if the
 // whole bottom row area were clickable in this, like, show more show less area? ... my mouse is in
 // the general vicinity, it's in the general height area"), on the block's own surface so a cut
-// block's last lines fade straight into it. Under the pointer it only tints and its words go to full
-// ink: no size, padding, border or weight changes (conversation.css `.cv-expand-row`).
+// block's last lines fade straight into it. It looks like its words alone: under the pointer anywhere
+// along it, only the words go to full ink on a small tint behind them, never a band across the row
+// (Leo, 2026-11-11: "the whole line should not be highlighted. Just the text ... it looks like you're
+// clicking just the text, but the whole clickable range is the whole thing"). No size, padding,
+// border or weight changes (conversation.css `.cv-expand-row`).
 import type { Ref } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { expandRowLook } from "./expandRow.experiment";

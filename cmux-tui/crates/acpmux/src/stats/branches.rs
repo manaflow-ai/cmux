@@ -103,18 +103,34 @@ impl Branches {
     }
 }
 
-/// The spend a `turn_result` recorded (`hub/turn_usage.rs`).
-pub(super) fn turn_usage(msg: &Value) -> TurnUsage {
+/// The spend a `turn_result` recorded (`hub/turn_usage.rs`), its input the
+/// fresh part alone. acpmux marks a record whose input is (`inputExcludesCache`).
+/// An older acpmux wrote no mark and stored an ACP harness's input (Codex's,
+/// Gemini's) whole, the cache's reads in it: an unmarked record from a session
+/// whose harness does not count its cache apart (`fresh_harness`,
+/// `SessionMeta::input_excludes_cache`) has the cache taken out, at no less
+/// than none, as the agent pane does (webviews tokenSplit.ts).
+pub(super) fn turn_usage(msg: &Value, fresh_harness: bool) -> TurnUsage {
     let count = |key: &str| msg.get(key).and_then(Value::as_u64);
+    let cache_read = count("cacheReadTokens");
+    let cache_write = count("cacheWriteTokens");
+    let marked = msg.get("inputExcludesCache").and_then(Value::as_bool) == Some(true);
+    let cached = cache_read.unwrap_or(0).saturating_add(cache_write.unwrap_or(0));
+    let input = count("inputTokens");
     TurnUsage {
         cost_usd: msg
             .get("costUsd")
             .and_then(Value::as_f64)
             .filter(|cost| cost.is_finite() && *cost >= 0.0),
-        input_tokens: count("inputTokens"),
+        input_tokens: if marked || fresh_harness {
+            input
+        } else {
+            input.map(|input| input.saturating_sub(cached))
+        },
         output_tokens: count("outputTokens"),
-        cache_read_tokens: count("cacheReadTokens"),
-        cache_write_tokens: count("cacheWriteTokens"),
+        cache_read_tokens: cache_read,
+        cache_write_tokens: cache_write,
+        cache_write_1h_tokens: count("cacheWrite1hTokens"),
     }
 }
 

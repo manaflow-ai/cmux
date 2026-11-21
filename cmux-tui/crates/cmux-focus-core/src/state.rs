@@ -293,9 +293,11 @@ pub struct Context {
 pub enum CloseFocusPolicy {
     /// The previous pane in the same column, else the next one there; when
     /// the column goes, the column to the left, else the one to the right.
-    #[default]
     PreviousNeighbor,
     /// The most recently focused surviving pane, else `PreviousNeighbor`.
+    /// The default: cmux classic's Bonsplit rule (`SplitViewController.closePane`
+    /// returns to the pane the user used last, as Zellij and tmux do; issue 38194).
+    #[default]
     MostRecent,
 }
 
@@ -374,7 +376,7 @@ impl Default for FocusState {
             browser_focus_mode: BTreeSet::new(),
             generation: 0,
             sidebar_hidden: false,
-            close_focus: CloseFocusPolicy::PreviousNeighbor,
+            close_focus: CloseFocusPolicy::MostRecent,
             derived: Derived::default(),
         }
     }

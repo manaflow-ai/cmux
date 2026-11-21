@@ -122,7 +122,7 @@ async fn a_draft_and_a_name_are_answered_before_their_sync_and_survive_a_kill() 
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let journal = SimStorage::new(63);
     // No idle-time sync of the draft's record between the two requests: on a loaded machine the
-    // pause between them can pass the 10 ms quiet time, and the rename's write would then wait
+    // pause between them can pass the kept quiet time, and the rename's write would then wait
     // behind that (simulated 400 ms) sync. Review of #37174, finding 1.
     let (hub, _) = hub_and_durability(home.path(), &journal, Duration::from_secs(60));
     let (input, mut outgoing) = connect(&hub).await;
@@ -196,18 +196,16 @@ async fn kept_changes_are_synced_in_idle_time_before_the_next_acked_change() {
     assert!(renamed.get("error").is_none(), "rename: {renamed}");
     let kept = durability.kept.load(std::sync::atomic::Ordering::SeqCst);
     assert!(kept > 0, "the drafts and the name appended no kept record");
-    // No acknowledged change comes. Within 300 ms of idle time (well inside the 1 s stream sync
-    // delay) the kept records are synced on their own.
+    // No acknowledged change comes. Once the journal is quiet for the kept quiet time (500 ms,
+    // inside the 1 s stream sync delay), the kept records are synced on their own.
     let mut durable = durability.durable.clone();
-    let synced =
-        tokio::time::timeout(Duration::from_millis(300), durable.wait_for(|lsn| *lsn >= kept))
-            .await
-            .is_ok();
+    let window = quiet + Duration::from_millis(300);
+    let synced = tokio::time::timeout(window, durable.wait_for(|lsn| *lsn >= kept)).await.is_ok();
     let at = *durable.borrow();
     assert!(
         synced,
-        "kept records up to LSN {kept} were not synced in 300 ms of idle time (durable: {at}): \
-         the next acked change would sync them in its own turn"
+        "kept records up to LSN {kept} were not synced in {window:?} of idle time (durable: \
+         {at}): the next acked change would sync them in its own turn"
     );
 }
 
@@ -250,11 +248,37 @@ async fn agent_output_is_not_held_behind_another_chats_acked_change() {
     assert!(took < SYNC / 2, "agent output waited {took:?} behind another chat's change");
 }
 
-/// F2: a journal that makes nothing durable (a hung or failing disk; the writer retries without
-/// end) must not hold every reply without a limit: past the stall limit, the store asks the
-/// daemon to stop for a restart.
+/// huge-blue, 2026-11-08: a saturated disk (35-50% iowait, a 10.4 s fdatasync) made a reply wait
+/// past the stall limit, and the daemon stopped for a restart 8 times in 3 hours; every session
+/// start meanwhile failed with "acpmux is shutting down". A journal that is only slow (each sync
+/// takes ten stall limits, and none fails) must not ask the daemon to stop: the reply waits and
+/// then goes out.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_journal_that_syncs_nothing_asks_the_daemon_to_stop() {
+async fn a_slow_journal_delays_the_reply_and_never_asks_the_daemon_to_stop() {
+    use std::sync::atomic::Ordering;
+    super::TEST_STALL_MS.store(100, Ordering::SeqCst);
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(62);
+    let hub = hub(home.path(), &journal);
+    let (input, mut outgoing) = connect(&hub).await;
+    let stop = hub.store.stop_reason().unwrap_or_else(|| panic!("no stop reason"));
+    journal.set_sync_delay(Duration::from_millis(1000));
+    let started = Instant::now();
+    let unread = json!({"sessionId": CHAT});
+    send(&input, Message::request(2, method::MUX_MARK_UNREAD, unread)).await;
+    let reply = until(&mut outgoing, |line| line["id"] == 2).await;
+    let took = started.elapsed();
+    journal.set_sync_delay(Duration::ZERO);
+    assert!(reply.get("error").is_none(), "markUnread: {reply}");
+    assert!(took >= Duration::from_millis(900), "the reply did not wait for its sync: {took:?}");
+    assert!(stop.borrow().is_none(), "a slow disk asked the daemon to stop: {:?}", *stop.borrow());
+}
+
+/// F2: a journal whose writer fails (a failing disk: every sync returns an error and the writer
+/// retries without end) must not hold every reply without a limit: past the stall limit, the
+/// store asks the daemon to stop for a restart.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failing_journal_asks_the_daemon_to_stop() {
     use std::sync::atomic::Ordering;
     super::TEST_STALL_MS.store(300, Ordering::SeqCst);
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
@@ -262,17 +286,20 @@ async fn a_journal_that_syncs_nothing_asks_the_daemon_to_stop() {
     let hub = hub(home.path(), &journal);
     let (input, mut outgoing) = connect(&hub).await;
     let mut stop = hub.store.stop_reason().unwrap_or_else(|| panic!("no stop reason"));
-    // Each sync takes 3 s: past the 300 ms stall limit, and short enough that the journal ends
-    // (a sync under way keeps its delay, and the store's drop waits for it).
-    journal.set_sync_delay(Duration::from_secs(3));
+    journal.fail_all_syncs(Some(std::io::ErrorKind::Other));
     let unread = json!({"sessionId": CHAT});
     send(&input, Message::request(2, method::MUX_MARK_UNREAD, unread)).await;
     let asked = tokio::time::timeout(Duration::from_millis(2500), stop.wait_for(Option::is_some))
         .await
         .is_ok();
-    journal.set_sync_delay(Duration::ZERO);
+    journal.fail_all_syncs(None);
     let _ = until(&mut outgoing, |line| line["id"] == 2).await;
-    assert!(asked, "a reply waited past the stall limit and the store did not ask to stop");
+    assert!(
+        asked,
+        "a reply waited past the stall limit on a failing journal and the store did not ask to stop"
+    );
+    let why = stop.borrow().clone().unwrap_or_default();
+    assert!(why.contains("failing"), "{why}");
 }
 
 /// F1, the streaming read: `session/load`'s replay sends each record as it reads it
@@ -284,7 +311,7 @@ async fn a_replay_never_sends_a_line_before_its_record() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let journal = SimStorage::new(63);
     // No idle-time sync of the draft's record between the two requests: on a loaded machine the
-    // pause between them can pass the 10 ms quiet time, and the rename's write would then wait
+    // pause between them can pass the kept quiet time, and the rename's write would then wait
     // behind that (simulated 400 ms) sync. Review of #37174, finding 1.
     let (hub, _) = hub_and_durability(home.path(), &journal, Duration::from_secs(60));
     let session = hub.resolve(CHAT).unwrap_or_else(|e| panic!("{e:?}"));
@@ -488,4 +515,52 @@ async fn a_replay_during_another_catch_up_sends_the_tail_past_the_saved_last_seq
         vec![1, 2, 3],
         "a replay during another catch-up left out the tail (it {stopped} while the first catch-up counted)"
     );
+}
+
+/// `daemon status` counts what the gate holds for the journal and what the transport past it has
+/// not read (`queue_gauge.rs`, `Outbound::gauge`): one count from queue to reader.
+#[tokio::test]
+async fn the_gauge_counts_the_lines_the_gate_holds_and_the_transport_has_not_read() {
+    use std::sync::atomic::AtomicU64;
+    let (durable_tx, durable) = tokio::sync::watch::channel(0);
+    let (_written_tx, written) = tokio::sync::watch::channel(0);
+    let durability = crate::store::Durability {
+        acked: Arc::new(AtomicU64::new(1)),
+        durable,
+        kept: Arc::new(AtomicU64::new(0)),
+        written,
+        stalled: Arc::new(|_: Duration| false),
+    };
+    let scope = cmux_scope::Scope::new("durable-gate-test");
+    let (transport, mut reader) = mpsc::channel(8);
+    let (out, gate) = super::super::outbound::start(&scope, Some(durability), transport);
+    let gate = gate.unwrap_or_else(|| panic!("a journal store has a gate"));
+    let backlog = |want: (usize, usize)| {
+        let out = Arc::clone(&out);
+        async move {
+            let now = || {
+                let gauge = out.gauge();
+                (gauge.lines, gauge.bytes)
+            };
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while now() != want {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap_or_else(|_| panic!("backlog {:?}, want {want:?}", now()))
+        }
+    };
+    // Both lines may show LSN 1, not durable yet: the gate holds them.
+    gate.raise();
+    for line in ["one", "three"] {
+        assert!(out.push(line.to_owned()));
+    }
+    backlog((2, 8)).await;
+    // Durable: they move to the transport, still unread.
+    durable_tx.send(1).unwrap_or_else(|e| panic!("durable: {e}"));
+    assert_eq!(reader.recv().await.as_deref(), Some("one"));
+    backlog((1, 5)).await;
+    assert_eq!(reader.recv().await.as_deref(), Some("three"));
+    backlog((0, 0)).await;
 }

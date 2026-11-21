@@ -93,6 +93,8 @@ import Testing
         #expect(!undeclared.opensCarrierDesktop)
         var next = desktop
         next.provider = "cmux-next"
+        #expect(!next.opensCarrierDesktop, "a declared desktop capability is not the record's `desktop`")
+        next.servesDesktop = true
         #expect(next.opensCarrierDesktop)
         next.createdBy = "user_00000000000000000002"
         #expect(next.opensCarrierDesktop, "the carrier refuses a teammate (service_refused), not the app")

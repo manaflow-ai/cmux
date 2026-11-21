@@ -288,7 +288,7 @@ enum Springs {
             opacity = e("bubble.opacity", Springs.bubbleOpacity)
             height = width
             // macOS 27, a draft that shrinks the field with 3+ text lines: ONE width spring whose duration depends
-            // on the line count (3 / 4+: 0.213 / 0.236 s, start +50 ms, damping ratio 0.788). An empirical fit with
+            // on the line count (cmux, no bounce: 3 / 4+: 0.149 / 0.1651 s, start +50 ms, damping ratio 1). An empirical fit with
             // no known physical cause (springtruth TRUTH.md section 8); the height keeps the variant's element.
             // 1- and 2-line texts that shrink the field keep `.fieldShrink` (a 2-line rule made the gate's fitted
             // scale of two wide takes worse than their take-to-take spread).

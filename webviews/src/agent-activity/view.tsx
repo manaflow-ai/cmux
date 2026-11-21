@@ -16,6 +16,7 @@ import {
   type ActivityGroup,
   type ActivityState,
 } from "./model";
+import { SplitEdge } from "../ui/SplitEdge";
 import { native } from "./native";
 import { FrameDialog, FrameLoaderProvider, FrameThumb, FrameViewer, frameTime, type FrameLoader } from "./viewer";
 
@@ -123,6 +124,15 @@ function Split({
             </section>
           ))}
         </div>
+        {/* Its line is the split's divider and drags as one (ui/SplitEdge.tsx). */}
+        <SplitEdge
+          side="right"
+          property="--agent-activity-list-width"
+          storageKey="cmux.agentActivity.list.width"
+          min={180}
+          max={480}
+          on="parent"
+        />
       </aside>
       <main className="detail">
         {selected ? (

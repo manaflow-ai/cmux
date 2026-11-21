@@ -72,7 +72,8 @@ const checkSpacing =
   async (ctx) => {
     const rect = (selector: string) => ctx.find({ selector }).getBoundingClientRect();
     const footer = (suffix: string) => `[data-row-id="spacing-footer-${suffix}"] .cv-turn-actions`;
-    const chip = (suffix: string) => `[data-row-id="spacing-received-${suffix}"] .cv-disclosure__toggle`;
+    const chip = (suffix: string) =>
+      `[data-row-id="spacing-received-${suffix}"] :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)`;
     const measure = () => ["a", "b"].map((suffix) => rect(chip(suffix)).top - rect(footer(suffix)).bottom);
     await ctx.waitFor(() => ctx.document.querySelector(chip("b")));
     await ctx.scroll({ selector: ".acpmux-scroll" }, "bottom");

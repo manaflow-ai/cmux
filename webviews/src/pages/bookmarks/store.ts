@@ -4,6 +4,7 @@
 // `cmux.bookmarks.apply` from the person's click or key, then a re-list. React reads it through
 // `useSyncExternalStore`.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { userMessage } from "../shared/userMessage";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import {
   buildTree,
@@ -194,7 +195,9 @@ export class BookmarksStore {
     const epoch = this.epoch;
     const subscribing = (async () => {
       const stops = [
-        await client.subscribe<ChangedEvent>(BookmarkOps.changed, (event) => {
+        await client.subscribe<ChangedEvent & { resync?: boolean }>(BookmarkOps.changed, (event) => {
+          // The relay lost events or reconnected: the tree may have changed in between.
+          if (event?.resync) return void this.relist();
           const { profile, revision } = this.snapshot;
           if (event.browser_profile_id === profile && event.bookmarks_revision > revision) void this.relist();
         }),
@@ -676,7 +679,8 @@ export class BookmarksStore {
 export const MAX_APPLY_OPS = 256;
 
 function noticeOf(error: unknown): Notice {
-  const message = error instanceof Error ? error.message : String(error);
+  // The daemon's refusal text stays in the error; the person reads the plain sentence.
+  const message = userMessage(error);
   const extra = isPageError(error) ? refusalExtra(error.details) : undefined;
   return { kind: "failed", message, ...(extra?.code ? { code: extra.code } : {}) };
 }

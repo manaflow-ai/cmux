@@ -28,7 +28,7 @@
 // newest card last, a top deck first. Gathered, only the front card can be reached, and focusing it
 // spreads the deck. Tab leaving the deck goes to the nearest control on screen that way
 // (tabReach.ts), never to one with no box or to a transcript row drawn past the viewport's edge.
-import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   anchorPoint,
   createDrag,
@@ -164,6 +164,7 @@ export function NoticeDeck({
   edge = "bottom",
   drag,
   flights,
+  onHold,
 }: {
   entries: readonly NoticeEntry[];
   /** Spread whatever the pointer does. Otherwise it spreads while the pointer or focus is in it. */
@@ -175,6 +176,10 @@ export function NoticeDeck({
   drag?: DeckDrag;
   /** Shared by the stack's decks: a card dropped here from another deck flies in from there. */
   flights?: Flights;
+  /** Whether the pointer, focus or a drag is in this deck: the stack's time stops while any is.
+   *  The deck owns it because it may be drawn in another host (the top anchors), outside the
+   *  stack's own element. */
+  onHold?(held: boolean): void;
 }) {
   // Newest first; drawn in screen order (below).
   const [cards, setCards] = useState<Card[]>(() =>
@@ -243,6 +248,13 @@ export function NoticeDeck({
     element.addEventListener("keydown", key);
     return () => element.removeEventListener("keydown", key);
   }, []);
+
+  const holding = hovered || focused || held !== undefined;
+  useEffect(() => {
+    onHold?.(holding);
+  }, [holding, onHold]);
+  // Unmounted: it holds nothing.
+  useEffect(() => () => onHold?.(false), [onHold]);
 
   // Natural heights, read once per change of the cards or of the deck's width.
   useLayoutEffect(() => {

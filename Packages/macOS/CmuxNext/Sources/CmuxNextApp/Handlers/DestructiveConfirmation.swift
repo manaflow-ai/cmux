@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextHomeModel
 import CmuxNextHomeEngine
@@ -20,8 +21,8 @@ import os
 /// foreground program (`process-info`) and `app.warnBeforeClosingTab` is
 /// on; a tab group follows the tab close rule (`TabCloseGuard`); those
 /// questions have "Don't ask again". Forget Machine has an undo toast and
-/// no question. The Cloud deletes, profile delete, Delete Chief, agent extension access,
-/// remote install and Roll Back (it quits into the kept build) still ask.
+/// no question. The Cloud deletes, Remove Git Worktree, profile delete, Delete Chief, agent extension access,
+/// and remote install still ask; Roll Back runs on the pick (updating again undoes it).
 /// A target that does not resolve is not asked about: the handler then
 /// refuses it with the usual typed reason.
 enum DestructiveConfirmation {
@@ -46,9 +47,10 @@ enum DestructiveConfirmation {
                 services.registry.perform(id, invocation: run)
                 return
             }
+            let pinned = id == "git.worktree.remove" ? GitRepositoryActions.pinned(invocation, at: AgentHandlers.gitPlace(AppActionContext(services: services), invocation)) : nil // its question's tab and folder
             Task { @MainActor in
-                guard let prompt = await prompt(for: id, invocation, services) else { return proceed(false) }
-                present(prompt, in: services.windows.active?.window, settings: services.settings) { if $0 { proceed(true) } }
+                guard let prompt = await prompt(for: id, pinned ?? invocation, services) else { return proceed(false) }
+                present(prompt, in: services.windows.active?.window, settings: services.settings) { if $0 { if let pinned { services.registry.perform(id, invocation: pinned.confirmed()) } else { proceed(true) } } }
             }
         }
     }
@@ -67,8 +69,9 @@ enum DestructiveConfirmation {
         case "cloudFirewallDelete":
             return Prompt(title: CloudStrings.deleteFirewallRuleTitle, body: CloudStrings.deleteFirewallRuleBody,
                           button: CloudStrings.deleteFirewallRule)
+        case "git.worktree.remove": return invocation[GitRepositoryActions.pinnedPathName] == nil ? nil : Prompt(title: GitRepositoryActions.removeTitle, body: GitRepositoryActions.removeBody(discard: invocation["discard"]?.boolValue == true), button: GitRepositoryActions.removeButton, returnConfirms: false)
         default:
-            return await question(for: id, invocation, context, warn: warn)
+            return await question(for: id, invocation, context, warn: warn) ?? services.registry.descriptor(for: id).flatMap { CatalogRequestHandlers.confirmation(for: $0) }.map { Prompt(title: $0.title, body: $0.body, button: $0.button) } // else a destructive request row's generic question
         }
     }
 
@@ -98,8 +101,6 @@ enum DestructiveConfirmation {
             return await RoomConfirmation.clearDefaultsPrompt(invocation, context)
         case .remoteInstall?:
             return await RemoteConfirmation.prompt(for: id, invocation, context)
-        case .updateRollback?: // palette, menu and the pulled-build banner's Roll Back
-            return Prompt(title: UpdateDropBack.confirmation.title, body: UpdateDropBack.confirmation.body, button: UpdateDropBack.confirmation.button)
         case .tabGroupClose?:
             // The rule of every tab close (TabCloseGuard): the undo toast
             // brings the group back, so only work in progress asks.
@@ -107,9 +108,9 @@ enum DestructiveConfirmation {
             return await TabCloseGuard.promptAndAnswers(closing: tabs, on: daemon, services: services).prompt
         case .killProcess?:
             // A process Kill Process refuses is not asked about: the handler says why.
-            let key = services.taskManager.process(invocation["process"]?.stringValue)
-            guard let key, services.taskManager.refusal(for: key) == nil else { return nil }
-            let question = services.taskManager.prompt(for: key)
+            let key = services.taskManager.hub.process(invocation["process"]?.stringValue)
+            guard let key, services.taskManager.hub.refusal(for: key) == nil else { return nil }
+            let question = services.taskManager.hub.prompt(for: key)
             return Prompt(title: question.title, body: question.body, button: question.button)
         case .deleteChief?:
             // A Chief not listed (or the default one) is refused by the action with its reason.

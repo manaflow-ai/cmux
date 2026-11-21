@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import CoreGraphics
 
 // What the strip's observation loops compare between updates.
@@ -7,6 +8,22 @@ extension TabStripView {
         var metrics: TabStripMetrics
         var titleFont: CGFloat
         var trailingButtons: TabTrailingButtons
+        /// The group chips' glass settings (`GroupChipGlass`).
+        var groupLook: GroupChipGlass
+        /// The Debug looks the cells read while they draw.
+        var cellLooks: CellLooks
+    }
+
+    /// Debug looks the cells resolve as they draw, outside their metrics: a change redraws them.
+    struct CellLooks: Equatable, Sendable {
+        /// A busy tab with unread output (`TabTunables.busyUnreadMark`).
+        var busyUnreadMark = TabTunables.busyUnreadMark.value
+        /// Where the trailing status mark sits (`TabTunables.statusMarkPlacement`).
+        var statusMarkPlacement = TabTunables.statusMarkPlacement.value
+        /// A waiting tab's badge or glow (`notifications.attention.mark`, `TabCell+NeedsYouGlow`).
+        var needsYouMark = DesignSettings.shared.attention.mark
+        /// The glow breathes only while loops run (Reduce Motion, speed off).
+        var animatesLoops = Motion.indicators.animatesLoops
     }
 
     /// Model fields whose change triggers a sync. Equal arrays that share

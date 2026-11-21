@@ -1,0 +1,1456 @@
+2026-11-14T15:23:48.4312040Z Current runner version: '2.338.2'
+2026-11-14T15:23:48.4318510Z Runner name: 'cmux11s-mac-mini-glaeda-5'
+2026-11-14T15:23:48.4319180Z Runner group name: 'glaeda-minis'
+2026-11-14T15:23:48.4320030Z Machine name: 'cmux11s-Mac-mini'
+2026-11-14T15:23:48.4322630Z ##[group]GITHUB_TOKEN Permissions
+2026-11-14T15:23:48.4324500Z Actions: read
+2026-11-14T15:23:48.4325880Z Contents: read
+2026-11-14T15:23:48.4326690Z Metadata: read
+2026-11-14T15:23:48.4327500Z ##[endgroup]
+2026-11-14T15:23:48.4331130Z Secret source: Actions
+2026-11-14T15:23:48.4332460Z Cache mode: write
+2026-11-14T15:23:48.4333460Z Prepare workflow directory
+2026-11-14T15:23:48.5126660Z Prepare all required actions
+2026-11-14T15:23:48.5158060Z Getting action download info
+2026-11-14T15:23:48.9632510Z Download action repository 'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd' (SHA:de0fac2e4500dabe0009e67214ff5f5447ce83dd)
+2026-11-14T15:23:49.3828300Z Download action repository 'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1' (SHA:bcd2ba49218906704ab6c1aa796996da409d3eb1)
+2026-11-14T15:23:49.7630560Z Download action repository 'oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6' (SHA:0c5077e51419868618aeaa5fe8019c62421857d6)
+2026-11-14T15:23:50.3940810Z Download action repository 'actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e' (SHA:48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e)
+2026-11-14T15:23:50.8481530Z Download action repository 'actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae' (SHA:27d5ce7f107fe9357f9df03efb73ab90386fccae)
+2026-11-14T15:23:51.5254350Z Download action repository 'actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131' (SHA:37930b1c2abaa49bbe596cd826c3c89aef350131)
+2026-11-14T15:23:51.9673340Z Download action repository 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a' (SHA:043fb46d1a93c77aae656e7c1c64a875d1fc6a0a)
+2026-11-14T15:23:52.5736200Z Complete job name: cmux-next generated files
+2026-11-14T15:23:52.6062250Z A job started hook has been configured by the self-hosted runner administrator
+2026-11-14T15:23:52.6138170Z ##[group]Run '/Users/cmux/actions-runner-glaeda-5/glaeda-hooks/job-started.sh'
+2026-11-14T15:23:52.6144820Z shell: /opt/homebrew/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T15:23:52.6145170Z ##[endgroup]
+2026-11-14T15:23:52.9414600Z glaeda-cmux-runner-hook: waiting (0 s so far): 5 of 14 units free, generated-files (isolated) needs 6
+2026-11-14T15:24:54.2754400Z glaeda-cmux-runner-hook: waiting (61 s so far): 5 of 14 units free, generated-files (isolated) needs 6
+2026-11-14T15:25:55.4876340Z glaeda-cmux-runner-hook: waiting (123 s so far): 5 of 14 units free, generated-files (isolated) needs 6
+2026-11-14T15:26:55.6950570Z glaeda-cmux-runner-hook: waiting (183 s so far): 5 of 14 units free, generated-files (isolated) needs 6
+2026-11-14T15:27:57.5740860Z /Users/cmux/actions-runner-glaeda-5/glaeda-hooks/glaeda-cmux-runner-hook:5290: DeprecationWarning: This process (pid=23467) is multi-threaded, use of fork() may lead to deadlocks in the child.
+2026-11-14T15:27:57.5771550Z   child = os.fork()
+2026-11-14T15:27:58.3786580Z glaeda-cmux-runner-hook: admitted: pull_request on manaflow-ai/cmux; holding 6/14 units for generated-files (isolated; holder 36745, watching pid 23367); compiles with 6 cores (CMUX_CI_CPU_BUDGET, 7 variables)
+2026-11-14T15:27:58.7605560Z glaeda-cmux-runner-hook: test keychain cmux-ci.keychain-db unlocked and default
+2026-11-14T15:27:58.7692270Z glaeda-cmux-runner-hook: test keychain: GUI session unlock started
+2026-11-14T15:27:58.7699060Z /Users/cmux/actions-runner-glaeda-5/glaeda-hooks/glaeda-cmux-runner-hook:8835: DeprecationWarning: This process (pid=23467) is multi-threaded, use of fork() may lead to deadlocks in the child.
+2026-11-14T15:27:58.7703730Z   child = os.fork()
+2026-11-14T15:27:58.7717060Z glaeda-cmux-runner-hook: job telemetry sampling
+2026-11-14T15:27:58.7779510Z glaeda-cmux-runner-hook: glaeda-disk pass already running; this trigger is coalesced into its follow-up
+2026-11-14T15:27:58.8016140Z ##[group]Run home="$RUNNER_TEMP/acpmux-home"
+2026-11-14T15:27:58.8016800Z ^[[36;1mhome="$RUNNER_TEMP/acpmux-home"^[[0m
+2026-11-14T15:27:58.8017060Z ^[[36;1mrm -rf "$home" && mkdir -m 700 "$home"^[[0m
+2026-11-14T15:27:58.8017380Z ^[[36;1mecho "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home" >> "$GITHUB_ENV"^[[0m
+2026-11-14T15:27:58.8017750Z ^[[36;1m# An inherited socket would still name another home's daemon; empty is unset.^[[0m
+2026-11-14T15:27:58.8018060Z ^[[36;1mecho "ACPMUX_SOCKET=" >> "$GITHUB_ENV"^[[0m
+2026-11-14T15:27:58.8030900Z shell: /opt/homebrew/bin/bash -e {0}
+2026-11-14T15:27:58.8031110Z env:
+2026-11-14T15:27:58.8031310Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-14T15:27:58.8031530Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:27:58.8031720Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:27:58.8032000Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:27:58.8032270Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:27:58.8032540Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:27:58.8032760Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:27:58.8032940Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:27:58.8033090Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:27:58.8033250Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:27:58.8033420Z   MAKEFLAGS: -j6
+2026-11-14T15:27:58.8033560Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:27:58.8033720Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:27:58.8033890Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:27:58.8034040Z ##[endgroup]
+2026-11-14T15:27:58.8509170Z ##[group]Run ws="${GITHUB_WORKSPACE:-$PWD}"
+2026-11-14T15:27:58.8509530Z ^[[36;1mws="${GITHUB_WORKSPACE:-$PWD}"^[[0m
+2026-11-14T15:27:58.8509790Z ^[[36;1mrm -f "$ws/.git/index.lock" 2>/dev/null || true^[[0m
+2026-11-14T15:27:58.8514470Z shell: /opt/homebrew/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T15:27:58.8514820Z env:
+2026-11-14T15:27:58.8515050Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-14T15:27:58.8515290Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:27:58.8515540Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:27:58.8515830Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:27:58.8516130Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:27:58.8516380Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:27:58.8516610Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:27:58.8516810Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:27:58.8516990Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:27:58.8517160Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:27:58.8517390Z   MAKEFLAGS: -j6
+2026-11-14T15:27:58.8517550Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:27:58.8517730Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:27:58.8517930Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:27:58.8518180Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:27:58.8518450Z   ACPMUX_SOCKET: 
+2026-11-14T15:27:58.8518620Z ##[endgroup]
+2026-11-14T15:27:58.9023300Z ##[group]Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+2026-11-14T15:27:58.9023710Z with:
+2026-11-14T15:27:58.9023880Z   persist-credentials: false
+2026-11-14T15:27:58.9024070Z   submodules: false
+2026-11-14T15:27:58.9024250Z   fetch-depth: 2
+2026-11-14T15:27:58.9024430Z   repository: manaflow-ai/cmux
+2026-11-14T15:27:58.9025890Z   token: ***
+2026-11-14T15:27:58.9026050Z   ssh-strict: true
+2026-11-14T15:27:58.9026220Z   ssh-user: git
+2026-11-14T15:27:58.9026390Z   clean: true
+2026-11-14T15:27:58.9026560Z   sparse-checkout-cone-mode: true
+2026-11-14T15:27:58.9026760Z   fetch-tags: false
+2026-11-14T15:27:58.9026910Z   show-progress: true
+2026-11-14T15:27:58.9027060Z   lfs: false
+2026-11-14T15:27:58.9027220Z   set-safe-directory: true
+2026-11-14T15:27:58.9027400Z env:
+2026-11-14T15:27:58.9027560Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-14T15:27:58.9027800Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:27:58.9028010Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:27:58.9028680Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:27:58.9028960Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:27:58.9029220Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:27:58.9029470Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:27:58.9029660Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:27:58.9029840Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:27:58.9030020Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:27:58.9030200Z   MAKEFLAGS: -j6
+2026-11-14T15:27:58.9030390Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:27:58.9030570Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:27:58.9030760Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:27:58.9031000Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:27:58.9031270Z   ACPMUX_SOCKET: 
+2026-11-14T15:27:58.9031450Z ##[endgroup]
+2026-11-14T15:27:59.1838520Z Syncing repository: manaflow-ai/cmux
+2026-11-14T15:27:59.1942760Z ##[group]Getting Git version info
+2026-11-14T15:27:59.1943570Z Working directory is '/Users/cmux/actions-runner-glaeda-5/_work/cmux/cmux'
+2026-11-14T15:27:59.1982540Z [command]/opt/homebrew/bin/git version
+2026-11-14T15:27:59.1982910Z git version 2.55.0
+2026-11-14T15:27:59.1986400Z ##[endgroup]
+2026-11-14T15:27:59.1993630Z Copying '/Users/cmux/.gitconfig' to '/Users/cmux/actions-runner-glaeda-5/_work/_temp/dbf5032a-7fed-48b2-a9b2-852fe371f832/.gitconfig'
+2026-11-14T15:27:59.1995270Z Temporarily overriding HOME='/Users/cmux/actions-runner-glaeda-5/_work/_temp/dbf5032a-7fed-48b2-a9b2-852fe371f832' before making global git config changes
+2026-11-14T15:27:59.1996650Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-14T15:27:59.1997760Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/cmux/actions-runner-glaeda-5/_work/cmux/cmux
+2026-11-14T15:27:59.2000160Z [command]/opt/homebrew/bin/git config --local --get remote.origin.url
+2026-11-14T15:27:59.2000640Z https://github.com/manaflow-ai/cmux
+2026-11-14T15:27:59.2003780Z ##[group]Removing previously created refs, to avoid conflicts
+2026-11-14T15:27:59.2020420Z [command]/opt/homebrew/bin/git rev-parse --symbolic-full-name --verify --quiet HEAD
+2026-11-14T15:27:59.2021230Z HEAD
+2026-11-14T15:27:59.2027320Z ##[endgroup]
+2026-11-14T15:27:59.2027570Z [command]/opt/homebrew/bin/git submodule status
+2026-11-14T15:27:59.2952320Z -cb1ef7091cdef0b581ee2cbd83742b653253523e ghostty
+2026-11-14T15:27:59.3253080Z  b37a94dfec401407047f34ecfbc5151be6566a56 ghostty-next (xcframework-b37a94dfec401407047f34ecfbc5151be6566a56-apple-v6)
+2026-11-14T15:27:59.3353290Z -a5f372ecfa5ee3903af6e1faba0eda096b4f5746 homebrew-cmux
+2026-11-14T15:27:59.3562360Z ##[group]Cleaning the repository
+2026-11-14T15:27:59.3563090Z [command]/opt/homebrew/bin/git clean -ffdx
+2026-11-14T15:27:59.5239120Z Removing scripts/__pycache__/
+2026-11-14T15:27:59.5239560Z Removing scripts/ci/__pycache__/
+2026-11-14T15:27:59.5241550Z Removing scripts/ci/_vendor/yaml/__pycache__/
+2026-11-14T15:27:59.5243810Z Removing scripts/cmux-next/__pycache__/
+2026-11-14T15:27:59.5244360Z Removing scripts/cmux-next/media/__pycache__/
+2026-11-14T15:27:59.5244900Z Removing scripts/icons/__pycache__/
+2026-11-14T15:27:59.5245400Z Removing tests/__pycache__/
+2026-11-14T15:27:59.5255120Z [command]/opt/homebrew/bin/git reset --hard HEAD
+2026-11-14T15:28:00.1402700Z HEAD is now at 5c47418651 Merge 1d159c996ad29736c0e0fedadc229cbabf8ffc38 into 5e31c1f3268ccb9f7157f0ea99984441d410e7ae
+2026-11-14T15:28:00.1408810Z ##[endgroup]
+2026-11-14T15:28:00.1410590Z ##[group]Disabling automatic garbage collection
+2026-11-14T15:28:00.1418650Z [command]/opt/homebrew/bin/git config --local gc.auto 0
+2026-11-14T15:28:00.1497270Z ##[endgroup]
+2026-11-14T15:28:00.1497910Z ##[group]Setting up auth
+2026-11-14T15:28:00.1498420Z Removing SSH command configuration
+2026-11-14T15:28:00.1500670Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-14T15:28:00.1623720Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-14T15:28:00.3144470Z Entering 'ghostty-next'
+2026-11-14T15:28:00.3445570Z Removing HTTP extra header
+2026-11-14T15:28:00.3546190Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-14T15:28:00.3848230Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-14T15:28:00.4886640Z Entering 'ghostty-next'
+2026-11-14T15:28:00.5206120Z Removing includeIf entries pointing to credentials config files
+2026-11-14T15:28:00.5206700Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T15:28:00.5257710Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-14T15:28:00.6563440Z Entering 'ghostty-next'
+2026-11-14T15:28:00.6709630Z file:/Users/cmux/actions-runner-glaeda-5/_work/cmux/cmux/.git/modules/ghostty-next/config	remote.origin.url
+2026-11-14T15:28:00.6820170Z [command]/opt/homebrew/bin/git config --file /Users/cmux/actions-runner-glaeda-5/_work/cmux/cmux/.git/modules/ghostty-next/config --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T15:28:00.6935620Z [command]/opt/homebrew/bin/git config --file /Users/cmux/actions-runner-glaeda-5/_work/_temp/git-credentials-fffcd4f8-04f1-4aae-b2c5-40816e282b29.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-14T15:28:00.6963080Z [command]/opt/homebrew/bin/git config --local includeIf.gitdir:/Users/cmux/actions-runner-glaeda-5/_work/cmux/cmux/.git.path /Users/cmux/actions-runner-glaeda-5/_work/_temp/git-credentials-fffcd4f8-04f1-4aae-b2c5-40816e282b29.config
+2026-11-14T15:28:00.7065810Z [command]/opt/homebrew/bin/git config --local includeIf.gitdir:/Users/cmux/actions-runner-glaeda-5/_work/cmux/cmux/.git/worktrees/*.path /Users/cmux/actions-runner-glaeda-5/_work/_temp/git-credentials-fffcd4f8-04f1-4aae-b2c5-40816e282b29.config
+2026-11-14T15:28:00.7160420Z [command]/opt/homebrew/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-fffcd4f8-04f1-4aae-b2c5-40816e282b29.config
+2026-11-14T15:28:00.7241710Z [command]/opt/homebrew/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-fffcd4f8-04f1-4aae-b2c5-40816e282b29.config
+2026-11-14T15:28:00.7259870Z ##[endgroup]
+2026-11-14T15:28:00.7260580Z ##[group]Fetching the repository
+2026-11-14T15:28:00.7262160Z [command]/opt/homebrew/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=2 origin +759774134e53311c45cc6d400e483c34c81270a6:refs/remotes/pull/43062/merge
+2026-11-14T15:28:15.0891090Z From https://github.com/manaflow-ai/cmux
+2026-11-14T15:28:15.0992510Z  * [new ref]                 759774134e53311c45cc6d400e483c34c81270a6 -> pull/43062/merge
+2026-11-14T15:28:15.1200990Z ##[endgroup]
+2026-11-14T15:28:15.1306430Z ##[group]Determining the checkout info
+2026-11-14T15:28:15.1409130Z ##[endgroup]
+2026-11-14T15:28:15.1508880Z [command]/opt/homebrew/bin/git sparse-checkout disable
+2026-11-14T15:28:15.1772410Z [command]/opt/homebrew/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-14T15:28:15.1819130Z ##[group]Checking out the ref
+2026-11-14T15:28:15.1819860Z [command]/opt/homebrew/bin/git checkout --progress --force refs/remotes/pull/43062/merge
+2026-11-14T15:28:16.0445110Z Previous HEAD position was 5c474186513 Merge 1d159c996ad29736c0e0fedadc229cbabf8ffc38 into 5e31c1f3268ccb9f7157f0ea99984441d410e7ae
+2026-11-14T15:28:16.0475730Z HEAD is now at 759774134e5 Merge 586f3fedc4e002a7a1868f2d46d48d791d4e9419 into 9a3a5d7285be1923620258e1265b67a1f053f949
+2026-11-14T15:28:16.0511200Z ##[endgroup]
+2026-11-14T15:28:16.0627600Z [command]/opt/homebrew/bin/git log -1 --format=%H
+2026-11-14T15:28:16.0716890Z 759774134e53311c45cc6d400e483c34c81270a6
+2026-11-14T15:28:16.0729250Z ##[group]Removing auth
+2026-11-14T15:28:16.0729660Z Removing SSH command configuration
+2026-11-14T15:28:16.0736710Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-14T15:28:16.0913120Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-14T15:28:16.2414480Z Entering 'ghostty-next'
+2026-11-14T15:28:16.2886360Z Removing HTTP extra header
+2026-11-14T15:28:16.2955170Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-14T15:28:16.2956330Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-14T15:28:16.4675260Z Entering 'ghostty-next'
+2026-11-14T15:28:16.5222490Z Removing includeIf entries pointing to credentials config files
+2026-11-14T15:28:16.5223180Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T15:28:16.5223580Z includeif.gitdir:/Users/cmux/actions-runner-glaeda-5/_work/cmux/cmux/.git.path
+2026-11-14T15:28:16.5223960Z includeif.gitdir:/Users/cmux/actions-runner-glaeda-5/_work/cmux/cmux/.git/worktrees/*.path
+2026-11-14T15:28:16.5224270Z includeif.gitdir:/github/workspace/.git.path
+2026-11-14T15:28:16.5224500Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-14T15:28:16.5225200Z [command]/opt/homebrew/bin/git config --local --get-all includeif.gitdir:/Users/cmux/actions-runner-glaeda-5/_work/cmux/cmux/.git.path
+2026-11-14T15:28:16.5360330Z /Users/cmux/actions-runner-glaeda-5/_work/_temp/git-credentials-fffcd4f8-04f1-4aae-b2c5-40816e282b29.config
+2026-11-14T15:28:16.5593520Z [command]/opt/homebrew/bin/git config --local --unset includeif.gitdir:/Users/cmux/actions-runner-glaeda-5/_work/cmux/cmux/.git.path /Users/cmux/actions-runner-glaeda-5/_work/_temp/git-credentials-fffcd4f8-04f1-4aae-b2c5-40816e282b29.config
+2026-11-14T15:28:16.5897810Z [command]/opt/homebrew/bin/git config --local --get-all includeif.gitdir:/Users/cmux/actions-runner-glaeda-5/_work/cmux/cmux/.git/worktrees/*.path
+2026-11-14T15:28:16.5998920Z /Users/cmux/actions-runner-glaeda-5/_work/_temp/git-credentials-fffcd4f8-04f1-4aae-b2c5-40816e282b29.config
+2026-11-14T15:28:16.6188080Z [command]/opt/homebrew/bin/git config --local --unset includeif.gitdir:/Users/cmux/actions-runner-glaeda-5/_work/cmux/cmux/.git/worktrees/*.path /Users/cmux/actions-runner-glaeda-5/_work/_temp/git-credentials-fffcd4f8-04f1-4aae-b2c5-40816e282b29.config
+2026-11-14T15:28:16.6189980Z [command]/opt/homebrew/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-11-14T15:28:16.6191270Z /github/runner_temp/git-credentials-fffcd4f8-04f1-4aae-b2c5-40816e282b29.config
+2026-11-14T15:28:16.6494150Z [command]/opt/homebrew/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-fffcd4f8-04f1-4aae-b2c5-40816e282b29.config
+2026-11-14T15:28:16.6797240Z [command]/opt/homebrew/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-14T15:28:16.6801130Z /github/runner_temp/git-credentials-fffcd4f8-04f1-4aae-b2c5-40816e282b29.config
+2026-11-14T15:28:16.7103820Z [command]/opt/homebrew/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-fffcd4f8-04f1-4aae-b2c5-40816e282b29.config
+2026-11-14T15:28:16.7147120Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-14T15:28:16.7451200Z Entering 'ghostty-next'
+2026-11-14T15:28:16.7520210Z file:/Users/cmux/actions-runner-glaeda-5/_work/cmux/cmux/.git/modules/ghostty-next/config	remote.origin.url
+2026-11-14T15:28:16.7795000Z [command]/opt/homebrew/bin/git config --file /Users/cmux/actions-runner-glaeda-5/_work/cmux/cmux/.git/modules/ghostty-next/config --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T15:28:16.7873490Z Removing credentials config '/Users/cmux/actions-runner-glaeda-5/_work/_temp/git-credentials-fffcd4f8-04f1-4aae-b2c5-40816e282b29.config'
+2026-11-14T15:28:16.7879630Z ##[endgroup]
+2026-11-14T15:28:16.7942640Z ##[group]Run scripts/ci/reset-stale-submodules.sh
+2026-11-14T15:28:16.7942920Z ^[[36;1mscripts/ci/reset-stale-submodules.sh^[[0m
+2026-11-14T15:28:16.7956930Z shell: /opt/homebrew/bin/bash -e {0}
+2026-11-14T15:28:16.7957120Z env:
+2026-11-14T15:28:16.7957300Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-14T15:28:16.7957510Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:28:16.7957690Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:16.7957960Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:28:16.7958240Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:16.7958460Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:28:16.7958660Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:28:16.7958850Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:28:16.7958990Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:28:16.7959140Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:28:16.7959290Z   MAKEFLAGS: -j6
+2026-11-14T15:28:16.7959420Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:28:16.7959610Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:28:16.7960300Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:28:16.7960580Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:28:16.7960840Z   ACPMUX_SOCKET: 
+2026-11-14T15:28:16.7960990Z ##[endgroup]
+2026-11-14T15:28:17.1083590Z reset-stale-submodules: dropping submodule checkouts a previous job left:
+2026-11-14T15:28:17.1146360Z    b37a94dfec401407047f34ecfbc5151be6566a56 ghostty-next (xcframework-b37a94dfec401407047f34ecfbc5151be6566a56-apple-v6)
+2026-11-14T15:28:17.2679210Z error: could not lock config file .git/modules/ghostty/config: No such file or directory
+2026-11-14T15:28:17.2710600Z warning: Could not unset core.worktree setting in submodule 'ghostty'
+2026-11-14T15:28:17.7065640Z error: could not lock config file .git/modules/homebrew-cmux/config: No such file or directory
+2026-11-14T15:28:17.7067300Z warning: Could not unset core.worktree setting in submodule 'homebrew-cmux'
+2026-11-14T15:28:17.7299430Z ##[group]Run ./scripts/select-ci-xcode.sh
+2026-11-14T15:28:17.7299740Z ^[[36;1m./scripts/select-ci-xcode.sh^[[0m
+2026-11-14T15:28:17.7304490Z shell: /opt/homebrew/bin/bash -e {0}
+2026-11-14T15:28:17.7304700Z env:
+2026-11-14T15:28:17.7304910Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-14T15:28:17.7305150Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:28:17.7305360Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:17.7305660Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:28:17.7305950Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:17.7306190Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:28:17.7306420Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:28:17.7306610Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:28:17.7306790Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:28:17.7306970Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:28:17.7307150Z   MAKEFLAGS: -j6
+2026-11-14T15:28:17.7307310Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:28:17.7307530Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:28:17.7307720Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:28:17.7307970Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:28:17.7308250Z   ACPMUX_SOCKET: 
+2026-11-14T15:28:17.7308420Z ##[endgroup]
+2026-11-14T15:28:17.9568830Z Selected pinned Xcode (DEVELOPER_DIR): /Applications/Xcode_26.6.app/Contents/Developer (macOS SDK 26.5)
+2026-11-14T15:28:17.9897790Z WARN: could not switch xcode-select default to /Applications/Xcode_26.6.app/Contents/Developer (continuing; DEVELOPER_DIR is still set for steps that honor it)
+2026-11-14T15:28:18.0557320Z Xcode 26.6
+2026-11-14T15:28:18.0557830Z Build version 17F113
+2026-11-14T15:28:18.0633560Z /Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk
+2026-11-14T15:28:18.1665150Z ##[group]Run python3 -I scripts/ci/job_input_fingerprint.py generated-files --base-rev HEAD^1 \
+2026-11-14T15:28:18.1665650Z ^[[36;1mpython3 -I scripts/ci/job_input_fingerprint.py generated-files --base-rev HEAD^1 \^[[0m
+2026-11-14T15:28:18.1666020Z ^[[36;1m  --extra "xcode=$(xcodebuild -version | tr '\n' ' ')" \^[[0m
+2026-11-14T15:28:18.1666310Z ^[[36;1m  --extra "macos=$(sw_vers -productVersion)" \^[[0m
+2026-11-14T15:28:18.1666580Z ^[[36;1m  --extra "macos_build=$(sw_vers -buildVersion)" \^[[0m
+2026-11-14T15:28:18.1666820Z ^[[36;1m  --extra "arch=$(uname -m)" \^[[0m
+2026-11-14T15:28:18.1667030Z ^[[36;1m  --extra "pool=owned" \^[[0m
+2026-11-14T15:28:18.1667310Z ^[[36;1m  --extra "image=${ImageOS:-}${ImageVersion:+-$ImageVersion}" \^[[0m
+2026-11-14T15:28:18.1667580Z ^[[36;1m  --extra "mini=true" \^[[0m
+2026-11-14T15:28:18.1667800Z ^[[36;1m  --extra "xcode_app=$CMUX_CI_XCODE_APP" \^[[0m
+2026-11-14T15:28:18.1668170Z ^[[36;1m  --extra "web_bundles=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"^[[0m
+2026-11-14T15:28:18.1672990Z shell: /opt/homebrew/bin/bash -e {0}
+2026-11-14T15:28:18.1673220Z env:
+2026-11-14T15:28:18.1673440Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-14T15:28:18.1673670Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:28:18.1673880Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:18.1674190Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:28:18.1674470Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:18.1674720Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:28:18.1674960Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:28:18.1675160Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:28:18.1675340Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:28:18.1675510Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:28:18.1675700Z   MAKEFLAGS: -j6
+2026-11-14T15:28:18.1675870Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:28:18.1676040Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:28:18.1676230Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:28:18.1676480Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:28:18.1676740Z   ACPMUX_SOCKET: 
+2026-11-14T15:28:18.1676960Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T15:28:18.1677230Z ##[endgroup]
+2026-11-14T15:28:20.7798350Z tree 1adc611dc47c9154e5172e97d6bcd97ed29b2dd2
+2026-11-14T15:28:20.7901010Z workflow d719cce626232df1f79c8e8ed34bf3e4725aa724 .github/workflows/cmux-next.yml
+2026-11-14T15:28:20.7930680Z arch arm64
+2026-11-14T15:28:20.7930920Z image 
+2026-11-14T15:28:20.7931110Z macos 27.0.1
+2026-11-14T15:28:20.7931340Z macos_build 26A434
+2026-11-14T15:28:20.7931520Z mini true
+2026-11-14T15:28:20.7931690Z pool owned
+2026-11-14T15:28:20.7931940Z web_bundles a47a659aa12eaabb8d5230583679b78f37e144e9b56a724778a5ef54cf1f6d4b
+2026-11-14T15:28:20.7932240Z xcode Xcode 26.6 Build version 17F113
+2026-11-14T15:28:20.7932530Z xcode_app /Applications/Xcode_26.6.app
+2026-11-14T15:28:20.8034920Z ##[group]Run python3 -I scripts/ci/job_reuse.py lookup --key "$KEY" >> "$GITHUB_OUTPUT"
+2026-11-14T15:28:20.8035500Z ^[[36;1mpython3 -I scripts/ci/job_reuse.py lookup --key "$KEY" >> "$GITHUB_OUTPUT"^[[0m
+2026-11-14T15:28:20.8040770Z shell: /opt/homebrew/bin/bash -e {0}
+2026-11-14T15:28:20.8040970Z env:
+2026-11-14T15:28:20.8041180Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-14T15:28:20.8041430Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:28:20.8041630Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:20.8041930Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:28:20.8042510Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:20.8042750Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:28:20.8042970Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:28:20.8043170Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:28:20.8043370Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:28:20.8043540Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:28:20.8043730Z   MAKEFLAGS: -j6
+2026-11-14T15:28:20.8043900Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:28:20.8044070Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:28:20.8044260Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:28:20.8044510Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:28:20.8044780Z   ACPMUX_SOCKET: 
+2026-11-14T15:28:20.8045000Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T15:28:20.8046780Z   GH_TOKEN: ***
+2026-11-14T15:28:20.8047060Z   KEY: job-pass-generated-files-25c39a9f3760549d30cb7185ebf8e7a6b15c987e
+2026-11-14T15:28:20.8047340Z ##[endgroup]
+2026-11-14T15:28:21.1666720Z gh-call	2026-11-14T15:28:21Z	cmux-next	generated-files	core	3074	1926	1794671012	GET /repos/manaflow-ai/cmux/actions/artifacts
+2026-11-14T15:28:21.1838860Z ##[group]Run python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+2026-11-14T15:28:21.1839920Z ^[[36;1mpython3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"^[[0m
+2026-11-14T15:28:21.1849330Z shell: /opt/homebrew/bin/bash -e {0}
+2026-11-14T15:28:21.1849840Z env:
+2026-11-14T15:28:21.1850260Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-14T15:28:21.1850820Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:28:21.1868870Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:21.1869460Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:28:21.1869820Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:21.1870080Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:28:21.1870350Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:28:21.1870580Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:28:21.1870790Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:28:21.1871120Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:28:21.1871500Z   MAKEFLAGS: -j6
+2026-11-14T15:28:21.1871650Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:28:21.1871840Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:28:21.1872040Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:28:21.1872290Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:28:21.1872570Z   ACPMUX_SOCKET: 
+2026-11-14T15:28:21.1872800Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T15:28:21.1873080Z ##[endgroup]
+2026-11-14T15:28:21.5692250Z owned SwiftPM scratch: 43 packages keep their .build between jobs
+2026-11-14T15:28:21.5693280Z owned SwiftPM scratch: starts cold (evicted, 0.0 GiB kept)
+2026-11-14T15:28:21.5856250Z Prepare all required actions
+2026-11-14T15:28:21.5904250Z ##[group]Run ./.github/actions/setup-cmux-tui-rust
+2026-11-14T15:28:21.5904510Z with:
+2026-11-14T15:28:21.5904690Z env:
+2026-11-14T15:28:21.5904880Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-14T15:28:21.5905120Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:28:21.5905440Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:21.5905820Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:28:21.5906130Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:21.5918020Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:28:21.5918270Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:28:21.5918480Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:28:21.5918640Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:28:21.5918790Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:28:21.5918980Z   MAKEFLAGS: -j6
+2026-11-14T15:28:21.5919130Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:28:21.5919300Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:28:21.5919540Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:28:21.5919780Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:28:21.5920510Z   ACPMUX_SOCKET: 
+2026-11-14T15:28:21.5920740Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T15:28:21.5920980Z ##[endgroup]
+2026-11-14T15:28:21.5960990Z ##[start-action display=Ensure rustup is available;id=__self.__run]
+2026-11-14T15:28:21.5980800Z ##[group]Run set -euo pipefail
+2026-11-14T15:28:21.5980990Z ^[[36;1mset -euo pipefail^[[0m
+2026-11-14T15:28:21.5981170Z ^[[36;1mexport PATH="$HOME/.cargo/bin:$PATH"^[[0m
+2026-11-14T15:28:21.5981390Z ^[[36;1mif ! command -v rustup >/dev/null 2>&1; then^[[0m
+2026-11-14T15:28:21.5981680Z ^[[36;1m  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \^[[0m
+2026-11-14T15:28:21.5982010Z ^[[36;1m    | sh -s -- -y --profile minimal --default-toolchain none --no-modify-path^[[0m
+2026-11-14T15:28:21.5982260Z ^[[36;1mfi^[[0m
+2026-11-14T15:28:21.5982430Z ^[[36;1mecho "$HOME/.cargo/bin" >> "$GITHUB_PATH"^[[0m
+2026-11-14T15:28:21.5982680Z ^[[36;1m"$HOME/.cargo/bin/rustup" --version || rustup --version^[[0m
+2026-11-14T15:28:21.5987750Z shell: /opt/homebrew/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T15:28:21.5987990Z env:
+2026-11-14T15:28:21.5988150Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-14T15:28:21.5988360Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:28:21.5988550Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:21.5988820Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:28:21.5989090Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:21.5989300Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:28:21.5989500Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:28:21.5989680Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:28:21.5989830Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:28:21.5989980Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:28:21.5990140Z   MAKEFLAGS: -j6
+2026-11-14T15:28:21.5990280Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:28:21.5990420Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:28:21.5990590Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:28:21.5990810Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:28:21.5991060Z   ACPMUX_SOCKET: 
+2026-11-14T15:28:21.5991250Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T15:28:21.5991470Z ##[endgroup]
+2026-11-14T15:28:21.6327230Z /Users/cmux/actions-runner-glaeda-5/_work/_temp/b7008bde-2c0f-45dc-811a-8779ccb6b9cc.sh: line 8: /Users/cmux/.cargo/bin/rustup: No such file or directory
+2026-11-14T15:28:21.6654770Z rustup 1.29.1 (2026-08-13)
+2026-11-14T15:28:21.6658990Z info: This is the version for the rustup toolchain manager, not the rustc compiler.
+2026-11-14T15:28:21.8059190Z info: the currently active `rustc` version is `rustc 1.98.1 (48a229cea 2026-09-01)`
+2026-11-14T15:28:21.8089510Z ##[end-action id=__self.__run;outcome=success;conclusion=success;duration_ms=212]
+2026-11-14T15:28:21.8095030Z ##[start-action display=Install pinned Rust toolchain;id=__self.__run_2]
+2026-11-14T15:28:21.8112970Z ##[group]Run if [[ -n "$REQUESTED_PYTHON_COMMAND" ]]; then
+2026-11-14T15:28:21.8113290Z ^[[36;1mif [[ -n "$REQUESTED_PYTHON_COMMAND" ]]; then^[[0m
+2026-11-14T15:28:21.8113540Z ^[[36;1m  python_cmd="$REQUESTED_PYTHON_COMMAND"^[[0m
+2026-11-14T15:28:21.8113790Z ^[[36;1melif command -v python3 >/dev/null 2>&1; then^[[0m
+2026-11-14T15:28:21.8114020Z ^[[36;1m  python_cmd=python3^[[0m
+2026-11-14T15:28:21.8114270Z ^[[36;1melif command -v python >/dev/null 2>&1; then^[[0m
+2026-11-14T15:28:21.8114530Z ^[[36;1m  python_cmd=python^[[0m
+2026-11-14T15:28:21.8114710Z ^[[36;1melse^[[0m
+2026-11-14T15:28:21.8114960Z ^[[36;1m  echo "::error::Python is required to read the pinned Rust toolchain" >&2^[[0m
+2026-11-14T15:28:21.8115240Z ^[[36;1m  exit 1^[[0m
+2026-11-14T15:28:21.8115400Z ^[[36;1mfi^[[0m
+2026-11-14T15:28:21.8115570Z ^[[36;1m"$python_cmd" <<'PY'^[[0m
+2026-11-14T15:28:21.8115750Z ^[[36;1mimport os^[[0m
+2026-11-14T15:28:21.8115930Z ^[[36;1mimport pathlib^[[0m
+2026-11-14T15:28:21.8116100Z ^[[36;1mimport re^[[0m
+2026-11-14T15:28:21.8116540Z ^[[36;1mimport subprocess^[[0m
+2026-11-14T15:28:21.8116740Z ^[[36;1m^[[0m
+2026-11-14T15:28:21.8117000Z ^[[36;1mcontents = pathlib.Path(os.environ["TOOLCHAIN_FILE"]).read_text(encoding="utf-8")^[[0m
+2026-11-14T15:28:21.8117310Z ^[[36;1m^[[0m
+2026-11-14T15:28:21.8117480Z ^[[36;1mdef value(name):^[[0m
+2026-11-14T15:28:21.8117740Z ^[[36;1m    match = re.search(rf'^\s*{name}\s*=\s*"([^"]+)"', contents, re.MULTILINE)^[[0m
+2026-11-14T15:28:21.8118030Z ^[[36;1m    if match is None:^[[0m
+2026-11-14T15:28:21.8118300Z ^[[36;1m        raise SystemExit(f"missing {name} in cmux-tui/rust-toolchain.toml")^[[0m
+2026-11-14T15:28:21.8118600Z ^[[36;1m    return match.group(1)^[[0m
+2026-11-14T15:28:21.8118800Z ^[[36;1m^[[0m
+2026-11-14T15:28:21.8118970Z ^[[36;1mchannel = value("channel")^[[0m
+2026-11-14T15:28:21.8119180Z ^[[36;1mprofile = value("profile")^[[0m
+2026-11-14T15:28:21.8119490Z ^[[36;1mcomponents_match = re.search(r"^\s*components\s*=\s*\[([^]]*)\]", contents, re.MULTILINE)^[[0m
+2026-11-14T15:28:21.8119820Z ^[[36;1mif components_match is None:^[[0m
+2026-11-14T15:28:21.8120110Z ^[[36;1m    raise SystemExit("missing components in cmux-tui/rust-toolchain.toml")^[[0m
+2026-11-14T15:28:21.8120460Z ^[[36;1mcomponents = re.findall(r'"([^"]+)"', components_match.group(1))^[[0m
+2026-11-14T15:28:21.8120730Z ^[[36;1m^[[0m
+2026-11-14T15:28:21.8120960Z ^[[36;1mcommand = ["rustup", "toolchain", "install", channel, "--profile", profile]^[[0m
+2026-11-14T15:28:21.8140340Z ^[[36;1mfor component in components:^[[0m
+2026-11-14T15:28:21.8140600Z ^[[36;1m    command.extend(["--component", component])^[[0m
+2026-11-14T15:28:21.8140860Z ^[[36;1msubprocess.run(command, check=True)^[[0m
+2026-11-14T15:28:21.8141130Z ^[[36;1msubprocess.run(["rustup", "default", channel], check=True)^[[0m
+2026-11-14T15:28:21.8141380Z ^[[36;1m^[[0m
+2026-11-14T15:28:21.8141510Z ^[[36;1mcargo = subprocess.run(^[[0m
+2026-11-14T15:28:21.8141710Z ^[[36;1m    ["rustup", "which", "cargo"],^[[0m
+2026-11-14T15:28:21.8141920Z ^[[36;1m    check=True,^[[0m
+2026-11-14T15:28:21.8142100Z ^[[36;1m    capture_output=True,^[[0m
+2026-11-14T15:28:21.8142290Z ^[[36;1m    text=True,^[[0m
+2026-11-14T15:28:21.8142460Z ^[[36;1m).stdout.strip()^[[0m
+2026-11-14T15:28:21.8142710Z ^[[36;1mwith open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as path_file:^[[0m
+2026-11-14T15:28:21.8143030Z ^[[36;1m    print(pathlib.Path(cargo).parent, file=path_file)^[[0m
+2026-11-14T15:28:21.8143250Z ^[[36;1m^[[0m
+2026-11-14T15:28:21.8143400Z ^[[36;1mrustdoc = subprocess.run(^[[0m
+2026-11-14T15:28:21.8143600Z ^[[36;1m    ["rustup", "which", "rustdoc"],^[[0m
+2026-11-14T15:28:21.8143800Z ^[[36;1m    check=False,^[[0m
+2026-11-14T15:28:21.8143960Z ^[[36;1m    capture_output=True,^[[0m
+2026-11-14T15:28:21.8144150Z ^[[36;1m    text=True,^[[0m
+2026-11-14T15:28:21.8144310Z ^[[36;1m).stdout.strip()^[[0m
+2026-11-14T15:28:21.8144510Z ^[[36;1mif not rustdoc or not pathlib.Path(rustdoc).is_file():^[[0m
+2026-11-14T15:28:21.8144770Z ^[[36;1m    raise SystemExit(^[[0m
+2026-11-14T15:28:21.8145370Z ^[[36;1m        "pinned rustdoc is unavailable; see cmuxterm-hq REPAIR.md "^[[0m
+2026-11-14T15:28:21.8145650Z ^[[36;1m        "for the rustup toolchain repair"^[[0m
+2026-11-14T15:28:21.8145880Z ^[[36;1m    )^[[0m
+2026-11-14T15:28:21.8146070Z ^[[36;1msubprocess.run([rustdoc, "--version"], check=True)^[[0m
+2026-11-14T15:28:21.8146390Z ^[[36;1mwith open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as path_file:^[[0m
+2026-11-14T15:28:21.8146710Z ^[[36;1m    print(pathlib.Path(rustdoc).parent, file=path_file)^[[0m
+2026-11-14T15:28:21.8147030Z ^[[36;1mwith open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:^[[0m
+2026-11-14T15:28:21.8147360Z ^[[36;1m    print(f"CMUX_TUI_RUSTDOC={rustdoc}", file=env_file)^[[0m
+2026-11-14T15:28:21.8147600Z ^[[36;1mPY^[[0m
+2026-11-14T15:28:21.8147760Z ^[[36;1mcargo --version^[[0m
+2026-11-14T15:28:21.8147940Z ^[[36;1mrustc --version^[[0m
+2026-11-14T15:28:21.8155960Z shell: /opt/homebrew/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T15:28:21.8156230Z env:
+2026-11-14T15:28:21.8156440Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-14T15:28:21.8156680Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:28:21.8157100Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:21.8157410Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:28:21.8157700Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:21.8157930Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:28:21.8158160Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:28:21.8158360Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:28:21.8158530Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:28:21.8158700Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:28:21.8158880Z   MAKEFLAGS: -j6
+2026-11-14T15:28:21.8159040Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:28:21.8159220Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:28:21.8159410Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:28:21.8159650Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:28:21.8159920Z   ACPMUX_SOCKET: 
+2026-11-14T15:28:21.8160140Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T15:28:21.8160630Z   TOOLCHAIN_FILE: /Users/cmux/actions-runner-glaeda-5/_work/cmux/cmux/./.github/actions/setup-cmux-tui-rust/../../../cmux-tui/rust-toolchain.toml
+2026-11-14T15:28:21.8161030Z   REQUESTED_PYTHON_COMMAND: 
+2026-11-14T15:28:21.8161200Z ##[endgroup]
+2026-11-14T15:28:22.0098110Z info: syncing channel updates for 1.95.0-aarch64-apple-darwin
+2026-11-14T15:28:22.1600430Z info: latest update on 2026-04-16 for version 1.95.0 (59807616e 2026-04-14)
+2026-11-14T15:28:22.1601020Z 
+2026-11-14T15:28:22.1672630Z info: component clippy is up to date
+2026-11-14T15:28:22.1686310Z info: component rustfmt is up to date
+2026-11-14T15:28:22.1754670Z info: self-update is disabled for this build of rustup
+2026-11-14T15:28:22.1755520Z   1.95.0-aarch64-apple-darwin unchanged - rustc 1.95.0 (59807616e 2026-04-14)
+2026-11-14T15:28:22.1770190Z info: any updates to rustup will need to be fetched with your system package manager
+2026-11-14T15:28:22.1770850Z 
+2026-11-14T15:28:22.1921790Z info: using existing install for 1.95.0-aarch64-apple-darwin
+2026-11-14T15:28:22.1962400Z info: default toolchain set to 1.95.0-aarch64-apple-darwin
+2026-11-14T15:28:22.1962640Z 
+2026-11-14T15:28:22.2111360Z   1.95.0-aarch64-apple-darwin unchanged - rustc 1.95.0 (59807616e 2026-04-14)
+2026-11-14T15:28:22.2115900Z 
+2026-11-14T15:28:22.2714070Z rustdoc 1.95.0 (59807616e 2026-04-14)
+2026-11-14T15:28:22.3235370Z cargo 1.95.0 (f2d3ce0bd 2026-03-21)
+2026-11-14T15:28:22.3484970Z rustc 1.95.0 (59807616e 2026-04-14)
+2026-11-14T15:28:22.3505330Z ##[end-action id=__self.__run_2;outcome=success;conclusion=success;duration_ms=540]
+2026-11-14T15:28:22.3507240Z ##[start-action display=Give this runner instance its own CARGO_HOME;id=__self.__run_3]
+2026-11-14T15:28:22.3524160Z ##[group]Run bash "$GITHUB_ACTION_PATH/../runner-cargo-home/runner-cargo-home.sh"
+2026-11-14T15:28:22.3524850Z ^[[36;1mbash "$GITHUB_ACTION_PATH/../runner-cargo-home/runner-cargo-home.sh"^[[0m
+2026-11-14T15:28:22.3531390Z shell: /opt/homebrew/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T15:28:22.3531680Z env:
+2026-11-14T15:28:22.3531880Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-14T15:28:22.3532130Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:28:22.3532360Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:22.3532670Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:28:22.3532980Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:22.3533210Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:28:22.3533450Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:28:22.3533670Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:28:22.3533840Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:28:22.3534030Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:28:22.3534200Z   MAKEFLAGS: -j6
+2026-11-14T15:28:22.3534370Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:28:22.3534550Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:28:22.3534750Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:28:22.3535000Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:28:22.3535600Z   ACPMUX_SOCKET: 
+2026-11-14T15:28:22.3535820Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T15:28:22.3536180Z   CMUX_TUI_RUSTDOC: /Users/cmux/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustdoc
+2026-11-14T15:28:22.3536500Z ##[endgroup]
+2026-11-14T15:28:22.4013580Z CARGO_HOME=/Users/cmux/actions-runner-glaeda-5/_work/.cargo-home (14 runner instances share /Users/cmux)
+2026-11-14T15:28:22.4030270Z ##[end-action id=__self.__run_3;outcome=success;conclusion=success;duration_ms=52]
+2026-11-14T15:28:22.4142650Z ##[group]Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+2026-11-14T15:28:22.4142940Z with:
+2026-11-14T15:28:22.4143090Z   bun-version: 1.4.4
+2026-11-14T15:28:22.4143240Z   no-cache: false
+2026-11-14T15:28:22.4144640Z   token: ***
+2026-11-14T15:28:22.4144790Z env:
+2026-11-14T15:28:22.4144970Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-14T15:28:22.4145240Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:28:22.4145440Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:22.4145730Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:28:22.4146030Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:22.4146260Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:28:22.4146490Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:28:22.4146700Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:28:22.4146860Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:28:22.4147020Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:28:22.4147180Z   MAKEFLAGS: -j6
+2026-11-14T15:28:22.4147350Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:28:22.4147520Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:28:22.4147710Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:28:22.4147950Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:28:22.4148210Z   ACPMUX_SOCKET: 
+2026-11-14T15:28:22.4148420Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T15:28:22.4148770Z   CMUX_TUI_RUSTDOC: /Users/cmux/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustdoc
+2026-11-14T15:28:22.4149120Z   CARGO_HOME: /Users/cmux/actions-runner-glaeda-5/_work/.cargo-home
+2026-11-14T15:28:22.4149370Z ##[endgroup]
+2026-11-14T15:28:22.5431220Z [command]/Users/cmux/.bun/bin/bun --revision
+2026-11-14T15:28:22.5640240Z 1.4.4+38afee6c8
+2026-11-14T15:28:22.5666140Z Using existing Bun installation: 1.4.4+38afee6c8
+2026-11-14T15:28:22.5739920Z ##[group]Run scripts/cmux-next/private-bun.sh
+2026-11-14T15:28:22.5740240Z ^[[36;1mscripts/cmux-next/private-bun.sh^[[0m
+2026-11-14T15:28:22.5747170Z shell: /opt/homebrew/bin/bash -e {0}
+2026-11-14T15:28:22.5747380Z env:
+2026-11-14T15:28:22.5747600Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-14T15:28:22.5747850Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:28:22.5748060Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:22.5748370Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:28:22.5748700Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:22.5748940Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:28:22.5749180Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:28:22.5749390Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:28:22.5749560Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:28:22.5749760Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:28:22.5757990Z   MAKEFLAGS: -j6
+2026-11-14T15:28:22.5758190Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:28:22.5758440Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:28:22.5758650Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:28:22.5758930Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:28:22.5759230Z   ACPMUX_SOCKET: 
+2026-11-14T15:28:22.5759460Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T15:28:22.5759840Z   CMUX_TUI_RUSTDOC: /Users/cmux/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustdoc
+2026-11-14T15:28:22.5760620Z   CARGO_HOME: /Users/cmux/actions-runner-glaeda-5/_work/.cargo-home
+2026-11-14T15:28:22.5760900Z ##[endgroup]
+2026-11-14T15:28:23.6267710Z bun 1.4.4 for this job: /Users/cmux/actions-runner-glaeda-5/_work/_temp/private-bun/bun (from /Users/cmux/.bun/bin/bun)
+2026-11-14T15:28:23.6474930Z ##[group]Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+2026-11-14T15:28:23.6475700Z with:
+2026-11-14T15:28:23.6476080Z   node-version: 24.22.1
+2026-11-14T15:28:23.6476480Z   check-latest: false
+2026-11-14T15:28:23.6479930Z   token: ***
+2026-11-14T15:28:23.6480340Z   package-manager-cache: true
+2026-11-14T15:28:23.6480770Z env:
+2026-11-14T15:28:23.6481170Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-14T15:28:23.6481730Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:28:23.6482220Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:23.6482890Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:28:23.6483580Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:23.6484560Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:28:23.6485120Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:28:23.6485610Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:28:23.6486020Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:28:23.6486470Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:28:23.6486910Z   MAKEFLAGS: -j6
+2026-11-14T15:28:23.6487280Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:28:23.6487690Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:28:23.6488140Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:28:23.6488720Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:28:23.6489350Z   ACPMUX_SOCKET: 
+2026-11-14T15:28:23.6489850Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T15:28:23.6490670Z   CMUX_TUI_RUSTDOC: /Users/cmux/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustdoc
+2026-11-14T15:28:23.6491530Z   CARGO_HOME: /Users/cmux/actions-runner-glaeda-5/_work/.cargo-home
+2026-11-14T15:28:23.6492140Z ##[endgroup]
+2026-11-14T15:28:23.7784590Z Found in cache @ /Users/cmux/actions-runner-glaeda-5/_work/_tool/node/24.22.1/arm64
+2026-11-14T15:28:23.7788760Z ##[group]Environment details
+2026-11-14T15:28:24.0256010Z node: v24.22.1
+2026-11-14T15:28:24.0257530Z npm: 11.19.1
+2026-11-14T15:28:24.0257790Z yarn: 
+2026-11-14T15:28:24.0258280Z ##[endgroup]
+2026-11-14T15:28:24.0369380Z ##[group]Run echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
+2026-11-14T15:28:24.0370580Z ^[[36;1mecho "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"^[[0m
+2026-11-14T15:28:24.0381950Z shell: /opt/homebrew/bin/bash -e {0}
+2026-11-14T15:28:24.0382180Z env:
+2026-11-14T15:28:24.0382400Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-14T15:28:24.0382640Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:28:24.0382850Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:24.0383150Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:28:24.0383470Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:24.0383710Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:28:24.0383940Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:28:24.0384140Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:28:24.0384320Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:28:24.0384480Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:28:24.0384710Z   MAKEFLAGS: -j6
+2026-11-14T15:28:24.0384870Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:28:24.0385040Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:28:24.0385230Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:28:24.0385480Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:28:24.0385750Z   ACPMUX_SOCKET: 
+2026-11-14T15:28:24.0385970Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T15:28:24.0386320Z   CMUX_TUI_RUSTDOC: /Users/cmux/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustdoc
+2026-11-14T15:28:24.0386990Z   CARGO_HOME: /Users/cmux/actions-runner-glaeda-5/_work/.cargo-home
+2026-11-14T15:28:24.0387240Z ##[endgroup]
+2026-11-14T15:28:25.7459950Z Prepare all required actions
+2026-11-14T15:28:25.7460290Z Getting action download info
+2026-11-14T15:28:26.1529000Z Download action repository 'WarpBuilds/cache@dad44e2487e9dc889ad6e6bd198e77bb2d828eee' (SHA:dad44e2487e9dc889ad6e6bd198e77bb2d828eee)
+2026-11-14T15:28:26.7601800Z ##[group]Run ./.github/actions/cache-restore
+2026-11-14T15:28:26.7602110Z with:
+2026-11-14T15:28:26.7602290Z   backend: r2
+2026-11-14T15:28:26.7602460Z   path: web-bundles-out
+2026-11-14T15:28:26.7602780Z   key: cmux-next-web-bundles-v1-a47a659aa12eaabb8d5230583679b78f37e144e9b56a724778a5ef54cf1f6d4b
+2026-11-14T15:28:26.7603150Z env:
+2026-11-14T15:28:26.7603380Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+2026-11-14T15:28:26.7604050Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:28:26.7604290Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:26.7604590Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:28:26.7604940Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:26.7605240Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:28:26.7605470Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:28:26.7605680Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:28:26.7605860Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:28:26.7606030Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:28:26.7606220Z   MAKEFLAGS: -j6
+2026-11-14T15:28:26.7606390Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:28:26.7606550Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:28:26.7606750Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:28:26.7621570Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:28:26.7621970Z   ACPMUX_SOCKET: 
+2026-11-14T15:28:26.7622220Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T15:28:26.7623600Z   CMUX_TUI_RUSTDOC: /Users/cmux/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustdoc
+2026-11-14T15:28:26.7624020Z   CARGO_HOME: /Users/cmux/actions-runner-glaeda-5/_work/.cargo-home
+2026-11-14T15:28:26.7624300Z   CI_CACHE_R2_NAMESPACE: any
+2026-11-14T15:28:26.7624480Z ##[endgroup]
+2026-11-14T15:28:26.7629110Z ##[start-action display=Start cache restore measurement;id=web-bundle-r2.receipt-clock]
+2026-11-14T15:28:26.7675520Z ##[group]Run echo "started_ns=$(python3 -c 'import time; print(time.monotonic_ns())')" >> "$GITHUB_OUTPUT"
+2026-11-14T15:28:26.7675960Z ^[[36;1mecho "started_ns=$(python3 -c 'import time; print(time.monotonic_ns())')" >> "$GITHUB_OUTPUT"^[[0m
+2026-11-14T15:28:26.7683870Z shell: /opt/homebrew/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T15:28:26.7684110Z env:
+2026-11-14T15:28:26.7684300Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+2026-11-14T15:28:26.7684520Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:28:26.7684710Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:26.7684990Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:28:26.7685280Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:26.7685490Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:28:26.7685710Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:28:26.7685890Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:28:26.7686040Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:28:26.7686190Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:28:26.7686350Z   MAKEFLAGS: -j6
+2026-11-14T15:28:26.7686490Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:28:26.7686640Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:28:26.7686810Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:28:26.7687040Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:28:26.7687280Z   ACPMUX_SOCKET: 
+2026-11-14T15:28:26.7687480Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T15:28:26.7687800Z   CMUX_TUI_RUSTDOC: /Users/cmux/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustdoc
+2026-11-14T15:28:26.7688360Z   CARGO_HOME: /Users/cmux/actions-runner-glaeda-5/_work/.cargo-home
+2026-11-14T15:28:26.7688600Z   CI_CACHE_R2_NAMESPACE: any
+2026-11-14T15:28:26.7689200Z ##[endgroup]
+2026-11-14T15:28:26.8206700Z ##[end-action id=web-bundle-r2.receipt-clock;outcome=success;conclusion=success;duration_ms=57]
+2026-11-14T15:28:26.8209400Z ##[start-action display=Restore from the GitHub store;id=web-bundle-r2.github]
+2026-11-14T15:28:26.8215150Z ##[end-action id=web-bundle-r2.github;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-11-14T15:28:26.8217830Z ##[start-action display=Restore from the Warp store;id=web-bundle-r2.warp]
+2026-11-14T15:28:26.8224810Z ##[end-action id=web-bundle-r2.warp;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-11-14T15:28:26.8227990Z ##[start-action display=Restore from the R2 store;id=web-bundle-r2.r2]
+2026-11-14T15:28:26.8244900Z ##[group]Run prefixes=()
+2026-11-14T15:28:26.8245090Z ^[[36;1mprefixes=()^[[0m
+2026-11-14T15:28:26.8245290Z ^[[36;1mwhile IFS= read -r prefix; do^[[0m
+2026-11-14T15:28:26.8245550Z ^[[36;1m  prefix="${prefix//[[:space:]]/}"^[[0m
+2026-11-14T15:28:26.8245810Z ^[[36;1m  if [ -n "$prefix" ]; then prefixes+=("$prefix"); fi^[[0m
+2026-11-14T15:28:26.8246110Z ^[[36;1mdone <<< "$CACHE_RESTORE_KEYS"^[[0m
+2026-11-14T15:28:26.8246500Z ^[[36;1m"$GITHUB_ACTION_PATH/../../../scripts/ci/r2-cache.sh" restore "$CACHE_PATH" "$CACHE_KEY" ${prefixes[@]+"${prefixes[@]}"}^[[0m
+2026-11-14T15:28:26.8253990Z shell: /opt/homebrew/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T15:28:26.8254250Z env:
+2026-11-14T15:28:26.8254460Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+2026-11-14T15:28:26.8264890Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:28:26.8265130Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:26.8265430Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:28:26.8266280Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:26.8266970Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:28:26.8267260Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:28:26.8267460Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:28:26.8267650Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:28:26.8267810Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:28:26.8267980Z   MAKEFLAGS: -j6
+2026-11-14T15:28:26.8268150Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:28:26.8268320Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:28:26.8268500Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:28:26.8268750Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:28:26.8269020Z   ACPMUX_SOCKET: 
+2026-11-14T15:28:26.8269210Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T15:28:26.8269570Z   CMUX_TUI_RUSTDOC: /Users/cmux/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustdoc
+2026-11-14T15:28:26.8269910Z   CARGO_HOME: /Users/cmux/actions-runner-glaeda-5/_work/.cargo-home
+2026-11-14T15:28:26.8270170Z   CI_CACHE_R2_NAMESPACE: any
+2026-11-14T15:28:26.8270350Z   CACHE_PATH: web-bundles-out
+2026-11-14T15:28:26.8270690Z   CACHE_KEY: cmux-next-web-bundles-v1-a47a659aa12eaabb8d5230583679b78f37e144e9b56a724778a5ef54cf1f6d4b
+2026-11-14T15:28:26.8271240Z   CACHE_RESTORE_KEYS: 
+2026-11-14T15:28:26.8271400Z ##[endgroup]
+2026-11-14T15:28:27.2775490Z r2-cache: cmux-next-web-bundles-v1-a47a659aa12eaabb8d5230583679b78f37e144e9b56a724778a5ef54cf1f6d4b.tar.zst from the LAN cache host: 15098769 bytes in 0.354 s (waited 0.195 s)
+2026-11-14T15:28:27.5174690Z r2-cache: restored cmux-next-web-bundles-v1-a47a659aa12eaabb8d5230583679b78f37e144e9b56a724778a5ef54cf1f6d4b
+2026-11-14T15:28:27.5187710Z ##[end-action id=web-bundle-r2.r2;outcome=success;conclusion=success;duration_ms=695]
+2026-11-14T15:28:27.5191030Z ##[start-action display=Report cache restore evidence;id=web-bundle-r2.receipt]
+2026-11-14T15:28:27.5221580Z ##[group]Run python3 "$GITHUB_ACTION_PATH/../../../scripts/ci/cache_restore_receipt.py"
+2026-11-14T15:28:27.5222040Z ^[[36;1mpython3 "$GITHUB_ACTION_PATH/../../../scripts/ci/cache_restore_receipt.py"^[[0m
+2026-11-14T15:28:27.5231330Z shell: /opt/homebrew/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T15:28:27.5231630Z env:
+2026-11-14T15:28:27.5232190Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+2026-11-14T15:28:27.5232440Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:28:27.5232660Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:27.5232950Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:28:27.5233290Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:27.5233530Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:28:27.5233760Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:28:27.5233960Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:28:27.5234140Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:28:27.5234320Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:28:27.5234510Z   MAKEFLAGS: -j6
+2026-11-14T15:28:27.5234690Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:28:27.5234860Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:28:27.5235060Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:28:27.5235310Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:28:27.5235590Z   ACPMUX_SOCKET: 
+2026-11-14T15:28:27.5235810Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T15:28:27.5236170Z   CMUX_TUI_RUSTDOC: /Users/cmux/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustdoc
+2026-11-14T15:28:27.5236540Z   CARGO_HOME: /Users/cmux/actions-runner-glaeda-5/_work/.cargo-home
+2026-11-14T15:28:27.5236810Z   CI_CACHE_R2_NAMESPACE: any
+2026-11-14T15:28:27.5237000Z   CACHE_STARTED_NS: 60017106899458
+2026-11-14T15:28:27.5237200Z   CACHE_REQUESTED_BACKEND: r2
+2026-11-14T15:28:27.5237530Z   CACHE_KEY: cmux-next-web-bundles-v1-a47a659aa12eaabb8d5230583679b78f37e144e9b56a724778a5ef54cf1f6d4b
+2026-11-14T15:28:27.5237900Z   CACHE_GITHUB_OUTCOME: skipped
+2026-11-14T15:28:27.5238090Z   CACHE_GITHUB_HIT: 
+2026-11-14T15:28:27.5238260Z   CACHE_GITHUB_MATCHED: 
+2026-11-14T15:28:27.5238440Z   CACHE_WARP_OUTCOME: skipped
+2026-11-14T15:28:27.5238640Z   CACHE_WARP_HIT: 
+2026-11-14T15:28:27.5238820Z   CACHE_WARP_MATCHED: 
+2026-11-14T15:28:27.5239000Z   CACHE_R2_OUTCOME: success
+2026-11-14T15:28:27.5239180Z   CACHE_R2_HIT: true
+2026-11-14T15:28:27.5239520Z   CACHE_R2_MATCHED: cmux-next-web-bundles-v1-a47a659aa12eaabb8d5230583679b78f37e144e9b56a724778a5ef54cf1f6d4b
+2026-11-14T15:28:27.5239900Z ##[endgroup]
+2026-11-14T15:28:27.5847930Z CMUX_CACHE_RESTORE {"action_route": "r2", "cache_hit_output": "true", "elapsed_seconds": 0.767, "job": "generated-files", "key": "cmux-next-web-bundles-v1-a47a659aa12eaabb8d5230583679b78f37e144e9b56a724778a5ef54cf1f6d4b", "matched_key": "cmux-next-web-bundles-v1-a47a659aa12eaabb8d5230583679b78f37e144e9b56a724778a5ef54cf1f6d4b", "requested_backend": "r2", "result": "exact", "run_attempt": "1", "run_id": "43608909796", "runner_arch": "ARM64", "runner_name": "cmux11s-mac-mini-glaeda-5", "runner_os": "macOS", "schema_version": 1, "step_outcome": "success"}
+2026-11-14T15:28:27.5964800Z ##[end-action id=web-bundle-r2.receipt;outcome=success;conclusion=success;duration_ms=77]
+2026-11-14T15:28:27.6031350Z ##[group]Run scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
+2026-11-14T15:28:27.6031730Z ^[[36;1mscripts/cmux-next/build-web-bundles.sh --from web-bundles-out^[[0m
+2026-11-14T15:28:27.6038420Z shell: /opt/homebrew/bin/bash -e {0}
+2026-11-14T15:28:27.6038630Z env:
+2026-11-14T15:28:27.6038820Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-14T15:28:27.6039090Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:28:27.6039310Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:27.6039610Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:28:27.6039910Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:27.6040130Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:28:27.6040380Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:28:27.6040580Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:28:27.6040760Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:28:27.6041160Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:28:27.6041340Z   MAKEFLAGS: -j6
+2026-11-14T15:28:27.6041520Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:28:27.6041700Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:28:27.6041890Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:28:27.6042130Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:28:27.6042390Z   ACPMUX_SOCKET: 
+2026-11-14T15:28:27.6042600Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T15:28:27.6042960Z   CMUX_TUI_RUSTDOC: /Users/cmux/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustdoc
+2026-11-14T15:28:27.6043300Z   CARGO_HOME: /Users/cmux/actions-runner-glaeda-5/_work/.cargo-home
+2026-11-14T15:28:27.6043560Z ##[endgroup]
+2026-11-14T15:28:30.1090500Z web bundles restored (a47a659aa12e)
+2026-11-14T15:28:30.1144390Z ##[group]Run python3 ../../../scripts/ci/swiftpm_build_metrics.py --role generated-files --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
+2026-11-14T15:28:30.1145180Z ^[[36;1mpython3 ../../../scripts/ci/swiftpm_build_metrics.py --role generated-files --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests^[[0m
+2026-11-14T15:28:30.1152740Z shell: /opt/homebrew/bin/bash -e {0}
+2026-11-14T15:28:30.1152960Z env:
+2026-11-14T15:28:30.1153150Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-14T15:28:30.1153410Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:28:30.1153640Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:30.1153930Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:28:30.1154250Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:28:30.1154490Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:28:30.1154720Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:28:30.1154970Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:28:30.1155160Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:28:30.1155360Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:28:30.1155560Z   MAKEFLAGS: -j6
+2026-11-14T15:28:30.1155730Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:28:30.1155900Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:28:30.1156110Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:28:30.1156360Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:28:30.1156640Z   ACPMUX_SOCKET: 
+2026-11-14T15:28:30.1156860Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T15:28:30.1157220Z   CMUX_TUI_RUSTDOC: /Users/cmux/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustdoc
+2026-11-14T15:28:30.1157580Z   CARGO_HOME: /Users/cmux/actions-runner-glaeda-5/_work/.cargo-home
+2026-11-14T15:28:30.1157860Z   CMUX_METRICS_WEB_CACHE_OUTCOME: skipped
+2026-11-14T15:28:30.1158100Z   CMUX_METRICS_WEB_CACHE_HIT: true
+2026-11-14T15:28:30.1158300Z ##[endgroup]
+2026-11-14T15:28:42.4492560Z Fetching https://github.com/apple/swift-system.git from cache
+2026-11-14T15:28:42.4530020Z Fetching https://github.com/apple/swift-asn1.git from cache
+2026-11-14T15:28:42.4531170Z Fetching https://github.com/apple/swift-crypto.git from cache
+2026-11-14T15:28:42.4578490Z Fetching https://github.com/apple/swift-nio-ssh.git from cache
+2026-11-14T15:39:45.7366150Z warning: (arm64) /Users/runner/_work/_temp/app-ffi/cargo/aarch64-apple-darwin/release/libcmux_app_ffi.a(f3c5cc7ab326d4d0-ucmpti2.o) unable to open object file: No such file or directory
+2026-11-14T15:39:45.7367000Z warning: (arm64) /Users/runner/_work/_temp/app-ffi/cargo/aarch64-apple-darwin/release/libcmux_app_ffi.a(f3c5cc7ab326d4d0-atomic_flag_clear.o) unable to open object file: No such file or directory
+2026-11-14T15:39:45.7367900Z warning: (arm64) /Users/runner/_work/_temp/app-ffi/cargo/aarch64-apple-darwin/release/libcmux_app_ffi.a(f3c5cc7ab326d4d0-atomic_flag_clear_explicit.o) unable to open object file: No such file or directory
+2026-11-14T15:39:45.7368790Z warning: (arm64) /Users/runner/_work/_temp/app-ffi/cargo/aarch64-apple-darwin/release/libcmux_app_ffi.a(f3c5cc7ab326d4d0-atomic_flag_test_and_set.o) unable to open object file: No such file or directory
+2026-11-14T15:39:45.7369700Z warning: (arm64) /Users/runner/_work/_temp/app-ffi/cargo/aarch64-apple-darwin/release/libcmux_app_ffi.a(f3c5cc7ab326d4d0-atomic_flag_test_and_set_explicit.o) unable to open object file: No such file or directory
+2026-11-14T15:39:45.7374110Z warning: (arm64) /Users/runner/_work/_temp/app-ffi/cargo/aarch64-apple-darwin/release/libcmux_app_ffi.a(f3c5cc7ab326d4d0-atomic_signal_fence.o) unable to open object file: No such file or directory
+2026-11-14T15:39:45.7375040Z warning: (arm64) /Users/runner/_work/_temp/app-ffi/cargo/aarch64-apple-darwin/release/libcmux_app_ffi.a(f3c5cc7ab326d4d0-atomic_thread_fence.o) unable to open object file: No such file or directory
+2026-11-14T15:39:45.7375610Z [14911/14912] Linking CmuxNextPackageTests
+2026-11-14T15:39:45.7439460Z Build complete! (673.38s)
+2026-11-14T15:39:45.7888300Z ##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+2026-11-14T15:39:45.7888590Z with:
+2026-11-14T15:39:45.7888760Z   name: cmux-next-build-metrics-generated-files-1
+2026-11-14T15:39:45.7889070Z   path: /Users/cmux/actions-runner-glaeda-5/_work/_temp/cmux-next-build-metrics
+2026-11-14T15:39:45.7889340Z   if-no-files-found: ignore
+2026-11-14T15:39:45.7889500Z   retention-days: 3
+2026-11-14T15:39:45.7889640Z   compression-level: 6
+2026-11-14T15:39:45.7889790Z   overwrite: false
+2026-11-14T15:39:45.7889940Z   include-hidden-files: false
+2026-11-14T15:39:45.7890100Z   archive: true
+2026-11-14T15:39:45.7890240Z env:
+2026-11-14T15:39:45.7890410Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-14T15:39:45.7890620Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:39:45.7890820Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:39:45.7891090Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:39:45.7891370Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:39:45.7891600Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:39:45.7891810Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:39:45.7892060Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:39:45.7892210Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:39:45.7892360Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:39:45.7892530Z   MAKEFLAGS: -j6
+2026-11-14T15:39:45.7892680Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:39:45.7892820Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:39:45.7892990Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:39:45.7893220Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:39:45.7893470Z   ACPMUX_SOCKET: 
+2026-11-14T15:39:45.7893670Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T15:39:45.7894000Z   CMUX_TUI_RUSTDOC: /Users/cmux/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustdoc
+2026-11-14T15:39:45.7894340Z   CARGO_HOME: /Users/cmux/actions-runner-glaeda-5/_work/.cargo-home
+2026-11-14T15:39:45.7894580Z ##[endgroup]
+2026-11-14T15:39:45.9984480Z With the provided path, there will be 2 files uploaded
+2026-11-14T15:39:45.9986270Z Artifact name is valid!
+2026-11-14T15:39:45.9986630Z Root directory input is valid!
+2026-11-14T15:39:46.4017730Z Uploading artifact: cmux-next-build-metrics-generated-files-1.zip
+2026-11-14T15:39:46.4056550Z Beginning upload of artifact content to blob storage
+2026-11-14T15:39:47.1939700Z Uploaded bytes 459225
+2026-11-14T15:39:47.2710980Z Finished uploading artifact content to blob storage!
+2026-11-14T15:39:47.2712070Z SHA256 digest of uploaded artifact is e199288f0de28691284dcd98c2295690cd3ee0be66e8073b677959c037f60a73
+2026-11-14T15:39:47.2712930Z Finalizing artifact upload
+2026-11-14T15:39:47.8296700Z Artifact cmux-next-build-metrics-generated-files-1 successfully finalized. Artifact ID 14119779110
+2026-11-14T15:39:47.8298830Z Artifact cmux-next-build-metrics-generated-files-1 has been successfully uploaded! Final size is 459225 bytes. Artifact ID is 14119779110
+2026-11-14T15:39:47.8300730Z Artifact download URL: https://github.com/manaflow-ai/cmux/actions/runs/43608909796/artifacts/14119779110
+2026-11-14T15:39:47.8412090Z ##[group]Run ../../../scripts/cmux-next/judge-action-exports.sh "$PWD"
+2026-11-14T15:39:47.8412960Z ^[[36;1m../../../scripts/cmux-next/judge-action-exports.sh "$PWD"^[[0m
+2026-11-14T15:39:47.8479580Z shell: /opt/homebrew/bin/bash -e {0}
+2026-11-14T15:39:47.8480090Z env:
+2026-11-14T15:39:47.8480600Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-14T15:39:47.8481210Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:39:47.8481790Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:39:47.8482650Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:39:47.8483430Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:39:47.8484040Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:39:47.8484600Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:39:47.8485110Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:39:47.8485510Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:39:47.8485980Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:39:47.8486430Z   MAKEFLAGS: -j6
+2026-11-14T15:39:47.8486920Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:39:47.8487400Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:39:47.8487920Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:39:47.8488560Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:39:47.8489340Z   ACPMUX_SOCKET: 
+2026-11-14T15:39:47.8489830Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T15:39:47.8490720Z   CMUX_TUI_RUSTDOC: /Users/cmux/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustdoc
+2026-11-14T15:39:47.8491600Z   CARGO_HOME: /Users/cmux/actions-runner-glaeda-5/_work/.cargo-home
+2026-11-14T15:39:47.8492290Z   CMUX_ACTION_SURFACES_SKIP_BUILD: 1
+2026-11-14T15:39:47.8492840Z   CMUX_NEXT_JOB_BUILT: plain
+2026-11-14T15:39:47.8493310Z ##[endgroup]
+2026-11-14T15:39:58.4165760Z [0/1] Planning build
+2026-11-14T15:40:13.6451120Z Test Suite 'Selected tests' started at 2026-11-14 07:40:10.182.
+2026-11-14T15:40:13.6451610Z Test Suite 'CmuxNextPackageTests.xctest' started at 2026-11-14 07:40:10.182.
+2026-11-14T15:40:13.6452530Z Test Suite 'CmuxNextPackageTests.xctest' passed at 2026-11-14 07:40:10.182.
+2026-11-14T15:40:13.6453010Z 	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+2026-11-14T15:40:13.6453410Z Test Suite 'Selected tests' passed at 2026-11-14 07:40:10.182.
+2026-11-14T15:40:13.6453760Z 	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+2026-11-14T15:40:13.6454240Z cmux-next test process: exit() called (a stack at the very end of a run is the runner's own); its stack:
+2026-11-14T15:40:13.6454760Z 0   CmuxNextPackageTests                0x0000007059294e3c cmux_next_test_exit_trace + 72
+2026-11-14T15:40:13.6455220Z 1   libsystem_c.dylib                   0x000000018872dbd0 __cxa_finalize_ranges + 468
+2026-11-14T15:40:13.6455630Z 2   libsystem_c.dylib                   0x000000018872d99c exit + 44
+2026-11-14T15:40:13.6456030Z 3   XCTestCore                          0x000000010457700c _XCTestMain + 116
+2026-11-14T15:40:13.6456490Z 4   xctest                              0x0000000104491e44 $s10xctesttool6xctestO4mainyyFZ + 284
+2026-11-14T15:40:13.6456910Z 5   xctest                              0x0000000104491ee8 main + 12
+2026-11-14T15:40:13.6457270Z 6   dyld                                0x00000001884a7e80 start + 6688
+2026-11-14T15:40:13.6457720Z cmux-next test process: holding the main run loop open so a stray stop cannot end this test run (0)
+2026-11-14T15:40:13.6458300Z ◇ Test run started.
+2026-11-14T15:40:13.6458580Z ↳ Testing Library Version: 1902
+2026-11-14T15:40:13.6458870Z ↳ Target Platform: arm64e-apple-macos14.0
+2026-11-14T15:40:13.6459160Z ◇ Suite ActionContractTests started.
+2026-11-14T15:40:13.6459430Z ◇ Suite ActionCatalogTests started.
+2026-11-14T15:40:13.6459720Z ◇ Suite ActionSurfaceParityTests started.
+2026-11-14T15:40:13.6460050Z ◇ Suite AgentChatMenuActionCatalogTests started.
+2026-11-14T15:40:13.6460350Z ◇ Suite LinkExportTests started.
+2026-11-14T15:40:13.6460640Z ◇ Suite ProjectionActionCatalogTests started.
+2026-11-14T15:40:13.6461400Z ◇ Suite AgentConfigurationActionCatalogTests started.
+2026-11-14T15:40:13.6461710Z ◇ Suite CLISurfaceParityTests started.
+2026-11-14T15:40:13.6462010Z ◇ Suite ArgumentActionContractTests started.
+2026-11-14T15:40:13.6462320Z ◇ Test everyContextMenuIDResolves() started.
+2026-11-14T15:40:13.6462690Z ◇ Test shortcutIDsAreUniqueAndDefaultsDoNotCollide() started.
+2026-11-14T15:40:13.6463050Z ◇ Test everyActionHasAUniqueNounVerbCLIName() started.
+2026-11-14T15:40:13.6463410Z ◇ Test missingArgumentsGoToTheCollector() started.
+2026-11-14T15:40:13.6463910Z ◇ Test argumentSchemasAreWellFormed() started.
+2026-11-14T15:40:13.6464250Z ◇ Test contextMenuRendersFromRegistry() started.
+2026-11-14T15:40:13.6464560Z ◇ Test mainMenuItemsComeFromTheRegistry() started.
+2026-11-14T15:40:13.6464900Z ◇ Test declarationsAreConsistent() started.
+2026-11-14T15:40:13.6465200Z ◇ Test titlesUseTitleCase() started.
+2026-11-14T15:40:13.6465550Z ◇ Test everyKeyboardShortcutIDExists() started.
+2026-11-14T15:40:13.6465900Z ◇ Test generatedMenusShowExactlyThePlacements() started.
+2026-11-14T15:40:13.6466210Z ◇ Test argumentParsing() started.
+2026-11-14T15:40:13.6466490Z ◇ Test menuActionsArePaletteCliAndMcpRows() started.
+2026-11-14T15:40:13.6466890Z ◇ Test menuActionIDsDoNotDuplicateAnExistingCatalogRow() started.
+2026-11-14T15:40:13.6474620Z ◇ Test "each setter is palette, CLI and MCP reachable" started.
+2026-11-14T15:40:13.6475110Z ◇ Test newChatCatalogSharesDestinationArgumentsAndPaletteKeyword() started.
+2026-11-14T15:40:13.6475480Z ◇ Test everyActionDeclaresEverySurface() started.
+2026-11-14T15:40:13.6475760Z ◇ Test groupFamiliesAreComplete() started.
+2026-11-14T15:40:13.6476030Z ◇ Test exportIsFresh() started.
+2026-11-14T15:40:13.6476360Z ◇ Test pageMenuActionsGrantViewChangePermissionToCliAndMCPScopes() started.
+2026-11-14T15:40:13.6476730Z ◇ Test everyTargetKindMenuShowsItsActions() started.
+2026-11-14T15:40:13.6477020Z ◇ Test browserHistoryOwnsCmdY() started.
+2026-11-14T15:40:13.6477520Z ◇ Test minimapKeywordBelongsToEditorAndTranscriptSurfaces() started.
+2026-11-14T15:40:13.6477840Z ◇ Test reportIsFresh() started.
+2026-11-14T15:40:13.6478080Z ◇ Test exportNamesTitleKeys() started.
+2026-11-14T15:40:13.6478490Z ◇ Test everyMenuItemRunsItsOwnActionThroughTheRegistry() started.
+2026-11-14T15:40:13.6478840Z ◇ Test countsByDomainMatchInventory() started.
+2026-11-14T15:40:13.6479110Z ◇ Test linksJSONIsFresh() started.
+2026-11-14T15:40:13.6479380Z ◇ Test theExportStatesWhatTheCodeDoes() started.
+2026-11-14T15:40:13.6479750Z ◇ Test "palette keywords expose the three configuration verbs" started.
+2026-11-14T15:40:13.6480090Z ◇ Test legacyAliasesPointAtCatalogIDs() started.
+2026-11-14T15:40:13.6480470Z ◇ Test completeConversationCopyIsReachableFromThePalette() started.
+2026-11-14T15:40:13.6480820Z ◇ Test cliNamesAndShortcutsAreUnique() started.
+2026-11-14T15:40:13.6481190Z ◇ Test standardCatalogHasNoUnresolvableShortcutConflicts() started.
+2026-11-14T15:40:13.6481540Z ◇ Test actionListReportsEverySurface() started.
+2026-11-14T15:40:13.6481900Z ◇ Test everyMenuKeepsAShortTopLevel() started.
+2026-11-14T15:40:13.6482250Z ◇ Test everyCLIActionRunsItsOwnHandlerByCLIName() started.
+2026-11-14T15:40:13.6482620Z ◇ Test everyActionIsInThePaletteUnlessExempt() started.
+2026-11-14T15:40:13.6482940Z ◇ Test idsAreUniqueAndTitlesPresent() started.
+2026-11-14T15:40:13.6483280Z ◇ Test openingAProjectionMayChangeTheViewFromAScript() started.
+2026-11-14T15:40:13.6483680Z ◇ Test sessionInfoToggleUsesTheHeaderNameAndKeywords() started.
+2026-11-14T15:40:13.6484050Z ◇ Test editorMinimapToggleIsAPaletteCommand() started.
+2026-11-14T15:40:13.6484420Z ◇ Test cloudMachineIOActionsAreTerminalAndReachable() started.
+2026-11-14T15:40:13.6484770Z ◇ Test anySpellingOfAnArgumentNamesIt(_:) started.
+2026-11-14T15:40:13.6485070Z ◇ Test everyArgumentNameIsCanonical() started.
+2026-11-14T15:40:13.6485370Z ◇ Test theExportCarriesEveryArgument() started.
+2026-11-14T15:40:13.6485700Z ◇ Test twoSpellingsOfOneArgumentAreRefused() started.
+2026-11-14T15:40:13.6486340Z ◇ Test noTwoArgumentsOfAnActionFoldToOneName() started.
+2026-11-14T15:40:13.6486720Z ◇ Test everyRequestTheCLIEncodesValidatesAgainstTheCatalog() started.
+2026-11-14T15:40:13.6487150Z ◇ Test theRenamedSnakeCaseArgumentsStillTakeTheirOldNames() started.
+2026-11-14T15:40:13.6487550Z ◇ Test sessionFileCopiesAreReachableFromThePalette() started.
+2026-11-14T15:40:13.6487910Z ◇ Test contextMenuHidesActionsThatDoNotApply() started.
+2026-11-14T15:40:13.6488280Z ◇ Test openFilesAndFindAsPaneAreCLIVerbsAndMCPTools(id:) started.
+2026-11-14T15:40:13.6488850Z ◇ Test case passing 1 argument given → "publicKey" to anySpellingOfAnArgumentNamesIt(_:) started.
+2026-11-14T15:40:13.6489380Z ◇ Test case passing 1 argument given → "public-key" to anySpellingOfAnArgumentNamesIt(_:) started.
+2026-11-14T15:40:13.6489910Z ◇ Test case passing 1 argument given → "public_key" to anySpellingOfAnArgumentNamesIt(_:) started.
+2026-11-14T15:40:13.6490520Z ◇ Test case passing 1 argument id → "palette.openFilesPane" to openFilesAndFindAsPaneAreCLIVerbsAndMCPTools(id:) started.
+2026-11-14T15:40:13.6491190Z ◇ Test case passing 1 argument id → "palette.openFindPane" to openFilesAndFindAsPaneAreCLIVerbsAndMCPTools(id:) started.
+2026-11-14T15:40:13.6491930Z ✘ Test titlesUseTitleCase() recorded an issue at ActionCatalogTests.swift:136:17: Expectation failed: (index > 0 → true) && (minor.contains(word) → false)
+2026-11-14T15:40:13.6492430Z ↳ sidebar.customize: "Customize sidebar…"
+2026-11-14T15:40:13.6493070Z ✘ Test countsByDomainMatchInventory() recorded an issue at ActionCatalogTests.swift:93:13: Expectation failed: (counts[category] → 91) == (expected[category] → 90)
+2026-11-14T15:40:13.6493530Z ↳ .sidebar
+2026-11-14T15:40:13.6497210Z ✘ Test countsByDomainMatchInventory() recorded an issue at ActionCatalogTests.swift:95:9: Expectation failed: (counts → [CmuxNextActions.ActionCategory.pane: 137, CmuxNextActions.ActionCategory.cloud: 73, CmuxNextActions.ActionCategory.notifications: 32, CmuxNextActions.ActionCategory.workspace: 193, CmuxNextActions.ActionCategory.terminal: 38, CmuxNextActions.ActionCategory.sidebar: 91, CmuxNextActions.ActionCategory.remote: 31, CmuxNextActions.ActionCategory.tab: 115, CmuxNextActions.ActionCategory.agents: 136, CmuxNextActions.ActionCategory.window: 138, CmuxNextActions.ActionCategory.settings: 162, CmuxNextActions.ActionCategory.screen: 65, CmuxNextActions.ActionCategory.browser: 254]) == (expected → [CmuxNextActions.ActionCategory.workspace: 193, CmuxNextActions.ActionCategory.screen: 65, CmuxNextActions.ActionCategory.cloud: 73, CmuxNextActions.ActionCategory.terminal: 38, CmuxNextActions.ActionCategory.settings: 162, CmuxNextActions.ActionCategory.notifications: 32, CmuxNextActions.ActionCategory.browser: 254, CmuxNextActions.ActionCategory.sidebar: 90, CmuxNextActions.ActionCategory.pane: 137, CmuxNextActions.ActionCategory.agents: 136, CmuxNextActions.ActionCategory.tab: 115, CmuxNextActions.ActionCategory.window: 138, CmuxNextActions.ActionCategory.remote: 31])
+2026-11-14T15:40:13.6500460Z ✘ Test everyMenuKeepsAShortTopLevel() recorded an issue at ActionSurfaceParityTests.swift:112:17: Expectation failed: (rows.count → 13) <= (cap → 12)
+2026-11-14T15:40:13.6500940Z ↳ .sidebarBackground has 13 top-level rows
+2026-11-14T15:40:13.6501660Z ✘ Test reportIsFresh() recorded an issue at ActionSurfaceParityTests.swift:218:9: Expectation failed: (String(text[start.lowerBound..<end.upperBound]) → "<!-- generated: action surfaces -->
+2026-11-14T15:40:13.6502080Z 
+2026-11-14T15:40:13.6502180Z ## Catalog counts
+2026-11-14T15:40:13.6502280Z 
+2026-11-14T15:40:13.6502360Z - `window`: 138
+2026-11-14T15:40:13.8656000Z **endsApp** (4): `quit`, `quitKeepSessions`, `quitEndSessions`, `quitEndEverything`
+2026-11-14T15:40:13.8656520Z 
+2026-11-14T15:40:13.8671790Z **systemChange** (73): `keepMacAwake`, `workspace.importClassic`, `palette.enableBrowser`, `palette.disableBrowser`, `palette.toggleMatchTerminalBackground`, `palette.enableMinimalMode`, `palette.disableMinimalMode`, `notifications.toggleBanners`, `notifications.dismissal.keystroke`, `notifications.dismissal.focus`, `notifications.dismissal.click`, `notifications.dismissal.explicit`, `notifications.dismissal.timeout`, `notifications.dismissal.never`, `agentPaneZoomIn`, `agentPaneZoomOut`, `agentPaneZoomReset`, `workspace.setRemoteLocalhost`, `palette.makeDefaultBrowser`, `palette.makeDefaultTerminal`, `palette.toggleSetting`, `palette.shortcutKeymap`, `palette.installCLI`, `palette.uninstallCLI`, `palette.restartSocketListener`, `palette.applyUpdateIfAvailable`, `palette.switchAppChannel`, `updates.rollback`, `help.showCrashLogs`, `appearance.animationSpeed.fast`, `appearance.animationSpeed.normal`, `appearance.animationSpeed.off`, `appearance.animations.newTab.toggle`, `appearance.animations.newWorkspace.toggle`, `browser.defaultEngine.chromium`, `browser.defaultEngine.webkit`, `appearance.paneBorder.toggle`, `appearance.panePadding.toggle`, `appearance.paneCorners.toggle`, `layout.centerFocusedColumn.never`, `layout.centerFocusedColumn.always`, `layout.centerFocusedColumn.onOverflow`, `focusRing.toggle`, `focusRing.style.ring`, `focusRing.style.glow`, `focusRing.singlePane.toggle`, `appearance.paneBorderWidth.toggle`, `appearance.paneBorderColor.reset`, `appearance.titlebar.minimal`, `appearance.titlebar.standard`, `appearance.density.ultraCompact`, `appearance.density.compact`, `appearance.density.cozy`, `appearance.density.comfortable`, `appearance.density.spacious`, `appearance.density.set`, `appearance.density.create`, `appearance.chromeStyle.default`, `appearance.chromeStyle.card`, `appearance.chromeStyle.cardOutlined`, `appearance.chromeStyle.flat`, `appearance.chromeStyle.flatSidebarLine`, `appearance.chromeStyle.bare`, `appearance.chromeStyle.panes`, `appearance.chromeStyle.twoTone`, `appearance.chromeStyle.floating`, `appearance.chromeStyle.blocks`, `browser.hibernation.off`, `browser.hibernation.moderate`, `browser.hibernation.aggressive`, `layout.toggleStripScrollbar`, `chief.screenShare.toggle`, `chief.screenShare.start`
+2026-11-14T15:40:13.8688360Z 
+2026-11-14T15:40:13.8688880Z Every action without a CLI verb is also no MCP tool, for the CLI's reason.
+2026-11-14T15:40:13.8689340Z 
+2026-11-14T15:40:13.8689520Z <!-- /generated -->")
+2026-11-14T15:40:13.8690480Z ↳ actions.md is stale; rerun with CMUX_UPDATE_ACTION_SURFACES=1
+2026-11-14T15:40:13.8691710Z ✘ Test exportIsFresh() recorded an issue at ActionSurfaceParityTests.swift:199:9: Expectation failed: (stored → "{
+2026-11-14T15:40:13.8743650Z   "actions" : [
+2026-11-14T15:40:13.8743870Z     {
+2026-11-14T15:40:13.8744020Z       "args" : [
+2026-11-14T15:40:13.8744170Z         {
+2026-11-14T15:40:13.8744320Z           "kind" : "enum",
+2026-11-14T15:40:13.8744500Z           "name" : "section",
+2026-11-14T15:40:13.8744680Z           "required" : false,
+2026-11-14T15:40:14.8678130Z       "source" : "CmuxNextRemoteBrowser\/Native\/RemoteBrowserNativeUI.swift"
+2026-11-14T15:40:14.8678180Z     },
+2026-11-14T15:40:14.8678230Z     {
+2026-11-14T15:40:14.8678310Z       "name" : "sidebarNoticeCard",
+2026-11-14T15:40:14.8678460Z       "source" : "CmuxNextSidebar\/Views\/SidebarNoticeCardView.swift"
+2026-11-14T15:40:14.8678510Z     },
+2026-11-14T15:40:14.8678560Z     {
+2026-11-14T15:40:14.8678640Z       "name" : "sidebarUpdateCard",
+2026-11-14T15:40:14.8678780Z       "source" : "CmuxNextSidebar\/Views\/SidebarUpdateCardView.swift"
+2026-11-14T15:40:14.8678830Z     },
+2026-11-14T15:40:14.8678880Z     {
+2026-11-14T15:40:14.8678960Z       "name" : "homeBackground",
+2026-11-14T15:40:14.8679070Z       "source" : "CmuxNextHomeEngine\/HomePageMenus.swift"
+2026-11-14T15:40:14.8679120Z     }
+2026-11-14T15:40:14.8679180Z   ],
+2026-11-14T15:40:14.8679240Z   "version" : 1
+2026-11-14T15:40:14.8679310Z }
+2026-11-14T15:40:14.8679360Z ")
+2026-11-14T15:40:14.8679610Z ↳ action-surfaces.json is stale; rerun with CMUX_UPDATE_ACTION_SURFACES=1
+2026-11-14T15:40:14.8679810Z ✘ Test titlesUseTitleCase() failed after 0.734 seconds with 1 issue.
+2026-11-14T15:40:14.8680050Z ↳ /// Palette and menu titles use title case (HIG): every word is capitalized except
+2026-11-14T15:40:14.8680360Z ↳ /// short articles, conjunctions and prepositions, and names spelled in lowercase.
+2026-11-14T15:40:14.8680570Z ✔ Test menuActionsArePaletteCliAndMcpRows() passed after 0.737 seconds.
+2026-11-14T15:40:14.8680750Z ✔ Test everyKeyboardShortcutIDExists() passed after 0.738 seconds.
+2026-11-14T15:40:14.8681000Z ✔ Test menuActionIDsDoNotDuplicateAnExistingCatalogRow() passed after 0.745 seconds.
+2026-11-14T15:40:14.8681290Z ✔ Test pageMenuActionsGrantViewChangePermissionToCliAndMCPScopes() passed after 0.746 seconds.
+2026-11-14T15:40:14.8681680Z ✔ Test newChatCatalogSharesDestinationArgumentsAndPaletteKeyword() passed after 0.771 seconds.
+2026-11-14T15:40:14.8681840Z ✔ Test browserHistoryOwnsCmdY() passed after 0.771 seconds.
+2026-11-14T15:40:14.8682030Z ✔ Suite AgentChatMenuActionCatalogTests passed after 0.771 seconds.
+2026-11-14T15:40:14.8682220Z ✔ Test contextMenuRendersFromRegistry() passed after 0.774 seconds.
+2026-11-14T15:40:14.8682410Z ✔ Test argumentParsing() passed after 0.774 seconds.
+2026-11-14T15:40:14.8682600Z ✔ Test mainMenuItemsComeFromTheRegistry() passed after 0.774 seconds.
+2026-11-14T15:40:14.8682800Z ✔ Test missingArgumentsGoToTheCollector() passed after 0.774 seconds.
+2026-11-14T15:40:14.8683020Z ✔ Test shortcutIDsAreUniqueAndDefaultsDoNotCollide() passed after 0.774 seconds.
+2026-11-14T15:40:14.8683270Z ✔ Test "palette keywords expose the three configuration verbs" passed after 0.774 seconds.
+2026-11-14T15:40:14.8683530Z ✔ Test completeConversationCopyIsReachableFromThePalette() passed after 0.774 seconds.
+2026-11-14T15:40:14.8683780Z ✔ Test everyContextMenuIDResolves() passed after 0.774 seconds.
+2026-11-14T15:40:14.8684040Z ✔ Test minimapKeywordBelongsToEditorAndTranscriptSurfaces() passed after 0.774 seconds.
+2026-11-14T15:40:14.8684240Z ✔ Test everyTargetKindMenuShowsItsActions() passed after 0.774 seconds.
+2026-11-14T15:40:14.8684450Z ✔ Test everyActionHasAUniqueNounVerbCLIName() passed after 0.774 seconds.
+2026-11-14T15:40:14.8684650Z ✔ Test linksJSONIsFresh() passed after 0.774 seconds.
+2026-11-14T15:40:14.8684900Z ✔ Test everyMenuItemRunsItsOwnActionThroughTheRegistry() passed after 0.774 seconds.
+2026-11-14T15:40:14.8685120Z ✔ Test "each setter is palette, CLI and MCP reachable" passed after 0.774 seconds.
+2026-11-14T15:40:14.8685310Z ✘ Test reportIsFresh() failed after 0.774 seconds with 1 issue.
+2026-11-14T15:40:14.8685500Z ↳ /// The generated block of plans/cmux-next/actions.md (counts, every
+2026-11-14T15:40:14.8685690Z ↳ /// menu in order, every exemption) matches the catalog, so menu order
+2026-11-14T15:40:14.8685840Z ↳ /// changes and new exemptions are reviewed as text.
+2026-11-14T15:40:14.8686080Z ↳ /// Compared only where CI checks the committed exports (CMUX_CHECK_GENERATED_EXPORTS=1,
+2026-11-14T15:40:14.8686310Z ↳ /// check-action-surfaces.sh) or rewrites them; on feat-cmux-next the autofix bots
+2026-11-14T15:40:14.8686460Z ↳ /// regenerate them (regenerate-action-exports.sh).
+2026-11-14T15:40:14.8686620Z ✔ Test exportNamesTitleKeys() passed after 0.774 seconds.
+2026-11-14T15:40:14.8686810Z ✔ Test everyActionDeclaresEverySurface() passed after 0.774 seconds.
+2026-11-14T15:40:14.8687000Z ✔ Test theExportStatesWhatTheCodeDoes() passed after 0.774 seconds.
+2026-11-14T15:40:14.8687220Z ✘ Test everyMenuKeepsAShortTopLevel() failed after 0.773 seconds with 1 issue.
+2026-11-14T15:40:14.8687410Z ↳ /// Lawrence (2026-10-01): long menus use submenus. Each menu keeps at
+2026-11-14T15:40:14.8687640Z ↳ /// most 12 top-level rows (13 for the chat/terminal fork commands); the rest live in
+2026-11-14T15:40:14.8687820Z ↳ /// folders ("Move ▸"), and each folder holds at least two rows.
+2026-11-14T15:40:14.8688010Z ↳ /// Reachability inside folders is checked by the tests above, which
+2026-11-14T15:40:14.8688080Z ↳ /// walk submenus.
+2026-11-14T15:40:14.8688140Z ↳ ///
+2026-11-14T15:40:14.8688370Z ↳ /// The cap is for the rows a person sees at one time. A menu whose builder always hides
+2026-11-14T15:40:14.8688610Z ↳ /// some of its catalog rows is counted where it is built (``countedAtItsBuilder``), with
+2026-11-14T15:40:14.8688840Z ↳ /// the rows that builder hides; its catalog list here is longer than any menu it shows.
+2026-11-14T15:40:14.8689010Z ✔ Test declarationsAreConsistent() passed after 0.774 seconds.
+2026-11-14T15:40:14.8689210Z ✔ Suite AgentConfigurationActionCatalogTests passed after 0.774 seconds.
+2026-11-14T15:40:14.8689370Z ✔ Test groupFamiliesAreComplete() passed after 0.774 seconds.
+2026-11-14T15:40:14.8689550Z ✔ Test actionListReportsEverySurface() passed after 0.774 seconds.
+2026-11-14T15:40:14.8689790Z ✔ Test argumentSchemasAreWellFormed() passed after 0.774 seconds.
+2026-11-14T15:40:14.8689920Z ✔ Suite LinkExportTests passed after 0.774 seconds.
+2026-11-14T15:40:14.8690080Z ✘ Test exportIsFresh() failed after 0.774 seconds with 1 issue.
+2026-11-14T15:40:14.8690280Z ↳ /// The checked-in export (`plans/cmux-next/action-surfaces.json`) that
+2026-11-14T15:40:14.8690470Z ↳ /// the Rust CLI and MCP parity tests, cmux-browser and GPUI read matches
+2026-11-14T15:40:14.8690690Z ↳ /// the catalog: surfaces, title and its localization key, default
+2026-11-14T15:40:14.8690860Z ↳ /// shortcut and chord. A changed title or shortcut fails here.
+2026-11-14T15:40:14.8691120Z ↳ /// `CMUX_UPDATE_ACTION_SURFACES=1 swift test --filter ActionSurfaceParityTests` rewrites it.
+2026-11-14T15:40:14.8691350Z ↳ /// Compared only where CI checks the committed exports (CMUX_CHECK_GENERATED_EXPORTS=1,
+2026-11-14T15:40:14.8691570Z ↳ /// check-action-surfaces.sh) or rewrites them; on feat-cmux-next the autofix bots
+2026-11-14T15:40:14.8691770Z ↳ /// regenerate them (regenerate-action-exports.sh).
+2026-11-14T15:40:14.8691990Z ✘ Test countsByDomainMatchInventory() failed after 0.774 seconds with 2 issues.
+2026-11-14T15:40:14.8692220Z ↳ /// Compared only where CI checks the committed exports (CMUX_CHECK_GENERATED_EXPORTS=1,
+2026-11-14T15:40:14.8692430Z ↳ /// check-action-surfaces.sh) or rewrites them; on feat-cmux-next the autofix bots
+2026-11-14T15:40:14.8692640Z ↳ /// regenerate them (regenerate-action-exports.sh).
+2026-11-14T15:40:14.8692810Z ✔ Test idsAreUniqueAndTitlesPresent() passed after 0.868 seconds.
+2026-11-14T15:40:14.8693060Z ✔ Test standardCatalogHasNoUnresolvableShortcutConflicts() passed after 0.868 seconds.
+2026-11-14T15:40:14.8693290Z ✔ Test sessionInfoToggleUsesTheHeaderNameAndKeywords() passed after 0.868 seconds.
+2026-11-14T15:40:14.8693500Z ✔ Test everyActionIsInThePaletteUnlessExempt() passed after 0.868 seconds.
+2026-11-14T15:40:14.8693730Z ✔ Test openingAProjectionMayChangeTheViewFromAScript() passed after 0.868 seconds.
+2026-11-14T15:40:14.8693910Z ✔ Test cliNamesAndShortcutsAreUnique() passed after 0.868 seconds.
+2026-11-14T15:40:14.8694090Z ✔ Test legacyAliasesPointAtCatalogIDs() passed after 0.868 seconds.
+2026-11-14T15:40:14.8694300Z ✔ Test generatedMenusShowExactlyThePlacements() passed after 0.868 seconds.
+2026-11-14T15:40:14.8694510Z ✔ Test noTwoArgumentsOfAnActionFoldToOneName() passed after 0.867 seconds.
+2026-11-14T15:40:14.8694720Z ✔ Test contextMenuHidesActionsThatDoNotApply() passed after 0.867 seconds.
+2026-11-14T15:40:14.8694960Z ✔ Test anySpellingOfAnArgumentNamesIt(_:) with 3 test cases passed after 0.868 seconds.
+2026-11-14T15:40:14.8695200Z ✔ Test theRenamedSnakeCaseArgumentsStillTakeTheirOldNames() passed after 0.867 seconds.
+2026-11-14T15:40:14.8695380Z ✔ Test theExportCarriesEveryArgument() passed after 0.867 seconds.
+2026-11-14T15:40:14.8695580Z ✔ Test editorMinimapToggleIsAPaletteCommand() passed after 0.868 seconds.
+2026-11-14T15:40:14.8695840Z ✔ Test everyRequestTheCLIEncodesValidatesAgainstTheCatalog() passed after 0.868 seconds.
+2026-11-14T15:40:14.8696140Z ✔ Test openFilesAndFindAsPaneAreCLIVerbsAndMCPTools(id:) with 2 test cases passed after 0.868 seconds.
+2026-11-14T15:40:14.8696310Z ✔ Test everyArgumentNameIsCanonical() passed after 0.868 seconds.
+2026-11-14T15:40:14.8696540Z ✔ Test cloudMachineIOActionsAreTerminalAndReachable() passed after 0.868 seconds.
+2026-11-14T15:40:14.8696720Z ✔ Suite ProjectionActionCatalogTests passed after 0.868 seconds.
+2026-11-14T15:40:14.8696920Z ✔ Test twoSpellingsOfOneArgumentAreRefused() passed after 0.868 seconds.
+2026-11-14T15:40:14.8697150Z ✔ Test sessionFileCopiesAreReachableFromThePalette() passed after 0.868 seconds.
+2026-11-14T15:40:14.8697340Z ✘ Suite ActionSurfaceParityTests failed after 0.869 seconds with 3 issues.
+2026-11-14T15:40:14.8697540Z ↳ /// The surface parity rule (plans/cmux-next/actions.md): every action is
+2026-11-14T15:40:14.8697740Z ↳ /// offered on the CLI, a right-click menu and the palette, or names why not.
+2026-11-14T15:40:14.8697990Z ↳ /// The catalog is finite, so each property below is checked for every
+2026-11-14T15:40:14.8698120Z ↳ /// element: an exhaustive check, not a sample.
+2026-11-14T15:40:14.8698310Z ✘ Suite ActionCatalogTests failed after 0.868 seconds with 3 issues.
+2026-11-14T15:40:14.8698500Z ↳ /// Catalog completeness against plans/cmux-next/inventory.md section 1.
+2026-11-14T15:40:14.8698660Z ✔ Suite ActionContractTests passed after 0.869 seconds.
+2026-11-14T15:40:14.8698890Z ✔ Suite ArgumentActionContractTests passed after 0.868 seconds.
+2026-11-14T15:40:14.8699110Z ✔ Test everyCLIActionRunsItsOwnHandlerByCLIName() passed after 0.966 seconds.
+2026-11-14T15:40:14.8699260Z ✔ Suite CLISurfaceParityTests passed after 0.967 seconds.
+2026-11-14T15:40:14.8699470Z ✘ Test run with 53 tests in 9 suites failed after 0.967 seconds with 6 issues.
+2026-11-14T15:40:14.8699720Z cmux-next test process: exit() called (a stack at the very end of a run is the runner's own); its stack:
+2026-11-14T15:40:14.8699940Z 0   CmuxNextPackageTests                0x0000007017ec4e3c cmux_next_test_exit_trace + 72
+2026-11-14T15:40:14.8700180Z 1   libsystem_c.dylib                   0x000000018872dbd0 __cxa_finalize_ranges + 468
+2026-11-14T15:40:14.8700340Z 2   libsystem_c.dylib                   0x000000018872d99c exit + 44
+2026-11-14T15:40:14.8700690Z 3   Testing                             0x0000000109981ad0 $s7Testing31_shouldIncludeExperimentalFlags33_5FF26E46D7345299BD737C127DE1337CLL_WZ + 0
+2026-11-14T15:40:14.8701180Z 4   libswift_Concurrency.dylib          0x00000002b516fc50 _ZN5swift34runJobInEstablishedExecutorContextEPNS_3JobENS_17SerialExecutorRefENS_15TaskExecutorRefE + 328
+2026-11-14T15:40:14.8701480Z 5   libswift_Concurrency.dylib          0x00000002b51719d4 _ZL17swift_job_runImplPN5swift3JobENS_17SerialExecutorRefE + 156
+2026-11-14T15:40:14.8701680Z 6   libdispatch.dylib                   0x00000001886ceaac _dispatch_root_queue_drain + 360
+2026-11-14T15:40:14.8701880Z 7   libdispatch.dylib                   0x00000001886cf248 _dispatch_worker_thread2 + 184
+2026-11-14T15:40:14.8702070Z 8   libsystem_pthread.dylib             0x0000000188879f60 _pthread_wqthread + 232
+2026-11-14T15:40:14.8702240Z 9   libsystem_pthread.dylib             0x0000000188878ce0 start_wqthread + 8
+2026-11-14T15:40:27.3910680Z [0/1] Planning build
+2026-11-14T15:40:27.3911010Z Test Suite 'Selected tests' started at 2026-11-14 07:40:24.294.
+2026-11-14T15:40:27.3911410Z Test Suite 'CmuxNextPackageTests.xctest' started at 2026-11-14 07:40:24.295.
+2026-11-14T15:40:27.3911830Z Test Suite 'CmuxNextPackageTests.xctest' passed at 2026-11-14 07:40:24.295.
+2026-11-14T15:40:27.3912200Z 	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+2026-11-14T15:40:27.3912540Z Test Suite 'Selected tests' passed at 2026-11-14 07:40:24.295.
+2026-11-14T15:40:27.3912860Z 	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+2026-11-14T15:40:27.3913310Z cmux-next test process: exit() called (a stack at the very end of a run is the runner's own); its stack:
+2026-11-14T15:40:27.3913780Z 0   CmuxNextPackageTests                0x0000007059294e3c cmux_next_test_exit_trace + 72
+2026-11-14T15:40:27.3914190Z 1   libsystem_c.dylib                   0x000000018872dbd0 __cxa_finalize_ranges + 468
+2026-11-14T15:40:27.3914550Z 2   libsystem_c.dylib                   0x000000018872d99c exit + 44
+2026-11-14T15:40:27.3914890Z 3   XCTestCore                          0x0000000100b8300c _XCTestMain + 116
+2026-11-14T15:40:27.3915270Z 4   xctest                              0x0000000100a9de44 $s10xctesttool6xctestO4mainyyFZ + 284
+2026-11-14T15:40:27.3915620Z 5   xctest                              0x0000000100a9dee8 main + 12
+2026-11-14T15:40:27.3915940Z 6   dyld                                0x00000001884a7e80 start + 6688
+2026-11-14T15:40:27.3916340Z cmux-next test process: holding the main run loop open so a stray stop cannot end this test run (0)
+2026-11-14T15:40:27.3916750Z ◇ Test run started.
+2026-11-14T15:40:27.3917210Z ↳ Testing Library Version: 1902
+2026-11-14T15:40:27.3917470Z ↳ Target Platform: arm64e-apple-macos14.0
+2026-11-14T15:40:27.3917720Z ◇ Suite ActionSurfaceParityTests started.
+2026-11-14T15:40:27.3918000Z ◇ Test everyMenuKeepsAShortTopLevel() started.
+2026-11-14T15:40:27.3918340Z ◇ Test openFilesAndFindAsPaneAreCLIVerbsAndMCPTools(id:) started.
+2026-11-14T15:40:27.3918630Z ◇ Test exportIsFresh() started.
+2026-11-14T15:40:27.3918880Z ◇ Test everyActionDeclaresEverySurface() started.
+2026-11-14T15:40:27.3919380Z ◇ Test everyMenuItemRunsItsOwnActionThroughTheRegistry() started.
+2026-11-14T15:40:27.3919670Z ◇ Test reportIsFresh() started.
+2026-11-14T15:40:27.3919890Z ◇ Test exportNamesTitleKeys() started.
+2026-11-14T15:40:27.3920180Z ◇ Test generatedMenusShowExactlyThePlacements() started.
+2026-11-14T15:40:27.3920480Z ◇ Test cliNamesAndShortcutsAreUnique() started.
+2026-11-14T15:40:27.3920770Z ◇ Test everyTargetKindMenuShowsItsActions() started.
+2026-11-14T15:40:27.3921050Z ◇ Test declarationsAreConsistent() started.
+2026-11-14T15:40:27.3921540Z ◇ Test case passing 1 argument id → "palette.openFilesPane" to openFilesAndFindAsPaneAreCLIVerbsAndMCPTools(id:) started.
+2026-11-14T15:40:27.3922310Z ◇ Test case passing 1 argument id → "palette.openFindPane" to openFilesAndFindAsPaneAreCLIVerbsAndMCPTools(id:) started.
+2026-11-14T15:40:27.3923170Z ✘ Test everyMenuKeepsAShortTopLevel() recorded an issue at ActionSurfaceParityTests.swift:112:17: Expectation failed: (rows.count → 13) <= (cap → 12)
+2026-11-14T15:40:27.3923750Z ↳ .sidebarBackground has 13 top-level rows
+2026-11-14T15:40:27.3924070Z ✔ Test reportIsFresh() passed after 0.486 seconds.
+2026-11-14T15:40:27.3924380Z ✔ Test exportNamesTitleKeys() passed after 0.486 seconds.
+2026-11-14T15:40:27.3924740Z ✔ Test everyTargetKindMenuShowsItsActions() passed after 0.486 seconds.
+2026-11-14T15:40:27.3930260Z ✔ Test everyActionDeclaresEverySurface() passed after 0.486 seconds.
+2026-11-14T15:40:27.3930710Z ✔ Test everyMenuItemRunsItsOwnActionThroughTheRegistry() passed after 0.486 seconds.
+2026-11-14T15:40:27.3931080Z ✔ Test exportIsFresh() passed after 0.486 seconds.
+2026-11-14T15:40:27.3931400Z ✔ Test cliNamesAndShortcutsAreUnique() passed after 0.486 seconds.
+2026-11-14T15:40:27.3931750Z ✔ Test declarationsAreConsistent() passed after 0.486 seconds.
+2026-11-14T15:40:27.3932130Z ✘ Test everyMenuKeepsAShortTopLevel() failed after 0.486 seconds with 1 issue.
+2026-11-14T15:40:27.3932520Z ↳ /// Lawrence (2026-10-01): long menus use submenus. Each menu keeps at
+2026-11-14T15:40:27.3932930Z ↳ /// most 12 top-level rows (13 for the chat/terminal fork commands); the rest live in
+2026-11-14T15:40:27.3933300Z ↳ /// folders ("Move ▸"), and each folder holds at least two rows.
+2026-11-14T15:40:27.3933660Z ↳ /// Reachability inside folders is checked by the tests above, which
+2026-11-14T15:40:27.3933910Z ↳ /// walk submenus.
+2026-11-14T15:40:27.3934060Z ↳ ///
+2026-11-14T15:40:27.3934370Z ↳ /// The cap is for the rows a person sees at one time. A menu whose builder always hides
+2026-11-14T15:40:27.3934810Z ↳ /// some of its catalog rows is counted where it is built (``countedAtItsBuilder``), with
+2026-11-14T15:40:27.3935260Z ↳ /// the rows that builder hides; its catalog list here is longer than any menu it shows.
+2026-11-14T15:40:27.3935680Z ✔ Test generatedMenusShowExactlyThePlacements() passed after 0.486 seconds.
+2026-11-14T15:40:27.3936170Z ✔ Test openFilesAndFindAsPaneAreCLIVerbsAndMCPTools(id:) with 2 test cases passed after 0.486 seconds.
+2026-11-14T15:40:27.3936630Z ✘ Suite ActionSurfaceParityTests failed after 0.487 seconds with 1 issue.
+2026-11-14T15:40:27.3937010Z ↳ /// The surface parity rule (plans/cmux-next/actions.md): every action is
+2026-11-14T15:40:27.3937400Z ↳ /// offered on the CLI, a right-click menu and the palette, or names why not.
+2026-11-14T15:40:27.3937780Z ↳ /// The catalog is finite, so each property below is checked for every
+2026-11-14T15:40:27.3938080Z ↳ /// element: an exhaustive check, not a sample.
+2026-11-14T15:40:27.3938420Z ✘ Test run with 11 tests in 1 suite failed after 0.487 seconds with 1 issue.
+2026-11-14T15:40:27.3939000Z cmux-next test process: exit() called (a stack at the very end of a run is the runner's own); its stack:
+2026-11-14T15:40:27.3939430Z 0   CmuxNextPackageTests                0x0000007017ec4e3c cmux_next_test_exit_trace + 72
+2026-11-14T15:40:27.3939840Z 1   libsystem_c.dylib                   0x000000018872dbd0 __cxa_finalize_ranges + 468
+2026-11-14T15:40:27.3940210Z 2   libsystem_c.dylib                   0x000000018872d99c exit + 44
+2026-11-14T15:40:27.3940770Z 3   Testing                             0x000000010a185ad0 $s7Testing31_shouldIncludeExperimentalFlags33_5FF26E46D7345299BD737C127DE1337CLL_WZ + 0
+2026-11-14T15:40:27.3941480Z 4   libswift_Concurrency.dylib          0x00000002b516fc50 _ZN5swift34runJobInEstablishedExecutorContextEPNS_3JobENS_17SerialExecutorRefENS_15TaskExecutorRefE + 328
+2026-11-14T15:40:27.3942150Z 5   libswift_Concurrency.dylib          0x00000002b51719d4 _ZL17swift_job_runImplPN5swift3JobENS_17SerialExecutorRefE + 156
+2026-11-14T15:40:27.3942620Z 6   libdispatch.dylib                   0x00000001886ceaac _dispatch_root_queue_drain + 360
+2026-11-14T15:40:27.3943010Z 7   libdispatch.dylib                   0x00000001886cf248 _dispatch_worker_thread2 + 184
+2026-11-14T15:40:27.3943390Z 8   libsystem_pthread.dylib             0x0000000188879f60 _pthread_wqthread + 232
+2026-11-14T15:40:27.3943750Z 9   libsystem_pthread.dylib             0x0000000188878ce0 start_wqthread + 8
+2026-11-14T15:40:27.3953780Z ##[error]the action exports could not be regenerated
+2026-11-14T15:40:27.3957610Z ##[error]Process completed with exit code 1.
+2026-11-14T15:40:27.3992060Z ##[group]Run scripts/cmux-next/check-settings-exports.sh
+2026-11-14T15:40:27.3992340Z ^[[36;1mscripts/cmux-next/check-settings-exports.sh^[[0m
+2026-11-14T15:40:27.4016690Z shell: /opt/homebrew/bin/bash -e {0}
+2026-11-14T15:40:27.4016870Z env:
+2026-11-14T15:40:27.4017030Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-14T15:40:27.4017240Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:40:27.4017430Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:40:27.4017710Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:40:27.4018010Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:40:27.4018230Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:40:27.4018430Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:40:27.4018610Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:40:27.4018750Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:40:27.4018900Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:40:27.4019060Z   MAKEFLAGS: -j6
+2026-11-14T15:40:27.4019210Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:40:27.4019360Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:40:27.4019520Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:40:27.4019740Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:40:27.4019980Z   ACPMUX_SOCKET: 
+2026-11-14T15:40:27.4020170Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T15:40:27.4020500Z   CMUX_TUI_RUSTDOC: /Users/cmux/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustdoc
+2026-11-14T15:40:27.4020820Z   CARGO_HOME: /Users/cmux/actions-runner-glaeda-5/_work/.cargo-home
+2026-11-14T15:40:27.4021060Z   CMUX_NEXT_JOB_BUILT: plain
+2026-11-14T15:40:27.4021220Z ##[endgroup]
+2026-11-14T15:40:27.8315910Z The settings sources and exports did not change; any stale export is the base's (the base autofix regenerates it).
+2026-11-14T15:40:27.8375220Z ##[group]Run set -euo pipefail
+2026-11-14T15:40:27.8375490Z ^[[36;1mset -euo pipefail^[[0m
+2026-11-14T15:40:27.8375700Z ^[[36;1mif [[ "failure" == failure ]]; then^[[0m
+2026-11-14T15:40:27.8375960Z ^[[36;1m  scripts/cmux-next/regenerate-action-contracts.sh^[[0m
+2026-11-14T15:40:27.8376200Z ^[[36;1mfi^[[0m
+2026-11-14T15:40:27.8376430Z ^[[36;1m# A stale settings export was already written into the checkout by the^[[0m
+2026-11-14T15:40:27.8376710Z ^[[36;1m# check above.^[[0m
+2026-11-14T15:40:27.8376970Z ^[[36;1m# The defaults snapshot reads the action and settings exports, so it^[[0m
+2026-11-14T15:40:27.8377400Z ^[[36;1m# follows whichever of them was regenerated.^[[0m
+2026-11-14T15:40:27.8377650Z ^[[36;1mpython3 scripts/ci/defaults_guard.py snapshot^[[0m
+2026-11-14T15:40:27.8377960Z ^[[36;1m# The regenerated files themselves, at their repository paths, so^[[0m
+2026-11-14T15:40:27.8378290Z ^[[36;1m# they copy onto the PR head. A diff would be against the merge^[[0m
+2026-11-14T15:40:27.8378570Z ^[[36;1m# commit, whose context the head may not have.^[[0m
+2026-11-14T15:40:27.8378860Z ^[[36;1mout="$RUNNER_TEMP/generated/files"^[[0m
+2026-11-14T15:40:27.8379170Z ^[[36;1mmkdir -p "$out"^[[0m
+2026-11-14T15:40:27.8379400Z ^[[36;1mgenerated=('plans/cmux-next/*.json' 'plans/cmux-next/*.md'^[[0m
+2026-11-14T15:40:27.8379790Z ^[[36;1m  schemas/settings/settings-schema.json 'docs/mdm/*' schemas/defaults/cmux-next.json)^[[0m
+2026-11-14T15:40:27.8380120Z ^[[36;1mgit add -N -- "${generated[@]}"^[[0m
+2026-11-14T15:40:27.8380420Z ^[[36;1mgit diff --name-only -- "${generated[@]}" > "$RUNNER_TEMP/generated/paths.txt"^[[0m
+2026-11-14T15:40:27.8380720Z ^[[36;1mgit diff --stat^[[0m
+2026-11-14T15:40:27.8380920Z ^[[36;1mwhile IFS= read -r path; do^[[0m
+2026-11-14T15:40:27.8381130Z ^[[36;1m  mkdir -p "$out/$(dirname "$path")"^[[0m
+2026-11-14T15:40:27.8381350Z ^[[36;1m  cp "$path" "$out/$path"^[[0m
+2026-11-14T15:40:27.8381570Z ^[[36;1mdone < "$RUNNER_TEMP/generated/paths.txt"^[[0m
+2026-11-14T15:40:27.8381830Z ^[[36;1mcp "$RUNNER_TEMP/generated/paths.txt" "$out/.paths"^[[0m
+2026-11-14T15:40:27.8382110Z ^[[36;1mif [[ -s "$RUNNER_TEMP/generated/paths.txt" ]]; then^[[0m
+2026-11-14T15:40:27.8382370Z ^[[36;1m  echo "patch=true" >> "$GITHUB_OUTPUT"^[[0m
+2026-11-14T15:40:27.8382570Z ^[[36;1mfi^[[0m
+2026-11-14T15:40:27.8389190Z shell: /opt/homebrew/bin/bash -e {0}
+2026-11-14T15:40:27.8389420Z env:
+2026-11-14T15:40:27.8389610Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-14T15:40:27.8389840Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:40:27.8390040Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:40:27.8390370Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:40:27.8390650Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:40:27.8390890Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:40:27.8391130Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:40:27.8391320Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:40:27.8391500Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:40:27.8391670Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:40:27.8391850Z   MAKEFLAGS: -j6
+2026-11-14T15:40:27.8392010Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:40:27.8392180Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:40:27.8392370Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:40:27.8392610Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:40:27.8392870Z   ACPMUX_SOCKET: 
+2026-11-14T15:40:27.8393100Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T15:40:27.8393460Z   CMUX_TUI_RUSTDOC: /Users/cmux/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustdoc
+2026-11-14T15:40:27.8393830Z   CARGO_HOME: /Users/cmux/actions-runner-glaeda-5/_work/.cargo-home
+2026-11-14T15:40:27.8394070Z ##[endgroup]
+2026-11-14T15:40:37.1881460Z [0/1] Planning build
+2026-11-14T15:40:41.4283420Z Test Suite 'Selected tests' started at 2026-11-14 07:40:38.324.
+2026-11-14T15:40:41.4283920Z Test Suite 'CmuxNextPackageTests.xctest' started at 2026-11-14 07:40:38.325.
+2026-11-14T15:40:41.4284390Z Test Suite 'CmuxNextPackageTests.xctest' passed at 2026-11-14 07:40:38.325.
+2026-11-14T15:40:41.4285410Z 	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+2026-11-14T15:40:41.4285840Z Test Suite 'Selected tests' passed at 2026-11-14 07:40:38.325.
+2026-11-14T15:40:41.4286200Z 	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+2026-11-14T15:40:41.4286700Z cmux-next test process: exit() called (a stack at the very end of a run is the runner's own); its stack:
+2026-11-14T15:40:41.4287300Z 0   CmuxNextPackageTests                0x0000007017ec4e3c cmux_next_test_exit_trace + 72
+2026-11-14T15:40:41.4287870Z 1   libsystem_c.dylib                   0x000000018872dbd0 __cxa_finalize_ranges + 468
+2026-11-14T15:40:41.4288250Z 2   libsystem_c.dylib                   0x000000018872d99c exit + 44
+2026-11-14T15:40:41.4288630Z 3   XCTestCore                          0x000000010273b00c _XCTestMain + 116
+2026-11-14T15:40:41.4289050Z 4   xctest                              0x0000000102655e44 $s10xctesttool6xctestO4mainyyFZ + 284
+2026-11-14T15:40:41.4289450Z 5   xctest                              0x0000000102655ee8 main + 12
+2026-11-14T15:40:41.4289800Z 6   dyld                                0x00000001884a7e80 start + 6688
+2026-11-14T15:40:41.4290270Z cmux-next test process: holding the main run loop open so a stray stop cannot end this test run (0)
+2026-11-14T15:40:41.4290870Z ◇ Test run started.
+2026-11-14T15:40:41.4291170Z ↳ Testing Library Version: 1902
+2026-11-14T15:40:41.4291450Z ↳ Target Platform: arm64e-apple-macos14.0
+2026-11-14T15:40:41.4291810Z ◇ Suite ActionSurfaceParityTests started.
+2026-11-14T15:40:41.4292140Z ◇ Test everyTargetKindMenuShowsItsActions() started.
+2026-11-14T15:40:41.4292580Z ◇ Test everyMenuItemRunsItsOwnActionThroughTheRegistry() started.
+2026-11-14T15:40:41.4293000Z ◇ Test generatedMenusShowExactlyThePlacements() started.
+2026-11-14T15:40:41.4293420Z ◇ Test openFilesAndFindAsPaneAreCLIVerbsAndMCPTools(id:) started.
+2026-11-14T15:40:41.4299850Z ◇ Test exportNamesTitleKeys() started.
+2026-11-14T15:40:41.4300180Z ◇ Test everyActionDeclaresEverySurface() started.
+2026-11-14T15:40:41.4300490Z ◇ Test exportIsFresh() started.
+2026-11-14T15:40:41.4300760Z ◇ Test declarationsAreConsistent() started.
+2026-11-14T15:40:41.4301020Z ◇ Test reportIsFresh() started.
+2026-11-14T15:40:41.4301300Z ◇ Test everyMenuKeepsAShortTopLevel() started.
+2026-11-14T15:40:41.4301620Z ◇ Test cliNamesAndShortcutsAreUnique() started.
+2026-11-14T15:40:41.4302220Z ◇ Test case passing 1 argument id → "palette.openFilesPane" to openFilesAndFindAsPaneAreCLIVerbsAndMCPTools(id:) started.
+2026-11-14T15:40:41.4302980Z ◇ Test case passing 1 argument id → "palette.openFindPane" to openFilesAndFindAsPaneAreCLIVerbsAndMCPTools(id:) started.
+2026-11-14T15:40:41.4303780Z ✘ Test everyMenuKeepsAShortTopLevel() recorded an issue at ActionSurfaceParityTests.swift:112:17: Expectation failed: (rows.count → 13) <= (cap → 12)
+2026-11-14T15:40:41.4304280Z ↳ .sidebarBackground has 13 top-level rows
+2026-11-14T15:40:41.4304670Z ✔ Test generatedMenusShowExactlyThePlacements() passed after 0.488 seconds.
+2026-11-14T15:40:41.4305080Z ✔ Test declarationsAreConsistent() passed after 0.488 seconds.
+2026-11-14T15:40:41.4305460Z ✔ Test cliNamesAndShortcutsAreUnique() passed after 0.487 seconds.
+2026-11-14T15:40:41.4305880Z ✔ Test everyTargetKindMenuShowsItsActions() passed after 0.488 seconds.
+2026-11-14T15:40:41.4306360Z ✔ Test everyActionDeclaresEverySurface() passed after 0.488 seconds.
+2026-11-14T15:40:41.4306730Z ✔ Test exportNamesTitleKeys() passed after 0.488 seconds.
+2026-11-14T15:40:41.4307220Z ✔ Test everyMenuItemRunsItsOwnActionThroughTheRegistry() passed after 0.488 seconds.
+2026-11-14T15:40:41.4307630Z ✔ Test exportIsFresh() passed after 0.488 seconds.
+2026-11-14T15:40:41.4307970Z ✔ Test reportIsFresh() passed after 0.488 seconds.
+2026-11-14T15:40:41.4308380Z ✘ Test everyMenuKeepsAShortTopLevel() failed after 0.487 seconds with 1 issue.
+2026-11-14T15:40:41.4308860Z ↳ /// Lawrence (2026-10-01): long menus use submenus. Each menu keeps at
+2026-11-14T15:40:41.4309650Z ↳ /// most 12 top-level rows (13 for the chat/terminal fork commands); the rest live in
+2026-11-14T15:40:41.4310070Z ↳ /// folders ("Move ▸"), and each folder holds at least two rows.
+2026-11-14T15:40:41.4310500Z ↳ /// Reachability inside folders is checked by the tests above, which
+2026-11-14T15:40:41.4310800Z ↳ /// walk submenus.
+2026-11-14T15:40:41.4311000Z ↳ ///
+2026-11-14T15:40:41.4311350Z ↳ /// The cap is for the rows a person sees at one time. A menu whose builder always hides
+2026-11-14T15:40:41.4311990Z ↳ /// some of its catalog rows is counted where it is built (``countedAtItsBuilder``), with
+2026-11-14T15:40:41.4312560Z ↳ /// the rows that builder hides; its catalog list here is longer than any menu it shows.
+2026-11-14T15:40:41.4313130Z ✔ Test openFilesAndFindAsPaneAreCLIVerbsAndMCPTools(id:) with 2 test cases passed after 0.488 seconds.
+2026-11-14T15:40:41.4313750Z ✘ Suite ActionSurfaceParityTests failed after 0.488 seconds with 1 issue.
+2026-11-14T15:40:41.4314180Z ↳ /// The surface parity rule (plans/cmux-next/actions.md): every action is
+2026-11-14T15:40:41.4314610Z ↳ /// offered on the CLI, a right-click menu and the palette, or names why not.
+2026-11-14T15:40:41.4315020Z ↳ /// The catalog is finite, so each property below is checked for every
+2026-11-14T15:40:41.4315360Z ↳ /// element: an exhaustive check, not a sample.
+2026-11-14T15:40:41.4315720Z ✘ Test run with 11 tests in 1 suite failed after 0.489 seconds with 1 issue.
+2026-11-14T15:40:41.4316210Z cmux-next test process: exit() called (a stack at the very end of a run is the runner's own); its stack:
+2026-11-14T15:40:41.4316710Z 0   CmuxNextPackageTests                0x0000007017ec4e3c cmux_next_test_exit_trace + 72
+2026-11-14T15:40:41.4317170Z 1   libsystem_c.dylib                   0x000000018872dbd0 __cxa_finalize_ranges + 468
+2026-11-14T15:40:41.4317540Z 2   libsystem_c.dylib                   0x000000018872d99c exit + 44
+2026-11-14T15:40:41.4318080Z 3   Testing                             0x00000001062edad0 $s7Testing31_shouldIncludeExperimentalFlags33_5FF26E46D7345299BD737C127DE1337CLL_WZ + 0
+2026-11-14T15:40:41.4318830Z 4   libswift_Concurrency.dylib          0x00000002b516fc50 _ZN5swift34runJobInEstablishedExecutorContextEPNS_3JobENS_17SerialExecutorRefENS_15TaskExecutorRefE + 328
+2026-11-14T15:40:41.4319550Z 5   libswift_Concurrency.dylib          0x00000002b51719d4 _ZL17swift_job_runImplPN5swift3JobENS_17SerialExecutorRefE + 156
+2026-11-14T15:40:41.4320110Z 6   libdispatch.dylib                   0x00000001886ceaac _dispatch_root_queue_drain + 360
+2026-11-14T15:40:41.4320570Z 7   libdispatch.dylib                   0x00000001886cf248 _dispatch_worker_thread2 + 184
+2026-11-14T15:40:41.4321020Z 8   libsystem_pthread.dylib             0x0000000188879f60 _pthread_wqthread + 232
+2026-11-14T15:40:41.4321420Z 9   libsystem_pthread.dylib             0x0000000188878ce0 start_wqthread + 8
+2026-11-14T15:40:41.4323040Z ##[error]Process completed with exit code 1.
+2026-11-14T15:40:41.4358960Z ##[group]Run home="$RUNNER_TEMP/acpmux-home"
+2026-11-14T15:40:41.4359240Z ^[[36;1mhome="$RUNNER_TEMP/acpmux-home"^[[0m
+2026-11-14T15:40:41.4359480Z ^[[36;1m[[ -d "$home" ]] || exit 0^[[0m
+2026-11-14T15:40:41.4359850Z ^[[36;1macpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"^[[0m
+2026-11-14T15:40:41.4360390Z ^[[36;1m[[ -z "$acpmux" ]] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true^[[0m
+2026-11-14T15:40:41.4360720Z ^[[36;1mrm -rf "$home"^[[0m
+2026-11-14T15:40:41.4368660Z shell: /opt/homebrew/bin/bash -e {0}
+2026-11-14T15:40:41.4368860Z env:
+2026-11-14T15:40:41.4369040Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-14T15:40:41.4369260Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-14T15:40:41.4369450Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-14T15:40:41.4369740Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-14T15:40:41.4370020Z   CMUX_NEXT_RUNNER: glaeda-side-std-xcode-26.6
+2026-11-14T15:40:41.4370260Z   CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+2026-11-14T15:40:41.4370480Z   CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: 26
+2026-11-14T15:40:41.4370670Z   CMUX_CI_CPU_BUDGET: 6
+2026-11-14T15:40:41.4370830Z   CARGO_BUILD_JOBS: 6
+2026-11-14T15:40:41.4370980Z   CMAKE_BUILD_PARALLEL_LEVEL: 6
+2026-11-14T15:40:41.4371140Z   MAKEFLAGS: -j6
+2026-11-14T15:40:41.4371280Z   GIT_CONFIG_COUNT: 1
+2026-11-14T15:40:41.4371440Z   GIT_CONFIG_KEY_0: pack.threads
+2026-11-14T15:40:41.4371610Z   GIT_CONFIG_VALUE_0: 6
+2026-11-14T15:40:41.4371930Z   ACPMUX_HOME: /Users/cmux/actions-runner-glaeda-5/_work/_temp/acpmux-home
+2026-11-14T15:40:41.4372240Z   ACPMUX_SOCKET: 
+2026-11-14T15:40:41.4372430Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T15:40:41.4372770Z   CMUX_TUI_RUSTDOC: /Users/cmux/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustdoc
+2026-11-14T15:40:41.4373100Z   CARGO_HOME: /Users/cmux/actions-runner-glaeda-5/_work/.cargo-home
+2026-11-14T15:40:41.4373350Z ##[endgroup]
+2026-11-14T15:40:41.4765500Z Post job cleanup.
+2026-11-14T15:40:41.6553540Z [command]/opt/homebrew/bin/git version
+2026-11-14T15:40:41.6706460Z git version 2.55.0
+2026-11-14T15:40:41.6725890Z Copying '/Users/cmux/.gitconfig' to '/Users/cmux/actions-runner-glaeda-5/_work/_temp/4fa0991c-90d3-4d2c-b163-f86a0f59fd46/.gitconfig'
+2026-11-14T15:40:41.6731080Z Temporarily overriding HOME='/Users/cmux/actions-runner-glaeda-5/_work/_temp/4fa0991c-90d3-4d2c-b163-f86a0f59fd46' before making global git config changes
+2026-11-14T15:40:41.6731710Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-14T15:40:41.6733730Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/cmux/actions-runner-glaeda-5/_work/cmux/cmux
+2026-11-14T15:40:41.6798420Z Removing SSH command configuration
+2026-11-14T15:40:41.6801290Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-14T15:40:41.6845840Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-14T15:40:41.7718250Z Removing HTTP extra header
+2026-11-14T15:40:41.7721050Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-14T15:40:41.7771020Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-14T15:40:41.8440820Z Removing includeIf entries pointing to credentials config files
+2026-11-14T15:40:41.8443790Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-14T15:40:41.8489130Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-14T15:40:41.9258810Z A job completed hook has been configured by the self-hosted runner administrator
+2026-11-14T15:40:41.9274140Z ##[group]Run '/Users/cmux/actions-runner-glaeda-5/glaeda-hooks/job-completed.sh'
+2026-11-14T15:40:41.9279050Z shell: /opt/homebrew/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T15:40:41.9279320Z ##[endgroup]
+2026-11-14T15:40:42.1542320Z glaeda-cmux-runner-hook: job telemetry recorded
+2026-11-14T15:40:44.0572550Z glaeda-cmux-runner-hook: released the fleet host lock
+2026-11-14T15:40:44.3846260Z glaeda-cmux-runner-hook: ended 1 leftover process(es) from ~/actions-runner-glaeda-5/_work: Python
+2026-11-14T15:40:44.6339410Z glaeda-cmux-runner-hook: repacked against the mirror: 633 MiB -> 0 MiB
+2026-11-14T15:40:44.6385710Z glaeda-cmux-runner-hook: glaeda-disk pass already running; this trigger is coalesced into its follow-up
+2026-11-14T15:40:44.6529440Z Evaluate and set job outputs
+2026-11-14T15:40:44.6532480Z Cleaning up orphan processes

@@ -10,6 +10,9 @@ use tokio::time::Instant;
 use super::Driver;
 use crate::probing;
 use crate::timers::SESSION_FRESH;
+use crate::ultra_auto;
+use crate::ultra_hello;
+use crate::underlay::Underlay as _;
 
 /// Waits before each repeat of the shutdown resets: 0.2, 0.4, 0.8 and 1.6 s
 /// after shutdown.
@@ -103,16 +106,97 @@ impl Driver {
         self.schedule.on_activity(Instant::now());
     }
 
+    /// Send this side's ultra hello when one is due and a session exists
+    /// (see `crate::ultra_hello`). A hello never starts a session.
+    pub(super) fn run_ultra_hello(&mut self) {
+        let now = Instant::now();
+        let Some(hello) = self.negotiation.due(now) else { return };
+        let Some((local, remote)) = self.probe_route else { return };
+        if self.tunn.time_since_last_handshake().is_none() {
+            return;
+        }
+        let packet = ultra_hello::packet(local, remote, hello);
+        let copy = self
+            .negotiation
+            .discovering()
+            .then(|| ultra_hello::discovery_packet(local, remote, hello));
+        for packet in std::iter::once(packet).chain(copy) {
+            if let TunnResult::WriteToNetwork(encrypted) =
+                self.tunn.encapsulate(&packet, &mut self.scratch)
+            {
+                self.underlay.send(encrypted);
+            }
+        }
+        self.negotiation.sent(now);
+    }
+
+    /// Ultra mode's Auto: read the loss seen on the way in and the
+    /// segments sent again, and when what Auto wants changed, send in it at
+    /// once and tell the peer (the next `run_ultra_hello`).
+    pub(super) fn run_ultra_auto(&mut self) {
+        let Some(auto) = self.auto.as_mut() else { return };
+        let sample = self.underlay.take_loss();
+        let resent = self.pacer.take_resent();
+        let was_on = auto.is_on();
+        if !auto.observe(Instant::now(), sample, resent) {
+            return;
+        }
+        if !was_on && auto.is_on() {
+            self.underlay.count_auto_on();
+        }
+        let (mode, metered) = auto.wanted();
+        self.negotiation.advertise(mode, metered);
+        self.apply_ultra_mode();
+    }
+
+    /// Send in the mode agreed with the peer, capped when either network is
+    /// metered.
+    pub(super) fn apply_ultra_mode(&mut self) {
+        if self.underlay.set_mode(self.negotiation.mode()) {
+            self.stack.link_repairs_losses();
+        }
+        self.underlay.set_metered(self.negotiation.metered());
+    }
+
+    /// When the loop must wake for the next hello retry. Only while a
+    /// session exists: with none, `run_ultra_hello` sends nothing, so an
+    /// overdue retry would wake the loop at once, forever. The datagram
+    /// that forms the next session wakes the loop, which resumes the
+    /// retries.
+    pub(super) fn hello_deadline(&self) -> Option<Instant> {
+        if self.probe_route.is_none() || self.tunn.time_since_last_handshake().is_none() {
+            return None;
+        }
+        self.negotiation.deadline()
+    }
+
     /// Send due path probes while the session carries traffic; an idle
     /// session probes nothing.
     pub(super) fn run_probes(&mut self) {
         let now = Instant::now();
+        let mut off_path = Vec::new();
         self.probe_deadline = if self.schedule.is_active(now) {
             let (tunn, scratch) = (&mut self.tunn, &mut self.scratch);
-            probing::send_due(tunn, &mut *self.underlay, scratch, self.probe_route, now)
+            let route = self.probe_route;
+            probing::send_due(tunn, &mut self.underlay, scratch, route, now, &mut off_path)
         } else {
             None
         };
+        self.tell_off_path(&off_path);
+    }
+
+    /// Right behind probes, on the data path: tell the peer which counters
+    /// went out on their own paths, so its Auto does not take the ones a
+    /// dead path loses for loss (`crate::ultra_auto`).
+    pub(super) fn tell_off_path(&mut self, counters: &[u64]) {
+        let Some((local, remote)) = self.probe_route else { return };
+        for packet in ultra_auto::off_path_packets(local, remote, counters) {
+            if let TunnResult::WriteToNetwork(encrypted) =
+                self.tunn.encapsulate(&packet, &mut self.scratch)
+            {
+                self.underlay.send(encrypted);
+            }
+        }
     }
 
     /// Run boringtun's timers on any event a tick or more after the last

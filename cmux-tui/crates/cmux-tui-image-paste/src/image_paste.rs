@@ -11,6 +11,7 @@ use crate::image_paste_storage::ImagePasteStorage;
 use base64::Engine;
 
 pub const CAPABILITY: &str = "terminal-image-paste-v1";
+pub const FILE_CAPABILITY: &str = "terminal-file-paste-v1";
 pub(crate) const MAX_CHUNK_BYTES: usize = 48 * 1024;
 const MAX_ENTRIES: usize = 32;
 pub(crate) const IMAGE_TTL: Duration = Duration::from_secs(600);
@@ -35,7 +36,7 @@ pub struct ImagePasteOwner {
 struct Upload {
     owner: ImagePasteOwner,
     file: ImagePasteFile,
-    mime: String,
+    mime: Option<String>,
     size: usize,
     received: usize,
     committed: bool,
@@ -155,6 +156,31 @@ impl ImagePasteStore {
         anyhow::ensure!(valid_id(id), "image-invalid-request");
         anyhow::ensure!(size > 0, "image-size-limit");
         let extension = extension(mime).ok_or_else(|| anyhow::anyhow!("image-type-rejected"))?;
+        self.begin_named(owner, id, Some(mime), &format!("clipboard.{extension}"), size)
+    }
+
+    /// A regular file selected by the person. Only a basename is accepted;
+    /// the daemon chooses the private directory and owns the file's lifetime.
+    pub fn begin_file(
+        &self,
+        owner: ImagePasteOwner,
+        id: &str,
+        filename: &str,
+        size: usize,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(valid_id(id), "image-invalid-request");
+        anyhow::ensure!(ImagePasteFile::valid_filename(filename), "file-name-rejected");
+        self.begin_named(owner, id, None, filename, size)
+    }
+
+    fn begin_named(
+        &self,
+        owner: ImagePasteOwner,
+        id: &str,
+        mime: Option<&str>,
+        filename: &str,
+        size: usize,
+    ) -> anyhow::Result<()> {
         let mut state = self.shared.state.lock().unwrap();
         Self::reap(&mut state, Instant::now());
         anyhow::ensure!(
@@ -184,7 +210,7 @@ impl ImagePasteStore {
         let now = self.clock.now();
         let expires = Self::upload_expiry(now);
         let file = storage
-            .and_then(|storage| ImagePasteFile::create_in(&storage, extension, expires))
+            .and_then(|storage| ImagePasteFile::create_named_in(&storage, filename, expires))
             .map_err(|_| anyhow::anyhow!("image-storage-unavailable"))?;
         self.start_worker(&mut state)?;
         state.uploads.insert(
@@ -192,7 +218,7 @@ impl ImagePasteStore {
             Upload {
                 owner,
                 file,
-                mime: mime.to_owned(),
+                mime: mime.map(str::to_owned),
                 size,
                 received: 0,
                 committed: false,
@@ -255,9 +281,11 @@ impl ImagePasteStore {
         let upload = Self::upload(&mut state, owner, id)?;
         anyhow::ensure!(!upload.committed, "image-already-pasted");
         anyhow::ensure!(upload.received == upload.size, "image-incomplete");
-        let header =
-            upload.file.header().map_err(|_| anyhow::anyhow!("image-storage-unavailable"))?;
-        anyhow::ensure!(matches_mime(&upload.mime, &header), "image-type-rejected");
+        if let Some(mime) = &upload.mime {
+            let header =
+                upload.file.header().map_err(|_| anyhow::anyhow!("image-storage-unavailable"))?;
+            anyhow::ensure!(matches_mime(mime, &header), "image-type-rejected");
+        }
         let path = upload.file.path().map_err(|_| anyhow::anyhow!("image-storage-unavailable"))?;
         let path = path.to_str().ok_or_else(|| anyhow::anyhow!("image-storage-unavailable"))?;
         let quoted = format!("'{}'", path.replace('\'', "'\\''"));

@@ -1,8 +1,8 @@
 public import CoreGraphics
 
 /// A window's Chief panel (user 2026-11-06): the Chief chat over the workspace the window shows, never over Home
-/// (Home already is the Chief's place). It opens only on purpose: a link clicked in the Chief, or Show/Hide Chief
-/// (Cmd-I). It floats by default, dragged and resized freely; Dock pins it to an edge as a Chief-only pane that
+/// (Home already is the Chief's place). It opens only on purpose: Show/Hide Chief (Cmd-I), or a link clicked in the
+/// Chief when `home.chiefDock.openBeside` is on (off by default, cmux#45889). It floats by default, dragged and resized freely; Dock pins it to an edge as a Chief-only pane that
 /// takes space from the stage, and Undock floats it again. Pure value: the window controller places it, the window
 /// record persists it.
 ///

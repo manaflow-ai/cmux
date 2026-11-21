@@ -367,7 +367,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-agentmsg__toggle" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-agentmsg__card"));
-        await ctx.click({ selector: ".cv-received .cv-disclosure__toggle" });
+        await ctx.click({ selector: ".cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-received__text"));
       },
     },
@@ -392,7 +392,7 @@ export default agentPaneEntry({
         // Each line opens with its own measured click, as a reader opens them, so the stage knows
         // which line opened and the rows its fold pushes down are that fold's, not a shift. Clicked
         // all at once outside a step, the four folds played in the wait below, which has no target.
-        const closed = ".cv-received .cv-disclosure__toggle[aria-expanded='false']";
+        const closed = ".cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)[aria-expanded='false']";
         for (let line = 0; line < 4 && ctx.document.querySelector(closed); line++)
           await ctx.click({ selector: closed });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__text").length >= 4);

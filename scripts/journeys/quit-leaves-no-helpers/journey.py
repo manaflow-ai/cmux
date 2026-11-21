@@ -39,6 +39,15 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tag_teardown  # noqa: E402  (shipped beside this file by run.py)
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 RPC_TIMEOUT = 30.0
 
@@ -247,7 +256,7 @@ def main(argv=None):
         with open(os.path.join(a.out, "result.json"), "w") as f:
             json.dump(result, f, indent=1, default=str)
             f.write("\n")
-        print(f"journey quit-leaves-no-helpers: {result['status']} {result['reason']}", flush=True)
+        safe_print(f"journey quit-leaves-no-helpers: {result['status']} {result['reason']}", flush=True)
 
 
 if __name__ == "__main__":

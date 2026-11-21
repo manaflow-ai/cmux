@@ -1,0 +1,24 @@
+# The codec study's library codecs (study.py), pinned with hashes for macOS arm64 and Linux x86_64,
+# CPython 3.12. codec-study.sh installs them with uv pip --require-hashes --only-binary :all:.
+numpy==2.5.4 \
+    --hash=sha256:b11e8fda06a7d69f15ebf542660b74466c2e51094800c1fb794f47ad4faeef17 \
+    --hash=sha256:9cb18a327b49c5c337f972b03682f6a49855525faaf3c0d3e9c96cd0fd8880a8 \
+    --hash=sha256:fbde6962867ee75b48b0ee29b2b9372ec5d617799dbaf38e82dc0596f2f7738a
+imagecodecs==2026.10.10 \
+    --hash=sha256:7e422e8fb55c717f90d5ead73374178546ad3372de584ee2b3c34f95ba6fa508 \
+    --hash=sha256:934ac2cd2d367cf6c891ee108627c47df85f21eea949adf3cf293d1fa8933e3f
+pillow==13.0.0 \
+    --hash=sha256:fc481f742ccda20e9ed760b8f978dff50f2a4e9bc253ac167fb0a05b0783ef52 \
+    --hash=sha256:42d63be3af4f9b951b199b0a9d23365d37ab14687e6d77b74940432c8515c4ca
+pillow-avif-plugin==1.6.0 \
+    --hash=sha256:1a7089e0245be8dd15fce649e658a8ef886691955d4ede691d4c619756890c88 \
+    --hash=sha256:23e9420d4710fbb8a2654e42daa2cc30f2d7f4e9d71654374155ac4ab794cb7b \
+    --hash=sha256:f4e7fbf8c4ad17ca0e6fae07665f21d5b690794805e7ee75838ffe9fbfb0c9a4
+mozjpeg-lossless-optimization==1.3.2 \
+    --hash=sha256:cce014973f9a0ab45939dcd920fe909fcb91172ba366bccd8f1be6cf01a4d0d2 \
+    --hash=sha256:ca1379af6b86b937525200706de6153cc4512358b05a302b4e53c5f8a0b10f3e
+cffi==2.1.1 \
+    --hash=sha256:f81b3b8f3d4e343550fa4baa0e479bba9f2d29ce9c2e9b51d1ce1718d7442fcf \
+    --hash=sha256:c1453022f490d2459a11819d83ad1d586e9ff65a12ac3e705ffebd46d3685dcf
+pycparser==3.12 \
+    --hash=sha256:a076f3f489b39b43ed13563a1dafe42447445bec2e294154ec5c57fcdda4c85e
