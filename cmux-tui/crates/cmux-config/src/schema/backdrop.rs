@@ -33,19 +33,26 @@ pub(crate) const LOCATION_PATTERN: &str =
 /// raw values; `shader:` plus one is a background id). The test
 /// `shader_names_match_swift` holds this list to the Swift enum, so a new
 /// shader the app draws is one a theme file, a recipe or an agent may pick.
-pub(crate) const SHADERS: [&str; 5] = ["currents", "ripples", "aurora", "field", "aero"];
+pub(crate) const SHADERS: [&str; 11] = [
+    "currents", "ripples", "aurora", "field", "aero", "sakura", "sumi", "koi", "snowfall",
+    "lanterns", "rain",
+];
 
 /// The prefix of a living wallpaper's id (Swift `BackdropShader.idPrefix`).
 pub(crate) const SHADER_PREFIX: &str = "shader:";
 
 /// `shader:NAME` for a shader in [`SHADERS`].
 pub(crate) fn is_shader(text: &str) -> bool {
-    text.strip_prefix(SHADER_PREFIX).is_some_and(|name| SHADERS.contains(&name))
+    text.strip_prefix(SHADER_PREFIX)
+        .is_some_and(|name| SHADERS.contains(&name))
 }
 
 /// Every living wallpaper's id (`shader:aurora`, ...), in the Swift picker's order.
 pub(crate) fn shader_ids() -> Vec<String> {
-    SHADERS.iter().map(|name| format!("{SHADER_PREFIX}{name}")).collect()
+    SHADERS
+        .iter()
+        .map(|name| format!("{SHADER_PREFIX}{name}"))
+        .collect()
 }
 
 /// Swift `BackdropSelectionSetting.picture`: `system:` or `file:` with an
@@ -59,9 +66,10 @@ pub(crate) fn is_picture(text: &str) -> bool {
 /// living wallpaper: the one-picture ids every background row takes beside
 /// its listed choices (Swift `BackdropSelection(id:)`).
 pub(crate) fn is_path_or_video(text: &str) -> bool {
-    let path = ["system:", "file:"]
-        .iter()
-        .any(|prefix| text.strip_prefix(prefix).is_some_and(|path| path.starts_with('/')));
+    let path = ["system:", "file:"].iter().any(|prefix| {
+        text.strip_prefix(prefix)
+            .is_some_and(|path| path.starts_with('/'))
+    });
     path || crate::youtube::is_canonical_id(text) || is_shader(text)
 }
 
@@ -87,9 +95,12 @@ pub fn normalize_backdrop(row: &Row, value: Value) -> Value {
         other => other,
     };
     let each = |value: Value| match value {
-        Value::Object(members) => {
-            Value::Object(members.into_iter().map(|(key, item)| (key, one(item))).collect())
-        }
+        Value::Object(members) => Value::Object(
+            members
+                .into_iter()
+                .map(|(key, item)| (key, one(item)))
+                .collect(),
+        ),
         other => other,
     };
     match row.validation {
@@ -105,7 +116,9 @@ pub fn normalize_backdrop(row: &Row, value: Value) -> Value {
 /// times to fixed pictures.
 pub(crate) fn is_schedule(value: &Value) -> bool {
     value.as_object().is_some_and(|members| {
-        members.iter().all(|(key, value)| is_when(key) && value.as_str().is_some_and(is_picture))
+        members
+            .iter()
+            .all(|(key, value)| is_when(key) && value.as_str().is_some_and(is_picture))
     })
 }
 
@@ -143,7 +156,9 @@ pub(crate) fn is_when(text: &str) -> bool {
 /// longitude in -180...180, spaces around each allowed.
 pub(crate) fn is_location(text: &str) -> bool {
     let parts: Vec<&str> = text.split(',').map(trim_whitespaces).collect();
-    let [latitude, longitude] = parts.as_slice() else { return false };
+    let [latitude, longitude] = parts.as_slice() else {
+        return false;
+    };
     let number = |part: &str| part.parse::<f64>().ok().filter(|x| x.is_finite());
     number(latitude).is_some_and(|x| x.abs() <= 90.0)
         && number(longitude).is_some_and(|x| x.abs() <= 180.0)
@@ -156,7 +171,9 @@ pub(crate) fn is_location(text: &str) -> bool {
 pub(crate) fn is_memory(value: &Value) -> bool {
     value.as_object().is_some_and(|members| {
         members.iter().all(|(name, value)| {
-            let Some(text) = value.as_str() else { return false };
+            let Some(text) = value.as_str() else {
+                return false;
+            };
             match name.as_str() {
                 "rotate" => text == "daily" || is_folder(text),
                 "folder" => is_folder(text),
@@ -169,7 +186,8 @@ pub(crate) fn is_memory(value: &Value) -> bool {
 
 /// `folder:<absolute path>`, never `/` alone (Swift `BackdropSelectionSetting.folderPath`).
 pub(crate) fn is_folder(text: &str) -> bool {
-    text.strip_prefix("folder:").is_some_and(|path| path.starts_with('/') && path.len() > 1)
+    text.strip_prefix("folder:")
+        .is_some_and(|path| path.starts_with('/') && path.len() > 1)
 }
 
 #[cfg(test)]
@@ -178,9 +196,16 @@ mod tests {
 
     #[test]
     fn schedule_keys_follow_swift() {
-        for good in
-            ["07:00", "9:30", "23:59", "sunset", "sunset-30m", "sunrise+1h", "dusk+90m", "noon"]
-        {
+        for good in [
+            "07:00",
+            "9:30",
+            "23:59",
+            "sunset",
+            "sunset-30m",
+            "sunrise+1h",
+            "dusk+90m",
+            "noon",
+        ] {
             assert!(is_when(good), "{good}");
         }
         for bad in [
@@ -226,7 +251,10 @@ mod tests {
             .filter_map(|line| line.trim().strip_prefix("case "))
             .map(|name| name.split([' ', '=']).next().unwrap_or(name).trim())
             .collect();
-        assert_eq!(swift, SHADERS, "SHADERS must list BackdropShader's cases, in order");
+        assert_eq!(
+            swift, SHADERS,
+            "SHADERS must list BackdropShader's cases, in order"
+        );
     }
 
     #[test]
@@ -235,7 +263,13 @@ mod tests {
             assert!(is_picture(&id), "{id}");
             assert!(is_path_or_video(&id), "{id}");
         }
-        for bad in ["shader:", "shader:nope", "shader:Aurora", "aurora", "shader:aurora "] {
+        for bad in [
+            "shader:",
+            "shader:nope",
+            "shader:Aurora",
+            "aurora",
+            "shader:aurora ",
+        ] {
             assert!(!is_shader(bad), "{bad}");
         }
     }
