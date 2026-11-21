@@ -78,17 +78,39 @@ struct ChatSendSettle {
 
     /// Starts the glide on the first layout with the rows in: it travels what they added to the
     /// content (the keyboard going down moves the resting place on its own). False when nothing grew.
-    mutating func begin(contentHeight: Double, at time: Double) -> Bool {
+    ///
+    /// A start outside a display frame (the Send tap lays the rows out in its own turn) waits for
+    /// the first frame: the main thread may stay busy for a few frames after it (the keyboard going
+    /// down), and a clock started in the tap would have the spring part way through when the rows
+    /// are first drawn, a jump.
+    mutating func begin(contentHeight: Double, at time: Double, inFrame: Bool = true) -> Bool {
         let travel = contentHeight - fromHeight
         guard travel > 0.5 else { return false }
         start = time
+        startsAtFirstFrame = !inFrame
         reach = travel
         self.contentHeight = contentHeight
         return true
     }
 
+    /// True from a start outside a display frame until ``firstFrame(at:)``: the rows stay where
+    /// they are until then.
+    private(set) var startsAtFirstFrame = false
+
+    /// The first display frame of a glide begun outside one: its clock starts at `time`.
+    /// How long after the send drew the rows its first display frame came (the send trace reports
+    /// it): main-thread work left in the Send tap's turn, or after it, holds that frame back.
+    private(set) var startLag: Double?
+
+    mutating func firstFrame(at time: Double) {
+        guard startsAtFirstFrame else { return }
+        startLag = time - armedAt
+        start = time
+        startsAtFirstFrame = false
+    }
+
     func progress(at time: Double) -> Double {
-        guard let start else { return 0 }
+        guard let start, !startsAtFirstFrame else { return 0 }
         return ChatSendSpring.progress(time - start)
     }
 
@@ -104,8 +126,24 @@ struct ChatSendSettle {
 
     func remaining(at time: Double) -> Double { reach * (1 - progress(at: time)) }
 
+    /// What the rows still had to travel at the last display frame (the travel at the start
+    /// before the first), and how far the first frame and the largest frame moved them: the
+    /// send trace reports both, so a recording can tell a glide from a jump.
+    var lastRemaining: Double?
+    var firstStep: Double?
+    var largestStep: Double = 0
+
+    /// A display frame at `time`: how far the rows moved since the last one.
+    mutating func noteFrame(at time: Double) {
+        let now = remaining(at: time)
+        let step = (lastRemaining ?? reach) - now
+        if firstStep == nil { firstStep = step }
+        largestStep = max(largestStep, step)
+        lastRemaining = now
+    }
+
     func isDone(at time: Double) -> Bool {
-        guard let start else { return false }
+        guard let start, !startsAtFirstFrame else { return false }
         return time - start >= ChatSendSpring.settleTime || remaining(at: time) < 0.25
     }
 }

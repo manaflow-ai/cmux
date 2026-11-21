@@ -49,6 +49,7 @@ final class ChatSendMotionUITests: XCTestCase {
             traceText.name = "\(motion)-trace-\(index + 1)"
             traceText.lifetime = .keepAlways
             add(traceText)
+            if motion != "off", trace.exists { assertGlides(trace.value as? String ?? "", "\(motion) send \(index + 1)") }
             // The demo's short turn ends on its own; a turn still running after a while is stopped
             // so the next message goes into an idle chat.
             let stop = app.buttons["Stop"].firstMatch
@@ -58,6 +59,33 @@ final class ChatSendMotionUITests: XCTestCase {
             pause(0.8)
         }
         pause(1.0)
+    }
+
+    /// The rows above the bubble glide from where they were: the first display frame of the send
+    /// moves them a frame's share of the spring, not a jump (the glide's clock starts at the frame
+    /// it is first drawn in, however long the Send tap kept the main thread).
+    @MainActor
+    private func assertGlides(_ trace: String, _ name: String) {
+        let lines = trace.split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+        // This send's lines: from its arm on.
+        let sent = lines.lastIndex(where: { $0.hasPrefix("arm ") }).map { Array(lines[$0...]) } ?? []
+        guard let end = sent.last(where: { $0.hasPrefix("end after") }),
+            let reach = number(after: "reach ", in: end), let first = number(after: "first step ", in: end) else {
+            return XCTFail("\(name): the trace has no finished glide: \(trace)")
+        }
+        XCTAssertLessThanOrEqual(first, max(6, reach * 0.12), "\(name): the first frame moved the rows \(first) of \(reach) pt: \(end)")
+        // The glide's first frame follows the frame the composer clears in: nothing left of the
+        // Send (the keyboard going down) holds the main thread past two 60 Hz frames.
+        if let lag = number(after: "start lag ", in: end) {
+            XCTAssertLessThanOrEqual(lag, 34, "\(name): the glide's first frame came \(lag) ms after the send drew its rows: \(end)")
+        } else {
+            XCTFail("\(name): the trace has no start lag: \(end)")
+        }
+    }
+
+    private func number(after label: String, in text: String) -> Double? {
+        guard let range = text.range(of: label) else { return nil }
+        return Double(text[range.upperBound...].prefix { $0.isNumber || $0 == "-" })
     }
 
     /// The composer's field, focused (the chat shows its composer collapsed until tapped).
