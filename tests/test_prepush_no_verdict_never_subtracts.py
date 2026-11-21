@@ -7,7 +7,7 @@ on both sides. The class is every layer that diffs the head's findings against t
 times out the same way on both sides, the diff is empty and the push passes a check that never judged it. Each test
 here is that case for one layer: the check crashes alike at the base and the head, and the push must be refused.
 
-Not in CI (tests/test-execution.d/ci.toml: manual; no new CI tests, Lawrence 2026-10-23): run it yourself after
+Not in CI (tests/test-execution.d/ci.toml: manual; no new CI tests, Lawrence 2026-10-23, lifted 2026-11-18): run it yourself after
 changing a subtracting layer of scripts/cmux-next/prepush-gate.py (a few seconds, no build).
 """
 
