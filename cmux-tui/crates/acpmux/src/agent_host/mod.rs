@@ -84,7 +84,10 @@ pub const RECORD_VERSION: u32 = 1;
 /// 1: Claude Code suggests a next prompt only after a person's own turn
 /// (`claude_stdio/prompt_suggestions.rs`); a host before it lets Claude Code suggest one after
 /// every turn, about $0.10 each (sr2 audit 2026-11-21: 1,100 an hour from such hosts).
-pub const HOST_LEVEL: u32 = 1;
+/// 2: a process no person started asks Claude Code for no suggestions at all
+/// (`hub/host_level.rs` `start_params`): level 1's per-turn pause is honoured only under a
+/// server-side flag of Claude Code's, off by default.
+pub const HOST_LEVEL: u32 = 2;
 /// Largest frame either side accepts.
 pub const MAX_FRAME: usize = 64 << 20;
 /// Bytes of unacknowledged entries a host keeps before it stops reading the
