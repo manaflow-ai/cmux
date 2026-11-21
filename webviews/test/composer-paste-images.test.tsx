@@ -247,6 +247,37 @@ test("one screenshot the clipboard holds twice is one attachment atom and one im
   expect(promptBlocks(sent[0]!.text, sent[0]!.attachments).filter((block) => block.type === "image")).toHaveLength(1);
 });
 
+test("a dropped screenshot and its twin keep the native path of a sibling folder", async () => {
+  const shot = screenshot(1);
+  const twin = new File([await shot.arrayBuffer()], "copy.png", { type: "image/png" });
+  const folder = new File([], "assets");
+  const files = [shot, twin, folder];
+  const paths = [
+    { path: "/Users/you/image.png", folder: false },
+    { path: "/Users/you/copy.png", folder: false },
+    { path: "/Users/you/assets", folder: true },
+  ];
+  const composer = await openComposer([], {
+    localPaths: async (kind, batch) =>
+      kind === "drop" && batch.length === files.length && batch.every((file, index) => file === files[index])
+        ? paths
+        : undefined,
+  });
+  const event = new dom.window.Event("drop", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "dataTransfer", { value: { files, types: ["Files"] } });
+  await act(async () => {
+    field().dispatchEvent(event);
+  });
+  const attachments = () => composer.current!.wakeState().attachments ?? [];
+  await until(() => attachments().some((chip) => chip.path === paths[2]!.path), "the dropped folder");
+  await until(() => attachments().some((chip) => chip.kind === "image"), "the dropped screenshot");
+  expect(
+    attachments()
+      .filter((chip) => chip.kind === "image")
+      .map((chip) => chip.originalPath),
+  ).toEqual([paths[0]!.path]);
+});
+
 test("a send made while a paste's twins are still compared waits for its image", async () => {
   const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
   const composer = await openComposer(sent);
