@@ -420,7 +420,10 @@ extension AgentPaneTransport {
             if let ticket = facts.ticket {
                 if facts.otherMeta {
                     _ = gestures.redeem(ticket, connection: id, pick: nil)
-                    return Self.refuse(.refuse(.intentInvalid, method: facts.method, requestID: facts.pageID), socket: socket)
+                    let otherKeys = (Self.param("_meta", box) as? [String: Any])?.keys.map { $0 } ?? []
+                    let decision = Self.intentInvalid(.gestureMeta, method: facts.method, requestID: facts.pageID, session: facts.sessionId,
+                                                      cause: "gesture ticket with other _meta keys \(AgentPaneRefusalLog.names(otherKeys))")
+                    return Self.refuse(decision, socket: socket)
                 }
                 // B2: only set_mode, set_config_option, a prompt held for the trust answer (its
                 // promptId) and a permission answer (its session, prompt and option) redeem a
