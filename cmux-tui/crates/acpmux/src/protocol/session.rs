@@ -57,6 +57,11 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(default)]
     pub name_given: bool,
+    /// The names it had before its renames, oldest first: each still names it where no session
+    /// has it as its current name. Absent when it was never renamed, and from an older acpmux.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(default)]
+    pub former_names: Vec<String>,
     pub harness: String,
     pub family: Option<String>,
     /// Lossy when the path is not UTF-8.
@@ -172,6 +177,12 @@ pub struct SessionSummary {
     pub preview: Option<String>,
     /// One sidebar line; null before the first prompt.
     pub last_message: Option<LastMessage>,
+    /// What is done and what is next across the chat's turns (`task_list.rs`): its harness's
+    /// latest plan (TodoWrite, update_plan) or the list its agent or Chief keeps
+    /// (`_acpmux/task_list/set`); null until one is written. Absent from a peer on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub task_list: Option<crate::task_list::TaskListSummary>,
     pub queued: u64,
     /// Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update
     /// that installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from
@@ -998,5 +1009,19 @@ pub struct SessionChanged {
     pub peer: Option<String>,
     /// The list position this change took (`hub/row_log.rs`): the client's cursor for
     /// `_acpmux/watch {afterSeq}` is the highest it applied.
+    pub list_seq: u64,
+}
+
+/// To a watcher that asked for batches (`initialize` `_meta.acpmux.peerRowBatches`), in place of
+/// one `_acpmux/session_changed` per row: `count` rows of `peer` changed or left at once (a peer's
+/// list). Their list positions are consecutive, after `afterSeq` and up to `listSeq`; a client
+/// reads them with `_acpmux/watch {afterSeq, listEpoch}` from a cursor no higher than `afterSeq`,
+/// and keeps its cursor at most `afterSeq` until a list or follow current to `listSeq` is in.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerRowsChanged {
+    pub peer: String,
+    pub count: u64,
+    pub after_seq: u64,
     pub list_seq: u64,
 }

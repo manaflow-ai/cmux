@@ -8,7 +8,7 @@
 # skipped with a warning, so a subrouter outage never reads as a Chief failure.
 #
 # A pull request into feat-cmux-next that touches Chief code runs it too, as an advisory check: no ruleset requires
-# it, and on a pull request the job is named "evals (advisory)", so merge_hold and next-autoland neither wait on nor
+# it, and on a pull request the job is named "evals (advisory)", so land-judge and next-autoland neither wait on nor
 # refuse for it. A red there is a follow-up (ci-oops soft class), not a merge block. A pull request run whose tailnet
 # join is refused skips the model cases with the warning above; the deterministic cases still run.
 name: chief-evals
@@ -20,6 +20,9 @@ on:
       - "cmux-tui/crates/cmux-chief/**"
       - "cmux-tui/crates/cmux-conversation/**"
       - ".github/workflows/chief-evals.yml"
+      # A README or notes file alone starts nothing here (tests/test_ci_docs_only_prs.py); no build reads them.
+      - "!**/README.md"
+      - "!**/COORDINATION.md"
   pull_request:
     branches: [feat-cmux-next]
     paths:
