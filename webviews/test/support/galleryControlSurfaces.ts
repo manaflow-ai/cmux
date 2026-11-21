@@ -15,6 +15,7 @@ import { mkdir } from "node:fs/promises";
 import { chromium, type Browser, type Page } from "playwright";
 import { loadEntrySources } from "../../scripts/gallery/entries";
 import { galleryFrame, warmGalleryFrame } from "./galleryFrame";
+import { galleryStageServer, type GalleryStageServer } from "./galleryStageServer";
 import { launchStageBrowser, type StageBrowser } from "./stageBrowser";
 
 export type GalleryControlPart = {
@@ -257,47 +258,45 @@ export async function galleryControlSurfaces({ part, parts }: GalleryControlPart
   // than a quarter of the old budget: these keep ~1.3x over a quarter of the contended 740 s run.
   const WARM_MS = 360_000;
   const AUDIT_MS = 240_000;
-  const { createServer } = await import("vite");
-  let vite: Awaited<ReturnType<typeof createServer>>;
+  let stageServer: GalleryStageServer | undefined;
   // One Chromium for the file, relaunched when it dies mid-audit (test/support/stageBrowser.ts).
   let shared: StageBrowser<Browser, Page>;
   beforeAll(async () => {
-    vite = await createServer({
-      root,
-      configFile: path.join(root, "vite.config.ts"),
-      server: { port: 0, host: "127.0.0.1" },
-      logLevel: "error",
-    });
-    await vite.listen();
     shared = await launchStageBrowser<Browser, Page>({
       launch: () => chromium.launch(),
       // A fresh context prevents one gallery's saved settings/draft from leaking into another.
       open: (browser) => browser.newPage({ viewport: { width: 1000, height: 800 }, reducedMotion: "reduce" }),
     });
     const browser = shared.browser;
-    // Discover every entry's dependencies before parallel audits: Vite otherwise reloads
-    // unrelated pages when a later entry adds an optimized dependency.
     const ids = [...new Set(selected.map(({ id }) => id))];
-    await Promise.all(
-      Array.from({ length: 4 }, (_, worker) =>
-        warmGalleryFrame(
-          vite,
-          ids.filter((_, index) => index % 4 === worker),
-          { browser, timeoutMs: WARM_MS },
-        ),
-      ),
-    );
-    console.log(`Warmed ${ids.length} gallery entries; auditing controls.`);
+    stageServer = await galleryStageServer({
+      root,
+      configFile: path.join(root, "vite.config.ts"),
+      // Discover every entry's dependencies before parallel audits: Vite otherwise reloads
+      // unrelated pages when a later entry adds an optimized dependency.
+      warm: async (vite) => {
+        await Promise.all(
+          Array.from({ length: 4 }, (_, worker) =>
+            warmGalleryFrame(
+              vite,
+              ids.filter((_, index) => index % 4 === worker),
+              { browser, timeoutMs: WARM_MS },
+            ),
+          ),
+        );
+        console.log(`Warmed ${ids.length} gallery entries; auditing controls.`);
+      },
+    });
   }, WARM_MS + 20_000);
   afterAll(async () => {
     await shared?.close();
-    await vite?.close();
+    await stageServer?.close();
   });
   test(
     `every web gallery entry keeps trailing surfaces clear and hover inside its control (part ${part} of ${parts})`,
     async () => {
       expect(selected.length).toBeGreaterThan(0);
-      const port = (vite.httpServer!.address() as { port: number }).port;
+      const { origin, framePath } = stageServer!;
       const failures: string[] = [],
         pending = [...selected];
       let visited = 0,
@@ -320,7 +319,12 @@ export async function galleryControlSurfaces({ part, parts }: GalleryControlPart
             try {
               await page.setViewportSize({ width: 1000, height: Math.min(1200, entry.height) });
               await page.goto(
-                `http://127.0.0.1:${port}${galleryFrame(entry.id, { variant: entry.variant, reducedMotion: "true", colorScheme: process.env.GALLERY_CONTROL_THEME })}`,
+                origin +
+                  galleryFrame(entry.id, {
+                    variant: entry.variant,
+                    reducedMotion: "true",
+                    colorScheme: process.env.GALLERY_CONTROL_THEME,
+                  }).replace(/^\/gallery\/frame\.html/, framePath),
               );
               await page.waitForFunction(() => document.documentElement.dataset.galleryReady);
               if ((await page.locator("html").getAttribute("data-gallery-ready")) !== "1")

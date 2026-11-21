@@ -35,6 +35,7 @@ import { readShippedThemes } from "../../dev-server/galleryHost";
 import { loadEntrySources } from "../../scripts/gallery/entries";
 import { hideInk, markControls, readControls, type Control, type Reading } from "./controlContrastScan";
 import { warmGalleryFrame } from "./galleryFrame";
+import { galleryStageServer, type GalleryStageServer } from "./galleryStageServer";
 import { requireBrowserLane } from "./requireBrowserLane";
 import { launchStageBrowser, type StageBrowser } from "./stageBrowser";
 
@@ -185,30 +186,28 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
       return;
     }
 
-    const { createServer } = await import("vite");
-    let vite: Awaited<ReturnType<typeof createServer>> | undefined;
+    // The stages' server: the run's gallery build when it made one, else the dev server (test/support/galleryStageServer.ts).
+    let stageServer: GalleryStageServer | undefined;
     let shared: StageBrowser<Browser, Page> | undefined;
     beforeAll(async () => {
-      vite = await createServer({
-        configFile: path.join(webviews, viteConfig),
-        server: { port: 0, host: "127.0.0.1", strictPort: false },
-        logLevel: "error",
-      });
-      await vite.listen();
       shared = await launchStageBrowser<Browser, Page>({
         launch: () => chromium.launch({ headless: true }),
         open: (browser) =>
           browser.newPage({ viewport: { width: 760, height: 900 }, deviceScaleFactor: 2, reducedMotion: "reduce" }),
       });
       const first = stages[0]!;
-      await warmGalleryFrame(vite, first.entry, {
-        browser: shared.browser,
-        params: { variant: first.variant, frame: "component", ...first.scheme.query },
+      stageServer = await galleryStageServer({
+        configFile: path.join(webviews, viteConfig),
+        warm: (vite) =>
+          warmGalleryFrame(vite, first.entry, {
+            browser: shared!.browser,
+            params: { variant: first.variant, frame: "component", ...first.scheme.query },
+          }),
       });
     });
     afterAll(async () => {
       await shared?.close();
-      await vite?.close();
+      await stageServer?.close();
     });
 
     type Scanned = { stage: string; controls: number; failures: Failure[] } | { stage: string; error: string };
@@ -234,7 +233,6 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
 
     const scan = async (page: Page, cdp: CDPSession, stage: Stage): Promise<Scanned> => {
       const name = stageName(stage);
-      const port = (vite!.httpServer!.address() as { port: number }).port;
       const query = new URLSearchParams({
         entry: stage.entry,
         variant: stage.variant,
@@ -245,7 +243,7 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
       });
       try {
         await page.setViewportSize({ width: 760, height: Math.min(1100, Math.max(320, stage.height)) });
-        await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?${query}`);
+        await page.goto(`${stageServer!.origin}${stageServer!.framePath}?${query}`);
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 20_000 });
         if ((await page.evaluate(() => document.documentElement.dataset.galleryReady)) !== "1")
           return { stage: name, error: "the stage did not render" };

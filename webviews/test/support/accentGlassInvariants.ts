@@ -39,6 +39,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { loadEntrySources } from "../../scripts/gallery/entries";
 import { findingKey, scanStage, type Finding } from "./accentGlassScan";
 import { warmGalleryFrame } from "./galleryFrame";
+import { galleryStageServer, type GalleryStageServer } from "./galleryStageServer";
 import { requireBrowserLane } from "./requireBrowserLane";
 import { launchStageBrowser, type StageBrowser } from "./stageBrowser";
 
@@ -96,40 +97,30 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
       return stage === undefined ? part === 1 : mine.has(stage);
     };
 
-    const { createServer } = await import("vite");
-    let vite: Awaited<ReturnType<typeof createServer>> | undefined;
+    // The stages' server: the run's gallery build when it made one, else the dev server (test/support/galleryStageServer.ts).
+    let stageServer: GalleryStageServer | undefined;
     // One Chromium for the whole part, relaunched when it dies mid-file (test/support/stageBrowser.ts).
     let shared: StageBrowser<Browser, Page> | undefined;
-    const T = (msg: string) => process.env.AGI_TRACE && fs.appendFileSync(process.env.AGI_TRACE, msg + "\n");
     beforeAll(async () => {
-      const b0 = performance.now();
-      vite = await createServer({
-        configFile: path.join(webviews, viteConfig),
-        server: { port: 0, host: "127.0.0.1", strictPort: false },
-        logLevel: "error",
-      });
-      await vite.listen();
-      T(`viteListen ${Math.round(performance.now() - b0)}`);
-      {
-        const hot = vite.environments.client.hot; const send = hot.send;
-        hot.send = ((...a: unknown[]) => { T(`hot ${Math.round(performance.now())} ${JSON.stringify(a[0]).slice(0, 200)}`); return (send as (...x: unknown[]) => void).apply(hot, a); }) as typeof send;
-        const opt = vite.environments.client.depsOptimizer; T(`optimizer ${Boolean(opt)} discovered=${Object.keys(opt?.metadata.discovered ?? {}).length} optimized=${Object.keys(opt?.metadata.optimized ?? {}).length}`);
-      }
       shared = await launchStageBrowser<Browser, Page>({
         launch: () => chromium.launch({ headless: true }),
         open: (browser) => browser.newPage({ viewport: { width: 760, height: 900 } }),
       });
       const first = stages[0];
-      if (first)
-        await warmGalleryFrame(vite, first.entry, {
-          browser: shared.browser,
-          params: { variant: first.variant, theme: first.theme, frame: "component" },
-        });
-      T(`beforeAll ${Math.round(performance.now() - b0)}`);
+      stageServer = await galleryStageServer({
+        configFile: path.join(webviews, viteConfig),
+        warm: async (vite) => {
+          if (first)
+            await warmGalleryFrame(vite, first.entry, {
+              browser: shared!.browser,
+              params: { variant: first.variant, theme: first.theme, frame: "component" },
+            });
+        },
+      });
     });
     afterAll(async () => {
       await shared?.close();
-      await vite?.close();
+      await stageServer?.close();
     });
 
     type Scanned = { stage: string; findings: Finding[] } | { stage: string; error: string };
@@ -137,7 +128,6 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
     const scan = async (page: Page, stage: (typeof stages)[number]): Promise<Scanned> => {
       const name = stageName(stage);
       const orangeAllowed = stage.theme !== undefined && orangeThemes.has(stage.theme);
-      const port = (vite!.httpServer!.address() as { port: number }).port;
       const query = new URLSearchParams({
         entry: stage.entry,
         variant: stage.variant,
@@ -146,7 +136,7 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
         ...(stage.theme ? { theme: stage.theme } : {}),
       });
       try {
-        await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?${query}`);
+        await page.goto(`${stageServer!.origin}${stageServer!.framePath}?${query}`);
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, {
           timeout: 20_000,
         });
@@ -178,10 +168,7 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
         );
       });
       try {
-        const s0 = performance.now();
-        const r = await Promise.race([scan(page, stage), late]);
-        T(`stage ${Math.round(performance.now() - s0)} ${Math.round(s0)} ${"error" in r ? "ERR" : "ok"} ${stageName(stage)} ${"error" in r ? r.error : ""}`);
-        return r;
+        return await Promise.race([scan(page, stage), late]);
       } finally {
         clearTimeout(timer);
       }
