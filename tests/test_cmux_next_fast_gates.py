@@ -101,7 +101,7 @@ class WorkflowShape(unittest.TestCase):
     def test_name_job_and_runner(self):
         doc = workflow()
         self.assertEqual(doc["name"], "cmux-next fast gates")
-        self.assertEqual(list(doc["jobs"]), ["portable-placement", "resolve", "receipt", "fast-gates", "panic-ratchet", "post"])
+        self.assertEqual(list(doc["jobs"]), ["portable-placement", "resolve", "fast-check-route", "receipt", "fast-gates", "panic-ratchet", "post"])
         self.assertEqual(job(doc)["name"], "fast gates")
         # The reconciled Linux pool is the default for every trusted job; fork
         # pull requests retain their ephemeral Blacksmith branch, and reruns
@@ -131,7 +131,8 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(set(place["LINUX_ONLY"].split()), light)
         self.assertEqual(set(place["JOBS"].split()), light)
         for key, each in doc["jobs"].items():
-            if key in light or key == "portable-placement":
+            # fast-check-route is held to the 2-vCPU pool by fast_check_route.py check (the decision takes no pool runner).
+            if key in light or key in ("portable-placement", "fast-check-route"):
                 continue
             with self.subTest(runner=key):
                 # Each matrix cell (`${{ matrix.runner }}` read as its values) is a route of its own.
@@ -192,7 +193,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(step_named(resolve["steps"], "Resolve")["env"]["BRANCH"], "feat-cmux-next")
         # The gates job, which runs the PR's code, starts only after resolve passed, and not at all when a valid
         # local test receipt covers it (unless the receipt is audited).
-        self.assertEqual(job(doc)["needs"], ["resolve", "receipt"])
+        self.assertEqual(job(doc)["needs"], ["resolve", "fast-check-route", "receipt"])
         self.assertIn("needs.resolve.result == 'success'", job(doc)["if"])
         self.assertIn("needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' "
                       "|| needs.receipt.outputs.audit == 'true'", job(doc)["if"])
@@ -379,7 +380,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertTrue(checkout["uses"].startswith("actions/checkout@"))
         self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.sha }}")
         self.assertIs(checkout["with"]["persist-credentials"], False)
-        self.assertEqual(checkout["with"]["sparse-checkout"].split(), ["/scripts/ci/ci_receipt.py"])
+        self.assertEqual(checkout["with"]["sparse-checkout"].split(), ["/scripts/ci/ci_receipt.py", "/scripts/ci/deadline_http.py", "/scripts/ci/cmux_next_fast_gates.py"])
         verify = step_named(receipt["steps"], "Verify the local test receipt")
         self.assertIn("ci_receipt.py verify fast-gates", verify["run"])
         # The body reaches the verifier through the environment, never spliced into the script.
@@ -394,7 +395,7 @@ class WorkflowShape(unittest.TestCase):
     def test_status_context_and_description(self):
         doc = workflow()
         poster = job(doc, "post")
-        self.assertEqual(poster["needs"], ["resolve", "receipt", "fast-gates", "panic-ratchet", "portable-placement"])
+        self.assertEqual(poster["needs"], ["resolve", "fast-check-route", "receipt", "fast-gates", "panic-ratchet", "portable-placement"])
         # A valid receipt posted the status itself; post judges only runs the gates ran (an audit included).
         self.assertIn("needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' "
                       "|| needs.receipt.outputs.audit == 'true'", poster["if"])
@@ -415,9 +416,11 @@ class WorkflowShape(unittest.TestCase):
         # The gates job hands post nothing but its result; its one output only says whether the ratchet runs,
         # and comes from prepare, before any pull request code ran.
         self.assertEqual(job(doc)["outputs"], {"ratchet": "${{ steps.prepare.outputs.ratchet }}"})
-        # The receipt job's outputs come from the base commit's verifier, never from pull request code.
+        # The receipt job's outputs come from the base commit's verifier, never from pull request code. The route's
+        # one output (fast_check_route.py from the merge) only counts when the gates were skipped, and post runs only
+        # for a same-repository pull request (resolve's post), whose author can already push to the base.
         self.assertNotIn("outputs.", json.dumps(post["env"]).replace("needs.resolve.outputs.", "")
-                         .replace("needs.receipt.outputs.", ""))
+                         .replace("needs.receipt.outputs.", "").replace("needs.fast-check-route.outputs.fast_gates", ""))
         self.assertIn("github.run_id", post["env"]["TARGET_URL"])
         self.assertIn("github.token", post["env"]["GH_TOKEN"])
         body = post["run"]
@@ -453,7 +456,7 @@ class WorkflowShape(unittest.TestCase):
             fake.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$@\" > {root}/args\n")
             fake.chmod(0o755)
             env = {**os.environ, "PATH": f"{root}:{os.environ['PATH']}", "HEAD_SHA": "a" * 40, "BASE": "b" * 40,
-                   "GATES": gates, "RATCHET": ratchet, "CONTEXT": "cmux-next/fast-gates",
+                   "GATES": gates, "RATCHET": ratchet, "ROUTED_OUT": "false", "CONTEXT": "cmux-next/fast-gates",
                    "TARGET_URL": "https://example.invalid/run", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
                    "GITHUB_STEP_SUMMARY": str(root / "summary")}
             done = subprocess.run(["bash", "-c", body], env=env, capture_output=True, text=True)
@@ -512,6 +515,7 @@ class WorkflowShape(unittest.TestCase):
                     "BASE": "b" * 40,
                     "GATES": "success",
                     "RATCHET": "skipped",
+                    "ROUTED_OUT": "false",
                     "CONTEXT": "cmux-next/fast-gates",
                     "TARGET_URL": "https://example.invalid/run",
                     "GITHUB_REPOSITORY": "manaflow-ai/cmux",

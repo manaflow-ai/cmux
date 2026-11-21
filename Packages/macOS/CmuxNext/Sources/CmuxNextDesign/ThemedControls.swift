@@ -35,6 +35,12 @@ public class ThemedBezelButton: ClickableButton {
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// Draws the disabled title in the tertiary ink ``applyTitle()`` sets, not AppKit's faded label.
+    public override class var cellClass: AnyClass? {
+        get { OwnInkButtonCell.self }
+        set {}
+    }
+
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyTheme()
