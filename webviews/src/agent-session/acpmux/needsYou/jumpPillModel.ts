@@ -1,3 +1,4 @@
+import { sessionIndex } from "../sessionIndex";
 import type { AcpmuxSessionEntry } from "../sessionList";
 import type { NeedsYouItem } from "./model";
 
@@ -13,11 +14,12 @@ export function needsYouPillOn(
 /// able to answer it from here (another computer's chat), so it stays in the header's list.
 export function pillAsks(
   items: readonly NeedsYouItem[],
-  sessions: readonly Pick<AcpmuxSessionEntry, "sessionId" | "startedBy" | "spawnedBy">[],
+  sessions: readonly AcpmuxSessionEntry[],
   sessionId: string | undefined,
 ): NeedsYouItem[] {
   if (!sessionId) return [];
-  const byId = new Map(sessions.map((session) => [session.sessionId, session]));
+  // The list's shared id map (sessionIndex.ts): the walk reads the starters of the asking chats only.
+  const byId = sessionIndex(sessions);
   const ours = new Map<string, boolean>([[sessionId, true]]);
   const isOurs = (id: string): boolean => {
     const known = ours.get(id);

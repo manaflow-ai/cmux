@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { agentHomeTrust, type TrustSource } from "../folderTrust";
 import { useFolderTrustAsk } from "../useFolderTrustAsk";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 // Leo 2026-11-03: "why does it even take time to read settings? you know what things are. the read
 // defaults/the "not working in a project" thing that should all be instant". A chat in no project runs
@@ -28,8 +29,9 @@ beforeEach(() => {
   root = createRoot(dom.window.document.getElementById("root")!);
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

@@ -9,17 +9,21 @@ public nonisolated struct CloudEnvironmentsRun: Codable, Equatable, Sendable {
     public var name: String?
     public var repo: String?
     public var setupScript: String?
+    /// The whole variable list on a Save; nil leaves it as it is.
+    public var env: [CloudEnvironmentVariable]?
 
     private enum CodingKeys: String, CodingKey {
-        case action, id, name, repo
+        case action, id, name, repo, env
         case setupScript = "setup_script"
     }
 
-    public init(action: Action, id: String? = nil, name: String? = nil, repo: String? = nil, setupScript: String? = nil) {
+    public init(action: Action, id: String? = nil, name: String? = nil, repo: String? = nil, setupScript: String? = nil,
+                env: [CloudEnvironmentVariable]? = nil) {
         self.action = action
         self.id = id
         self.name = name
         self.repo = repo
         self.setupScript = setupScript
+        self.env = env
     }
 }

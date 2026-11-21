@@ -49,6 +49,8 @@ const CLI_FLAGS: &[&str] = &[
     "no-wait",
     "interactive",
     "focus",
+    // `run_action` reads `--no-focus` as the run's `focus: false` (and the action's `focus` when it takes one).
+    "no-focus",
     "target",
     "arg",
     "json",
@@ -92,6 +94,7 @@ struct Action {
 }
 
 fn repo_root() -> PathBuf {
+    // affected-reads: plans/cmux-next/action-surfaces.json cmux-tui
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
@@ -567,9 +570,13 @@ fn reaches_app(cli_name: &str) -> bool {
 #[test]
 fn every_cli_call_site_sends_only_arguments_its_action_takes() {
     let actions = actions();
+    // A catalog request row's CLI is the mux grammar's own verb, which maps its flags itself
+    // (`catalog_request_tests` checks it sends the row's request): not this contract's.
+    let requests = super::action_surface_parity::catalog_request_cli_names();
+    let reaches = |cli_name: &str| !requests.contains(cli_name) && reaches_app(cli_name);
     let mut drift = Vec::new();
     for file in source_files() {
-        drift.extend(drift_in(&file, &actions, &reaches_app));
+        drift.extend(drift_in(&file, &actions, &reaches));
     }
     let lines = drift
         .iter()
@@ -678,18 +685,13 @@ fn encoded(words: &[String]) -> Value {
 }
 
 /// The requests the CLI's encoder builds, which the app's `ArgumentActionContractTests` validate against
-/// its catalog: `cmux cloud start-chat`'s relay request as `cloud_start_chat` builds it, and, for each
-/// action the CLI offers, its CLI name with every argument given as its `--flag`.
+/// its catalog: for each action the CLI offers, its CLI name with every argument given as its `--flag`.
 fn cli_requests() -> Value {
     let path = repo_root().join("plans/cmux-next/action-surfaces.json");
     let root: Value =
         serde_json::from_str(&std::fs::read_to_string(&path).expect("action-surfaces.json"))
             .unwrap();
     let mut requests = Vec::new();
-    let relay = super::super::cloud_start_chat::tests::contract_relay_words();
-    requests.push(
-        serde_json::json!({"source": "cmux cloud start-chat (relay)", "params": encoded(&relay)}),
-    );
     for action in root["actions"].as_array().expect("actions") {
         let Some(cli_name) = action["cli_name"].as_str().filter(|_| action["cli"] == "offered")
         else {
@@ -851,4 +853,30 @@ fn open_remote_focus_reaches_the_action() {
     ]);
     assert_eq!(params["focus"], serde_json::json!(true));
     assert!(params["args"].get("focus").is_none(), "{params}");
+}
+
+/// `cmux share chat --view-only` makes a link where nobody sends: `role: view` (the daemon's link
+/// role, which lifts the uses cap) and `signedInRole: view` (signed-in link guests watch too; the
+/// daemon's `signed_in_role`, cmux#38102). Both are `agent.share` arguments, so the app takes the
+/// run instead of refusing it with "agent.share has no argument 'role'".
+#[test]
+fn share_chat_view_only_sends_only_arguments_the_action_takes() {
+    let words = ["share", "chat", "--surface", "3", "--view-only"].map(str::to_owned);
+    let Some(Ok((name, args))) = super::super::share_cli::action(&words) else {
+        panic!("share chat --view-only is rewritten")
+    };
+    let mut rewritten = name.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+    rewritten.extend(args);
+    let params = encoded(&rewritten);
+    assert_eq!(params["args"]["role"], "view", "{params}");
+    assert_eq!(params["args"]["signedInRole"], "view", "{params}");
+    let actions = actions();
+    let share = actions.iter().find(|action| action.id == "agent.share").expect("agent.share");
+    for key in params["args"].as_object().expect("args").keys() {
+        assert!(
+            share.args.contains(key),
+            "agent.share has no argument '{key}' (it takes {:?})",
+            share.args
+        );
+    }
 }

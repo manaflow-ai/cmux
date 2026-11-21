@@ -33,6 +33,20 @@ struct AgentPaneCloudEnvironmentTests {
         #expect(calls.count == 1)
     }
 
+    /// New environment… (the composer's Environment chip) creates one only on the person's click.
+    @Test func createForwardsOnlyWithAGesture() async {
+        let model = AgentPaneModel(host: NoHost())
+        var actions: [String] = []
+        model.onCloudEnvironment = { request in actions.append(request.action); return AgentPaneReply.success(["id": "env_new"]) }
+        #expect(AgentPageOps.methods["cloud.environment.create"] == "cloud.environment.create")
+        let request = AgentPaneRequest(body: ["method": "cloud.environment.create", "params": ["environment": ["name": "cmux"]]])
+        #expect(await model.respond(to: request)["ok"] as? Bool == false)
+        #expect(actions.isEmpty)
+        model.transport.gestures.record(click: true)
+        #expect(await model.respond(to: request)["ok"] as? Bool == true)
+        #expect(actions == ["create"])
+    }
+
     @Test func readMethodsForwardWithoutSpendingAGesture() async {
         let model = AgentPaneModel(host: NoHost())
         var actions: [String] = []

@@ -16,13 +16,16 @@
 // The real pane (`?mock`: the real direct client against the in-page mock daemon) with a seeded chat,
 // its page marked see-through and its host glass reported to a stand-in App that answers a frame later.
 // Every painted frame is read: the panel's node and each section slot's node stay the same, its glass
-// stays the App's (drawn, no kept underlay), and it never reaches over the composer's stack.
+// stays the App's (drawn, no kept underlay), and it never reaches over the composer's stack. The frames
+// are read from before the turn starts: the running tray comes in with the turn, so the composer's stack
+// is taken without it first (the baseline), and the test waits until the tray stands in the dock.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { SESSION_INFO, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("session-info-stream-scroll-steady.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -139,11 +142,12 @@ await requireBrowserLane("session-info-stream-scroll-steady.test.ts", async () =
         expect(seeded.error).toBeUndefined();
         const target = String(seeded.session);
         await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }));
-        const toggle = page.locator("button.acpmux-session-info-toggle").first();
+        const toggle = page.locator(SESSION_INFO_TOGGLE).first();
         await toggle.waitFor({ timeout: 10_000 });
         if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click({ force: true });
         await page.waitForFunction(
-          () => document.querySelector("aside.acpmux-session-info")?.getAttribute("data-presence") === "shown",
+          ({ SESSION_INFO }) => document.querySelector(SESSION_INFO)?.getAttribute("data-presence") === "shown",
+          { SESSION_INFO },
         );
         // Expanded: every section unfolded, Show more open.
         await page.evaluate(async () => {
@@ -166,6 +170,115 @@ await requireBrowserLane("session-info-stream-scroll-steady.test.ts", async () =
           ])
             state.setSessionInfoSection(id, true);
         });
+        await page.waitForFunction(
+          ({ SESSION_INFO }) =>
+            document
+              .querySelector(SESSION_INFO)!
+              .getAnimations({ subtree: true })
+              .every((animation) => animation.effect?.getComputedTiming().endTime === Infinity),
+          { SESSION_INFO },
+        );
+        // The baseline: the composer's stack before any running tray, taken before the turn starts.
+        await page.waitForFunction(() => {
+          const dock = document.querySelector(".acpmux-dock");
+          return !!dock?.querySelector(".acpmux-composer") && !dock.querySelector(":scope > .acpmux-running-tray");
+        });
+        const hostGlass = `/@fs${path.join(webviews, "src/ui/glass/hostGlass.ts")}`;
+        const baseline = await page.evaluate(
+          async ({ hostGlass, SESSION_INFO }) => {
+            const w = window as any;
+            // A see-through page whose host glass a stand-in App draws a frame after each report.
+            document.documentElement.setAttribute("data-cmux-see-through", "");
+            const { reportHostGlass } = await import(/* @vite-ignore */ hostGlass);
+            reportHostGlass(
+              document,
+              () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+            );
+            await new Promise<void>((resolve) => {
+              const drawn = () => {
+                const panel = document.querySelector(SESSION_INFO);
+                if (!panel?.hasAttribute("data-host-glass") || panel.getAttribute("data-host-glass-drawn") === "1")
+                  resolve();
+                // raf-read: waits for the stand-in App's answer to mark the glass drawn; nothing is sampled.
+                else requestAnimationFrame(drawn);
+              };
+              drawn();
+            });
+            // The composer's stack: the top of its highest part (useDockHeight).
+            const stackTop = () => {
+              const dock = document.querySelector(".acpmux-dock")!;
+              let top = Infinity;
+              for (const part of [dock, ...dock.children]) {
+                const box = part.getBoundingClientRect();
+                if (box.height > 0) top = Math.min(top, box.top);
+              }
+              return Math.round(top);
+            };
+            const aside = () => document.querySelector<HTMLElement>(SESSION_INFO);
+            const panel = aside()!;
+            const slots = new Map(
+              [...panel.querySelectorAll("[data-slot]")].map((slot) => [slot.getAttribute("data-slot")!, slot]),
+            );
+            const seen = {
+              frames: 0,
+              replaced: 0,
+              slotsReplaced: [] as string[],
+              looks: new Set<string>(),
+              overStack: 0,
+              footSteps: 0,
+              stack: new Set<number>(),
+            };
+            w.__seen = seen;
+            let lastFoot: number | undefined;
+            // The sampler's first painted frame: the turn starts only after it, so the baseline is sampled.
+            let firstPaint!: () => void;
+            const painted = new Promise<void>((resolve) => (firstPaint = resolve));
+            w.__stop = window.cmuxAfterPaint(() => {
+              seen.frames += 1;
+              firstPaint();
+              const node = aside();
+              if (node !== panel) {
+                seen.replaced += 1;
+                return true;
+              }
+              for (const [id, slot] of slots) {
+                const now = node.querySelector(`[data-slot="${id}"]`);
+                if (now && now !== slot) {
+                  seen.slotsReplaced.push(id);
+                  slots.set(id, now);
+                }
+              }
+              const style = getComputedStyle(node);
+              seen.looks.add(
+                [
+                  node.className,
+                  node.getAttribute("data-host-glass-drawn"),
+                  node.hasAttribute("data-glass-keeps-underlay") ? "keeps-underlay" : "",
+                  style.opacity,
+                  style.visibility,
+                  style.filter,
+                  style.backgroundColor,
+                ].join("|"),
+              );
+              const top = stackTop();
+              seen.stack.add(top);
+              if (node.hasAttribute("data-over-chat")) {
+                const bottom = node.getBoundingClientRect().bottom;
+                if (bottom > top + 0.5) seen.overStack += 1;
+                const foot = Math.round(bottom);
+                if (lastFoot !== undefined && foot !== lastFoot) seen.footSteps += 1;
+                lastFoot = foot;
+              }
+              return true;
+            });
+            await painted;
+            return stackTop();
+          },
+          { hostGlass, SESSION_INFO },
+        );
+
+        // Only now does the turn start: the running tray comes in with it (the seeded chat's background
+        // commands show while a turn runs), so it lands after the baseline and inside the sampled frames.
         await page.evaluate(async (target) => {
           // The pane's dev server serves src/agent-session/acpmux at its root.
           const mockUrl = "/mock.ts";
@@ -177,92 +290,6 @@ await requireBrowserLane("session-info-stream-scroll-steady.test.ts", async () =
         const scroller = (await page.locator(".acpmux-scroll").boundingBox())!;
         await page.mouse.move(scroller.x + scroller.width / 3, scroller.y + scroller.height / 2);
         for (let step = 0; step < 8; step++) await page.mouse.wheel(0, -400);
-        await page.waitForFunction(() =>
-          document
-            .querySelector("aside.acpmux-session-info")!
-            .getAnimations({ subtree: true })
-            .every((animation) => animation.effect?.getComputedTiming().endTime === Infinity),
-        );
-        const hostGlass = `/@fs${path.join(webviews, "src/ui/glass/hostGlass.ts")}`;
-        await page.evaluate(async (hostGlass) => {
-          const w = window as any;
-          // A see-through page whose host glass a stand-in App draws a frame after each report.
-          document.documentElement.setAttribute("data-cmux-see-through", "");
-          const { reportHostGlass } = await import(/* @vite-ignore */ hostGlass);
-          reportHostGlass(
-            document,
-            () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
-          );
-          await new Promise<void>((resolve) => {
-            const drawn = () => {
-              const panel = document.querySelector("aside.acpmux-session-info");
-              if (!panel?.hasAttribute("data-host-glass") || panel.getAttribute("data-host-glass-drawn") === "1")
-                resolve();
-              // raf-read: waits for the stand-in App's answer to mark the glass drawn; nothing is sampled.
-              else requestAnimationFrame(drawn);
-            };
-            drawn();
-          });
-          const aside = () => document.querySelector<HTMLElement>("aside.acpmux-session-info");
-          const panel = aside()!;
-          const slots = new Map(
-            [...panel.querySelectorAll("[data-slot]")].map((slot) => [slot.getAttribute("data-slot")!, slot]),
-          );
-          const seen = {
-            frames: 0,
-            replaced: 0,
-            slotsReplaced: [] as string[],
-            looks: new Set<string>(),
-            overStack: 0,
-            footSteps: 0,
-            stack: new Set<number>(),
-          };
-          w.__seen = seen;
-          let lastFoot: number | undefined;
-          w.__stop = window.cmuxAfterPaint(() => {
-            seen.frames += 1;
-            const node = aside();
-            if (node !== panel) {
-              seen.replaced += 1;
-              return true;
-            }
-            for (const [id, slot] of slots) {
-              const now = node.querySelector(`[data-slot="${id}"]`);
-              if (now && now !== slot) {
-                seen.slotsReplaced.push(id);
-                slots.set(id, now);
-              }
-            }
-            const style = getComputedStyle(node);
-            seen.looks.add(
-              [
-                node.className,
-                node.getAttribute("data-host-glass-drawn"),
-                node.hasAttribute("data-glass-keeps-underlay") ? "keeps-underlay" : "",
-                style.opacity,
-                style.visibility,
-                style.filter,
-                style.backgroundColor,
-              ].join("|"),
-            );
-            // The composer's stack: the top of its highest part (useDockHeight).
-            const dock = document.querySelector(".acpmux-dock")!;
-            let top = Infinity;
-            for (const part of [dock, ...dock.children]) {
-              const box = part.getBoundingClientRect();
-              if (box.height > 0) top = Math.min(top, box.top);
-            }
-            seen.stack.add(Math.round(top));
-            if (node.hasAttribute("data-over-chat")) {
-              const bottom = node.getBoundingClientRect().bottom;
-              if (bottom > top + 0.5) seen.overStack += 1;
-              const foot = Math.round(bottom);
-              if (lastFoot !== undefined && foot !== lastFoot) seen.footSteps += 1;
-              lastFoot = foot;
-            }
-            return true;
-          });
-        }, hostGlass);
 
         // The reader scrolls slowly down, pausing past the card's scroll hold (heldWhileScrolling.ts),
         // while the turn streams.
@@ -279,6 +306,15 @@ await requireBrowserLane("session-info-stream-scroll-steady.test.ts", async () =
           await page.waitForTimeout(320);
         }
         await streaming;
+        // The running tray has come in: it stands in the dock and the stack's top left the baseline.
+        await page.waitForFunction(
+          (baseline) =>
+            !!document.querySelector(".acpmux-dock > .acpmux-running-tray:not(.acpmux-running-tray--ghost)") &&
+            (window as any).__seen.stack.has(baseline) &&
+            [...(window as any).__seen.stack].some((top: number) => top !== baseline),
+          baseline,
+          { timeout: 10_000 },
+        );
         const seen = (await page.evaluate(() => {
           const w = window as any;
           w.__stop();
@@ -293,9 +329,10 @@ await requireBrowserLane("session-info-stream-scroll-steady.test.ts", async () =
           footSteps: number;
           stack: number[];
         };
-        console.log(`SESSION-INFO-STREAM-SCROLL ${width}px ${JSON.stringify(seen)}`);
+        console.log(`SESSION-INFO-STREAM-SCROLL ${width}px baseline ${baseline} ${JSON.stringify(seen)}`);
         expect(seen.frames).toBeGreaterThan(100);
-        // The running tray came in: the composer's stack moved under the panel during the run.
+        // The running tray came in: the composer's stack moved under the panel during the sampled run.
+        expect(seen.stack).toContain(baseline);
         expect(seen.stack.length).toBeGreaterThan(1);
         expect(seen.replaced, "frames the panel's node was gone or replaced").toBe(0);
         expect(seen.slotsReplaced, "section slots drawn anew").toEqual([]);

@@ -48,6 +48,46 @@ class XCStringsLintTests(unittest.TestCase):
         result = self.run_lint(path)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_rejects_internal_component_names_in_user_facing_text(self) -> None:
+        """Fail when any localization shows an internal component name such as acpmux."""
+        path = self.write_catalog(
+            {
+                "sourceLanguage": "en",
+                "strings": {
+                    "notice.from": {
+                        "localizations": {
+                            "en": {"stringUnit": {"state": "translated", "value": "From cmux"}},
+                            "de": {"stringUnit": {"state": "translated", "value": "Von ACPMux"}},
+                        }
+                    }
+                },
+                "version": "1.0",
+            }
+        )
+        result = self.run_lint(path)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("notice.from", result.stderr)
+        self.assertIn("acpmux", result.stderr)
+
+    def test_internal_names_may_appear_in_keys_and_comments(self) -> None:
+        """Keys and translator comments are not shown to users, so they may name acpmux."""
+        path = self.write_catalog(
+            {
+                "sourceLanguage": "en",
+                "strings": {
+                    "agentPane.acpmuxDaemon.title": {
+                        "comment": "Title for the acpmux daemon row",
+                        "localizations": {
+                            "en": {"stringUnit": {"state": "translated", "value": "Agent service"}}
+                        },
+                    }
+                },
+                "version": "1.0",
+            }
+        )
+        result = self.run_lint(path)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_rejects_catalog_without_version(self) -> None:
         """Require Xcode's catalog schema version at the top level."""
         path = self.write_catalog({"sourceLanguage": "en", "strings": {}})

@@ -20,6 +20,7 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
     let agent: DeviceAgent
     private let control = LineChannel(read: STDIN_FILENO, write: STDOUT_FILENO)
     private var statusQueued = false
+    private(set) var appChannels = 0
     /// The app's hub subscriptions, by channel.
     private var subscribers: [ObjectIdentifier: LineChannel] = [:]
 
@@ -81,7 +82,7 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func handle(_ method: String, _ params: [String: Any], id: Any?) async -> Data {
+    func handle(_ method: String, _ params: [String: Any], id: Any?) async -> Data {
         switch method {
         case "status":
             return RemoteWire.answer(id: id, result: agent.status)
@@ -102,6 +103,10 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
             case let .failure(error): return RemoteWire.failure(id: id, code: error.code?.rawValue ?? "failed", message: error.description)
             }
         case "stop_session":
+            guard !agent.relayOnly else {
+                return RemoteWire.failure(id: id, code: "screen.app_host",
+                                          message: "the cmux app owns Mac Screen sharing")
+            }
             agent.sessions.stop()
             return RemoteWire.answer(id: id, result: [:])
         default:
@@ -120,20 +125,61 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
         LocalSocket.serve(listener, name: "remote-screen-app") { [weak self] channel in
             // Only the host connects here (it splices the app's channel through).
             guard channel.peer?.pid == getppid() else { return channel.close() }
+            // The reader stays off the main actor, while one actor task owns this
+            // channel's registration, request order, and teardown. This prevents
+            // a queued request from racing appChannelClosed and re-enabling worker
+            // hosting after the app has gone away.
+            let stream = AsyncStream<WorkerRequest>.makeStream(bufferingPolicy: .bufferingOldest(256))
+            let failed = OSAllocatedUnfairLock(initialState: false)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                appChannelOpened()
+                for await request in stream.stream {
+                    guard !failed.withLock({ $0 }) else { break }
+                    if let answer = await handleApp(request.method, request.params, id: request.id, channel: channel) {
+                        channel.write(answer)
+                    }
+                }
+                unsubscribe(channel)
+                appChannelClosed()
+                channel.close()
+            }
             while let object = channel.readObject() {
-                let request = WorkerRequest(object)
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    if let answer = await handleApp(request.method, request.params, id: request.id, channel: channel) { channel.write(answer) }
+                if case .dropped = stream.continuation.yield(WorkerRequest(object)) {
+                    // A peer that outruns the actor is failed closed rather than
+                    // silently dropping a control request.
+                    failed.withLock { $0 = true }
+                    stream.continuation.finish()
+                    return
                 }
             }
-            Task { @MainActor [weak self] in self?.unsubscribe(channel) }
-            channel.close()
+            // Do not drain requests that were buffered after the peer went away;
+            // the actor owns teardown and will close the channel exactly once.
+            failed.withLock { $0 = true }
+            stream.continuation.finish()
         }
+    }
+
+    @MainActor
+    func appChannelOpened() {
+        appChannels += 1
+        agent.setRelayOnly(true)
+    }
+
+    @MainActor
+    func appChannelClosed() {
+        appChannels = max(0, appChannels - 1)
+        if appChannels == 0 { agent.setRelayOnly(false) }
     }
 
     private func handleApp(_ method: String, _ params: [String: Any], id: Any?, channel: LineChannel) async -> Data? {
         switch method {
+        case "host.mode":
+            guard params["mode"] as? String == "relay-only" else {
+                return RemoteWire.failure(id: id, code: "bad_request", message: "mode relay-only is required")
+            }
+            agent.setRelayOnly(true)
+            return RemoteWire.answer(id: id, result: ["mode": "relay-only"])
         case "device.identity", "device.renew":
             let identity = method == "device.renew" ? await agent.renewIdentity() : await agent.loadIdentity()
             guard let identity else { return RemoteWire.failure(id: id, code: "identity", message: "no device identity (Secure Enclave or Keychain)") }

@@ -14,7 +14,9 @@
 //!   has as pending was cut off: its half-made workspace is closed first.
 //! - Setup and archive scripts become the project's workspace setup and
 //!   teardown, shown as written; `CONDUCTOR_*` variables are set as aliases
-//!   of cmux's. "Files to copy" become `.worktreeinclude` lines.
+//!   of cmux's. "Files to copy" become `.worktreeinclude` lines. Together
+//!   with the first run script they are the project's worktree `recipe`,
+//!   which the import saves on the cmux project.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -58,6 +60,35 @@ pub struct ProjectPlan {
     pub env_names: Vec<String>,
     pub notes: Vec<Note>,
     pub workspaces: Vec<WorkspacePlan>,
+    /// The project's worktree recipe the import saves (cmux's
+    /// `project.update` `worktree`); none when there is nothing to save.
+    pub recipe: Option<Recipe>,
+}
+
+/// A worktree recipe in cmux's own shape: the setup, teardown and first
+/// run command as written, and the include lines the repository lacks.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct Recipe {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub setup: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub teardown: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub include: Vec<String>,
+}
+
+impl ProjectPlan {
+    fn recipe(&self) -> Option<Recipe> {
+        let recipe = Recipe {
+            setup: self.setup.clone(),
+            teardown: self.teardown.clone(),
+            run: self.run.first().map(|script| script.command.clone()),
+            include: self.worktreeinclude.clone(),
+        };
+        (recipe != Recipe::default()).then_some(recipe)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -160,6 +191,7 @@ pub fn plan(catalog: &Catalog, facts: &Facts, ledger: &Ledger, live: &BTreeSet<S
                 .collect();
             project.env_names = settings.env_names.clone();
             project.notes = settings.notes.clone();
+            project.recipe = project.recipe();
         }
         for workspace in catalog.workspaces.iter().filter(|w| w.repo_id == repo.id) {
             let ws_facts = facts.workspaces.get(&workspace.id).cloned().unwrap_or_default();

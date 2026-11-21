@@ -10,9 +10,11 @@ import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { useNow } from "../subagents/SubagentGroup";
-import type { SessionInfoServer } from "./processes";
+import { useNow } from "../subagents/subagentGroupModel";
+import { previewAddress } from "../conversation/previewChipModel";
+import { serverUrl, type SessionInfoServer } from "./processes";
 import { StopButton } from "./TasksSection";
+import { Clock } from "../../../ui/Typography";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -34,8 +36,8 @@ export function ServersSection({
         .sort((a, b) => b.startedAt - a.startedAt)
         .map((server) => {
           const port = server.ports[0];
-          const address = port === undefined ? undefined : `localhost:${port}`;
-          const url = address && `http://${address}`;
+          const url = port === undefined ? undefined : serverUrl(server, port);
+          const address = url && previewAddress(url);
           const open = url && onOpenUrl ? () => onOpenUrl(url) : undefined;
           return (
             <li
@@ -58,9 +60,10 @@ export function ServersSection({
                 <span className="acpmux-session-info-task__command" data-detail={address ? "" : undefined}>
                   {server.command}
                 </span>
-                <span className="acpmux-session-info-task__time">
-                  {formatDuration(Math.max(0, now - server.startedAt))}
-                </span>
+                <Clock
+                  className="acpmux-session-info-task__time"
+                  text={formatDuration(Math.max(0, now - server.startedAt))}
+                />
               </button>
               {onStop && <StopButton id={server.id} name={server.command} stop={onStop} solid />}
             </li>

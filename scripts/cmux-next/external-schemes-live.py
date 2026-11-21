@@ -16,7 +16,8 @@ which runs the app's scripts as a gesture). For each engine:
      Cancel opens nothing; Open (this time) opens it; asked again, Open with
      "Always allow" opens it, and the next click opens it with no prompt;
   3. a link to a scheme no app opens does nothing and asks nothing;
-  4. a script that sets location to mailto: without a click opens nothing.
+  4. a script or HTTP redirect to another app's scheme asks before opening it,
+     including mailto:; Cancel delivers nothing and Open delivers it once.
   5. a cmux sign-in callback from a script or an HTTP redirect asks before
      delivering the exact callback to its registered app; Cancel delivers nothing.
 
@@ -27,6 +28,7 @@ import argparse, functools, glob, http.server, json, os, plistlib, socket, subpr
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -162,13 +164,25 @@ def run_engine(engine):
         return
     time.sleep(1)
 
-    # 4. A script, not a click (first: a click before it would leave Chromium's user activation on).
+    # 4. A non-gesture navigation must ask before opening any app, including a
+    # well-known scheme. A fresh document runs its onload script before any
+    # agent evaluation, so Chromium has no transient user activation here.
     before = len(opens())
-    # Page eval runs as an agent gesture and leaves Chromium transient activation.
-    # A fresh document runs its own onload script before any agent evaluation.
     rpc("browser.page.navigate", {"tab": TAB, "url": url.replace("index.html", "script-mail")})
-    got = settled_opens(before)
-    check(got == [] and not asked(), f"{engine}: a script's mailto: navigation opens nothing ({got})")
+    script_mail_prompt = wait_for(asked, f"{engine}: a scripted mailto: return asks before opening its app", 10)
+    if script_mail_prompt:
+        check(len(opens()) == before, f"{engine}: the scripted mailto: waits for consent")
+        prompts("cancel")
+        check(len(opens()) == before and not asked(), f"{engine}: cancelling the scripted mailto: opens nothing")
+
+    before = len(opens())
+    rpc("browser.page.navigate", {"tab": TAB, "url": url.replace("index.html", "redirect-mail")})
+    redirect_mail_prompt = wait_for(asked, f"{engine}: an HTTP mailto: redirect asks before opening its app", 10)
+    if redirect_mail_prompt:
+        check(len(opens()) == before, f"{engine}: the mailto: redirect waits for consent")
+        prompts("allowOnce")
+        wait_for(lambda: opens()[before:] == [MAIL],
+                 f"{engine}: Open delivers the redirected mailto: exactly once", 10)
 
     # Classic's browser fallback returns by HTTP redirect, without a gesture.
     # Record the app open so fixture tokens never reach a real sign-in attempt.
@@ -250,6 +264,10 @@ def serve():
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+            elif self.path == "/redirect-mail":
+                self.send_response(302)
+                self.send_header("Location", MAIL)
+                self.end_headers()
             elif self.path == "/redirect":
                 self.send_response(302)
                 self.send_header("Location", CALLBACK)
@@ -299,7 +317,7 @@ app = subprocess.Popen([BINARY], env={
     "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
     "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800", "CMUX_NEXT_TEST_RECORD_EXTERNAL_OPENS": "1"},
     stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-print(f"app pid {app.pid}, out {opts.out}", flush=True)
+safe_print(f"app pid {app.pid}, out {opts.out}", flush=True)
 try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 180)
     check("error" not in rpc("debug.browser.external_opens"), "the build records external opens")

@@ -36,6 +36,23 @@ Agent launcher (cx-hkat) reuses the same picker and rules.
    `bun tools/refresh-model-catalog-snapshot.ts` in web/ (the 2026-10-09 refresh added
    claude-haiku-5-5 and moved `haiku` to it).
 
+## A new model shows with no cmux release (Nov 9, Fable 5.2)
+
+Claude Code lists claude-fable-5-2 (from its account or gateway) the day it ships; cmux showed it
+only after a daemon restart. The rules now:
+
+- **Revalidate by age.** acpmux probes each CLI's live list at start, then again in the background
+  on any `_acpmux/models` read once the list is 15 minutes old (`hub/live_ages.rs`), one probe per
+  list. A changed list goes to open pickers as `_acpmux/harnesses_changed`. The pane re-reads the
+  catalog when it is a minute old (`HARNESS_CATALOG_STALE_MS`), so a new model shows within about
+  15 minutes of use, with no release and no restart.
+- **Newest per line leads; the rest fold.** When the harness's menu names older versions too (Claude
+  Code through a gateway lists Opus 4.8 to Opus 5.5), every picker (composer, quick menu, Retry)
+  keeps each line's newest on top and folds the rest under More models (`olderInMenu`). A release
+  the catalog has not seen takes the family of its id's line (claude-fable-5-2 joins Fable).
+- **Names are derived.** A live row's name is Claude Code's, without a leading `Claude ` vendor word
+  ("Claude Fable 5.2" from a gateway reads "Fable 5.2").
+
 ## Picker order and layout
 
 - Default first, then each family's newest models (every variant of the newest version, and any

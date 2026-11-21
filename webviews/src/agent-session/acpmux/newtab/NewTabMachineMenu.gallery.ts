@@ -60,7 +60,7 @@ export default agentPaneEntry({
       play: ready,
     },
     where: {
-      note: "Where open, signed in: This Mac, Cloud and Another machine; each row's highlight is inset evenly from both edges.",
+      note: "Where open, signed in: This Mac, Cloud and Remote; each row's highlight is inset evenly from both edges.",
       ready: newTab(),
       snapshot: noChat([], { listedSessions: true }),
       native: signedIn,

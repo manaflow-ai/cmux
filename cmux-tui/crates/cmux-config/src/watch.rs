@@ -1,13 +1,22 @@
 //! Kernel file events for cmux.json and the managed files (no polling).
 //!
 //! Editors save in place, by atomic rename, or by delete and recreate, so
-//! the watcher observes each file's directory, not the file. While a
+//! the watcher observes each file's directory for its entries, and the file
+//! that is at the name for its contents. While a
 //! directory does not exist it watches the nearest existing ancestor for
 //! the next missing directory and moves down as directories appear.
 //!
 //! Only content changes of the watched files count: a create, a delete, a
 //! rename, a close after a write and a metadata change of a watched name
-//! (or a missing directory on the way to one appearing or vanishing).
+//! (or a missing directory on the way to one appearing or vanishing). A
+//! watched name that is not a regular file (a folder, a socket, a FIFO, a
+//! device) has no watch of its own: it hints when it is made, removed or
+//! renamed. On Linux a metadata change of it, and a write through a watched
+//! FIFO or device with the close after it, give no hint, unless its
+//! directory has the close and metadata events for a file that got no
+//! watch (see `inotify.rs`). On macOS they give no event: a metadata change
+//! hints with the next change of an entry of its directory, and a write
+//! through a FIFO or device hints at most then.
 //! Opens, reads and read-only closes never count: the reload a hint
 //! triggers reads the watched file, and a watched ancestor such as /etc
 //! sees an open on every process start. Events that arrive within
@@ -15,10 +24,12 @@
 //! then reads the latest state (the owner's `reload` reports a change only
 //! when the effective settings changed).
 //!
-//! Linux uses inotify directly with masks that leave out opens and reads
-//! (`inotify.rs`), so the kernel queues nothing for unrelated opens. macOS
-//! uses kqueue vnode watches directly (`kqueue.rs`): a watch of each
-//! directory's entries and of each watched regular file. FSEvents is not
+//! Linux uses inotify directly (`inotify.rs`) and macOS kqueue vnode watches
+//! (`kqueue.rs`), both as a watch of each directory's entries and a watch of
+//! each watched regular file itself, so the kernel queues nothing for an
+//! open or a read, nor for a write to another entry of the directory; on
+//! Linux [`Watcher::start_with_writes`] adds the file's writes that its
+//! writer keeps open. FSEvents is not
 //! used there: it reports no Unix socket being bound (the daemon watches
 //! acpmux's socket with this), runs late under load, and reports every
 //! change below a directory. Other platforms use notify's recommended
@@ -67,7 +78,28 @@ impl Watcher {
         files: Vec<PathBuf>,
         on_hint: impl FnMut() + Send + 'static,
     ) -> notify::Result<Watcher> {
-        Ok(Watcher { _backend: backend::start(files, on_hint)? })
+        #[cfg(target_os = "linux")]
+        let backend = backend::start(files, false, on_hint)?;
+        #[cfg(not(target_os = "linux"))]
+        let backend = backend::start(files, on_hint)?;
+        Ok(Watcher { _backend: backend })
+    }
+
+    /// [`Watcher::start`], and also a hint for each burst of writes to a
+    /// watched file that its writer keeps open (a database's write-ahead
+    /// log, which is closed only when the program ends). macOS and the
+    /// portable backend see such writes either way; Linux adds IN_MODIFY to
+    /// each watched file's own watch, so writes to other entries of its
+    /// directory still queue nothing.
+    pub fn start_with_writes(
+        files: Vec<PathBuf>,
+        on_hint: impl FnMut() + Send + 'static,
+    ) -> notify::Result<Watcher> {
+        #[cfg(target_os = "linux")]
+        let backend = backend::start(files, true, on_hint)?;
+        #[cfg(not(target_os = "linux"))]
+        let backend = backend::start(files, on_hint)?;
+        Ok(Watcher { _backend: backend })
     }
 }
 

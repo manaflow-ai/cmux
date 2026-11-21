@@ -69,6 +69,12 @@ def answer(connection):
             result = {"error": os.environ["FAKE_SNAPSHOT_ERROR"]}
         elif method == "debug.fixture_page":
             result = {"ok": params.get("set") != "missing", "set": params.get("set")}
+        elif method == "debug.palette.capture" and params.get("path", "").endswith("-collect-blank.png"):
+            result = {"query": "api"}
+        elif method == "debug.palette.capture":
+            with open(params["path"], "wb") as image:
+                image.write(b"\x89PNG\r\n\x1a\n" + b"1" * 32)
+            result = {"path": params["path"], "query": "api"}
         elif method == "debug.window_snapshot":
             with open(params["path"], "wb") as image:
                 image.write(b"\x89PNG\r\n\x1a\n" + b"0" * 32)
@@ -419,7 +425,11 @@ class AppWindowCaptureTests(unittest.TestCase):
         self.tour.write_text(json.dumps({"title": "Demo", "env": {"CMUX_NEXT_BROWSER_IMPORT_HOME": "{repo}/fixtures/home"},
                                          "steps": [{"title": "Launch"}]}), encoding="utf-8")
         self.assertEqual(tour.load_tour(self.tour)["env"], {"CMUX_NEXT_BROWSER_IMPORT_HOME": f"{ROOT}/fixtures/home"})
-        for env in ({"PATH": "/x"}, {"CMUX_NEXT_X": 1}, ["CMUX_NEXT_X"]):
+        # A fixture store the app's terminals see too; {workdir} is filled in at run time.
+        self.tour.write_text(json.dumps({"title": "Demo", "env": {"CMUX_AUTOMATIONS_DIR": "{workdir}/automations"},
+                                         "steps": [{"title": "Launch"}]}), encoding="utf-8")
+        self.assertEqual(tour.load_tour(self.tour)["env"], {"CMUX_AUTOMATIONS_DIR": "{workdir}/automations"})
+        for env in ({"PATH": "/x"}, {"CMUX_NEXT_X": 1}, ["CMUX_NEXT_X"], {"CMUX_SOCKET_PATH": "/x"}):
             with self.subTest(env=env):
                 self.tour.write_text(json.dumps({"title": "Demo", "env": env, "steps": [{"title": "Launch"}]}), encoding="utf-8")
                 with self.assertRaisesRegex(tour.TourError, "`env` maps"):
@@ -507,6 +517,50 @@ class AppWindowCaptureTests(unittest.TestCase):
         step = manifest["steps"][1]
         self.assertEqual(step["status"], "failed", step)
         self.assertIn("ok: false", step["detail"])
+
+    def test_a_collect_step_keeps_the_image_its_rpc_writes(self) -> None:
+        capture = {"method": "debug.palette.capture", "params": {"path": "{collect}"}}
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Launch", "wait": 1.2},
+            {"title": "Palette", "rpc": capture, "collect": "sidebar-order.png", "wait": 0},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        step = manifest["steps"][1]
+        self.assertEqual(step["status"], "ok", step)
+        self.assertIn({"kind": "collected", "shot": "shots/02-collect-sidebar-order.png"}, step["windows"])
+        self.assertTrue((self.root / "out/demo/shots/02-collect-sidebar-order.png").is_file())
+        requests = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+        sent = [r["params"]["path"] for r in requests if r["method"] == "debug.palette.capture"]
+        self.assertEqual(sent, [str(self.root / "out/demo/shots/02-collect-sidebar-order.png")])
+
+    def test_a_collect_step_whose_rpc_writes_nothing_fails(self) -> None:
+        capture = {"method": "debug.palette.capture", "params": {"path": "{collect}"}}
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Launch", "wait": 1.2},
+            {"title": "Palette", "rpc": capture, "collect": "blank.png", "wait": 0},
+        ]}), encoding="utf-8")
+        _, manifest = self.run_tour()
+        step = manifest["steps"][1]
+        self.assertEqual(step["status"], "failed", step)
+        self.assertIn("wrote no image", step["detail"])
+
+    def test_collect_needs_a_file_name_and_an_rpc_that_names_it(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        capture = {"method": "debug.palette.capture", "params": {"path": "{collect}"}}
+        for step, message in (
+            ({"collect": "../x.png", "rpc": capture}, "lowercase file name"),
+            ({"collect": "Shot.PNG", "rpc": capture}, "lowercase file name"),
+            ({"collect": "x.png"}, "needs an `rpc`"),
+            ({"collect": "x.png", "rpc": {"method": "debug.palette.capture", "params": {"path": "/tmp/x.png"}}},
+             "needs an `rpc`"),
+        ):
+            with self.subTest(step=step):
+                self.tour.write_text(json.dumps({"title": "Demo", "steps": [{"title": "Bad", **step}]}),
+                                     encoding="utf-8")
+                with self.assertRaisesRegex(tour.TourError, message):
+                    tour.load_tour(self.tour)
 
 
 # The app with a floating panel open: `debug.window_list` names its windows,
@@ -984,9 +1038,63 @@ class CustomizeTemplatesTourTests(unittest.TestCase):
                     for folder in templates.iterdir() if folder.is_dir() for file in ("cmux-app.json", "main.js")}
         probe = ROOT / "scripts/cmux-next/media/fixtures/customize-reload-latency.py"
         expected[probe.name] = probe.read_text(encoding="utf-8")
-        self.assertEqual(sorted(written), sorted(expected))
+        sync = "run scripts/cmux-next/media/tours/sync_customize_templates.py"
+        self.assertEqual(sorted(written), sorted(expected), f"the tour and the template folders differ: {sync}")
         for key, text in expected.items():
-            self.assertEqual(written[key], text, f"{key}: regenerate the tour's payload from the file")
+            self.assertEqual(written[key], text, f"{key}: the tour types a stale copy: {sync}")
+        self.assertTrue(all(text.endswith("\r") for text in texts if "echo saved " in text),
+                        f"every template step presses Return after typing: {sync}")
+
+
+class ConsoleUser(unittest.TestCase):
+    """The session hops only to the user on the display (IOConsoleUsers kCGSSessionOnConsoleKey), never to
+    /dev/console's owner, which names the last Screen Sharing login (cmuxci-gui-03 on the GUI minis since
+    2026-11-18): that hop needed sudo and failed every What's New clip at launch."""
+
+    def setUp(self) -> None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("tour_console_test", SCRIPT)
+        self.tour = importlib.util.module_from_spec(spec)
+        sys.path.insert(0, str(SCRIPT.parent))
+        self.addCleanup(sys.path.remove, str(SCRIPT.parent))
+        spec.loader.exec_module(self.tour)
+
+    def session(self, console_users: list[dict] | None) -> object:
+        def run(argv, **kwargs):
+            if argv[0] == "ioreg":
+                if console_users is None:
+                    raise FileNotFoundError("ioreg")
+                return subprocess.CompletedProcess(argv, 0, plistlib.dumps({"IOConsoleUsers": console_users}), b"")
+            if argv[0] == "stat":
+                return subprocess.CompletedProcess(argv, 0, "cmuxci-gui-03\n", "")
+            if argv[0] == "id":
+                return subprocess.CompletedProcess(argv, 0, "5103\n", "")
+            raise AssertionError(f"unexpected command {argv}")
+        with mock.patch.object(self.tour.subprocess, "run", side_effect=run), \
+                mock.patch.object(self.tour.getpass, "getuser", return_value="cmux"):
+            return self.tour.Session()
+
+    def test_the_runner_on_the_display_needs_no_hop(self) -> None:
+        session = self.session([
+            {"kCGSSessionUserNameKey": "cmuxci-gui-01", "kCGSSessionUserIDKey": 5101, "kCGSSessionOnConsoleKey": False},
+            {"kCGSSessionUserNameKey": "cmux", "kCGSSessionUserIDKey": 501, "kCGSSessionOnConsoleKey": True},
+            {"kCGSSessionUserNameKey": "cmuxci-gui-03", "kCGSSessionUserIDKey": 5103, "kCGSSessionOnConsoleKey": False},
+        ])
+        self.assertEqual(session.prefix, [])
+        self.assertEqual(session.user, "cmux")
+
+    def test_another_user_on_the_display_is_reached_by_its_uid(self) -> None:
+        session = self.session([
+            {"kCGSSessionUserNameKey": "cmux", "kCGSSessionUserIDKey": 501, "kCGSSessionOnConsoleKey": False},
+            {"kCGSSessionUserNameKey": "desk", "kCGSSessionUserIDKey": 502, "kCGSSessionOnConsoleKey": True},
+        ])
+        self.assertEqual(session.prefix, ["sudo", "-n", "launchctl", "asuser", "502", "sudo", "-n", "-H", "-u", "desk"])
+        self.assertEqual(session.user, "desk")
+
+    def test_without_the_registry_it_reads_dev_console_as_before(self) -> None:
+        session = self.session(None)
+        self.assertEqual(session.prefix[:5], ["sudo", "-n", "launchctl", "asuser", "5103"])
+        self.assertEqual(session.user, "cmuxci-gui-03")
 
 
 if __name__ == "__main__":

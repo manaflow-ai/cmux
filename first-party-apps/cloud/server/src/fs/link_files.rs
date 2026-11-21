@@ -11,10 +11,11 @@
 //! so the ops light up with no Cloud change when the daemon ships them.
 
 use super::Cancel;
+use crate::api::models::ConnectFacts as _;
 use crate::api::{CloudError, ControlPlane, codes};
-use crate::link::carrier::{Children, Dialed, end_all, end_child, open_dial};
-use crate::link::dial::dial_args;
+use crate::link::carrier::{Streams, end_all, end_stream, open_upstream};
 use crate::ops::Server;
+use cmux_cloud_wire::CloudMachineStatus;
 use serde_json::{Map, Value, json};
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::path::PathBuf;
@@ -32,6 +33,17 @@ pub const DAEMON_OP_TIMEOUT: Duration = Duration::from_secs(30);
 /// The largest daemon answer line (a 16 MiB read in base64, plus framing).
 const MAX_ANSWER_BYTES: u64 = 24 * 1024 * 1024;
 
+/// What goes out first on each carrier stream: a daemon `ping`, whose answer
+/// shows the carrier's dial is up. `carrier serve` holds what its client
+/// writes while it still dials and forwards it once connected, even after
+/// the client shut the stream down (a deadline, a cancel), so the op's own
+/// line goes out only after this answer: an op cancelled while the carrier
+/// dials never reaches the daemon.
+const DIAL_PROBE: &[u8] = b"{\"id\":0,\"cmd\":\"ping\"}\n";
+
+/// The largest probe answer line.
+const MAX_PROBE_BYTES: u64 = 64 * 1024;
+
 /// The link ended after the request went out and before the daemon's whole
 /// answer line (EOF, a read error or the deadline): the op may have acted.
 /// Retryable only for a read; an `fs.write` reconciles with `fs.stat`
@@ -45,21 +57,18 @@ fn answer_lost(op: &str, why: impl Into<String>) -> CloudError {
     CloudError { retryable: READ_OPS.contains(&op), ..CloudError::new(ANSWER_LOST, why) }
 }
 
-/// Where one daemon op goes: the `cmux` binary that dials, the machine's
-/// overlay host id, and the dial child's whole environment. No credential.
+/// Where one daemon op goes: the Mac app's carrier socket of the machine
+/// (crate::link::dial); each connection to it is one carrier dial. No
+/// credential.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DialTarget {
-    pub binary: PathBuf,
-    pub host: String,
-    /// The live `cmux link` socket the host reported (`hub_socket`).
     pub socket: PathBuf,
-    pub env: Vec<(String, String)>,
 }
 
 /// Sends one daemon `fs.*` op and returns its `data`. The real one dials;
 /// tests use a fake.
 pub trait DaemonFiles: Send + Sync {
-    /// `cancel` ends the op (its dial child) from another thread.
+    /// `cancel` ends the op (its carrier stream) from another thread.
     fn call(
         &self,
         target: &DialTarget,
@@ -69,8 +78,8 @@ pub trait DaemonFiles: Send + Sync {
     ) -> Result<Value, CloudError>;
 }
 
-/// The real [`DaemonFiles`]: one `cmux link dial --host <host_…>` per op,
-/// one v12 request line, one answer line.
+/// The real [`DaemonFiles`]: one connection to the app's carrier socket per
+/// op, one v12 request line, one answer line.
 pub struct LinkDaemonFiles;
 
 fn unavailable(why: impl Into<String>) -> CloudError {
@@ -92,29 +101,29 @@ impl DaemonFiles for LinkDaemonFiles {
         request.insert("id".into(), json!(1));
         request.insert("cmd".into(), json!(op));
         let line = format!("{}\n", Value::Object(request));
-        // The whole op (spawn, reply line, request, answer) runs on a worker
-        // under one deadline: the op loop is single-threaded, and a link or
-        // daemon that hangs at any step must not hold it. On the deadline
-        // the dial child (ours, by its handle) is ended, which ends the
-        // worker's read or write.
-        let children: Children = Arc::default();
+        // The whole op (connect, request, answer) runs on a worker under one
+        // deadline: the op loop is single-threaded, and a carrier or daemon
+        // that hangs at any step must not hold it. On the deadline the
+        // stream (ours, by its handle) is shut down, which ends the worker's
+        // read or write.
+        let streams: Streams = Arc::default();
         // Set once the whole request line went out: from then on a missing
         // answer may hide an op that acted.
         let sent = Arc::new(AtomicBool::new(false));
         let (sender, receiver) = mpsc::channel();
         let worker = {
             let (target, op) = (target.clone(), op.to_owned());
-            let children = Arc::clone(&children);
+            let streams = Arc::clone(&streams);
             let sent = Arc::clone(&sent);
             std::thread::Builder::new()
                 .name("cmux-cloud-fs".into())
                 .spawn(move || {
-                    let _ = sender.send(exchange(&target, &op, &line, &children, &sent));
+                    let _ = sender.send(exchange(&target, &op, &line, &streams, &sent));
                 })
                 .map_err(|e| unavailable(format!("no worker for the daemon op: {e}")))?
         };
-        // A cancel ends the dial child (ours) at any step, like the deadline.
-        let on_cancel = Arc::clone(&children);
+        // A cancel ends the stream (ours) at any step, like the deadline.
+        let on_cancel = Arc::clone(&streams);
         cancel.on_cancel(move || end_all(&on_cancel));
         let answer = match receiver.recv_timeout(DAEMON_OP_TIMEOUT) {
             Ok(answer) => answer,
@@ -130,39 +139,56 @@ impl DaemonFiles for LinkDaemonFiles {
                 })
             }
         };
-        end_all(&children);
+        end_all(&streams);
         drop(worker);
         decode_answer(op, &answer?)
     }
 }
 
-/// One dial, one request line, one answer line (on the worker).
+/// One carrier stream, one request line, one answer line (on the worker).
+/// A dial the app's carrier refuses closes the stream having written
+/// nothing: that reads as a lost answer.
 fn exchange(
     target: &DialTarget,
     op: &str,
     line: &str,
-    children: &Children,
+    streams: &Streams,
     sent: &AtomicBool,
 ) -> Result<Vec<u8>, CloudError> {
-    let Dialed { child, mut stdin, stdout } =
-        open_dial(&target.binary, &dial_args(&target.host, &target.socket), &target.env, children)
-            .map_err(|refusal| {
-                unavailable(format!(
-                    "cmux link refused: {}{}",
-                    refusal.code.as_str(),
-                    refusal.detail.map(|d| format!(" ({d})")).unwrap_or_default()
-                ))
-            })?;
-    let written = stdin.write_all(line.as_bytes()).and_then(|()| stdin.flush());
-    drop(stdin);
-    written.map_err(|e| unavailable(format!("the daemon link closed: {e}")))?;
+    let (stream, key) = open_upstream(&target.socket, streams).map_err(|refusal| {
+        unavailable(format!(
+            "the carrier refused: {}{}",
+            refusal.code.as_str(),
+            refusal.detail.map(|d| format!(" ({d})")).unwrap_or_default()
+        ))
+    })?;
+    // One reader for the probe's answer and the op's: nothing is lost
+    // between them.
+    let mut reader = BufReader::new(&stream);
+    let mut probe = Vec::new();
+    let probed = (&stream)
+        .write_all(DIAL_PROBE)
+        .and_then(|()| (&stream).flush())
+        .and_then(|()| reader.by_ref().take(MAX_PROBE_BYTES).read_until(b'\n', &mut probe));
+    if probed.is_err() || probe.last() != Some(&b'\n') {
+        // The dial never came up (refused, gone, the deadline, a cancel):
+        // only the probe went out.
+        end_stream(&stream, key, streams);
+        let why = probed.err().map(|e| format!(": {e}")).unwrap_or_default();
+        return Err(unavailable(format!("the carrier's dial did not come up{why}")));
+    }
+    // The write side stays open until the answer: the carrier ends the
+    // remote stream when its client half-closes, and the reply is lost.
+    let written = (&stream).write_all(line.as_bytes()).and_then(|()| (&stream).flush());
+    if let Err(e) = written {
+        end_stream(&stream, key, streams);
+        return Err(unavailable(format!("the daemon link closed: {e}")));
+    }
     sent.store(true, Ordering::Release);
     let mut answer = Vec::new();
-    BufReader::new(stdout)
-        .take(MAX_ANSWER_BYTES)
-        .read_until(b'\n', &mut answer)
-        .map_err(|e| answer_lost(op, format!("the daemon link closed before the answer: {e}")))?;
-    end_child(&child, children);
+    let read = reader.take(MAX_ANSWER_BYTES).read_until(b'\n', &mut answer);
+    end_stream(&stream, key, streams);
+    read.map_err(|e| answer_lost(op, format!("the daemon link closed before the answer: {e}")))?;
     // EOF before the whole line (a line at the size bound is a bad answer).
     if answer.last() != Some(&b'\n') && (answer.len() as u64) < MAX_ANSWER_BYTES {
         return Err(answer_lost(op, "the daemon link closed before the answer"));
@@ -307,13 +333,13 @@ pub(crate) fn target<C: ControlPlane>(
     machine: &str,
 ) -> Result<DialTarget, CloudError> {
     let info = crate::link::info::connect_info(server, machine)?;
-    if !info.daemon.has_capability(FS_CAPABILITY) {
+    if !info.daemon_has_capability(FS_CAPABILITY) {
         return Err(CloudError::new(
             codes::UNSUPPORTED,
             format!("The machine's cmux daemon has no file ops yet (needs {FS_CAPABILITY})"),
         ));
     }
-    if info.state == crate::api::models::MachineStatus::Paused {
+    if info.state == CloudMachineStatus::Paused {
         return Err(CloudError::new(
             codes::MACHINE_PAUSED,
             "The machine is paused: start it to use its files",
@@ -325,15 +351,8 @@ pub(crate) fn target<C: ControlPlane>(
             "This Mac may not reach the machine's cmux daemon (team policy)",
         ));
     }
-    let paths = server.link_paths()?;
-    let (binary, socket) = (paths.binary, paths.hub_socket);
-    let env = server.attach().env().child_env().map_err(|e| {
-        CloudError::new(
-            crate::link::ops::LINK_UNAVAILABLE,
-            format!("no private home for the link: {e}"),
-        )
-    })?;
-    Ok(DialTarget { binary, host: info.host, socket, env })
+    let socket = crate::link::ops::carrier_socket(server, machine)?;
+    Ok(DialTarget { socket })
 }
 
 /// One file op's way to the machine's daemon: the dial target, the daemon

@@ -26,6 +26,7 @@ mod pointer;
 mod selection;
 mod viewport;
 
+mod daemon_reconnect;
 mod frame_geometry;
 mod machine_worker;
 mod run;
@@ -42,6 +43,7 @@ mod sidebar_rails;
 mod deferred_replay;
 mod dispatch;
 mod event_loop;
+mod idle_wait;
 mod pointer_frame;
 mod presentation;
 mod session_apply;
@@ -67,8 +69,10 @@ mod pane_ops;
 mod sidebar_keys;
 
 mod actions;
+mod attention_jump;
 mod browser_ops;
 mod focus_nav;
+mod host_notify_ops;
 mod menu_activate;
 mod prompt_keys;
 
@@ -76,11 +80,13 @@ mod key_forward;
 mod mouse_dispatch;
 mod pty_mouse;
 mod pty_write;
+pub(crate) mod synchronized_output;
 mod tab_moves;
 mod workspace_pins;
 pub(crate) use workspace_pins::{WorkspaceDropGeometry, WorkspaceDropSlot};
 
 mod clipboard;
+pub(crate) mod copy_mode;
 mod left_down;
 mod left_drag;
 mod pointer_hover;
@@ -133,6 +139,8 @@ use self::clear_history::{
     localized_clear_history_failure, should_claim_clear_history_shortcut,
 };
 use self::client_view::{client_focus_identity, preserve_client_view};
+use self::daemon_reconnect::DaemonReconnect;
+pub(crate) use self::daemon_reconnect::SessionReconnector;
 use self::events::{
     AppEvent, OwnerReloadWorker, SessionEventSender, SessionEventWorker, SessionTrySendError,
 };
@@ -360,6 +368,8 @@ pub struct App {
     machine_deleted_rail_index: Option<usize>,
     machine_provider_reconnect_attempts: u8,
     machine_provider_reconnect_retry_at: Option<Instant>,
+    /// Reconnecting a plain session client after its daemon was replaced.
+    daemon_reconnect: DaemonReconnect,
     pending_machine_replacement: Option<PendingMachineReplacement>,
     machine_update_pump: Option<MachineUpdatePump>,
     machine_update_generation: u64,
@@ -377,6 +387,8 @@ pub struct App {
     pub tree: TreeView,
     tab_locations: HashMap<SurfaceId, [usize; 4]>,
     pub render_states: HashMap<SurfaceId, RenderState>,
+    /// Each drawn terminal's last frame, held while a synchronized update runs.
+    pub(crate) synchronized_output: synchronized_output::SynchronizedOutput,
     pub(crate) chrome_row_scratch: ReusableRowBuffer,
     /// Reusable storage for the ordered sidebar kind snapshot taken during a
     /// frame. The draw loop takes this out while dispatching so mutable rail
@@ -444,6 +456,7 @@ pub struct App {
     pending_size_releases: HashSet<SurfaceId>,
     geometry_authority_surface: Option<SurfaceId>,
     pub prefix_armed: bool,
+    pub(crate) copy_mode: Option<copy_mode::CopyModeSession>,
     pub session_label: String,
     /// Machine-level model spend readout from the session's daemon; `None`
     /// hides the sidebar readout.
@@ -472,6 +485,13 @@ pub struct App {
     pub(crate) tabs_footer_scroll: usize,
     projection_rails: HashMap<String, ProjectionRailState>,
     projection_order_cache: AgentOrderCache,
+    /// Agent status for the default sidebar and tab chips, rebuilt with
+    /// the tree on each layout frame (`sync_layout`), read on every frame.
+    pub(crate) sidebar_status: crate::sidebar_status::SidebarStatus,
+    /// The agents section's scroll offset in rows.
+    pub(crate) agent_section_scroll: usize,
+    /// The done tab this client last acknowledged as viewed.
+    pub(crate) done_tab_ack_sent: Option<SurfaceId>,
     pub(crate) machine_rail_follow_selection: bool,
     pub(crate) workspace_rail_follow_selection: bool,
     pub(crate) tabs_rail_follow_selection: bool,
@@ -516,6 +536,11 @@ pub struct App {
     pub shortcut_help: Option<ShortcutHelp>,
     pub omnibar: Option<OmnibarState>,
     pub toast: Option<Toast>,
+    /// Host terminal notification forwarding (`host_notify.rs`).
+    pub(crate) host_notify: crate::host_notify::HostNotifyGate,
+    /// The host terminal window has focus: false after a focus-out report,
+    /// true again after focus-in (and before any report).
+    pub(crate) host_focused: bool,
     pub(crate) shake_frames: u8,
     pub selection: Option<Selection>,
     selection_generation: u64,
@@ -699,6 +724,13 @@ impl App {
             }
             event => event,
         };
+        if let AppEvent::NormalizedInput(input) = &event
+            && self.drops_input_while_reconnecting(input)
+        {
+            // Nothing can receive it until the replacement daemon is attached;
+            // a key cleared the status line, so say "reconnecting" again.
+            return Ok(self.show_reconnecting());
+        }
         if let AppEvent::NormalizedInput(input) = &event
             && input.is_keyboard_or_paste()
         {

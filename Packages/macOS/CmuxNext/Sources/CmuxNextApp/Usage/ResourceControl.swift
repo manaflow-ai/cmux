@@ -1,5 +1,6 @@
 import CmuxNextBrowser
 import CmuxNextControl
+import class CmuxNextDaemon.WorkspaceModel
 import CmuxNextSettings
 import CmuxNextResources
 import CmuxNextWakeups
@@ -31,7 +32,7 @@ enum ResourceControl {
     @MainActor
     private static func target(_ params: [String: JSONValue], services: AppServices) throws -> ResourceTarget {
         if let raw = params["tab"]?.stringValue {
-            let tab = normalizedTabID(raw)
+            let tab = normalizedControlTabID(raw)
             guard services.locateTabOnAnyMachine(tab) != nil else { throw ControlError(code: "not_found", message: RefusalStrings.noTab(tab)) }
             return .tab(tab)
         }
@@ -46,14 +47,6 @@ enum ResourceControl {
             throw ControlError(code: "not_found", message: RefusalStrings.noWindowShowsWorkspace)
         }
         return .workspace(id)
-    }
-
-    /// A tab id (`tab_…`), or the surface UUID the cmux CLI prints (the
-    /// same 32 hex digits, with dashes).
-    static func normalizedTabID(_ raw: String) -> String {
-        let hex = raw.replacingOccurrences(of: "-", with: "").lowercased()
-        guard !raw.hasPrefix("tab_"), hex.count == 32, hex.allSatisfy(\.isHexDigit) else { return raw }
-        return "tab_" + hex
     }
 
     /// One wait for the second sample: a one-shot deadline, not a sleep.
@@ -141,12 +134,28 @@ extension ResourceControl {
 
     @MainActor // browser tabs by browser id, agent tabs by the browser showing their page
     private static func rendererOwners(_ services: AppServices) -> [Int32: CEFRendererOwner] {
-        let browsers = services.cache.browsers.compactMap { key, entry in (entry.tab as? CEFTab)?.browserID.map { ($0, key, "browser") } }
-        let agents = (services.madeAgentTabs?.views ?? [:]).compactMap { key, view in services.cache.cef.browserID(showing: view.focusTarget).map { ($0, key, "agent") } }
-        return Dictionary((browsers + agents).map { browser, key, kind in
+        struct Source {
+            let browser: Int32
+            let key: String
+            let kind: String
+            let scoped: AgentTabKey?
+        }
+        let browsers = services.cache.browsers.compactMap { key, entry in (entry.tab as? CEFTab)?.browserID.map { Source(browser: $0, key: key, kind: "browser", scoped: nil) } }
+        let agents = services.madeAgentTabs?.views.entries.compactMap { entry in
+            services.cache.cef.browserID(showing: entry.value.focusTarget).map { Source(browser: $0, key: entry.key.key, kind: "agent", scoped: entry.key) }
+        } ?? []
+        return Dictionary((browsers + agents).map { source in
+            let browser = source.browser, key = source.key, kind = source.kind
             var owner = CEFRendererOwner(kind: kind, tab: key)
-            if let (tab, pane) = services.locateTab(key) {
-                let found = services.machines.daemons.lazy.compactMap { daemon in daemon.store.workspace(holdingTab: tab.id).map { (daemon.machineID, $0) } }.first
+            let located = if let scoped = source.scoped { services.locateTab(scoped.key, onMachine: scoped.machine) } else { services.locateTab(key) }
+            if let (tab, pane) = located {
+                let found: (String, WorkspaceModel)?
+                if let scoped = source.scoped,
+                   let daemon = services.machines.daemons.first(where: { $0.machineID == scoped.machine }) {
+                    found = daemon.store.workspace(holdingTab: tab.id).map { (daemon.machineID, $0) }
+                } else {
+                    found = services.machines.daemons.lazy.compactMap { daemon in daemon.store.workspace(holdingTab: tab.id).map { (daemon.machineID, $0) } }.first
+                }
                 (owner.tab, owner.tabTitle, owner.pane, owner.session) = (tab.id, tab.displayTitle, pane.id, tab.agentSession?.session)
                 (owner.workspace, owner.workspaceTitle, owner.machine) = (found?.1.id, found?.1.displayName, found?.0)
             }
@@ -154,3 +163,4 @@ extension ResourceControl {
         }, uniquingKeysWith: { $1 })
     }
 }
+import CmuxNextTabs

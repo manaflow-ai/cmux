@@ -71,12 +71,6 @@
          location = "group:CmuxSentryTelemetry">
       </FileRef>
       <FileRef
-         location = "group:CmuxSyncStore">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxTerminalClient">
-      </FileRef>
-      <FileRef
          location = "group:CmuxTerminalSizing">
       </FileRef>
       <FileRef
@@ -129,9 +123,6 @@
    <Group
       location = "container:Packages/macOS"
       name = "Packages (macOS)">
-      <FileRef
-         location = "group:CmuxComputerUseHelper">
-      </FileRef>
       <FileRef
          location = "group:CmuxNext">
       </FileRef>

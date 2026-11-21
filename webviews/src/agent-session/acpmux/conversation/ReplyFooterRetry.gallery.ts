@@ -1,10 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample prompts and replies), not shipped UI.
-// Retry, with its model switch, on the last turn's reply footer (TurnRows.tsx TurnFooter). Leo,
-// 2026-11-04: "Retry on the reply (small to medium). Today Retry is on your prompt bubble, and appears
-// on the reply only after a failure. Put it, with the model switch, in the last turn's footer." and
-// "yeah but the big point is ofc the styling and theming and spacing too". Retry and its chevron are
-// one split control right after Copy, Claude's and ChatGPT's place for it; an earlier turn's footer
-// and every prompt bubble draw none. A failed last turn keeps its card (#34588) and the same control.
+// Successful replies place Send prompt again and its model choices in More. Failed and stopped
+// turns retain their inline recovery controls.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
@@ -35,12 +31,12 @@ export default agentPaneEntry({
   keywords: ["retry", "regenerate", "model", "switch model", "footer", "copy"],
   variants: {
     "last-turn": {
-      note: "The last reply's footer at rest: Copy, then Retry and its model chevron as one control, then Fork, Pin, Read aloud and More. The earlier turn's footer and both prompts have no Retry.",
+      note: "The successful reply footer keeps Copy, Fork, Pin, Read aloud and More. Send prompt again and its model choices are in More; no inline Retry split control.",
       snapshot: chat(twoTurns()),
     },
     "model-menu": {
-      note: "The chevron opens the model menu; Retry's pill stays lit while it is open.",
-      snapshot: chat(twoTurns()),
+      note: "A failed reply retains its inline recovery model menu; the successful reply uses More.",
+      snapshot: chat(twoTurns({ status: "failed", error: "Overloaded" })),
       play: openModels,
     },
     failed: {

@@ -13,7 +13,7 @@ pub static ACTIONS: &[Action] = &[
         id: "tab.moveToNewSplit",
         group: GROUP,
         title: t("LayoutActions", "action.tab.moveToNewSplit", "Move Tab to New Split"),
-        keywords: &["tab", "split", "pane"],
+        keywords: &["tab", "split", "pane", "send", "right", "down", "left", "up", "side by side"],
         category: "tab",
         symbol: "rectangle.split.2x1",
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("tab", "move", 404).folder("move")], ..SurfacePlan::DEFAULT },
@@ -26,7 +26,7 @@ pub static ACTIONS: &[Action] = &[
         id: "tab.moveToNewColumn",
         group: GROUP,
         title: t("LayoutActions", "action.tab.moveToNewColumn", "Move Tab to New Column"),
-        keywords: &["tab", "column"],
+        keywords: &["tab", "column", "send", "scroll"],
         category: "tab",
         symbol: "rectangle.split.3x1",
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("tab", "move", 405).folder("move")], ..SurfacePlan::DEFAULT },
@@ -38,7 +38,7 @@ pub static ACTIONS: &[Action] = &[
         id: "tab.moveToWorkspace",
         group: GROUP,
         title: t("LayoutActions", "action.tab.moveToWorkspace", "Move Tab to Workspace…"),
-        keywords: &["tab", "workspace"],
+        keywords: &["tab", "workspace", "send", "other", "another"],
         category: "tab",
         symbol: "arrow.right.circle",
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("tab", "move", 413).folder("move")], ..SurfacePlan::DEFAULT },
@@ -64,12 +64,38 @@ pub static ACTIONS: &[Action] = &[
         id: "tab.moveToNewWindow",
         group: GROUP,
         title: t("LayoutActions", "action.tab.moveToNewWindow", "Move Tab to New Window"),
-        keywords: &["tab", "window", "detach"],
+        keywords: &["tab", "window", "detach", "pop out", "tear off", "send"],
         category: "tab",
         symbol: "macwindow.badge.plus",
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("tab", "move", 407).folder("move")], ..SurfacePlan::DEFAULT },
         targets: &["tab"],
         cli_name: "tab move-to-new-window",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "tab.moveToWindow",
+        group: GROUP,
+        title: t("LayoutActions", "action.tab.moveToWindow", "Move Tab to Window…"),
+        keywords: &["tab", "window", "other", "another", "send"],
+        category: "tab",
+        symbol: "macwindow.and.cursorarrow",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::WINDOW],
+        targets: &["tab"],
+        cli_name: "tab move-to-window",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "tab.duplicateToNewSplit",
+        group: GROUP,
+        title: t("LayoutActions", "action.tab.duplicateToNewSplit", "Duplicate Tab to New Split"),
+        keywords: &["tab", "copy", "clone", "split", "pane", "side by side"],
+        category: "tab",
+        symbol: "plus.square.on.square",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::DIRECTION.optional()],
+        targets: &["tab"],
+        cli_name: "tab duplicate-to-new-split",
         ..Action::DEFAULT
     },
     Action {
@@ -598,6 +624,36 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         targets: &["window"],
         cli_name: "home open-chief-dock",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "home.undockChief",
+        group: GROUP,
+        title: t("LayoutActions", "action.home.undockChief", "Undock Chief"),
+        keywords: &["chief", "dock", "undock", "unpin", "float", "panel", "window", "home", "chat", "side", "left"],
+        category: "window",
+        symbol: "sidebar.left",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        targets: &["window"],
+        cli_name: "home undock-chief",
+        ..Action::DEFAULT
+    },
+    // Show/Hide Chief's system-wide key, its own action so it has its own recorder in Settings > Keyboard
+    // Shortcuts. Show/Hide Chief is the palette row and the CLI verb; only a person presses it, since it pulls
+    // cmux in front of the person's app.
+    Action {
+        id: "home.showHideChiefFromAnyApp",
+        group: GROUP,
+        title: t("LayoutActions", "action.home.showHideChiefFromAnyApp", "Show/Hide Chief from Any App"),
+        keywords: &["chief", "float", "panel", "show", "hide", "toggle", "global", "hotkey", "hot key", "any app", "summon"],
+        default_shortcut: Some(Shortcut { key: " ", modifiers: OPT | SHIFT }),
+        category: "window",
+        symbol: "bubble.left",
+        surfaces: KEYBOARD,
+        surface_plan: SurfacePlan { palette: Decision::Exempt("familyMember"), cli: Some(Decision::Exempt("familyMember")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action home-show-hide-chief-from-any-app",
+        is_global_hot_key: true,
+        is_person_only: true,
         ..Action::DEFAULT
     },
     Action {

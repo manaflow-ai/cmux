@@ -31,10 +31,11 @@ import Testing
 
     @Test func withoutRoomThePlusTakesTheTrailingSlotAlone() {
         let sidebar = sidebar()
-        sidebar.titlebarLeadingReserve = sidebar.bounds.width - Metrics.space3 - SidebarStyle.toolbarButtonSize
+        sidebar.titlebarLeadingReserve = sidebar.bounds.width - SidebarStyle.titlebarPlusTrailingInset - SidebarStyle.toolbarButtonSize
         sidebar.layoutSubtreeIfNeeded()
         #expect(sidebar.newWorkspaceOptionsButton.isHidden)
-        #expect(sidebar.newButton.frame.maxX == sidebar.bounds.width - Metrics.space3)
+        // Alone, the + centers on the trailing column, the rows' marks' and Search's x (Leo 2026-11-07).
+        #expect(abs(sidebar.newButton.frame.midX - SidebarStyle.trailingColumnCenterX(sidebarWidth: sidebar.bounds.width)) <= 0.5)
         #expect(sidebar.newButton.frame.minX >= sidebar.titlebarLeadingReserve)
     }
 }

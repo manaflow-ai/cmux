@@ -122,6 +122,21 @@ export interface NativePopupRow {
   monogram?: string;
 }
 
+/**
+ * One column of a popup laid out as columns (the model picker's harness rail, its models, then the
+ * shown model's effort and Fast), side by side under the search row; each scrolls on its own.
+ */
+export interface NativePopupColumn {
+  id: string;
+  /** The column's accessible name. */
+  label: string;
+  /** Points wide; absent on the last column, which takes what is left of the popup's width. */
+  width?: number;
+  /** The rows draw as a narrow rail of marks (`mark`, `monogram` or `icon`), the checked one lit. */
+  rail?: boolean;
+  rows: NativePopupRow[];
+}
+
 export interface NativePopupModel {
   schemaVersion: 1;
   id: string;
@@ -139,6 +154,32 @@ export interface NativePopupModel {
   railWidth?: number;
   railPlacement?: NativePopupRailPlacement;
   footer?: NativePopupRow[];
+  /** Columns side by side under the search row (and under `rows`, which span the popup). Not with a rail. */
+  columns?: NativePopupColumn[];
+  /** The columns' band is at most this tall; a longer column scrolls. */
+  columnsHeight?: number;
+  /**
+   * A control at the search row's leading edge, drawn as its mark (the picker's account avatar):
+   * a `submenu` whose children open beside the popup, or an `action`. Needs `search`.
+   */
+  searchAccessory?: NativePopupRow;
+}
+
+/** Every top-level row a popup draws, in order: rail, search accessory, rows, columns, footer. */
+export function nativePopupRows(model: {
+  rail?: NativePopupRow[];
+  searchAccessory?: NativePopupRow;
+  rows: NativePopupRow[];
+  columns?: NativePopupColumn[];
+  footer?: NativePopupRow[];
+}): NativePopupRow[] {
+  return [
+    ...(model.rail ?? []),
+    ...(model.searchAccessory ? [model.searchAccessory] : []),
+    ...model.rows,
+    ...(model.columns ?? []).flatMap((column) => column.rows),
+    ...(model.footer ?? []),
+  ];
 }
 
 export interface NativePopupEvent {

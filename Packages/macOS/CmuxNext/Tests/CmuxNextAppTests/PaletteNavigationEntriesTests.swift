@@ -123,6 +123,17 @@ struct PaletteNavigationEntriesTests {
         #expect(PaletteNavigationEntries.entries(windowHome, groups: [], lastActive: [:]).map(\.itemID) == ["tab:a1", "tab:a2", "tab:b1"])
     }
 
+    /// A workspace reads as its sidebar row names it (a default-named one as its front tab), so a tab
+    /// that repeats that name is told as a repeat and folds into the workspace's row (Lawrence
+    /// 2026-11-07: Cmd-P listed "cmux-tui" as a workspace and again as its terminal).
+    @Test func tabsCarryTheWorkspaceNameTheSidebarShows() {
+        let entries = PaletteNavigationEntries.entries(Self.topology(), groups: [], lastActive: [:], workspaceNames: ["ws-web": "claude"])
+        let byID = Dictionary(uniqueKeysWithValues: entries.map { ($0.itemID, $0) })
+        #expect(byID["tab:claude"]?.workspaceTitle == "claude")
+        #expect(byID["tab:top"]?.workspaceTitle == "claude")
+        #expect(byID["tab:shell"]?.workspaceTitle == "api")
+    }
+
     @Test func theChatsThatRepeatTheirWorkspaceNameCarryItsIDForTheRowsToTellThemApart() {
         // NavigationPaletteProvider titles them "Agent Chat 1" and "Agent Chat 2" per workspace id
         // (PaletteNavigationTests.ultraListsEachWorkspaceOnceAndItsChatsByKind).

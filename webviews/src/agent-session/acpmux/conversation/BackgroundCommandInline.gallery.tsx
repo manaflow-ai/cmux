@@ -17,8 +17,9 @@ import { componentEntry, type ComponentVariant } from "../../../gallery/format";
 import { tool } from "../../../gallery/fixtures/acpmux";
 import { Thinking } from "./Thinking";
 import { ToolGroupRow } from "./ToolGroupRow";
-import { TranscriptDisclosureProvider, resetTranscriptDisclosure } from "./transcriptDisclosure";
-import { WorkingCountsContext, type WorkingCounts } from "./WorkingFor";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { WorkingCountsContext, type WorkingCounts } from "./workingForModel";
 
 type Look = "inline" | "edge-spinner" | "edge-dot" | "before";
 type Props = { look: Look };

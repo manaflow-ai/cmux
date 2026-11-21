@@ -1,5 +1,5 @@
-title: Link tabs open where Chrome puts them
+title: Link tabs open beside the page that opened them
 category: improved
 docs: https://cmux.com/docs/browser-automation
 
-Tabs you open from a page's links now line up the way Chrome orders them: right of the page, in the order you clicked.
+Tabs you open from a page's links now line up right of the page, in the order you clicked.

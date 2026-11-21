@@ -77,6 +77,8 @@ final class SidebarListDrag {
     var blockTarget: SidebarBlockGap?
     /// Each block's laid-out items without the dragged one, at the drag's begin (its hit test's base).
     var blockBases: [String: SidebarRegionLayout] = [:]
+    /// The open block gap as the row rule reads it (`SidebarListView.rowGap`), laid out once per gap; `rows` is nil for a gap among tiles.
+    var blockGapShape: (gap: SidebarBlockGap, rows: SidebarRowGap?)?
     /// The lifted card's shape as a list row (list coordinates; x and size):
     /// a row drag's own row, a tile drag's row look. The card morphs to it
     /// over the list and to a slot's shape over a block (`SidebarListView.morphLift`).
@@ -85,8 +87,9 @@ final class SidebarListDrag {
     var restShaped = true
     /// One card drags only: a group keeps its block shape.
     var morphs = false
-    /// The drag's base layout and drop rules, made once per row set and look (`SidebarListView.dragBase`), not per move.
-    var base: (key: SidebarDragBaseKey, layout: SidebarLayout, rules: DropResolver.DragRules?)?
+    /// The drag's base layout and drop rules, made once per row set and look (`SidebarListView.dragBase`), not per move;
+    /// a workspace drag's look is spliced from it (`look`).
+    var base: (key: SidebarDragBaseKey, layout: SidebarLayout, rules: DropResolver.DragRules?, look: SidebarDragLook?)?
     /// The last drop probe (debug.sidebar_rows "drop"): the card edge that
     /// decided, the row it hit in the base layout and where in that row.
     var probe: SidebarDropProbe?

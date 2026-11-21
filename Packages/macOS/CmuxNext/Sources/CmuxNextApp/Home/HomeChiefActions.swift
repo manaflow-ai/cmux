@@ -20,9 +20,7 @@ enum HomeChiefActions {
     }
 
     /// The front window's Chief Home, unless a hosted cloud Chief (no stop there).
-    private static func stopAllTarget() -> HomeHostView? {
-        frontHome().flatMap { $0.chiefControl.isHosted ? nil : $0 }
-    }
+    private static func stopAllTarget() -> HomeHostView? { frontHome().flatMap { $0.chiefControl.isHosted ? nil : $0 } }
 
     /// The Home in the front window (``HomeChiefSettingsPopover/frontToggleTarget``) that shows a Chief.
     private static func frontHome() -> HomeHostView? {

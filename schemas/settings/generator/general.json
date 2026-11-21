@@ -1,0 +1,15 @@
+{
+  "source": "schemas/settings/source/general.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+General.generated.swift",
+  "type": "GeneralSettingsSchema",
+  "lists": {
+    "history": ["history", null],
+    "window": ["window", null],
+    "quitting": ["quitting", null],
+    "columns": ["columns", null],
+    "layout": ["layout", null],
+    "workspaceList": ["workspaceList", null],
+    "palette": ["palette", null],
+    "menus": ["menus", null]
+  }
+}

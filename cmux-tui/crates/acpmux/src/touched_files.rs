@@ -402,7 +402,7 @@ pub fn rank(rows: &mut [Value]) {
     rows.sort_by_key(|r| std::cmp::Reverse(key(r)));
 }
 
-/// The one-line text of an answer row: `lane-x (codex on big-red, lane/x, #123): edited
+/// The one-line text of an answer row: `lane-x (codex on my-vm, lane/x, #123): edited
 /// src/a.rs, read src/b.rs; 12m ago`.
 pub fn row_line(r: &Value) -> String {
     let s = |k: &str| r.get(k).and_then(Value::as_str).unwrap_or("");
@@ -448,9 +448,16 @@ pub fn row_line(r: &Value) -> String {
     if r.get("sameBranch").and_then(Value::as_bool) == Some(true) {
         what.push("on this branch".to_owned());
     }
-    if let Some(words) = r.get("topicWords").and_then(Value::as_array).filter(|w| !w.is_empty()) {
-        let words: Vec<&str> = words.iter().filter_map(Value::as_str).collect();
-        what.push(format!("topic: {}", words.join(", ")));
+    // A topic match says what the session works on, never the matched words (Leo, 2026-11-21, on
+    // "topic: above, background, message, rows, summary, tasks, wait": "we cannot afford to have
+    // this kind of formatting").
+    if r.get("topicWords").and_then(Value::as_array).is_some_and(|w| !w.is_empty()) {
+        let title = s("title").trim();
+        what.push(if title.is_empty() {
+            "working on something similar".to_owned()
+        } else {
+            format!("working on \"{title}\"")
+        });
     }
     let ago = r.get("agoMs").and_then(Value::as_u64).unwrap_or(0);
     format!("{} ({}): {}; {}", s("name"), about.join(", "), what.join("; "), ago_text(ago))

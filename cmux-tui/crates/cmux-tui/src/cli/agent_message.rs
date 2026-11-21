@@ -14,7 +14,7 @@ use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Map, Value, json};
 
 use super::codex_app_server;
-use super::resolve::{Failure, call, call_as};
+use super::resolve::{Failure, call_as_on};
 use super::{GlobalArgs, OutputMode, UsageError};
 
 /// Every delivery state `agent inbox --state` takes.
@@ -165,6 +165,8 @@ type Reader = BufReader<Box<dyn cmux_tui_core::platform::transport::Stream>>;
 
 struct Connection {
     reader: Reader,
+    /// The daemon's socket, named in an older daemon's restart fix.
+    socket: std::path::PathBuf,
     route: Map<String, Value>,
     /// This process's launch credential, for its own terminal's session only.
     credential: Option<String>,
@@ -196,12 +198,12 @@ impl Connection {
             "session".into(),
             Value::String(global.session.clone().unwrap_or_else(|| "current".into())),
         );
-        Ok(Self { reader, route, credential })
+        Ok(Self { reader, socket, route, credential })
     }
 
     fn read(&mut self, operation: ResourceOperation, fields: Value) -> Result<Value, Failure> {
         let params = self.params(fields);
-        call(&mut self.reader, operation, params, None)
+        call_as_on(&mut self.reader, Some(&self.socket), operation, params, None, None)
     }
 
     fn mutate(
@@ -217,7 +219,9 @@ impl Connection {
         };
         let params = self.params(fields);
         let credential = self.credential.as_deref();
-        let result = call_as(&mut self.reader, operation, params, Some(&key), credential)?;
+        let socket = Some(self.socket.as_path());
+        let result =
+            call_as_on(&mut self.reader, socket, operation, params, Some(&key), credential)?;
         Ok(result.get("value").cloned().unwrap_or(Value::Null))
     }
 

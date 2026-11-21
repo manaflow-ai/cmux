@@ -5,8 +5,9 @@
 import { Icon } from "../icons/Icon";
 import { useT, type StringKey } from "../i18n";
 import { Spinner } from "../conversation/icons";
-import type { SessionStatus, StartedPullRequestName, StartedPullRequests } from "./startedSessions";
+import type { SessionStatus, StartedPullRequests } from "./startedSessions";
 import "./startedSessions.css";
+import { pullRequestName } from "./sessionStatusLineModel";
 
 /// Each status's word and glyph; running draws the bare working spinner instead.
 const STATUS: Record<SessionStatus, { word: StringKey; glyph?: string }> = {
@@ -22,10 +23,6 @@ const STATUS: Record<SessionStatus, { word: StringKey; glyph?: string }> = {
   merged: { word: "header.prBadge.merged", glyph: "git.pullrequest" },
   closed: { word: "header.prBadge.closed", glyph: "git.pullrequest" },
 };
-
-/// `repo #N`, or `#N` when acpmux names no repository.
-export const pullRequestName = (prs: StartedPullRequestName): string =>
-  prs.repo ? `${prs.repo} #${prs.number}` : `#${prs.number}`;
 
 /// The status line. Without a status (a done chat on its row), only the pull request.
 export function SessionStatusLine({

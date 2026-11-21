@@ -370,7 +370,7 @@
           },
           "help": {
             "key": "settings.sidebar.workspaceIcons.help",
-            "text": "An icon for each workspace title. \"*\" sets the icon of every other workspace; an empty icon hides it."
+            "text": "An icon per workspace title. \"*\" sets the rest; an empty icon hides it."
           },
           "kind": "string_map",
           "default": {},

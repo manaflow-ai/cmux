@@ -55,9 +55,11 @@ pub fn group_named(
     sections: &[Section],
     machine: Option<&str>,
 ) -> Option<String> {
-    let unlisted = machine
-        .filter(|_| workspace(id, sections).is_none())
-        .map(|machine| Workspace { id: id.to_owned(), machine: machine.to_owned() });
+    let unlisted = machine.filter(|_| workspace(id, sections).is_none()).map(|machine| Workspace {
+        id: id.to_owned(),
+        machine: machine.to_owned(),
+        ..Workspace::default()
+    });
     let ids = [id.to_owned()];
     let find = |exact: bool| {
         sections.iter().find_map(|section| {

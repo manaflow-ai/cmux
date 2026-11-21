@@ -22,6 +22,12 @@ pub struct Package {
     pub source: Source,
     pub dir: PathBuf,
     pub manifest: Value,
+    /// The catalog fragment (`catalog: "<file>"`) as the validator read it
+    /// when the package loaded. `apps-list` asks every package for its
+    /// palette commands under the supervisor lock: read from disk there,
+    /// each list read and parsed every app's fragment while every other apps
+    /// request waited.
+    pub fragment: Option<std::sync::Arc<Value>>,
 }
 
 impl Package {
@@ -67,10 +73,10 @@ impl Package {
             .collect()
     }
 
-    /// The app's catalog fragment (`catalog: "<file>"`).
-    fn catalog_fragment(&self) -> Option<Value> {
-        let file = self.manifest.get("catalog").and_then(Value::as_str)?;
-        self.read(file).and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
+    /// The app's catalog fragment (`catalog: "<file>"`), as loaded.
+    fn catalog_fragment(&self) -> Option<&Value> {
+        self.manifest.get("catalog").and_then(Value::as_str)?;
+        self.fragment.as_deref()
     }
 
     /// The fragment's `family` and the entry of `op`.
@@ -182,6 +188,11 @@ impl Package {
         self.manifest.pointer("/runtime/main").and_then(Value::as_str).is_some()
     }
 
+    /// The main script's path in the package (`runtime.main`): load errors name it.
+    pub fn main_name(&self) -> Option<String> {
+        self.manifest.pointer("/runtime/main")?.as_str().map(str::to_string)
+    }
+
     /// The app's main script, read when its host starts.
     pub fn main_source(&self) -> Option<String> {
         let main = self.manifest.pointer("/runtime/main")?.as_str()?;
@@ -191,6 +202,8 @@ impl Package {
     /// A file of the package, refused when it (or a symlink on the way)
     /// leaves the package directory.
     pub(super) fn read(&self, relative: &str) -> Option<Vec<u8>> {
+        #[cfg(test)]
+        work::count(|w| w.package_file_reads += 1);
         let root = self.dir.canonicalize().ok()?;
         let path = self.dir.join(relative).canonicalize().ok()?;
         if !path.starts_with(&root) {
@@ -199,12 +212,14 @@ impl Package {
         std::fs::read(path).ok()
     }
 
-    /// `strings/<locale>.json` falling back to English.
+    /// `strings/<locale>.json` for the full tag (`de-CH`), then its
+    /// language (`de`), falling back to English.
     pub fn strings(&self, locale: &str) -> Value {
         let Some(dir) = self.manifest.get("strings").and_then(Value::as_str) else {
             return Value::Null;
         };
-        for candidate in [locale, "en"] {
+        let language = locale.split('-').next().unwrap_or(locale);
+        for candidate in [locale, language, "en"] {
             if let Some(raw) = self.read(&format!("{dir}/{candidate}.json"))
                 && let Ok(value) = serde_json::from_slice::<Value>(&raw)
             {
@@ -319,6 +334,23 @@ enum DirKind {
 }
 
 pub fn load(sources: &Sources) -> Catalog {
+    load_reusing(sources, &|_| None, &|_| None)
+}
+
+/// A package folder's earlier read (`Ok` package or `Err` refusal), when
+/// the folder is unchanged since it (`local_reload::PrintsBefore`).
+pub type Reuse<'a> = dyn Fn(&Path) -> Option<Result<Package, String>> + 'a;
+
+/// A package root's package folders, sorted, when the caller already knows
+/// them (`local_reload::PrintsBefore::listed`); `None` lists the root.
+pub type Listed<'a> = dyn Fn(&Path) -> Option<Vec<PathBuf>> + 'a;
+
+/// `load`, taking each package folder's read from `reuse` and each root's
+/// package folders from `listed` when they have them: a reload pass a save
+/// makes reads and lists only the folders that changed, not every app's
+/// manifest and script (one save among 200 apps read 200 scripts).
+pub fn load_reusing(sources: &Sources, reuse: &Reuse<'_>, listed: &Listed<'_>) -> Catalog {
+    let read = |dir: &Path, kind: DirKind| reuse(dir).unwrap_or_else(|| package(dir, kind));
     let mut catalog = Catalog::default();
     let mut dirs: Vec<(PathBuf, DirKind)> = Vec::new();
     dirs.extend(sources.first_party.iter().map(|d| (d.clone(), DirKind::FirstParty)));
@@ -327,14 +359,20 @@ pub fn load(sources: &Sources) -> Catalog {
     dirs.extend(sources.local.iter().map(|d| (d.clone(), DirKind::Local)));
     let mut shipped_first_party = Vec::new();
     for (root, kind) in dirs {
-        let Ok(entries) = std::fs::read_dir(&root) else { continue };
-        let mut paths: Vec<PathBuf> = entries
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.join("cmux-app.json").is_file() || p.join(V2_MANIFEST).is_file())
-            .collect();
-        paths.sort();
+        let paths = match listed(&root) {
+            Some(paths) => paths,
+            None => {
+                let Ok(entries) = std::fs::read_dir(&root) else { continue };
+                let mut paths: Vec<PathBuf> = entries
+                    .filter_map(|e| e.ok().map(|e| e.path()))
+                    .filter(|p| p.join("cmux-app.json").is_file() || p.join(V2_MANIFEST).is_file())
+                    .collect();
+                paths.sort();
+                paths
+            }
+        };
         for dir in paths {
-            match package(&dir, kind) {
+            match read(&dir, kind) {
                 // The customize app may run the person's own actions, so only
                 // their customize folder (below) provides it.
                 Ok(package) if package.id == CUSTOMIZE_APP => catalog
@@ -348,7 +386,19 @@ pub fn load(sources: &Sources) -> Catalog {
                     }
                     catalog.packages.insert(package.id.clone(), package);
                 }
-                Ok(_) => {}
+                // A second folder with a loaded id is refused with the folder
+                // that has it, so a person whose saves there change nothing
+                // can see why (base: it was dropped without a word).
+                Ok(package) => {
+                    let first = catalog
+                        .packages
+                        .get(&package.id)
+                        .map(|p| p.dir.display().to_string())
+                        .unwrap_or_default();
+                    catalog
+                        .rejected
+                        .push((dir, format!("{}: already loaded from {first}", package.id)));
+                }
                 Err(issue) => catalog.rejected.push((dir, issue)),
             }
         }
@@ -358,7 +408,7 @@ pub fn load(sources: &Sources) -> Catalog {
         .as_ref()
         .filter(|dir| dir.join("cmux-app.json").is_file() || dir.join(V2_MANIFEST).is_file())
     {
-        match package(dir, DirKind::Local) {
+        match read(dir, DirKind::Local) {
             Ok(package)
                 if package.id == CUSTOMIZE_APP && !catalog.packages.contains_key(CUSTOMIZE_APP) =>
             {
@@ -396,7 +446,45 @@ pub fn manifest_file(dir: &Path, first_party_dir: bool) -> &'static str {
     }
 }
 
+/// Work counters for the constant-cost tests (`supervisor_scale_tests.rs`):
+/// the packages a reload pass validated and the package files an
+/// `apps-list` read, on the calling thread.
+#[cfg(test)]
+pub(super) mod work {
+    use std::cell::Cell;
+
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+    pub struct Work {
+        /// Packages read and validated (`catalog::package`).
+        pub packages_validated: usize,
+        /// Files read through `Package::read` (fragments, scripts, strings).
+        pub package_file_reads: usize,
+    }
+
+    thread_local! {
+        static WORK: Cell<Work> = Cell::new(Work::default());
+    }
+
+    pub fn count(f: impl FnOnce(&mut Work)) {
+        WORK.with(|cell| {
+            let mut work = cell.get();
+            f(&mut work);
+            cell.set(work);
+        });
+    }
+
+    /// The work `f` did on this thread.
+    pub fn of<T>(f: impl FnOnce() -> T) -> (T, Work) {
+        let before = WORK.with(Cell::take);
+        let out = f();
+        let done = WORK.with(|cell| cell.replace(before));
+        (out, done)
+    }
+}
+
 fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
+    #[cfg(test)]
+    work::count(|w| w.packages_validated += 1);
     let report = cmux_app_manifest::validate_package_file(
         dir,
         manifest_file(dir, kind == DirKind::FirstParty),
@@ -407,6 +495,7 @@ fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
             .map(|i| format!("{} {}: {}", i.path, i.code, i.message))
             .unwrap_or_default());
     }
+    let fragment = report.catalog.map(std::sync::Arc::new);
     let manifest = report.manifest.ok_or("no manifest")?;
     let id = manifest["id"].as_str().unwrap_or_default().to_string();
     let publisher = id.split('/').next().unwrap_or_default();
@@ -422,10 +511,22 @@ fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
     }
     // First-party only from the shipped directories (the first-party dir and
     // the samples next to the daemon's real executable): a cmux/ or
-    // manaflow-ai/ id in a CMUX_APPS_DIRS directory is unverified (no native
-    // server, no served ops).
+    // manaflow-ai/ id in a CMUX_APPS_DIRS directory (the store packages) is
+    // Verified when cmux's store key signed exactly these files
+    // (`store_trust`), else unverified (no native server, no served ops).
     let tier = if first_party && matches!(kind, DirKind::FirstParty | DirKind::Bundled) {
         Tier::FirstParty
+    } else if first_party
+        && kind == DirKind::Extra
+        && super::store_trust::verify(
+            dir,
+            &id,
+            manifest.get("version").and_then(Value::as_str).unwrap_or_default(),
+            &super::store_trust::trusted_keys(),
+        )
+        .is_ok()
+    {
+        Tier::Verified
     } else {
         Tier::Unverified
     };
@@ -441,6 +542,7 @@ fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
         source,
         dir: dir.to_path_buf(),
         manifest,
+        fragment,
     };
     // A fragment may not define an op the backend catalog owns: such an op
     // is served only through serves.ops, with the backend's policy (fail
@@ -457,73 +559,5 @@ fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn catalog_fragments_give_exports_and_palette_commands() {
-        let dir = std::env::temp_dir().join(format!("cmux-apps-catalog-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let catalog = json!({ "family": "notes", "operations": [
-            { "name": "notes.export", "export": "exportNotes", "palette": { "title": { "en": "Export" }, "when": "paneFocused:editor" } },
-            { "name": "notes.open", "export": "open" }
-        ] });
-        std::fs::write(dir.join("catalog.json"), catalog.to_string()).unwrap();
-        let package = Package {
-            id: "cmux/notes".into(),
-            version: "1.0.0".into(),
-            tier: Tier::FirstParty,
-            source: Source::Bundled,
-            dir: dir.clone(),
-            manifest: json!({ "catalog": "catalog.json" }),
-        };
-        let export = package.export_for_op("notes.open");
-        let commands = package.palette_commands();
-        std::fs::remove_dir_all(&dir).unwrap();
-        assert_eq!(export.as_deref(), Some("open"));
-        assert_eq!(
-            commands,
-            vec![
-                json!({ "op": "notes.export", "title": { "en": "Export" }, "when": "paneFocused:editor" })
-            ]
-        );
-    }
-
-    /// `local/customize` may run the person's own `cmuxConfig.*` actions
-    /// (`actions::decide_for`), so only their customize folder may claim it:
-    /// a package with that id in the local directory (or any other) is
-    /// rejected rather than shadowing the real one.
-    #[test]
-    fn only_the_customize_folder_provides_the_customize_app() {
-        let root =
-            std::env::temp_dir().join(format!("cmux-apps-customize-id-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        let write = |dir: &Path, name: &str| {
-            std::fs::create_dir_all(dir).unwrap();
-            std::fs::write(dir.join("main.js"), "var __cmuxAppExports = {render() {}};").unwrap();
-            let manifest = json!({
-                "manifestVersion": 2, "id": CUSTOMIZE_APP, "name": name, "version": "1.0.0",
-                "description": "A view", "engines": {"cmux": "^2.0"},
-                "runtime": {"main": "main.js"}, "files": ["main.js"],
-                "implements": {"cmux.section/1": {"export": "render", "title": name}}
-            });
-            std::fs::write(dir.join("cmux-app.json"), manifest.to_string()).unwrap();
-        };
-        let impostor = root.join("local").join("impostor");
-        let customize = root.join("customize");
-        write(&impostor, "Impostor");
-        write(&customize, "My views");
-        let catalog = load(&Sources {
-            local: Some(root.join("local")),
-            customize: Some(customize.clone()),
-            defaults: Some(Vec::new()),
-            ..Sources::default()
-        });
-        let dir = catalog.packages.get(CUSTOMIZE_APP).map(|package| package.dir.clone());
-        let rejected = catalog.rejected.iter().any(|(dir, _)| dir == &impostor);
-        std::fs::remove_dir_all(&root).unwrap();
-        assert_eq!(dir, Some(customize));
-        assert!(rejected, "the local package claiming {CUSTOMIZE_APP} is rejected");
-    }
-}
+#[path = "catalog_tests.rs"]
+mod tests;

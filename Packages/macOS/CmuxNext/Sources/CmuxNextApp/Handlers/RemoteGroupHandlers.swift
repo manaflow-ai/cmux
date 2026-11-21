@@ -64,10 +64,12 @@ enum RemoteGroupHandlers {
             }
         })
         // Reconnect on a paired server's or a Cloud machine's header (an SSH host has remote.reconnect).
+        // A joined machine's row id (`joined:<id>`, `machine.list`) reconnects the daemon it is reached by.
         registry.bind("machine.reconnect", run: { invocation in
-            guard let machine = invocation.target?.id ?? invocation["machine"]?.stringValue else {
+            guard let given = invocation.target?.id ?? invocation["machine"]?.stringValue else {
                 throw ActionFailure.invalidTarget(WorkspaceVerbStrings.noMachine)
             }
+            let machine = JoinedMachine.linkedMachine(given, in: context.services.joinedMachines.machines)
             let machines = context.services.machines
             switch route(machine, machines) {
             case .wakeServer: machines.server(machine)?.wake()

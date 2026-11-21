@@ -9,7 +9,8 @@ import { LaneNoticeBatch } from "./LaneNoticeBatch";
 import { inboxMany, report } from "./laneNotice.gallery-fixtures";
 import { batchLaneNotices, flattenInboxRows } from "./laneNoticeBatches";
 import { setMessageOpened } from "./incomingOpened";
-import { resetTranscriptDisclosure, TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 type Props = { kind: "reports" | "inbox" | "single"; expanded: boolean };
 
@@ -48,7 +49,9 @@ function Stage({ kind, expanded }: Props) {
 }
 
 const open: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-lane-batch__toggle, .cv-disclosure__toggle"));
+  await ctx.waitFor(() =>
+    ctx.document.querySelector(".cv-lane-batch__toggle, .cv-agentmsg__toggle, .cv-disclosure__toggle"),
+  );
   const batch = ctx.document.querySelector<HTMLButtonElement>(".cv-lane-batch__toggle");
   if (batch) {
     batch.click();
@@ -57,7 +60,7 @@ const open: Play = async (ctx) => {
   const lines = [...ctx.document.querySelectorAll<HTMLElement>(".cv-received")];
   for (const line of lines) {
     if (lines.length === 1 || line.textContent?.includes("BLOCK") || !line.classList.contains("cv-lane-notice"))
-      line.querySelector<HTMLButtonElement>(".cv-disclosure__toggle")?.click();
+      line.querySelector<HTMLButtonElement>(":is(.cv-agentmsg__toggle, .cv-disclosure__toggle)")?.click();
   }
   await ctx.waitFor(
     () => batch?.getAttribute("aria-expanded") === "true" || ctx.document.querySelector(".cv-received__text"),
@@ -69,7 +72,9 @@ const open: Play = async (ctx) => {
   );
 };
 const closed: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-lane-batch__toggle, .cv-disclosure__toggle"));
+  await ctx.waitFor(() =>
+    ctx.document.querySelector(".cv-lane-batch__toggle, .cv-agentmsg__toggle, .cv-disclosure__toggle"),
+  );
 };
 const variant = (kind: Props["kind"], expanded: boolean, note: string) => ({
   props: { kind, expanded },

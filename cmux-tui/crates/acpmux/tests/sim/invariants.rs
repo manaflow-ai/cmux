@@ -15,24 +15,70 @@
 //!   (manaflow-ai/cmux#34548); then CI gates on both.
 //!
 //! Known gaps the simulation shows today (off in the per-PR run, `SIM_FAULTS=power` shows them):
-//! see [`KNOWN_GAPS`].
+//! see [`KNOWN_GAPS`]. A seed counts as one only when it holds once the gap's cause is taken
+//! away ([`known_gaps_of`]), so a new failure under the same options still fails the run.
 
 use crate::agent::Given;
-use crate::world::{Outcome, Run};
+use crate::world::{self, Options, Outcome, Run};
 use std::collections::BTreeMap;
 
+/// A gap the simulation found and nobody has fixed yet, with its issue.
+pub struct KnownGap {
+    pub name: &'static str,
+    /// The same options with the gap's cause taken away, when these options can show it. A
+    /// seed that fails, and holds when rerun this way, shows the gap; a seed that still fails
+    /// is a real failure, and the sweep goes red for it.
+    pub without: fn(&Options) -> Option<Options>,
+}
+
 /// Found by the simulation and not fixed yet: each names its issue. The per-PR run leaves its
-/// fault class off until the fix lands.
-pub const KNOWN_GAPS: &[&str] = &[
+/// fault class off until the fix lands; the sweep runs it and counts the seeds that show it.
+pub const KNOWN_GAPS: &[KnownGap] = &[
     // A power loss right after a prompt is accepted loses it: the daemon answers
     // `prompt_accepted` before its `user_message` is flushed (no `flush_session` on the prompt
-    // path), so the ack is not durable (HQ#6740: "The daemon acks on durable append"). The fix
-    // is the durable journal with ack after durable, manaflow-ai/cmux#33919.
-    "power loss after prompt_accepted (SIM_FAULTS=power)",
+    // path), so the ack is not durable (HQ#6740: "The daemon acks on durable append"). What a
+    // lost record leads to is the same gap: the prompt is lost, a retry of it is not known and
+    // runs again, or the saved metadata names a seq whose records are gone, so the log starts
+    // past 1. The fix is the durable journal with ack after durable, manaflow-ai/cmux#33919.
+    KnownGap {
+        name: "power loss after prompt_accepted (SIM_FAULTS=power)",
+        without: power_as_crash,
+    },
     // A retry under a logged prompt id without `_meta.acpmux.resend` runs the prompt again after
     // a restart: `Hub::knows_prompt` reads the log only for a resend (manaflow-ai/cmux#34548).
-    "a bare resend after a restart is applied twice (SIM_RESEND=0)",
+    KnownGap {
+        name: "a bare resend after a restart is applied twice (SIM_RESEND=0)",
+        without: flagged_resend,
+    },
 ];
+
+/// A power loss as a crash at the same step: it keeps what was written.
+fn power_as_crash(o: &Options) -> Option<Options> {
+    (o.faults.0.power_loss && o.power_drops_unflushed)
+        .then_some(Options { power_drops_unflushed: false, ..*o })
+}
+
+/// Every retry carries `_meta.acpmux.resend`, as the Mac's prompt journal sends it.
+fn flagged_resend(o: &Options) -> Option<Options> {
+    (!o.resend).then_some(Options { resend: true, ..*o })
+}
+
+/// The known gaps that explain a failing seed under `opts`: those these options can show, when
+/// the seed holds with all of them taken away. Empty when it still fails: a real failure.
+pub fn known_gaps_of(seed: u64, opts: &Options) -> Vec<&'static str> {
+    let mut without = *opts;
+    let mut names = Vec::new();
+    for gap in KNOWN_GAPS {
+        if let Some(o) = (gap.without)(&without) {
+            without = o;
+            names.push(gap.name);
+        }
+    }
+    if names.is_empty() || check(&world::run(seed, &without)).is_err() {
+        return Vec::new();
+    }
+    names
+}
 
 pub struct Invariant {
     pub name: &'static str,

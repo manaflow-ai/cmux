@@ -210,15 +210,21 @@ async fn wait_inner(client: Arc<Client>, opts: WaitOpts, json_out: bool) -> Resu
         let status = s.get("status").and_then(Value::as_str).unwrap_or("").to_owned();
         let pending = s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0);
         let failed = failed_turn(s);
-        let reply = match (opts.print || json_out, failed.is_some()) {
-            (false, _) => String::new(),
-            // A failed turn's own output, never the reply of the turn before it.
-            (true, true) => match s.pointer("/lastTurn/turnId").and_then(Value::as_str) {
-                Some(turn) => turn_reply(&client, &id, turn).await.ok().flatten(),
-                None => None,
+        // The last turn's own reply, empty when it said nothing, never the reply of the turn
+        // before it. Only when its start is out of reach (no `lastTurn`, an older daemon, a
+        // trimmed log) does an ended turn fall back to the chat's last reply; a failed one
+        // then prints none.
+        let own = match s.pointer("/lastTurn/turnId").and_then(Value::as_str) {
+            Some(turn) if opts.print || json_out => {
+                turn_reply(&client, &id, turn).await.ok().flatten()
             }
-            .unwrap_or_default(),
-            (true, false) => {
+            _ => None,
+        };
+        let reply = match (opts.print || json_out, own, failed.is_some()) {
+            (false, _, _) => String::new(),
+            (true, Some(own), _) => own,
+            (true, None, true) => String::new(),
+            (true, None, false) => {
                 last_replies(&client, &id, 1).await.unwrap_or_default().pop().unwrap_or_default()
             }
         };
@@ -290,6 +296,7 @@ fn failure_lines(r: &Value, now: u64) -> Vec<String> {
     {
         let cause = match retry["reason"].as_str().unwrap_or_default() {
             "capacity" => "capacity: the provider or the gateway is full",
+            "rate_limit" => "the account's rate limit (the chat holds every turn until its reset)",
             "transport" => "a dropped connection",
             "agent_exited" => "the agent process's exit",
             "context" => "a chat past its context window (it compacts first)",
@@ -541,6 +548,7 @@ pub(crate) async fn ensure(
     effort: Option<String>,
     tags: Vec<String>,
     harness_from: Option<String>,
+    full_record: bool,
     json_out: bool,
 ) -> Result<()> {
     let (agent, model) = match &target {
@@ -639,7 +647,7 @@ pub(crate) async fn ensure(
     if json_out {
         let mut out = v.clone();
         out["created"] = json!(created);
-        print_json(&out);
+        print_json(&crate::cli::output::session_record(out, full_record));
     } else {
         println!(
             "{} {name} ({})",
@@ -718,24 +726,50 @@ pub(crate) async fn history(
         println!("no turns yet");
         return Ok(());
     }
-    println!("{:<5} {:<10} {:>7} {:>5} {:>8} PROMPT", "SEQ", "STATUS", "WALL", "TOOLS", "TOKENS");
-    for t in turns {
-        let g = |k: &str| t.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-        let wall = t
-            .get("wallMs")
+    let secs = |t: &Value, k: &str| {
+        t.get(k)
             .and_then(Value::as_u64)
             .map(|ms| format!("{:.1}s", ms as f64 / 1000.0))
-            .unwrap_or_else(|| "-".into());
+            .unwrap_or_else(|| "-".into())
+    };
+    // The chat's own start, when its first turn is listed: what a slow first answer waited on
+    // before its prompt reached the agent (`hub/history_timing.rs`).
+    if let Some(start) = turns.iter().find_map(|t| t.get("agentStart")) {
+        let steps: Vec<String> = start
+            .get("steps")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|s| format!("{} {}", s["method"].as_str().unwrap_or("?"), secs(s, "ms")))
+            .collect();
+        println!(
+            "agent start: first prompt {} after the chat was created, agent ready at {}{}",
+            secs(start, "firstPromptMs"),
+            secs(start, "readyMs"),
+            if steps.is_empty() { String::new() } else { format!(" ({})", steps.join(", ")) }
+        );
+    }
+    // START: the prompt accepted to the prompt written to the agent (an agent start inside it).
+    // MODEL: the prompt written to the model's first output (the route and the API).
+    println!(
+        "{:<5} {:<10} {:>7} {:>7} {:>7} {:>5} {:>8} PROMPT",
+        "SEQ", "STATUS", "WALL", "START", "MODEL", "TOOLS", "TOKENS"
+    );
+    for t in turns {
+        let g = |k: &str| t.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+        let wall = secs(&t, "wallMs");
         let tokens = t
             .get("tokens")
             .and_then(Value::as_u64)
             .map(|n| n.to_string())
             .unwrap_or_else(|| "-".into());
         println!(
-            "{:<5} {:<10} {:>7} {:>5} {:>8} {}",
+            "{:<5} {:<10} {:>7} {:>7} {:>7} {:>5} {:>8} {}",
             t.get("seq").and_then(Value::as_u64).unwrap_or(0),
             g("status"),
             wall,
+            secs(&t, "toAgentMs"),
+            secs(&t, "firstModelMs"),
             t.get("toolCalls").and_then(Value::as_u64).unwrap_or(0),
             tokens,
             short(&g("prompt"), 60)
@@ -968,71 +1002,7 @@ async fn turn_stats(client: &Arc<Client>, id: &str) -> (Option<u64>, u64) {
     )
 }
 
-/// `acpmux session tail NAME [--since CURSOR] [--last N] [-f]`.
-pub(crate) async fn tail(
-    client: Arc<Client>,
-    key: &str,
-    last: u64,
-    since: Option<String>,
-    follow: bool,
-    suppress_reads: bool,
-) -> Result<()> {
-    let id = resolve_id(&client, &expand_session_key(key)?).await?;
-    let mut notes =
-        client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
-    let events: Vec<Value> = match since {
-        Some(cursor) => {
-            let seq = parse_cursor(&cursor, &id)?;
-            // Subscribe before reading from the cursor, so an event written
-            // in between arrives live; the seq check below drops repeats.
-            client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
-            events_after(&client, &id, seq, usize::MAX).await?
-        }
-        None => with_older(&client, json!({"sessionId": id, "limit": last})).await?,
-    };
-    let stdout = std::io::stdout();
-    let mut sup = ReadSuppressor::default();
-    let filter = |sup: &mut ReadSuppressor, e: Value| if suppress_reads { sup.apply(e) } else { e };
-    // The newest seq printed: a live event at or below it was in the page.
-    let mut printed_seq = 0u64;
-    for e in events {
-        printed_seq = printed_seq.max(e.get("seq").and_then(Value::as_u64).unwrap_or(0));
-        let mut lock = stdout.lock();
-        let _ = writeln!(lock, "{}", with_cursor(&id, filter(&mut sup, e)));
-    }
-    if !follow {
-        return Ok(());
-    }
-    while let Some(m) = notes.recv().await {
-        if let Message::Notification { method: m, params } = m {
-            if m == method::MUX_DISCONNECTED {
-                return Err(client.closed("following the session"));
-            }
-            let p = params.unwrap_or(Value::Null);
-            if crate::cli::resolve::routed_id(&p).ok().as_deref() != Some(id.as_str()) {
-                continue;
-            }
-            let seq = if m == method::MUX_EVENT {
-                p.get("seq").and_then(Value::as_u64)
-            } else {
-                p.pointer("/_meta/acpmux/seq").and_then(Value::as_u64)
-            };
-            if seq.is_some_and(|s| s <= printed_seq) {
-                continue;
-            }
-            let mut lock = stdout.lock();
-            let line = if m == method::MUX_EVENT {
-                with_cursor(&id, filter(&mut sup, p))
-            } else if m == method::SESSION_UPDATE && suppress_reads {
-                json!({"method": m, "params": sup.apply_update(p)})
-            } else {
-                json!({"method": m, "params": p})
-            };
-            let _ = writeln!(lock, "{line}");
-        }
-    }
-    Ok(())
-}
+// `acpmux session tail` streams a chat's events: `session_tail.rs`.
 
 /// A cursor is `<sessionId>:<seq>` or a bare seq.
 pub(crate) fn parse_cursor(cursor: &str, id: &str) -> Result<u64> {
@@ -1058,13 +1028,6 @@ pub(crate) fn parse_cursor(cursor: &str, id: &str) -> Result<u64> {
         )
         .into()
     })
-}
-
-fn with_cursor(id: &str, mut e: Value) -> Value {
-    if let Some(seq) = e.get("seq").and_then(Value::as_u64) {
-        e["cursor"] = json!(format!("{id}:{seq}"));
-    }
-    e
 }
 
 /// --suppress-reads: blank read-tool payloads but keep the message shape.

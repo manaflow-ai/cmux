@@ -1,18 +1,41 @@
-// Tool calls the transcript never draws: an agent's own plumbing, which does nothing the person
-// asked for and shows nothing they could act on. Claude Code's ToolSearch only loads the schemas
-// of deferred tools so it can call them; its row read as a bare "ToolSearch" with a grid icon
-// (Leo 2026-10-21: "UI ALSO NEEDS TO BE BETTER"). Such a call draws no row, opens no fold and
-// counts toward no "Worked for" summary, done or failed alike.
+// Tool calls the transcript treats as discovery plumbing: they only load deferred schemas and do
+// nothing the person asked for. A successful discovery row is hidden and excluded from the
+// "Worked for" summary; pending and failed calls remain visible so their state can be acted on.
 
-/// Claude Code tools that are pure plumbing, by their Claude Code name.
-const PLUMBING_TOOLS: ReadonlySet<string> = new Set(["ToolSearch"]);
+/// Discovery tools that only load deferred schemas, by their adapter name.
+const PLUMBING_TOOLS: ReadonlySet<string> = new Set(["ToolSearch", "tool_search", "load_tools"]);
 
-/// Whether an ACP `tool_call` is plumbing the transcript hides. Only a call named as Claude Code's
-/// own tool counts (acpmux's `_meta.claude.tool`, the ACP adapter's `_meta.claudeCode.toolName`):
+/// Whether an ACP `tool_call` is discovery plumbing the transcript hides when it completes. Only a
+/// call named as Claude Code's own tool counts (acpmux's `_meta.claude.tool`, the ACP adapter's
+/// `_meta.claudeCode.toolName`):
 /// a title alone could be any other agent's or MCP server's tool.
 export function isPlumbingCall(update: any): boolean {
   const tool = update?._meta?.claude?.tool ?? update?._meta?.claudeCode?.toolName;
   return typeof tool === "string" && PLUMBING_TOOLS.has(tool);
+}
+
+/// A completed plumbing call stays in the source row for Find/copy/export, but does not count as
+/// work in the turn summary. The one predicate for both: presentation filters the same call from
+/// the visible step list (mcpPresentation.ts `visibleToolItems`), so a call is never hidden from
+/// one and counted or drawn by the other. A call that ran a command, changed a file, showed an
+/// image, went to the background or was approved did more than load schemas, and stays.
+/// A result still waiting for its call (`awaitingCall`, held for an older page) is hidden the
+/// same way: the whole record draws such a result of a hidden call as nothing.
+export function isCompletedPlumbingTool(tool: any): boolean {
+  if (tool?.awaitingCall === true) return true;
+  const name = tool?.provenance?.claudeTool ?? tool?.provenance?.claudeCodeToolName;
+  if (tool?.status !== "completed" || typeof name !== "string" || !PLUMBING_TOOLS.has(name) || tool.title !== name)
+    return false;
+  if (tool.command || tool.diffs?.length || tool.images?.length || tool.background || tool.approved) return false;
+  // A discovery call that reports an error remains visible and counts as work.
+  if (
+    (tool.exitCode ?? 0) !== 0 ||
+    /(?:"(?:isError|error)"\s*:\s*(?!(?:false|null|0)\s*[,}])\S|"(?:success|ok)"\s*:\s*(?:false|0)\b|"(?:status|state)"\s*:\s*"(?:error|failed|cancelled|canceled)"|^\s*(?:error|failed|unable|unavailable|cancelled|canceled)(?:\s+by\s+user)?\b)/im.test(
+      tool.output ?? "",
+    )
+  )
+    return false;
+  return true;
 }
 
 /// Whether an ACP tool call or update is Muse Code's own todo tool, whose list the cmux-muse-acp
@@ -30,12 +53,20 @@ export function isPlanToolCall(update: any): boolean {
   return update?._meta?.acpmux?.planTool === true;
 }
 
+/// Whether an ACP tool call or update is the Codex app server's `sleep` item ("Wait 45000 ms"): the
+/// agent pausing between polls of a background build. It does nothing the person asked for, and a run
+/// of them filled the transcript with "Wait …" rows (Lucas, 2026-11-14: "we should not have it").
+/// Hidden on sight, with its updates.
+export function isCodexSleep(update: any): boolean {
+  return update?._meta?.codexAppServer?.itemType === "sleep";
+}
+
 /// Tracks which call ids in `hidden` are plumbing and says whether this update's call is one. A
 /// plumbing call marks its id; any other call that starts under that id clears the mark, since an
 /// adapter that numbers calls per process reuses an id in a later prompt (cx-jzhka). A result
 /// (`tool_call_update`, which names no tool) keeps whatever mark its call left.
 export function hiddenCall(hidden: Set<string>, key: string, update: any): boolean {
-  if (isPlumbingCall(update)) hidden.add(key);
+  if (isPlumbingCall(update) || isCodexSleep(update)) hidden.add(key);
   else if (update?.sessionUpdate === "tool_call") hidden.delete(key);
   return hidden.has(key);
 }
@@ -58,4 +89,11 @@ export function showsNothing(update: any): boolean {
   const content = update?.content;
   if (!Array.isArray(content)) return true;
   return !content.some((part: any) => part?.type === "diff" || part?.content?.type === "image");
+}
+
+/// The tool with its `awaitingCall` mark set or cleared (model.ts).
+export function withAwaitingCall<T extends { awaitingCall?: true }>(tool: T, awaiting: boolean): T {
+  if (awaiting) return { ...tool, awaitingCall: true };
+  const { awaitingCall: _awaiting, ...rest } = tool;
+  return rest as T;
 }

@@ -23,20 +23,20 @@ enum TabCloseGuard {
     /// `parts`: the panes the tabs leave. When each keeps a tab or can show itself leaving (`showPaneClose`), the tabs (and a pane
     /// they empty) leave in this turn, terminals alive (`HiddenTabClose`); `close` gets that hide to lift as it closes (no flash).
     static func close(_ tabs: [TabModel], on daemon: DaemonService, services: AppServices, window: NSWindow?,
-                      leaving parts: [(pane: PaneController, ids: [StripTabID])] = [],
+                      leaving parts: [(pane: PaneController, ids: [StripTabID])] = [], keeping: (pane: PaneController, id: StripTabID)? = nil,
                       close: @escaping @MainActor (_ asked: RunningPrograms, _ hidden: HiddenTabClose?) -> Void) {
-        guard CloseUndoToasts.isUserClose, window != nil, asks(tabs, services: services) else { return close([:], nil) }
+        guard CloseUndoToasts.isUserClose, window != nil, let (warnings, closeReads) = reads(tabs, services: services) else { return close([:], nil) }
         // A second close of tabs this close is already asking about (a double click on a close button) is the same close.
         guard tabs.contains(where: { !asking.contains($0.id) }) else { return }
         let ids = Set(tabs.map(\.id))
         asking.formUnion(ids)
-        reading.formUnion(ids)
+        let known = closeReads.knownToAsk(tabs, warnings); if !known { reading.formUnion(ids) } // known: its tab stays, a next Cmd-W closes nothing
         // The tabs leave now, their terminals alive: only the daemon's read below ends a process (SL-3; lead, #31875).
         // A page that decides its own close (beforeunload) is never hidden: it runs its decision after the read, in place.
         let decides = services.closedTabs?.undoToasts.pageDecidesClose ?? CloseUndoToasts.livePageDecidesClose
         // An emptied pane hides only if its layout shows it leaving (never the screen's last) and holds no page (asking starts its close).
         let emptied = parts.map { part in empties(part.pane, closing: part.ids) }
-        let hides = !parts.isEmpty && zip(parts, emptied).allSatisfy { part, emptied in part.pane.daemon === daemon
+        let hides = !parts.isEmpty && !known && zip(parts, emptied).allSatisfy { part, emptied in part.pane.daemon === daemon
             && (!emptied || (part.pane.workspace?.layoutModel.canShowPaneClose(part.pane.layoutPaneID) == true && !part.ids.contains { part.pane.tab($0)?.kind == .browser }))
             && !part.ids.contains { decides(part.pane, $0) } }
         // Keys typed during the read are the close's, never the closing terminal's; a question parks them for its answer.
@@ -47,7 +47,7 @@ enum TabCloseGuard {
                                                         panes: zip(parts, emptied).map { part, emptied in
             let pane = part.pane, selected = pane.stripModel.selectedID, focused = pane.isFocusedInWorkspace
             return { @MainActor restored in
-                pane.apply(pane.snapshot())
+                pane.apply(pane.snapshot()); if !restored, let keeping, keeping.pane === pane, pane.stripModel.tab(keeping.id) != nil { pane.select(keeping.id) } // the kept tab shows in this turn (cmux-ad i7)
                 if emptied, !restored { _ = pane.showPaneClose() }
                 if restored, !pane.stripModel.tabs.isEmpty, let workspace = pane.workspace, workspace.layoutModel.withdrawPaneClose(pane.layoutPaneID) {
                     workspace.applyCurrent()
@@ -143,7 +143,7 @@ enum TabCloseGuard {
     }
 
     static func prompt(_ warning: WindowRules.Warning, closing tabs: [TabModel]) -> DestructiveConfirmation.Prompt {
-        let title = tabs.count == 1 ? ConfirmationStrings.closeTitle(tabs[0].title) : ConfirmationStrings.closeTabsTitle(tabs.count)
+        let title = tabs.count == 1 ? ConfirmationStrings.closeTitle(tabs[0].titleText) : ConfirmationStrings.closeTabsTitle(tabs.count)
         switch warning {
         case .agent(let agent):
             return .init(title: title, body: ConfirmationStrings.agentStillWorking(agent ?? ConfirmationStrings.theAgent),

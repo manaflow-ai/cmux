@@ -121,8 +121,8 @@ public struct ChiefSettingsView: View {
         .task(id: computer.reload(preferring: session.macID)) { await computer.load(preferring: session.macID) }
         .onChange(of: session.engineReport) { _, newer in if !saving { report = newer } }
         // Hide Alerts changed elsewhere (Home's pin menu): the switch follows, animated.
-        .onChange(of: session.isMuted) { _, on in if muted != on { withAnimation { muted = on } } }
-        .onChange(of: session.sendsReadReceipts) { _, on in if receipts != on { withAnimation { receipts = on } } }
+        .onChange(of: session.isMuted) { _, on in if muted != on { withAnimation(.default.unlessReduceMotion) { muted = on } } }
+        .onChange(of: session.sendsReadReceipts) { _, on in if receipts != on { withAnimation(.default.unlessReduceMotion) { receipts = on } } }
         .accessibilityIdentifier("chief.settings")
     }
 
@@ -332,14 +332,14 @@ public struct ChiefSettingsView: View {
                 .accessibilityIdentifier("chief.settings.hideAlerts")
                 .onChange(of: muted) { _, on in
                     guard on != session.isMuted else { return }
-                    session.setMuted(on) { withAnimation { muted = !on } }
+                    session.setMuted(on) { withAnimation(.default.unlessReduceMotion) { muted = !on } }
                 }
             Toggle("Send Read Receipts", isOn: $receipts)
                 .tint(Color(uiColor: .systemGreen))
                 .accessibilityIdentifier("chief.settings.readReceipts")
                 .onChange(of: receipts) { _, on in
                     guard on != session.sendsReadReceipts else { return }
-                    session.setSendsReadReceipts(on) { withAnimation { receipts = !on } }
+                    session.setSendsReadReceipts(on) { withAnimation(.default.unlessReduceMotion) { receipts = !on } }
                 }
         } footer: {
             Text(String(localized: "mobile.chief.notificationsFooter", defaultValue: "These settings apply to this iPhone.", bundle: .module))
@@ -458,7 +458,7 @@ public struct ChiefSettingsView: View {
         if let backend = error as? ConversationBackendError, backend.code == -1 { return backend.message }
         // No answer from the Mac is not Chief refusing (the old copy blamed Chief for a dropped link).
         switch ChiefEngineProblem(error) {
-        case .macUnreachable: return String(localized: "Your Mac didn't answer. Check that it's on and connected, then try again.")
+        case .macUnreachable: return String(localized: "Can't reach your Mac. Make sure it's awake and connected, then try again.")
         case .chiefBusy: return String(localized: "mobile.chief.busy", defaultValue: "Chief is busy. Try again.", bundle: .module)
         default: break
         }
@@ -591,7 +591,7 @@ struct ChiefQuickAction: View {
             .frame(width: ChiefInfoGeometry.quickActionSize, height: ChiefInfoGeometry.quickActionSize)
             .contentShape(.circle)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .disabled(!enabled)
         .accessibilityLabel(title)
         .accessibilityValue(busy ? Text("In progress") : Text(""))

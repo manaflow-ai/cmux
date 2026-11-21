@@ -15,7 +15,7 @@ import {
   printable,
   toolResult,
 } from "./toolResult";
-import { stripAnsi } from "./toolOutput";
+import { stripAnsi } from "./toolOutputModel";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 

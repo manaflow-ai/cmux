@@ -102,6 +102,42 @@ import CmuxNextDesignTokens
         let system = try #require(NSImage.menuSymbol("airplayvideo"))
         #expect(MenuIconPixels(image) == MenuIconPixels(system))
     }
+
+    /// No checked row, no checkmark column: the rows start at the menu's leading edge, and the
+    /// menu is narrower than the same menu keeping AppKit's empty column (Leo, 2026-11-02).
+    @Test func aMenuWithNoCheckmarkHasNoStateColumn() {
+        let menu = Self.menu(NativeMenuTarget())
+        menu.themeRows(in: Self.darkScope())
+        #expect(!menu.showsStateColumn)
+        #expect(menu.items[2].submenu?.showsStateColumn == false)
+        let kept = Self.menu(NativeMenuTarget())
+        kept.themeRows(in: Self.darkScope())
+        kept.showsStateColumn = true
+        print("state column widths: without \(menu.size.width) with \(kept.size.width)")
+        #expect(menu.size.width < kept.size.width, "dropping the column must take its width off the leading edge")
+    }
+
+    /// A checked or mixed row keeps the column its mark draws in; a hidden one does not.
+    @Test func aCheckedRowKeepsTheStateColumn() {
+        let menu = Self.menu(NativeMenuTarget())
+        menu.items[0].state = .on
+        menu.themeRows(in: Self.darkScope())
+        #expect(menu.showsStateColumn)
+        #expect(menu.items[2].submenu?.showsStateColumn == false, "a submenu decides by its own rows")
+        let hidden = Self.menu(NativeMenuTarget())
+        hidden.items[2].submenu?.items[0].state = .mixed
+        hidden.items[2].submenu?.items[0].isHidden = true
+        hidden.themeRows(in: Self.darkScope())
+        #expect(hidden.items[2].submenu?.showsStateColumn == false)
+        // A row added and checked while the menu is open brings the column back.
+        let open = Self.menu(NativeMenuTarget())
+        open.themeRows(in: Self.darkScope())
+        let added = NSMenuItem(title: "Pinned", action: nil, keyEquivalent: "")
+        added.state = .on
+        open.addItem(added)
+        open.themeAddedRows()
+        #expect(open.showsStateColumn)
+    }
 }
 
 /// An image's alpha drawn into a 32 x 32 px square: two images that draw the same pixels match.

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+@testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import Foundation
@@ -28,8 +29,15 @@ struct ReservedWorkspaceKeepsFocusTests {
             controller.reservedContent.fill()
             try await PinnedPageTests.until({ controller.reservedContent.ready != nil }, within: .seconds(20),
                                             report: { "the window built no next Cmd-N view" })
-            // A page that loads in the hidden view may ask for the keyboard once it finishes: give it that time.
-            try await Task.sleep(for: .milliseconds(500))
+            // A page in the hidden view may ask for the keyboard once it loads (its composer's own focus()). WebKit sends
+            // that ask as the window's makeFirstResponder on the page's view, outside an input event: send the same ask
+            // for each page now, so the window's refusal is checked whenever the page would ask (no load wait).
+            let reserved = try #require(controller.reservedContent.ready)
+            let pages = Self.descendants(of: reserved.contentView).compactMap { $0 as? AgentPaneView }
+            #expect(!pages.isEmpty, "the reserved view holds no page, so no page's ask was checked")
+            for page in pages {
+                #expect(!window.makeFirstResponder(page.focusTarget), "the window gave the reserved view's hidden page the keyboard")
+            }
             #expect(window.firstResponder === responder,
                     "the reserved workspace's refill took the keyboard: \(String(describing: window.firstResponder)), was \(responder)")
             #expect(content.focus.state.pane == pane, "the refill moved the window's focus to \(content.focus.state.pane ?? "-")")
@@ -55,6 +63,10 @@ struct ReservedWorkspaceKeepsFocusTests {
             }
             #expect(ran(screen), "the focused terminal did not get the typed line after the refill; its screen: \(screen.debugDescription)")
         }
+    }
+
+    private static func descendants(of view: NSView) -> [NSView] {
+        [view] + view.subviews.flatMap { descendants(of: $0) }
     }
 
     /// A new terminal pane (a split, as a person's Ctrl-D), focused with the keyboard in it.

@@ -16,9 +16,11 @@ nonisolated struct PaletteNavigationGroup: Hashable {
 /// Go to Workspace's group, pane and tab entries (pure; the tests call it).
 /// Panes are listed only in a workspace with more than one: a lone pane is its workspace, as is a
 /// lone tab (not in a Home, `WorkspaceModel.isAnyHome`). Tabs closing now are left out, as in Search Tabs.
+/// `workspaceNames` holds the names the sidebar shows, by workspace id; a workspace not in it reads by its own name.
 nonisolated enum PaletteNavigationEntries {
     static func entries(_ topology: ControlTopology, groups: [PaletteNavigationGroup], lastActive: [String: Date],
-                        closing: Set<String> = [], sidebarRanks: [String: Int] = [:]) -> [PaletteNavigationEntry] {
+                        closing: Set<String> = [], workspaceNames: [String: String] = [:],
+                        sidebarRanks: [String: Int] = [:]) -> [PaletteNavigationEntry] {
         var groupOfWorkspace: [String: String] = [:]
         var entries: [PaletteNavigationEntry] = groups.map { group in
             for workspace in group.workspaceIDs where groupOfWorkspace[workspace] == nil { groupOfWorkspace[workspace] = group.name }
@@ -28,6 +30,7 @@ nonisolated enum PaletteNavigationEntries {
         let focus = topology.focus
         for workspace in topology.workspaces {
             let groupTitle = groupOfWorkspace[workspace.id]
+            let workspaceTitle = workspaceNames[workspace.id] ?? workspace.name // as its sidebar row shows it, so a repeat is told
             let panes = workspace.panes
             let folds = workspace.kind != "home" && !panes.contains { $0.tabs.first?.page == "home-dock" } // window Home (homeDockPage)
                 && workspace.panes.flatMap(\.tabs).count { !closing.contains($0.id) } == 1
@@ -36,14 +39,14 @@ nonisolated enum PaletteNavigationEntries {
                 if panes.count > 1, workspace.kind != "home" {
                     let selected = tabs.first { $0.id == pane.selectedTabID } ?? tabs.first
                     entries.append(PaletteNavigationEntry(
-                        id: pane.id, kind: .pane, title: pane.name ?? selected?.title ?? "", workspaceTitle: workspace.name, workspaceID: workspace.id,
+                        id: pane.id, kind: .pane, title: pane.name ?? selected?.title ?? "", workspaceTitle: workspaceTitle, workspaceID: workspace.id,
                         groupTitle: groupTitle, cwd: selected?.cwd, keywords: tabs.map(\.title), isCurrent: pane.id == focus.paneID,
                         lastUsed: tabs.compactMap { lastActive[$0.id] }.max(), machineID: workspace.machine,
                         sidebarRank: sidebarRanks[workspace.id]))
                 }
                 for tab in tabs where !folds {
                     entries.append(PaletteNavigationEntry(
-                        id: tab.id, kind: .tab(kind(of: tab)), title: tab.title, workspaceTitle: workspace.name, workspaceID: workspace.id,
+                        id: tab.id, kind: .tab(kind(of: tab)), title: tab.title, workspaceTitle: workspaceTitle, workspaceID: workspace.id,
                         groupTitle: groupTitle,
                         cwd: tab.cwd, url: tab.url, agent: tab.agent, sessionID: sessionID(of: tab), isCurrent: tab.id == focus.tabID,
                         lastUsed: lastActive[tab.id], sidebarRank: sidebarRanks[workspace.id]))
@@ -62,18 +65,6 @@ nonisolated enum PaletteNavigationEntries {
     }
 
     static func kind(of tab: ControlTabInfo) -> PaletteNavigationEntry.TabKind {
-        if tab.agentSessionID != nil { return .agentChat }
-        switch tab.page {
-        case "markdown": return .markdown
-        case "editor": return .file
-        case .some: return .page
-        case nil: break
-        }
-        switch tab.kind {
-        case "terminal": return .terminal
-        case "browser": return .browser
-        case "remote-terminal": return .remoteTerminal
-        default: return .other
-        }
+        PaletteNavigationEntry.TabKind(kind: tab.kind, page: tab.page, isAgentChat: tab.agentSessionID != nil)
     }
 }

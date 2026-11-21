@@ -195,6 +195,12 @@ fn scripts_files_and_env_names_never_values() {
     );
     assert_eq!(app.worktreeinclude, [".env", ".env.local"]);
     assert_eq!(app.env_names, ["API_KEY"]);
+    // What the import saves as the project's worktree recipe, in cmux's shape.
+    let recipe = app.recipe.as_ref().expect("a recipe");
+    assert_eq!(recipe.setup, app.setup);
+    assert_eq!(recipe.teardown.as_deref(), Some("rm -rf node_modules"));
+    assert_eq!(recipe.run.as_deref(), Some("PORT=$CONDUCTOR_PORT bun dev"));
+    assert_eq!(recipe.include, [".env", ".env.local"]);
     assert!(app.notes.iter().any(|n| n.code == "not-imported" && n.detail == "spotlight_testing"));
     let json = serde_json::to_string(&plan).unwrap();
     assert!(!json.contains("sk-live-do-not-copy"), "an env value leaked into the plan");
@@ -206,6 +212,7 @@ fn existing_worktreeinclude_lines_are_not_repeated() {
     std::fs::write(f.repo.join(".worktreeinclude"), ".env\n").unwrap();
     let plan = dry_run(&f, &Ledger::new(), &BTreeSet::new());
     assert_eq!(plan.projects[0].worktreeinclude, [".env.local"]);
+    assert_eq!(plan.projects[0].recipe.as_ref().unwrap().include, [".env.local"]);
 }
 
 #[test]

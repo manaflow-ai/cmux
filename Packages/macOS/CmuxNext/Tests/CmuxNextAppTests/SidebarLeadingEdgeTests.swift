@@ -6,8 +6,9 @@ import Testing
 
 /// Lawrence msg 19643 ("left alignment here is bad", screenshot of the sidebar's top): the pins, Home's house and a
 /// favicon started 1 to 5 pt right of the text-only titles ("Stripe…", "Pinning…"), each glyph centered in the 16 pt
-/// icon column at its own ink width, so the left edge was ragged in three places. The look contract: every row's
-/// first ink (a pin, Home's glyph, a favicon, an emoji, a symbol, or a text-only title) starts at the row inset; every
+/// icon column at its own ink width, so the left edge was ragged in three places. The look contract: every workspace
+/// row's first ink (a favicon, an emoji, a symbol, or a text-only title) starts at the row inset, while Home's glyph and
+/// the pins center in the icon column (https://github.com/manaflow-ai/cmux/issues/38061); every
 /// icon column box has one x and one width; a title after a leading glyph starts at one text x. A text-only row keeps
 /// its title at the inset (Lawrence msg 11405, `SidebarLookContractTests.titlesStartAsFarLeftAsTheRowAllows`).
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarLeadingEdgeTests {
@@ -63,7 +64,7 @@ import Testing
         metrics.trailingTrim = SidebarStyle.rowTrailingTrim
         list.blocks = SidebarListBlocks(sections: [top.id.rawValue: top, pinned.id.rawValue: pinned], infos: infos, collapsed: [],
                                         look: .quiet, metrics: metrics, drawsLines: false, appHeights: [:])
-        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: width, height: 800), styleMask: [.borderless],
+        let window = TwoXWindow(contentRect: NSRect(x: 100, y: 100, width: width, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         let root = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 800))
@@ -103,11 +104,13 @@ import Testing
 
     /// The row inset: where a text-only workspace row's title starts, in list points.
     static func inset(_ list: SidebarListView) throws -> CGFloat {
-        list.frame(for: try #require(list.displayed.row(for: .workspace(stripe)))).minX + SidebarStyle.horizontalInset
+        list.frame(for: try #require(list.displayed.row(for: .workspace(stripe)))).minX + SidebarStyle.contentInset
     }
 
-    /// Every row's first ink starts at the row inset: the pins, Home's glyph, each workspace icon, and the text-only
-    /// titles ("Stripe…", "Pinning…").
+    /// Every row's first ink starts at the row inset: Home's house, each workspace icon and the text-only
+    /// titles ("Stripe…", "Pinning…"). Lawrence 2026-11-09 ("home/pin icons not left aligned with 'Fix…'"): Home's glyph
+    /// and the pins centered in the icon column (#38061), so their ink started 2 to 4 pt right of the titles below.
+    /// The pin, a narrow mark, is the exception: it centers under the house (#42431, `PinnedRowsShareHomeColumnTests`).
     @Test(arguments: HomePinnedRowAlignmentTests.cases)
     func everyRowsFirstInkStartsAtTheInset(_ c: Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize) {
@@ -116,11 +119,11 @@ import Testing
             let inset = try Self.inset(list)
             var starts: [(String, CGFloat)] = []
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
-            starts.append(("Home's glyph", Self.x(list, try #require(home.glyphInkFrame, "Home drew no glyph").minX, in: home)))
-            for pin in Self.pins {
-                let row = try HomePinnedRowAlignmentTests.item(list, pin.id)
-                starts.append(("\(pin.id.rawValue)'s pin", Self.x(list, try #require(row.pinInkFrame, "no pin").minX, in: row)))
-            }
+            // Home's house stands at the rows' glyph height, a little wider than its column, spilling evenly past both edges:
+            // its column starts that spill after its ink.
+            let homeInk = try #require(home.glyphInkFrame, "Home drew no glyph")
+            let homeSpill = max(0, (homeInk.width - SidebarStyle.rowGlyphOpticalSide) / 2)
+            starts.append(("Home's glyph", Self.x(list, homeInk.minX + homeSpill, in: home)))
             for id in Self.iconRows {
                 let row = try HomePinnedRowAlignmentTests.row(list, id)
                 let ink = try #require(try Self.inkMinX(row.icon), "\(id.rawValue) drew no icon")
@@ -130,8 +133,11 @@ import Testing
                 let row = try HomePinnedRowAlignmentTests.row(list, id)
                 starts.append(("\(id.rawValue)'s title", Self.x(list, row.title.frame.minX, in: row)))
             }
+            // A glyph snaps to the window's pixel grid on its own, so on a 1x screen its ink can start one device pixel off
+            // an inset on a half point (as HomePinnedRowAlignmentTests allows).
+            let pixel = max(Self.tolerance, 1 / max(1, window.backingScaleFactor))
             for (name, x) in starts {
-                #expect(abs(x - inset) <= Self.tolerance, "\(c.testDescription): \(name) starts at \(x), the row inset is \(inset)")
+                #expect(abs(x - inset) <= pixel, "\(c.testDescription): \(name) starts at \(x), the row inset is \(inset)")
             }
         }
     }

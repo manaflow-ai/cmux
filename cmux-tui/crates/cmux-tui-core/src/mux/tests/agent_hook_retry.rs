@@ -689,3 +689,42 @@ fn sessionless_legacy_hook_identity_survives_restart() {
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// A projected hook's retry row was deleted in a commit of its own on the
+/// request thread, after the journal writer's batch had committed the hook:
+/// under the registry lock, waiting for the writer's connection between its
+/// batches. With 16 threads of hooks that one commit halved the hook rate
+/// (agent_hook_ingress_throughput_probe, aws-m4pro-6: 800-1050 hooks/s with
+/// it, 1540-2540 without). The clear rides the writer's next batch, which the
+/// request waits for, so the row is still gone when the hook answers.
+#[test]
+fn a_projected_hooks_retry_row_is_cleared_in_the_writer_batch() {
+    const HOOKS: usize = 12;
+    let root = std::env::temp_dir()
+        .join(format!("cmux-hook-clear-batch-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = open_persistent_test_mux("hook-clear-batch", &root);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    let before = WorkspaceRegistry::agent_hook_clears_own_commit_for_test();
+    for index in 0..HOOKS {
+        let event = if index % 2 == 0 { "PreToolUse" } else { "PostToolUse" };
+        append_journal_hook(&mux, &terminal_id, event, Some("clear-batch"));
+        assert!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .pending_agent_hook_projections()
+                .unwrap()
+                .is_empty(),
+            "hook {index} answered with its retry row still pending"
+        );
+    }
+    let own_commits = WorkspaceRegistry::agent_hook_clears_own_commit_for_test() - before;
+    assert_eq!(
+        own_commits, 0,
+        "{own_commits} of {HOOKS} projected hooks cleared their retry row in a commit of its own"
+    );
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
+}

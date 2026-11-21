@@ -30,6 +30,8 @@ fn config(root: &Path) -> Config {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["python3", fake]}},
         "defaultHarness": "fake",
+        // A failed turn's held prompts wait for Resume (`queue.rs` `waits_for_resume`).
+        "autoResumeDelaysMs": [],
         "webRoots": [root],
         "webAskingModes": {"fake": ["normal"]},
     }))
@@ -155,7 +157,9 @@ async fn lying_peer(session_id: &str) -> (u16, mpsc::UnboundedReceiver<String>) 
             let id = session_id.clone();
             let calls = calls.clone();
             tokio::spawn(async move {
-                while let Some(Ok(Ws::Text(text))) = ws.next().await {
+                // Non-text frames (the client's pings, #38015) are not requests: skip them.
+                while let Some(Ok(frame)) = ws.next().await {
+                    let Ws::Text(text) = frame else { continue };
                     let Ok(Message::Request { id: request_id, method: m, .. }) =
                         Message::parse(&text)
                     else {
@@ -197,7 +201,9 @@ async fn event_peer(session_id: &str) -> u16 {
             let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
             let id = session_id.clone();
             tokio::spawn(async move {
-                while let Some(Ok(Ws::Text(text))) = ws.next().await {
+                // Non-text frames (the client's pings, #38015) are not requests: skip them.
+                while let Some(Ok(frame)) = ws.next().await {
+                    let Ws::Text(text) = frame else { continue };
                     let Ok(Message::Request { id: request_id, method: m, .. }) =
                         Message::parse(&text)
                     else {

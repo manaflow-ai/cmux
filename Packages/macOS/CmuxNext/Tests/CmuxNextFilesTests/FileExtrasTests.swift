@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextFiles
@@ -88,7 +89,7 @@ struct FileExtrasTests {
     /// main thread; the reader names each volume by the thread it ran on.
     @MainActor
     @Test func sidebarReadsVolumesOffTheMainThread() async throws {
-        let defaults = try #require(UserDefaults(suiteName: "cmux-files-tests-\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "cmux-files-tests-\(UUID().uuidString)"))
         let sidebar = SidebarModel(home: URL(fileURLWithPath: "/Users/me"), defaults: defaults, volumes: {
             [SidebarVolume(url: URL(fileURLWithPath: "/"), name: pthread_main_np() != 0 ? "main" : "background",
                            isEjectable: false)]
@@ -99,7 +100,7 @@ struct FileExtrasTests {
 
     @MainActor
     @Test func sidebarKeepsUserFavoritesInOrder() async throws {
-        let defaults = try #require(UserDefaults(suiteName: "cmux-files-tests-\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "cmux-files-tests-\(UUID().uuidString)"))
         let home = URL(fileURLWithPath: "/Users/me")
         let volumes = [SidebarVolume(url: URL(fileURLWithPath: "/"), name: "Macintosh HD", isEjectable: false),
                        SidebarVolume(url: URL(fileURLWithPath: "/Volumes/USB"), name: "USB", isEjectable: true)]

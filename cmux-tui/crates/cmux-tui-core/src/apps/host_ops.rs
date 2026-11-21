@@ -18,8 +18,8 @@
 //!   answers `host.error` `apps.socket_dir_unsafe`. Needs server scope `op:cmux.host.link.get` and a
 //!   first-party app, else `host.error` `apps.scope_missing`.
 //! - `cmux.credential.relay` as a `host.request` answers `host.error`
-//!   `unavailable`: the relay is served for the server's `relay.op` and
-//!   `relay.session` lines (`relay.rs`), which the scope
+//!   `unavailable`: the relay is served for the server's `relay.op`,
+//!   `relay.session` and `relay.carrier` lines (`relay.rs`), which the scope
 //!   `op:cmux.credential.relay` allows; no user credential enters the daemon.
 //! - Any other `cmux.host.*` op answers `host.error` `apps.op.unknown`.
 

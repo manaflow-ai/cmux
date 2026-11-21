@@ -1,184 +1,134 @@
 //! [`CarrierSpawner`]: the real link of one machine. It owns the machine's
 //! local socket (the carrier the Mac client, ports and the browser proxy
-//! dial) and runs one `cmux link dial --host <host_…>` child per accepted
-//! connection, splicing the connection to the child's stdin and stdout
-//! (super::dial is the only place that knows that seam).
+//! dial) and carries each accepted connection over one connection to the
+//! Mac app's carrier socket of that machine (super::dial is the only place
+//! that knows that seam). It starts no process.
 //!
 //! Ready: the carrier reports `carrier-ready` as soon as it listens (the
-//! readiness check before it is a `connect_info` read, super::info). Each
-//! stream is one dial and one fresh link token inside `cmux link`
-//! (contract 1.7). A stream refused with `unknown_host`, `not_authorized`
-//! or `host_paused` reports `dial-failed` with the typed code and the
-//! supervisor ends the generation. An `unreachable` dial also ends the
-//! generation, so a listening carrier never stays ready after its path failed.
+//! readiness check before it is a `connect_info` read, super::info, and the
+//! app's answer of its carrier socket, super::ops). Each stream is one
+//! carrier dial inside the app's `cmux carrier serve`, with a fresh grant.
+//! When the app's socket no longer accepts (its serve child ended: sign-out,
+//! the session closed, the app quit) the stream reports `dial-failed`
+//! `unreachable` and the supervisor ends the generation, so the next connect
+//! asks the app for its socket again. A dial the app's carrier refuses
+//! closes that connection having written nothing: the client sees end of
+//! stream (the app shows the refusal).
 //!
 //! Events go to the supervisor only through [`LinkEvents`]: no timer, no
-//! polling. Every child is started by this carrier and only those children
-//! are ended by it (by their own handles, never by name or pattern).
+//! polling. Every stream this carrier opened is shut down on terminate, by
+//! its own handle.
 
 use super::argv::{LinkCommand, dial_failed_line, ready_line};
-use super::dial::{DialCode, DialReply, MAX_REPLY_BYTES, Refusal, parse_reply};
+use super::dial::DialCode;
 use super::spawner::{LinkEvents, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag};
 use crate::app_env::private_dir;
-use std::io::{BufRead as _, BufReader, Read as _, Write as _};
+use std::io::Write as _;
 use std::os::unix::fs::MetadataExt as _;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-/// Streams (dialing or carrying) at once per machine; more connections
-/// are closed at once (the client sees end of stream and may retry).
+/// Streams at once per machine; more connections are closed at once (the
+/// client sees end of stream and may retry). The app's serve has the same cap.
 const MAX_STREAMS: usize = 64;
 
 /// The real spawner: one carrier per link generation.
 pub struct CarrierSpawner;
 
-/// The children of one carrier (or of one file op), so `terminate` (or a
-/// deadline) ends exactly them, by their own handles.
-pub(crate) type Children = Arc<Mutex<Vec<Arc<Mutex<Child>>>>>;
+/// The upstream connections of one carrier (or of one file op), so
+/// `terminate` (or a deadline) ends exactly them, by their own handles.
+pub(crate) type Streams = Arc<Mutex<StreamSet>>;
+
+/// Each open upstream connection's handle under the key it was given when
+/// opened. A socket's (device, inode) is no key: macOS reports 0 for both on
+/// every socket, so ending one stream would forget them all.
+#[derive(Default)]
+pub(crate) struct StreamSet {
+    next: u64,
+    open: std::collections::HashMap<u64, UnixStream>,
+}
+
+/// The key of one stream in its [`StreamSet`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct StreamKey(u64);
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// The stages a stream reached, for a test's failure message: kinds and byte
-/// counts only, never a payload. Compiled out of the server.
-#[cfg(test)]
-static STAGES: Mutex<Vec<String>> = Mutex::new(Vec::new());
-
-macro_rules! stage {
-    ($($arg:tt)*) => {
-        #[cfg(test)]
-        lock(&STAGES).push(format!($($arg)*));
+/// Opens one connection to the app's carrier socket `upstream` and records
+/// a handle of it in `streams`, so a terminate or a deadline can end it.
+/// A socket that does not accept is [`DialCode::Unreachable`] with the
+/// error's kind as its detail.
+pub(crate) fn open_upstream(
+    upstream: &Path,
+    streams: &Streams,
+) -> Result<(UnixStream, StreamKey), super::dial::Refusal> {
+    let refused = |why: String| super::dial::Refusal {
+        code: DialCode::Unreachable,
+        detail: super::dial::clip_detail(&why),
     };
+    if !upstream.is_absolute() {
+        return Err(refused("the app's carrier socket is not an absolute path".into()));
+    }
+    let stream = UnixStream::connect(upstream).map_err(|e| {
+        refused(format!("the cmux app's carrier socket did not accept ({:?})", e.kind()))
+    })?;
+    let handle = stream
+        .try_clone()
+        .map_err(|e| refused(format!("the carrier stream has no handle ({:?})", e.kind())))?;
+    let mut set = lock(streams);
+    set.next += 1;
+    let key = StreamKey(set.next);
+    set.open.insert(key.0, handle);
+    Ok((stream, key))
 }
 
-/// A copy's result as a stage says it: its byte count or its error's kind.
-#[cfg(test)]
-fn copied(result: &std::io::Result<u64>) -> String {
-    match result {
-        Ok(bytes) => format!("{bytes} bytes"),
-        Err(e) => format!("error {:?}", e.kind()),
+/// Ends one upstream connection and forgets its handle (only its own).
+pub(crate) fn end_stream(stream: &UnixStream, key: StreamKey, streams: &Streams) {
+    let _ = stream.shutdown(std::net::Shutdown::Both);
+    lock(streams).open.remove(&key.0);
+}
+
+/// Ends every upstream connection in `streams` (a terminate or a deadline).
+pub(crate) fn end_all(streams: &Streams) {
+    for (_, stream) in lock(streams).open.drain() {
+        let _ = stream.shutdown(std::net::Shutdown::Both);
     }
 }
 
-/// A dial child after its `ok` reply line: stdin and stdout carry the
-/// daemon stream. The child stays in its `Children` list until
-/// [`end_child`].
-pub(crate) struct Dialed {
-    pub(crate) child: Arc<Mutex<Child>>,
-    pub(crate) stdin: ChildStdin,
-    pub(crate) stdout: ChildStdout,
-}
-
-/// Starts `binary args` (one `cmux link dial`) with exactly `env`, records
-/// it in `children` BEFORE it reads the reply line (so a terminate or a
-/// deadline can end a dial that hangs), and reads its reply line from
-/// stderr. The rest of its stderr goes to this server's stderr (the host's
-/// log); the dial writes no credential there. A refused or broken dial is
-/// ended before this returns.
-pub(crate) fn open_dial(
-    binary: &Path,
-    args: &[String],
-    env: &[(String, String)],
-    children: &Children,
-) -> Result<Dialed, Refusal> {
-    if !binary.is_absolute() {
-        return Err(DialCode::Unavailable("the link binary is not an absolute path".into()).into());
-    }
-    let mut process = Command::new(binary);
-    process.args(args).env_clear();
-    process.envs(env.iter().map(|(k, v)| (k, v)));
-    let mut child = process
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| {
-            Refusal::from(DialCode::Unavailable(format!("cmux link dial did not start: {e}")))
-        })?;
-    let pipes = (child.stdin.take(), child.stdout.take(), child.stderr.take());
-    let child = Arc::new(Mutex::new(child));
-    lock(children).push(Arc::clone(&child));
-    let (Some(stdin), Some(stdout), Some(stderr)) = pipes else {
-        end_child(&child, children);
-        return Err(DialCode::Unavailable("cmux link dial has no pipes".into()).into());
-    };
-    let mut stderr = BufReader::new(stderr);
-    let mut line = Vec::new();
-    let read = (&mut stderr).take(MAX_REPLY_BYTES as u64).read_until(b'\n', &mut line);
-    let reply = match read {
-        Ok(_) => parse_reply(&String::from_utf8_lossy(&line)),
-        Err(e) => DialReply::Refused(DialCode::Unavailable(format!("cmux link dial: {e}")).into()),
-    };
-    // Drain the rest of stderr so the child never blocks on a full pipe.
-    let _ = std::thread::Builder::new().name("cmux-link-dial-stderr".into()).spawn(move || {
-        let _ = std::io::copy(&mut stderr, &mut std::io::stderr());
-    });
-    stage!("dial reply parsed: {}", if matches!(reply, DialReply::Connected { .. }) { "connected" } else { "refused" });
-    match reply {
-        DialReply::Connected { .. } => Ok(Dialed { child, stdin, stdout }),
-        DialReply::Refused(refusal) => {
-            end_child(&child, children);
-            Err(refusal)
-        }
-    }
-}
-
-/// Ends one child this server started and forgets it.
-pub(crate) fn end_child(child: &Arc<Mutex<Child>>, children: &Children) {
-    {
-        let mut child = lock(child);
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-    lock(children).retain(|c| !Arc::ptr_eq(c, child));
-}
-
-/// Ends every child in `children` (a terminate or a deadline).
-pub(crate) fn end_all(children: &Children) {
-    let all: Vec<_> = lock(children).drain(..).collect();
-    for child in all {
-        let mut child = lock(&child);
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-}
-
-/// Carries one local connection over one dial; returns when both sides end.
-fn splice(connection: UnixStream, dialed: Dialed, children: &Children) {
-    let Dialed { child, mut stdin, mut stdout } = dialed;
-    let Ok(mut upload_from) = connection.try_clone() else {
-        end_child(&child, children);
+/// Carries one local connection over one upstream connection; returns when
+/// both sides end.
+fn splice(connection: UnixStream, upstream: UnixStream, key: StreamKey, streams: &Streams) {
+    let (Ok(mut upload_from), Ok(mut upload_to)) = (connection.try_clone(), upstream.try_clone())
+    else {
+        end_stream(&upstream, key, streams);
         return;
     };
     let upload = std::thread::Builder::new().name("cmux-link-up".into()).spawn(move || {
-        let _up = pump(&mut upload_from, &mut stdin);
-        stage!("upload ended: {}", copied(&_up));
-        // Dropping stdin tells the dial the client is done writing.
+        let _ = pump(&mut upload_from, &mut upload_to);
+        // The client is done writing: tell the app's carrier.
+        let _ = upload_to.shutdown(std::net::Shutdown::Write);
     });
     let Ok(upload) = upload else {
         // No upload, no stream: the client sees end of stream, never a half-open one.
-        stage!("upload worker did not spawn");
-        end_child(&child, children);
+        end_stream(&upstream, key, streams);
         return;
     };
-    stage!("upload worker spawned");
+    let mut download_from = upstream;
     let mut download_to = connection;
-    let _down = pump(&mut stdout, &mut download_to);
-    stage!("download ended: {}", copied(&_down));
+    let _ = pump(&mut download_from, &mut download_to);
     let _ = download_to.flush();
     let _ = download_to.shutdown(std::net::Shutdown::Both);
-    end_child(&child, children);
+    end_stream(&download_from, key, streams);
     let _ = upload.join();
 }
 
 /// Copies `from` to `to` until `from` ends, writing each read at once: a
-/// plain read and write loop, never `std::io::copy`, whose Linux fast path
-/// may splice a socket into the dial's pipe and hold a short line (one
-/// `identify`) back. Returns the bytes copied, or the first error.
+/// plain read and write loop, so a short line (one `identify`) is never
+/// held back. Returns the bytes copied, or the first error.
 fn pump(from: &mut impl std::io::Read, to: &mut impl std::io::Write) -> std::io::Result<u64> {
     let mut buffer = [0u8; 16 * 1024];
     let mut total = 0u64;
@@ -208,7 +158,7 @@ struct Carrier {
     stop: Arc<AtomicBool>,
     socket: PathBuf,
     bound: Option<FileId>,
-    children: Children,
+    streams: Streams,
 }
 
 impl LinkProcess for Carrier {
@@ -227,7 +177,7 @@ impl LinkProcess for Carrier {
         if self.bound.is_some() && file_id(&self.socket) == self.bound {
             let _ = std::fs::remove_file(&self.socket);
         }
-        end_all(&self.children);
+        end_all(&self.streams);
     }
 }
 
@@ -244,8 +194,8 @@ impl LinkSpawner for CarrierSpawner {
         command: &LinkCommand,
         events: LinkEvents,
     ) -> std::io::Result<Box<dyn LinkProcess>> {
-        if !command.binary.is_absolute() {
-            return Err(std::io::Error::other("the link binary is not an absolute path"));
+        if !command.upstream.is_absolute() {
+            return Err(std::io::Error::other("the app's carrier socket is not an absolute path"));
         }
         private_dir(&command.state_dir)?;
         if let Some(dir) = command.local_socket.parent() {
@@ -264,13 +214,13 @@ impl LinkSpawner for CarrierSpawner {
             stop: Arc::clone(&stop),
             socket: command.local_socket.clone(),
             bound: file_id(&command.local_socket),
-            children: Arc::default(),
+            streams: Arc::default(),
         };
-        let children = Arc::clone(&carrier.children);
+        let streams = Arc::clone(&carrier.streams);
         let command = command.clone();
         std::thread::Builder::new().name(format!("cmux-link-{}", tag.machine)).spawn(
             move || {
-                run(&tag, &command, &listener, &stop, &children, &events);
+                run(&tag, &command, &listener, &stop, &streams, &events);
                 let _ = events.send(LinkProcessEvent::Exited { tag, code: Some(0) });
             },
         )?;
@@ -287,30 +237,16 @@ impl Drop for StreamSlot {
     }
 }
 
-/// A refusal that ends the link generation: the machine is gone, access
-/// ended, it is paused (the next connect starts it), or its path is
-/// unreachable. A retry opens a new generation; transient malformed or
-/// unavailable replies still end only the stream.
-fn ends_generation(code: &DialCode) -> bool {
-    matches!(
-        code,
-        DialCode::UnknownHost
-            | DialCode::NotAuthorized
-            | DialCode::HostPaused
-            | DialCode::Unreachable
-    )
-}
-
-/// The carrier's life: ready as soon as it listens (no dial: a dial mints
-/// a link token, one per real connection), then one dial per accepted
-/// connection until `stop`. An accept error ends the carrier (the link
-/// goes down; the next connect opens a new one) instead of spinning.
+/// The carrier's life: ready as soon as it listens, then one upstream
+/// connection per accepted connection until `stop`. An accept error ends
+/// the carrier (the link goes down; the next connect opens a new one)
+/// instead of spinning.
 fn run(
     tag: &LinkTag,
     command: &LinkCommand,
     listener: &UnixListener,
     stop: &Arc<AtomicBool>,
-    children: &Children,
+    streams: &Streams,
     events: &LinkEvents,
 ) {
     let ready =
@@ -335,29 +271,26 @@ fn run(
             continue; // dropping the connection closes it
         }
         let slot = StreamSlot(Arc::clone(&active));
-        let command = command.clone();
-        let children = Arc::clone(children);
+        let upstream = command.upstream.clone();
+        let streams = Arc::clone(streams);
         let events = events.clone();
         let tag = tag.clone();
         let stop = Arc::clone(stop);
         let _ = std::thread::Builder::new().name("cmux-link-stream".into()).spawn(move || {
             let _slot = slot;
-            match open_dial(&command.binary, &command.args, &command.env, &children) {
-                // A terminate that came while the dial opened: never serve it.
-                Ok(dialed) if stop.load(Ordering::SeqCst) => end_child(&dialed.child, &children),
-                Ok(dialed) => splice(connection, dialed, &children),
-                // The client sees end of stream. A refusal that ends access
-                // finds the machine paused, or cannot reach it goes to the supervisor, typed.
-                Err(refusal) if ends_generation(&refusal.code) => {
+            match open_upstream(&upstream, &streams) {
+                // A terminate that came while the stream opened: never serve it.
+                Ok((stream, key)) if stop.load(Ordering::SeqCst) => {
+                    end_stream(&stream, key, &streams);
+                }
+                Ok((stream, key)) => splice(connection, stream, key, &streams),
+                // The app's carrier is gone: the generation ends, typed, and
+                // the next connect asks the app again. The client sees end
+                // of stream.
+                Err(refusal) => {
                     let line = dial_failed_line(&refusal.code, refusal.detail.as_deref());
                     let _ = events.send(LinkProcessEvent::Line { tag, line });
                 }
-                Err(refusal) => eprintln!(
-                    "cmux-cloud: a stream to {} was refused: {}{}",
-                    tag.machine,
-                    refusal.code.as_str(),
-                    refusal.detail.map(|d| format!(" ({d})")).unwrap_or_default()
-                ),
             }
         });
     }
@@ -367,19 +300,57 @@ fn run(
 mod tests {
     use super::*;
     use crate::link::{LinkState, LinkSupervisor};
+    use std::io::{BufRead as _, BufReader};
     use std::sync::mpsc::channel;
     use std::time::Duration;
 
+    fn root(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("cc-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&root).expect("this test's folder");
+        root
+    }
+
     #[test]
-    fn an_unreachable_dial_ends_the_ready_generation_and_can_be_retried() {
-        let root = std::env::temp_dir().join(format!("cc-unreachable-{}", std::process::id()));
+    fn a_stream_is_spliced_to_the_apps_carrier_socket() {
+        let root = root("splice");
+        // The app's `carrier serve`: echoes each line it gets.
+        let upstream = root.join("serve.sock");
+        let serve = UnixListener::bind(&upstream).expect("the fake serve listens");
+        std::thread::spawn(move || {
+            for connection in serve.incoming().flatten() {
+                std::thread::spawn(move || {
+                    let mut writer = connection.try_clone().expect("clone");
+                    for line in BufReader::new(connection).lines().map_while(Result::ok) {
+                        let _ = writeln!(writer, "echo {line}");
+                    }
+                });
+            }
+        });
         let command = LinkCommand {
-            binary: PathBuf::from("/bin/sh"),
-            args: vec![
-                "-c".into(),
-                r#"printf '%s\n' '{"ok":false,"error_code":"unreachable","error_detail":"connect_info: cloud.machine.not_bound"}' >&2"#.into(),
-            ],
-            env: vec![],
+            upstream,
+            state_dir: root.join("state"),
+            local_socket: root.join("carrier.sock"),
+        };
+        let mut supervisor = LinkSupervisor::new(Box::new(CarrierSpawner));
+        let carrier = supervisor.spawn_and_wait("vm-test", &command).expect("carrier listens");
+        let mut stream = UnixStream::connect(&carrier.socket).expect("a carrier stream");
+        stream.set_read_timeout(Some(Duration::from_secs(5))).expect("bounded read");
+        writeln!(stream, "{{\"cmd\":\"identify\",\"id\":1}}").expect("write");
+        let mut answer = String::new();
+        BufReader::new(stream.try_clone().expect("clone"))
+            .read_line(&mut answer)
+            .expect("the app's carrier answers");
+        assert_eq!(answer, "echo {\"cmd\":\"identify\",\"id\":1}\n");
+        supervisor.disconnect("vm-test");
+        std::fs::remove_dir_all(root).expect("remove this test's private files");
+    }
+
+    #[test]
+    fn a_gone_app_socket_ends_the_ready_generation_and_can_be_retried() {
+        let root = root("gone");
+        let command = LinkCommand {
+            // Nothing listens here: the app's serve child ended.
+            upstream: root.join("serve.sock"),
             state_dir: root.join("state"),
             local_socket: root.join("carrier.sock"),
         };
@@ -391,7 +362,7 @@ mod tests {
         let carrier = supervisor.spawn_and_wait("vm-test", &command).expect("carrier listens");
         let connection = UnixStream::connect(&carrier.socket).expect("open a real carrier stream");
         // The ready wake may still be queued. Every next wake is bounded;
-        // no sleep or poll is needed to observe the refused dial.
+        // no sleep or poll is needed to observe the refused stream.
         for _ in 0..3 {
             woke.recv_timeout(Duration::from_secs(5)).expect("carrier event");
             supervisor.pump();
@@ -403,9 +374,9 @@ mod tests {
         assert!(matches!(
             supervisor.state("vm-test"),
             Some(LinkState::Down { retryable: true, reason })
-                if reason == "cmux link refused the dial: unreachable (connect_info: cloud.machine.not_bound)"
+                if reason.contains("unreachable") && reason.contains("did not accept")
         ));
-        assert!(supervisor.carrier("vm-test").is_none(), "a refused dial is not a ready link");
+        assert!(supervisor.carrier("vm-test").is_none(), "a refused stream is not a ready link");
         drop(connection);
         let retry = supervisor.spawn_and_wait("vm-test", &command).expect("retry is allowed");
         assert_ne!(retry.generation, carrier.generation);
@@ -413,137 +384,54 @@ mod tests {
         std::fs::remove_dir_all(root).expect("remove this test's private files");
     }
 
-    /// A second stream whose dial child is slow (an overlay dial plus a token mint, each within its own limit) leaves a
-    /// caller that budgets its first answer (cmux-tui's `identify`: 5 s) with nothing within that budget, while the stream
-    /// already open keeps answering. Each accepted connection is its own `cmux link dial`, so the caller's budget runs from
-    /// before the carrier even starts that dial. Budgets here are a tenth: 400 ms for the caller, 1 s for the dial child.
-    /// The child is the carrier's to end: a terminate ends the one still dialing.
     #[test]
-    fn a_slow_dial_of_a_second_stream_runs_past_its_callers_budget_while_the_first_stays_up() {
-        let root = std::env::temp_dir().join(format!("cc-slow-dial-{}", std::process::id()));
-        std::fs::create_dir_all(&root).expect("this test's folder");
-        // The first dial answers at once; each later one takes 1 s. Every dial then echoes its stream (a daemon that answers).
-        // Right after its reply it writes "up N" (its stdout reaches the client), and it marks "inN" once its first stdin line
-        // came (the client's bytes reached it), so a stream that does not answer says which way it stopped.
-        let script = r#"n=0; [ -f "$1/n" ] && read n < "$1/n"; echo $((n + 1)) > "$1/n"; echo $$ > "$1/pid$n"
-[ "$n" -gt 0 ] && /bin/sleep 1
-printf '%s\n' '{"ok":true,"path_state":"direct"}' >&2
-printf 'up %s\n' "$n"
-IFS= read -r line; : > "$1/in$n"; printf '%s\n' "$line"
-exec /bin/cat"#;
+    fn a_terminate_ends_the_streams_it_opened() {
+        let root = root("terminate");
+        let upstream = root.join("serve.sock");
+        let serve = UnixListener::bind(&upstream).expect("the fake serve listens");
+        let (accepted, held) = channel();
+        std::thread::spawn(move || {
+            for connection in serve.incoming().flatten() {
+                let _ = accepted.send(connection);
+            }
+        });
         let command = LinkCommand {
-            binary: PathBuf::from("/bin/sh"),
-            args: vec![
-                "-c".into(),
-                script.into(),
-                "sh".into(),
-                root.to_string_lossy().into_owned(),
-            ],
-            env: vec![],
+            upstream,
             state_dir: root.join("state"),
             local_socket: root.join("carrier.sock"),
         };
-        // The dial child alone, with no carrier (its own folder, so the carrier's count starts at 0): it replies
-        // on stderr and echoes stdin. If this holds and the carrier's stream below does not answer, the carrier is why.
-        let alone = root.join("alone");
-        std::fs::create_dir_all(&alone).expect("the self-check's folder");
-        let mut child = Command::new("/bin/sh")
-            .args(["-c", script, "sh", &alone.to_string_lossy()])
-            .env_clear()
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("the dial child starts");
-        let mut reply = String::new();
-        BufReader::new(child.stderr.take().expect("stderr"))
-            .read_line(&mut reply)
-            .expect("its reply line");
-        assert_eq!(reply, "{\"ok\":true,\"path_state\":\"direct\"}\n", "the dial child's reply");
-        let mut stdout = BufReader::new(child.stdout.take().expect("stdout"));
-        let mut marker = String::new();
-        stdout.read_line(&mut marker).expect("its marker");
-        assert_eq!(marker, "up 0\n", "the dial child writes its marker");
-        child.stdin.take().expect("stdin").write_all(b"ping 0\n").expect("write to the dial child");
-        let mut echoed = String::new();
-        stdout.read_line(&mut echoed).expect("its echo");
-        assert_eq!(echoed, "ping 0\n", "the dial child echoes");
-        let _ = child.wait();
-
         let mut supervisor = LinkSupervisor::new(Box::new(CarrierSpawner));
         let carrier = supervisor.spawn_and_wait("vm-test", &command).expect("carrier listens");
-        // One line, a byte at a time: nothing past it is read, so the next read starts at the next line.
-        let line = |stream: &mut UnixStream| -> std::io::Result<String> {
-            let mut answer = Vec::new();
-            let mut byte = [0u8; 1];
-            while answer.last() != Some(&b'\n') {
-                if stream.read(&mut byte)? == 0 {
-                    break;
-                }
-                answer.push(byte[0]);
-            }
-            Ok(String::from_utf8_lossy(&answer).into_owned())
-        };
-        let ask = |stream: &mut UnixStream, text: &str| -> std::io::Result<String> {
-            stream.write_all(text.as_bytes())?;
-            line(stream)
-        };
-        let mut app = UnixStream::connect(&carrier.socket).expect("the app's stream");
-        app.set_read_timeout(Some(Duration::from_secs(5))).expect("bounded read");
-        // What the dial children left (each writes its count and pid first), for a failure's message.
-        let left = || {
-            let mut names: Vec<String> = std::fs::read_dir(&root)
-                .map(|dir| {
-                    dir.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()
-                })
-                .unwrap_or_default();
-            names.sort();
-            format!(
-                "{names:?}, n = {:?}; stages {:?}",
-                std::fs::read_to_string(root.join("n")).ok(),
-                lock(&STAGES).clone()
-            )
-        };
-        let marker = line(&mut app);
-        assert_eq!(marker.as_deref().ok(), Some("up 0\n"), "the app's dial reaches it: {marker:?}; {}", left());
-        let first = ask(&mut app, "ping 1\n");
-        assert_eq!(
-            first.as_deref().ok(),
-            Some("ping 1\n"),
-            "the app's stream answers: {first:?}; dial children left {}",
-            left()
-        );
-
-        let mut copy = UnixStream::connect(&carrier.socket).expect("the copy's stream");
-        let budget = Duration::from_millis(400);
-        copy.set_read_timeout(Some(budget)).expect("the caller's budget");
-        let started = std::time::Instant::now();
-        let silent = ask(&mut copy, "{\"cmd\":\"identify\",\"id\":1}\n")
-            .expect_err("no answer within the caller's budget");
-        assert!(
-            matches!(silent.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut),
-            "{silent}"
-        );
-        assert!(
-            started.elapsed() < Duration::from_millis(900),
-            "the budget, not the dial, ended the wait"
-        );
-        eprintln!("carrier stages: {}", left());
-        // Meanwhile the open stream never stopped answering.
-        assert_eq!(ask(&mut app, "ping 2\n").expect("the app's stream still answers"), "ping 2\n");
-
-        let first = std::fs::read_to_string(root.join("pid0")).expect("the first dial ran");
-        let slow = std::fs::read_to_string(root.join("pid1")).expect("the slow dial is running");
+        let _client = UnixStream::connect(&carrier.socket).expect("a carrier stream");
+        let mut app_side = held.recv_timeout(Duration::from_secs(5)).expect("the app accepted");
+        app_side.set_read_timeout(Some(Duration::from_secs(5))).expect("bounded read");
         supervisor.disconnect("vm-test");
-        // A terminate ended and reaped both dials, the slow one included: no child outlives the carrier.
-        for pid in [first.trim(), slow.trim()] {
-            let alive = Command::new("/bin/kill")
-                .args(["-0", pid])
-                .stderr(Stdio::null())
-                .status()
-                .expect("kill -0");
-            assert!(!alive.success(), "dial child {pid} outlived the carrier");
-        }
+        let mut byte = [0u8; 1];
+        let read = std::io::Read::read(&mut app_side, &mut byte);
+        assert!(matches!(read, Ok(0)), "the app's side sees end of stream: {read:?}");
+        std::fs::remove_dir_all(root).expect("remove this test's private files");
+    }
+
+    /// Ending one stream forgets only its own handle, whatever the sockets'
+    /// (device, inode) say (macOS reports 0 for both on every socket), so a
+    /// terminate still ends every other stream.
+    #[test]
+    fn ending_one_stream_keeps_the_others_for_a_terminate() {
+        let root = root("keys");
+        let upstream = root.join("serve.sock");
+        let serve = UnixListener::bind(&upstream).expect("the fake serve listens");
+        let streams: Streams = Arc::default();
+        let (first, first_key) = open_upstream(&upstream, &streams).expect("first");
+        let (_second, _) = open_upstream(&upstream, &streams).expect("second");
+        let (_, _) = serve.accept().expect("first accepted");
+        let (mut second_app_side, _) = serve.accept().expect("second accepted");
+        end_stream(&first, first_key, &streams);
+        assert_eq!(lock(&streams).open.len(), 1, "only the ended stream is forgotten");
+        end_all(&streams);
+        second_app_side.set_read_timeout(Some(Duration::from_secs(5))).expect("timeout");
+        let mut byte = [0u8; 1];
+        let read = std::io::Read::read(&mut second_app_side, &mut byte);
+        assert!(matches!(read, Ok(0)), "the other stream ended with the terminate: {read:?}");
         std::fs::remove_dir_all(root).expect("remove this test's private files");
     }
 }

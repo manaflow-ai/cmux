@@ -10,6 +10,14 @@ extension DaemonService {
     /// Cancels the split that shows provisional pane `handle`; false for any other pane.
     public func cancelCreation(pane handle: PaneID) -> Bool { CancelledCreationClose(daemon: self).cancel { $0.cancel(pane: handle) } }
 
+    /// Close Pane on `pane`: cancels the split that shows it when it is a provisional pane, and returns the ids of its
+    /// tabs, read before the cancel takes the pane from the records (the caller drops the keys held for them); nil for
+    /// any other pane.
+    public func cancelCreation(showing pane: PaneModel) -> [String]? {
+        let tabs = pane.tabs.map(\.id)
+        return cancelCreation(pane: pane.handle) ? tabs : nil
+    }
+
     /// Close Pane on pane `handle`, on this pane's own daemon. A stand-in pane still opening (a dock's, Cmd-N's first
     /// pane) leaves the records in this turn (``DaemonStore/intendStandInPaneClose(_:)``) and its close waits, off the
     /// key's turn, for the daemon's pane that takes it over (``DaemonStore/daemonTarget(_:)``). The close's intent
@@ -68,12 +76,16 @@ extension DaemonService {
         let batch = daemon.supports(DaemonCapability.batchClose.rawValue)
         let reason: CloseReason? = daemon.supports(DaemonCapability.closeReason.rawValue) ? .sessionEnd : nil
         let daemon = daemon
+        // The creation may not have published a tab record yet. Name that
+        // absence instead of attributing this deferred cleanup to a later action.
+        let kind = daemon.store.tab(surface: surface)?.kind.rawValue ?? "unknown"
+        let label = "close-tabs tab_kind=\(kind) entrypoint=cancelled_creation"
         let run: DaemonCommandBody = { connection in
             if batch { _ = try await connection.closeTabs([surface], endTerminals: true, reason: reason) } else { try await connection.closeTab(surface) }
         }
         // task-owner: one close of a cancelled creation's daemon tab; its failure shows what the daemon kept
         Task {
-            switch await daemon.runReportingTimeout("close-tabs (cancelled creation)", run) {
+            switch await daemon.runReportingTimeout(label, run) {
             case .succeeded:
                 break // the intent leaves once the records drop the tab
             case .failed:

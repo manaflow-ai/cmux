@@ -4,7 +4,8 @@ import { componentEntry } from "../../../gallery/format";
 import { tool } from "../../../gallery/fixtures/acpmux";
 import type { Play } from "../../../gallery/play";
 import { ToolGroupRow } from "./ToolGroupRow";
-import { resetTranscriptDisclosure, TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 const SESSION = "gallery-tool-group-expanded";
 const commands = (prefix: string, count: number) =>

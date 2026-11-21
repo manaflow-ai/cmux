@@ -5,7 +5,8 @@
 import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
-import { Notice, NoticeSlot, type NoticeTier } from "./NoticeSlot";
+import { Notice, NoticeSlot } from "./NoticeSlot";
+import { type NoticeTier } from "./noticeSlotModel";
 
 type Props = { lines: { id: string; tier: NoticeTier; text: string }[] };
 

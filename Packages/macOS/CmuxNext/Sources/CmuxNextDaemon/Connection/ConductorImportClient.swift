@@ -56,9 +56,36 @@ public struct ConductorImportPlan: Decodable, Sendable, Equatable {
         public var worktreeinclude: [String]
         public var envNames: [String]
         public var workspaces: [Workspace]
+        /// The worktree recipe the import saves on the project; nil when there is none, or the
+        /// project already has one of its own.
+        public var recipe: Recipe?
 
         enum CodingKeys: String, CodingKey {
-            case repoID = "repo_id", name, path, skipped, setup, teardown, worktreeinclude, envNames = "env_names", workspaces
+            case repoID = "repo_id", name, path, skipped, setup, teardown, worktreeinclude, envNames = "env_names", workspaces, recipe
+        }
+    }
+
+    /// A project's worktree recipe in cmux's shape (`project.update` `worktree`), and the
+    /// project it is saved on.
+    public struct Recipe: Decodable, Sendable, Equatable {
+        public var projectPath: String
+        public var setup: String?
+        public var teardown: String?
+        public var run: String?
+        public var include: [String]?
+
+        enum CodingKeys: String, CodingKey {
+            case projectPath = "project_path", setup, teardown, run, include
+        }
+
+        /// The `worktree` value `project.update` saves.
+        public var worktree: JSONValue {
+            var fields: [String: JSONValue] = [:]
+            if let setup { fields["setup"] = .string(setup) }
+            if let teardown { fields["teardown"] = .string(teardown) }
+            if let run { fields["run"] = .string(run) }
+            if let include, !include.isEmpty { fields["include"] = .array(include.map { .string($0) }) }
+            return .object(fields)
         }
     }
 
@@ -101,6 +128,14 @@ public struct ConductorImportPlan: Decodable, Sendable, Equatable {
     }
 
     /// The workspaces this run adopts, with their project.
+    /// Each imported project's worktree recipe to save, in plan order.
+    public var recipes: [(project: Project, recipe: Recipe)] {
+        projects.compactMap { project in
+            guard project.skipped == nil, let recipe = project.recipe else { return nil }
+            return (project, recipe)
+        }
+    }
+
     public var adopting: [(project: Project, workspace: Workspace)] {
         projects.filter { $0.skipped == nil }.flatMap { project in
             project.workspaces.filter { $0.checked && $0.disposition.kind == "adopt" }.map { (project, $0) }
