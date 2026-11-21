@@ -586,6 +586,10 @@ pub const WORKSPACE_SIDEBAR_PLACEMENT_CAPABILITY: &str = "workspace-sidebar-plac
 /// creator `workspace`, the agent `session`): an agent or script workspace
 /// goes below its creator; workspaces carry it as `extra.created_by`.
 pub const WORKSPACE_CREATED_BY_CAPABILITY: &str = "workspace-created-by-v1";
+/// `created_by` also names the agent's `session_name`, `host` and a one-line `purpose`, and
+/// `room.create`, `tab.create_terminal` and `tab.create_browser` take it too: a space shows it as
+/// `created_by`, a tab and a workspace as `extra.created_by` (state/created_by.rs).
+pub const CREATED_BY_DETAIL_CAPABILITY: &str = "created-by-detail-v1";
 /// `terminal.screen.read` takes `unwrap` (soft wraps joined into logical
 /// lines) and `lines` (the last N lines of scrollback and screen), and
 /// `terminal.copy` takes `unwrap`.
