@@ -48,10 +48,9 @@ pub mod redescribe;
 mod replies;
 mod reply_ledger;
 mod rights_gate;
-pub use rights_gate::RightsCtx;
-mod screen;
 pub use outcome_ledger::{UNTOLD_TAG, UNTOLD_WAIT};
 pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
+pub use rights_gate::RightsCtx;
 mod send;
 mod side;
 mod spawn_text;
@@ -712,9 +711,6 @@ pub struct Settings {
     /// (chief_inbox.rs): how another Chief on this Mac or a lane reaches it
     /// with `acpmux_send`. None: no such session (tests, a Cloud Chief).
     pub chief_inbox: Option<String>,
-    /// `$MUX_HOME/optchat/screen` (Share Screen with Chief, `screen_share.rs`):
-    /// its inbox becomes a note at each turn start. None: not read.
-    pub screen_share: Option<PathBuf>,
 }
 
 /// The longest a turn waits for view lines that are still building
