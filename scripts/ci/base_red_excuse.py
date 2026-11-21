@@ -2216,8 +2216,35 @@ def unplaced_signature(job: dict, log: str) -> UnplacedSignature:
             inside = False
         elif inside and line and not RATCHET_HIT.match(line):
             errors[f"ratchet: {line}"] += 1
+    if not tests and not errors:
+        errors = last_words(output)
     crashes = frozenset(first or second for first, second in CRASH.findall("\n".join(output)))
     return UnplacedSignature(steps, tests, errors, crashes, tuple(dict.fromkeys(unnamed)))
+
+
+# A shell step that ends its red with a plain sentence and exit 1 names no test and no error line: only the runner's
+# generic `##[error]Process completed with exit code 1.` follows it. 2026-11-20, cmuxterm-hq#15467 at 4aa7a17c
+# (cmuxterm-hq#15575): 'Fleet tests' failed "Validate the fleet client install and the tag policy" on `Bundled fleet
+# client is stale. Run scripts/sync-fleet-skill-client.py.`, the same step and the same line as main's run
+# 44769654200, and was refused as naming nothing to compare. When a whole log names no failing test or error line, the
+# last line each exit annotation follows is that failed step's error line, on both sides alike (numbers masked,
+# counted): a step that fails anew, or fails on other words, still differs from the base.
+EXIT_LINE = re.compile(r"^##\[error\]Process completed with exit code (\d+)\.?$")
+LAST_WORDS = "last words before exit"
+
+
+def last_words(output: list[str]) -> Counter:
+    """For each runner exit annotation in OUTPUT (a whole log's lines less the runner's echo, test_reds.lines_of),
+    `last words before exit N: LINE`, LINE the nearest non-empty line above it that is not a runner `##[` line,
+    numbers masked (normalise_error), counted."""
+    found: Counter = Counter()
+    for n, line in enumerate(output):
+        if not (exit_code := EXIT_LINE.match(line)):
+            continue
+        said = next((text for text in reversed(output[:n]) if text.strip()), "")
+        if said and not said.startswith("##["):
+            found[f"{LAST_WORDS} {exit_code[1]}: {normalise_error(said)}"] += 1
+    return found
 
 
 def unplaced_without_ffi_pin(head: UnplacedSignature) -> UnplacedSignature:
