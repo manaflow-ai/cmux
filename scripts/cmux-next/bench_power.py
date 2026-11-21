@@ -538,6 +538,16 @@ def page_pushes(sock: str, call=None) -> dict | None:
     return out if any_counter else None
 
 
+def live_pages(sock: str, call=None) -> dict:
+    """Live (not parked) pages per page id, `debug.page` `list`: {"cmux.agent": 33, ...}."""
+    listed = (call or rpc)(sock, "debug.page", {"action": "list"}, timeout=30)
+    out: dict[str, int] = {}
+    for page in ((listed or {}).get("pages") or []) if isinstance(listed, dict) else []:
+        if not page.get("parked"):
+            out[str(page.get("page"))] = out.get(str(page.get("page")), 0) + 1
+    return out
+
+
 def push_summary(before: dict | None, after: dict | None, seconds: float) -> dict | None:
     """Per page id, shown and hidden apart: pages, and the scripts, batches and bytes pushed per second
     between the two reads (pages in both reads only), plus the busiest page. None when a read had no counters."""
@@ -706,6 +716,13 @@ IDLE_COST_PRESETS = {
     # The same load with the window minimized: every page hidden to its own document.
     "many-chats-minimized": {"load_remote": 0, "load_local": 10, "load_streaming": 10, "load_tabs": 13,
                              "load_seeded_open": 190, "stream_chunk": 400, "settle": 60, "measure": 60, "window": "minimized"},
+    # #48408 on Leo's Mac: each hidden chat page got ~4.5 `_acpmux/session_changed` a second, rows up to 80 KB (other
+    # machines' chats' timeBreakdown), ~184 KB/s a page. The many-chats load plus: 30 of the stored chats pinned, so
+    # their pages stay live (HiddenChatPages keeps a pinned chat's); each of the 10 streams retitles its chat every
+    # 2 s with a 20-80 KB title (5 large changed rows a second); 3 of the streams side by side in split panes, shown.
+    "many-chats-heavy": {"load_remote": 0, "load_local": 10, "load_streaming": 10, "load_tabs": 13, "load_seeded_open": 190,
+                         "stream_chunk": 400, "load_pin": 30, "load_split": 3, "retitle_bytes": 80000, "retitle_rate": 0.5,
+                         "settle": 60, "measure": 60},
 }
 IDLE_COST_LABELS = tuple(IDLE_COST_PRESETS)
 # Command-line flags that name a Chromium renderer when no page map does (process_rows).
@@ -878,7 +895,9 @@ def run_loaded(args):
     counts = {"remote": args.load_remote, "local": args.load_local, "streaming": args.load_streaming,
               "tabs": args.load_tabs, "rate": args.stream_rate, "chunk": args.stream_chunk or 0,
               "seeded": load.seeded_idle_ids(args.load_sessions, args.load_closed, args.load_seeded_open or 0),
-              "show": "newtab" if label.startswith("many-chats") else "chat"}
+              "show": "newtab" if label.startswith("many-chats") else "chat",
+              "pin": args.load_pin or 0, "split": args.load_split or 0,
+              "title": args.retitle_bytes or 0, "title_rate": args.retitle_rate or 0}
     stream_s = args.settle + args.measure + 900  # the replies stream through the whole window
     try:
         # The remote machine first: it writes the chats the app's store is seeded with.
@@ -896,6 +915,8 @@ def run_loaded(args):
         time.sleep(args.settle)  # test script: let the app settle
         pages = (rpc(sock, "debug.cef_pages") or {}).get("pages")
         roles = renderer_roles(pages or [], bm.owned(pid, args.app))
+        if label.startswith("many-chats"):
+            reached["live_pages"] = live_pages(sock)  # what HiddenChatPages left live after the settle
         if label.startswith("many-chats") and args.window == "minimized":
             # Every page hidden to its own document (the window minimized), then a settle for the change to apply.
             reached["window"] = "minimized" if not refused(app.run("minimizeWindow")) else "minimize refused"
@@ -986,6 +1007,10 @@ def main():
                         help="many-chats: measure with the window shown (the New Tab page) or minimized")
     parser.add_argument("--load-seeded-open", type=int,
                         help="stored idle chats (no agent process) opened as tabs, one workspace each (many-chats 196; else 0)")
+    parser.add_argument("--load-pin", type=int, help="many-chats: of the stored chats opened, this many pinned (live pages; heavy 30)")
+    parser.add_argument("--load-split", type=int, help="many-chats: streaming chats in split panes of one shown workspace (heavy 3)")
+    parser.add_argument("--retitle-bytes", type=int, help="many-chats: each stream retitles its chat with up to this many bytes (heavy 80000)")
+    parser.add_argument("--retitle-rate", type=float, help="many-chats: retitles a second per stream (heavy 0.5)")
     parser.add_argument("--stream-rate", type=float, default=10, help="loaded: streamed chunks a second per chat")
     parser.add_argument("--stream-chunk", type=int, help="loaded: bytes of text per streamed chunk (many-chats 400; else one word)")
     # Chromium does post-load work (code caching, GC, tile purges) for about two
