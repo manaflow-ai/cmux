@@ -7929,6 +7929,158 @@ class WsCheckPerTest(unittest.TestCase):
                          [f"no red run or check named on {HEAD}: no failure to excuse"])
 
 
+class WsCheckFleetRun(unittest.TestCase):
+    """2026-11-18: leo-workspace#5962 at 60199fb5. The lane-gh broker moved its ws-check to the build fleet's Linux
+    pool (hq#12237): Actions run 44400654026's one job, 135142434118, was cancelled before any runner took it (runner_id
+    0, no steps), and fleet job 78ae6c6073141385ddcecd04 ran the snapshot and printed the WS_CHECK_RESULT and the
+    receipt naming that run. The status linked the cancelled run, so ws_check_verdict read "job 'checks' in run
+    44400654026 is completed/cancelled: no result to read" and no pool-run verdict counted, red or green. The broker's
+    failure link names the fleet job now (WS_CHECK_FLEET_JOB), and its log is read from the controller as strictly as
+    an Actions log."""
+    RELAY, ROOT, VIOLATION = WsCheckPerTest.RELAY, WsCheckPerTest.ROOT, WsCheckPerTest.VIOLATION
+    SQUASHED = WsCheckPerTest.SQUASHED
+    relay_lint = WsCheckPerTest.relay_lint
+    snapshot_runs = WsCheckPerTest.snapshot_runs
+    JID = "9e57810da77d4633953007317e90e344"
+    FLEET = {1: "78ae6c6073141385ddcecd04", 2: "0123456789abcdef01234567"}
+    WORKER = "cmux-linux-pool-1118-204234-61f7c344"
+    REAL_FLEET_READ = staticmethod(getattr(excuse, "fleet_read", lambda op, job_id: None))
+
+    def setUp(self):
+        self.gh = WsCheckGitHub()
+        self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint()})
+        self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()})
+        self.snapshot = self.snapshot_runs()
+        self.controller, self.reads = {}, []
+        for run_id in (1, 2):
+            self.to_fleet(run_id)
+        patch = unittest.mock.patch.object(excuse, "fleet_read", self.fleet_read, create=True)
+        patch.start()
+        self.addCleanup(patch.stop)
+        getattr(excuse, "FLEET_READS", {}).clear()
+        self.addCleanup(getattr(excuse, "FLEET_READS", {}).clear)
+
+    def to_fleet(self, run_id):
+        """Run RUN_ID as the broker's move makes it: its Actions job cancelled before a runner, its log the fleet
+        job's (raw lines, no Actions stamps), its receipt saying build-fleet on the job's worker."""
+        fleet = self.FLEET[run_id]
+        sha = HEAD if run_id == 1 else self.gh.TIP
+        status = self.gh.statuses[sha][0]
+        status["target_url"] = f"https://github.com/{self.gh.HOST}/actions/runs/{run_id}?fleet_job={fleet}"
+        self.gh.runs[run_id]["display_title"] = f"Fast checks {self.snapshot} job {self.JID}"
+        self.gh.jobs[run_id] = [dict(self.gh.jobs[run_id][0], name="checks", conclusion="cancelled", runner_id=0,
+                                     steps=[])]
+        lines = []
+        for line in self.gh.logs.pop(run_id * 10 + 1).splitlines():
+            text = line.split(" ", 1)[1]
+            if text.startswith("FAST_CHECKS_RECEIPT="):
+                receipt = json.loads(text.split("=", 1)[1])
+                receipt.update(ran_on="build-fleet", fleet_host=self.WORKER, fleet_job=fleet)
+                text = "FAST_CHECKS_RECEIPT=" + json.dumps(receipt)
+            lines.append(text)
+        self.controller[fleet] = {
+            "status": {"id": fleet, "kind": "fast-checks", "state": "failed", "worker": self.WORKER,
+                       "workspace": f"fast-checks-{self.JID}",
+                       "command": f"exec /bin/bash -c '... \"$took\" {self.snapshot} {self.snapshot} {run_id} "
+                                  "'python3 tools/ws_check_run.py' \"$root\"'"},
+            "log": "\n".join([f"job {fleet}: nofile=65536", *lines, "command failed: exit status 1",
+                              f"job {fleet} failed: exit status 1"])}
+
+    def fleet_read(self, op, job_id):
+        self.reads.append((op, job_id))
+        if job_id not in self.controller:
+            raise excuse.Refused(f"cmux-ci {op} {job_id} exited 1: no such job")
+        found = self.controller[job_id][op]
+        return json.dumps(found) if op == "status" else found
+
+    def judge(self):
+        return excuse.judge(self.gh.REPO, "main", HEAD, [], self.gh)
+
+    def test_a_red_the_pool_ran_is_read_from_its_fleet_job_and_excused(self):
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", audit[0])
+        kind, verdict = excuse.ws_check_verdict(self.gh.REPO, HEAD, self.gh)
+        self.assertEqual(kind, "fail")
+        self.assertEqual(set(verdict["steps"]), {self.RELAY})
+        self.assertEqual(verdict["snapshot"], {"run": "1", "tree": self.SQUASHED})
+        self.assertIn(("log", self.FLEET[1]), self.reads)
+        # The Actions job's own log is never read: it has none.
+        self.assertFalse(any(route.endswith("/logs") for route in self.gh.routes))
+
+    def test_a_cancelled_run_whose_link_names_no_fleet_job_stays_no_result(self):
+        self.gh.statuses[HEAD][0]["target_url"] = f"https://github.com/{self.gh.HOST}/actions/runs/1"
+        kind, verdict = excuse.ws_check_verdict(self.gh.REPO, HEAD, self.gh)
+        self.assertEqual(kind, "none")
+        self.assertEqual(verdict["why"], "job 'checks' in run 1 is completed/cancelled: no result to read (and this "
+                                         "host keeps no build-fleet log for that run)")
+        self.assertEqual(self.reads, [])
+
+    def refused(self, pattern):
+        with self.assertRaisesRegex(excuse.Refused, pattern):
+            excuse.ws_check_verdict(self.gh.REPO, HEAD, self.gh)
+
+    def test_a_fleet_link_on_an_actions_job_that_ran_is_refused(self):
+        for change in ({"runner_id": 7}, {"steps": [{"name": "Run fast checks"}]}, {"conclusion": "failure"}):
+            with self.subTest(change):
+                self.setUp()
+                self.gh.jobs[1][0].update(change)
+                self.refused("only a run cancelled before any runner took it moves to the fleet")
+
+    def test_a_fleet_job_that_is_not_this_runs_failed_fast_checks_job_is_refused(self):
+        fleet = self.FLEET[1]
+        for field, value in (("state", "done"), ("kind", "build"), ("workspace", "fast-checks-" + "0" * 32),
+                             ("workspace", "lw-5962"),
+                             ("command", f"exec /bin/bash -c '{self.snapshot} {self.snapshot} 2 run'")):
+            with self.subTest(field=field, value=value):
+                self.setUp()
+                self.controller[fleet]["status"][field] = value
+                self.refused(f"fleet job {fleet} .* is no failed fast-checks job of run 1")
+        self.setUp()
+        self.controller[fleet]["status"]["id"] = self.FLEET[2]
+        self.refused(f"the controller's answer for fleet job {fleet} is not that job")
+
+    def test_a_fleet_log_held_to_the_same_rules_as_an_actions_log(self):
+        fleet = self.FLEET[1]
+        log = self.controller[fleet]["log"]
+        cases = (
+            (log.replace("WS_CHECK_RESULT=", "WS_CHECK_RESULT=not json "), "no WS_CHECK_RESULT line listing"),
+            (log.replace('"run_id": "1"', '"run_id": "2"'), "is from another checkout"),
+            ("\n".join(line for line in log.splitlines() if not line.startswith("FAST_CHECKS_RECEIPT=")),
+             "is from another checkout"),
+            (log.replace(self.WORKER, "cmux-linux-pool-other"), "not on that job's worker"),
+            (log.replace('"ran_on": "build-fleet"', '"ran_on": "actions"'), "not on that job's worker"),
+            (log.replace("ws-check step FAILED:", "ws-check step ok:"), "has no 'ws-check step FAILED: "),
+        )
+        for text, pattern in cases:
+            with self.subTest(pattern):
+                self.setUp()
+                self.controller[fleet]["log"] = text
+                self.refused(pattern)
+
+    def test_a_fleet_job_this_host_cannot_read_is_refused_never_guessed(self):
+        del self.controller[self.FLEET[1]]
+        self.refused(f"cmux-ci status {self.FLEET[1]} exited 1")
+
+    def test_the_fleet_read_runs_the_hosts_cmux_ci_client(self):
+        with tempfile.TemporaryDirectory() as root:
+            client = Path(root) / "cmux-ci"
+            client.write_text("#!/bin/sh\n[ \"$1\" = log ] && [ \"$2\" = abc ] && echo the-log && exit 0\n"
+                              "echo refused >&2; exit 3\n")
+            client.chmod(0o755)
+            with unittest.mock.patch.dict(os.environ, {"CMUX_CI_CLIENT": str(client)}):
+                self.assertEqual(self.REAL_FLEET_READ("log", "abc"), "the-log\n")
+                with self.assertRaisesRegex(excuse.Refused, "cmux-ci status abc exited 3: refused"):
+                    self.REAL_FLEET_READ("status", "abc")
+            with unittest.mock.patch.dict(os.environ, {"CMUX_CI_CLIENT": "", "PATH": root + "/none"}):
+                with self.assertRaisesRegex(excuse.Refused, "no cmux-ci client"):
+                    self.REAL_FLEET_READ("log", "abc")
+
+    def test_a_pass_never_needs_the_fleet(self):
+        self.gh.statuses[HEAD][0].update(state="success", description="770 tests passed in 77 steps")
+        self.assertEqual(excuse.ws_check_verdict(self.gh.REPO, HEAD, self.gh)[0], "pass")
+        self.assertEqual(self.reads, [])
+
+
 class WsCheckFleetRoute(unittest.TestCase):
     """2026-11-18: land-judge refused teamleaderleo/leo-workspace#5992 twice, "'ws-check' has no result: job 'checks'
     in run 44407040407 is completed/cancelled: no result to read". The broker had cancelled that run and the build
@@ -12100,7 +12252,7 @@ def clippy_dead_variant(at, line, column=5, variant="RootEntries", path="crates/
         "")]
 
 
-def clippy_log(job, step, *blocks, summary=("lib",), scope="acpmux", base_red=(), base="c9fd1c9ebd40"):
+def clippy_log(job, step, *blocks, summary=("lib",), scope="acpmux", base_red=(), base="c9fd1c9ebd40", new_scope=False):
     """A clippy step's log: its errors (BLOCKS, from clippy_dead_variant), cargo's summaries, then what
     .github/scripts/cmux-tui-clippy-changed.py prints after them (its scope and each red file outside the diff)."""
     lines = [f"2026-11-12T11:38:{n:02d}.0000000Z     Checking crate-{n} v0.1.0 "
@@ -12109,9 +12261,14 @@ def clippy_log(job, step, *blocks, summary=("lib",), scope="acpmux", base_red=()
         lines += block
     lines += [f"2026-11-12T11:44:0{n}.7339343Z error: could not compile `acpmux` ({kind}) due to {len(blocks)} "
               f"previous error{'s' if len(blocks) > 1 else ''}" for n, kind in enumerate(summary)]
-    lines.append(f"2026-11-12T11:44:10.0000000Z ##[error]clippy -D warnings failed for {scope}; run `cargo clippy "
-                 f"--locked --keep-going -p {scope} --all-targets -- -D warnings` in cmux-tui and fix each lint (an "
-                 "allow needs a comment saying why)")
+    if new_scope:
+        lines.append(f"2026-11-20T11:44:10.0000000Z ##[error]clippy found compile errors in {scope}; run `cargo clippy "
+                     f"--locked --keep-going -p {scope} --all-targets --message-format=json -- --cap-lints warn` in "
+                     "cmux-tui and fix each error (lints alone never fail this check)")
+    else:
+        lines.append(f"2026-11-12T11:44:10.0000000Z ##[error]clippy -D warnings failed for {scope}; run `cargo clippy "
+                     f"--locked --keep-going -p {scope} --all-targets -- -D warnings` in cmux-tui and fix each lint (an "
+                     "allow needs a comment saying why)")
     lines += [f"2026-11-12T11:44:11.0000000Z ##[error]cmux-tui/{path} is red and this change does not touch it: most "
               f"likely the base {base} already fails here (last changed on the base by {base[:8]} some commit). Then "
               "fix it on the base branch in its own pull request and update this one once that lands" for path in base_red]
@@ -12188,6 +12345,12 @@ class CompileErrorsAreComparedBySignature(unittest.TestCase):
         coded = excuse.compile_errors(["error[E0425]: cannot find value `x` in this scope",
                                        "  --> crates/a/src/lib.rs:3:9"], job)
         self.assertEqual(coded.located, {("E0425", "crates/a/src/lib.rs", "cannot find value `x` in this scope")})
+        # The wrapper's scope line since lints stopped failing it (2026-11-20) is read like the old one: never an error.
+        new = excuse.compile_errors(excuse.test_reds.lines_of(clippy_log("j", "s", clippy_dead_variant(1, 61),
+                                                                         new_scope=True)), job)
+        self.assertEqual(new.other, ())
+        self.assertEqual(new.located, excuse.compile_errors(excuse.test_reds.lines_of(clippy_log(
+            "j", "s", clippy_dead_variant(1, 61))), job).located)
 
     def test_an_error_only_the_pr_prints_is_its_own(self):
         mine = [clippy_dead_variant(45, 61), clippy_dead_variant(50, 12, variant="Fresh",
@@ -15906,13 +16069,13 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-tui-windows-check.yml", "cmux-vm-clients.yml", "cmux-vm-cloud.yml", "cmux-vm.yml", "cmux-vnc.yml",
             "coderouter-ci.yml", "fleet-test-compile.yml", "fleet-rd-host-macos.yml", "gallery-advisory.yml",
             "gallery-health.yml",
-            "indexnow-tests.yml", "ios-e2e.yml", "ios-reliability-matrix.yml", "ios-review-gate.yml", "iroh-v2.yml", "mux.yml",
+            "ios-e2e.yml", "ios-reliability-matrix.yml", "ios-review-gate.yml", "iroh-v2.yml", "mux.yml",
             "nightly-next-canary.yml", "nightly-next-launch-smoke.yml",
-            "r2-upload-tests.yml", "relay-tls.yml", "rust-workspaces.yml", "signing-keychain-macos.yml",
+            "relay-tls.yml", "rust-workspaces.yml", "signing-keychain-macos.yml",
             "swift-acpmux-protocol.yml", "swift-linux-packages.yml",
-            "terminal-hang-diagnostics.yml", "test-ios.yml", "vendored-agent-cursor.yml", "web-complexity.yml",
+            "terminal-hang-diagnostics.yml", "test-ios.yml", "web-complexity.yml",
             "web-complexity-trusted.yml", "web-validation.yml", "cmux-next-ios-kit.yml", "cmux-actions.yml",
-            "cmux-skill-contract.yml", "agent-brands.yml",
+            "agent-brands.yml",
             # React Doctor (da29cd0a): a ratchet over the React projects' own code.
             "cmux-next-react-doctor.yml",
             # The tab switch check: a display Mac measures the pull request head's tab switches (advisory).
@@ -15936,7 +16099,7 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "thunderdome-label.yml", "cmux-next-pr-autofix-closed-cancel.yml", "cmux-next-pr-autofix.yml",
             "cmux-next-pr-closed-cancel.yml", "ci-pr-closed-cancel.yml", "language-boundaries.yml",
             "required-checks-drift.yml",
-            "cmux-next-chromium-currency.yml", "ci-cache-receipts.yml",
+            "cmux-next-chromium-currency.yml",
             # Dispatch-only secrets seal; on a pull request that edits it every job is skipped.
             "cmux-vm-secrets-seal.yml"),
         "guard checks of their own whose reds are judged as any job's: no guard test declares its reads yet": (
@@ -17075,6 +17238,98 @@ class CutSearchConsumers(unittest.TestCase):
         self.assert_incomplete(str(cut.exception))
         with self.assertRaisesRegex(excuse.Refused, "has no completed run of this workflow"):
             excuse.stacked_parent_verdicts(SWIFT, "lane/x", parent, iter(()))
+
+
+# A repo whose base pushes run no job of the workflow and whose verdict of record is a sibling repo's runs
+# (BASE_VERDICT_REPO, teamleaderleo/glaeda's main verified in manaflow-ai/glaeda). The mapping is patched here, so
+# these tests read the mechanism, not the one live entry (asserted on its own below).
+SIBLING = "manaflow-ai/cmux-verifier"
+
+
+class SiblingVerdictGitHub(FakeGitHub):
+    """FakeGitHub where every base read must name SIBLING, and must name the workflow by its file (`ci.yml`): a
+    workflow's id is per repo, so the id 7 of this repo means nothing there. A base read that names REPO, or the
+    sibling's workflow by id, is an error, which is what the excuse used to do for every red of such a repo."""
+
+    FILE = ".github/workflows/ci.yml"
+
+    def __init__(self):
+        super().__init__()
+        self.asked: list[str] = []  # as asked, before a sibling route is rewritten to this fixture's own
+
+    def json(self, route, *, paginate=False):
+        self.asked.append(route)
+        if route.startswith(f"repos/{SIBLING}/"):
+            own = route.replace(f"repos/{SIBLING}/", f"repos/{REPO}/", 1)
+            assert "/actions/workflows/7/" not in own, route  # named by id in the sibling: its ids are its own
+            return super().json(own.replace("/actions/workflows/ci.yml/", "/actions/workflows/7/", 1),
+                                paginate=paginate)
+        assert f"/actions/workflows/7/runs?branch=" not in route, route  # a base-run list in the PR's repo
+        assert "/actions/runs/20/" not in route and not route.endswith("/actions/jobs/2"), route  # a base job there
+        if re.fullmatch(rf"repos/{re.escape(REPO)}/actions/runs/\d+", route):
+            # The head run's record, with the workflow path the sibling's runs are named by (workflow_file).
+            return {**super().json(route, paginate=paginate), "path": self.FILE}
+        return super().json(route, paginate=paginate)
+
+    def log(self, repo, job):
+        assert repo == (REPO if job["id"] == 1 else SIBLING), (repo, job["id"])
+        return super().log(repo, job)
+
+
+class NoSiblingVerdictGitHub(SiblingVerdictGitHub):
+    """SiblingVerdictGitHub where the sibling has no run of the workflow either: the refusal stands, and says where
+    it looked."""
+
+    def json(self, route, *, paginate=False):
+        if route.startswith(f"repos/{SIBLING}/actions/workflows/"):
+            return {"workflow_runs": []}
+        return super().json(route, paginate=paginate)
+
+
+class BaseVerdictInASiblingRepo(unittest.TestCase):
+    def test_glaedas_main_is_verified_in_the_fleet_fork(self):
+        # ci.yml gates every job on `pull_request || repository == manaflow-ai/glaeda`, so a push to main in the
+        # personal repo runs nothing and only the fork holds that commit's verdict (its own comment says so).
+        self.assertEqual(excuse.BASE_VERDICT_REPO.get("teamleaderleo/glaeda"), "manaflow-ai/glaeda")
+
+    def test_a_red_is_excused_by_the_sibling_repos_base_verdict(self):
+        github = SiblingVerdictGitHub()
+        with unittest.mock.patch.dict(excuse.BASE_VERDICT_REPO, {REPO: SIBLING}, clear=True):
+            lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertIn("run 20", "\n".join(lines))
+        self.assertTrue([route for route in github.asked
+                         if f"repos/{SIBLING}/actions/workflows/ci.yml/runs?" in route], github.asked)
+        # The head's own reads stay the PR's repo, and the base's runs, job lists and logs are all the sibling's.
+        self.assertEqual([route for route in github.asked if "/actions/runs/20" in route or route.endswith("/jobs/2")],
+                         [route for route in github.asked
+                          if route.startswith(f"repos/{SIBLING}/") and ("/actions/runs/20" in route
+                                                                        or route.endswith("/jobs/2"))])
+
+    def test_no_verdict_in_the_sibling_says_where_it_looked(self):
+        github = NoSiblingVerdictGitHub()
+        with unittest.mock.patch.dict(excuse.BASE_VERDICT_REPO, {REPO: SIBLING}, clear=True):
+            with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow has a verdict for it "
+                                                        f"to compare with in {re.escape(SIBLING)}, where "
+                                                        f"{re.escape(REPO)}'s feat-cmux-next is verified"):
+                excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_a_repo_the_mapping_does_not_name_reads_its_own_base(self):
+        github = FakeGitHub()
+        with unittest.mock.patch.dict(excuse.BASE_VERDICT_REPO, {"other/repo": SIBLING}, clear=True):
+            lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertIn("run 20", "\n".join(lines))
+        self.assertEqual([route for route in github.routes if SIBLING in route], [])
+
+    def test_the_refusal_of_a_repo_the_mapping_does_not_name_is_unchanged(self):
+        github = StrBaseRunsGitHub()
+        said = []
+        for mapping in ({}, {"other/repo": SIBLING}):
+            with unittest.mock.patch.dict(excuse.BASE_VERDICT_REPO, mapping, clear=True):
+                with self.assertRaises(excuse.Refused) as refused:
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+            said.append(str(refused.exception))
+        self.assertEqual(said[0], said[1])
+        self.assertNotIn("BASE_VERDICT_REPO", said[0])
 
 
 if __name__ == "__main__":

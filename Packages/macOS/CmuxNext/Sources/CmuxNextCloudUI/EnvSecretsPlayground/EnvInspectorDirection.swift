@@ -348,6 +348,7 @@ struct EnvInspectorDirection {
     private func noHostDetail() -> NSView {
         let entry = sample.noHost
         let host = NSTextField(string: "")
+        host.focusRingType = .none
         host.placeholderString = "api.example.com"
         host.isBezeled = true
         host.bezelStyle = .roundedBezel
@@ -436,6 +437,7 @@ struct EnvInspectorDirection {
 
     private func requestDetail() -> NSView {
         let value = NSSecureTextField(string: "")
+        value.focusRingType = .none
         value.placeholderString = "Type or paste the value"
         value.isBezeled = true
         value.bezelStyle = .roundedBezel
