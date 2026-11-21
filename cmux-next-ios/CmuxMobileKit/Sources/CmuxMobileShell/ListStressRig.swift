@@ -55,6 +55,7 @@ final class ListStressRig: NSObject {
             UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
         }
         await rig.open(screen)
+        if ProcessInfo.processInfo.environment["CMUX_MOBILE_LIST_SIGNALS"] == "1" { rig.listenForSignals(screen) }
         try? await Task.sleep(for: .seconds(settings.settle))
         guard settings.passes > 0 else {
             // A still: hold the screen (optionally panned) for a screenshot.
@@ -259,6 +260,46 @@ final class ListStressRig: NSObject {
 
     // MARK: Live changes
 
+    // MARK: Changes a UI test asks for
+
+    /// `CMUX_MOBILE_LIST_SIGNALS=1`: the Mac changes at the moment a UI test picks, while the test
+    /// holds the list where it wants it (an XCUITest runs in its own process, so it posts a Darwin
+    /// notification `dev.cmux.mobile.rig.<name>`, `RigSignal` in the UI tests):
+    /// - `remove`: the Mac deletes `CMUX_MOBILE_LIST_REMOVE_ID`: on `workspaces`, the Mac's tree
+    ///   without it (`AppStore.replaceWorkspaces`, as a tree publish lands); on `feed`, the event
+    ///   withdrawn (`FeedStore.remove`, as `TerminalFeed` drops one marked done on the Mac).
+    /// - `mac-offline`, `mac-online`: `mac-studio` (the seeded rows' Mac) goes offline and comes
+    ///   back, as presence says it (`MacDevice.isOnline`, what `presenceUpdate` writes).
+    func listenForSignals(_ screen: String) {
+        let removeID = ProcessInfo.processInfo.environment["CMUX_MOBILE_LIST_REMOVE_ID"] ?? ""
+        let store = shell.store
+        RigSignals.observe("remove") { [log] in
+            log.notice("FRAMELOG list-stress signal remove \(removeID, privacy: .public)")
+            if screen == "feed" {
+                FeedStore.shared.remove(removeID)
+            } else if let macID = store.workspace(id: removeID)?.macID {
+                store.replaceWorkspaces(macID: macID, with: store.workspaces.filter { $0.macID == macID && $0.id != removeID })
+            }
+        }
+        for (name, online) in [("mac-offline", false), ("mac-online", true)] {
+            RigSignals.observe(name) { [log] in
+                log.notice("FRAMELOG list-stress signal \(name, privacy: .public)")
+                store.teams = store.teams.map { team in
+                    var team = team
+                    team.macs = team.macs.map { mac in
+                        var mac = mac
+                        if mac.id == "mac-studio" {
+                            mac.isOnline = online
+                            if !online { mac.lastSeenAt = Date() }
+                        }
+                        return mac
+                    }
+                    return team
+                }
+            }
+        }
+    }
+
     /// What a busy Mac publishes: one workspace's activity and working state change,
     /// and the whole list is replaced (as `AppStore.replaceWorkspaces` does), `liveHz` times a second.
     private func startLive() {
@@ -443,6 +484,28 @@ final class ListStressRig: NSObject {
             FrameLogFile.flush()
             exit(0)
         }
+    }
+}
+
+/// Darwin notifications from a UI test (`dev.cmux.mobile.rig.<name>`), each run on the main actor.
+/// DEBUG rig only: a test process cannot reach the app's objects, and a launch argument cannot say
+/// when (the test picks the moment after it scrolled the list to the row it reads).
+@MainActor
+enum RigSignals {
+    private static var handlers: [String: @MainActor () -> Void] = [:]
+    private static let token = NSObject()
+
+    static func observe(_ name: String, _ handler: @escaping @MainActor () -> Void) {
+        let full = "dev.cmux.mobile.rig.\(name)"
+        handlers[full] = handler
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(token).toOpaque(),
+            { _, _, name, _, _ in
+                guard let raw = name?.rawValue else { return }
+                let key = raw as String
+                Task { @MainActor in RigSignals.handlers[key]?() }
+            },
+            full as CFString, nil, .deliverImmediately)
     }
 }
 #endif
