@@ -228,16 +228,20 @@
 .acpmux-asks-stack > * + .acpmux-trust-fold:last-child::before {
   content: "";
   display: block;
-  height: 8px;
+  padding-top: var(--ds-space-2, 8px);
 }
 .acpmux-dock > .acpmux-asks-stack[data-leaving] {
   min-height: 0;
   padding-bottom: 0;
 }
+/* The stack's foot (styles.css `.acpmux-asks-stack` padding-bottom), carried inside the fold. */
+.acpmux-asks-stack[data-leaving] > .acpmux-trust-fold:last-child {
+  --acpmux-stack-foot: 10px;
+}
 .acpmux-asks-stack[data-leaving] > .acpmux-trust-fold:last-child::after {
   content: "";
   display: block;
-  height: 10px;
+  padding-top: var(--acpmux-stack-foot);
 }
 /* The gallery's wipe arm (`agent-pane.bottom-stack` trust-fold-wipe): the question holds still and the
    fold cuts it from its top, where the shipped fold slides it down under what is below it. */
