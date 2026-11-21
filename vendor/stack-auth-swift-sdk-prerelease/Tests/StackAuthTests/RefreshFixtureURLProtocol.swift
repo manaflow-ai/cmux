@@ -6,8 +6,8 @@ final class RefreshFixtureURLProtocol: URLProtocol, @unchecked Sendable {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() { Task { await RefreshTransportFixture.routes.route(self) } }
     override func stopLoading() {}
-    func respond(status: Int, token: String) {
-        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+    func respond(status: Int, token: String, headers: [String: String] = [:]) {
+        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: headers)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data("{\"access_token\":\"\(token)\"}".utf8))
         client?.urlProtocolDidFinishLoading(self)
