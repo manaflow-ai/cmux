@@ -155,7 +155,8 @@ fn carried(request: &Value, target: &str) -> Result<Carried, RpcError> {
         ))
         .with_data(json!({"reason": "mesh.no_supersede", "session": target})));
     }
-    let class_dropped = crate::prompt_class::declared(request)?.is_some();
+    let class_dropped = crate::prompt_class::declared(request)?
+        .is_some_and(|class| class != crate::prompt_class::PromptClass::Result);
     Ok(Carried {
         body: texts.join("\n\n"),
         mode: if field("steer") == Some(&json!(true)) { Mode::Now } else { Mode::TurnEnd },
@@ -403,5 +404,14 @@ mod tests {
         let carried = carried(&request, "remote").unwrap();
         assert!(carried.class_dropped);
         assert_eq!(carried.body, "hello");
+    }
+
+    #[test]
+    fn result_class_is_native_mesh_default_without_a_warning() {
+        let request = json!({
+            "prompt": [{"type": "text", "text": "hello"}],
+            "_meta": {"acpmux": {"class": "result"}}
+        });
+        assert!(!carried(&request, "remote").unwrap().class_dropped);
     }
 }

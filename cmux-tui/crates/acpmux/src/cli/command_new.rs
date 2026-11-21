@@ -151,6 +151,11 @@ impl NewArgs {
             && self.report_to.is_none()
             && self.group.is_none()
             && !self.reuse
+            && !self.detach
+            && !self.quiet
+            && !self.ephemeral
+            && !self.wait
+            && self.parent.is_none()
         {
             self.name = self.prompt.pop();
             notices
@@ -161,8 +166,17 @@ impl NewArgs {
             notices.push("acpmux new: --stay is a compatibility spelling for --machine local");
         }
         if self.wait {
-            self.detach = false;
-            notices.push("acpmux new: --wait sends the first prompt and waits for its reply");
+            let has_prompt = !self.prompt.join(" ").trim().is_empty() || self.prompt_file.is_some();
+            if has_prompt {
+                self.detach = false;
+                self.quiet = true;
+                notices.push("acpmux new: --wait sends the first prompt and waits for its reply");
+            } else {
+                self.detach = true;
+                notices.push(
+                    "acpmux new: --wait had no first prompt, so it created the session without a turn",
+                );
+            }
         }
         notices
     }
@@ -181,21 +195,51 @@ mod tests {
 
     #[test]
     fn compatibility_spellings_keep_the_name_and_wait_on_local() {
-        let mut args = New::try_parse_from([
-            "new",
-            "codex-nightly-check",
-            "--harness",
-            "codex",
-            "--stay",
-            "--wait",
-        ])
-        .unwrap()
-        .args;
+        let mut args =
+            New::try_parse_from(["new", "codex-nightly-check", "--harness", "codex", "--stay"])
+                .unwrap()
+                .args;
         let notices = args.apply_compat();
         assert_eq!(args.name.as_deref(), Some("codex-nightly-check"));
         assert!(args.prompt.is_empty());
         assert_eq!(args.host.as_deref(), Some("local"));
         assert!(!args.detach);
-        assert_eq!(notices.len(), 3);
+        assert_eq!(notices.len(), 2);
+    }
+
+    #[test]
+    fn wait_with_an_explicit_name_keeps_the_name_without_a_prompt() {
+        let mut args =
+            New::try_parse_from(["new", "--name", "codex-nightly-check", "--stay", "--wait"])
+                .unwrap()
+                .args;
+        let notices = args.apply_compat();
+        assert_eq!(args.name.as_deref(), Some("codex-nightly-check"));
+        assert!(args.prompt.is_empty());
+        assert_eq!(args.host.as_deref(), Some("local"));
+        assert!(args.detach);
+        assert_eq!(notices.len(), 2);
+    }
+
+    #[test]
+    fn prompt_aliases_keep_their_single_positional_prompt() {
+        for mut args in [
+            New::try_parse_from(["new", "do the work", "--detach"]).unwrap().args,
+            New::try_parse_from(["new", "do the work", "--quiet"]).unwrap().args,
+            New::try_parse_from(["new", "do the work", "--wait"]).unwrap().args,
+        ] {
+            args.apply_compat();
+            assert_eq!(args.prompt, ["do the work"]);
+            assert!(args.name.is_none());
+        }
+    }
+
+    #[test]
+    fn wait_without_a_prompt_creates_without_opening_the_tui() {
+        let mut args = New::try_parse_from(["new", "--wait"]).unwrap().args;
+        let notices = args.apply_compat();
+        assert!(args.detach);
+        assert!(!args.quiet);
+        assert_eq!(notices.len(), 1);
     }
 }
