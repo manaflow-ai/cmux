@@ -38,7 +38,6 @@ freeze=""
 neighbors=""
 extension=""
 pages=""
-window=""
 for arg in "$@"; do
   case "$arg" in
     measure=*) measure="${arg#measure=}"; [[ "$measure" =~ ^[0-9]+$ ]] || { echo "perf-idle-power.sh: measure=SECONDS" >&2; exit 2; } ;;
@@ -53,7 +52,6 @@ for arg in "$@"; do
     neighbors=*) neighbors="${arg#neighbors=}"; [[ "$neighbors" =~ ^[0-3]$ ]] || { echo "perf-idle-power.sh: neighbors=0..3" >&2; exit 2; } ;;
     extension=*) extension="${arg#extension=}"; [[ "$extension" =~ ^[a-z0-9-]+$ ]] || { echo "perf-idle-power.sh: extension=NAME" >&2; exit 2; } ;;
     pages=*) pages="${arg#pages=}"; [[ "$pages" =~ ^(static|busy)$ ]] || { echo "perf-idle-power.sh: pages=static|busy" >&2; exit 2; } ;;
-    window=*) window="${arg#window=}"; [[ "$window" =~ ^(shown|minimized)$ ]] || { echo "perf-idle-power.sh: window=shown|minimized" >&2; exit 2; } ;;
     *) echo "perf-idle-power.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -94,6 +92,5 @@ extra=()
 [ -n "$budget" ] && extra+=(--process-budget "$budget")
 [ -n "$extension" ] && extra+=(--extension "$extension")
 [ -n "$pages" ] && extra+=(--tab-page "$pages")
-[ -n "$window" ] && extra+=(--window "$window")
 python3 scripts/cmux-next/bench_power.py --app "$app" --config "$settings" \
   --out artifacts/perf-idle-power.json --md artifacts/perf-idle-power.md ${extra[@]+"${extra[@]}"}
