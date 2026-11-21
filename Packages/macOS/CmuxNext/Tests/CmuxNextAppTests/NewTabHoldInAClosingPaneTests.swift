@@ -18,7 +18,8 @@ import Testing
 /// pane that stays: the closed pane has no keyboard, no tab and no later use for a key.
 ///
 /// Row 1: the hold's record at its opening. Row 2: the replay of a held key. Row 3: each view's own judge of a key
-/// that it sees in a page window (the key monitor asks each view).
+/// that it sees in a page window (the key monitor asks each view). Row 4 has no pane that leaves: a replayed key
+/// passes the page window of a chat that waits drawn (`AgentPageDrawnParking`), which the app tells Chromium to show.
 ///
 /// The model: each pane's host is a `PaneHost` (the layout's host view says the same thing through `PaneLeaving`),
 /// each page is a fake Chromium page, and each page's window is a `PageWindow`. The rows set the leaving state by
@@ -94,7 +95,7 @@ struct NewTabHoldInAClosingPaneTests {
         return (view, chromium)
     }
 
-    private static func scene() async throws -> Scene {
+    private static func scene(leaving: Bool = true) async throws -> Scene {
         _ = NSApplication.shared
         let folder = FileManager.default.temporaryDirectory.appending(path: "hold-closing-pane-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -130,7 +131,7 @@ struct NewTabHoldInAClosingPaneTests {
                      "setup: the app did not tell Chromium that each of the 2 pages shows")
         window.makeFirstResponder(nil)
         try #require(window.firstResponder === window, "setup: a view of the window has the keyboard")
-        leavesHost.isLeaving = true
+        leavesHost.isLeaving = leaving
         return scene
     }
 
@@ -201,6 +202,46 @@ struct NewTabHoldInAClosingPaneTests {
                 "the view of the pane that leaves took the mark or the gesture of a key that is for the pane over it: \(scene.marks)")
         #expect(scene.stays.model.hostTouch.marked && scene.stays.model.transport.gestures.isAvailable,
                 "the view of the pane that stays has no mark or no gesture of the key in its page window: \(scene.marks)")
+    }
+
+    /// The replay of a held letter while a chat waits drawn. The person left that chat by a tab switch: its view waits
+    /// far outside the window's content, the app still tells Chromium that its page shows, and its page window is
+    /// visible there. No pane leaves in this row. The chat's page window is the first child window, and the lookup
+    /// finds the chat's view under it, so a replay that asks only for a view under a page window sends the letter to
+    /// the chat that the person left. Want: that window gets no event, the page window of the pane that shows its
+    /// page gets the letter once, and the chat's view takes no mark and no gesture.
+    @Test func aReplayedLetterPassesAChatThatWaitsDrawn() async throws {
+        let scene = try await Self.scene(leaving: false)
+        defer { scene.close() }
+        let chat = scene.stays, chatWindow = scene.staysWindow, shown = scene.leaves, shownWindow = scene.leavesWindow
+        chat.model.markPainted()
+        try #require(AgentPageDrawnParking.park(chat), "setup: the chat does not wait drawn")
+        let content = scene.staysPage.contentView
+        let place = try #require(content.window.map { $0.convertToScreen(content.convert(content.bounds, to: nil)) },
+                                 "setup: the page of the chat that waits drawn is in no window")
+        chatWindow.setFrame(place, display: false)
+        try #require(chat.page?.isDrawnAway == true && chat.page?.chromiumShows == true && chatWindow.isVisible,
+                     "setup: the chat is not drawn away, or the app told Chromium that its page is hidden")
+        try #require(AgentPaneView.chromiumAgentPane(under: chatWindow, in: scene.window) === chat,
+                     "setup: the lookup does not find the chat's view under the chat's page window")
+        try #require(AgentPaneView.chromiumAgentPane(under: shownWindow, in: scene.window) === shown,
+                     "setup: the lookup does not find the shown view under its page window")
+        // The router holds its registry unowned: the test keeps it alive to its end.
+        let registry = ActionRegistry.standard()
+        defer { withExtendedLifetime(registry) {} }
+        let router = KeyRouter(registry: registry)
+        let letter = try Self.letter()
+        NewTabInputCoordinator.replay(letter, held: letter, in: scene.window, router: router)
+        let marks = "the chat that waits drawn: mark \(chat.model.hostTouch.marked), gesture \(chat.model.transport.gestures.isAvailable); "
+            + "the shown view: mark \(shown.model.hostTouch.marked), gesture \(shown.model.transport.gestures.isAvailable)"
+        print("NewTabHoldInAClosingPaneTests: row 4, a replayed letter with a chat that waits drawn: the chat's page window got "
+            + "\(chatWindow.got) event(s), want 0; the page window of the shown view got \(shownWindow.got), want 1; \(marks)")
+        #expect(chatWindow.got == 0, "the page window of a chat that waits drawn got a held key")
+        #expect(shownWindow.got == 1, "the page window of the shown view did not get the held key once: \(shownWindow.got)")
+        #expect(!chat.model.hostTouch.marked && !chat.model.transport.gestures.isAvailable,
+                "the chat that waits drawn took the replayed letter's mark or gesture: \(marks)")
+        #expect(shown.model.hostTouch.marked && shown.model.transport.gestures.isAvailable,
+                "the shown view has no mark or no gesture of the replayed letter: \(marks)")
     }
 }
 #endif

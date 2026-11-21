@@ -58,6 +58,7 @@ extension AgentPaneView {
     public static func chromiumPageWindow(in window: NSWindow) -> NSWindow? {
         if let key = NSApp.keyWindow, key !== window, key.parent === window { return key }
         guard window.firstResponder === window || window.firstResponder == nil else { return nil }
+        // The condition below is a copy by hand of 1 of the 3 parts of ``isShownToPerson`` (not drawn away); the finder has the 2 others in its own form (a view of this window, a page that the app told Chromium to show). A new part of that property does not come here by itself.
         return window.childWindows?.first { child in
             child.isVisible && chromiumAgentPane(under: child, in: window).map { $0.page?.isDrawnAway != true } == true // not a page that is drawn away (it keeps its place and its last frame)
         }
