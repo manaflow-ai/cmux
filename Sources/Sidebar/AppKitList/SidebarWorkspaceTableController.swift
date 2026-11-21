@@ -93,6 +93,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var activeWorkspaceDraggingSession: NSDraggingSession?
     private var activeWorkspaceDragSequenceNumber: Int?
     private var workspaceDragSourceCompletionReceived = false
+    private var nativeDragBeganAt: TimeInterval?
     private var pendingWorkspaceDragSessionId: UUID?
     private var pendingWorkspaceDragWorkspaceId: UUID?
     private var hasActiveWorkspaceDragPresentation: Bool {
@@ -1458,6 +1459,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         endedAt screenPoint: NSPoint,
         operation: NSDragOperation
     ) {
+        if isWorkspaceDragSourceActive,
+           activeWorkspaceDraggingSession === session,
+           activeWorkspaceDragSequenceNumber == session.draggingSequenceNumber,
+           let sessionId = activeWorkspaceDragSessionId,
+           let capability = activeWorkspaceDragCapabilityValue,
+           let workspaceId = pendingWorkspaceDragWorkspaceId,
+           ((activeWorkspaceDragActions ?? actions)?.movingWorkspaceCount?(workspaceId) ?? 1) == 1,
+           let beganAt = nativeDragBeganAt {
+            (activeWorkspaceDragActions ?? actions)?.completeWorkspaceDrag?(
+                sessionId, capability, screenPoint, operation, beganAt
+            )
+        }
         workspaceDragSessionDidEnd(session: session)
     }
 
@@ -1474,6 +1487,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             releaseRetainedWorkspaceDragContainerIfPossible()
         }
         isWorkspaceDragSourceActive = true
+        nativeDragBeganAt = ProcessInfo.processInfo.systemUptime
         SidebarReorderInteractionState.shared.setDragging(true, owner: self)
         workspaceDragSourceCompletionReceived = false
         if let sourceTableView {

@@ -11641,7 +11641,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return true
     }
 
-    func detachSurface(panelId: UUID) -> DetachedSurfaceTransfer? {
+    func detachSurface(panelId: UUID, preservingEmptyPane: Bool = false) -> DetachedSurfaceTransfer? {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
         guard let sourcePanel = panels[panelId] else { return nil }
         if let home = sourcePanel as? ChiefPanel, home.isHome {
@@ -11678,7 +11678,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         forceCloseTabIds.insert(tabId)
         splitLayout.openDetachCloseTransaction()
         defer { splitLayout.closeDetachCloseTransaction() }
-        guard bonsplitController.closeTab(tabId) else {
+        guard bonsplitController.closeTab(tabId, preservingEmptyPane: preservingEmptyPane) else {
             splitLayout.cancelDetach(tabId)
             forceCloseTabIds.remove(tabId)
 #if DEBUG
@@ -13479,6 +13479,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
     }
 
+    private static let bonsplitMoveNewWindowDestinationId = "new-window"
     private static let bonsplitMoveNewWorkspaceDestinationId = "new-workspace"
     private static let bonsplitMoveExistingWorkspacePrefix = "workspace:"
 
@@ -13488,6 +13489,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         let workspaceTargets = app.workspaceMoveTargets(forBonsplitTab: tabId.uuid)
         var destinations: [TabContextMoveDestination] = []
+        if app.canMoveSurfaceToNewWindow(panelId: panelId) {
+            destinations.append(TabContextMoveDestination(
+                id: Self.bonsplitMoveNewWindowDestinationId,
+                title: String(localized: "menu.file.newWindow", defaultValue: "New Window")
+            ))
+        }
         if app.canMoveSurfaceToNewWorkspace(panelId: panelId) {
             destinations.append(TabContextMoveDestination(
                 id: Self.bonsplitMoveNewWorkspaceDestinationId,
@@ -13509,7 +13516,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
               let app = AppDelegate.shared else { return false }
 
         let moved: Bool
-        if destinationId == Self.bonsplitMoveNewWorkspaceDestinationId {
+        if destinationId == Self.bonsplitMoveNewWindowDestinationId {
+            moved = app.moveSurfaceToNewWindow(panelId: panelId) != nil
+        } else if destinationId == Self.bonsplitMoveNewWorkspaceDestinationId {
             moved = app.moveSurfaceToNewWorkspace(
                 panelId: panelId,
                 focus: true,
