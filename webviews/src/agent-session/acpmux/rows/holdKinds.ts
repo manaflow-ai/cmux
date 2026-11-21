@@ -39,3 +39,11 @@ export function holdAttach(
 export function holdReads(event: { kind?: unknown; msg?: { event?: unknown } }): boolean {
   return event.kind !== "subsession" || event.msg?.event === "limits";
 }
+
+/// How many records of each kind a chat on the hold keeps in the client's log (direct.ts `holdLive`).
+/// Every kind on the hold is page state that a newer record of it says again whole (the usage, the
+/// status, the command list, the config, the mode, the title), and none is a row: the store draws the
+/// rows. Kept without a bound, a chat left open streamed one usage or status record per step into the
+/// log for as long as it ran, in the renderer every chat page shares (2026-11-19: 4 GB). A few of each
+/// kind stay, the newest, so a fold again of the log ends on the same page state.
+export const HOLD_RECORDS_PER_KIND = 8;
