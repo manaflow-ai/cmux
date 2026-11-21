@@ -7,7 +7,7 @@
 // re-rendered the composer, its box and its queue before the frame; now the key writes this store
 // and each reader subscribes with a selector, so a render happens only when the value that reader
 // takes really changes. Typing letters into a draft changes none of them, so it costs no render.
-import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useEffect, useInsertionEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 /// The prompt as the editor holds it, and the caret's offset in its first paragraph.
 export type ComposerDraft = {
@@ -53,9 +53,8 @@ export function createComposerDraftStore(text: string): ComposerDraftStore {
 
 /// One store per mounted composer, made on its first render from `initial`.
 export function useComposerDraftStore(initial: () => string): ComposerDraftStore {
-  const store = useRef<ComposerDraftStore | undefined>(undefined);
-  store.current ??= createComposerDraftStore(initial());
-  return store.current;
+  const [store] = useState(() => createComposerDraftStore(initial()));
+  return store;
 }
 
 /// Shallow equality for a picker's trigger, a flat object or undefined: a selector that recomputes
@@ -81,18 +80,26 @@ export function useDraftValue<T>(
   // value React last read is kept and returned again whenever a new draft selects an equal one,
   // which is what makes a write render nothing. (The rule use-sync-external-store's
   // `with-selector` applies; React 19 does not ship it and the package is not a dependency.)
-  const read = useMemo(() => {
-    let held: { draft: ComposerDraft; value: T } | undefined;
-    return () => {
-      const draft = store.get();
-      if (held && held.draft === draft) return held.value;
-      const next = select(draft);
-      const value = held && (isEqual ? isEqual(held.value, next) : Object.is(held.value, next)) ? held.value : next;
-      held = { draft, value };
-      return value;
-    };
-  }, [store, select, isEqual]);
+  const read = useMemo(() => draftReader(store, select, isEqual), [store, select, isEqual]);
   return useSyncExternalStore(store.subscribe, read, read);
+}
+
+/// `useDraftValue`'s cache, kept out of the hook: the React Compiler skips a hook whose closure
+/// reassigns a variable after render (check-compiler-bails).
+function draftReader<T>(
+  store: ComposerDraftStore,
+  select: (draft: ComposerDraft) => T,
+  isEqual: ((a: T, b: T) => boolean) | undefined,
+): () => T {
+  let held: { draft: ComposerDraft; value: T } | undefined;
+  return () => {
+    const draft = store.get();
+    if (held && held.draft === draft) return held.value;
+    const next = select(draft);
+    const value = held && (isEqual ? isEqual(held.value, next) : Object.is(held.value, next)) ? held.value : next;
+    held = { draft, value };
+    return value;
+  };
 }
 
 /// Runs `run` with the draft on every change of its *text*, and once whenever one of `deps`
@@ -101,10 +108,13 @@ export function useDraftValue<T>(
 /// read live, so the body never sees a value a render had not caught up with.
 export function useDraftWrites(store: ComposerDraftStore, run: (draft: ComposerDraft) => void, deps: unknown[]): void {
   const latest = useRef(run);
-  latest.current = run;
+  // Written in an insertion effect, not during render: a render-time ref write keeps the hook out
+  // of the React Compiler. It runs before every effect, so the subscription below reads this one.
+  useInsertionEffect(() => {
+    latest.current = run;
+  });
   // `run` is read through the ref, so only `deps` (what the old effect listed besides the draft)
   // re-arm it.
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- the caller's deps stand for `run`'s.
   useEffect(() => {
     let last = store.get().text;
     latest.current(store.get());

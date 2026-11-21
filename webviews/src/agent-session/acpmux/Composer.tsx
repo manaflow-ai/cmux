@@ -132,7 +132,7 @@ import { useMenuPressGuard } from "./menuPressGuard";
 import { setScrollToBottomOnSend, useComposerSettings } from "./composerSettings";
 import { useComposerLook } from "./composerLook";
 import { useEscapeStop } from "./escapeStop";
-import { usePromptHistory, usePromptRecalled } from "./composer/promptHistory";
+import { usePromptHistory } from "./composer/promptHistory";
 import {
   appendAttachments,
   useAttachmentIntake,
@@ -720,7 +720,10 @@ function ComposerFrame({
   /// not the person's own typing (a draft read, a chat switch, a pick, a prompt put back). The
   /// editor is written first, so the text is on screen before anything reads it, and nothing here
   /// needs a render: before, the `value` prop carried it in on the next one.
-  const applyDraft = (value: string, at = value.length) => {
+  // `at` is optional rather than defaulted to `value.length`: a default that reads a member keeps
+  // the composer out of the React Compiler (check-compiler-bails).
+  const applyDraft = (value: string, caretAt?: number) => {
+    const at = caretAt ?? value.length;
     const handle = field.current;
     if (handle) {
       if (handle.value() !== value) handle.reset(value);
@@ -1185,7 +1188,7 @@ function ComposerFrame({
     if (next === typed) return;
     notTyped();
     applyDraft(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the draft arriving is the trigger; everything else is read live.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the draft arriving is the trigger; everything else is read live.
   }, [draft]);
   useEffect(() => {
     if (switching) carryPrompt.current = true;
@@ -1230,7 +1233,7 @@ function ComposerFrame({
     }
     applyDraft(initial);
     // The draft is read live (`textNow`), so a keystroke is no longer a reason to run this again.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the chat changing is the trigger.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the chat changing is the trigger.
   }, [sessionId, draft]);
   // The pane closes: what it queued for its chat still goes to acpmux, but no quit compares it again.
   useEffect(() => () => forgetQueuedDraft(persistedSession.current), []);
@@ -1527,7 +1530,8 @@ function ComposerFrame({
   /// The composer's own write of the prompt (a picked command, mention or emoji, a recalled prompt,
   /// the draft + wrote over put back): into the field, then recorded as `edit` does. Before, the
   /// `value` prop carried it into the field on the render the state change caused.
-  const writeDraft = (value: string, at = value.length) => {
+  const writeDraft = (value: string, caretAt?: number) => {
+    const at = caretAt ?? value.length;
     applyDraft(value, at);
     edit(value, at);
   };
