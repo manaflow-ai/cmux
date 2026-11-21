@@ -759,6 +759,16 @@ describe("auto-roll scripts", () => {
       expect({ name, run: steps[push]!.run }).toMatchObject({ name, run: expect.stringContaining('--platform-wrangler "$GITHUB_WORKSPACE/cmux-platform-pins/wrangler.jsonc"') });
       // The pins are read whenever the push runs: the checkout's condition is the push step's, or none.
       expect({ name, if: step.if ?? steps[push]!.if }).toEqual({ name, if: steps[push]!.if });
+      // Roll 44852142963 (2026-11-20): the pr-autofix app's installation is "selected" repositories without
+      // cmux-platform, so its token mint answered 404 and no roll could promote. The pins token comes from cmux-bot,
+      // installed on every repository of the org, read-only and for cmux-platform alone.
+      const mint = steps.find((s) => s.id === "pins-token");
+      expect({ name, mint: mint?.with }).toMatchObject({
+        name,
+        mint: { "app-id": "${{ vars.CMUX_BOT_APP_ID }}", "private-key": "${{ secrets.CMUX_BOT_APP_KEY }}", owner: "manaflow-ai", repositories: "cmux-platform", "permission-contents": "read" },
+      });
+      expect({ name, keys: Object.keys(mint!.with!).filter((k) => k.startsWith("permission-")) }).toEqual({ name, keys: ["permission-contents"] });
+      expect({ name, token: step.with?.token }).toEqual({ name, token: "${{ steps.pins-token.outputs.token }}" });
     }
   });
 
