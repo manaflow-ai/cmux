@@ -57,7 +57,7 @@ fn frontend_browser_tab_split_capability_is_advertised() {
 #[test]
 fn browser_pane_split_frontend_replays_after_close_with_a_stale_revision() {
     let mux = Mux::new_for_test("public-frontend-browser-split", crate::SurfaceOptions::default());
-    let (writer, _outbound) = super::super::tests::captured_writer();
+    let (writer, _outbound) = tests::captured_writer();
     let client = mux.control_clients.register(ClientTransport::Unix, writer);
     mux.control_clients
         .set_info(client, None, None, Some(vec![FRONTEND_BROWSER_TABS_CAPABILITY.into()]))
