@@ -292,6 +292,7 @@ export interface AcpmuxRequests {
   "_acpmux/connections/chatgpt.wait": { params: unknown; result: unknown };
   "_acpmux/connections/chatgpt.cancel": { params: unknown; result: unknown };
   "_acpmux/connections/chatgpt.token": { params: unknown; result: unknown };
+  "_acpmux/connections/chatgpt.import": { params: unknown; result: unknown };
   "_acpmux/connections/claude_token.add": { params: unknown; result: unknown };
   "_acpmux/connections/credential": { params: unknown; result: unknown };
   "_acpmux/web_modes": { params: unknown; result: unknown };
@@ -686,6 +687,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/connections/chatgpt.wait", kind: "request", acp: false, typed: false },
   { name: "_acpmux/connections/chatgpt.cancel", kind: "request", acp: false, typed: false },
   { name: "_acpmux/connections/chatgpt.token", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/connections/chatgpt.import", kind: "request", acp: false, typed: false },
   { name: "_acpmux/connections/claude_token.add", kind: "request", acp: false, typed: false },
   { name: "_acpmux/connections/credential", kind: "request", acp: false, typed: false },
   { name: "_acpmux/web_modes", kind: "request", acp: false, typed: false },
