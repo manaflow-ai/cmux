@@ -77,6 +77,29 @@ fn parses_status_mode_and_route() {
     );
     assert!(parse(&words(&["mode"]), &env).is_err());
     assert!(parse(&words(&["mode", "on"]), &env).is_err());
+    // `joined`, with a joined machine as the gateway machine (cmux-platform's JOINED_MACHINE) or a Cloud one.
+    let joined = "machine_0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b";
+    let (_, v) = parse(&words(&["mode", "joined", "--gateway-machine", joined]), &env).unwrap();
+    assert_eq!(
+        v,
+        Verb::Mode { personal: false, mode: "joined".into(), machine: Some(Some(joined.into())) }
+    );
+    let (_, v) = parse(&words(&["mode", "joined"]), &env).unwrap();
+    assert_eq!(v, Verb::Mode { personal: false, mode: "joined".into(), machine: None });
+    for bad in [
+        "machine_0F1E2D3C-4B5A-6978-8A9B-0C1D2E3F4A5B",
+        "machine_0f1e2d3c4b5a69788a9b0c1d2e3f4a5b",
+        "machine_0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5",
+        "machine_0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5g",
+        "cmm_0f1e2d3c",
+    ] {
+        assert!(!joined_machine(bad), "{bad}");
+        assert!(
+            parse(&words(&["mode", "joined", "--gateway-machine", bad]), &env).is_err(),
+            "{bad}"
+        );
+    }
+    assert!(parse(&words(&["mode", "joined", "off"]), &env).is_err());
     assert!(parse(&words(&["route", "--machine", "nope"]), &env).is_err());
     assert!(
         parse(
@@ -93,8 +116,21 @@ fn scopes_the_status_and_keeps_api_error_codes() {
     let ok = json!({"ok": true, "gateway": {"mode": "gateway", "online": true}});
     assert_eq!(
         status_answer(true, &ok),
-        json!({"ok": true, "scope": "personal", "gateway": {"mode": "gateway", "online": true}})
+        json!({"ok": true, "scope": "personal", "gateway": {"mode": "gateway", "online": true},
+               "serves": ["claude", "codex"]})
     );
+    // Only a gateway in mode `gateway` that is online serves (hq#15762's start gate reads `serves`).
+    for gateway in [
+        json!({"mode": "gateway", "online": false}),
+        json!({"mode": "off", "online": true}),
+        // `joined` takes only hub-joined machines' calls: a Cloud chat is not served.
+        json!({"mode": "joined", "online": true}),
+        json!({}),
+    ] {
+        let answer = status_answer(false, &json!({"ok": true, "gateway": gateway}));
+        assert_eq!(answer["serves"], json!([]), "{answer}");
+        assert_eq!(answer["scope"], "team");
+    }
     let refused = json!({"ok": false, "error": {"code": "auth.forbidden", "message": "no"}});
     assert_eq!(status_answer(false, &refused), error_json("auth.forbidden", "no"));
     assert_eq!(route_path(true), "/v1/cloud/inference-gateway/personal");
