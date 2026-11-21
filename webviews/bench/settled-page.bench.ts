@@ -181,7 +181,11 @@ function installFrameReader() {
     scrollTop: number | null;
   };
   const w = window as unknown as {
-    __settle?: { start(t0: number): void; stop(): { t0: number; frames: Rec[]; lastChange: number } };
+    __settle?: {
+      start(t0: number): void;
+      peek(): { lastChange: number; now: number };
+      stop(): { t0: number; frames: Rec[]; lastChange: number };
+    };
     __hidden?: boolean;
   };
   if (w.__settle) return;
@@ -198,24 +202,33 @@ function installFrameReader() {
   let running = false;
   let lastKey = "";
   let lastChange = 0;
+  // As firstLoadWatch.ts `readFrame` reads a frame: the drawn copy's layer when it shows, else the live page.
   const read = (): Rec => {
-    const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+    const drawn = document.querySelector<HTMLElement>("cmux-chat-snapshot");
+    const host = drawn && drawn.style.visibility !== "hidden" ? drawn : null;
+    const scope: ParentNode = host?.shadowRoot ?? document;
+    const rootHidden = !host && document.getElementById("root")?.style.opacity === "0";
+    const scroller = scope.querySelector<HTMLElement>(".acpmux-scroll");
+    const view = rootHidden ? undefined : scroller?.getBoundingClientRect();
     const rows: Rec["rows"] = [];
-    if (scroller) {
-      const view = scroller.getBoundingClientRect();
-      for (const row of scroller.querySelectorAll<HTMLElement>("[data-row-id]")) {
+    if (view)
+      for (const row of Array.from(scope.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]"))) {
         const box = row.getBoundingClientRect();
         if (box.height > 0 && box.bottom > view.top && box.top < view.bottom)
           rows.push({ id: row.dataset.rowId ?? "", top: box.top });
       }
-    }
-    const composerBox = document.querySelector<HTMLElement>(".acpmux-composer-box")?.getBoundingClientRect();
+    rows.sort((x, y) => x.top - y.top);
+    const composer = rootHidden
+      ? undefined
+      : Array.from(scope.querySelectorAll(".acpmux-composer-box"))
+          .map((element) => element.getBoundingClientRect())
+          .find((box) => box.height > 0);
     return {
       t: performance.now(),
-      copyShown: !!document.querySelector("cmux-chat-snapshot"),
+      copyShown: !!host,
       rows,
-      composer: composerBox ? { top: composerBox.top, height: composerBox.height } : null,
-      scrollTop: scroller ? scroller.scrollTop : null,
+      composer: composer ? { top: composer.top, height: composer.height } : null,
+      scrollTop: scroller && !rootHidden ? scroller.scrollTop : null,
     };
   };
   const tick = () => {
@@ -242,70 +255,38 @@ function installFrameReader() {
       running = true;
       raf(tick);
     },
+    peek() {
+      return { lastChange, now: performance.now() };
+    },
     stop() {
       running = false;
       return { t0, frames, lastChange };
     },
   };
   // A navigation arm starts at once, from navigation (t0 = 0).
-  if ((window as unknown as { __settleAtLoad?: boolean }).__settleAtLoad) w.__settle.start(0);
+  // Only the measured page (its URL carries `measure=1`), not the other pages and bound pages in its context.
+  if (location.hash.includes("measure=1")) w.__settle.start(0);
 }
 
 type Read = { t0: number; frames: FrameRecord[]; lastChange: number };
-/** Waits until the page painted MARK, MIN_WATCH_MS passed and nothing changed for QUIET_MS; returns the frames. */
-async function watch(page: Page, mark: string): Promise<Read> {
+type Reader = { start(t0: number): void; peek(): { lastChange: number; now: number }; stop(): Read };
+/** Reads until the page painted `mark`, MIN_WATCH_MS passed and nothing changed for QUIET_MS (or MAX_WATCH_MS); returns
+ * every frame read since the transition. */
+async function framesOf(page: Page, mark: string): Promise<Read> {
   const started = Date.now();
-  for (;;) {
+  while (Date.now() - started < MAX_WATCH_MS) {
     // fixed-wait: the frame reader runs in the page; this only decides when to stop reading.
     await page.waitForTimeout(100);
     const state = await page.evaluate(
       (mark) => ({
-        now: performance.now(),
         painted: !!document.querySelector(".acpmux-scroll")?.textContent?.includes(mark),
-        last: (window as unknown as { __settleLast?: number }).__settleLast,
+        ...(window as unknown as { __settle: Reader }).__settle.peek(),
       }),
       mark,
     );
-    const elapsed = Date.now() - started;
-    if (elapsed > MAX_WATCH_MS) break;
-    if (!state.painted || elapsed < MIN_WATCH_MS) continue;
-    const quiet = await page.evaluate(() => {
-      const w = window as unknown as { __settle: { stop(): Read } & Record<string, unknown> };
-      // Peek without stopping: the reader's lastChange is on its closure; stop and restart is not needed, so read
-      // the newest frame's time against the last change through a stop only when quiet.
-      return w.__settle;
-    });
-    void quiet;
-    const last = await page.evaluate(() => {
-      const w = window as unknown as { __settle: { stop(): Read; start(t0: number): void } };
-      const read = w.__settle.stop();
-      // Keep reading: put the frames back by restarting with the same t0 and the frames kept.
-      (window as unknown as { __settleKept?: Read }).__settleKept = read;
-      return { lastChange: read.lastChange, now: performance.now() };
-    });
-    const kept = await page.evaluate(() => (window as unknown as { __settleKept: Read }).__settleKept);
-    if (last.now - last.lastChange >= QUIET_MS) return kept;
-    // Not quiet yet: resume, carrying the frames read so far.
-    await page.evaluate(() => {
-      const w = window as unknown as { __settle: { start(t0: number): void; stop(): Read } };
-      const kept = (window as unknown as { __settleKept: Read }).__settleKept;
-      w.__settle.start(kept.t0);
-      (window as unknown as { __settleCarry?: Read }).__settleCarry = kept;
-    });
-    const carry = await page.evaluate(() => (window as unknown as { __settleCarry?: Read }).__settleCarry);
-    if (carry) carried.set(page, [...(carried.get(page) ?? []), ...carry.frames]);
+    if (state.painted && Date.now() - started >= MIN_WATCH_MS && state.now - state.lastChange >= QUIET_MS) break;
   }
-  const read = await page.evaluate(() => (window as unknown as { __settle: { stop(): Read } }).__settle.stop());
-  return read;
-}
-const carried = new WeakMap<Page, FrameRecord[]>();
-/** Stops the reader and returns every frame read since the transition, carried pieces included. */
-async function framesOf(page: Page, mark: string): Promise<Read> {
-  carried.delete(page);
-  const read = await watch(page, mark);
-  const before = carried.get(page) ?? [];
-  carried.delete(page);
-  return { ...read, frames: [...before, ...read.frames] };
+  return page.evaluate(() => (window as unknown as { __settle: Reader }).__settle.stop());
 }
 
 /** The stream arm's view of a frame: rows in content coordinates, the streaming (bottom-most) row left out. */
@@ -434,10 +415,8 @@ try {
 
   const browser: Browser = await chromium.launch({ headless: true });
   releases.push(() => browser.close());
-  const newContext = async (atLoad: boolean) => {
+  const newContext = async () => {
     const context = await browser.newContext({ viewport: VIEWPORT });
-    if (atLoad)
-      await context.addInitScript(() => ((window as unknown as { __settleAtLoad: boolean }).__settleAtLoad = true));
     await context.addInitScript(installFrameReader);
     return context;
   };
@@ -465,7 +444,7 @@ try {
     try {
       let page: Page;
       if (scenario === "chat_switch") {
-        context = await newContext(false);
+        context = await newContext();
         page = await context.newPage();
         await page.goto(urlFor(A));
         await waitPainted(page, MARK);
@@ -482,7 +461,7 @@ try {
           target,
         );
       } else if (scenario === "workspace_switch") {
-        context = await newContext(false);
+        context = await newContext();
         page = await context.newPage();
         await page.goto(urlFor(target));
         await waitPainted(page, MARK);
@@ -501,19 +480,19 @@ try {
           document.dispatchEvent(new Event("visibilitychange"));
         });
       } else if (scenario === "open_recent") {
-        context = await newContext(true);
+        context = await newContext();
         const other = await context.newPage();
         await other.goto(urlFor(A));
         await waitPainted(other, MARK);
         if (arm === "stream") startStream();
         page = await context.newPage();
-        await page.goto(urlFor(target));
+        await page.goto(`${urlFor(target)}&measure=1`);
       } else {
-        // restart: warm the build's cache in one context, then the measured page in a cold one.
-        context = await newContext(true);
+        // restart: the measured page in a new (cold) context.
+        context = await newContext();
         if (arm === "stream") startStream();
         page = await context.newPage();
-        await page.goto(urlFor(target));
+        await page.goto(`${urlFor(target)}&measure=1`);
       }
       const read = await framesOf(page, MARK);
       stopStream();
