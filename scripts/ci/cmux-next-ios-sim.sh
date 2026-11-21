@@ -40,7 +40,10 @@
 #               against a Debug app; with ui= and no only=, the kit run is skipped.
 #               A suite named *ColdUITests runs each of its test*Cold methods
 #               on a freshly booted iPhone, CMUX_LAUNCH_COLD_RUNS (10) times
-#               (LaunchTTIColdUITests); LAUNCHTTI lines go to launch-tti.jsonl
+#               (LaunchTTIColdUITests); LAUNCHTTI lines go to launch-tti.jsonl.
+#               A long live-stress suite (ui_stress_suites below) runs after the
+#               others, each test method in its own xcodebuild on a freshly
+#               rebooted iPhone; the result bundles merge into one (ui-tests.json)
 #             video   record the UI tests' iPhone screen (simctl recordVideo)
 #               to ui-video.mp4 in the artifact: before/after videos of a change;
 #               with ffmpeg on the host (Homebrew), also ui-video-small.mp4:
@@ -273,6 +276,14 @@ kit_only=()
 kit_env=()
 ui_suites=()
 ui_cold=()
+# Long live-stress UI suites (a 300-row Feed changing live, CMUX_MOBILE_FEED_STRESS_LIVE; 7 to 25
+# minutes a test). After one, the simulator sometimes stalls: the next launch fails with
+# "Application has not loaded accessibility" (the last frame frozen about 80 s, then a launch screen
+# that never clears), in the next suite or the next test of the same suite (steps 7d6461bb and
+# 571e9972; green in ce12bbca and 5171e0c0). Ending the app after each test did not help. So each of
+# their test methods runs in its own `xcodebuild`, after the other suites, on a freshly booted iPhone.
+ui_stress_suites=(FeedNewPillUITests FeedNewPillTapUITests)
+ui_stress=()
 ui_video=0
 ui_profile=0
 if [[ "$mode" == test && $# -gt 1 ]]; then
@@ -293,14 +304,16 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
             { echo "cmux-next-ios-sim.sh: ui= wants CmuxMobileAppUITests suite names, got '$item'" >&2; exit 2; }
           # A suite named *ColdUITests runs each of its test*Cold methods on a freshly booted
           # simulator, CMUX_LAUNCH_COLD_RUNS times (default 10): one cold launch per run.
-          if [[ "$item" == *ColdUITests ]]; then ui_cold+=("$item"); else ui_suites+=("-only-testing:CmuxMobileAppUITests/$item"); fi
+          if [[ "$item" == *ColdUITests ]]; then ui_cold+=("$item")
+          elif [[ " ${ui_stress_suites[*]} " == *" ${item%%/*} "* ]]; then ui_stress+=("$item")
+          else ui_suites+=("-only-testing:CmuxMobileAppUITests/$item"); fi
         done ;;
       video) ui_video=1 ;;
       profile) ui_profile=1 ;;
       *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST, video and profile, got '$sel'" >&2; exit 2 ;;
     esac
   done
-  if [[ $ui_profile -eq 1 && $((${#ui_suites[@]} + ${#ui_cold[@]})) -eq 0 ]]; then
+  if [[ $ui_profile -eq 1 && $((${#ui_suites[@]} + ${#ui_stress[@]} + ${#ui_cold[@]})) -eq 0 ]]; then
     echo "cmux-next-ios-sim.sh: profile records the UI test run; give it ui=SUITE,..." >&2; exit 2
   fi
 fi
@@ -421,7 +434,7 @@ if [[ "$mode" == clips ]]; then
     echo "cmux-next-ios-sim.sh: roles=...before needs base=SHA" >&2; exit 2
   fi
 fi
-if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 && ${#kit_only[@]} -eq 0 ]]; then run_kit=0; fi
+if [[ $((${#ui_suites[@]} + ${#ui_stress[@]} + ${#ui_cold[@]})) -gt 0 && ${#kit_only[@]} -eq 0 ]]; then run_kit=0; fi
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
@@ -1217,8 +1230,49 @@ ui_cold_tests() {
   note "- cold UI suites ${ui_cold[*]}: $runs runs per test, one fresh boot each"
 }
 
+# The UI tests' screen recording (video). The iPhone reboots before each stress run, so the
+# recording comes in parts, one per boot; ui-video.mp4 is the parts joined (ffmpeg), or the one part.
+ui_video_parts=()
+ui_video_start() {
+  [[ $ui_video -eq 1 ]] || return 0
+  local part="$work/ui-video-part-$((${#ui_video_parts[@]} + 1)).mp4"
+  ui_video_parts+=("$part")
+  xcrun simctl io "$ui_udid" recordVideo --codec h264 --force "$part" >>"$work/ui-video.log" 2>&1 &
+  recorder=$!
+}
+ui_video_stop() {
+  [[ -n "$recorder" ]] || return 0
+  # recordVideo finishes the file on SIGINT.
+  kill -INT "$recorder" 2>/dev/null
+  wait "$recorder"
+  recorder=""
+}
+ui_video_join() {
+  local part i=0
+  [[ ${#ui_video_parts[@]} -gt 0 ]] || return 0
+  if [[ ${#ui_video_parts[@]} -eq 1 ]]; then mv "${ui_video_parts[0]}" "$out/ui-video.mp4" 2>/dev/null; return 0; fi
+  : >"$work/ui-video-parts.txt"
+  for part in "${ui_video_parts[@]}"; do [[ ! -s "$part" ]] || printf "file '%s'\n" "$part" >>"$work/ui-video-parts.txt"; done
+  if [[ -n "$ffmpeg_bin" ]] && "$ffmpeg_bin" -v error -y -f concat -safe 0 -i "$work/ui-video-parts.txt" -c copy \
+      "$out/ui-video.mp4" </dev/null; then
+    note "- UI test video: ${#ui_video_parts[@]} parts (one per boot) joined into ui-video.mp4"
+  else
+    rm -f "$out/ui-video.mp4"
+    for part in "${ui_video_parts[@]}"; do i=$((i + 1)); mv "$part" "$out/ui-video-$i.mp4" 2>/dev/null; done
+    note "- UI test video: ${#ui_video_parts[@]} parts (one per boot) not joined (no ffmpeg, or it failed): ui-video-1.mp4 to ui-video-$i.mp4"
+  fi
+}
+
+# ui_reboot: the UI tests' iPhone shut down and booted again, before each stress run.
+ui_reboot() {
+  ui_video_stop
+  xcrun simctl shutdown "$ui_udid" >/dev/null 2>&1 || true
+  { xcrun simctl boot "$ui_udid" && xcrun simctl bootstatus "$ui_udid" -b >/dev/null; } || return 1
+  ui_video_start
+}
+
 # --- UI tests (test ui=...) -------------------------------------------------
-if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
+if [[ $((${#ui_suites[@]} + ${#ui_stress[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
   t0=$SECONDS
   # A Debug build of the app and its UI test bundle, on a new iPhone in the
   # default device set (xcodebuild sees no other), deleted by its UDID after.
@@ -1235,14 +1289,31 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= -quiet)
   ui_action=test
   ui_status=0
-  if [[ $ui_profile -eq 0 && ${#ui_cold[@]} -gt 0 ]]; then
-    # Cold suites run test-without-building once per fresh boot: built once, first.
+  # One `xcodebuild` per run: the other suites together, then each stress test method alone.
+  ui_runs=()
+  [[ ${#ui_suites[@]} -eq 0 ]] || ui_runs+=("${ui_suites[*]}")
+  for stress_suite in ${ui_stress[@]+"${ui_stress[@]}"}; do
+    stress_tests=()
+    if [[ "$stress_suite" != */* ]]; then
+      stress_file="$(grep -lw "class $stress_suite" cmux-next-ios/UITests/*.swift 2>/dev/null | head -1 || true)"
+      [[ -z "$stress_file" ]] || while IFS= read -r stress_test; do stress_tests+=("$stress_test"); done \
+        < <(grep -oE 'func test[A-Za-z0-9_]*\(' "$stress_file" | sed -E 's/func (.*)\(/\1/')
+    fi
+    if [[ ${#stress_tests[@]} -eq 0 ]]; then
+      ui_runs+=("-only-testing:CmuxMobileAppUITests/$stress_suite")
+    else
+      for stress_test in "${stress_tests[@]}"; do ui_runs+=("-only-testing:CmuxMobileAppUITests/$stress_suite/$stress_test"); done
+    fi
+  done
+  if [[ $ui_profile -eq 0 && ( ${#ui_cold[@]} -gt 0 || ${#ui_runs[@]} -gt 1 ) ]]; then
+    # Cold suites run test-without-building once per fresh boot, and so does each run after the
+    # first: built once, first.
     ui_t0=$SECONDS
     set +e
     xcodebuild build-for-testing "${ui_xcodebuild[@]}" >"$work/ui-build.log" 2>&1
     ui_status=$?
     set -e
-    note "- UI test build (build-for-testing, for the cold suites): exit $ui_status, $((SECONDS - ui_t0)) s"
+    note "- UI test build (build-for-testing, for the cold suites or the stress runs): exit $ui_status, $((SECONDS - ui_t0)) s"
     if [[ $ui_status -ne 0 ]]; then
       tail -40 "$work/ui-build.log"
       cp "$work/ui-build.log" "$out/ui-build.log" 2>/dev/null || true
@@ -1267,28 +1338,44 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
       ui_profile_start
     fi
   fi
-  if [[ $ui_video -eq 1 ]]; then
-    xcrun simctl io "$ui_udid" recordVideo --codec h264 --force "$out/ui-video.mp4" >"$work/ui-video.log" 2>&1 &
-    recorder=$!
-  fi
+  ui_video_start
   set +e
   ui_t0=$SECONDS
-  if [[ $ui_status -eq 0 && ${#ui_suites[@]} -gt 0 ]]; then
-    xcodebuild "$ui_action" "${ui_xcodebuild[@]}" -resultBundlePath "$work/ui.xcresult" \
-      "${ui_suites[@]}" >"$work/ui-test.log" 2>&1
-    ui_status=$?
+  if [[ $ui_status -eq 0 && ${#ui_runs[@]} -gt 0 ]]; then
+    : >"$work/ui-test.log"
+    ui_bundles=()
+    for ((ui_i = 0; ui_i < ${#ui_runs[@]}; ui_i++)); do
+      read -r -a ui_run <<< "${ui_runs[$ui_i]}"
+      if (( ui_i > 0 )) && ! ui_reboot; then
+        ui_status=1; note "- UI tests ${ui_run[*]}: simulator reboot failed, not run"; continue
+      fi
+      [[ ${#ui_runs[@]} -eq 1 ]] || echo "=== xcodebuild $ui_action ${ui_run[*]}" >>"$work/ui-test.log"
+      xcodebuild "$ui_action" "${ui_xcodebuild[@]}" -resultBundlePath "$work/ui-$ui_i.xcresult" \
+        "${ui_run[@]}" >>"$work/ui-test.log" 2>&1
+      ui_run_status=$?
+      (( ui_run_status == 0 )) || ui_status=$ui_run_status
+      [[ ! -d "$work/ui-$ui_i.xcresult" ]] || ui_bundles+=("$work/ui-$ui_i.xcresult")
+    done
+    # One result bundle, ui.xcresult, as from a single run.
+    if [[ ${#ui_bundles[@]} -eq 1 ]]; then
+      mv "${ui_bundles[0]}" "$work/ui.xcresult"
+    elif [[ ${#ui_bundles[@]} -gt 1 ]] &&
+        ! xcrun xcresulttool merge --output-path "$work/ui.xcresult" "${ui_bundles[@]}" >"$work/ui-merge.log" 2>&1; then
+      ui_status=1
+      cp "$work/ui-merge.log" "$out/ui-merge.log"
+      note "- ERROR: merging the ${#ui_bundles[@]} UI test result bundles failed (ui-merge.log)"
+    fi
   fi
   if [[ $ui_status -eq 0 && ${#ui_cold[@]} -gt 0 ]]; then
     ui_cold_tests
   fi
   ui_seconds=$((SECONDS - ui_t0))
-  if [[ -n "$recorder" ]]; then
-    # recordVideo finishes the file on SIGINT.
-    kill -INT "$recorder" 2>/dev/null
-    wait "$recorder"
-    note "- UI test video: ui-video.mp4 ($(du -h "$out/ui-video.mp4" 2>/dev/null | cut -f1 || echo missing))"
+  if [[ $ui_video -eq 1 ]]; then
+    ui_video_stop
     ffmpeg_bin="$(command -v ffmpeg || true)"
     [[ -n "$ffmpeg_bin" || ! -x /opt/homebrew/bin/ffmpeg ]] || ffmpeg_bin=/opt/homebrew/bin/ffmpeg
+    ui_video_join
+    note "- UI test video: ui-video.mp4 ($(du -h "$out/ui-video.mp4" 2>/dev/null | cut -f1 || echo missing))"
     if [[ -s "$out/ui-video.mp4" && -n "$ffmpeg_bin" ]]; then
       if "$ffmpeg_bin" -v error -y -i "$out/ui-video.mp4" -vf "scale=540:-2" -c:v libx264 -preset veryfast \
           -crf 30 -pix_fmt yuv420p -an -movflags +faststart "$out/ui-video-small.mp4" </dev/null; then
@@ -1311,10 +1398,10 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
   keep_test_logs "$work/ui-test.log" "$work/ui.xcresult" ui
   grep -h "^FAILED:" -A3 "$out/ui-tests-failures.txt" 2>/dev/null || true
   # Bash 3.2 treats an empty array as unset under nounset (warm-only or cold-only).
-  note "- UI tests ${ui_suites[*]-} ${ui_cold[*]-}: exit $ui_status, $(cat "$out/ui-tests-counts.txt" 2>/dev/null || echo "no result bundle"), xcodebuild $ui_action $ui_seconds s, $((SECONDS - t0)) s in all"
+  note "- UI tests ${ui_suites[*]-} ${ui_stress[*]-} ${ui_cold[*]-}: exit $ui_status, $(cat "$out/ui-tests-counts.txt" 2>/dev/null || echo "no result bundle"), xcodebuild $ui_action $ui_seconds s, $((SECONDS - t0)) s in all"
   # Launch marks (LaunchTTIUITests): every LAUNCHTTI line, and per flow and phase the p50 of each span.
   if ! python3 -I scripts/ci/ios_launch_samples.py "$out" --cold-runs "${ui_cold_runs:-10}" \
-    --suites ${ui_suites[@]+"${ui_suites[@]}"} ${ui_cold[@]+"${ui_cold[@]}"}; then
+    --suites ${ui_suites[@]+"${ui_suites[@]}"} ${ui_stress[@]+"${ui_stress[@]}"} ${ui_cold[@]+"${ui_cold[@]}"}; then
     note "- ERROR: launch measurements are missing or invalid; see launch-tti-error.txt and the attachment export logs."
     ui_status=1
   fi

@@ -58,6 +58,16 @@ elif tool == "xcodebuild":
     time.sleep(0.5)
     print("fake UI tests ran")
     sys.exit(int(os.environ.get("UI_STATUS", "0")))
+elif tool == "ffmpeg":
+    # The parts joined (-f concat, a list of `file 'PATH'` lines), or the small copy.
+    output = pathlib.Path(args[-1])
+    if "concat" in args:
+        listed = pathlib.Path(args[args.index("-i") + 1]).read_text().splitlines()
+        output.write_bytes(b"".join(pathlib.Path(line[6:-1]).read_bytes() for line in listed))
+    else:
+        output.write_bytes(pathlib.Path(args[args.index("-i") + 1]).read_bytes())
+elif tool == "xcrun" and args[:2] == ["xcresulttool", "merge"]:
+    pathlib.Path(args[args.index("--output-path") + 1]).mkdir()
 elif tool == "ditto":
     src, dst = map(pathlib.Path, args[-2:])
     with zipfile.ZipFile(dst, "w") as z:
@@ -169,7 +179,13 @@ class ProfileRouteTests(unittest.TestCase):
         for path in (out, work, binaries, notices, root / "scripts/ci"):
             path.mkdir(parents=True)
         (root / "scripts/ci/ios_sim_time_profile.py").write_text(SUMMARIZER.read_text())
-        for name in ("xcodebuild", "xcrun", "notifyutil", "ditto"):
+        (root / "scripts/ci/ios_launch_samples.py").write_text((ROOT / "scripts/ci/ios_launch_samples.py").read_text())
+        uitests = root / "cmux-next-ios/UITests"
+        uitests.mkdir(parents=True)
+        (uitests / "FeedNewPillTapUITests.swift").write_text(
+            "final class FeedNewPillTapUITests: XCTestCase {\n"
+            "    func testNewPillDoubleTap() throws {}\n    func testNewPillEdgeTaps() throws {}\n}\n")
+        for name in ("xcodebuild", "xcrun", "notifyutil", "ditto", "ffmpeg"):
             tool = binaries / name
             tool.write_text(FAKE_TOOL)
             tool.chmod(0o755)
@@ -182,7 +198,7 @@ class ProfileRouteTests(unittest.TestCase):
         harness.write_text(
             'set -euo pipefail\n'
             'mode=test; work="$WORK"; out="$OUT"; summary="$out/SUMMARY.md"\n'
-            'device_type="test-device"; runtime="test-runtime"\n'
+            'device_type="test-device"; runtime="test-runtime"; reduce_motion=0\n'
             'note() { printf "%s\\n" "$*" | tee -a "$summary"; }\n'
             'keep_test_logs() { :; }\n'
             # The script's own sim_create (stock here: no worker helper in the env).
@@ -320,6 +336,56 @@ class ProfileRouteTests(unittest.TestCase):
         self.assertEqual(self.records(calls), [])
         self.assertFalse(any(c["tool"] == "notifyutil" for c in calls))
         self.assertFalse((out / "ui-profile-summary.json").exists())
+
+
+
+class StressRunTests(unittest.TestCase):
+    """ui= with a live-stress suite (ui_stress_suites): the other suites run first in one xcodebuild,
+    then each stress test method in its own, each after a reboot; one merged result bundle."""
+
+    run_route = ProfileRouteTests.run_route
+
+    def test_each_stress_method_runs_alone_after_a_reboot(self):
+        process, calls, out, work = self.run_route("ui=A,FeedNewPillTapUITests,B", "video")
+        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+        steps = []
+        for c in calls:
+            if c["tool"] == "xcodebuild":
+                steps.append([c["args"][0]] + [a for a in c["args"] if a.startswith("-only-testing:")])
+            elif c["tool"] == "xcrun" and c["args"][:1] == ["simctl"] and c["args"][1] in ("boot", "shutdown"):
+                steps.append(c["args"][1])
+        prefix = "-only-testing:CmuxMobileAppUITests/"
+        self.assertEqual(steps, [
+            "boot", ["build-for-testing"],
+            ["test-without-building", prefix + "A", prefix + "B"],
+            "shutdown", "boot", ["test-without-building", prefix + "FeedNewPillTapUITests/testNewPillDoubleTap"],
+            "shutdown", "boot", ["test-without-building", prefix + "FeedNewPillTapUITests/testNewPillEdgeTaps"],
+            "shutdown"])
+        [merge] = [c["args"] for c in calls if c["args"][:2] == ["xcresulttool", "merge"]]
+        self.assertEqual(merge[merge.index("--output-path") + 1], str(work / "ui.xcresult"))
+        self.assertEqual([Path(a).name for a in merge[4:]], ["ui-0.xcresult", "ui-1.xcresult", "ui-2.xcresult"])
+        self.assertTrue((work / "ui.xcresult").is_dir())
+        # One recording per boot, joined into the one ui-video.mp4.
+        records = [c for c in calls if c["args"][:1] == ["simctl"] and c["args"][1:2] == ["io"]]
+        self.assertEqual(len(records), 3)
+        self.assertEqual((out / "ui-video.mp4").read_bytes(), b"mp4" * 3)
+        self.assertIn("3 parts (one per boot) joined", (out / "SUMMARY.md").read_text())
+        self.assertEqual((work / "ui-test.log").read_text().count("fake UI tests ran"), 3)
+
+    def test_a_failing_stress_run_fails_the_step_and_the_rest_still_run(self):
+        process, calls, _, _ = self.run_route("ui=FeedNewPillTapUITests,A", UI_STATUS="65")
+        self.assertEqual(process.returncode, 65, process.stdout + process.stderr)
+        runs = [c for c in calls if c["tool"] == "xcodebuild" and c["args"][0] == "test-without-building"]
+        self.assertEqual(len(runs), 3)
+
+    def test_one_stress_method_alone_is_one_xcodebuild_test(self):
+        process, calls, work_out, work = self.run_route("ui=FeedNewPillUITests/testNewPillFromNearBottom")
+        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+        runs = [c["args"] for c in calls if c["tool"] == "xcodebuild"]
+        self.assertEqual([r[0] for r in runs], ["test"])
+        self.assertIn("-only-testing:CmuxMobileAppUITests/FeedNewPillUITests/testNewPillFromNearBottom", runs[0])
+        self.assertFalse(any(c["args"][:2] == ["xcresulttool", "merge"] for c in calls))
+        self.assertTrue((work / "ui.xcresult").is_dir())
 
 
 if __name__ == "__main__":
