@@ -86,7 +86,13 @@ export function installBrowserNavigation(
   select: (route: BrowserChatRoute | undefined) => void,
   browser: Window = window,
 ): { navigate: (href: string) => boolean; dispose: () => void } {
-  const read = () => select(browserChatRoute(browser.location.href, browser.location.href));
+  const read = () => {
+    const route = browserChatRoute(browser.location.href, browser.location.href);
+    // The shell has already consumed the launch token. Canonicalize the entry too, so going
+    // Back never restores auth or transport fields from a pasted URL.
+    if (route) browser.history.replaceState(null, "", browserChatHref(route));
+    select(route);
+  };
   const navigate = (href: string): boolean => {
     const route = browserChatRoute(href, browser.location.href);
     if (!route) return false;
