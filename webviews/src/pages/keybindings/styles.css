@@ -155,6 +155,7 @@
   min-width: 0;
 }
 
+/* Its top padding is KeybindingsPage `SCROLL_PAD`, where the windowed rows start. */
 .keys-scroll {
   flex: 1;
   overflow-y: auto;
@@ -460,8 +461,10 @@
     clip-path: inset(50%);
   }
 
+  /* `.keys-gap` stands for the rows that are not mounted (KeybindingsPage `windowRows`). */
   .keys-table,
-  .keys-table tbody {
+  .keys-table tbody,
+  .keys-gap {
     display: block;
   }
 

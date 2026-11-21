@@ -114,16 +114,58 @@ export function resettableCommands(bindings: readonly Binding[]): Set<string> {
   return out;
 }
 
+/** The shown rows with each one's identity and place: built once per query or re-read, so a
+ *  selection, a key press or a scroll finds its row without a pass over the table. */
+export interface RowList {
+  rows: readonly Binding[];
+  ids: readonly string[];
+  /** Row identity to its index in `rows`. */
+  index: ReadonlyMap<string, number>;
+}
+
+export function rowList(rows: readonly Binding[]): RowList {
+  const ids = rows.map(identity);
+  return { rows, ids, index: new Map(ids.map((id, at) => [id, at])) };
+}
+
+/** The index of `id`'s row, or -1 when it is not shown. */
+export function rowIndex(list: RowList, id: string | undefined): number {
+  return id === undefined ? -1 : (list.index.get(id) ?? -1);
+}
+
 /** The next row identity for Up/Down; from no selection, Down picks the first and Up the last. */
-export function moveSelection(
-  rows: readonly Binding[],
-  selection: string | undefined,
-  offset: number,
-): string | undefined {
-  if (!rows.length) return selection;
-  let index = rows.findIndex((row) => identity(row) === selection);
-  if (index < 0) index = offset > 0 ? -1 : rows.length;
-  return identity(rows[Math.max(0, Math.min(rows.length - 1, index + offset))]);
+export function moveSelection(list: RowList, selection: string | undefined, offset: number): string | undefined {
+  const { ids } = list;
+  if (!ids.length) return selection;
+  let index = rowIndex(list, selection);
+  if (index < 0) index = offset > 0 ? -1 : ids.length;
+  return ids[Math.max(0, Math.min(ids.length - 1, index + offset))];
+}
+
+/**
+ * The re-read table, each entry that did not change kept as the object the page already holds: a
+ * re-read sends the whole table, and a memoized row draws again only for the entry that changed.
+ */
+export function keepUnchanged(previous: readonly Binding[], next: readonly Binding[]): Binding[] {
+  if (!previous.length) return [...next];
+  const held = new Map(previous.map((binding) => [`${binding.id}\u0000${identity(binding)}`, binding]));
+  return next.map((binding) => {
+    const old = held.get(`${binding.id}\u0000${identity(binding)}`);
+    return old && sameBinding(old, binding) ? old : binding;
+  });
+}
+
+function sameBinding(a: Binding, b: Binding): boolean {
+  const keys = Object.keys(a) as (keyof Binding)[];
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((key) => {
+    const x = a[key];
+    const y = b[key];
+    if (x === y) return true;
+    if (Array.isArray(x) && Array.isArray(y)) return x.length === y.length && x.every((item, at) => item === y[at]);
+    // `args` (a plain JSON object from the wire).
+    return typeof x === "object" && typeof y === "object" && JSON.stringify(x) === JSON.stringify(y);
+  });
 }
 
 /** Keeps a selection whose row is still shown; else nothing is selected. */

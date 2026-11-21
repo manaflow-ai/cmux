@@ -10,6 +10,7 @@ import {
   filterBindings,
   identity,
   isReadOnly,
+  keepUnchanged,
   keyMatches,
   normalizeWhen,
   reconcileSelection,
@@ -185,7 +186,7 @@ export class KeybindingsStore {
     try {
       const result = await this.client.call<BindingListResult>(KeybindingOps.list, {});
       if (generation !== this.generation) return;
-      const bindings = sortBindings(result.bindings ?? []);
+      const bindings = sortBindings(keepUnchanged(this.snapshot.bindings, result.bindings ?? []));
       let selection = this.snapshot.selection;
       const pending = this.pendingSelect;
       if (pending) {
