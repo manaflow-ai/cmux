@@ -7,13 +7,15 @@
 # its arguments builds base, then head; each must pass its own --tag.
 set -euo pipefail
 
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../cmux-next/tests/lib/git-fixture.sh"  # drops inherited GIT_DIR/GIT_CONFIG redirects; turns off background maintenance
 measure="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 root="$(mktemp -d)"
-trap 'rm -rf "$root"' EXIT
+git_fixture_trap_exit 'rm -rf "$root"'
 repo="$root/repo" out="$root/out"
 mkdir -p "$repo/scripts" "$repo/GhosttyKit.xcframework" "$root/bin" "$out"
 touch "$repo/GhosttyKit.xcframework/Info.plist"
-git -C "$repo" init -q
+git_fixture_init "$repo"
 git -C "$repo" -c user.email=test@example.com -c user.name=test commit -q --allow-empty -m stand-in
 cat >"$repo/scripts/reload.sh" <<EOF
 #!/usr/bin/env bash
