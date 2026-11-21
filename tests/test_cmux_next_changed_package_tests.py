@@ -151,7 +151,7 @@ class WorkflowWiring(unittest.TestCase):
                 self.assertEqual(len(steps), 1, f"{name} reads no swift_packages")
                 for needle in needles:
                     self.assertIn(needle, steps[0]["run"])
-                self.assertIn('-n "$SWIFT_PACKAGES"', steps[0]["run"])
+                self.assertIn('-n "${SWIFT_PACKAGES:-}"', steps[0]["run"])
 
 
 if __name__ == "__main__":
