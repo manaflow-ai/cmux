@@ -160,13 +160,6 @@
           ],
           "prefixes": []
         },
-        "react-apps-base-early": {
-          "exact": [
-            "web / react-apps-base-early (1)",
-            "web / react-apps-base-early (2)"
-          ],
-          "prefixes": []
-        },
         "react-apps-check": {
           "exact": [
             "web / react-apps-check"

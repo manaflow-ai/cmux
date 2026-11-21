@@ -69,7 +69,7 @@ final class GroupHeaderRowView: SidebarRowView {
     /// workspace row's does; the bar's pin is only a mark, and a click there folds the group. An
     /// unpinned group shows none (Leo 2026-10-21: "no empty pin symbol by default"); Pin Group stays in
     /// its menu and editor.
-    let pinButton = SidebarIconButton(icon: .statePinned, pointSize: { Metrics.smallIconSize - Metrics.space2 },
+    let pinButton = SidebarIconButton(icon: .browserToolbarUnpin, pointSize: { Metrics.smallIconSize - Metrics.space2 },
                                       label: GroupEditorStrings.unpin)
     private var pinned = false
     /// A remote group's machine mark (``SidebarGroup/machine``, ``SidebarHostGroupLook``).
@@ -202,7 +202,7 @@ final class GroupHeaderRowView: SidebarRowView {
         glyph.configure(icon: group.icon)
         hostLook = group.hostLook
         configureMachine(group.machine)
-        pin.image = pinned ? NSImage.icon(.statePinned, size: SidebarStyle.pinGlyphSide) : nil
+        pin.image = pinned ? NSImage.icon(.statePinned, size: SidebarStyle.pinGlyphSide, style: .solid) : nil
         collapsed = row.isCollapsed
         count.stringValue = details.memberCount && collapsed && row.childCount > 0 ? "\(row.childCount)" : ""
         chevronIcon = Self.disclosureIcon(collapsed: collapsed)
@@ -596,7 +596,7 @@ final class GroupHeaderRowView: SidebarRowView {
         let showsPin = pinned && (!(hasIcon || leadsWithMachineMark) || !SidebarStyle.pinnedRowLeadsWithOwnIcon)
         pin.isHidden = !showsPin
         // `configure` sets the image; a density or type scale change since then moves `pinGlyphSide`.
-        if showsPin, pin.image?.size.width != pinSide { pin.image = NSImage.icon(.statePinned, size: pinSide) }
+        if showsPin, pin.image?.size.width != pinSide { pin.image = NSImage.icon(.statePinned, size: pinSide, style: .solid) }
         let pinInk = pin.image.flatMap { SidebarGlyphInk.shared.box(of: $0, glyph: SidebarItemRowView.pinGlyph) }
         let scale = window?.backingScaleFactor ?? 2
         // The pin draws as a pinned workspace row's does (`SidebarStyle.rowGlyphOptics`): its ink sized to the rows' one

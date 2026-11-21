@@ -67,20 +67,23 @@ on:
   # gitlink. Trusted pushes to the cmux-next branches publish
   # cmux-tui/tree/<key>/ after the build and the cmux_next_ daemon tests pass.
   #
-  # Every other branch of this repository publishes its pushed head too
+  # Every non-lane branch of this repository publishes its pushed head too
   # (cx-r2is), so a same-repository branch can repair its own tree without a
   # hand-pushed cmux-tui-pin-* ref, but only a head an open pull request has
   # (or a cmux-next dispatch, or the Cmux-Daemon-Tests: run trailer, asks
   # for): tree-preflight's superseded step skips the rest before any build
-  # (scripts/ci/cmux_tui_superseded_push.py). Those lane-branch pushes publish without
-  # the daemon tests (tree-preflight's daemon-policy step). Forks never push
-  # here. Pull requests do not publish synthetic merge trees: path routing
-  # skips a cold own tree with a named reason until a trusted feat-cmux-next
-  # publication exists. A push trigger cannot filter paths per branch, so
-  # tree-preflight is the filter: a branch push whose tree key is already
-  # published spends no macOS time (run_macos=false) and publishes nothing.
+  # (scripts/ci/cmux_tui_superseded_push.py). Lane branches are excluded from
+  # this push trigger entirely because their trees have no nightly or release
+  # consumer. The feat-cmux-next tree-request workflow remains the repair path
+  # for a missing tree. Forks never push here. Pull requests do not publish
+  # synthetic merge trees: path routing skips a cold own tree with a named
+  # reason until a trusted feat-cmux-next publication exists. A branch push
+  # whose tree key is already published spends no macOS time (run_macos=false)
+  # and publishes nothing.
   push:
-    branches: ["**"]
+    branches:
+      - "**"
+      - "!lane/**"
     # The published binaries do not contain the prose under cmux-tui/docs.
     # Keep the publisher asleep for docs-only commits; v2 tree-key computation
     # excludes the same non-runtime subtree. A push that also changes code
@@ -960,7 +963,10 @@ jobs:
     # nothing, so it has no publisher to wait for and spends no API calls here.
     # A run that already owns its key (tree-preflight owns_key) skips this
     # job; every consumer reads takeover as owner-wait's or owns_key.
-    if: needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.stale != 'true' && needs.tree-preflight.outputs.owns_key != 'true'
+    # !cancelled(): push-gate, two levels up, is skipped on every trunk push, and without a status
+    # function GitHub's implicit success() skipped this job there too, so a non-owner left no deferred
+    # marker and verify-cdn-publication went red (runs 44818589673, 44834489171).
+    if: ${{ !cancelled() && needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.stale != 'true' && needs.tree-preflight.outputs.owns_key != 'true' }}
     needs: tree-preflight
     # Secrets only: no deployment on the PR. The tree-claim authority checks the token's
     # repository and workflow_ref, not its subject (cmuxterm-hq controller tree_claim.go).
@@ -1131,14 +1137,20 @@ jobs:
             branch_owner_takeover=false
             owner_stuck=false
             if past_lease "$owner_json"; then owner_stuck=true; fi
-            # A nightly-next push takes over a stuck owner's key too: its build runs on the nightly label, and the
-            # nightly's await-tree-client gives up on an owner queued past the runner stall (2026-11-20: nightly
-            # 44818589315 failed at 21:58Z behind feat-cmux-next owner 5aa11fb2daf6, its preflight queued 140 min
-            # on cmux-gcp-lane-build-x64, while this push's own run deferred to it).
+            # A nightly-next run (push or dispatch) never waits for an owner that is not itself a nightly-next run:
+            # its build runs on the nightly label, the nightly waits only 45 min for its tree, and a write-once
+            # publish keeps whichever publication lands first, so a second build costs runner time, never
+            # correctness. 2026-11-20: nightly 44818589315 failed behind feat-cmux-next owner 5aa11fb2daf6 (preflight
+            # queued 140 min on cmux-gcp-lane-build-x64), and nightly 44834489124 behind lane-branch owner
+            # 44833374379, 9 minutes old when this run looked, whose build queued on the same label.
+            nightly_next_run=false
+            [[ "${REF:-}" == refs/heads/nightly-next && ( "${EVENT_NAME:-}" == push || "${EVENT_NAME:-}" == workflow_dispatch ) ]] && nightly_next_run=true
             if { [[ "${EVENT_NAME:-}" == push && "${REF:-}" == refs/heads/feat-cmux-next ]] &&
                 { [[ "$owner_stuck" == true ]] ||
                   python3 -c 'import json,sys; d=json.loads(sys.argv[1]); sys.exit(0 if d.get("status") in ("queued", "in_progress", "waiting", "pending", "requested") and not (d.get("event") == "push" and d.get("head_branch") == "feat-cmux-next") else 1)' "$owner_json" 2>/dev/null; }; } ||
-               [[ "${EVENT_NAME:-}" == push && "${REF:-}" == refs/heads/nightly-next && "$owner_stuck" == true ]]; then
+               { [[ "$nightly_next_run" == true ]] &&
+                 { [[ "$owner_stuck" == true ]] ||
+                   python3 -c 'import json,sys; d=json.loads(sys.argv[1]); sys.exit(0 if d.get("status") in ("queued", "in_progress", "waiting", "pending", "requested") and d.get("head_branch") != "nightly-next" else 1)' "$owner_json" 2>/dev/null; }; }; then
               if builders="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
                   -u "x-access-token:$GH_TOKEN" \
                   -H 'Accept: application/vnd.github+json' \
@@ -1154,6 +1166,9 @@ jobs:
                   builder_state="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("status") or "unknown")' "$builder_json" 2>/dev/null || echo unknown)"
                   if [[ "$builder_state" == completed ]]; then
                     continue
+                  elif [[ "$nightly_next_run" == true ]] &&
+                      ! python3 -c 'import json,sys; sys.exit(0 if json.loads(sys.argv[1]).get("head_branch") == "nightly-next" else 1)' "$builder_json" 2>/dev/null; then
+                    echo "builder run $builder of tree $KEY is not a nightly-next run; this nightly-next run does not defer to it."
                   elif past_lease "$builder_json"; then
                     echo "feat-cmux-next builder run $builder of tree $KEY is past its ${OWNER_LEASE_MINUTES:-25}-minute lease; not deferring to it."
                   else
@@ -1982,7 +1997,7 @@ jobs:
     # stays build-only, so its publish jobs are skipped, not failed. Pushes
     # to any branch publish.
     name: publish skipped (branch not allowed)
-    if: github.event_name != 'pull_request' && !(github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')
+    if: ${{ !cancelled() && needs.build.result == 'success' && github.event_name != 'pull_request' && !(github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next') }}
     needs: build
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 2
@@ -3300,7 +3315,7 @@ jobs:
     # Every push verify-cdn-publication checks whose run builds nothing: the
     # macOS targets are off (a published tree), or another run owns the key.
     # main always builds; a superseded push publishes nothing on purpose.
-    if: ${{ always() && needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.stale != 'true' &&
+    if: ${{ !cancelled() && needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.stale != 'true' &&
       github.event_name == 'push' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') &&
       (needs.tree-preflight.outputs.run_macos != 'true' ||
       (needs.tree-preflight.outputs.owns_key != 'true' && needs.tree-owner-wait.outputs.takeover != 'true')) }}
@@ -3528,7 +3543,7 @@ jobs:
   rerun-deferred-commits:
     name: re-run the runs that deferred to the published tree
     needs: [tree-preflight, publish-tree, adopt-commit-manifest]
-    if: ${{ always() && github.event_name == 'push' && needs.tree-preflight.result == 'success' &&
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.tree-preflight.result == 'success' &&
       (needs.publish-tree.result == 'success' || needs.adopt-commit-manifest.outputs.state == 'adopted') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
@@ -3584,7 +3599,7 @@ jobs:
   # gate so a skipped publish is also red when its manifest is missing.
   verify-cdn-publication:
     name: verify cmux-tui CDN publication
-    if: ${{ always() && needs.tree-preflight.result == 'success' &&
+    if: ${{ !cancelled() && needs.tree-preflight.result == 'success' &&
       (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' &&
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next'))) &&
       !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
@@ -3811,7 +3826,7 @@ jobs:
   macos-cross-runtime-x86_64:
     name: macOS cross-compile run-time check (x86_64 under Rosetta, compare only)
     needs: [macos-cross-shadow]
-    if: always() && needs.macos-cross-shadow.result != 'skipped' && needs.macos-cross-shadow.result != 'cancelled'
+    if: ${{ !cancelled() && needs.macos-cross-shadow.result != 'skipped' && needs.macos-cross-shadow.result != 'cancelled' }}
     # Pin pushes have their own daemon pool and must not join the PR side lane.
     # When that pool is unset, the light owned lane is the safe shared fallback;
     # Blacksmith 6 vCPU remains the final overflow route only while its switch is on.
@@ -5312,7 +5327,7 @@ jobs:
     # The macOS cross jobs keep the run in progress; waiting for them makes this the run's last
     # job, so a run re-run below finds this owner ended (cx-urd.26).
     needs: [tree-preflight, tree-owner-wait, build-linux, build, build-windows, cmux-next-daemon-tests, publish, publish-windows, publish-tree, publish-tree-windows, macos-cross-shadow, macos-cross-runtime-x86_64]
-    if: ${{ always() && needs.tree-preflight.result == 'success' && ((needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') && needs.publish-tree.result != 'success') || (needs.tree-preflight.outputs.tree_ready == 'true' && needs.tree-preflight.outputs.daemon_tested == 'false' && needs.tree-owner-wait.outputs.unmarked == 'true')) && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
+    if: ${{ !cancelled() && needs.tree-preflight.result == 'success' && ((needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') && needs.publish-tree.result != 'success') || (needs.tree-preflight.outputs.tree_ready == 'true' && needs.tree-preflight.outputs.daemon_tested == 'false' && needs.tree-owner-wait.outputs.unmarked == 'true')) && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     # Secrets only: no deployment on the PR. The hand-off's spare token (below) is the cmux-bot App's.
@@ -5405,7 +5420,7 @@ jobs:
     # Not after notify-unpublished-tree ran: it must stay the run's last job so the
     # deferred run it re-runs finds this owner ended (cx-urd.26). Those runs keep
     # their artifacts to the 1-day retention.
-    if: ${{ always() && github.repository == 'manaflow-ai/cmux' && (needs.build.result == 'success' || needs.build-linux.result == 'success' || needs.build-darwin-fallback.result == 'success') && needs.notify-unpublished-tree.result == 'skipped' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (needs.build.result == 'success' || needs.build-linux.result == 'success' || needs.build-darwin-fallback.result == 'success') && needs.notify-unpublished-tree.result == 'skipped' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     # A failed drop leaves the artifacts to their 1-day retention; it never turns the run red.

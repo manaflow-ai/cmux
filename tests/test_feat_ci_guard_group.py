@@ -264,8 +264,12 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
     def test_the_job_runs_on_the_persistent_linux_pool(self):
         # Linux only, never a mini (24 of its steps went red there: no python3.9 or node, temp-cwd scripts). Linux CI
         # is one persistent pool (hq decisions/junctions.md 2026-11-20): cmux-linux past the fork branches.
-        self.assertNotIn("needs", self.job())
-        self.assertEqual(self.job()["if"], "${{ !cancelled() }}")
+        # The window gate (base-coalesce.yml) and the 2-vCPU path route (fast_check_route.py): a pull request that
+        # touches nothing a guard group reads skips it; an empty route (a push, a router failure) runs it.
+        self.assertEqual(self.job()["needs"], ["coalesce", "fast-check-route"])
+        self.assertEqual(self.job()["if"],
+                         "${{ !cancelled() && needs.coalesce.outputs.run != 'false' && "
+                         "needs.fast-check-route.outputs.ci_guard_group != 'false' }}")
         self.assertEqual(
             workflow_jobs.single_runs_on(self.job()),
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"
