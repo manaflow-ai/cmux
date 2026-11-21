@@ -29,6 +29,7 @@ use tokio::sync::{Semaphore, broadcast, mpsc};
 pub use windows_socket::{UnixListener, bind_unix, router_admin, serve_unix};
 
 mod app_assets;
+pub(crate) mod browser_workspaces;
 pub(crate) mod dual_requests;
 mod ws_peek;
 mod ws_shutdown;
@@ -265,6 +266,13 @@ pub struct Conn {
     /// never with this daemon's identity (`mesh_read.rs` `read_hub`). The credential lives only
     /// here, in memory, and is wiped when the client is dropped.
     pub(super) device_mesh: StdMutex<web_device::Slot>,
+    /// The Origin of the page that opened this `/app/ws` socket, as the upgrade's listener
+    /// policy admitted it; None on every other transport. A browser sign-in is bound to it.
+    pub(super) page_origin: Option<String>,
+    /// This connection's one pending browser email-code sign-in (`web_device.rs`): a new
+    /// `_acpmux/browser_sign_in_start` replaces it, `_complete` takes it before it awaits.
+    /// Dropped with the connection.
+    pub(super) browser_sign_in: StdMutex<Option<cmux_stack_auth::BrowserSignIn>>,
     /// Its fan-out's drain, which a turn's answer waits on (`fanout::Flush`).
     fan_flush: fanout::Flush,
 }
@@ -1386,6 +1394,17 @@ pub async fn serve_ws_until(
             if let Some(watcher) = &watcher {
                 children.track(watcher);
             }
+            // The page that opened `/app/ws`: its one Origin header, which `policy.check` admitted
+            // above. A browser's sign-in is bound to it (`web_device.rs`); no other socket has one.
+            let page_origin = if browser_app.load(std::sync::atomic::Ordering::Relaxed) {
+                let origins = seen_origins.lock().unwrap_or_else(|e| e.into_inner());
+                match origins.as_slice() {
+                    [one] if one.len() <= web_device::MAX_ORIGIN_BYTES => Some(one.clone()),
+                    _ => None,
+                }
+            } else {
+                None
+            };
             let (origin, proof, device) = match device {
                 Some(device) => {
                     let (origin, proof) = pairing::origin_of(&device);
@@ -1407,6 +1426,7 @@ pub async fn serve_ws_until(
                 None,
                 Some(uploads),
                 slot,
+                page_origin,
             )
             .await;
             if let Some(watcher) = watcher {
@@ -1571,6 +1591,7 @@ pub(super) async fn serve_outbox_connection(
         None,
         None,
         None,
+        None,
     )
     .await
 }
@@ -1594,6 +1615,7 @@ pub async fn serve_connection_authed(
         None,
         false,
         SocketPeer::Unknown,
+        None,
         None,
         None,
         None,
@@ -1625,6 +1647,7 @@ pub(crate) async fn serve_peer_link(
         None,
         None,
         Some(slot),
+        None,
     )
     .await;
 }
@@ -1654,6 +1677,7 @@ pub(crate) async fn serve_device_link(
         None,
         None,
         Some(slot),
+        None,
     )
     .await;
 }
@@ -1683,6 +1707,7 @@ async fn serve_connection_from(
     carrier: Option<carrier::Attested>,
     uploads: Option<upload_frames::Replies>,
     link: Option<Arc<crate::link_v2::Slot>>,
+    page_origin: Option<String>,
 ) {
     // A carrier proof comes with the person the carrier socket read, and only with it.
     let carried = matches!(auth, ConnAuth::CarrierOwner | ConnAuth::CarrierTeam);
@@ -1769,6 +1794,9 @@ async fn serve_connection_from(
         dual_principal,
         list_stream: link_v2.is_some(),
         device_mesh: StdMutex::new(web_device::Slot::Empty),
+        page_origin: page_origin
+            .filter(|_| origin == Origin::Web && auth == ConnAuth::ListenerToken),
+        browser_sign_in: StdMutex::new(None),
         fan_flush,
     });
     if auth == ConnAuth::BrowserApp && !web_device::admit(&hub, &conn, &mut inbound).await {

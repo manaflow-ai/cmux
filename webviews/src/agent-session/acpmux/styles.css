@@ -1157,3 +1157,14 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-browser-sidebar button:hover,
 .acpmux-browser-sidebar button[aria-current="page"] { background: var(--agent-accent-soft); }
 .acpmux-browser-sidebar button span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.acpmux-browser-sidebar-heading { display: flex; align-items: center; justify-content: space-between; }
+.acpmux-browser-sidebar-heading button { width: auto; color: var(--agent-muted); font-size: 11px; }
+.acpmux-browser-sidebar details { margin: 4px 0 10px; }
+.acpmux-browser-sidebar summary { padding: 5px 8px; cursor: pointer; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-browser-workspace-chats { padding-inline-start: 12px; }
+.acpmux-browser-sidebar p { margin: 6px 8px; color: var(--agent-muted); font-size: 12px; }
+.acpmux-browser-sidebar button:disabled { color: var(--agent-muted); cursor: default; }
+.acpmux-browser-sidebar button:disabled:hover { background: transparent; }
+.acpmux-browser-sidebar summary:focus-visible,
+.acpmux-browser-sidebar button:focus-visible { outline: 2px solid var(--agent-accent); outline-offset: -2px; }

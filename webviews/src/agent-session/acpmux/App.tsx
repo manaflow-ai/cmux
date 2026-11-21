@@ -13816,7 +13816,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         style={inTabRow ? tabRowStyle(tabRow) : undefined}
       >
         {document.documentElement.hasAttribute("data-cmux-browser-pane") && connected && (
-          <BrowserSidebar sessions={snapshot.sessions} selected={snapshot.sessionId} onSelect={selectSession} />
+          <BrowserSidebar
+            sessions={snapshot.sessions}
+            workspaces={snapshot.browserWorkspaces}
+            selected={snapshot.sessionId}
+            onSelect={selectSession}
+            onRefresh={() => void directClient.current?.refreshBrowserWorkspaces()}
+          />
         )}
         {steering && steerQueueOn ? (
           <SteerQueue

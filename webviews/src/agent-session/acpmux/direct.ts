@@ -1,3 +1,4 @@
+import type { BrowserWorkspaces } from "./browser/workspaces";
 import {
   browserDeviceError,
   browserDeviceIsCurrent,
@@ -3252,6 +3253,8 @@ export class AcpmuxDirectClient {
     (child) => this.childChanged(child),
   );
   private sessions: Session[] = [];
+  private browserWorkspaces?: BrowserWorkspaces;
+  private workspaceRead = 0;
   /// Senders of addressed prompts no listed chat named (`incomingContext`).
   private unknownSenders = new Set<string>();
   /// Each waiting prompt's author as its newest `queued` or `queue_updated` record named it (null:
@@ -4381,6 +4384,8 @@ export class AcpmuxDirectClient {
   private async open(): Promise<void> {
     if (this.opening || this.closed) return;
     this.browserDeviceReady = false;
+    this.workspaceRead += 1;
+    this.browserWorkspaces = undefined;
     if (this.host.browserDevice) {
       if (this.host.transport !== "acpmux-websocket" || !this.host.endpoint) throw browserDeviceError();
       this.browserIdentity = prepareBrowserDevice(new URL(this.host.endpoint));
@@ -6085,6 +6090,23 @@ export class AcpmuxDirectClient {
     this.emit("resynced");
   }
 
+  /// The person's cmux NEXT workspaces from the app, for an enrolled browser's sidebar
+  /// (`_acpmux/browser_workspaces`). A newer read or a reconnect drops an older answer; a refusal or
+  /// failure shows the workspaces as unavailable.
+  async refreshBrowserWorkspaces(): Promise<void> {
+    if (!this.host.browserDevice || !this.browserDeviceReady) return;
+    const read = ++this.workspaceRead;
+    try {
+      const result = (await this.request("_acpmux/browser_workspaces", {})) as BrowserWorkspaces;
+      if (read !== this.workspaceRead) return;
+      this.browserWorkspaces = result;
+    } catch {
+      if (read !== this.workspaceRead) return;
+      this.browserWorkspaces = { available: false, workspaces: [] };
+    }
+    this.emit();
+  }
+
   /// The list read again (session_changed notices dropped by a watch lag, a missing chat checked):
   /// the rows changed since the cursor held, or the first page when acpmux cannot follow it, never
   /// every page. A selection made while the request was out is newer than the list.
@@ -6098,6 +6120,7 @@ export class AcpmuxDirectClient {
     this.sessions = this.sessionPages.settle(first.sessions);
     this.sessionPages.done(first.run);
     this.listedSessions = true;
+    void this.refreshBrowserWorkspaces();
     this.recheckSenders(this.sessions);
     this.learnChatThread();
     // Something in this page asked for every chat: a list read anew reads its later pages again.
@@ -11761,6 +11784,7 @@ export class AcpmuxDirectClient {
       ...(Object.keys(changedProgress).length > 0 ? { subagentProgress: changedProgress } : {}),
       subagentStructureVersion: progressSource.structureVersion,
       sessions: this.sessionEntryList(),
+      browserWorkspaces: this.browserWorkspaces,
       peers: this.peers,
       peerKinds: this.peerKinds,
       peerConnected: this.peerConnected,
