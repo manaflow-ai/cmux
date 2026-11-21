@@ -250,8 +250,16 @@ one by being started with acpmux):
 
 ```bash
 cmux agent register desktop-zoe            # in its Bash tool; then run the --code line it receives
+cmux agent register --auto desktop-zoe     # the same from a UserPromptSubmit hook: silent once registered
 cmux agent send --no-wait desktop-zoe "…"  # from any machine that peers this one: queued, retried, --status
+cmux agent whoami                          # this shell's name, handle, tags, and the send that reaches it
 ```
+
+`whoami` answers from the daemon's record, never from the shell's own claim: an
+acpmux session's, a registered or bridged chat's (by `CLAUDE_CODE_SESSION_ID` or
+`CODEX_THREAD_ID`), and `STALE` with the command that fixes it when a restart
+left the registration behind. Give a peer its `reach` line, not the `sending as`
+label, which is a claim no `send` takes.
 
 An `cmux agent send` from such a chat before it registers starts this itself
 (macOS): nothing can reply to it until it has a name, so the send also delivers
@@ -492,6 +500,7 @@ acpmux chats search flaky test --harness codex --folder ~/wt/cmux
 acpmux chats list -q acpmux --folder ~/proj    # by title or folder, newest first; --account for one account home
 acpmux chats open claude-code:5f0c2a9e         # open one again (KEY from list or search)
 acpmux chats roots                             # which folders the index reads, and which it refuses and why
+acpmux board                                   # this machine's local branch board, read-only (--json)
 cmux agent resolve 'https://cmux.com/deeplink/agent?harness=claude&session=…'   # the session a link, id or name names
 acpmux who-else src/lib.rs --topic "resize lag" # live and recent sessions here and on peers on these files or topic
 cmux agent history NAME                            # what a session did, one turn per line
