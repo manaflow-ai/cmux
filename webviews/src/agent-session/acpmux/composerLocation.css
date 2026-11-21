@@ -1479,10 +1479,12 @@
   --acpmux-density-text: var(--cmux-density-text-scale, var(--cmux-interface-scale, 1));
   /* The grid steps the composer reads, restated at its density: a token computed on :root keeps the
      page scale, so the composer redeclares the ones it uses. */
-  --grid-composer-inset: calc(8px * var(--acpmux-density));
+  /* A look's `appearance.metrics.composerPadding` and `composerMinHeight` (the host sets --cmux-composer-inset and
+     --cmux-composer-box only when a look sets them; Leo 2026-11-19: "the layout and proportions as well"). */
+  --grid-composer-inset: var(--cmux-composer-inset, calc(8px * var(--acpmux-density)));
   --grid-composer-control: calc(28px * var(--acpmux-density));
   --grid-composer-block-inset: calc(10px * var(--acpmux-density));
-  --grid-composer-box: calc(48px * var(--acpmux-density));
+  --grid-composer-box: var(--cmux-composer-box, calc(48px * var(--acpmux-density)));
   --grid-composer-radius: calc(12px * var(--acpmux-density));
   --grid-composer-quiet-row-gap: calc(4px * var(--acpmux-density));
   --grid-composer-quiet-row-height: calc(28px * var(--acpmux-density));

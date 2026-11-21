@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-19 (lane/look-proportions): Sidebar-Look: no visual change. Leo, 2026-11-19: "the layout and proportions as
+  well". A look (theme file) may set the rows' fill-to-edge inset, fill-to-content padding and gap
+  (`appearance.metrics.sidebarRowInset`, `sidebarRowPadding`, `sidebarRowGap`); `SidebarRowTuning.outerInset`,
+  `contentInset` and `rowGap` read them ahead of the density's tokens, so unset they derive exactly what they did.
+  Regression: `AALookProportionsGalleryTests.noKeyDrawsTodaysLayout`, `aLookAppliesAndComesOffLive`.
+
 - 2026-11-21 (hide-app-store-2): Sidebar-Look: David Beyer, Nov 20 call: "don't show the app store until it's ready, it takes too much space"; the person: hide it by default, keep a setting that turns it back on. With `labs.previewFeatures` off (the default) the App Store item is hidden in every look: the `cmux/app-store` app item (0aa5aa4a64043, `SidebarAppItemInfo`) and now the `app_store` built-in of a layout stored before it became an app (`SidebarBuiltIn.defaultInfo(showsStore:)`). The stored layout keeps both; Labs on draws them again. `AppStoreHiddenUntilReadyTests`.
 - 2026-11-21 (lane/sidebar-pin-archive): Sidebar-Look: Leo, 2026-11-21: "the pin button does not make sense. you
   expect this to be the pinned thing. but it isn't. when you pin it, the pin goes to teh left of the bar as an empty

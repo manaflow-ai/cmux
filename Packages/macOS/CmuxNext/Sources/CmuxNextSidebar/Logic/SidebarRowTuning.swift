@@ -26,20 +26,26 @@ public nonisolated struct SidebarRowTuning {
     public static let rowGap = ComputedTunable(
         "sidebarRows.rowGap", section, "Row gap",
         help: "The gap between two rows, list and bands; two lit fills keep it between them.",
-        range: 0...12, code: "SidebarRowTuning.rowGap") { Metrics.densityToken("sidebarRowGap") ?? Metrics.space1 }
+        range: 0...12, code: "SidebarRowTuning.rowGap") {
+            // A look's `appearance.metrics.sidebarRowGap`, then the density's.
+            Metrics.lookOverride(.sidebarRowGap) ?? Metrics.densityToken("sidebarRowGap") ?? Metrics.space1
+        }
     /// The gap between a row's fill and the sidebar's edges.
     public static let outerInset = ComputedTunable(
         "sidebarRows.outerInset", section, "Fill to sidebar edge",
         help: "The gap between a row's fill and the sidebar's left and right edges.",
         range: 0...24, code: "SidebarRowTuning.outerInset") {
-            // A density's `sidebarRowInset` (Helium's 6, Chrome's 12 vertical tab strip padding).
-            Metrics.densityToken("sidebarRowInset") ?? (SidebarDensityTokens.isComfortable ? Metrics.space4 : Metrics.space3)
+            // A look's `appearance.metrics.sidebarRowInset`, then a density's `sidebarRowInset` (Helium's 6, Chrome's 12
+            // vertical tab strip padding).
+            Metrics.lookOverride(.sidebarRowInset) ?? Metrics.densityToken("sidebarRowInset") ?? (SidebarDensityTokens.isComfortable ? Metrics.space4 : Metrics.space3)
         }
     /// The padding between a row's fill and its content.
     public static let contentInset = ComputedTunable(
         "sidebarRows.contentInset", section, "Fill to content",
         help: "Where a row's first glyph or text-only title starts inside its fill, and its last trailing mark ends.",
-        range: 0...24, code: "SidebarRowTuning.contentInset") { SidebarDensityTokens.derivedContentInset }
+        range: 0...24, code: "SidebarRowTuning.contentInset") {
+            Metrics.lookOverride(.sidebarRowPadding) ?? SidebarDensityTokens.derivedContentInset
+        }
     /// A row fill's corner radius.
     public static let cornerRadius = ComputedTunable(
         "sidebarRows.cornerRadius", section, "Fill corner radius",
