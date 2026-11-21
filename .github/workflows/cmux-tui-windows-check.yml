@@ -10,10 +10,8 @@ name: cmux-tui Windows check
 # run on pushes to feat-cmux-next-* side branches, which also started it for
 # side branches with no pull request (the 2026-10-27 push flood).
 # Cut from pull requests on 2026-11-21 (ci-time-map: not required on main, 82% red on base breakage, ~6.9k runner-min a day,
-# and no Windows release ships). It runs daily on feat-cmux-next instead, and on workflow_dispatch.
+# and no Windows release ships). It stays runnable on workflow_dispatch (a schedule would need a copy on main).
 on:
-  schedule:
-    - cron: "43 8 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -44,7 +42,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: ${{ github.event_name == 'schedule' && 'feat-cmux-next' || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 2
 
       # Jobs routed by the crate graph (scripts/ci/affected_jobs.py, scripts/ci/affected-jobs.json): each runs
@@ -78,7 +76,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: ${{ github.event_name == 'schedule' && 'feat-cmux-next' || github.sha }}
+          ref: ${{ github.sha }}
 
       # A green result of this job for the same input tree (affected_jobs.py result_key) is this
       # run's result: the tested steps are skipped and the job reports green with that run named.
