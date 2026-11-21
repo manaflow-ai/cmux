@@ -511,17 +511,25 @@ fn schema_lists_what_can_change_and_needs_no_store() {
     assert!(parse(&words(&["schema", "--yaml"])).is_err());
 
     // The MCP path answers from this build's tables before it opens the store.
-    let views = super::run_json(&words(&["schema", "views"]), "mcp").expect("views");
+    let views =
+        super::run_json(&crate::cli::GlobalArgs::default(), &words(&["schema", "views"]), "mcp")
+            .expect("views");
     let slots = views["views"].as_array().expect("a list of view slots");
     assert!(slots.iter().any(|slot| slot["interface"] == "cmux.section/1"));
     assert!(views.get("settings").is_none());
-    let all = super::run_json(&words(&["schema"]), "mcp").expect("the whole schema");
+    let all = super::run_json(&crate::cli::GlobalArgs::default(), &words(&["schema"]), "mcp")
+        .expect("the whole schema");
     let accent = all["settings"]
         .as_array()
         .and_then(|rows| rows.iter().find(|row| row["key"] == "appearance.accent"))
         .expect("appearance.accent is listed");
     assert!(accent.get("default").is_some() && accent.get("schema").is_some());
-    let ts = super::run_json(&words(&["schema", "--typescript"]), "mcp").expect("typescript");
+    let ts = super::run_json(
+        &crate::cli::GlobalArgs::default(),
+        &words(&["schema", "--typescript"]),
+        "mcp",
+    )
+    .expect("typescript");
     assert!(ts["source"].as_str().is_some_and(|s| s.contains("export interface CmuxSettings")));
 
     let human = Answer::Schema(
