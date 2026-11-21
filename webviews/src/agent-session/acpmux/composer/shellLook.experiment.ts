@@ -28,6 +28,14 @@ export const composerShellLook = defineExperiment({
       description:
         "No border: a raised surface with a soft, wide drop shadow and a 16 px corner, as a sheet over the chat.",
     },
+    // Leo, on `shipped` in the composer climb: "3 d tho i wonder if we should be more like apple
+    // glass thing and have both composer and the composer hat be rounded... so it looks like there's
+    // two bits of glass stacked atop one naother?"
+    "stacked-glass": {
+      label: "Stacked glass",
+      description:
+        "The shipped box, and its hat (the queued prompts or the running tray over it) as a second rounded glass a small gap above it, each with its own rim and shadow.",
+    },
   },
   defaultArm: "shipped",
 });
