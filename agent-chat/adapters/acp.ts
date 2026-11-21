@@ -539,16 +539,35 @@ function handleAgentMessage(sess: SessionCtx, st: AcpState, def: ProviderDef, ms
           detail: acpToolCallDetail(u.locations, u.rawInput),
         });
         break;
-      case "tool_call_update":
+      case "tool_call_update": {
+        const output = truncate(contentText(u.content), 400);
+        const name = typeof u.title === "string" && u.title ? u.title : undefined;
+        const detail = u.locations !== undefined || u.rawInput !== undefined
+          ? acpToolCallDetail(u.locations, u.rawInput)
+          : undefined;
         if (u.status === "completed" || u.status === "failed") {
           sess.emit({
             kind: "tool-end",
             toolId: u.toolCallId,
             ok: u.status === "completed",
-            detail: truncate(contentText(u.content), 400),
+            detail: output,
+          });
+        } else if (output || name !== undefined || detail !== undefined) {
+          // ACP can send several in-progress snapshots before the terminal
+          // update. Keep each snapshot on the existing row so the pane shows
+          // the latest output without duplicating tool entries. The start
+          // event carries the initial input summary; only fields present in an
+          // update replace their previous values in the reducer.
+          sess.emit({
+            kind: "tool-update",
+            toolId: u.toolCallId,
+            ...(name === undefined ? {} : { name }),
+            ...(detail === undefined ? {} : { detail }),
+            ...(output ? { out: output } : {}),
           });
         }
         break;
+      }
       case "plan":
         {
           const plan = acpPlanEvent(u.entries);
