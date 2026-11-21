@@ -32,6 +32,7 @@ export default componentEntry<GuestPageProps>({
   keywords: ["multiplayer", "share", "guest", "read only", "transcript"],
   covers: [
     "agent-session/guest/GuestPage.tsx",
+    "agent-session/guest/continueOwn.ts",
     "agent-session/acpmux/rows/ReadOnlyAgentPairRow.tsx",
     "agent-session/acpmux/rows/ReadOnlyNextStepRow.tsx",
     "agent-session/acpmux/rows/ReadOnlyPermissionRow.tsx",
@@ -61,6 +62,30 @@ export default componentEntry<GuestPageProps>({
     "guest-messages": {
       props: live(joinFrames(guestMessageRecords(), "Uploader retries")),
       note: 'Two signed-in guests\' approved messages as prompts under their 20px picture (else initials) and name (guest); Leo, 2026-11-07: "as if the user sent it, but, like, with their profile avatar picture instead".',
+    },
+    "continue-own-copied": {
+      props: {
+        ...live(joinFrames(guestMessageRecords(), "Uploader retries")),
+        clipboard: { writeText: async () => undefined },
+      },
+      note: 'Continue in my own chat, pressed: the chat as the guest sees it is copied for a new chat on their own sign-in, and the note says so. Leo, 2026-11-03, on a teammate pressing "continue in my own session": "i think that\'s entirely fair".',
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector("[data-testid=guest-continue-own]:not([disabled])"));
+        await ctx.click({ selector: "[data-testid=guest-continue-own]" });
+        await ctx.waitFor(() => ctx.document.querySelector("[data-testid=guest-continue-own-done]"));
+      },
+    },
+    "continue-own-manual": {
+      props: {
+        ...live(joinFrames(guestMessageRecords(), "Uploader retries")),
+        clipboard: { writeText: () => Promise.reject(new Error("denied")) },
+      },
+      note: "Continue in my own chat when the browser refuses the clipboard: the text shows selected, to copy by hand.",
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector("[data-testid=guest-continue-own]:not([disabled])"));
+        await ctx.click({ selector: "[data-testid=guest-continue-own]" });
+        await ctx.waitFor(() => ctx.document.querySelector(".guest-live__continued-text"));
+      },
     },
     asking: {
       props: live(joinFrames(askingRecords())),
