@@ -30,9 +30,13 @@ struct CustomPart: Codable, Hashable {
         self.version = version
         self.payload = payload
     }
-    /// JSON of `value` as the payload.
+    /// JSON of `value` as the payload, its keys sorted: one value is one payload, byte for byte.
     init<T: Encodable>(kind: String, version: Int, value: T) throws {
-        self.init(kind: kind, version: version, payload: try JSONEncoder().encode(value))
+        // cmux (a1317, 2026-11-21): a plain JSONEncoder's object key order is not fixed, so two cards of one table
+        // compared unequal now and then (a stray part diff, HomeStreamMapperTests at random).
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        self.init(kind: kind, version: version, payload: try encoder.encode(value))
     }
     /// The payload decoded as JSON of `T` (nil: other bytes).
     func decode<T: Decodable>(_ type: T.Type) -> T? { try? JSONDecoder().decode(type, from: payload) }

@@ -13,6 +13,7 @@ pub mod flow;
 pub mod input;
 pub mod ladder;
 pub mod loss;
+pub mod pacer;
 pub mod packetize;
 pub mod policy;
 pub mod reassembly;

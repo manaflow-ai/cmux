@@ -506,7 +506,7 @@ enum ConversationRowBuilder {
         // above it, shows none.
         let root = entry.replyThread == nil ? nil : message.replyToID.flatMap { ConversationRunPlan.threadRoot(of: $0, message: store.message(id:)) }
         let quote: ReplyQuote? = entry.replyThread?.showsQuote != true ? nil : root.map {
-            ReplyQuote(text: $0.text.isEmpty ? ($0.audioAttachment != nil ? AudioMessageStrings.audioMessage : String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module)) : $0.text, isOutgoing: $0.senderID == meID, hasImage: !$0.attachments.isEmpty, replyCount: $0.replyCount)
+            ReplyQuote(text: $0.quoteText.isEmpty ? ($0.audioAttachment != nil ? AudioMessageStrings.audioMessage : String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module)) : $0.quoteText, isOutgoing: $0.senderID == meID, hasImage: !$0.attachments.isEmpty, replyCount: $0.replyCount)
         }
         rows.append(.message(PollRowModel.attach(to: MessageRowModel(
             rowID: message.rowID,

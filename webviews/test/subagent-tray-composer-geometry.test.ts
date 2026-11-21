@@ -4,6 +4,7 @@ import { chromium, type Browser } from "playwright";
 import path from "node:path";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { RUNNING_TRAY_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
 
 await requireBrowserLane("subagent-tray-composer-geometry.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -42,18 +43,17 @@ await requireBrowserLane("subagent-tray-composer-geometry.test.ts", async () => 
       try {
         await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.subagent-tray", { variant: "geometry" })}`);
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-        if (look === "claude") {
-          // Narrow panes intentionally hide the look dots; this test measures the selected layout.
+        if (look === "codex") {
           await page.evaluate(async () => {
             const source = "/gallery/src/agent-session/acpmux/composerLook.ts";
-            const { setComposerLook } = await import(source);
-            setComposerLook("claude", { remember: false });
+            const { setPreviewComposerLook } = await import(/* @vite-ignore */ source);
+            setPreviewComposerLook("codex");
           });
-          await page.waitForFunction(() => !document.querySelector('.acpmux-composer[data-composer-look="codex"]'));
+          await page.locator('.acpmux-composer[data-composer-look="codex"]').waitFor();
         }
         const head = page.locator(".acpmux-running-tray__head");
         if ((await head.getAttribute("aria-expanded")) !== "true") await head.click();
-        await page.locator(".acpmux-running-tray .acpmux-agent-line").first().waitFor();
+        await page.locator(RUNNING_TRAY_LINE).first().waitFor();
         const geometry = await page.evaluate(() => {
           const rect = (node: Element | null) => {
             if (!node) return null;

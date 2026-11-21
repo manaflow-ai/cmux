@@ -24,14 +24,17 @@ nonisolated enum AcpmuxPathPolicy {
         /// Whether ``outsidePath`` is the user's home folder or above it: never a root by a plain
         /// click (cx-nn3e); the pane asks about it first (`workspace.useFolder`).
         public var outsideIsHomeOrAbove = false
+        /// Why, as a code the page words (``AgentPaneGitHubFolder/cloudOnlyReason``); nil for most refusals.
+        public var reason: String?
 
         public init(error: AgentPaneTransportError, requestID: String?, method: String?, outsidePath: String? = nil,
-                    outsideIsHomeOrAbove: Bool = false) {
+                    outsideIsHomeOrAbove: Bool = false, reason: String? = nil) {
             self.error = error
             self.requestID = requestID
             self.method = method
             self.outsidePath = outsidePath
             self.outsideIsHomeOrAbove = outsideIsHomeOrAbove
+            self.reason = reason
         }
 
         public static func == (lhs: Refusal, rhs: Refusal) -> Bool {
@@ -134,6 +137,10 @@ nonisolated enum AcpmuxPathPolicy {
         // pane's own and never reaches acpmux.
         if method == "session/new" {
             var fields = params as? [String: Any] ?? [:]
+            // A GitHub repository with no folder (`github:owner/name`): only a Cloud start clones one.
+            if let cwd = fields["cwd"] as? String, AgentPaneGitHubFolder.isGitHub(cwd) {
+                return .failure(Refusal(error: .pathInvalid, requestID: id, method: method, reason: AgentPaneGitHubFolder.cloudOnlyReason))
+            }
             var meta = fields["_meta"] as? [String: Any]
             var acpmux = meta?["acpmux"] as? [String: Any]
             let noProject = acpmux?["noProject"] as? Bool == true

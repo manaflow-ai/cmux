@@ -10,8 +10,16 @@ public nonisolated enum IconFamily: String, Sendable, CaseIterable, Hashable, Tu
     case custom
     case neko
 
-    // Unapproved artwork is not offered in Debug Settings either.
-    public static var allCases: [IconFamily] { [.pack, .custom] }
+    /// The families with shipped artwork, which Debug Settings offers. `allCases` keeps every case,
+    /// `.neko` included, so code walking the cases sees it; a family joins this list when its art ships
+    /// (design/icons/neko-evaluation.md).
+    public static let shippedCases: [IconFamily] = [.pack, .custom]
+
+    /// Unapproved artwork is not offered in Debug Settings either.
+    public static var tunableCases: [IconFamily] { shippedCases }
+
+    /// Whether this family's artwork ships (false for the gallery-only Neko candidates).
+    public var isShipped: Bool { Self.shippedCases.contains(self) }
 
     public var tunableTitle: String {
         switch self {

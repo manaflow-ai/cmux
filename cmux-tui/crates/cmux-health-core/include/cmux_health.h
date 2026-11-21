@@ -16,7 +16,7 @@
 /*
  Bumped on any change to a type, a function or an op.
  */
-#define CMUX_HEALTH_ABI_VERSION 1
+#define CMUX_HEALTH_ABI_VERSION 2
 
 #define CMUX_HEALTH_OK 0
 

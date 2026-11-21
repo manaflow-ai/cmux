@@ -66,6 +66,8 @@ struct ChatNativeLayout: @unchecked Sendable {
         var file: Int?
         /// The region is a disclosure ("collapsed" until opened).
         var isDisclosure = false
+        /// The identifier UI tests find the region by.
+        var identifier: String?
     }
 
     /// Text runs, SF symbols, boxes, separators and tap regions, positioned in the row.
@@ -206,15 +208,20 @@ struct ChatNativeLayout: @unchecked Sendable {
                 let markerFont = item.ordinal != nil ? UIFont.monospacedDigitSystemFont(ofSize: body.pointSize, weight: .regular) : body
                 let marker = NSAttributedString(string: item.ordinal.map { "\($0)." } ?? (item.depth == 0 ? "•" : "◦"),
                                                 attributes: [.font: markerFont, .foregroundColor: UIColor.secondaryLabel])
-                let size = measure(marker, width: .greatestFiniteMagnitude)
+                // As drawn (no leading), so its line sits where the item's first line does.
+                let size = measureDrawn(marker, width: .greatestFiniteMagnitude)
                 markerWidth = max(14, size.width)
                 drawn.texts.append(Text(text: marker, frame: CGRect(x: lead + markerWidth - size.width, y: y, width: size.width, height: size.height)))
             }
             let x = lead + markerWidth + 8
             let text = ChatInlineText.make(item.text, font: body, color: .label)
-            let size = measure(text, width: max(width - x, 20))
-            drawn.texts.append(Text(text: text, frame: CGRect(x: x, y: y, width: max(width - x, 20), height: size.height)))
-            y += size.height
+            // The label hugs the text it draws: `measure` adds the font's leading to every line,
+            // which UILabel does not draw, and UILabel centers its text in a taller frame. That
+            // pushed an item's first line down by half a leading per line, below its marker. Items
+            // are 8 pt apart, as `MarkdownListView`, whatever their length.
+            let drawnHeight = measureDrawn(text, width: max(width - x, 20)).height
+            drawn.texts.append(Text(text: text, frame: CGRect(x: x, y: y, width: max(width - x, 20), height: drawnHeight)))
+            y += drawnHeight
             if index < list.items.count - 1 { y += 8 }
         }
         return ChatNativeLayout(content: .drawn(drawn), height: y)

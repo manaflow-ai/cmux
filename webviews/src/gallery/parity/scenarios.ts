@@ -461,16 +461,6 @@ export const SCENARIOS: readonly Scenario[] = [
     background: "dark",
     inspect: "Five commands share one terminal header icon alongside the Claude and Codex subagent logos.",
   },
-  {
-    id: "loop",
-    group: "Composer",
-    title: "Loop / scheduled check-in",
-    entry: "agent-pane.composer-look",
-    source: "src/agent-session/acpmux/composerLook.gallery.ts",
-    variant: "loop-wakeup",
-    background: "dark",
-    inspect: "A loop waiting for its next check-in. Open the loop control to inspect the wake prompt.",
-  },
 ];
 
 export function selectedScenario(id: string | null): Scenario {

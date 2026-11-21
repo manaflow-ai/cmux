@@ -71,7 +71,8 @@ public struct RemoteViewDebugRdHost {
         return nil
     }
 
-    /// The rd caps that let the viewer send its microphone, camera or screen (rd change C4).
-    static let upstreamCaps = ["up_media", "stream.open"]
+    /// The rd caps that let the viewer send its microphone, camera or screen (rd change C4),
+    /// and `cursor`: a host that has it sends its cursor as metadata, not in the picture.
+    static let upstreamCaps = ["up_media", "stream.open", RemoteRdHello.cursorCap]
 }
 #endif

@@ -9,6 +9,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("agent-pane-attach-reorder.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -63,21 +64,24 @@ await requireBrowserLane("agent-pane-attach-reorder.test.ts", async () => {
 
   /// Pastes three PNGs 300, 400 and 500 px wide, as one ⌘V of copied images.
   const pasteThree = (page: Page) =>
-    page.evaluate(async () => {
-      const data = new DataTransfer();
-      for (const width of [300, 400, 500]) {
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = 200;
-        const context = canvas.getContext("2d")!;
-        context.fillStyle = `hsl(${width}, 60%, 50%)`;
-        context.fillRect(0, 0, width, 200);
-        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
-        data.items.add(new File([blob], `Shot ${width}.png`, { type: "image/png" }));
-      }
-      const target = document.querySelector(".acpmux-composer-prompt [contenteditable='true']")!;
-      target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-    });
+    page.evaluate(
+      async ({ COMPOSER_EDITOR }) => {
+        const data = new DataTransfer();
+        for (const width of [300, 400, 500]) {
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = 200;
+          const context = canvas.getContext("2d")!;
+          context.fillStyle = `hsl(${width}, 60%, 50%)`;
+          context.fillRect(0, 0, width, 200);
+          const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+          data.items.add(new File([blob], `Shot ${width}.png`, { type: "image/png" }));
+        }
+        const target = document.querySelector(COMPOSER_EDITOR)!;
+        target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      },
+      { COMPOSER_EDITOR },
+    );
 
   /// The staged images' widths, in the strip's order (each chip is named for its width).
   const order = (page: Page) =>
@@ -88,7 +92,7 @@ await requireBrowserLane("agent-pane-attach-reorder.test.ts", async () => {
     );
 
   async function staged(page: Page) {
-    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
+    await page.locator(COMPOSER_EDITOR).click();
     await pasteThree(page);
     await page.waitForFunction(() => {
       const images = [

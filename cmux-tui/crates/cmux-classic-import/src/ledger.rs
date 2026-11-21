@@ -83,6 +83,11 @@ pub struct Ledger {
     pub app_version: Option<String>,
     #[serde(rename = "updatedAt")]
     pub updated_at: f64,
+    /// When the person cancelled the launch's import preview (seconds since
+    /// 1970): later launches stop asking; a manual run still imports, and a
+    /// run that begins or finishes clears it.
+    #[serde(rename = "declinedAt", default, skip_serializing_if = "Option::is_none")]
+    pub declined_at: Option<f64>,
 }
 
 impl Default for Ledger {
@@ -102,6 +107,7 @@ impl Ledger {
             runs: 0,
             app_version: None,
             updated_at: 0.0,
+            declined_at: None,
         }
     }
 }
@@ -295,14 +301,18 @@ pub fn backup_stamp(seconds_since_1970: i64, suffix: &str) -> String {
 /// `home`'s Application Support. None for a bundle id that is not a plain
 /// reverse-DNS name, so a caller can only ever name one folder of this kind.
 pub fn default_directory(home: &Path, bundle_id: &str) -> Option<PathBuf> {
+    directory_in(&home.join("Library/Application Support"), bundle_id)
+}
+
+/// [`default_directory`] under the Application Support folder `support` (a cmux DEV build's own stand-in for
+/// classic's, `CMUX_NEXT_CLASSIC_IMPORT_DIR`).
+pub fn directory_in(support: &Path, bundle_id: &str) -> Option<PathBuf> {
     let plain = !bundle_id.is_empty()
         && bundle_id.len() <= 255
         && !bundle_id.starts_with('.')
         && !bundle_id.contains("..")
         && bundle_id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'));
-    plain.then(|| {
-        home.join("Library/Application Support/cmux-next").join(bundle_id).join("classic-migration")
-    })
+    plain.then(|| support.join("cmux-next").join(bundle_id).join("classic-migration"))
 }
 
 #[cfg(test)]

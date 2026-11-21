@@ -60,7 +60,7 @@ fn refusal(code: i64, reason: &str, message: &str) -> RpcError {
 
 /// What the session's log says about the withdrawn prompt.
 #[derive(Default)]
-struct Found {
+pub(crate) struct Found {
     prompt_id: String,
     turn_id: String,
     provenance: Option<Value>,
@@ -140,6 +140,25 @@ impl Found {
         }
     }
 }
+
+/// The records a withdrawn prompt is found by and followed through (`Found::follow`), each in
+/// `INDEXED_KINDS`.
+pub(crate) const WITHDRAW_KINDS: &[&str] = &[
+    "queued",
+    "user_message",
+    "inbox",
+    "inbox_noticed",
+    "inbox_removed",
+    "prompt_retracted",
+    "turn_started",
+    "dequeued",
+    "queue_removed",
+    "queue_updated",
+    "turn_result",
+    "turn_end",
+    "turn_error",
+    "prompt_refused",
+];
 
 /// The reply of a withdraw.
 fn outcome(session: &Session, found: &Found, outcome: &str) -> Value {
@@ -237,7 +256,8 @@ impl Hub {
                 // `cmux agent message` names a chat `acp:<id>` (PaletteNavigationEntry.swift).
                 && p("from").is_some_and(|f| f.strip_prefix("acp:").unwrap_or(f) == to)
         };
-        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+        // Its prompts only, from the log's copies of them (`store/kind_index.rs`).
+        let _ = self.store.scan_kinds(&session.id, &["user_message"], &mut |e: EventRecord| {
             let Some(p) = e.msg.pointer("/_meta/provenance").filter(|_| e.kind == "user_message")
             else {
                 return true;
@@ -423,9 +443,16 @@ impl Hub {
 
     /// The first prompt the log holds under `id` (its provenance `msgId` when `by_msg`, else its
     /// `promptId`) and what became of it.
-    fn find_withdrawn(&self, session: &Session, by_msg: bool, id: &str) -> Option<Found> {
+    pub(crate) fn find_withdrawn(
+        &self,
+        session: &Session,
+        by_msg: bool,
+        id: &str,
+    ) -> Option<Found> {
         let mut found: Option<Found> = None;
-        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+        // The kinds `Found::follow` reads only, from the log's copies of them
+        // (`store/kind_index.rs`): a withdraw in a long chat never reads its whole log.
+        let _ = self.store.scan_kinds(&session.id, WITHDRAW_KINDS, &mut |e: EventRecord| {
             if let Some(f) = found.as_mut() {
                 f.follow(&e);
                 return true;
