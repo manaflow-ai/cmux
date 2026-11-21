@@ -38,16 +38,17 @@ with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
     BINARY = os.path.join(opts.app, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 ROWS, RAW = [], {}
+RECORD_UNTIL = [0.0]
 MARKER = "intreefocus0123456789abcdefghijklmnopqrs"  # 40 characters, keys debug.key types by name
 assert len(MARKER) == 40
 
 PAGE = """<!doctype html><html><head><title>in-tree probe</title></head>
 <body style="background:#246;color:#fff;font:16px sans-serif">
 <input id="field" style="font-size:20px;width:300px" placeholder="probe field">
-<input id="file" type="file"> <a id="dl" href="/download" download="in-tree-probe.txt">download</a>
+<input id="file" type="file" onclick="window.__file.push('click')" oncancel="window.__file.push('cancel')" onchange="window.__file.push('change')"> <a id="dl" href="/download" download="in-tree-probe.txt">download</a>
 <pre id="log"></pre>
 <script>
-window.__keys = []; window.__steal = 0; window.__results = {};
+window.__keys = []; window.__steal = 0; window.__results = {}; window.__file = [];
 const field = document.getElementById('field');
 field.addEventListener('keydown', e => window.__keys.push(e.key));
 document.addEventListener('keydown', e => { if (e.target !== field) window.__keys.push('doc:' + e.key); });
@@ -126,7 +127,12 @@ def record(name, seconds=12):
     as JPEG frames in OUT/video-NAME (debug.window_record); the suite turns each folder into an mp4."""
     folder = os.path.join(opts.out, f"video-{name}")
     os.makedirs(folder, exist_ok=True)
+    # One recording per app: wait out the one before (live step e7d15ed8 lost two_pages' video to prompts').
+    left = RECORD_UNTIL[0] - time.time()
+    if left > 0:
+        time.sleep(left + 0.2)  # test harness: the previous recording ends by itself
     RAW.setdefault("recordings", {})[name] = rpc("debug.window_record", {"dir": folder, "seconds": seconds})
+    RECORD_UNTIL[0] = time.time() + seconds
 
 
 def action(name, args=None, target=None):
@@ -368,6 +374,9 @@ try:
                 new = [w for w in shown["window_list"] if w[2] and w not in base["window_list"]]
                 detail["new_visible_windows"] = new
                 changed = changed and bool(new)
+            if name == "file":
+                detail["input_events"] = page_eval("JSON.stringify(window.__file)", page_tab).get("value")
+                detail["user_activation"] = page_eval("navigator.userActivation && navigator.userActivation.hasBeenActive", page_tab).get("value")
             row(changed, f"prompts.{name}", detail)
             rpc("debug.key", {"key": "escape"})
             time.sleep(0.5)  # test harness: the prompt closes
@@ -378,7 +387,11 @@ try:
         # show a page at once. Each must be in tree (its view in the cmux window, drawing), and a click and keys in each
         # must reach that page alone.
         page_eval("document.body.style.background = '#642'; document.title = 'page A'; true", page_tab)
-        action("focusPane.left")
+        # The terminal's tab (made by the split): focus it so the second page opens in that pane, beside the first.
+        terminal_tab = next((c for c in ((RAW.get("split") or {}).get("created") or []) if str(c).startswith("tab_")), None)
+        RAW["two_terminal_tab"] = terminal_tab
+        if terminal_tab:
+            action("tab.focus", target=f"tab:{terminal_tab}")
         time.sleep(0.4)  # test harness: focus lands
         RAW["two_open"] = action("openBrowser.chromium", {"url": URL + "?b"})
         second = wait(lambda: (lambda r: r if r.get("value") is True and r.get("tab") not in (None, page_tab) else None)(

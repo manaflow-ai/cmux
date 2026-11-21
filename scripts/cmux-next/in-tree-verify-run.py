@@ -101,7 +101,7 @@ finally:
             step = 4 if len(frames) > 600 else 2 if len(frames) > 300 else 1
             keep = set(frames[::step])
             for f in files:
-                if f.endswith((".png", ".mp4", ".mov", "frames.json", ".json")) or f in keep:
+                if f.endswith((".png", ".mp4", ".mov", "frames.json", ".json", ".log")) or f in keep:
                     path = os.path.join(root, f)
                     if path.endswith("evidence.tar.gz") or os.path.getsize(path) > 40 << 20:
                         continue
