@@ -1,4 +1,5 @@
 import { acpmuxPerf } from "./perf";
+import { useLocationShortcut } from "./composerControls";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
@@ -85,7 +86,7 @@ import {
   startedCloudFolderName,
   folderMenu,
 } from "./folderlessCloud";
-import { chatComputerId, ownMachineName, type ChatPlace } from "./chatMachine";
+import { chatComputerId, ownMachineName, type ChatPlace, routeOnOwnCloud } from "./chatMachine";
 import { useMachineCard } from "./MachineCard";
 /// How a new chat's strip asks where it runs (gallery seam; `where-machine` ships). Leo, 2026-11-03,
 /// on Codex desktop's strip: "chatgpt codex has nicer ways to deal with stuff".
@@ -518,7 +519,7 @@ export function ComposerContext({
   const routeElsewhere = route?.origin === "remote" || route?.origin === "peer";
   const machineOnCloud =
     selectedComputer === "local"
-      ? routeElsewhere && route?.ownerCloud === true
+      ? routeOnOwnCloud(route)
       : peerKinds[selectedComputer] === "cloud" ||
         (selectedComputer === initialComputer && summary?.hostKind === "cloud");
   const folders = useMemo(() => {
@@ -889,8 +890,12 @@ export function ComposerContext({
   // machine (the person's own, SSH), or this Mac. Each machine sits under where it runs, so the Where
   // chip never contradicts the chip beside it.
   const pickedOff = selectedComputer !== "local" && !savedPick;
+  // A page whose own route reaches its Cloud machine (Cmd+D beside a Cloud chat, a new tab in that
+  // chat's workspace): its chat starts on that machine, so it is Cloud, never This Mac (cmux#47677).
+  const pageOnCloud = selectedComputer === "local" && !savedPick && machineOnCloud;
   const cloudSide =
-    cloudPicked || (!sandboxPicked && (waiting !== undefined || (pickedOff && currentComputer?.kind === "cloud")));
+    cloudPicked ||
+    (!sandboxPicked && (pageOnCloud || waiting !== undefined || (pickedOff && currentComputer?.kind === "cloud")));
   // What the folder chip says (folderlessCloud.ts): with Cloud and no folder, No folder, a valid start
   // in a fresh folder on the machine, never an empty Choose folder.
   const folderState = folderChipState({
@@ -923,7 +928,7 @@ export function ComposerContext({
   // The Where control's accessible name and tooltip also name the machine, which a narrow strip shows
   // only as an icon.
   const wherePlace =
-    (offMac || savedPick !== undefined || (cloudSide && !cloudPicked)) && placeName
+    (offMac || savedPick !== undefined || (cloudSide && !cloudPicked && !pageOnCloud)) && placeName
       ? `${whereName} · ${placeName}`
       : whereName;
   const whereIcon =
@@ -1601,6 +1606,7 @@ function LocationPicker({
   const press = usePopoverTrigger(open, changeOpen);
   const trigger = useRef<HTMLButtonElement>(null);
   useLocationOpener(disabled ? undefined : menu, () => setOpen(true));
+  const shortcut = useLocationShortcut(disabled ? undefined : menu);
   useEffect(() => {
     if (!closeOnTrustAsk || !open) return;
     setPopoverOpen(false);
@@ -1660,7 +1666,9 @@ function LocationPicker({
       ref={control}
       className="acpmux-location-picker"
       data-kind={kind}
-      title={kind === "computer" ? label + ": " + value : undefined}
+      // The folder chip shows its folder; its tooltip only names its key, when it has one.
+      title={kind === "computer" ? label + ": " + value : shortcut ? label : undefined}
+      data-tooltip-shortcut={shortcut}
     >
       <button
         ref={trigger}
