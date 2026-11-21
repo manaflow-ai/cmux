@@ -59,6 +59,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     private var placeholderTabs: [String: (tab: WorkspaceTab, workspace: Workspace)] = [:]
     /// Last frames kept across launches.
     var frameStore: TerminalFrameStore? = .standard
+    /// Composer drafts of tabs whose host went (a reconnect, a cool, a relaunch), for their next
+    /// host (`TerminalComposerDrafts`).
+    var composerDrafts = TerminalComposerDrafts()
     /// The signed-in account that owns the linked Macs. Unscoped frames are
     /// never loaded or saved when auth has not resolved to a stable ID.
     var accountUserIDProvider: (@MainActor () -> String?)?
@@ -82,6 +85,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
                 release.begin()
                 self?.setAppActive(false)
                 self?.saveFrames()
+                self?.keepDrafts()
                 release.endAfter(.seconds(2))
             }
         }
@@ -107,6 +111,16 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
 
     private func frameKey(for tab: WorkspaceTab, in workspace: Workspace) -> TerminalFrameKey? {
         frameKey(surfaceID: tab.id, macID: workspace.macID)
+    }
+
+    /// Every host's composer text, kept for the host that replaces it (or a cold launch).
+    private func keepDrafts() {
+        for (id, host) in hosts { keepDraft(of: host, key: hostFrameKeys[id]) }
+    }
+
+    private func keepDraft(of host: TerminalTabHost, key: TerminalFrameKey?) {
+        guard let key else { return }
+        composerDrafts.keep(host.model.composerText, for: key)
     }
 
     /// Going to the background: each live page's frame goes to disk, so a
@@ -224,7 +238,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         for (id, owner) in workspaceOwner where owner == workspace.id && !open.contains(id) {
             // Its Mac attach goes too: a closed tab's session kept waiting to
             // reattach after the next drop (V5-5).
-            release(id)
+            release(id, closed: true)
             slots[id] = nil
             cardViews[id] = nil
         }
@@ -271,6 +285,13 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             }
         }
         model.setAppActive(appActive)
+        // What the person was typing stays in the composer: the host it was typed in (the
+        // placeholder a reconnect replaced), else the draft a dropped host left.
+        if let carried = previous?.model.composerText, !carried.isEmpty {
+            model.composerText = carried
+        } else if let key, let kept = composerDrafts.draft(for: key) {
+            model.composerText = kept
+        }
         let host = TerminalTabHost(model: model)
         // A cooled tab's reader goes back to their rows (a live host only: a
         // placeholder never draws them and keeps the place for the live one).
@@ -287,10 +308,14 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         return host
     }
 
-    /// Drops a tab's host: its Mac attach stops, its frames go.
-    private func release(_ id: String) {
+    /// Drops a tab's host: its Mac attach stops, its frames go. Its composer draft waits for the
+    /// tab's next host (`closed`: the tab is gone, and its draft goes too).
+    private func release(_ id: String, closed: Bool = false) {
         let key = hostFrameKeys.removeValue(forKey: id)
-        hosts.removeValue(forKey: id)?.model.session.stop()
+        if let host = hosts.removeValue(forKey: id) {
+            if closed, let key { composerDrafts.remove(key) } else { keepDraft(of: host, key: key) }
+            host.model.session.stop()
+        }
         cardViews[id] = nil
         stopWatching(id)
         indicators[id] = nil
@@ -316,7 +341,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         endedShells = []
         for id in Array(feeds.keys) { stopWatching(id) }
         indicators = [:]
-        // Each session releases its size on the Mac before its channel closes.
+        // Each session releases its size on the Mac before its channel closes. What each composer
+        // held waits for the tab's next host (a reconnect rebuilds them all).
+        keepDrafts()
         for host in hosts.values { host.model.session.stop() }
         hosts = [:]
         slots = [:]
@@ -360,6 +387,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         guard let host = hosts.removeValue(forKey: id) else { return }
         let key = hostFrameKeys.removeValue(forKey: id)
         if let key { frameLifecycle.cooled(tabID: id, frameKey: key) }
+        keepDraft(of: host, key: key)
         // The page as it is now (not only a grid-card snapshot, which a tab never
         // shown in the grid lacks): its next host shows it at once while it attaches.
         // A tab cooled before it drew the Mac's output keeps the cached frame it
