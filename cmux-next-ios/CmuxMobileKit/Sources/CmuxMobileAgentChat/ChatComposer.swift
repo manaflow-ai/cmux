@@ -5,6 +5,7 @@ import CmuxMobileRealtime
 import CmuxMobileTransport
 import PhotosUI
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 /// SPEC 4.3 composer for agent chat: glass card with a text row over a
@@ -588,7 +589,17 @@ struct ChatComposer: View {
             }
             return
         }
-        store.send(prompt: text, attachments: attachments, steer: steer, denyingPermission: denyingPermission)
+        let prompt = text
+        let sent = attachments
+        // The keyboard goes down in this turn, before the cleared field is drawn: from the field's
+        // own focus change it went down a turn later, after the clear was on screen, and its work
+        // (12 to 17 ms, then the dock's layout) held the sent bubble's first frame back 3 to 5
+        // frames. Done before the send, so its rows lay out once with the keyboard's new place.
+        if CmuxMobilePreferences.dismissKeyboardAfterSend() {
+            focus.wrappedValue = false
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        }
+        store.send(prompt: prompt, attachments: sent, steer: steer, denyingPermission: denyingPermission)
         // The field clears and shrinks on the spring the sent bubble glides in on (the
         // transcript's `ChatSendSettle`), as one motion.
         withAnimation(.cmuxMobileSmooth.unlessReduceMotion) {
@@ -596,7 +607,6 @@ struct ChatComposer: View {
             attachments = []
         }
         sendCount += 1
-        if CmuxMobilePreferences.dismissKeyboardAfterSend() { focus.wrappedValue = false }
     }
 
     // MARK: Attachments, queue, slash commands
