@@ -181,13 +181,11 @@ pub const NOFILE_SOFT_ENV: &str = "CMUX_TUI_HOST_NOFILE_SOFT";
 pub const ORPHAN_GRACE_ENV: &str = "CMUX_HOLDER_ORPHAN_GRACE_MS";
 
 /// How long a holder or terminal host goes with no daemon before it ends its
-/// terminals in every build, normal installs included: no cmux has shown
-/// them for a week, so no daemon will adopt them again (a renamed tag's or
-/// a deleted build's). A running daemon stays linked, so this never ends a
-/// terminal of a running cmux, and quitting or updating for less than a
-/// week keeps every terminal. Leo, 2026-11-09, on 35 terminal processes,
-/// some weeks old: "well those need to get auto cleaned up...".
-pub const ABANDONED_GRACE: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 60 * 60);
+/// terminals in every build, normal installs included. A replacement daemon
+/// has this bounded window to adopt them after their owner dies. A running
+/// daemon stays linked, so active terminals are unaffected. Leo, 2026-11-21:
+/// dead owners must not leave terminal hosts behind for days.
+pub const ABANDONED_GRACE: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 
 /// The orphan grace of a holder: [`ORPHAN_GRACE_ENV`] when set, at most
 /// [`ABANDONED_GRACE`].
@@ -366,7 +364,7 @@ mod tests {
     }
 
     #[test]
-    fn a_holder_ends_terminals_no_daemon_linked_for_a_week() {
+    fn a_holder_ends_terminals_no_daemon_linked_for_ten_minutes() {
         assert_eq!(orphan_grace_from(None), ABANDONED_GRACE);
         assert_eq!(orphan_grace_from(Some("0")), ABANDONED_GRACE);
         assert_eq!(orphan_grace_from(Some("600000")), std::time::Duration::from_secs(600));
