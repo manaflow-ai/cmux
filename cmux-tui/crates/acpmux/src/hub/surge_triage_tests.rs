@@ -16,6 +16,13 @@ async fn chat(answer: Option<&'static str>) -> (Arc<Hub>, Arc<Session>) {
     (hub, session)
 }
 
+/// A test driving passes itself owns the scheduler slot, including during lazy inbox restore.
+async fn manual_chat(answer: Option<&'static str>) -> (Arc<Hub>, Arc<Session>) {
+    let (hub, session) = chat(answer).await;
+    hub.surge_triage_due.lock().unwrap().insert(session.id.clone(), false);
+    (hub, session)
+}
+
 fn hold(hub: &Hub, s: &Session, id: &str, thread: &str, class: &str, text: &str) {
     let msg = json!({"promptId": id, "threadId": thread, "from": "lane-a", "class": class,
         "text": text, "surgeHeld": true});
@@ -38,7 +45,7 @@ fn sent(hub: &Hub, s: &Session, id: &str) -> usize {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_pass_journals_every_held_message_and_sends_one_digest_once() {
-    let (hub, s) = chat(Some("1 noise\n2 this\n3 handled")).await;
+    let (hub, s) = manual_chat(Some("1 noise\n2 this\n3 handled")).await;
     hold(&hub, &s, "m1", "runners", "fyi", "runner queued 12 min");
     hold(&hub, &s, "m2", "review", "result", "review asks you to pick a base");
     hold(&hub, &s, "m3", "landed", "result", "landed #12");
@@ -93,7 +100,7 @@ async fn a_pass_journals_every_held_message_and_sends_one_digest_once() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_digest_journaled_but_not_delivered_before_a_crash_is_sent_after_it() {
-    let (hub, s) = chat(Some("1 noise")).await;
+    let (hub, s) = manual_chat(Some("1 noise")).await;
     hold(&hub, &s, "m1", "ask", "question", "which base?");
     // The crash came after the batch record, before the digest was sent.
     let owed = json!({"batchId": "b", "recipient": s.id, "digestPromptId": "surge-digest-owed",
@@ -111,7 +118,7 @@ async fn a_digest_journaled_but_not_delivered_before_a_crash_is_sent_after_it() 
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn nothing_actionable_sends_no_digest_and_a_model_outage_wakes_no_one() {
-    let (hub, s) = chat(Some("1 noise\n2 handled")).await;
+    let (hub, s) = manual_chat(Some("1 noise\n2 handled")).await;
     hold(&hub, &s, "m1", "runners", "fyi", "runner queued");
     hold(&hub, &s, "m2", "landed", "result", "landed #12");
     hub.surge_triage_pass(&s).await.unwrap();
@@ -123,7 +130,7 @@ async fn nothing_actionable_sends_no_digest_and_a_model_outage_wakes_no_one() {
     assert_eq!(sent(&hub, &s, &digest), 0, "no digest when nothing needs the chat");
 
     // The model is out: the messages stay held, nothing is journaled or sent.
-    let (hub, s) = chat(None).await;
+    let (hub, s) = manual_chat(None).await;
     hold(&hub, &s, "m1", "runners", "fyi", "runner queued");
     hold(&hub, &s, "m2", "review", "result", "pick a base");
     assert_eq!(hub.surge_triage_pass(&s).await.unwrap(), PassEnd::Undecided);
@@ -258,7 +265,7 @@ async fn schedule_runs_one_pass_for_a_burst() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn owner_items_go_only_to_owners_the_recipient_authorized() {
-    let (hub, s) = chat(Some("1 owner\n2 owner\n3 owner")).await;
+    let (hub, s) = manual_chat(Some("1 owner\n2 owner\n3 owner")).await;
     let req = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
     let owner = hub.new_session(req()).await.unwrap();
     let lead = hub.new_session(req()).await.unwrap();
@@ -398,7 +405,7 @@ fn a_later_self_subscription_never_shadows_an_authorized_owner() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn each_digest_names_only_its_own_recipients_messages() {
-    let (hub, s) = chat(Some("1 owner\n2 this")).await;
+    let (hub, s) = manual_chat(Some("1 owner\n2 this")).await;
     let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
     let owner = hub.new_session(req).await.unwrap();
     let params = json!({"sessionId": owner.id, "threadId": "runners"});
@@ -427,7 +434,7 @@ async fn each_digest_names_only_its_own_recipients_messages() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn failed_journal_writes_lose_no_decision_and_no_delivery() {
-    let (hub, s) = chat(Some("1 this\n2 noise")).await;
+    let (hub, s) = manual_chat(Some("1 this\n2 noise")).await;
     hold(&hub, &s, "m1", "review", "result", "pick a base");
     hold(&hub, &s, "m2", "runners", "fyi", "queued");
     // The batch write fails: nothing counts as decided; the retry triages both, once.
@@ -485,7 +492,7 @@ fn item<'a>(events: &'a [EventRecord], id: &str) -> &'a Value {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_repeated_observation_wakes_no_one_twice_across_passes_and_restarts() {
-    let (hub, s) = chat(Some("1 this")).await;
+    let (hub, s) = manual_chat(Some("1 this")).await;
     let thread = "runner pool";
     hold_from(
         &hub,
@@ -565,7 +572,7 @@ async fn a_question_and_an_expired_report_are_never_repeats() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_grant_revoked_before_delivery_sends_the_item_to_the_chat_not_the_old_owner() {
-    let (hub, s) = chat(Some("1 owner")).await;
+    let (hub, s) = manual_chat(Some("1 owner")).await;
     let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
     let owner = hub.new_session(req).await.unwrap();
     let params = json!({"sessionId": owner.id, "threadId": "runners"});
