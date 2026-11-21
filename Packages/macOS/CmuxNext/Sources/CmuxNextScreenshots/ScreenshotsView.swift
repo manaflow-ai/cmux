@@ -24,7 +24,6 @@ public final class ScreenshotsView: NSView {
     /// ``startsWhenShown``), so a page an agent showed or a tab restored at launch reads no folder (macOS guards
     /// ~/Desktop, the default screenshot folder: LAUNCH-NO-TCC-PROMPTS).
     private let promptTitle = NSTextField(labelWithString: ScreenshotsStrings.promptTitle)
-    private let promptBody = NSTextField(wrappingLabelWithString: ScreenshotsStrings.promptBody)
     private let promptButton = NSButton(title: ScreenshotsStrings.promptButton, target: nil, action: nil)
     private let prompt = NSStackView()
 
@@ -37,7 +36,6 @@ public final class ScreenshotsView: NSView {
     public var secondaryText: NSColor = .secondaryLabelColor {
         didSet {
             count.textColor = secondaryText
-            promptBody.textColor = secondaryText
         }
     }
 
@@ -46,7 +44,6 @@ public final class ScreenshotsView: NSView {
         didSet {
             guard let promptFonts else { return }
             promptTitle.font = promptFonts.title
-            promptBody.font = promptFonts.body
             promptButton.font = promptFonts.body
         }
     }
@@ -106,7 +103,6 @@ public final class ScreenshotsView: NSView {
         search.frame = CGRect(x: searchX, y: y, width: max(80, count.frame.minX - 8 - searchX), height: controlHeight)
         grid.frame = CGRect(x: 0, y: 0, width: bounds.width, height: max(0, top))
         let promptWidth = min(max(0, bounds.width - 2 * pad), 360)
-        promptBody.preferredMaxLayoutWidth = promptWidth
         let promptSize = prompt.fittingSize
         prompt.frame = CGRect(x: (bounds.width - promptWidth) / 2, y: (bounds.height - promptSize.height) / 2,
                               width: promptWidth, height: promptSize.height)
@@ -198,16 +194,14 @@ public final class ScreenshotsView: NSView {
 
     private func configurePrompt() {
         promptTitle.alignment = .center
-        promptBody.alignment = .center
-        promptBody.textColor = secondaryText
         promptButton.target = self
         promptButton.action = #selector(showScreenshots)
         promptButton.bezelStyle = .push
         prompt.orientation = .vertical
         prompt.alignment = .centerX
         prompt.spacing = 8
-        for view in [promptTitle, promptBody, promptButton] as [NSView] { prompt.addArrangedSubview(view) }
-        prompt.setCustomSpacing(14, after: promptBody)
+        for view in [promptTitle, promptButton] as [NSView] { prompt.addArrangedSubview(view) }
+        prompt.setCustomSpacing(14, after: promptTitle)
     }
 
     // MARK: State
@@ -287,8 +281,9 @@ public final class ScreenshotsView: NSView {
                 if let first = saved.first { self?.grid.reveal(path: first.path) }
             } catch {
                 // dialog-keys-exempt: CmuxNextScreenshots reaches no CmuxDialogCenter (it depends on CmuxNextFileGrid and CmuxNextFiles only); move to a dialog seam with the Finder pane
-                let alert = NSAlert(error: error)
+                let alert = NSAlert()
                 alert.messageText = ScreenshotsStrings.dropFailed
+                alert.informativeText = ScreenshotsStrings.reason(error)
                 if let window = self?.window { alert.beginSheetModal(for: window, completionHandler: nil) }
             }
         }

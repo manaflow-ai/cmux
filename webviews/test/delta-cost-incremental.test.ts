@@ -338,11 +338,13 @@ test("the pane's per-snapshot passes read only the rows an update changed", asyn
   // The groups and reports are found from the tail alone; each ended subagent's line is still
   // placed again per update (its group, its agent and the rows right after it: about a dozen
   // fields per group, 333 groups here), never the rows between groups. Grows with groups, not rows.
+  // Each group's compact start line (#42247, runningTray.ts `startedLine`) reads its group's agents
+  // once more per update, so about 14 fields per group (measured 14,028 reads).
   const lines = new Map();
   readsOnlyTheTail(
     "withSubagentLines",
     (rows) => withSubagentLines(rows, lines),
-    333 * 3 * 13,
+    333 * 3 * 15,
     (rows) => rows.map((each) => [each.id, each.kind]),
   );
 });

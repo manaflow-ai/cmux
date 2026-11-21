@@ -17,7 +17,7 @@ enum RemoteStrings {
     static var placeholderConnect: String { String(localized: "remote.terminal.connect", defaultValue: "Connect", table: "Remote", bundle: .module) }
     static var placeholderNoSnapshot: String { String(localized: "remote.terminal.noSnapshot", defaultValue: "No saved screen", table: "Remote", bundle: .module) }
     static func terminalOn(_ machine: String) -> String { String(format: String(localized: "remote.terminal.title", defaultValue: "Terminal on %@", table: "Remote", bundle: .module), machine) }
-    static var moveTabAcrossMachines: String { String(localized: "remote.tab.cannotMoveAcrossMachines", defaultValue: "Home, conversation and app tabs cannot move to a workspace on another machine.", table: "Remote", bundle: .module) }
+    static var moveTabAcrossMachines: String { String(localized: "remote.tab.cannotMoveAcrossMachines", defaultValue: "Chief, conversation and app tabs cannot move to a workspace on another machine.", table: "Remote", bundle: .module) }
     static func openRemoteHostNotFound(_ host: String) -> String { String(format: String(localized: "remote.openRemote.hostNotFound", defaultValue: "No machine named %@ is added. Add it first, or check the name.", table: "Remote", bundle: .module), host) }
     static func openRemoteBadRatio(_ text: String) -> String { String(format: String(localized: "remote.openRemote.badRatio", defaultValue: "The ratio %@ must be a number between 0 and 1.", table: "Remote", bundle: .module), text) }
     static var splitRightOrDown: String { String(localized: "remote.terminal.splitRightOrDown", defaultValue: "A terminal from another machine can split right or down only.", table: "Remote", bundle: .module) }
@@ -111,12 +111,12 @@ enum RemoteStrings {
             return session.lastError ?? (session.staticInstallStaged ? staticInstallStaged : nil)
         case .reconnecting:
             return String(localized: "remote.status.reconnecting", defaultValue: "The connection dropped. cmux reconnects on its own; programs keep running on the machine.", table: "Remote", bundle: .module)
-        case .authFailed(let message):
-            return String(format: String(localized: "remote.status.authFailed", defaultValue: "SSH sign-in failed: %@ Check your key or agent, then choose Reconnect Machine.", table: "Remote", bundle: .module), message)
-        case .hostKeyUntrusted(let message):
-            return String(format: String(localized: "remote.status.hostKey", defaultValue: "The host key is not trusted: %1$@ Run ssh %2$@ in a terminal to check it. cmux never skips host key checks.", table: "Remote", bundle: .module), message, session.host.destination.sshArgument)
-        case .unreachable(let message):
-            return String(format: String(localized: "remote.status.unreachable", defaultValue: "Cannot reach the machine: %@ cmux tries again when the network changes.", table: "Remote", bundle: .module), message)
+        case .authFailed:
+            return String(format: String(localized: "remote.status.authFailed.plain", defaultValue: "SSH sign-in to %@ failed. Check your key or agent, then choose Reconnect Machine. Choose Copy Error for the details.", table: "Remote", bundle: .module), session.host.label)
+        case .hostKeyUntrusted:
+            return String(format: String(localized: "remote.status.hostKey.plain", defaultValue: "The host key of %1$@ is not trusted. Run ssh %2$@ in a terminal to check it. cmux never skips host key checks. Choose Copy Error for the details.", table: "Remote", bundle: .module), session.host.label, session.host.destination.sshArgument)
+        case .unreachable:
+            return String(format: String(localized: "remote.status.unreachable.plain", defaultValue: "cmux cannot reach %@. It tries again when the network changes. Choose Copy Error for the details.", table: "Remote", bundle: .module), session.host.label)
         case .needsInstall(let need):
             return needText(need, session)
         case .installing:

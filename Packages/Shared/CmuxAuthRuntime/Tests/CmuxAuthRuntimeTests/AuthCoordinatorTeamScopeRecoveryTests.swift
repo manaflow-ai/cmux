@@ -133,7 +133,7 @@ import Testing
         await clock.waitUntilSleeper(dueWithin: Self.backoffWindow)
         #expect(coordinator.hasPendingTeamScopeRecovery)
 
-        coordinator.clearAuthState()
+        coordinator.clearAuthState(reason: "test")
         #expect(coordinator.hasPendingTeamScopeRecovery == false)
     }
 
@@ -232,7 +232,7 @@ import Testing
 
         #expect(coordinator.authenticatedTeamScope?.teamID == Self.team.id)
         #expect(coordinator.hasPendingTeamScopeRecovery == false)
-        coordinator.clearAuthState()
+        coordinator.clearAuthState(reason: "test")
     }
 
     @Test func newSignInStartsRecoveryAtTheInitialDelay() async throws {
@@ -260,6 +260,6 @@ import Testing
 
         let scope = await awaitTeamScope(coordinator)
         #expect(scope?.teamID == Self.team.id)
-        coordinator.clearAuthState()
+        coordinator.clearAuthState(reason: "test")
     }
 }

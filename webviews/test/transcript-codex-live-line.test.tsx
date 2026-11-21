@@ -1,21 +1,32 @@
 // l10n-allow-file: test fixture commands and replies, not shipped UI.
 // The running turn as the Codex app draws it (Leo 2026-10-20, stack-224..226.png): finished runs
-// keep their calls in sight until the turn ends (cmux#38339), and ONE live line at the bottom of the turn is replaced in place by each step: Thinking
+// fold, and ONE live line at the bottom of the turn is replaced in place by each step: Thinking
 // (shimmer) -> Running <short label> 13s -> Thinking. It is the turn's one live block: no "Working
 // for" over the turn's work (Leo 2026-10-21, on nightly 3a63d6d: a "Working for 18s" header at the
 // top, then tool rows, then a separate "Thinking" far below, past his steers).
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { WorkingCountsContext } from "../src/agent-session/acpmux/conversation/workingForModel";
-import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { THINKING, turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
 import { shortCommand } from "../src/agent-session/acpmux/conversation/shortCommand";
 
 import type { ReactNode } from "react";
 import { StatusVerbContext } from "../src/agent-session/acpmux/statusVerbs";
+
+// This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps each finished
+// run in sight as its folded summary line. The `line` arm (one live line, as chatgpt.com draws a running
+// turn) is covered by live-turn-one-line.test.ts.
+const liveTurnArmsBefore = globalThis.cmuxExperiments;
+beforeAll(() => {
+  // The clock on the live line, as before: "Working for" over the work is live-turn-clock.test.ts.
+  globalThis.cmuxExperiments = { ...liveTurnArmsBefore, "live-turn-work": "runs", "live-turn-clock": "line" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = liveTurnArmsBefore;
+});
 
 // These assertions cover turn state and time, independently of decorative verb rotation.
 const renderToStaticMarkup = (node: ReactNode) =>
@@ -53,7 +64,7 @@ test("before any output the turn is one Thinking line, timed from the prompt", (
   expect(shaped.at(-1)!.untimed).toBeUndefined();
 });
 
-test("a call in flight is the live line at the bottom, under the open runs, with no line over the turn", () => {
+test("a call in flight is the live line at the bottom, under the folded runs, with no line over the turn", () => {
   const shaped = codex([
     row("u", "user"),
     row("a", "assistant", { text: "On it." }),
@@ -62,10 +73,10 @@ test("a call in flight is the live line at the bottom, under the open runs, with
   expect(kinds(shaped)).toEqual(["user", "assistant", "activity", THINKING]);
   const line = shaped.at(-1)!;
   expect(line).toMatchObject({ id: "thinking-live", doing: "bun test src/net", doingShell: true });
-  // The run holds only the finished call, in sight: nothing folds until the turn ends (cmux#38339).
+  // The run holds only the finished call, folded.
   const run = shaped.find((entry) => entry.id === "run")!;
   expect(run.items?.map((item) => item.tool?.id)).toEqual(["git log"]);
-  expect(run.foldRun).toBe(false);
+  expect(run.foldRun).toBe(true);
   expect(shaped.some((entry) => entry.kind === WORKING)).toBe(false);
 });
 
@@ -88,8 +99,8 @@ test("a steered turn is one live block at its bottom, under the steer, timed fro
   expect(words(renderToStaticMarkup(<Thinking since={line.at} now={() => line.at + 18_000} />))).toBe("Thinking 18s");
 });
 
-// One count, as Claude Code's live line says it (claude-code-tool-rows.test.tsx).
-test("the live line carries the turn's tokens while it times the turn, beside a call too", () => {
+// Usage data does not add a counter to the live line.
+test("the live line keeps the turn clock without token amounts, beside a call too", () => {
   const start = 1_000_000;
   const counts = { agents: 0, commands: 0, sessions: 0, openAgents() {}, openCommands() {}, openSessions() {} };
   const drawn = (node: ReactElement) =>
@@ -98,21 +109,29 @@ test("the live line carries the turn's tokens while it times the turn, beside a 
         <WorkingCountsContext.Provider value={{ ...counts, tokens: 2_140_000 }}>{node}</WorkingCountsContext.Provider>,
       ),
     );
-  expect(drawn(<Thinking since={start} now={() => start + 354_000} />)).toBe("Thinking 5m 54s · 2.1M tokens");
-  // The same clock and count go on across steps (Leo, 2026-11-01: "it should just keep going").
+  expect(drawn(<Thinking since={start} now={() => start + 354_000} />)).toBe("Thinking 5m 54s");
+  // The same clock goes on across steps (Leo, 2026-11-01: "it should just keep going").
   expect(
     drawn(
       <Thinking since={start} doing="cargo test" doingShell doingAt={start + 350_000} now={() => start + 354_000} />,
     ),
-  ).toBe("Running cargo test 5m 54s · 2.1M tokens");
+  ).toBe("Running cargo test 5m 54s");
   expect(drawn(<Thinking since={start} doing="cargo test" doingShell done now={() => start + 360_000} />)).toBe(
-    "Ran cargo test 6m · 2.1M tokens",
+    "Ran cargo test 6m",
   );
 });
 
 test("with the tray off the live line counts the work still going, beside a call too", () => {
   const start = 1_000_000;
-  const counts = { agents: 2, commands: 1, sessions: 0, openAgents() {}, openCommands() {}, openSessions() {} };
+  const counts = {
+    agents: 2,
+    commands: 1,
+    sessions: 0,
+    tokens: 2_140_000,
+    openAgents() {},
+    openCommands() {},
+    openSessions() {},
+  };
   const drawn = (node: ReactElement) =>
     words(renderToStaticMarkup(<WorkingCountsContext.Provider value={counts}>{node}</WorkingCountsContext.Provider>));
   expect(drawn(<Thinking since={start} doing="Read app.ts" doingAt={start} now={() => start + 3_000} />)).toBe(
@@ -240,37 +259,20 @@ test("shortCommand drops environment set in front of the command, quoted values 
   expect(shortCommand("A=1 B='x y' bun test src")).toBe("bun test src");
 });
 
-test("two runs with only a short note between them stay apart while the turn runs, and draw as one run, the note folded in, once it ends", () => {
-  const working = [
+test("a short commentary paragraph separates two tool runs", () => {
+  const shaped = codex([
     row("u", "user"),
     row("r1", "activity", { items: [call("acpmux ls"), call("gh pr list")] }),
     row("n", "assistant", { text: "Relay the decisions, then answer." }),
     row("r2", "activity", { items: [call("gh pr view 1"), call("acpmux send", "in_progress")] }),
-  ];
-  // While it runs, nothing regroups: the note stays its own row between the runs (cmux#38339).
-  const shaped = codex(working);
-  expect(kinds(shaped)).toEqual(["user", "activity", "assistant", "activity", THINKING]);
-  expect(shaped.at(-1)!.doing).toBe("acpmux send");
-  // Ended, the opened "Worked for" joins them into one run with the note among its calls.
-  const ended = [
-    ...working.slice(0, 3),
-    row("r2", "activity", { items: [call("gh pr view 1"), call("acpmux send")] }),
-    row("ans", "assistant", { text: "Done: the decisions are relayed." }),
-    row("s", "turnSummary", { status: "completed", toolCount: 4 }),
-  ];
-  const open = turnView(ended, new Set(["worked-u"]));
-  expect(kinds(open)).toEqual(["user", "worked", "activity", "assistant", "turnSummary"]);
-  const run = open.find((entry) => entry.kind === "activity")!;
-  expect(run.id).toBe("r1");
-  expect(run.items?.map((item) => item.tool?.id ?? item.text)).toEqual([
-    "acpmux ls",
-    "gh pr list",
-    "Relay the decisions, then answer.",
-    "gh pr view 1",
-    "acpmux send",
   ]);
-  const html = renderToStaticMarkup(<ToolRows row={{ ...run, foldRun: false }} />);
-  expect(html).toContain('<p class="cv-tool-note">Relay the decisions, then answer.</p>');
+  expect(kinds(shaped)).toEqual(["user", "activity", "assistant", "activity", THINKING]);
+  const runs = shaped.filter((entry) => entry.kind === "activity");
+  expect(runs.map((entry) => entry.id)).toEqual(["r1", "r2"]);
+  expect(runs[0]!.items?.map((item) => item.tool?.id)).toEqual(["acpmux ls", "gh pr list"]);
+  expect(runs[1]!.items?.map((item) => item.tool?.id)).toEqual(["gh pr view 1"]);
+  expect(shaped.find((entry) => entry.id === "n")?.text).toBe("Relay the decisions, then answer.");
+  expect(shaped.at(-1)!.doing).toBe("acpmux send");
 });
 
 test("a long note, or one with code, stays its own paragraph between the runs", () => {
@@ -288,7 +290,7 @@ test("a long note, or one with code, stays its own paragraph between the runs", 
   }
 });
 
-test("an ended turn's open Worked for merges runs split by a short note too", () => {
+test("an ended turn's open Worked for preserves commentary between separate runs", () => {
   const rows = [
     row("u", "user"),
     row("r1", "activity", { items: [call("a"), call("b")] }),
@@ -298,11 +300,11 @@ test("an ended turn's open Worked for merges runs split by a short note too", ()
     row("s", "turnSummary", { status: "completed", toolCount: 3 }),
   ];
   const open = turnView(rows, new Set(["worked-u"]));
-  expect(kinds(open)).toEqual(["user", "worked", "activity", "assistant", "turnSummary"]);
-  expect(open.find((entry) => entry.kind === "assistant")!.id).toBe("ans");
+  expect(kinds(open)).toEqual(["user", "worked", "activity", "assistant", "activity", "assistant", "turnSummary"]);
+  expect(open.filter((entry) => entry.kind === "assistant").map((entry) => entry.id)).toEqual(["n", "ans"]);
 });
 
-test("Find and a shell's count reach every row a merged run absorbed", async () => {
+test("Find reaches each commentary and tool row by its original identity", async () => {
   const { findRowIndex, isRevealRow } = await import("../src/agent-session/acpmux/conversation/chatFind");
   const rows = [
     row("u", "user"),
@@ -313,14 +315,20 @@ test("Find and a shell's count reach every row a merged run absorbed", async () 
     row("s", "turnSummary", { status: "completed", toolCount: 2 }),
   ];
   const open = turnView(rows, new Set(["worked-u"]));
-  const merged = open.findIndex((entry) => entry.id === "x");
-  expect(open[merged]!.joined).toEqual(["x", "n", "y"]);
-  for (const id of ["x", "n", "y"]) expect(findRowIndex(open, id)).toBe(merged);
-  expect(isRevealRow(open[merged]!, { rowId: "y", card: false })).toBe(true);
-  // While the turn runs the note is a row of its own (cmux#38339): Find lands on it.
+  for (const id of ["x", "n", "y"]) {
+    const at = open.findIndex((entry) => entry.id === id);
+    expect(at).toBeGreaterThanOrEqual(0);
+    expect(findRowIndex(open, id)).toBe(at);
+    expect(isRevealRow(open[at]!, { rowId: id, card: false })).toBe(true);
+  }
+  expect(
+    isRevealRow(
+      open.find((entry) => entry.id === "x")!,
+      { rowId: "y", card: false },
+    ),
+  ).toBe(false);
   const live = codex(rows.slice(0, 4));
   expect(findRowIndex(live, "n")).toBe(live.findIndex((entry) => entry.id === "n"));
-  expect(findRowIndex(live, "n")).toBeGreaterThanOrEqual(0);
 });
 
 test("shortCommand splits only outside quotes", () => {
@@ -419,7 +427,7 @@ test("a call that takes no input keeps its row in an ended turn", () => {
   expect(callIds(ended)).toEqual(["mcp"]);
 });
 
-test("a run a short note joined to an earlier one keeps its finished calls; the line reads Thinking", () => {
+test("runs separated by short commentary retain their finished calls; the line reads Thinking", () => {
   const shaped = codex([
     row("u", "user"),
     row("r1", "activity", { items: [call("git log")] }),
@@ -428,7 +436,7 @@ test("a run a short note joined to an earlier one keeps its finished calls; the 
   ]);
   expect(shaped.at(-1)).toMatchObject({ kind: THINKING });
   expect(shaped.at(-1)!.doing).toBeUndefined();
-  // The short note joins the run as its text, between the two calls.
+  expect(shaped.find((entry) => entry.id === "n")?.text).toBe("Now the diff.");
   expect(callIds(shaped).filter(Boolean)).toEqual(["git log", "git diff"]);
 });
 

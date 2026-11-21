@@ -2,10 +2,14 @@
 //! section 3). Requests become `cmux_config` ops; refusals become catalog
 //! errors with the owner's data in `details`.
 
+use std::path::Path;
 use std::sync::Arc;
 
 use cmux_config::keybindings::edit::Target as KeybindingTarget;
-use cmux_config::{KeybindingsOp, KeybindingsRefusal, Op, Origin, Refusal, Target, WriteMeta};
+use cmux_config::{
+    Edit, EditKind, KeybindingsOp, KeybindingsRefusal, MAX_EDITS, Op, Origin, Refusal, Target,
+    WriteMeta,
+};
 use serde_json::{Map, Value, json};
 
 use super::{ParsedResourceRequest, mutation_result, validation_error};
@@ -33,6 +37,28 @@ pub(super) fn dispatch(
             Ok(mux.with_settings(|state| state.get(&target).to_json()))
         }
         ResourceOperation::SettingsSnapshot => Ok(mux.settings_snapshot()),
+        ResourceOperation::SettingsEdit => {
+            let file = edit_file(fields)?;
+            let op = Op::Edit {
+                edits: edits(fields)?,
+                meta: meta(fields, request.envelope.idempotency_key.clone(), &request.actor)?,
+            };
+            // The owner's file is fixed for its life, so this check holds for the apply after it.
+            if let Some(file) = file
+                && let Some(served) = mux.settings_file_mismatch(Path::new(file))
+            {
+                return Err(file_mismatch(file, &served));
+            }
+            match mux.settings_apply(op) {
+                Ok(outcome) => mutation_result(
+                    mux,
+                    json!({"keys": outcome.keys, "applied": outcome.applied}),
+                    outcome.revision,
+                    outcome.replayed,
+                ),
+                Err(refusal) => Err(refusal_error(operation, &refusal)),
+            }
+        }
         ResourceOperation::SettingsSet
         | ResourceOperation::SettingsReset
         | ResourceOperation::SettingsResetAll => {
@@ -116,6 +142,90 @@ fn target(fields: &Map<String, Value>) -> Result<Target, ResourceError> {
         .collect::<Option<Vec<_>>>()
         .ok_or_else(|| validation_error("path holds strings", json!({"field":"path"})))?;
     Ok(Target::Path(path))
+}
+
+/// `settings.edit`'s optional `file`: the settings file the caller means. An
+/// owner serving another file refuses with `settings.file_mismatch`.
+fn edit_file(fields: &Map<String, Value>) -> Result<Option<&str>, ResourceError> {
+    match fields.get("file") {
+        None => Ok(None),
+        Some(Value::String(file)) if !file.is_empty() => Ok(Some(file)),
+        Some(_) => {
+            Err(validation_error("file is a non-empty path string", json!({"field":"file"})))
+        }
+    }
+}
+
+/// `settings.file_mismatch`: this owner reads and writes `served`, not `file`;
+/// nothing was written.
+fn file_mismatch(file: &str, served: &Path) -> ResourceError {
+    ResourceError::new(
+        "settings.file_mismatch",
+        format!(
+            "this daemon's settings owner serves {}, not {file}; nothing was written",
+            served.display()
+        ),
+        json!({"file": file, "path": served.to_string_lossy()}),
+        false,
+    )
+}
+
+/// `settings.edit`'s `edits`: `{op, key | path, value?}` each, where `op` is
+/// `set`, `set_exact`, `set_unset`, `reset` or `reset_unchanged`; `value` is
+/// the value to set or the value expected, and `reset` takes none.
+fn edits(fields: &Map<String, Value>) -> Result<Vec<Edit>, ResourceError> {
+    let items = fields
+        .get("edits")
+        .and_then(Value::as_array)
+        .ok_or_else(|| validation_error("settings.edit needs edits", json!({"field":"edits"})))?;
+    if items.is_empty() || items.len() > MAX_EDITS {
+        return Err(validation_error(
+            &format!("edits holds 1 to {MAX_EDITS} edits"),
+            json!({"field":"edits"}),
+        ));
+    }
+    items.iter().enumerate().map(|(index, item)| edit(index, item)).collect()
+}
+
+fn edit(index: usize, item: &Value) -> Result<Edit, ResourceError> {
+    let field = |name: &str| json!({"field": format!("edits[{index}].{name}")});
+    let members = item.as_object().ok_or_else(|| {
+        validation_error(
+            "an edit is {op, key | path, value?}",
+            json!({"field": format!("edits[{index}]")}),
+        )
+    })?;
+    if let Some(extra) =
+        members.keys().find(|name| !matches!(name.as_str(), "op" | "key" | "path" | "value"))
+    {
+        return Err(validation_error("an edit takes op, key, path and value", field(extra)));
+    }
+    if members.contains_key("key") == members.contains_key("path") {
+        return Err(validation_error("an edit names exactly one of key and path", field("key")));
+    }
+    let target = target(members)?;
+    let value = members.get("value").cloned();
+    let op = members.get("op").and_then(Value::as_str);
+    let kind = match (op, value) {
+        (Some("set"), Some(value)) => EditKind::Set(value),
+        (Some("set_exact"), Some(value)) => EditKind::SetExact(value),
+        (Some("set_unset"), Some(value)) => EditKind::SetUnset(value),
+        (Some("reset_unchanged"), Some(value)) => EditKind::ResetUnchanged(value),
+        (Some("reset"), None) => EditKind::Reset,
+        (Some("reset"), Some(_)) => {
+            return Err(validation_error("a reset edit takes no value", field("value")));
+        }
+        (Some("set" | "set_exact" | "set_unset" | "reset_unchanged"), None) => {
+            return Err(validation_error("this edit needs value", field("value")));
+        }
+        _ => {
+            return Err(validation_error(
+                "op is set, set_exact, set_unset, reset or reset_unchanged",
+                field("op"),
+            ));
+        }
+    };
+    Ok(Edit { target, kind })
 }
 
 fn meta(
@@ -269,39 +379,5 @@ fn settings_error(code: &str, message: &str, data: Value) -> ResourceError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::schema_json;
-
-    /// `settings.schema` carries each row's one-line `summary` (the only
-    /// text a Settings row draws under its title) apart from the long
-    /// `help`, and the typed schema row reads the same line.
-    #[test]
-    fn settings_schema_rows_carry_the_summary_line() {
-        let wire = schema_json();
-        let rows = wire["rows"].as_array().expect("settings.schema lists rows");
-        let row = rows
-            .iter()
-            .find(|row| row["key"] == "appearance.backdropArt")
-            .expect("appearance.backdropArt is a schema row");
-        assert_eq!(row["summary"]["text"], "Painting behind the window", "{row}");
-        assert_eq!(row["summary"]["key"], "settings.appearance.backdropArt.summary", "{row}");
-        assert_ne!(row["summary"], row["help"], "the summary is not the help text");
-
-        let schema = cmux_config::Schema::embedded();
-        let typed = schema.row("appearance.backdropArt").and_then(|row| row.summary.as_ref());
-        assert_eq!(typed.map(|text| text.text.as_str()), Some("Painting behind the window"));
-        assert_eq!(
-            typed.and_then(|text| text.key.as_deref()),
-            Some("settings.appearance.backdropArt.summary")
-        );
-        for row in &schema.rows {
-            if let Some(summary) = &row.summary {
-                assert!(
-                    summary.text.chars().count() <= 60,
-                    "{}: a summary is one line of at most 60 characters",
-                    row.key
-                );
-            }
-        }
-    }
-}
+#[path = "config_tests.rs"]
+mod tests;

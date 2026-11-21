@@ -12,22 +12,8 @@ fn terminal() -> Terminal {
 }
 
 fn encode_base64(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let a = chunk[0];
-        let b = chunk.get(1).copied().unwrap_or(0);
-        let c = chunk.get(2).copied().unwrap_or(0);
-        encoded.push(ALPHABET[(a >> 2) as usize] as char);
-        encoded.push(ALPHABET[(((a & 0x03) << 4) | (b >> 4)) as usize] as char);
-        encoded.push(if chunk.len() > 1 {
-            ALPHABET[(((b & 0x0f) << 2) | (c >> 6)) as usize] as char
-        } else {
-            '='
-        });
-        encoded.push(if chunk.len() > 2 { ALPHABET[(c & 0x3f) as usize] as char } else { '=' });
-    }
-    encoded
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
 fn kitty(params: &str, payload: &str) -> Vec<u8> {

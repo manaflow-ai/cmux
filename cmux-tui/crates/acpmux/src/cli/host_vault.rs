@@ -1,5 +1,6 @@
-//! `acpmux machine vault pull|status|forget` (also `acpmux host vault ...`):
-//! the person's vault on this joined machine (`crate::vault`).
+//! `acpmux machine vault pull|status|forget|keep|drop` (also `acpmux host vault ...`):
+//! the person's vault on this joined machine (`crate::vault`), and the keys
+//! agents keep here themselves (`keep`, `drop`: `crate::vault::kept`).
 //!
 //! `pull --json` prints one object: `state` is `ok` (with `env`, the names
 //! present after the pull), `not_granted` (the person has not shared the vault
@@ -18,7 +19,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
+use cmux_json::JsonGet as _;
 use serde_json::{Value, json};
+use zeroize::Zeroizing;
 
 use crate::cli::errors::{AppError, Code};
 use crate::cli::output::print_json;
@@ -57,11 +60,6 @@ fn failure(failure: Failure) -> anyhow::Error {
 #[cfg(test)]
 pub(crate) fn failure_for_test(f: Failure) -> anyhow::Error {
     failure(f)
-}
-
-/// The string at `key` of `v`, or "".
-fn text_at<'a>(v: &'a Value, key: &str) -> &'a str {
-    v.get(key).and_then(Value::as_str).unwrap_or_default()
 }
 
 /// The outcome JSON with `store`.
@@ -122,7 +120,11 @@ fn print_outcome(outcome: &Value, store: &str, json_out: bool) {
         ),
     }
     for failed in outcome.get("failed").and_then(Value::as_array).into_iter().flatten() {
-        eprintln!("{}: {}", text_at(failed, "name"), text_at(failed, "code"));
+        eprintln!(
+            "{}: {}",
+            failed.get_str("name").unwrap_or_default(),
+            failed.get_str("code").unwrap_or_default()
+        );
     }
 }
 
@@ -357,7 +359,11 @@ pub async fn status_cmd(json_out: bool) -> Result<()> {
             .await
             .unwrap_or((SignedIn::Unknown, SignedIn::Unknown));
     let kind = store_kind().await;
-    let out = status_json(joined, &state, &kind, claude, codex);
+    let kept = crate::vault::kept::read(&home);
+    let mut out = status_json(joined, &state, &kind, claude, codex);
+    if let Some(map) = out.as_object_mut() {
+        map.insert("kept".into(), kept_json(&kept));
+    }
     if json_out {
         print_json(&out);
         return Ok(());
@@ -381,8 +387,15 @@ pub async fn status_cmd(json_out: bool) -> Result<()> {
             None => println!("env {name}: env (weaker: agents can read the value)"),
         }
     }
+    for (name, record) in &kept.env {
+        match &record.proxy {
+            Some(hosts) => println!("kept {name}: proxy: {}", hosts.join(", ")),
+            None => println!("kept {name}: env (weaker: agents can read the value)"),
+        }
+    }
     for h in out.get("harnesses").and_then(Value::as_array).into_iter().flatten() {
-        let (id, step) = (text_at(h, "harness"), text_at(h, "signIn"));
+        let (id, step) =
+            (h.get_str("harness").unwrap_or_default(), h.get_str("signIn").unwrap_or_default());
         match h.get("signedIn").and_then(Value::as_str).unwrap_or("unknown") {
             "yes" => println!("{id}: signed in"),
             "no" => println!("{id}: not signed in here; {step}"),
@@ -390,4 +403,135 @@ pub async fn status_cmd(json_out: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// The message of a `keep` or `drop` failure code.
+fn kept_failure(code: &str) -> anyhow::Error {
+    let message = match code {
+        "vault.bad_name" => {
+            "not a name an agent may keep: an env name ending in _TOKEN, _KEY, _KEY_ID, _SECRET, _PASSWORD, _PAT or _CREDENTIALS; never a model provider key, sign-in or base URL"
+        }
+        "vault.bad_host" => "a --host is not a host pattern (example.com or *.example.com)",
+        "vault.too_many_hosts" => "at most 16 --host patterns",
+        "vault.no_hosts" => {
+            "name where the key may go with --host H (repeatable), or give it to agents as is with --env (weaker)"
+        }
+        "vault.empty_value" => {
+            "no value on stdin: pipe the key in, `<command that prints it> | acpmux machine vault keep NAME --host H`"
+        }
+        "vault.bad_value" => "the value is too long or has a NUL byte",
+        "vault.value_on_terminal" => {
+            "the value comes on stdin from a pipe, never typed here or in argv: `<command that prints it> | acpmux machine vault keep NAME --host H`"
+        }
+        "vault.name_taken" => {
+            "the person's vault already gives this machine that name; pick another"
+        }
+        crate::vault::store::UNAVAILABLE => {
+            "no usable OS secret store (Keychain or Secret Service) here; kept keys are never stored in files"
+        }
+        "vault.busy" => "another vault change is running",
+        _ => "the kept key could not be saved",
+    };
+    AppError::new(Code::Runtime, code, message).into()
+}
+
+/// `machine vault keep NAME (--host H... | --env)`: the value from stdin.
+pub async fn keep_cmd(name: String, hosts: Vec<String>, env: bool, json_out: bool) -> Result<()> {
+    use crate::vault::kept;
+    use std::io::{IsTerminal as _, Read as _};
+    kept::check_name(&name).map_err(kept_failure)?;
+    let proxy = match (env, hosts.is_empty()) {
+        (true, _) => None,
+        (false, true) => return Err(kept_failure("vault.no_hosts")),
+        (false, false) => Some(kept::check_hosts(&hosts).map_err(kept_failure)?),
+    };
+    if std::io::stdin().is_terminal() {
+        return Err(kept_failure("vault.value_on_terminal"));
+    }
+    // The longest value and its line break (`\r\n`), plus one byte that
+    // tells a longer input, which is refused rather than cut. Room for it up
+    // front: a grown buffer would leave a copy behind.
+    let fits = kept::MAX_VALUE_BYTES + 2;
+    let mut raw = Zeroizing::new(Vec::with_capacity(fits + 1));
+    std::io::stdin()
+        .take(u64::try_from(fits + 1).unwrap_or(u64::MAX))
+        .read_to_end(&mut raw)
+        .map_err(|_| kept_failure("vault.bad_value"))?;
+    if raw.len() > fits {
+        return Err(kept_failure("vault.bad_value"));
+    }
+    let text = std::str::from_utf8(&raw).map_err(|_| kept_failure("vault.bad_value"))?;
+    // A command's output ends with a line break that is not part of the key.
+    let value = Zeroizing::new(text.trim_end_matches(['\n', '\r']).to_owned());
+    let home = crate::config::home();
+    let pulled: Vec<String> = pull::read_state(&home).env.into_keys().collect();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+    let shown = proxy.clone();
+    tokio::task::spawn_blocking(move || {
+        if !crate::vault::store::os_usable() {
+            return Err(crate::vault::store::UNAVAILABLE);
+        }
+        kept::keep(&home, &OsStore, &name, &value, proxy, &pulled, now_ms).map(|()| name)
+    })
+    .await
+    .unwrap_or(Err("vault.internal"))
+    .map_err(kept_failure)
+    .map(|name| print_kept(&name, shown.as_deref(), json_out))
+}
+
+fn print_kept(name: &str, hosts: Option<&[String]>, json_out: bool) {
+    if json_out {
+        print_json(&json!({
+            "name": name,
+            "delivery": if hosts.is_some() { "proxy" } else { "env" },
+            "allowedHosts": hosts.unwrap_or_default(),
+        }));
+        return;
+    }
+    match hosts {
+        Some(hosts) => println!(
+            "kept {name}: new agents here get {}, sent only to {}",
+            cmux_vault_egress::placeholder(name),
+            hosts.join(", ")
+        ),
+        None => println!(
+            "kept {name}: new agents here get the value itself (weaker: agents can read it)"
+        ),
+    }
+}
+
+/// `machine vault drop NAME`: a kept key, from the record and the store.
+pub async fn drop_cmd(name: String, json_out: bool) -> Result<()> {
+    let home = crate::config::home();
+    let shown = name.clone();
+    let had =
+        tokio::task::spawn_blocking(move || crate::vault::kept::remove(&home, &OsStore, &name))
+            .await
+            .unwrap_or(Err("vault.internal"))
+            .map_err(kept_failure)?;
+    if json_out {
+        print_json(&json!({"name": shown, "removed": had}));
+    } else if had {
+        println!("dropped {shown}: new agents here no longer get it");
+    } else {
+        println!("no kept key named {shown}");
+    }
+    Ok(())
+}
+
+/// The kept keys, as `status` lists them: names and delivery, never a value.
+pub fn kept_json(kept: &crate::vault::kept::Kept) -> Value {
+    json!(
+        kept.env
+            .iter()
+            .map(|(name, r)| json!({
+                "name": name,
+                "delivery": if r.proxy.is_some() { "proxy" } else { "env" },
+                "allowedHosts": r.proxy.clone().unwrap_or_default(),
+                "keptAt": r.kept_at,
+            }))
+            .collect::<Vec<_>>()
+    )
 }

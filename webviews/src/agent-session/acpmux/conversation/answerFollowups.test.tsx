@@ -14,6 +14,7 @@ import { nextStepAsk } from "./nextStepAsk";
 import { answerThrough } from "./turnActions";
 import { NEXT_STEP, turnViewFrom, waitingAsks } from "./turns";
 import { askKey, bottomAsks, claimAnswer, dismissAsk, dismissedAsks, resetAnswerClaims } from "./waitingAskStore";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -49,6 +50,7 @@ beforeEach(() => {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -172,7 +174,13 @@ test("dismissals without local storage: a second one keeps the first", () => {
 });
 
 test("F4: pinned questions show the stack but leave the composer's keys alone", () => {
-  expect(bottomAsks(false, 2)).toEqual({ shows: true, holdsKeys: false });
-  expect(bottomAsks(true, 0)).toEqual({ shows: true, holdsKeys: true });
-  expect(bottomAsks(false, 0)).toEqual({ shows: false, holdsKeys: false });
+  expect(bottomAsks(false, 2)).toEqual({ shows: true, holdsKeys: false, leaving: false });
+  expect(bottomAsks(true, 0)).toEqual({ shows: true, holdsKeys: true, leaving: false });
+  expect(bottomAsks(false, 0)).toEqual({ shows: false, holdsKeys: false, leaving: false });
+});
+
+test("a trust question folding out keeps the stack drawn, holds no keys, and marks it leaving", () => {
+  expect(bottomAsks(false, 0, true)).toEqual({ shows: true, holdsKeys: false, leaving: true });
+  expect(bottomAsks(true, 0, true)).toEqual({ shows: true, holdsKeys: true, leaving: false });
+  expect(bottomAsks(false, 1, true)).toEqual({ shows: true, holdsKeys: false, leaving: false });
 });

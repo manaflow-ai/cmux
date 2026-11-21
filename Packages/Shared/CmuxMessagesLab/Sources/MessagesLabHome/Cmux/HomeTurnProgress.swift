@@ -55,7 +55,7 @@ struct HomeTurnProgress: Equatable {
         let finished = steps.filter { $0.end != nil }.map(\.line).filter { !Self.notSteps.contains($0) }
         let summary = Self.summary(finished)
         // `thought` is already the headline (the live book publishes `String.thoughtHeadline`).
-        var narration = style == .narrated ? thought : nil
+        var narration = style == .narrated ? thought.flatMap(Self.withoutMessageIDs) : nil
         var current = line
         if let told = narration, activity.line == "Thinking" {
             // Thinking now: its headline is the running row, not a second row over "Thinking".
@@ -130,4 +130,27 @@ struct HomeTurnProgress: Equatable {
 
     /// A thought's headline (`String.thoughtHeadline`): the store already publishes it this way.
     static func headline(_ thought: String) -> String? { thought.thoughtHeadline }
+
+    /// The Chief's chat message ids ("the thread for 25415", "message 25415", "msg 25415's", "#25415") with the word
+    /// that leads to them, so the line names things in words (user 2026-11-09: "I'll post it in the thread for 25415"
+    /// over the typing dots). An id is 5 or more digits, or any digits after "msg"/"message" or "#"; years and agent ids
+    /// ("a1076") stay. Nil when nothing readable is left.
+    static func withoutMessageIDs(_ text: String) -> String? {
+        var out = text
+        for pattern in Self.messageIDPatterns {
+            out = pattern.stringByReplacingMatches(in: out, range: NSRange(out.startIndex..., in: out), withTemplate: "")
+        }
+        out = Self.spaceBeforePunctuation.stringByReplacingMatches(in: out, range: NSRange(out.startIndex..., in: out), withTemplate: "$1")
+        out = out.split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ").trimmingCharacters(in: .whitespaces)
+        return out.count < 3 ? nil : out
+    }
+
+    private static let messageIDPatterns: [NSRegularExpression] = [
+        // "the thread for message 25415's", "to msg #2541", "in 25415+3"
+        #"(?i)\s*\b(?:for|of|to|on|in|at|from|about)?\s*\b(?:msgs?|messages?)\s*#?\d+(?:\+\d+)?(?:['’]s)?"#,
+        #"(?i)\s*\b(?:for|of|to|on|in|at|from|about)?\s*(?:#\d{3,}|\b\d{5,})(?:\+\d+)?(?:['’]s)?\b"#,
+    // Literal patterns: they compile (HomeTurnProgressTests runs them), so the force try cannot trap.
+    ].map { try! NSRegularExpression(pattern: $0) }
+
+    private static let spaceBeforePunctuation = try! NSRegularExpression(pattern: #"\s+([.,;:!?)])"#) // literal: compiles
 }

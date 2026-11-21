@@ -166,7 +166,7 @@ public final class AddDeviceView: NSView {
         }
         let rowHeight: CGFloat = 34
         let height = min(CGFloat(computers.count) * (rowHeight + Metrics.space1), Self.listMaxHeight)
-        let scroll = NSScrollView()
+        let scroll = OverlayScrollView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = computers.count * Int(rowHeight + Metrics.space1) > Int(Self.listMaxHeight)
         scroll.autohidesScrollers = true
@@ -231,7 +231,7 @@ public final class AddDeviceView: NSView {
         field.setAccessibilityIdentifier("cmux.addDevice.setupLine")
         let box = NSView()
         box.wantsLayer = true
-        box.layer?.cornerRadius = Metrics.insetCornerRadius
+        box.layer?.cornerRadius = Metrics.insetCornerRadius // radius-allow: the setup line's code box, not a button
         box.layer?.backgroundColor = Palette.textPrimary.withAlphaComponent(0.06).cgColor
         box.translatesAutoresizingMaskIntoConstraints = false
         field.translatesAutoresizingMaskIntoConstraints = false

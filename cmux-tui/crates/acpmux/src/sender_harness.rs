@@ -259,7 +259,7 @@ pub fn note_mcp_client(params: &Value) {
 
 /// The claim an MCP tool's send makes: the environment's, else the MCP client's.
 pub fn of_this_mcp_server() -> Option<Value> {
-    let env = |key: &str| std::env::var(key).ok();
+    let env = crate::tool_env::var;
     of_mcp(&env, || chain(lookup, std::process::id()), MCP_CLIENT.get())
 }
 
@@ -693,15 +693,16 @@ impl BundleFiles {
 
 impl FileStamp {
     fn of(path: &std::path::Path) -> Option<Self> {
-        use std::os::unix::fs::MetadataExt;
         let meta = std::fs::metadata(path).ok()?;
-        Some(Self {
-            dev: meta.dev(),
-            ino: meta.ino(),
-            len: meta.len(),
-            modified: meta.modified().ok(),
-            changed: (meta.ctime(), meta.ctime_nsec()),
-        })
+        #[cfg(unix)]
+        let (dev, ino, changed) = {
+            use std::os::unix::fs::MetadataExt;
+            (meta.dev(), meta.ino(), (meta.ctime(), meta.ctime_nsec()))
+        };
+        // App bundles and codesign are macOS only; elsewhere the length and mtime are the stamp.
+        #[cfg(not(unix))]
+        let (dev, ino, changed) = (0, 0, (0, 0));
+        Some(Self { dev, ino, len: meta.len(), modified: meta.modified().ok(), changed })
     }
 }
 

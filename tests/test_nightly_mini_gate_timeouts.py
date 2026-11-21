@@ -19,15 +19,25 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_nightly_never_blacksmith import JOBS, evaluate, parse_expression, sample  # noqa: E402
+import workflow_jobs  # noqa: E402
 
 GATE_MINUTES = 120
 ON = {"vars.CI_NIGHTLY_MINI": "glaeda-nightly-mini", "vars.CI_NIGHTLY_MINI_BUILDER": "glaeda-nightly-mini-builder"}
 OFF = {"vars.CI_NIGHTLY_MINI": "", "vars.CI_NIGHTLY_MINI_BUILDER": ""}
 
 
-def on_the_mini(job: dict) -> bool:
-    text = str(job.get("runs-on", "")) + str((job.get("strategy") or {}).get("matrix", {}).get("pool", ""))
-    return "vars.CI_NIGHTLY_MINI" in text
+def on_the_mini(job: dict, name: str) -> bool:
+    """The job's runs-on can read the one-mini switch: in any matrix cell (`${{ matrix.KEY }}` read as its values)
+    or its matrix pool. A matrix value nothing resolves fails, unless workflow_jobs.audited_matrix names why; such a
+    job may read the switch, so it needs the room too."""
+    cells = workflow_jobs.runs_on_cells(job)
+    if cells is None:
+        if workflow_jobs.audited_matrix("nightly.yml", name):
+            return True
+        raise AssertionError(f"nightly.yml job {name}: its runs-on matrix resolves to no runner; resolve the matrix "
+                             "or audit it in workflow_jobs.UNRESOLVED_MATRICES")
+    pool = str((job.get("strategy") or {}).get("matrix", {}).get("pool", ""))
+    return any("vars.CI_NIGHTLY_MINI" in runs_on for runs_on in [pool, *cells])
 
 
 def timeout(value: object, context: dict, rng: random.Random, base: dict | None = None) -> object:
@@ -40,8 +50,9 @@ def timeout(value: object, context: dict, rng: random.Random, base: dict | None 
 
 
 # A limit that is an expression of its own, at least SIGNING_DRAIN_MINUTES above glaeda's bounded signing drain
-# (SIGNING_DRAIN_WAIT_S = 3600): build-sign-notarize-nightly's shortest limit is 160 minutes.
-OWN_LIMIT = {"build-sign-notarize-nightly"}
+# (SIGNING_DRAIN_WAIT_S = 3600): build-sign-notarize-nightly's shortest limit is 160 minutes. nightly-next-one
+# (build, sign, notarize and publish in one job) runs on the signer label in either mode, with 300 minutes.
+OWN_LIMIT = {"build-sign-notarize-nightly", "nightly-next-one"}
 SIGNING_DRAIN_MINUTES = 60
 
 
@@ -50,7 +61,7 @@ class MiniGateTimeouts(unittest.TestCase):
         rng = random.Random(41955554573)
         short = {}
         for name, job in JOBS.items():
-            if job.get("uses") or not on_the_mini(job) or "timeout-minutes" not in job:
+            if job.get("uses") or not on_the_mini(job, name) or "timeout-minutes" not in job:
                 continue
             raw = job["timeout-minutes"]
             for _ in range(50):

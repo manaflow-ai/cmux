@@ -1,7 +1,18 @@
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { minimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+
+// This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps its finished
+// runs in sight until it ends. The `line` arm (one live line, as chatgpt.com draws a running
+// turn) is covered by live-turn-one-line.test.ts.
+const liveTurnArmsBefore = globalThis.cmuxExperiments;
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...liveTurnArmsBefore, "live-turn-work": "runs" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = liveTurnArmsBefore;
+});
 
 const row = (partial: Partial<AcpmuxRow> & Pick<AcpmuxRow, "id" | "kind" | "at">): AcpmuxRow => ({
   version: 1,
@@ -169,7 +180,8 @@ test("production turnView wrappers keep metadata without re-reading earlier tool
   for (let token = 0; token < 20; token += 1) {
     raw = [...raw.slice(0, -1), { ...raw.at(-1)!, text: `${raw.at(-1)!.text} more`, version: token + 2 }];
     const next = turnView(raw, new Set(), options);
-    expect(next.find((item) => item.kind === "activity")).not.toBe(shaped.find((item) => item.kind === "activity"));
+    // A token in the reply leaves the tool row as it was drawn (turns.ts `steadyLiveRows`).
+    expect(next.find((item) => item.kind === "activity")).toBe(shaped.find((item) => item.kind === "activity"));
     const before = reads;
     committed = minimapTurns(next, "production", committed);
     expect(reads).toBe(before);

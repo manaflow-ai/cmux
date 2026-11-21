@@ -79,6 +79,7 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
                     None,
                     false,
                     Default::default(),
+                    None,
                 ));
             }
             Err(e) => tracing::warn!("accept failed: {e}"),

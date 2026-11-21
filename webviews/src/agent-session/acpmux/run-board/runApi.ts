@@ -23,7 +23,7 @@ export type RunApiAttempt = {
   ordinal: number;
   status: string;
   providerVmId?: string | null;
-  /** The Run view's stable placement (`/api/runs/[id]`); it never carries provider handles. */
+  /** The Run view's stable placement; it never carries provider handles. */
   placement?: { sessionId?: string | null } | null;
   /** Whether the attempt's terminal is retained and an attach ticket can be minted for it. */
   attachable?: boolean;
@@ -109,15 +109,6 @@ export type RunApiClient = {
   requestAttachTicket?: (intent: AttachTicketIntent) => Promise<RunAttachTicket>;
 };
 
-/** The part of `fetch` the client uses, so tests can pass a plain function. */
-export type RunApiFetch = (input: string, init?: RequestInit) => Promise<Response>;
-
-export type RunApiClientOptions = {
-  baseUrl?: string;
-  fetch?: RunApiFetch;
-  headers?: Record<string, string>;
-};
-
 export class RunApiHttpError extends Error {
   readonly status: number;
   readonly code?: string;
@@ -128,165 +119,6 @@ export class RunApiHttpError extends Error {
     this.status = status;
     this.code = code;
   }
-}
-
-function apiOrigin(baseUrl?: string): string {
-  if (baseUrl) return baseUrl.replace(/\/$/, "");
-  if (typeof window !== "undefined" && window.location.origin) return window.location.origin;
-  return "";
-}
-
-function apiUrl(baseUrl: string, path: string): string {
-  return baseUrl ? `${baseUrl}${path}` : path;
-}
-
-async function readJson(response: Response): Promise<unknown> {
-  return response.json().catch(() => ({}));
-}
-
-function attachTicketFromResponse(value: unknown, intent: AttachTicketIntent): RunAttachTicket {
-  const outer = record(value);
-  // Accept both the direct response and the `{ attachTicket: ... }` envelope
-  // used by the server route during its rollout.  Keeping this tolerant makes
-  // deploys with an older edge and a newer board reconnect cleanly.
-  const nested = record(outer.attachTicket ?? outer.attach_ticket ?? outer.attach ?? value);
-  const endpoint = record(nested.endpoint ?? outer.endpoint);
-  const ticket = stringValue(nested.ticket) ?? stringValue(outer.ticket);
-  const runId = stringValue(nested.runId) ?? stringValue(nested.run_id) ?? intent.runId;
-  const attemptId = stringValue(nested.attemptId) ?? stringValue(nested.attempt_id) ?? intent.attemptId;
-  const sessionId = stringValue(nested.sessionId) ?? stringValue(nested.session_id) ?? intent.sessionId;
-  const cursor = stringValue(nested.cursor) ?? intent.cursor;
-  if (!ticket || !runId || !attemptId || !sessionId || !cursor) {
-    throw new RunApiHttpError(502, translate("runBoard.error.attachInvalidTicket"), "run_attach_invalid");
-  }
-  const expiresAt = nested.expiresAt ?? nested.expires_at;
-  const expiresAtUnix = nested.expiresAtUnix ?? nested.expires_at_unix;
-  const optionalString = (key: string, snake: string = key) =>
-    stringValue(nested[key]) ??
-    stringValue(nested[snake]) ??
-    stringValue(endpoint[key]) ??
-    stringValue(endpoint[snake]);
-  const transport = optionalString("transport");
-  const route = optionalString("route");
-  const tokenValue = optionalString("token");
-  const session = optionalString("session");
-  const trustedCarrier =
-    nested.trustedCarrier ?? nested.trusted_carrier ?? endpoint.trustedCarrier ?? endpoint.trusted_carrier;
-  const endpointExpiresAtUnix = endpoint.expiresAtUnix ?? endpoint.expires_at_unix;
-  return {
-    runId,
-    attemptId,
-    sessionId,
-    cursor,
-    ticket,
-    ...(typeof expiresAt === "string" || typeof expiresAt === "number" ? { expiresAt } : {}),
-    ...(typeof expiresAtUnix === "number" ? { expiresAtUnix } : {}),
-    ...(transport ? { transport } : {}),
-    ...(route ? { route } : {}),
-    ...(tokenValue ? { token: tokenValue } : {}),
-    ...(session ? { session } : {}),
-    ...(typeof trustedCarrier === "boolean" ? { trustedCarrier } : {}),
-    ...(Object.keys(endpoint).length
-      ? {
-          endpoint: {
-            ...(transport ? { transport } : {}),
-            ...(route ? { route } : {}),
-            ...(tokenValue ? { token: tokenValue } : {}),
-            ...(session ? { session } : {}),
-            ...(typeof trustedCarrier === "boolean" ? { trustedCarrier } : {}),
-            ...(typeof endpointExpiresAtUnix === "number" ? { expiresAtUnix: endpointExpiresAtUnix } : {}),
-          },
-        }
-      : {}),
-    ...(optionalString("provider") ? { provider: optionalString("provider") } : {}),
-    ...(optionalString("providerVmId", "provider_vm_id")
-      ? { providerVmId: optionalString("providerVmId", "provider_vm_id") }
-      : {}),
-    ...(optionalString("providerWorkspaceId", "provider_workspace_id")
-      ? { providerWorkspaceId: optionalString("providerWorkspaceId", "provider_workspace_id") }
-      : {}),
-    ...(optionalString("providerTerminalId", "provider_terminal_id")
-      ? { providerTerminalId: optionalString("providerTerminalId", "provider_terminal_id") }
-      : {}),
-  };
-}
-
-/** Same-origin HTTP transport used by the real Run board. */
-export function createRunApiClient(options: RunApiClientOptions = {}): RunApiClient {
-  const request: RunApiFetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
-  const baseUrl = apiOrigin(options.baseUrl);
-  const headers: Record<string, string> = { Accept: "application/json", ...options.headers };
-  return {
-    async getSnapshot(runId) {
-      const response = await request(apiUrl(baseUrl, `/api/runs/${encodeURIComponent(runId)}`), {
-        credentials: "same-origin",
-        headers,
-      });
-      const body = await readJson(response);
-      if (!response.ok) {
-        const error = body as { error?: string; message?: string };
-        throw new RunApiHttpError(
-          response.status,
-          error.message ?? translate("runBoard.error.snapshotFailed", { status: response.status }),
-          error.error,
-        );
-      }
-      return body as RunApiSnapshot;
-    },
-    async getEvents(runId, after) {
-      const query = after ? `?after=${encodeURIComponent(after)}` : "";
-      const response = await request(apiUrl(baseUrl, `/api/runs/${encodeURIComponent(runId)}/events${query}`), {
-        credentials: "same-origin",
-        headers,
-      });
-      const body = await readJson(response);
-      if (!response.ok) {
-        const error = body as { error?: string; message?: string };
-        throw new RunApiHttpError(
-          response.status,
-          error.message ?? translate("runBoard.error.eventsFailed", { status: response.status }),
-          error.error,
-        );
-      }
-      const result = body as Partial<RunApiEventPage>;
-      return { events: Array.isArray(result.events) ? result.events : [], nextCursor: result.nextCursor ?? null };
-    },
-    async requestAttachTicket(intent) {
-      const path = `/api/runs/${encodeURIComponent(intent.runId)}/attempts/${encodeURIComponent(intent.attemptId)}/attach-ticket`;
-      const response = await request(apiUrl(baseUrl, path), {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: intent.sessionId, cursor: intent.cursor }),
-      });
-      const body = await readJson(response);
-      if (!response.ok) {
-        const error = body as { error?: string; code?: string; message?: string };
-        throw new RunApiHttpError(
-          response.status,
-          error.message ?? translate("runBoard.error.attachFailed", { status: response.status }),
-          error.code ?? error.error,
-        );
-      }
-      const minted = attachTicketFromResponse(body, intent);
-      const redeemedResponse = await request(apiUrl(baseUrl, path), {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ ticket: minted.ticket }),
-      });
-      const redeemedBody = await readJson(redeemedResponse);
-      if (!redeemedResponse.ok) {
-        const error = redeemedBody as { error?: string; code?: string; message?: string };
-        throw new RunApiHttpError(
-          redeemedResponse.status,
-          error.message ?? translate("runBoard.error.attachRedeemFailed", { status: redeemedResponse.status }),
-          error.code ?? error.error,
-        );
-      }
-      return attachTicketFromResponse({ ...record(redeemedBody), ...minted }, intent);
-    },
-  };
 }
 
 function encodeCursor(sequence: number): string {
