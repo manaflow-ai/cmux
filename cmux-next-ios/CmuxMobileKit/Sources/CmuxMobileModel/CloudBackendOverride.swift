@@ -5,10 +5,12 @@ import Foundation
 /// for its later launches (a tap on the icon carries no launch variables). An empty value (or
 /// `default`) clears it: the build's own Cloud service again.
 ///
-/// Allowed: the shared development deployment (`dev`, its API origin, a `preview-N` Worker) and a
-/// tailnet origin (`https://<host>.<tailnet>.ts.net[:port]`, one tag's stack on the dev VM). Anything
-/// else is refused and changes nothing. The Mac's Rust resolver (`cmux-cloud-environment`) holds
-/// the same list.
+/// Allowed: the shared development deployment (`dev`, its API origin, a `preview-N` Worker), a
+/// tailnet origin (`https://<machine>.tail137216.ts.net[:port]`, one tag's stack on the dev VM, on the
+/// team's tailnet only) and a tag
+/// stack's public origin (`https://api.s<N>.wdev.cmux.dev`, the same stack behind the authenticating
+/// gateway, for a phone off the tailnet; SECURITY.md). Anything else is refused and changes nothing.
+/// The Mac's Rust resolver (`cmux-cloud-environment`) holds the same list.
 ///
 /// Only DEBUG builds (Debug, Demo) call ``resolve(environment:defaults:)``: Release, TestFlight and
 /// App Store builds compile the call out, and Production removes the stored value at launch
@@ -65,18 +67,33 @@ public struct CloudBackendOverride: Sendable, Equatable {
 
     /// The tag stack's mobile Worker (`cmux-next-ios/backend`) when this backend is a tag's stack:
     /// `scripts/cmux-next/cloud-dev-stack.sh` serves the stack's API, mobile Worker and device hub on
-    /// three consecutive ports of one tailnet host, the API's first, so the API origin names the other
-    /// two (the Mac reads them from the stack's `/v1/client-config`, the same origins). Nil for the shared
-    /// development deployment and previews, whose services are the build's own.
-    public var mobileAPI: URL? { stackService(offset: 1) }
+    /// three consecutive ports of one tailnet host, the API's first, and publicly as the `api.`, `mobile.`
+    /// and `hub.` hosts of one slot, so the API origin names the other two (the Mac reads them from the
+    /// stack's `/v1/client-config`, the same origins). Nil for the shared development deployment and
+    /// previews, whose services are the build's own.
+    public var mobileAPI: URL? { stackService(offset: 1, label: "mobile") }
 
-    /// The tag stack's device hub (`workers/device-hub`): the API origin's port plus two (``mobileAPI``).
-    public var deviceHub: URL? { stackService(offset: 2) }
+    /// The tag stack's device hub (`workers/device-hub`): the API origin's port plus two, or its slot's
+    /// `hub.` host (``mobileAPI``).
+    public var deviceHub: URL? { stackService(offset: 2, label: "hub") }
 
-    private func stackService(offset: Int) -> URL? {
-        guard let host = url.host()?.lowercased(), host.hasSuffix(".ts.net"), let port = url.port,
-              port + offset <= 65_535 else { return nil }
+    private func stackService(offset: Int, label: String) -> URL? {
+        guard let host = url.host()?.lowercased() else { return nil }
+        if let slot = Self.publicStackSlot(host), url.port == nil {
+            return URL(string: "https://\(label).\(slot).wdev.cmux.dev")
+        }
+        guard host.hasSuffix(Self.teamTailnetSuffix), let port = url.port, port + offset <= 65_535 else { return nil }
         return URL(string: "https://\(host):\(port + offset)")
+    }
+
+    /// `s<N>` (1-3 digits) of a tag stack's public host `<svc>.s<N>.wdev.cmux.dev`, or nil.
+    static func publicStackSlot(_ host: String) -> String? {
+        guard let rest = host.dropSuffix(".wdev.cmux.dev") else { return nil }
+        let labels = rest.split(separator: ".", omittingEmptySubsequences: false)
+        guard labels.count == 2, ["api", "mobile", "hub"].contains(String(labels[0])) else { return nil }
+        let slot = String(labels[1])
+        guard let digits = slot.dropPrefix("s"), (1...3).contains(digits.count), digits.allSatisfy(\.isASCIIDigit) else { return nil }
+        return slot
     }
 
     /// How Settings > Developer and the receipt name it: `host[:port] (source)`.
@@ -105,7 +122,10 @@ public struct CloudBackendOverride: Sendable, Equatable {
         if let number = host.dropSuffix(".debussy.workers.dev")?.dropPrefix("cmux-api-preview-"), port.isEmpty {
             return preview(number)
         }
-        guard let name = host.dropSuffix(".ts.net"), isTailnetMachine(name) else { return nil }
+        if let slot = Self.publicStackSlot(host), host.hasPrefix("api."), port.isEmpty {
+            return URL(string: "https://api.\(slot).wdev.cmux.dev")
+        }
+        guard let name = host.dropSuffix(teamTailnetSuffix), isTailnetMachine(name) else { return nil }
         return URL(string: "https://\(host)\(port)")
     }
 
@@ -133,12 +153,14 @@ public struct CloudBackendOverride: Sendable, Equatable {
         return URL(string: "https://cmux-api-preview-\(value).debussy.workers.dev")
     }
 
-    /// `host.tailnet`: at least two non-empty DNS labels of letters, digits and hyphens.
+    /// The team's tailnet (its MagicDNS suffix): a tailnet origin is one machine of it. Any other
+    /// `*.ts.net` name is refused: a Tailscale Funnel name of another tailnet is public. Rust
+    /// `TEAM_TAILNET_SUFFIX` and `review_mac.py` hold the same.
+    static let teamTailnetSuffix = ".tail137216.ts.net"
+
+    /// One machine name of the team's tailnet: a single non-empty DNS label of letters, digits and hyphens.
     private static func isTailnetMachine(_ name: String) -> Bool {
-        let labels = name.split(separator: ".", omittingEmptySubsequences: false)
-        return labels.count >= 2 && labels.allSatisfy { label in
-            !label.isEmpty && label.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
-        }
+        !name.isEmpty && name.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
     }
 }
 
