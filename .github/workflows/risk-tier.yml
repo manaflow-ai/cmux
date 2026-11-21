@@ -20,6 +20,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh). It
+  # switches itself off at 2026-11-22 00:00 UTC. These runs (about 800 an hour each) had no attribution.
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   evidence:
     # Every event grades, with no job-level `if`: a skipped `risk evidence` run would be the newest
@@ -42,7 +47,9 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
-          sparse-checkout: scripts/ci/risk_tier.py
+          sparse-checkout: |
+            scripts/ci/risk_tier.py
+            scripts/ci/api_call_log
           sparse-checkout-cone-mode: false
       # The base's last 9 days of history, for the check that flags taking back a change another
       # pull request merged recently (a stale base). A fresh repository with full blobs, not the
@@ -57,7 +64,9 @@ jobs:
         run: |
           history="$RUNNER_TEMP/base-history"
           git init -q "$history"
-          if timeout 120 git -C "$history" fetch -q --no-tags --shallow-since="9 days ago" "https://github.com/$REPO.git" \
+          # Blobless: commits and trees only (16 MB in 5 s, against 681 MB in 115 s with blobs, 11-21); risk_tier.py
+          # fetches the versions of the files it blames in one round trip (prefetch_blobs).
+          if timeout 120 git -C "$history" fetch -q --no-tags --filter=blob:none --shallow-since="9 days ago" "https://github.com/$REPO.git" \
               "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"; then
             echo "BASE_HISTORY=$history" >> "$GITHUB_ENV"
           else

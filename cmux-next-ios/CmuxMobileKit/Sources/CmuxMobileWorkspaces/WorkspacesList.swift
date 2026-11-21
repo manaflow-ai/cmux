@@ -368,10 +368,29 @@ public struct WorkspacesList: View {
         open(ws)
     }
 
-    @ViewBuilder private var content: some View {
+    /// The placeholder rows show while the team loads (`firstLoad`) and then while the Macs'
+    /// lists load (`listShowsPlaceholder`). Both phases draw this one view in one place, so the
+    /// hand-off between them keeps it: two copies were two views, and the second started
+    /// hidden for its show delay, so the rows blinked out for a quarter second mid-load.
+    private var showsSkeleton: Bool {
         switch launchState {
-        case .firstLoad(let offline):
-            skeleton(offline ? "Waiting for a connection…" : "Loading workspaces…")
+        case .firstLoad: true
+        case .noMacs, .content: !macs.isEmpty && listShowsPlaceholder
+        case .failed: false
+        }
+    }
+
+    private var content: some View {
+        ZStack {
+            launchContent
+            if showsSkeleton { skeleton(store.isOffline ? "Waiting for a connection…" : "Loading workspaces…") }
+        }
+    }
+
+    @ViewBuilder private var launchContent: some View {
+        switch launchState {
+        case .firstLoad:
+            Color.clear
         case .failed(let offline):
             EmptyState(symbol: offline ? "wifi.slash" : "cloud", title: "Couldn't load workspaces",
                        message: offline ? "This iPhone is offline. Workspaces load when it's back online."
@@ -413,9 +432,8 @@ public struct WorkspacesList: View {
             .ignoresSafeArea(.container, edges: .vertical)
             .overlay(alignment: .topLeading) { closeAnchor }
             .overlay {
-                if inbox.isLoading {
-                    if inbox.folds.isEmpty { skeleton(store.isOffline ? "Waiting for a connection…" : "Loading workspaces…") }
-                } else if inbox.isEmpty {
+                // Loading with no Mac line yet: the page's one skeleton (`content`) covers the list.
+                if !inbox.isLoading, inbox.isEmpty {
                     emptyState
                 }
             }
