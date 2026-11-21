@@ -614,4 +614,53 @@ mod tests {
         answer_all(&mut paths, Instant::now(), std::time::Duration::from_millis(2));
         assert_eq!(paths.current(), Some(lan));
     }
+
+    /// Direct peer path: while the relay carries the link, a dead LAN path
+    /// is probed on the upgrade schedule (0.25, 0.5, 1, 2 s, then every
+    /// 5 s), not at its 30 s turn; without the flag it waits the 30 s.
+    #[test]
+    fn the_direct_path_probes_dead_direct_routes_on_the_upgrade_schedule() {
+        let ms = std::time::Duration::from_millis;
+        let lan = udp("192.168.1.30:4100");
+        let relay = turn("203.0.113.9:4100");
+        let probes_on_lan = |direct_path: bool| {
+            let mut paths = paths_on(lan_table());
+            paths.direct_path = direct_path;
+            paths.sync(&[Wanted { route: lan, relayed: false }, Wanted { route: relay, relayed: true }]);
+            // Only the relay ever answers: the LAN path dies.
+            let start = Instant::now();
+            let mut now = start;
+            let mut lan_probes = Vec::new();
+            for _ in 0..2000 {
+                now += ms(10);
+                let due = paths.poll(now);
+                for (id, probe) in due.pings {
+                    if paths.route_of(id) == Some(relay) {
+                        paths.on_pong(id, probe, now);
+                    } else {
+                        lan_probes.push(now);
+                    }
+                }
+            }
+            assert_eq!(paths.current(), Some(relay));
+            let dead_at = start + ms(4000);
+            lan_probes.into_iter().filter(|at| *at > dead_at).count()
+        };
+        // 16 s after the LAN died: one probe at its 30 s turn at most
+        // without the flag; with it, the schedule's rounds.
+        let without = probes_on_lan(false);
+        let with = probes_on_lan(true);
+        assert!(without <= 1, "{without} probes without the flag");
+        assert!(with >= 3, "{with} probes with the flag");
+    }
+
+    #[test]
+    fn the_direct_path_ranks_a_tailnet_route_below_the_lan_above_routed() {
+        let mut paths = paths_on(lan_table());
+        paths.direct_path = true;
+        let tailnet = Wanted { route: udp("100.80.2.3:4100"), relayed: false };
+        assert_eq!(paths.rank_of(tailnet), (PathKind::DirectWan, Medium::Tailnet));
+        paths.direct_path = false;
+        assert_eq!(paths.rank_of(tailnet), (PathKind::DirectWan, Medium::Routed));
+    }
 }
