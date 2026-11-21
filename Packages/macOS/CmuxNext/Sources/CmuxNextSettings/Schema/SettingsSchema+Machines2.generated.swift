@@ -16,6 +16,17 @@ extension MachineSettingsSchema {
                 default: .bool(MacScreenSettings.systemShortcutsDefault),
                 keywords: ["mac screen", "remote", "system shortcuts", "command tab", "spotlight", "mission control", "keyboard", "accessibility"]
             ),
+            SettingDescriptor(
+                MacScreenSettings.shareWithoutAskingPath,
+                section: .keyboard,
+                group: group,
+                title: SettingsText.keyed("settings.macScreen.shareWithoutAsking", "Share This Mac Without Asking"),
+                help: SettingsText.keyed("settings.macScreen.shareWithoutAsking.help", "Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies."),
+                summary: SettingsText.keyed("settings.macScreen.shareWithoutAsking.summary", "Sharing turns on without asking"),
+                kind: .toggle,
+                default: .bool(MacScreenSettings.shareWithoutAskingDefault),
+                keywords: ["mac screen", "remote", "screen sharing", "share this mac", "confirm", "ask"]
+            ),
         ]
     }
 }
