@@ -395,6 +395,22 @@ class PullRequestSkip(unittest.TestCase):
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("does not carry", problems[0])
 
+    def test_a_gate_that_runs_on_an_empty_output_of_a_skipped_job_is_named(self):
+        # cmux-tui-sdks.yml's conformance read contract's sdk_inputs as != 'false'; once contract was Tier A, the
+        # empty output of the skipped job ran conformance on every pull request (148 of 154 runs on 11-21).
+        after = "    if: ${{ !cancelled() }}\n"
+        for gate in ("(github.event_name != 'pull_request' || needs.heavy.outputs.inputs != 'false')",
+                     "needs.heavy.result != 'success'"):
+            with self.subTest(gate=gate):
+                problems = self.check(SKIP_WORKFLOW.replace(after, f"    if: ${{{{ !cancelled() && {gate} }}}}\n"))
+                self.assertEqual(len(problems), 1, problems)
+                self.assertIn("runs on every pull request", problems[0])
+        # Carrying the clause, reading the output as == 'true', or never running on a pull request passes.
+        for gate in (f"{SKIP_IF} && needs.heavy.outputs.inputs != 'false'", "needs.heavy.outputs.inputs == 'true'",
+                     "github.event_name != 'pull_request' && needs.heavy.outputs.inputs != 'false'"):
+            with self.subTest(gate=gate):
+                self.assertEqual(self.check(SKIP_WORKFLOW.replace(after, f"    if: ${{{{ !cancelled() && {gate} }}}}\n")), [])
+
     def test_no_push_net_is_named(self):
         for text in (SKIP_WORKFLOW.replace("  push:\n    branches: [feat-cmux-next]\n", ""),
                      SKIP_WORKFLOW.replace("  push:\n    branches: [feat-cmux-next]", "  push:\n    branches: [main]")):
