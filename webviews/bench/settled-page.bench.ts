@@ -411,7 +411,8 @@ function installCommitDiag() {
     try {
       if (typeof v === "function") return "fn";
       const j = JSON.stringify(v, (_k, x) => (x instanceof Map ? `Map(${x.size})` : x instanceof Set ? `Set(${x.size})` : x));
-      return (j ?? String(v)).slice(0, 50);
+      const keys = v && typeof v === "object" && !Array.isArray(v) ? `keys[${Object.keys(v).join(",")}]` : "";
+      return keys + (j ?? String(v)).slice(0, 50);
     } catch {
       return typeof v;
     }
