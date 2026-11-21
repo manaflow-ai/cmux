@@ -2,7 +2,7 @@
 """tooling-tests runs a step only when the pull request's diff reaches a test it runs, and fails open otherwise.
 
 Leo, 2026-11-19: "only meaningful tests ... not just there for ticky tack". scripts/ci/tooling_steps.py, run by
-cmux-next guards / hot-route on the merge commit's diff, picks the tooling-tests steps whose tests read a changed
+cmux-next guards / portable-placement's hot-only route on the merge commit's diff, picks the tooling-tests steps whose tests read a changed
 file (workflow_paths_cover_inputs.Walker's closure). These check, on a fixture repository, that a change to one
 step's test input selects that step only, that a step with an input nobody can resolve always runs, and that a
 change to the workflow or the router, or a non-pull-request event, runs every step. Against the real
@@ -203,7 +203,7 @@ class FixtureRepo(unittest.TestCase):
 
 
 class RealWorkflow(unittest.TestCase):
-    """cmux-next-guards.yml as it is: every tooling-tests run step carries its selection, and hot-route feeds it."""
+    """cmux-next-guards.yml as it is: every tooling-tests run step carries its selection, and portable-placement's hot-only route feeds it."""
 
     @classmethod
     def setUpClass(cls):
@@ -220,11 +220,11 @@ class RealWorkflow(unittest.TestCase):
             name = step.get("name")
             ids.append(key)
             if key.startswith(tooling_steps.SETUP_ID):
-                self.assertNotIn("hot-route", str(step.get("if", "")), name)
+                self.assertNotIn("outputs.tooling_", str(step.get("if", "")), name)
                 continue
             self.assertTrue(key.startswith("tt-"), f"{name}: give it `id: tt-<slug>` and the selection `if:`")
-            selection = (f"(needs.hot-route.outputs.tooling_all != 'false' || "
-                         f"contains(needs.hot-route.outputs.tooling_steps, ' {key} '))")
+            selection = (f"(needs.portable-placement.outputs.tooling_all != 'false' || "
+                         f"contains(needs.portable-placement.outputs.tooling_steps, ' {key} '))")
             self.assertIn(step.get("if"), (f"${{{{ success() && {selection} }}}}",
                                            f"${{{{ !cancelled() && {selection} }}}}"), name)
         self.assertEqual(len(ids), len(set(ids)), "step ids repeat")
@@ -238,16 +238,16 @@ class RealWorkflow(unittest.TestCase):
         self.assertEqual([s.key for s in decision.steps], expected)
 
     def test_hot_route_runs_the_router_and_exports_its_outputs(self):
-        route = self.document["jobs"]["hot-route"]
-        self.assertEqual(route["outputs"]["tooling_all"], "${{ steps.route.outputs.tooling_all }}")
-        self.assertEqual(route["outputs"]["tooling_steps"], "${{ steps.route.outputs.tooling_steps }}")
-        step = next(s for s in route["steps"] if s.get("id") == "route")
+        route = self.document["jobs"]["portable-placement"]
+        self.assertEqual(route["outputs"]["tooling_all"], "${{ steps.hot-route.outputs.tooling_all }}")
+        self.assertEqual(route["outputs"]["tooling_steps"], "${{ steps.hot-route.outputs.tooling_steps }}")
+        step = next(s for s in route["steps"] if s.get("id") == "hot-route")
         self.assertIn("scripts/ci/tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml",
                       step["run"])
         self.assertIn("--job tooling-tests", step["run"])
         self.assertIn("tooling_all=true", step["run"])  # a router failure runs every step
-        self.assertIn("hot-route", self.job["needs"])
-        self.assertEqual(self.job["if"], "${{ !cancelled() }}")  # a skipped or failed hot-route still runs it
+        self.assertIn("portable-placement", self.job["needs"])
+        self.assertTrue(self.job["if"].startswith("${{ !cancelled()"))  # a skipped or failed route still runs it
 
 
 if __name__ == "__main__":

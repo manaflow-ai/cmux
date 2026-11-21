@@ -3,7 +3,7 @@
 
 Leo, 2026-11-19: "only meaningful tests ... not just there for ticky tack". cmux-next guards / tooling-tests ran
 about 50 script test suites on every pull request whatever it changed: a webviews/-only change ran the App Store
-listing, Mach-O thinning and iOS simulator runtime tests, which read none of its files. hot-route runs this on the
+listing, Mach-O thinning and iOS simulator runtime tests, which read none of its files. portable-placement's hot-only route step runs this on the
 merge commit's diff, and each selectable step of the job runs only when this selects it.
 
 A step runs when a changed file is an input of a test its run text runs (the test itself and what it imports,
