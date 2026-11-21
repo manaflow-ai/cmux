@@ -76,7 +76,7 @@ def main() -> int:
     t0 = time.time()
     rc = subprocess.call(argv, env=env)
     end = time.time()
-    if crate:
+    if crate and crate != "___":  # "___": cargo's target-info probe, not a compile
         record({"kind": kind, "crate": crate, "start": t0, "end": end, "wrapper_start": start, "rc": rc,
                 "argv": sys.argv[1:], "cwd": os.getcwd(),
                 "env": {k: v for k, v in os.environ.items() if k.startswith(ENV_KEEP)}})
