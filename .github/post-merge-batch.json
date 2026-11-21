@@ -137,6 +137,18 @@
         "diff-sidecar-check": "diff-sidecar-check",
         "web-db-migrations": "web-db-migrations"
       }
+    },
+    "tip-test-compile": {
+      "workflow": "cmux-next-tip-test-compile.yml",
+      "paths": [
+        "Packages/**",
+        "vendor/**",
+        "scripts/ci/compile_test_plan.py",
+        "scripts/ci/package-test-lane.sh",
+        "scripts/ci/tip-test-compile.sh",
+        ".github/workflows/cmux-next-tip-test-compile.yml"
+      ],
+      "jobs": {"compile": "tip test-compile (fleet, background)"}
     }
   }
 }
