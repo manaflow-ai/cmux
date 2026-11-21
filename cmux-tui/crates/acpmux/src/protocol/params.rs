@@ -124,6 +124,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "parent",
     "peer",
     "peerHops",
+    "peerRowBatches",
     "personDecision",
     "personKey",
     "personStop",
@@ -226,6 +227,8 @@ keyed! {
     McpReconnectParams: ["sessionId", "server"];
     /// `_acpmux/models`.
     ModelsParams: ["refresh", "probe", "localOnly"];
+    /// `_acpmux/move_targets`.
+    MoveTargetsParams: ["source", "sourceKind"];
     /// `_acpmux/native_history`.
     NativeHistoryParams: ["sessionId", "before", "mark"];
     /// `_acpmux/offer_respond`.

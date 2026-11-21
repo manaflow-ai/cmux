@@ -53,7 +53,7 @@ final class AgentChatSplitToggles {
     func toggle(_ id: String, cwd: String?, url: String? = nil, extra: [String: ActionValue] = [:], chat: String, store: DaemonStore?,
                 actions: AgentChatTabActions) {
         if AgentChatTerminalAdds().adds(id) { return open(id, cwd: cwd, url: url, extra: extra, chat: chat, store: store, actions: actions) }
-        guard Self.panels.contains(id), let store, let tabs = Self.workspaceTabs(of: chat, in: store) else {
+        guard Self.panels.contains(id), let store, let tabs = store.tabs(inWorkspaceHolding: chat) else {
             return Self.run(id, cwd: cwd, url: url, extra: extra, chat: chat, store: store, actions: actions)
         }
         let splits = splits(in: tabs, chat: chat)
@@ -69,7 +69,7 @@ final class AgentChatSplitToggles {
     /// Opens header action `id`'s split (`mode: "open"`): another one on every click.
     func open(_ id: String, cwd: String?, url: String? = nil, extra: [String: ActionValue] = [:], chat: String, store: DaemonStore?,
               actions: AgentChatTabActions) {
-        guard Self.panels.contains(id), let store, let tabs = Self.workspaceTabs(of: chat, in: store) else {
+        guard Self.panels.contains(id), let store, let tabs = store.tabs(inWorkspaceHolding: chat) else {
             return Self.run(id, cwd: cwd, url: url, extra: extra, chat: chat, store: store, actions: actions)
         }
         open(id, cwd: cwd, url: url, extra: extra, chat: chat, tabs: tabs, store: store, actions: actions)
@@ -132,7 +132,7 @@ final class AgentChatSplitToggles {
     /// for a chat whose folder is not on this Mac.
     func headerState(chat: String, store: DaemonStore?, pullRequest: AgentChatPullRequest? = nil) -> AgentPaneHeaderState {
         guard let store else { return AgentPaneHeaderState() }
-        let tabs = Self.workspaceTabs(of: chat, in: store) ?? []
+        let tabs = store.tabs(inWorkspaceHolding: chat) ?? []
         let splits = splits(in: tabs, chat: chat)
         let lit = AgentChatTerminalAdds().lit(Self.panels.filter { id in
             opened.lastIndex { $0.id == id }.flatMap { splits[$0] } != nil
@@ -140,7 +140,7 @@ final class AgentChatSplitToggles {
         var state = AgentPaneHeaderState(pinned: store.tab(id: chat)?.pinned ?? false,
                                          sideTabs: Self.sideTabs(of: chat, in: store) == .shown, lit: lit,
                                          floatingChat: QuickComposerTunables.floatingChat.value)
-        state.pullRequest = pullRequest?.badge(cwd: store.tab(id: chat)?.cwd)
+        state.pullRequest = pullRequest?.badge(cwd: store.tab(id: chat)?.cwd); state.workspace = store.workspace(holdingTab: chat).map { AgentPaneHeaderWorkspace($0) } // the glass toolbar title
         return state
     }
 
@@ -182,11 +182,5 @@ final class AgentChatSplitToggles {
         else { return nil }
         if screen.zoomedPane == pane.handle { return .hidden }
         return screen.panes.count > 1 ? .shown : .alone
-    }
-
-    /// Every tab of the workspace that shows chat tab `chat`; nil when the store does not list it.
-    private static func workspaceTabs(of chat: String, in store: DaemonStore) -> [TabModel]? {
-        guard let workspace = store.workspace(holdingTab: chat) else { return nil }
-        return workspace.screens.flatMap { $0.panes.flatMap(\.tabs) }
     }
 }

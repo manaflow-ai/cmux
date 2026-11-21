@@ -2310,7 +2310,6 @@ async fn dispatch_request_with_identity(
                 reply_reader: reader.as_ref().map(super::prompt_cancel::ReaderGone::subscribe),
                 inbox: inbox_on
                     && crate::hub::inbox::plain_send(
-                        conn.origin == super::Origin::Peer,
                         flag("teamMessage") == Some(true),
                         supersede_set,
                         flag("steerOnly") == Some(true),
@@ -2699,6 +2698,10 @@ async fn dispatch_request_with_identity(
             ))
         }
         "_acpmux/place" => Ok(super::place::place(hub, &params).await),
+        "_acpmux/move_targets" if conn.origin != Origin::Local => Err(RpcError::invalid_params(
+            "_acpmux/move_targets answers on this machine's unix socket only",
+        )),
+        "_acpmux/move_targets" => Ok(super::move_targets::targets(hub, &params)),
         "_acpmux/directories" => {
             let home = dirs::home_dir().unwrap_or_default();
             let base = str_param(&params, "cwd").map(PathBuf::from).unwrap_or_else(|| home.clone());
@@ -4139,6 +4142,9 @@ pub(super) fn note_initialize(conn: &Conn, params: &Value) {
         && conn.auth.peer_daemon()
         && params.pointer("/_meta/acpmux/githubBroker").and_then(Value::as_bool) == Some(true);
     conn.client_requests.lends_github.store(lends, Ordering::SeqCst);
+    // Opt-in: a client that does not ask hears every peer row's `session_changed`, as before.
+    let batches = params.pointer("/_meta/acpmux/peerRowBatches").and_then(Value::as_bool);
+    conn.peer_row_batches.store(batches == Some(true), Ordering::SeqCst);
 }
 
 /// `agent/credentials.update {sessionId, env}` (`hub/credentials.rs`): this socket's, never an

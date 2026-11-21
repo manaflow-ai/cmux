@@ -20,6 +20,10 @@ type Attempt = {
   intentAt: number;
   /// Reserves for this key that failed in a row (none: the last one answered, or is out).
   failures: number;
+  /// The start key of the Send this reservation went with. The platform binds the reservation to
+  /// that key (cmux-platform `Leases.bindReservation`) and refuses any other with 409
+  /// `reservation.bound`, also after that start failed.
+  sentWith?: string;
   /// The empty local chat this compose's Send would replace (App.tsx `emptyLocalChat`), named on each reserve.
   replacesChat?: string;
   /// An abandoned compose's release, settled: the next compose reserves only after it, since the native
@@ -148,7 +152,13 @@ export class CloudComposeReservation {
 
   /// Called only for an accepted Send. The caller waits for ready() before asking the host to
   /// bind, so an immediate Return cannot race an allocation that is still in flight.
-  handoff(environment?: string): string | undefined {
+  ///
+  /// `sendKey` is the Send's start key (`cloudStartKeys`). A reservation goes with one Send: a
+  /// retry of that Send (the same key) gets it again and reaches the machine it bound; a different
+  /// Send from this page after that one failed (another prompt, or no folder after a refused one)
+  /// goes without it and creates its own machine, since the platform would refuse it as
+  /// `reservation.bound`.
+  handoff(environment?: string, sendKey?: string): string | undefined {
     this.stopRelease();
     this.stopIdle();
     // This compose warmed the default image. A later environment pick takes its ordinary,
@@ -159,7 +169,9 @@ export class CloudComposeReservation {
     }
     const attempt = this.attempt;
     if (!attempt || attempt.abandoned) return undefined;
+    if (attempt.transferred && attempt.sentWith !== undefined && attempt.sentWith !== sendKey) return undefined;
     attempt.transferred = true;
+    attempt.sentWith ??= sendKey;
     return attempt.key;
   }
 
