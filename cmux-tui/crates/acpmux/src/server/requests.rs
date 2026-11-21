@@ -3478,8 +3478,12 @@ async fn dispatch_request_with_identity(
                 .ok_or_else(|| RpcError::invalid_params("newName is required"))?;
             crate::session_name::validate(name).map_err(RpcError::invalid_params)?;
             // A registered chat's name is its address: only `acpmux register` moves it, so no
-            // client renames it away for another session to take.
-            if crate::hub::register::is_registered(&s) && s.meta().name != name {
+            // client renames it away for another session to take. A closed one is renamed like
+            // any session: its address leads nowhere, and a revived session (a restarted
+            // coordinator) takes the name back (interim-coord, 2026-11-21: "The name
+            // "interim-coord" couldn't be moved over").
+            let closed = s.status() == crate::store::SessionStatus::Closed;
+            if crate::hub::register::is_registered(&s) && !closed && s.meta().name != name {
                 return Err(RpcError::invalid_params(
                     "a registered chat is renamed only by `acpmux register NAME` from its own session",
                 )

@@ -72,7 +72,7 @@ fn mark_registered(id: &str) -> anyhow::Result<()> {
 
 /// Marks chat `id` registered for this process only (tests, which must not write the home).
 #[cfg(test)]
-pub(super) fn mark_registered_for_test(id: &str) {
+pub(crate) fn mark_registered_for_test(id: &str) {
     with_registered(|set| set.insert(id.to_owned()));
 }
 
