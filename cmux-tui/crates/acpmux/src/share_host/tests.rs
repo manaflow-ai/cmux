@@ -58,9 +58,10 @@ fn route_table() {
     let screen_only = Consent { control: false, ..granted };
     let none = Consent { screen: false, control: false, ..granted };
     let not_joined = Consent { required: false, ..none };
-    // An iPhone viewer: the app's while it is attached, else nobody's.
+    // An iPhone viewer: the app's while it is attached, else the daemon's under the same gate.
     assert_eq!(route::route(&view, Some("ios"), true, none), Route::App);
-    assert_eq!(route::route(&view, Some("ios"), false, granted), Route::End("app_required"));
+    assert_eq!(route::route(&view, Some("ios"), false, granted), Route::Daemon { view_only: true });
+    assert_eq!(route::route(&full, Some("ios"), false, screen_only), Route::End("failed"));
     // A Mac (or any other) viewer: the daemon's, under the app's gate.
     assert_eq!(
         route::route(&view, Some("macos"), true, granted),
@@ -134,10 +135,10 @@ fn a_ticket_both_see_is_served_once_and_the_relay_says_by_whom() {
     link::handle_push(&shared, r#"{"type":"relays.changed"}"#, || OPEN);
     let line: Value = serde_json::from_str(&rx.try_recv().unwrap()).unwrap();
     assert_eq!(line["text"], r#"{"type":"relays.changed"}"#);
-    // A closed app channel is no app.
     drop(rx);
     assert!(!shared.app_attached());
-    assert_eq!(link::decide_for_tests(&shared, &phone, OPEN), ("app_required", None));
+    // A closed app channel is no app: the daemon serves the iPhone (its cmux.rd/1 offer).
+    assert_eq!(link::decide_for_tests(&shared, &phone, OPEN), ("daemon", Some(false)));
 }
 
 #[test]
@@ -735,15 +736,15 @@ fn the_enables_output_says_how_it_went() {
 }
 
 /// A stand-in cmux-rd: writes its arguments and `ACPMUX_HOME` beside itself, then runs `body`.
+/// Written by `test_exec::write_executable`, so a sibling test's fork never holds it open for
+/// writing when it runs (ETXTBSY).
 fn fake_cmux_rd(dir: &Path, body: &str) -> std::path::PathBuf {
-    use std::os::unix::fs::PermissionsExt;
     let rd = dir.join("cmux-rd");
     let script = format!(
         "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{0}/args'\nprintf '%s\\n' \"$ACPMUX_HOME\" > '{0}/home'\n{body}\n",
         dir.display()
     );
-    std::fs::write(&rd, script).unwrap();
-    std::fs::set_permissions(&rd, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::test_exec::write_executable(&rd, script);
     rd
 }
 
