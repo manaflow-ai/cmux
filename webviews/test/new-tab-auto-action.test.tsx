@@ -147,9 +147,9 @@ test("there is no Search | Ask switch and no Tab hint", async () => {
   const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
   expect(editor.getAttribute("aria-describedby")).toBeNull();
   expect(field.getAttribute("aria-describedby")).toBeNull();
-  expect(editor.getAttribute("aria-label")).toBe("Ask anything or type a URL");
+  expect(editor.getAttribute("aria-label")).toBe("Type a question, command, or URL");
   const placeholder = field.querySelector<HTMLElement>(".acpmux-md-placeholder")!;
-  expect(placeholder.textContent).toBe("Ask anything or type a URL");
+  expect(placeholder.textContent).toBe("Type a question, command, or URL");
   expect(placeholder.hidden).toBe(false);
   expect(placeholder.querySelector(".acpmux-md-placeholder-key")).toBeNull();
 });
@@ -157,7 +157,8 @@ test("there is no Search | Ask switch and no Tab hint", async () => {
 test("Return on keywords asks the composer's agent", async () => {
   const calls: unknown[][] = [];
   const editor = await type(await render(calls), "ff");
-  expect(selected()).toBe("Ask Claude Code");
+  // The prompt is Return's with no row of its own (David Beyer 2026-11-20): nothing is lit.
+  expect(selected()).toBeUndefined();
   await key(editor, "Enter");
   expect(calls[0]?.slice(0, 3)).toEqual(["ask", "claude", "ff"]);
 });
@@ -165,7 +166,7 @@ test("Return on keywords asks the composer's agent", async () => {
 test("Return on a question asks the composer's agent", async () => {
   const calls: unknown[][] = [];
   const editor = await type(await render(calls), "why is ff slow?");
-  expect(selected()).toBe("Ask Claude Code");
+  expect(selected()).toBeUndefined();
   await key(editor, "Enter");
   expect(calls[0]?.slice(0, 3)).toEqual(["ask", "claude", "why is ff slow?"]);
 });
