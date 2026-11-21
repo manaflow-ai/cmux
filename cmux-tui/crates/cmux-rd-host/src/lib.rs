@@ -224,6 +224,16 @@ fn unknown_command(cmd: &str) -> String {
                 (`cargo build --release --features link`)"
             .to_string();
     }
+    if cmd == "view" && cfg!(target_os = "linux") && !cfg!(feature = "openh264") {
+        return "not in this build: it needs the openh264 feature \
+                (`cargo build --release --features link,openh264`)"
+            .to_string();
+    }
+    if cmd == "openh264-install" && !cfg!(feature = "openh264") {
+        return "not in this build: it needs the openh264 feature \
+                (`cargo build --release --features openh264`)"
+            .to_string();
+    }
     format!("not in this build: cmux-rd {cmd} is not built for {}", std::env::consts::OS)
 }
 
