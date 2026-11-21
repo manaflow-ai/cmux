@@ -67,9 +67,9 @@ public final class LiveCode {
     private func watch(_ folder: LiveFolder) {
         // Debug and bench load any patch; any other live code build only its own team's (cmux#13742).
         #if DEBUG || CMUX_BENCH_HOOKS
-        let signer: PatchSignature.AppSigner? = nil
+        let signer: LiveCodeSigner? = nil
         #else
-        let signer: PatchSignature.AppSigner? = PatchSignature.runningSigner()
+        let signer: LiveCodeSigner? = LiveCodeSigner.running()
         #endif
         let engine = LiveEngine(folder: folder, signer: signer) { generation in
             Task { @MainActor in LiveCode.redraw(generation: generation, folder: folder) }

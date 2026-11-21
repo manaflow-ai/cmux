@@ -55,11 +55,11 @@ public actor LiveEngine {
     #if os(macOS)
     /// Who signed this app, read once from its own code signature; nil in Debug and bench, which load
     /// any patch.
-    private let signer: PatchSignature.AppSigner?
+    private let signer: LiveCodeSigner?
 
     /// `signer` is nil in Debug and bench, which load any patch; the app decides, since only its own
     /// compilation conditions say which build it is.
-    public init(folder: LiveFolder, signer: PatchSignature.AppSigner?, redraw: @escaping @Sendable (Int) -> Void) {
+    public init(folder: LiveFolder, signer: LiveCodeSigner?, redraw: @escaping @Sendable (Int) -> Void) {
         self.folder = folder
         self.signer = signer
         self.redraw = redraw
