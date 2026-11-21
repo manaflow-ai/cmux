@@ -6,6 +6,7 @@
 //!   cmux-mobile-lanebench --base-url URL --token-file PATH --team TEAM --mac MAC_DEVICE_ID
 //!                 --transport webrtc|wireguard [--no-input-lane] [--samples N]
 //!                 [--flood COMMAND] [--exclude-cgnat] [--relay-only] [--block-udp]
+//!                 [--paths direct,relay] [--interval-ms MS]
 //!
 //! It creates two workspaces (A and B), attaches to both on their own
 //! `daemon` channels like the app, and starts COMMAND (default
@@ -22,6 +23,18 @@
 //! `daemon` channel, as the app sends them; `--no-input-lane` sends them on
 //! the attach channel and offers no lane, as the app and the link did before.
 //! Prints one JSON line. The workspaces are closed at the end.
+//!
+//! Every latency is summarized as n / min / p50 / p90 / p95 / p99 / max
+//! (`median` is kept as an alias of `p50`). `--samples` (default 200) is the
+//! number of flooded keystrokes, one every `--interval-ms` (default 250)
+//! after the previous echo. An empty `--flood ''` types with no flood.
+//!
+//! `--paths direct,relay` dials the Mac once per path, back to back, with
+//! the same workload and clock: `direct` dials as the app does (direct
+//! preferred, TURN offered), `relay` with `--relay-only`. It prints one JSON
+//! line per path on stdout (with `"requested_path"`) and a table of echo
+//! and ack p50 / p95 / p99 / max on stderr. Without `--paths` one dial runs,
+//! as `--relay-only` says.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -48,14 +61,18 @@ struct Args {
     exclude_cgnat: bool,
     relay_only: bool,
     block_udp: bool,
+    paths: Option<Vec<String>>,
+    interval_ms: u64,
 }
 
 fn parse() -> Result<Args> {
     let mut args = std::env::args().skip(1);
     let (mut base_url, mut token_file, mut team, mut mac, mut transport) = (None, None, None, None, None);
-    let (mut input_lane, mut samples, mut exclude_cgnat, mut relay_only) = (true, 20, false, false);
+    let (mut input_lane, mut samples, mut exclude_cgnat, mut relay_only) = (true, 200, false, false);
     let mut flood = "yes | head -c 50000000".to_owned();
     let mut block_udp = false;
+    let mut paths = None;
+    let mut interval_ms = 250;
     while let Some(arg) = args.next() {
         let mut value = || args.next().with_context(|| format!("{arg} needs a value"));
         match arg.as_str() {
@@ -76,6 +93,14 @@ fn parse() -> Result<Args> {
             "--exclude-cgnat" => exclude_cgnat = true,
             "--relay-only" => relay_only = true,
             "--block-udp" => block_udp = true,
+            "--paths" => {
+                let list: Vec<String> = value()?.split(',').map(|p| p.trim().to_owned()).collect();
+                if let Some(bad) = list.iter().find(|p| !matches!(p.as_str(), "direct" | "relay")) {
+                    bail!("unknown path {bad} (direct, relay)");
+                }
+                paths = Some(list);
+            }
+            "--interval-ms" => interval_ms = value()?.parse()?,
             other => bail!("unknown argument {other}"),
         }
     }
@@ -93,6 +118,8 @@ fn parse() -> Result<Args> {
         exclude_cgnat,
         relay_only,
         block_udp,
+        paths,
+        interval_ms,
     })
 }
 
@@ -235,7 +262,16 @@ fn summary(mut values: Vec<f64>) -> Value {
     }
     values.sort_by(f64::total_cmp);
     let at = |q: f64| values[((values.len() - 1) as f64 * q).round() as usize];
-    json!({"n": values.len(), "min": at(0.0), "median": at(0.5), "p90": at(0.9), "max": at(1.0)})
+    json!({
+        "n": values.len(),
+        "min": at(0.0),
+        "median": at(0.5),
+        "p50": at(0.5),
+        "p90": at(0.9),
+        "p95": at(0.95),
+        "p99": at(0.99),
+        "max": at(1.0),
+    })
 }
 
 /// Finds the id of the workspace named `name` anywhere in a reply.
@@ -273,16 +309,60 @@ async fn main() -> Result<()> {
     .await
     .context("POST /v1/devices")?;
     let signaling = SignalingClient::connect(&args.base_url, &args.token, &args.team, &device).await?;
+    let Some(paths) = args.paths.clone() else {
+        let report = run(&args, &signaling, &device, ice_servers, args.relay_only, None).await?;
+        println!("{report}");
+        return Ok(());
+    };
+    let mut reports = Vec::new();
+    for path in &paths {
+        let relay_only = path == "relay";
+        let report = run(&args, &signaling, &device, ice_servers.clone(), relay_only, Some(path)).await?;
+        println!("{report}");
+        reports.push(report);
+    }
+    eprintln!("\nkeystroke-to-echo during the flood, ms (p50 / p95 / p99 / max), {} keys:", args.samples);
+    eprintln!("{:<8} {:<34} {:<34} {:<34} {}", "path", "link path", "echo", "ack", "missed");
+    for report in &reports {
+        let cell = |metric: &str| {
+            let s = &report[metric];
+            if s.is_null() {
+                "-".to_owned()
+            } else {
+                format!("{} / {} / {} / {}", s["p50"], s["p95"], s["p99"], s["max"])
+            }
+        };
+        eprintln!(
+            "{:<8} {:<34} {:<34} {:<34} {}",
+            report["requested_path"].as_str().unwrap_or_default(),
+            report["path"].as_str().unwrap_or_default(),
+            cell("echo_ms"),
+            cell("ack_ms"),
+            report["missed"]
+        );
+    }
+    Ok(())
+}
+
+/// One dial and one measurement; the report as JSON.
+async fn run(
+    args: &Args,
+    signaling: &SignalingClient,
+    device: &str,
+    ice_servers: Vec<cmux_mobile_link::api::IceServer>,
+    relay_only: bool,
+    requested_path: Option<&str>,
+) -> Result<Value> {
     let options = DialOptions {
         ice_servers,
         exclude_cgnat: args.exclude_cgnat,
         input_lane: args.input_lane,
-        relay_only: args.relay_only,
+        relay_only,
         block_udp: args.block_udp,
         ..DialOptions::default()
     };
     let connected = cmux_mobile_link::dial::connect(
-        &signaling,
+        signaling,
         &args.mac,
         args.transport,
         &options,
@@ -294,7 +374,8 @@ async fn main() -> Result<()> {
 
     let control = Daemon::new(link.open("daemon", json!({})).await?, Arc::clone(&screens), false);
     let tag = &device[..8];
-    let (name_a, name_b) = (format!("lane-a-{tag}"), format!("lane-b-{tag}"));
+    let suffix = requested_path.map(|p| format!("-{p}")).unwrap_or_default();
+    let (name_a, name_b) = (format!("lane-a-{tag}{suffix}"), format!("lane-b-{tag}{suffix}"));
     let surface = |reply: &Value| reply["data"]["surface"].as_u64().context("no surface in reply");
     let a =
         surface(&control.request("new-workspace", json!({"name": name_a, "cols": 100, "rows": 30})).await?)?;
@@ -343,17 +424,24 @@ async fn main() -> Result<()> {
     eprintln!("idle echo done");
     // Flood A.
     screens.forget(a);
-    let mut flood = args.flood.clone().into_bytes();
-    flood.push(b'\r');
-    send(input_a, a, &flood).await?;
     let flood_start = Instant::now();
-    // Let the flood fill every queue between the PTY and this side.
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    if !args.flood.is_empty() {
+        let mut flood = args.flood.clone().into_bytes();
+        flood.push(b'\r');
+        send(input_a, a, &flood).await?;
+        // Let the flood fill every queue between the PTY and this side.
+        tokio::time::sleep(Duration::from_secs(3)).await;
+    }
     eprintln!("flood running: {} bytes so far", screens.total(a));
     let mut echoes = Vec::new();
     let mut acks = Vec::new();
     let mut missed = 0;
     for i in 0..args.samples {
+        if i > 0 && i % 50 == 0 {
+            // Keep B's line short: clear it, outside any sample.
+            send(input_b, b, b"\x15").await?;
+            tokio::time::sleep(Duration::from_millis(args.interval_ms)).await;
+        }
         let letter = [b'a' + (i % 26) as u8];
         let at = Instant::now();
         if let Err(error) = send(input_b, b, &letter).await {
@@ -365,8 +453,9 @@ async fn main() -> Result<()> {
             Some(seen) => echoes.push(millis(seen - at)),
             None => missed += 1,
         }
+        screens.forget(b);
         screens.forget(a);
-        tokio::time::sleep(Duration::from_millis(250)).await;
+        tokio::time::sleep(Duration::from_millis(args.interval_ms)).await;
     }
     let flooded_bytes = screens.total(a);
     let flood_seconds = flood_start.elapsed().as_secs_f64();
@@ -400,6 +489,10 @@ async fn main() -> Result<()> {
         screens.wait_for(a, at, b"lanedone", Duration::from_secs(5)).await.map(|seen| millis(seen - at));
 
     let report = json!({
+        "requested_path": requested_path,
+        "relay_only": relay_only,
+        "samples": args.samples,
+        "interval_ms": args.interval_ms,
         "transport": format!("{:?}", args.transport),
         "path": format!("{:?}", *connected.path.borrow()),
         "input_lane": args.input_lane,
@@ -414,8 +507,6 @@ async fn main() -> Result<()> {
         "interrupt_ms": interrupt,
         "interrupt_seen_ms": interrupt_seen,
     });
-    println!("{report}");
-
     // Clean up the two workspaces.
     if let Ok(list) = control.request("list-workspaces", json!({})).await {
         for name in [&name_a, &name_b] {
@@ -425,5 +516,5 @@ async fn main() -> Result<()> {
         }
     }
     link.close("done");
-    Ok(())
+    Ok(report)
 }
