@@ -34,13 +34,14 @@ extension SettingsSchema {
         "window.titlebarButtons", "tabs.plusButton", "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons",
         "browser.toolbarPosition", "navigation.historyScope", "navigation.history.scope", "sidebar.minimalMode",
         "sidebar.minimal", "sidebar.density", "sidebar.textSize", "sidebar.detailedStatusIcons",
-        "sidebar.showTimestamps", "sidebar.showColors", "sidebar.showLocalMachine", "workspaceColors.indicatorStyle",
+        "sidebar.showTimestamps", "sidebar.settleFinished", "sidebar.showColors", "sidebar.showLocalMachine",
+        "workspaceColors.indicatorStyle",
         // Sidebar control visibility (looks only)
         "sidebar.controlsOnHover", "sidebar.floatOnHover",
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background",
         "sidebar.groupPalette", "sidebar.groupGradient", "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping",
-        "sidebar.steppingWraps", "sidebar.side", "sidebar.style", "sidebar.spacesPosition", "sidebar.spacesVisibility",
-        "tabs.newTabTemplate",
+        "sidebar.steppingWraps", "sidebar.side", "sidebar.look", "sidebar.style", "sidebar.spacesPosition",
+        "sidebar.spacesVisibility", "tabs.newTabTemplate",
         // Which New Tab page draws; a look switch, ends no work.
         "tabs.nativeNewTabPage", "tabs.newTabApp",
         "tabs.newTabPosition",
@@ -81,19 +82,20 @@ extension SettingsSchema {
         "appearance.inactiveWindowDim", "appearance.wallpaperTint", "appearance.background",
         "appearance.backgroundRotation", "appearance.backgroundLight", "appearance.backgroundDark",
         "appearance.backgroundSchedule", "appearance.backgroundDynamic", "appearance.backgroundLocation",
+        "appearance.backgroundMemory",
         // Per-display background and cadence (looks only)
         "appearance.displayBackgrounds", "appearance.displayBackgroundRotations",
         "appearance.paneBackgrounds", "ui.reducedBackgrounds", "appearance.agentGlow",
         "appearance.experimentalControls", "app.uiScale", "appearance.glassTransparency", "appearance.hue",
         "appearance.saturation", "appearance.density", "appearance.customDensity", "appearance.customDensities",
         "appearance.metrics.chromeFontSize", "appearance.fontSmoothing", "appearance.interfaceScale",
-        "appearance.borders", "appearance.sidebarSurface", "appearance.chromeStyle", "appearance.titleAreaTone",
-        "appearance.titleAreaContrast", "appearance.focusIndicator", "focus.inactiveTabStyle", "ui.animationSpeed",
-        "ui.animations.newTab", "ui.animations.newWorkspace", "ui.animations.enabled", "ui.animations.sidebar",
-        "ui.animations.tabs", "ui.animations.panes", "ui.animations.overlays", "ui.animations.hoverCards",
-        "ui.animations.home", "ui.animations.cursor", "ui.animations.indicators", "ui.animations.feedback",
-        "ui.animations.web", "ui.paneAnimations", "ui.calm", "appearance.colorTransition.enabled",
-        "appearance.colorTransition.duration", "appearance.colorTransition.curve",
+        "appearance.borders", "appearance.previousGlass", "appearance.sidebarSurface", "appearance.chromeStyle",
+        "appearance.titleAreaTone", "appearance.titleAreaContrast", "appearance.focusIndicator",
+        "focus.inactiveTabStyle", "ui.animationSpeed", "ui.animations.newTab", "ui.animations.newWorkspace",
+        "ui.animations.enabled", "ui.animations.sidebar", "ui.animations.tabs", "ui.animations.panes",
+        "ui.animations.overlays", "ui.animations.hoverCards", "ui.animations.home", "ui.animations.cursor",
+        "ui.animations.indicators", "ui.animations.feedback", "ui.animations.web", "ui.paneAnimations", "ui.calm",
+        "appearance.colorTransition.enabled", "appearance.colorTransition.duration", "appearance.colorTransition.curve",
         "appearance.colorTransition.springResponse", "appearance.colorTransition.springDamping",
         "appearance.colorTransition.bezierX1", "appearance.colorTransition.bezierY1",
         "appearance.colorTransition.bezierX2", "appearance.colorTransition.bezierY2",
@@ -139,13 +141,13 @@ extension SettingsSchema {
         "notifications.mutedWorkspaces",
         "labs.previewFeatures",
         // Experiments are taste prototypes of how a surface looks (looks only), each off by default.
-        "experiments.glassToolbarGroups", "experiments.transcriptWorkLog",
+        "experiments.glassToolbarGroups", "experiments.composerV2", "experiments.transcriptWorkLog",
         // Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).
         "home.channelsEnabled",
         // The floating Chief pet and its character: a display the person can hide again; its reply box types only what the person writes.
         "home.chiefPetEnabled", "home.chiefPetMascot",
-        // Where the docked Chief sits, how the floating one looks and where its links open (layout choices, like pane placement).
-        "home.chiefDock.edge", "home.chiefPanel.style", "home.chiefDock.openBeside",
+        // Whether the Chief stays docked as a side panel, where the docked Chief sits, how the floating one looks and where its links open (layout choices, like pane placement).
+        "home.chiefDock.sidePanel", "home.chiefDock.edge", "home.chiefPanel.style", "home.chiefDock.openBeside",
         // Needs you in the agent chat header (an App Store item): a display the person can hide again.
         "agentPane.needsYou.enabled",
         // Start New Chats In (This Mac or Cloud): the person asks an agent to set it (Leo, 2026-10-31); a new chat's composer can still change it for that chat.
