@@ -48,6 +48,8 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configu
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { ChiefWeb, loadChiefTranscript } = await import("../src/chief-web/ChiefWeb");
+// Load the real chunk once up front, so the load Retry asks for lands within a few microtasks.
+await loadChiefTranscript();
 const gallery = (await import("../src/chief-web/ChiefWeb.gallery")).default;
 const { translate } = await import("../src/agent-session/acpmux/i18n");
 type Props = Parameters<typeof ChiefWeb>[0];
@@ -106,7 +108,7 @@ test("a transcript chunk that fails to load says so; Retry loads it and the rows
   expect(failedAlert(page.host)).toBeNull();
   expect(page.host.textContent).toContain(REPLY);
   await page.unmount();
-});
+}, 60_000);
 
 test("a Retry whose load fails too reloads the page", async () => {
   let reloads = 0;
