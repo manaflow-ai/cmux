@@ -27,9 +27,11 @@ concurrency:
 jobs:
   route:
     name: pr router
-    # A title or description edit routes only when a callee reads the description: the size budget's
-    # `size:` line. Every other edit skips here with no runner.
-    if: ${{ github.event.action != 'edited' || (github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:'))) }}
+    # A title or description edit routes only when a callee reads what changed: the size budget's
+    # `size:` line, the classic API guard's `Classic API change:` line or the base (its diff moved).
+    # Every other edit skips here with no runner. Each callee's own job `if:` still skips the edits it
+    # does not read, so an edit routed for one callee starts no runner in another.
+    if: ${{ github.event.action != 'edited' || github.event.changes.base || (github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:') || contains(github.event.pull_request.body, 'Classic API change:') || contains(github.event.changes.body.from, 'Classic API change:'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -61,3 +63,12 @@ jobs:
     uses: ./.github/workflows/cmux-next-size-budget.yml
     permissions:
       contents: read
+
+  classic-api-guard:
+    name: classic API guard
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'classic-api-guard.yml') }}
+    uses: ./.github/workflows/classic-api-guard.yml
+    permissions:
+      contents: read
+      pull-requests: read
