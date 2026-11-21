@@ -51,7 +51,7 @@ final class HomeMacDisconnectedUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 10), "back on Home\n\(app.debugDescription)")
         try expectToast(app, saying: "Offline", above: row)
         attach(app, "1b-home-offline-toast")
-        app.buttons["Retry"].firstMatch.tap()
+        retryControl(app).tap()
         XCTAssertTrue(row.waitForExistence(timeout: 10), "the rows stay after Retry")
     }
 
@@ -88,9 +88,16 @@ final class HomeMacDisconnectedUITests: XCTestCase {
     private func expectToast(_ app: XCUIApplication, saying text: String, above row: XCUIElement) throws {
         let toast = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", text)).firstMatch
         XCTAssertTrue(toast.waitForExistence(timeout: 10), "the connection toast\n\(app.debugDescription)")
-        let retry = app.buttons["Retry"].firstMatch
-        XCTAssertTrue(retry.exists, "Retry on the toast\n\(app.debugDescription)")
-        XCTAssertLessThanOrEqual(toast.frame.maxY, row.frame.minY, "the toast covers no row")
+        XCTAssertTrue(retryControl(app).exists, "Retry on the toast\n\(app.debugDescription)")
+        // A link state is a chip a few words wide floating over the rows, not a full-width
+        // row that pushes them down (Leo, 2026-11-21: "stop layout shifting").
+        XCTAssertLessThan(toast.frame.width, app.frame.width / 2, "the toast is a chip, not a sentence")
+    }
+
+    /// The toast's Retry: the banner's "Retry" button, or the link chip that is its own Retry.
+    @MainActor
+    private func retryControl(_ app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label == %@ OR identifier == %@", "Retry", "connection.chip.retry")).firstMatch
     }
 
     @MainActor
