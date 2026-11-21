@@ -48,7 +48,7 @@ import path from "node:path";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { chromium } from "./browsers";
 import { papercutEvents } from "../test/support/papercutChat";
-import { classifyFrames, type FrameRecord } from "../src/agent-session/acpmux/firstLoadFrames";
+import { classifyFrames, MOVE_TOLERANCE_PX, type FrameRecord } from "../src/agent-session/acpmux/firstLoadFrames";
 import { perfRow } from "./perfRow";
 
 const ROUNDS = Number(process.argv[2] ?? 3);
@@ -76,14 +76,27 @@ const webviews = path.resolve(import.meta.dir, "..");
 const A = "0190a000-0000-7000-8000-00000000fd01";
 const B = "0190a000-0000-7000-8000-00000000fd02";
 const S = "0190a000-0000-7000-8000-00000000fd03";
-/// Each chat's own words and row ids: B's answers read differently, and B's and S's records start one and two later,
-/// so a switch from A changes every row in view (identical chats would read as no change at all).
+/// Each chat's own words and row ids: B's answers read differently, and each chat's records number from its own base,
+/// so no row id is shared between chats (a shared id would read as one row moving across a switch, identical chats as
+/// no change at all) and a row id names its chat.
 const WORD = new Map([
   [A, "Answer"],
   [B, "Reply"],
   [S, "Answer"],
 ]);
 const markOf = (chat: string) => `${WORD.get(chat)} ${TURNS}:`;
+const SEQ_SPAN = 100_000;
+const SEQ_BASE = new Map([
+  [A, 0],
+  [B, SEQ_SPAN],
+  [S, 2 * SEQ_SPAN],
+]);
+/** Whether a row id (`assistant-100479`, `working-user-481`) is one of `chat`'s rows. */
+const rowOf = (rowId: string, chat: string) => {
+  const seq = Number(/(\d+)$/.exec(rowId)?.[1] ?? NaN);
+  const base = SEQ_BASE.get(chat)!;
+  return seq > base && seq <= base + SEQ_SPAN;
+};
 
 type Chat = { session: Record<string, unknown>; events: Record<string, unknown>[] };
 const chatOf = (sessionId: string, title: string, running: boolean): Chat => {
@@ -92,15 +105,11 @@ const chatOf = (sessionId: string, title: string, running: boolean): Chat => {
     turns: TURNS,
     running,
     answer: (n) => `${word} ${n}: the checks on the merged head are green.`,
-    lead: Array.from({ length: sessionId === B ? 1 : sessionId === S ? 2 : 0 }, () => [
-      "mux",
-      "user_message",
-      { text: "Before we start" },
-    ]),
   });
+  const base = SEQ_BASE.get(sessionId)!;
   return {
-    session: { ...session, sessionId, title },
-    events: events.map((event) => ({ ...event, sessionId })),
+    session: { ...session, sessionId, title, lastSeq: Number(session.lastSeq) + base },
+    events: events.map((event) => ({ ...event, sessionId, seq: Number(event.seq) + base })),
   };
 };
 const chats = new Map<string, Chat>([
@@ -329,11 +338,15 @@ function judgeStream(frames: FrameRecord[], t0: number): Judged {
     const before = new Map(a.rows.map((row) => [row.id, row.top]));
     for (const row of b.rows) {
       const top = before.get(row.id);
-      if (top !== undefined && Math.abs(top - row.top) > 0.5)
+      if (top !== undefined && Math.abs(top - row.top) > MOVE_TOLERANCE_PX)
         return `row ${row.id} ${top.toFixed(1)} -> ${row.top.toFixed(1)}`;
     }
     const [ca, cb] = [a.composer, b.composer];
-    if (ca && cb && (Math.abs(ca.top - cb.top) > 0.5 || Math.abs(ca.height - cb.height) > 0.5))
+    if (
+      ca &&
+      cb &&
+      (Math.abs(ca.top - cb.top) > MOVE_TOLERANCE_PX || Math.abs(ca.height - cb.height) > MOVE_TOLERANCE_PX)
+    )
       return `composer ${ca.top.toFixed(1)}+${ca.height.toFixed(1)} -> ${cb.top.toFixed(1)}+${cb.height.toFixed(1)}`;
     return null;
   };
@@ -358,8 +371,12 @@ function judgeStream(frames: FrameRecord[], t0: number): Judged {
 }
 
 type Judged = { settledMs: number; shifts: number; why: string[]; frames: number };
-function judge(read: Read, arm: Arm): Judged {
-  const frames = read.frames.filter((frame) => frame.t >= read.t0);
+function judge(read: Read, arm: Arm, target: string): Judged {
+  // The chat on screen before the switch stays until the target draws (no blank between): judged from the first frame
+  // showing any of the target's rows. A frame mixing both chats is still judged (an oddity).
+  const after = read.frames.filter((frame) => frame.t >= read.t0);
+  const first = after.findIndex((frame) => frame.rows.some((row) => rowOf(row.id, target)));
+  const frames = first < 0 ? after : after.slice(first);
   if (arm === "stream") return judgeStream(frames, read.t0);
   const view = frames;
   const metrics = classifyFrames(view);
@@ -565,7 +582,7 @@ try {
       } else throw new Error(`${scenario} runs in first-load-after-restart.bench.ts`);
       const read = await framesOf(page, markOf(target));
       stopStream();
-      const judged = judge(read, arm);
+      const judged = judge(read, arm, target);
       const copy = await settledCopy(page);
       const boundMs = await boundInPage(page, copy);
       return { ...judged, boundMs, ratio: judged.settledMs / Math.max(boundMs, 1) };
