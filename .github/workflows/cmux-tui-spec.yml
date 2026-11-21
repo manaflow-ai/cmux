@@ -425,12 +425,21 @@ jobs:
             echo "base=$base" >> "$GITHUB_OUTPUT"
           fi
 
-      # As cmux-tui.yml's Linux test job: acpmux's sandbox tests need bubblewrap.
+      # As cmux-tui.yml's Linux test job: acpmux's sandbox tests need bubblewrap. Ubuntu 24.04
+      # lets only AppArmor-profiled programs make an unprivileged user namespace, and bwrap needs
+      # one: on a runner VM that restricts it (the GCP lane pools), about 45 sandbox tests failed
+      # at once, which put a run past the 30-test retry cap below, so its timing flakes were read
+      # as the change's own (2026-11-21). As cmux-tui-sdks.yml's bwrap step, the VM lifts it.
       - name: Install bubblewrap
         if: ${{ steps.tree.outputs.hit != 'true' }}
         run: |
+          set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y bubblewrap
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          bwrap --unshare-all --ro-bind / / true
           echo "ACPMUX_REQUIRE_BWRAP=1" >> "$GITHUB_ENV"
 
       - name: Set up pinned Rust
@@ -493,13 +502,6 @@ jobs:
           mapfile -t names < <(python3 "$verdict" failed "$head_log")
           retry_log="$RUNNER_TEMP/acpmux-tests-retry.log"
           base_log="$RUNNER_TEMP/acpmux-tests-base.log"
-          # Many failures at once are no flake: the retry runs only a few, alone.
-          if (( ${#names[@]} > 0 && ${#names[@]} <= 30 )); then
-            echo "::group::retry ${#names[@]} failing test(s) alone on the head"
-            cargo test "${suites[@]}" -- --exact --test-threads=1 "${names[@]}" > "$retry_log" 2>&1 || true
-            cat "$retry_log"
-            echo "::endgroup::"
-          fi
           if (( ${#names[@]} > 0 )) && [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::group::replay ${#names[@]} failing test(s) on the merge parent ${BASE_SHA:0:12}"
             # The scope step fetched the merge parent; its build shares this target dir.
@@ -525,6 +527,21 @@ jobs:
                   cargo test "${base_suites[@]}" -- --exact "${names[@]}") > "$base_log" 2>&1 || true
             fi
             cat "$base_log" 2>/dev/null || true
+            echo "::endgroup::"
+          fi
+          # The retry runs alone only the reds the merge parent does not share: a red base is
+          # already excused, and its reds counted against the cap below hid a change's timing
+          # flakes from the retry (16 base reds plus a runner's sandbox reds made 79, 2026-11-21).
+          # Many failures left after that are no flake: the retry runs only a few, alone.
+          retry=("${names[@]}")
+          if [[ -s "$base_log" ]]; then
+            mapfile -t retry < <(comm -23 <(printf '%s\n' "${names[@]}" | sort -u) \
+              <(python3 "$verdict" failed "$base_log" | sort -u))
+          fi
+          if (( ${#retry[@]} > 0 && ${#retry[@]} <= 30 )); then
+            echo "::group::retry ${#retry[@]} failing test(s) alone on the head"
+            cargo test "${suites[@]}" -- --exact --test-threads=1 "${retry[@]}" > "$retry_log" 2>&1 || true
+            cat "$retry_log"
             echo "::endgroup::"
           fi
           echo "acpmux tests: red head run judged after $((SECONDS - started)) s" >> "$GITHUB_STEP_SUMMARY"
