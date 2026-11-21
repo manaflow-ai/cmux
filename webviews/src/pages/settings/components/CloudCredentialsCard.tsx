@@ -6,7 +6,7 @@
 //
 // Two layouts for review (a new design gets two variants; Lawrence picks): `rows` lists each cloud as a disclosure
 // row, `tabs` shows one cloud at a time behind a segmented control. The page ships `rows`.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { Disclosure } from "../../../ui/Disclosure";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../ui/Tabs";
@@ -28,12 +28,15 @@ const PROVIDER_NAME: Record<CloudCredentialsProvider, () => string> = {
 
 /** Copy, then "Copied" until the pointer or focus leaves the button: the label answers the click
  * without a timer. */
-function CopyButton({ value, id }: { value: string; id: string }) {
+function CopyButton({ value, id, describedBy }: { value: string; id: string; describedBy: string }) {
   const [copied, setCopied] = useState(false);
   return (
+    // describedBy names what it copies ("Issuer", "In your cloud"): a screen reader's button list
+    // would otherwise hold a column of identical "Copy" entries.
     <Button
       type="button"
       className="button"
+      aria-describedby={describedBy}
       data-credentials-copy={id}
       onClick={() => {
         void navigator.clipboard?.writeText(value).then(() => setCopied(true));
@@ -47,23 +50,31 @@ function CopyButton({ value, id }: { value: string; id: string }) {
 }
 
 function CopyRow({ title, value, id }: { title: string; value: string; id: string }) {
+  const titleId = useId();
   return (
     <div className="row" data-credentials-url={id}>
       <div className="row-main">
         <div className="row-label min-w-0">
-          <div className="row-title">{title}</div>
-          {/* Wraps instead of an ellipsis: the discovery and JWKS URLs differ only at their ends. */}
-          <div className="row-help select-text break-all whitespace-normal" data-credentials-value="">
+          <div className="row-title" id={titleId}>
+            {title}
+          </div>
+          {/* Wraps instead of an ellipsis: the discovery and JWKS URLs differ only at their ends. The
+              page's .row-help (unlayered) sets nowrap, overflow and ellipsis, so these are important. */}
+          <div
+            className="row-help select-text break-all whitespace-normal! overflow-visible! text-clip!"
+            data-credentials-value=""
+          >
             <code className="font-mono">{value}</code>
           </div>
         </div>
-        <CopyButton value={value} id={id} />
+        <CopyButton value={value} id={id} describedBy={titleId} />
       </div>
     </div>
   );
 }
 
 function ProviderSteps({ provider, info }: { provider: CloudCredentialsProvider; info: CloudCredentialsInfo }) {
+  const stepsId = useId();
   return (
     // min-w-0 down to the <pre>: a flex or grid child is as wide as its longest line unless told
     // otherwise, so without it a long policy line widens the card instead of scrolling in its block.
@@ -72,12 +83,12 @@ function ProviderSteps({ provider, info }: { provider: CloudCredentialsProvider;
       {setupSteps(provider, info).map((step) => (
         <div key={step.where} className="min-w-0" data-credentials-step={step.where}>
           <div className="flex items-center justify-between gap-2">
-            <div className="row-title">
+            <div className="row-title" id={`${stepsId}-${step.where}`}>
               {step.where === "cloud"
                 ? t("settingsPage.cloudCredentials.inYourCloud")
                 : t("settingsPage.cloudCredentials.onTheMachine")}
             </div>
-            <CopyButton value={step.code} id={`${provider}-${step.where}`} />
+            <CopyButton value={step.code} id={`${provider}-${step.where}`} describedBy={`${stepsId}-${step.where}`} />
           </div>
           <pre className="m-0 mt-1 max-w-full overflow-x-auto rounded-md border border-solid border-edge p-2 font-mono text-detail text-fg select-text">
             <code>{step.code}</code>
