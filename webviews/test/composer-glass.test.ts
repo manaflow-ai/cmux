@@ -139,12 +139,16 @@ await requireBrowserLane("composer-glass.test.ts", async () => {
               `${id} prompt contrast over ${page.join(",")}`,
             ).toBeGreaterThanOrEqual(4.5);
           }
-          // The light rim: a top line one device pixel (0.5 CSS px at 2x) that is not transparent.
-          if (window.attributes["data-glass"] !== "lens")
-            expect(shadow, `${id} draws the top-lit hairline`).toMatch(
+          // The light: under Plain glass the material's soft band inside the edge, never a line on
+          // it (composer-one-edge.test.ts); the lens's specular line, one device pixel.
+          if (window.attributes["data-glass"] !== "lens") {
+            expect(shadow, `${id} draws the top light inside the edge`).toMatch(
+              /color\(srgb 1 1 1 \/ [\d.]+\) 1px 1\.5px 1px -1px inset/,
+            );
+            expect(shadow, `${id} draws no light line on the edge`).not.toMatch(
               /color\(srgb 1 1 1 \/ [\d.]+\) 0px 0\.5px 0px 0px inset/,
             );
-          else expect(shadow, `${id} draws the liquid glass's specular hairline`).toMatch(/0px 0\.5px 0px 0px inset/);
+          } else expect(shadow, `${id} draws the liquid glass's specular hairline`).toMatch(/0px 0\.5px 0px 0px inset/);
         }
         // A new chat's location strip is its chips standing over the card (#25304, Leo 2026-10-25),
         // with no fill or frost of their own: the card under it is the glass. Codex's tray keeps the

@@ -10,11 +10,22 @@ extension MessagesLabHomeView {
         set { projection.tree.linkScheme = newValue }
     }
 
-    /// Automation (DEBUG socket), tree threads: `header` (`open`: a thread view is open; `header`: it draws anything above its root;
+    /// Automation (DEBUG socket): `swipe` (a real-time two-finger swipe on the newest bubble); tree threads: `header` (`open`: a thread view is open; `header`: it draws anything above its root;
     /// Messages draws nothing, https://github.com/manaflow-ai/cmux/issues/26686) and `copy_link` {text} (Copy Link
     /// in the menu of that bubble; answers the pasteboard). nil: not a tree action.
     public func debugTreeDrive(_ action: String, _ args: [String: String]) -> [String: String]? {
         switch action {
+        case "swipe":
+            // A two-finger swipe on the newest text bubble (`mine` "1": mine), played in real time through
+            // the app's event dispatch (TrackpadSwipePlayer): `dx`, `dy` points over `duration` s, held
+            // `hold` s, then lifted. Answers at once; `thread_state` after `seconds` tells what it did.
+            guard let window = controller.host.window, let hit = controller.demo?.lastTextRow(mine: args["mine"] == "1") else { return ["ok": "0", "error": "no text bubble"] }
+            let point = controller.host.convert(CGPoint(x: hit.body.midX, y: hit.body.midY), to: nil)
+            let num = { (k: String, d: Double) in args[k].flatMap(Double.init) ?? d }
+            let player = TrackpadSwipePlayer(point: point, dx: num("dx", 160), dy: num("dy", 0), duration: num("duration", 0.35),
+                                             hold: num("hold", 0), window: window)
+            player.play(on: controller.host)
+            return ["ok": "1", "x": "\(point.x)", "y": "\(point.y)", "seconds": "\(player.length)"]
         case "header":
             return ["open": controller.demo?.threadOpen == true ? "1" : "", "header": controller.demo?.threadHeaderFrame == nil ? "" : "1"]
         case "thread_rows":
