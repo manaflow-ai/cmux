@@ -31,6 +31,28 @@ Each one is in the Theme File list by name. Your own file with the same name win
 | `claude-desktop` | Warm paper and clay | `appearance.theme: "Claude Light"`, a clay `colors.accent`, a beige `appearance.surfaces.sidebar.color` |
 | `charcoal` | A quiet dark chat app | a charcoal `colors.background`, a near-black sidebar, `appearance.accent: "neutral"` |
 
+## One look for light and dark
+
+Name a light and a dark terminal theme in `appearance.theme`, then give `colors` a `"light"` and a
+`"dark"` half. The plain colors paint both sides, and each half paints only its own side, over them:
+
+```jsonc
+{
+  "appearance.theme": "light:Rose Pine Dawn,dark:Rose Pine",
+  "colors": {
+    "accent": "#907aa9",                                  // both sides
+    "light": { "background": "#faf4ed", "foreground": "#575279" },
+    "dark": { "background": "#191724", "foreground": "#e0def4" }
+  }
+}
+```
+
+A half takes the same colors as `colors` (`background`, `foreground`, `cursor`, `selection`, `accent`,
+`0` to `15`, `palette`). With one theme for both appearances (`"appearance.theme": "Nord"`) there are
+no sides, so cmux drops the halves, names them, and applies the plain colors. A cmux from before
+this change drops `colors.light` and `colors.dark` the same way, naming each, and shows the plain
+colors on both sides, so keep the colors the two sides share outside the halves.
+
 ## What a theme file can and can't change
 
 A theme file is a pit of success: it can only set how cmux looks, never what it does.
