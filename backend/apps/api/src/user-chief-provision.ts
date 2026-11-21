@@ -3,14 +3,21 @@ import { DEFAULT_CHIEF_ENSURE, DEFAULT_CHIEF_PROVISION, HOSTED_DEFAULT_KEY, defa
 import { personalTeamIdFor, type UserState } from "./domains/user.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 import type { SubmitResult } from "./owner-do.ts"
+import { isDevSpace } from "./build-space.ts"
+import type { BuildSpace } from "./env.ts"
 
-/** Trusted RPC on the existing platform service binding; no HTTP route or user credential reaches it. */
+/** Trusted RPC on the existing platform service binding; no HTTP route or user credential reaches it.
+ * `space` is the caller's dev build space (cmux-platform#1465): the RPC carries no header, so it is an argument. */
 export interface DefaultMachinePlatform {
-  ensureDefaultMachine(user: string): Promise<
+  ensureDefaultMachine(user: string, space?: string): Promise<
     | { ok: true; value: { workspace: string; team: string; connectionMachine: string; machine: { id: string; provider: string; creator: string; visibility: string; kind: string } } }
     | { ok: false; code: string; message: string; retryable: boolean }
   >
 }
+
+/** `platform` asked from `space`: a dev space names itself, nightly sends the user only (as before). */
+export const platformInSpace = (platform: DefaultMachinePlatform | undefined, space: BuildSpace | undefined): DefaultMachinePlatform | undefined =>
+  platform && isDevSpace(space) ? { ensureDefaultMachine: (user) => platform.ensureDefaultMachine(user, space) } : platform
 
 export const provisioningFailure = (code: string, retryable = true): Error & { retryable: boolean } =>
   Object.assign(new Error(code), { retryable })
@@ -87,4 +94,35 @@ export const deliverSignupChief = async (entity: string, source: string, items: 
     done.push(item.id)
   }
   return { done }
+}
+
+export type RebindReply = { ok: true; changed: boolean; binding: ChiefCloudMachine } | { ok: false; code: string; retryable: boolean }
+
+/**
+ * The platform moved the default Chief's logical machine to a new VM (a shrink, a rewind, a fresh machine), so
+ * the stored carrier and its install no longer answer. Ask the platform for the current carrier of the same fixed
+ * workspace and follow it, keeping the logical machine; never a caller-chosen machine, never another one.
+ */
+export const rebindDefaultChief = async (
+  platform: DefaultMachinePlatform | undefined,
+  user: string,
+  agent: string,
+  current: () => UserState | undefined,
+  rebind: (machine: ChiefCloudMachine, key: string) => SubmitResult,
+  now: () => number = Date.now
+): Promise<RebindReply> => {
+  const state = current()
+  const chief = state?.user?.id === user && state.hosted_default === agent ? state.chiefs?.[agent] : undefined
+  if (!chief || chief.archived_at !== null || chief.brain_place || !chief.cloud_machine) return { ok: false, code: "chief.machine.not_default", retryable: false }
+  let machine: ChiefCloudMachine
+  try { machine = await ensureChiefMachine(platform, user, () => current()!, now) } catch (error) {
+    return { ok: false, code: error instanceof Error ? error.message : "chief.provision.failed", retryable: (error as { retryable?: unknown })?.retryable === true }
+  }
+  const was = chief.cloud_machine
+  if (machine.machine !== was.machine) return { ok: false, code: "chief.machine.binding_changed", retryable: false }
+  if (machine.connection_machine === was.connection_machine && machine.install === was.install) return { ok: true, changed: false, binding: was }
+  const reply = rebind(machine, `chief-default-rebind:${agent}:${machine.connection_machine}:${machine.install}`).frames.find((f) => f.t === "reject" || f.t === "result")
+  if (!reply) return { ok: false, code: "chief.provision.bind_unanswered", retryable: true }
+  if (reply.t === "reject") return { ok: false, code: reply.code, retryable: reply.retryable === true }
+  return { ok: true, changed: true, binding: machine }
 }

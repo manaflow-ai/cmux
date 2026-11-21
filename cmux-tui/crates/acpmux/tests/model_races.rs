@@ -104,7 +104,8 @@ async fn terminal(hub: &Arc<Hub>, parent: &str, id: &str) -> Value {
     .await
 }
 
-async fn release(listener: &tokio::net::UnixListener, count: usize) -> usize {
+/// Releases `count` candidates parked at the barrier; `None` when they do not all arrive.
+async fn release(listener: &tokio::net::UnixListener, count: usize) -> Option<usize> {
     tokio::time::timeout(Duration::from_secs(25), async {
         let mut waiting = Vec::new();
         for _ in 0..count {
@@ -120,7 +121,18 @@ async fn release(listener: &tokio::net::UnixListener, count: usize) -> usize {
         overlap
     })
     .await
-    .expect("both candidates must enter their prompts without waiting for the other to finish")
+    .ok()
+}
+
+/// Names why the barrier stayed empty: each session's info and its last history entries.
+async fn explain(app: &mut Client, sessions: &[&Value]) -> String {
+    let mut out = String::new();
+    for session in sessions {
+        let info = app.call("_acpmux/info", json!({"sessionId": session})).await;
+        let history = app.call("_acpmux/history", json!({"sessionId": session, "limit": 20})).await;
+        out.push_str(&format!("\n{session}: info {info}\nhistory {history}"));
+    }
+    out
 }
 
 fn start(prompt: &str, reviewer: &str) -> Value {
@@ -191,7 +203,11 @@ async fn races_overlap_review_and_cancel_without_touching_other_sessions() {
             "harness":"fake","model":model,"worktree":true}),
             )
             .await;
-        before = before.max(release(&listener, 1).await);
+        let Some(released) = release(&listener, 1).await else {
+            let why = explain(&mut app, &[&child["sessionId"]]).await;
+            panic!("child {model} never reached the barrier: {why}");
+        };
+        before = before.max(released);
         client
             .ok(
                 "_acpmux/wait",
@@ -205,7 +221,17 @@ async fn races_overlap_review_and_cancel_without_touching_other_sessions() {
     }
     let started = client.ok("_acpmux/race/start", start(&task, "review")).await;
     let id = started["id"].as_str().unwrap();
-    let after = release(&listener, 2).await;
+    let Some(after) = release(&listener, 2).await else {
+        let race = json!(hub.race_get(&hub.resolve(&parent).unwrap(), id).unwrap());
+        let sessions: Vec<&Value> = race["candidates"]
+            .as_array()
+            .map(|c| c.iter().map(|c| &c["sessionId"]).collect())
+            .unwrap_or_default();
+        let why = explain(&mut app, &sessions).await;
+        panic!(
+            "both candidates must enter their prompts without waiting for the other to finish: {race}{why}"
+        );
+    };
     let done = terminal(&hub, &parent, id).await;
     assert_eq!(done["state"], "completed", "{done}");
     assert_eq!(done["winnerId"], "c1", "{done}");

@@ -16,6 +16,7 @@ import { useTranscriptReadOnly } from "./readOnly";
 import { ChevronRight, Globe } from "./icons";
 import { pagePathLabel, sourcesLine, type WebSource } from "./webSourceList";
 import "./WebSources.css";
+import { Sign } from "../../../ui/Typography";
 
 /// The sites the closed line names before "+N", the pages from any other site.
 const NAMED = 3;
@@ -107,7 +108,12 @@ export const WebSources = memo(function WebSources({
             </span>
           ))}
         </span>
-        {more > 0 && <span className="cv-web-sources__more">+{more}</span>}
+        {more > 0 && (
+          <span className="cv-web-sources__more">
+            <Sign />
+            {more}
+          </span>
+        )}
         <ChevronRight size={12} className={`cv-rotor${shown ? " is-open" : ""}`} />
       </button>
       {shown && (

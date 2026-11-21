@@ -126,6 +126,8 @@ extension WebKitDriver {
     }
 
     func run(_ body: String, _ arguments: [String: Any], _ frame: WKFrameInfo?, _ world: WKContentWorld, _ tab: WebKitTab) async throws(DriverError) -> DriverJSON {
+        // The call thawed the page, but an await before this one may outlast the planner's agent grace.
+        guard tab.resumeIfSuspended() else { throw DriverError(.closed, "the page's web process ended while it was frozen") }
         do {
             let value = try await tab.webView.callAsyncJavaScript(body, arguments: arguments, in: frame, contentWorld: world)
             return DriverJSON(foundation: value)

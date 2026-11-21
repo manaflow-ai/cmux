@@ -6,10 +6,11 @@ import CmuxNextBridge
 import CmuxNextTestSupport
 import Testing
 
-/// FRAME OWNER REFACTOR KEYS (lead decision, STATUS 8923; Lawrence asked the lead to decide): Resize Pane Left/Right
-/// (Ctrl-Shift-H/L, Ctrl-Cmd-Left/Right) moves the divider in the arrow's direction, as Ghostty's `resize_split` does,
-/// in a scrolling strip too. One press moves exactly one divider one step; only the two sides of that divider change;
-/// nothing else on screen moves. Before: a strip column with no horizontal split grew or shrank on its own (Right grew
+/// PANE KEYS (plans/cmux-next/pane-keys.md, 2026-11-08): Resize Pane Right (Ctrl-Shift-L, Ctrl-Cmd-Right) makes the
+/// focused column wider and Left narrower, across its right edge, or its left edge for the last column. One press
+/// moves exactly one divider one step; only the two sides of that divider change; nothing else on screen moves.
+/// Between #34123 (FRAME OWNER REFACTOR KEYS, 2026-11-03) and pane-keys the divider moved in the arrow's direction, as
+/// Ghostty's `resize_split` does, so Right shrank the last column and a right dock. Before: a strip column with no horizontal split grew or shrank on its own (Right grew
 /// the focused column): the last column's left edge, the divider a person sees, moved LEFT (the strip kept the column
 /// at the viewport's edge), and the columns after a middle one moved with it. A right dock grew with Right: its inner
 /// edge moved left.
@@ -41,7 +42,10 @@ struct KeyboardResizeArrowDirectionTests {
             root.layoutSubtreeIfNeeded()
             root.driver.isManual = true
             model.intentHandler = { [unowned self] intent in
-                if case .setColumnWidth(_, _, _, _, .ended) = intent { ended.append(intent) }
+                switch intent {
+                case .setColumnWidth(_, _, _, _, .ended), .setLayoutSizes: ended.append(intent)
+                default: break
+                }
             }
         }
 
@@ -93,14 +97,15 @@ struct KeyboardResizeArrowDirectionTests {
 
     // MARK: Strip columns
 
-    /// The last column has no right neighbor: its left edge is the divider, and it moves with the arrow.
+    /// The last column has no right neighbor: its left edge is the divider. Right grows the column (the divider moves
+    /// left), Left shrinks it.
     @Test(arguments: [LayoutDirection.right, .left])
     func theLastColumnMovesItsLeftDivider(direction: LayoutDirection) throws {
         let rig = Rig(Self.columns([0.5, 0.5]), focus: "p1")
         defer { rig.window.closeAfterTest() }
         let before = try rig.shown()
         #expect(rig.press("p1", direction))
-        Self.expectOnlyTheDividerMoved(before, try rig.shown(), left: "p0", right: "p1", direction: direction, step: rig.step)
+        Self.expectOnlyTheDividerMoved(before, try rig.shown(), left: "p0", right: "p1", direction: direction == .right ? .left : .right, step: rig.step)
     }
 
     /// A column with a right neighbor moves its right edge, and the columns after the pair stay where they are.
@@ -122,7 +127,7 @@ struct KeyboardResizeArrowDirectionTests {
         let offset = try rig.screen.scroll.target
         #expect(rig.press("p2", direction))
         #expect(try rig.screen.scroll.target == offset, "the press scrolled the strip")
-        Self.expectOnlyTheDividerMoved(before, try rig.shown(), left: "p1", right: "p2", direction: direction, step: rig.step)
+        Self.expectOnlyTheDividerMoved(before, try rig.shown(), left: "p1", right: "p2", direction: direction == .right ? .left : .right, step: rig.step)
     }
 
     /// The divider at the edge of the window (the right neighbor is off screen) cannot move out of it: the press is
@@ -145,12 +150,13 @@ struct KeyboardResizeArrowDirectionTests {
         Self.expectOnlyTheDividerMoved(before, try rig.shown(), left: "p1", right: "p2", direction: .left, step: rig.step)
     }
 
-    /// Every frame of the press's spring: the divider only moves toward the arrow, and the outer edges never move.
+    /// Every frame of the press's spring: the divider only moves one way (Left shrinks the last column: its left edge
+    /// moves right), and the outer edges never move.
     @Test func everyFrameOfThePressMovesTheDividerTowardTheArrow() throws {
         let rig = Rig(Self.columns([0.5, 0.5]), focus: "p1", animates: true)
         defer { rig.window.closeAfterTest() }
         let start = try rig.shown()
-        #expect(PaneResize.press("p1", .right, model: rig.model, view: rig.root))
+        #expect(PaneResize.press("p1", .left, model: rig.model, view: rig.root))
         var last = try #require(start["p0"]).maxX, frames = 0
         while frames < 240, rig.root.advanceFrame(1.0 / 120) {
             rig.root.layoutSubtreeIfNeeded()
@@ -165,18 +171,21 @@ struct KeyboardResizeArrowDirectionTests {
         #expect(abs(last - (try #require(start["p0"]).maxX + rig.step)) <= 1, "the divider rests at \(last)")
     }
 
-    /// A trade is one press: both widths go out under one layout transaction.
-    @Test func aTradeSendsBothWidthsInOneTransaction() throws {
+    /// A trade is one press: both widths go out as one change (one intent, one layout transaction).
+    @Test func aTradeSendsBothWidthsAsOneChange() throws {
         let rig = Rig(Self.columns([0.5, 0.5]), focus: "p1")
         defer { rig.window.closeAfterTest() }
         #expect(rig.press("p1", .right))
-        let sent = rig.ended.compactMap { intent -> (LayoutColumnID, Double, LayoutTransactionID)? in
-            guard case let .setColumnWidth(column, _, width, transaction, .ended) = intent else { return nil }
-            return (column, width, transaction)
+        guard rig.ended.count == 1, case let .setLayoutSizes(values, _)? = rig.ended.first else {
+            Issue.record("the trade went to the app as \(rig.ended)")
+            return
         }
-        #expect(sent.count == 2, "want the two columns' widths, got \(sent)")
-        #expect(Set(sent.map(\.2)).count == 1, "the trade's widths went out in \(Set(sent.map(\.2)).count) transactions")
-        #expect(Set(sent.map(\.0)) == ["c0", "c1"])
+        let sent = values.compactMap { value -> LayoutColumnID? in
+            guard case let .width(column, _, _) = value else { return nil }
+            return column
+        }
+        #expect(sent.count == 2 && values.count == 2, "want the two columns' widths, got \(values)")
+        #expect(Set(sent) == ["c0", "c1"])
     }
 
     /// One scrolling column has no divider beside it: its right edge moves with the arrow (as before), up to the full
@@ -195,7 +204,7 @@ struct KeyboardResizeArrowDirectionTests {
 
     // MARK: Side docks
 
-    /// A right dock's inner edge is its left edge: Right moves it right (the dock shrinks), Left moves it left.
+    /// A right dock's inner edge is its left edge: Right grows the dock (the edge moves left), Left shrinks it.
     @Test(arguments: [LayoutDirection.right, .left])
     func aRightDocksInnerEdgeMovesWithTheArrow(direction: LayoutDirection) throws {
         let dock = LayoutColumn(id: "d", width: 0.3, root: .leaf("pd"), dock: DockColumn(edge: .right, mode: .docked))
@@ -205,7 +214,7 @@ struct KeyboardResizeArrowDirectionTests {
         #expect(rig.press("pd", direction))
         let after = try #require(try rig.shown()["pd"])
         let moved = after.minX - before.minX
-        #expect(direction == .right ? moved > 0 : moved < 0, "Right/Left moved the right dock's inner edge by \(moved)")
+        #expect(direction == .right ? moved < 0 : moved > 0, "Right/Left moved the right dock's inner edge by \(moved)")
         #expect(abs(after.maxX - before.maxX) < 0.01, "the dock left its edge")
     }
 
@@ -271,7 +280,7 @@ struct KeyboardResizeShownStepTests {
     }
 
     /// A side dock's width shows between its minimum and its share of the window (`DockStripGeometry.maxShare`). A
-    /// right dock stored past that share shows at the share: Left (grow) is refused, and Right (shrink) is a whole step
+    /// right dock stored past that share shows at the share: Right (grow) is refused, and Left (shrink) is a whole step
     /// from the width it shows.
     @Test func aDockAtItsShareCapRefusesToGrowAndShrinksAWholeStep() throws {
         let style = LayoutStyle()
@@ -281,9 +290,9 @@ struct KeyboardResizeShownStepTests {
             let geometry = ScreenGeometry.compute(layout, viewport: Self.viewport, style: style)
             return PaneResize.change(for: "pd", direction: direction, in: layout, shown: ShownResizeRange(geometry: geometry, style: style))
         }
-        #expect(change(.left) == nil, "Left grew a dock shown at its share cap: the press changes the model and moves nothing")
-        guard case let .columnWidth(id, width)? = change(.right) else {
-            Issue.record("Right on a right dock made no change")
+        #expect(change(.right) == nil, "Right grew a dock shown at its share cap: the press changes the model and moves nothing")
+        guard case let .columnWidth(id, width)? = change(.left) else {
+            Issue.record("Left on a right dock made no change")
             return
         }
         let before = try #require(ScreenGeometry.compute(layout, viewport: Self.viewport, style: style).columns["d"])
@@ -330,7 +339,9 @@ struct KeyboardResizeShownStepTests {
                 let l0 = try #require(before.columns[left]), r0 = try #require(before.columns[right])
                 let l1 = try #require(placed.columns[left]), r1 = try #require(placed.columns[right])
                 let step = l1.maxX - l0.maxX
-                #expect(direction == .right ? step > 0 : step < 0, "\(pane) \(direction) \(when): the divider moved \(step)")
+                // The last column grows across its left edge: its Right moves the divider left.
+                let dividerRight = (direction == .right) == (pane != "p2")
+                #expect(dividerRight ? step > 0 : step < 0, "\(pane) \(direction) \(when): the divider moved \(step)")
                 #expect(r1.minX - r0.minX == step, "\(pane) \(direction) \(when): the divider's sides moved \(step) and \(r1.minX - r0.minX)")
                 #expect(l1.minX == l0.minX && r1.maxX == r0.maxX,
                         "\(pane) \(direction) \(when): an outer edge moved (\(l0.minX) -> \(l1.minX), \(r0.maxX) -> \(r1.maxX))")
@@ -356,17 +367,19 @@ struct KeyboardResizeShownStepTests {
     }
 }
 
-/// Claude review of #34123: a trade sends two widths, one daemon command each, under one transaction. The first
+/// #34123: a trade sent two widths, one daemon command each, under one transaction. The first
 /// command's reply settled the whole transaction, so a daemon snapshot that came before the second command's event
 /// (the store applies events once per display frame) dropped the second width's override, and for a frame that column
 /// showed its old width and every column after it jumped. The transaction settles when its last value is answered.
+/// A trade is one command now (`KeyboardResizeTradeAtomicTests`); values that still go as their own commands under one
+/// transaction (a split's sizing, a dock's width) keep this rule.
 @MainActor
 @Suite(.closesItsWindows)
 struct KeyboardResizeTradeSettleTests {
     @Test func aTradeSettlesWhenItsLastWidthIsAnswered() throws {
         let columns = [LayoutColumn(id: "c0", width: 0.5, root: .leaf("p0")), LayoutColumn(id: "c1", width: 0.5, root: .leaf("p1"))]
         let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))], activeScreenID: "s", focusedPane: "p0")
-        model.intentHandler = { _ in } // the app sends each width as its own command, and settles it at its reply
+        model.intentHandler = { _ in } // the app sends each of these widths as its own command, and settles it at its reply
         func width(_ column: LayoutColumnID) -> Double? { model.screens.first?.layout.columns.first { $0.id == column }?.width }
         func daemon(_ c0: Double, _ c1: Double) -> [LayoutScreen] {
             [LayoutScreen(id: "s", name: "s", layout: .columns([LayoutColumn(id: "c0", width: c0, root: .leaf("p0")),
@@ -398,7 +411,10 @@ struct KeyboardResizeRefusedPressTests {
         let rig = KeyboardResizeArrowDirectionTests.Rig(KeyboardResizeArrowDirectionTests.columns([0.5, 0.5, 0.5]), focus: "p0")
         defer { rig.window.closeAfterTest() }
         rig.model.intentHandler = { [model = rig.model] intent in
-            if case let .setColumnWidth(_, _, _, transaction, .ended) = intent { model.rejectTransaction(transaction) }
+            switch intent {
+            case let .setColumnWidth(_, _, _, transaction, .ended), let .setLayoutSizes(_, transaction): model.rejectTransaction(transaction)
+            default: break
+            }
         }
         let screen = try rig.screen
         #expect(screen.scroll.target == 0)
@@ -416,58 +432,71 @@ struct KeyboardResizeRefusedPressTests {
 /// - A reply that came in the turn of the first width's command (a handler that settles at once) settled the trade
 ///   before its second width was counted, so a daemon snapshot before the second width's event showed the first column
 ///   at its old width.
+/// Both widths go to the app as one intent now (`LayoutIntent.setLayoutSizes`): the app refuses or sends the pair, and
+/// the pair has one reply.
 /// - A trade beside a column the daemon has not made yet (a stand-in, `ProvisionalPane`) sent the other column's width,
 ///   which the daemon applied, and the stand-in's, which it refused: half a trade at the daemon. The press is refused
 ///   at once instead, before anything moves, as other pane verbs on a stand-in are.
 @MainActor
 @Suite(.closesItsWindows)
 struct KeyboardResizeTradeAtomicTests {
-    @Test func aTradeWhoseFirstWidthIsRefusedShowsAndSendsNeither() throws {
+    @Test func aTradeTheAppRefusesShowsNeitherWidthAndSendsNothingElse() throws {
         let rig = KeyboardResizeArrowDirectionTests.Rig(KeyboardResizeArrowDirectionTests.columns([0.5, 0.5]), focus: "p1")
         defer { rig.window.closeAfterTest() }
-        var sent: [LayoutColumnID] = []
+        var sent: [LayoutIntent] = []
         rig.model.intentHandler = { [model = rig.model] intent in
-            guard case let .setColumnWidth(column, _, _, transaction, .ended) = intent else { return }
-            // c0's pane has no handle: the app refuses its width at once.
-            if column == "c0" { model.rejectTransaction(transaction) } else { sent.append(column) }
+            switch intent {
+            // c0's pane has no handle: the app refuses the trade at once.
+            case let .setLayoutSizes(_, transaction): model.rejectTransaction(transaction)
+            case .setColumnWidth, .setSplitRatio: sent.append(intent)
+            default: break
+            }
         }
         _ = rig.press("p1", .right)
-        #expect(sent.isEmpty, "a trade refused for c0 still sent \(sent)")
+        #expect(sent.isEmpty, "a refused trade still sent \(sent)")
         let widths = rig.model.screens[0].layout.columns.map(\.width)
-        #expect(widths == [0.5, 0.5], "a trade refused for c0 shows widths \(widths)")
+        #expect(widths == [0.5, 0.5], "a refused trade shows widths \(widths)")
     }
 
-    @Test func aReplyInTheFirstWidthsTurnDoesNotSettleTheTrade() throws {
+    @Test func aSnapshotBeforeTheTradesOneReplyKeepsBothWidthsAndTheReplySettlesBoth() throws {
         let rig = KeyboardResizeArrowDirectionTests.Rig(KeyboardResizeArrowDirectionTests.columns([0.5, 0.5]), focus: "p1")
         defer { rig.window.closeAfterTest() }
-        rig.model.intentHandler = { [model = rig.model] intent in
-            // c0's command is answered in its own turn; c1's reply comes later.
-            if case .setColumnWidth("c0", _, _, let transaction, .ended) = intent { model.settleTransaction(transaction) }
+        var transactions: [LayoutTransactionID] = []
+        rig.model.intentHandler = { intent in
+            if case let .setLayoutSizes(_, transaction) = intent { transactions.append(transaction) }
         }
-        #expect(rig.press("p1", .right))
+        #expect(rig.press("p1", .left))
         let trade = rig.model.screens[0].layout.columns.map(\.width)
         try #require(trade[0] > 0.5 && trade[1] < 0.5, "the press made no trade: \(trade)")
-        // A daemon snapshot from before either event.
-        rig.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(KeyboardResizeArrowDirectionTests.columns([0.5, 0.5])))])
-        #expect(rig.model.screens[0].layout.columns.map(\.width) == trade, "the snapshot undid half the trade before its second reply")
+        #expect(transactions.count == 1, "the trade went to the app as \(transactions.count) changes")
+        let press = try #require(transactions.first)
+        func daemon(_ widths: [Double]) -> [LayoutScreen] {
+            [LayoutScreen(id: "s", name: "s", layout: .columns(KeyboardResizeArrowDirectionTests.columns(widths)))]
+        }
+        // A daemon snapshot from before the command's events.
+        rig.model.apply(screens: daemon([0.5, 0.5]))
+        #expect(rig.model.screens[0].layout.columns.map(\.width) == trade, "the snapshot undid the trade before its reply")
+        // The trade's one reply, then the daemon's next snapshot: its widths, nothing held over them.
+        rig.model.settleTransaction(press)
+        rig.model.apply(screens: daemon([0.6, 0.4]))
+        #expect(rig.model.screens[0].layout.columns.map(\.width) == [0.6, 0.4], "the trade's one reply did not settle both of its widths")
     }
 
-    /// Codex review 3 of #34123: a handler that answers the last width at once and applies the daemon's snapshot in that
+    /// #34123: a handler that answers the trade at once and applies the daemon's snapshot in that
     /// turn (a synchronous source, such as the layout demo's) removes the trade's overrides because it succeeded; the press
     /// read that as a refusal and said nothing moved.
-    @Test func aTradeAnsweredAndAppliedInItsLastWidthsTurnIsAPress() throws {
+    @Test func aTradeAnsweredAndAppliedInItsOwnTurnIsAPress() throws {
         let rig = KeyboardResizeArrowDirectionTests.Rig(KeyboardResizeArrowDirectionTests.columns([0.5, 0.5]), focus: "p1")
         defer { rig.window.closeAfterTest() }
-        var widths: [LayoutColumnID: Double] = [:]
         rig.model.intentHandler = { [model = rig.model] intent in
-            guard case let .setColumnWidth(column, _, width, transaction, .ended) = intent else { return }
-            widths[column] = width
+            guard case let .setLayoutSizes(values, transaction) = intent else { return }
+            var widths: [LayoutColumnID: Double] = [:]
+            for case let .width(column, _, width) in values { widths[column] = width }
             model.settleTransaction(transaction)
-            guard widths.count == 2 else { return }
             let columns = KeyboardResizeArrowDirectionTests.columns([widths["c0"] ?? 0.5, widths["c1"] ?? 0.5])
             model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))])
         }
-        #expect(rig.press("p1", .right), "a trade the daemon applied in its turn read as refused")
+        #expect(rig.press("p1", .left), "a trade the daemon applied in its turn read as refused")
         let shown = rig.model.screens[0].layout.columns.map(\.width)
         #expect(shown[0] > 0.5 && shown[1] < 0.5, "the applied trade does not show: \(shown)")
     }
@@ -515,5 +544,21 @@ struct KeyboardResizeOneUndoStepTests {
         // The next press is its own undo step.
         content.handle(.setColumnWidth(LayoutColumnID("column:10"), anyPane: left, width: 0.6, transaction: .make(), phase: .ended))
         #expect(content.gestureTransactions.latest == first + 2)
+    }
+
+    /// A change of several values is one intent and one command, so one daemon transaction; a change the app refuses
+    /// (a value whose pane has no handle) takes none.
+    @Test func aChangeOfSeveralValuesTakesOneDaemonTransaction() throws {
+        let shown = try PaneCloseControllerTests.Shown([ColumnSnapshot(id: 10, width: 0.5, layout: .leaf(1)),
+                                                        ColumnSnapshot(id: 11, width: 0.5, layout: .leaf(2))])
+        defer { shown.end() }
+        let content = try #require(shown.content)
+        let (left, right) = (LayoutPaneID(try shown.key(1)), LayoutPaneID(try shown.key(2)))
+        let (c10, c11) = (LayoutColumnID("column:10"), LayoutColumnID("column:11"))
+        let first = content.gestureTransactions.latest
+        content.handle(.setLayoutSizes([.width(c10, anyPane: left, 0.55), .width(c11, anyPane: right, 0.45)], transaction: .make()))
+        #expect(content.gestureTransactions.latest == first + 1, "one change took \(content.gestureTransactions.latest - first) daemon transactions")
+        content.handle(.setLayoutSizes([.width(c10, anyPane: left, 0.5), .width(c11, anyPane: "gone", 0.5)], transaction: .make()))
+        #expect(content.gestureTransactions.latest == first + 1, "a change the app refused took a daemon transaction")
     }
 }

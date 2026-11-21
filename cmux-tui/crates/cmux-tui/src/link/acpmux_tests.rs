@@ -278,6 +278,7 @@ async fn inbound(hello: &str, target: &AcpmuxTarget) -> Result<(), InboundRefuse
         None,
         target,
         None,
+        None,
     ))
     .await
 }
@@ -337,6 +338,7 @@ fn a_link_with_acpmux_off_serves_no_acpmux_stream() {
             None,
             None,
             &AcpmuxTarget::Off,
+            None,
             None,
         ))
         .await;
@@ -476,6 +478,7 @@ fn acpmux_connect_baseline() {
             config.peers = BTreeMap::from([(
                 "other".to_string(),
                 acpmux::config::PeerConfig {
+                    link_host: None,
                     url: "ws://127.0.0.1:1".into(),
                     wireguard: Some(acpmux::wireguard::StaticPeer {
                         public_key: keys[other].public_key_b64(),

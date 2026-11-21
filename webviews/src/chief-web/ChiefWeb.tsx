@@ -1,3 +1,4 @@
+import { toggleTurnFold } from "../agent-session/acpmux/conversation/turns";
 import "../agent-session/guest/guest.css";
 import "./chief-web.css";
 import {
@@ -263,13 +264,7 @@ function ChiefChat({
               rows={rows}
               sessionId={`chief-web:${identity.mainConversationId}`}
               expanded={expanded}
-              onToggleActivity={(id) =>
-                setExpanded((open) => {
-                  const next = new Set(open);
-                  if (!next.delete(id)) next.add(id);
-                  return next;
-                })
-              }
+              onToggleActivity={(id, covers) => setExpanded((open) => toggleTurnFold([], open, id, covers))}
               working={working}
               registry={chiefRegistry}
               readOnly

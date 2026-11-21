@@ -77,7 +77,6 @@ public nonisolated struct AddDeviceStrings {
         case .makeJoinLine: s("addDevice.joinLine.makeLine", "Make Line")
         case .newJoinLine: s("addDevice.joinLine.newLine", "New Line")
         case .signIn: SignInButton.defaultTitle
-        case .showMachines: s("addDevice.joinLine.showMachines", "Show in Machines")
         case .pairAnotherMachine: s("addDevice.joinLine.pairAnotherMachine", "Pair Another Machine…")
         case .toggleAdvanced: advanced
         case .done: s("addDevice.done", "Done")

@@ -6,9 +6,10 @@ internal import os
 /// O(session) (plans/cmux-next/PATTERNS.md P3, "Go past Chrome" in CLAUDE.md): a test compares the count of one New
 /// Terminal Tab in a small session with the count in a STRESS-sized one.
 ///
-/// Only will-sets that run inside the change (synchronously, in the task the counter is set for) are counted; a direct
-/// `withObservationTracking` outside these wrappers is not. With no counter set (the app), `record()` reads one task
-/// local and does nothing else.
+/// Only will-sets that run inside the change (synchronously, in the task the counter is set for) are counted. A direct
+/// `withObservationTracking` outside these wrappers is counted only when its site records itself, in the main-actor
+/// hop its `onChange` queued (the hop has the task-local values of the write: `BrowserHostProvider.observeTabs()`).
+/// With no counter set (the app), `record()` reads one task local and does nothing else.
 ///
 /// ```swift
 /// let wakes = ObservationWakes()

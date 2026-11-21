@@ -28,6 +28,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import dev_landing_place as place  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 SIDE = "glaeda-side-std-xcode-26.6"
 ROOT_LABEL = "glaeda-root-std-xcode-26.6"
@@ -173,7 +180,7 @@ class PickerTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         bare = str(Path(temp.name) / "bare.git")
-        subprocess.run(["git", "init", "-q", "--bare", bare], check=True)
+        git_fixture_env.init_repo(bare, "--bare")
         subprocess.run(["git", "-C", bare, "fetch", "-q", self.history.path, self.history.commits[5]], check=True)
         # c9 is newer than the landing's c5: not in its history until the holder is fetched.
         self.assertIsNone(place.git_distance(bare, self.history.commits[9], self.history.commits[5]))
@@ -184,7 +191,7 @@ class PickerTests(unittest.TestCase):
         def gap(*args):
             return subprocess.run([sys.executable, "-I", str(ROOT / "scripts/ci/dev_landing_place.py"), "gap", *args],
                                   capture_output=True, text=True, check=True,
-                                  env={"GAP_REMOTE": self.history.path, "PATH": "/usr/bin:/bin"}).stdout.strip()
+                                  env=git_fixture_env.fixture_env({"GAP_REMOTE": self.history.path, "PATH": "/usr/bin:/bin"})).stdout.strip()
         commits = self.history.commits
         self.assertEqual(gap(commits[6], commits[9]), "3")
         self.assertEqual(gap(commits[9], commits[9]), "0")
@@ -332,6 +339,30 @@ class DailyPickerTests(unittest.TestCase):
                             {}, stalled)
         self.assertEqual((result["runs_on"], result["pool"]), ("", ""))
 
+    def test_a_blacksmith_label_queued_at_its_slot_count_is_no_overflow_even_from_a_stale_snapshot(self):
+        # 2026-11-17 04:42Z, cmux#44204's DEV Release compile (run 44018999063): no owned runner idle and no
+        # snapshot under 15 min old, so it took blacksmith-6vcpu-macos-26 unverified and sat over an hour behind
+        # 56 queued jobs on its 10 slots. A snapshot up to 45 min old still counts the queue against the slots.
+        busy = [slot("cmux8s-glaeda-2", busy=True), runner("cmux13s-glaeda-9", SIDE, busy=True)]
+
+        def counted(queued: dict[str, int], age_minutes: int) -> dict:
+            snap = snapshot({label: 5 for label in queued}, age_minutes)
+            for label, count in queued.items():
+                snap["pools"][label]["queued"] = count
+            return snap
+        for age in (2, 30):
+            with self.subTest(age=age):
+                result = self.daily(busy, {}, counted({SMALL: 56, LARGE: 5}, age))
+                self.assertEqual((json.loads(result["runs_on"]), result["pool"]), (FRESH, "owned"))
+                self.assertIn("DEV slot", result["reason"])
+                result = self.daily(busy, {}, counted({SMALL: 56, LARGE: 2}, age))
+                self.assertEqual((json.loads(result["runs_on"]), result["pool"]), (LARGE, "blacksmith"))
+        # Under its slot count it is still the overflow; a snapshot past 45 min counts nothing.
+        result = self.daily(busy, {}, counted({SMALL: 9, LARGE: 5}, 2))
+        self.assertEqual(json.loads(result["runs_on"]), SMALL)
+        result = self.daily(busy, {}, counted({SMALL: 56, LARGE: 5}, 60))
+        self.assertEqual(json.loads(result["runs_on"]), SMALL)
+
     def test_an_idle_owned_runner_always_beats_blacksmith(self):
         result = self.daily([slot("cmux8s-glaeda-2", busy=True), runner("cmux13s-glaeda-9", SIDE)], {},
                             snapshot({SMALL: 0, LARGE: 0}))
@@ -384,7 +415,7 @@ class HolderScriptTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         report, out = Path(temp.name) / "report.txt", Path(temp.name) / "out"
         script = str(ROOT / "scripts/cmux-next/dev-cas-holder.sh")
-        env = {"RUNNER_NAME": "CMUX14-glaeda-2", "GITHUB_SHA": "a" * 40, "PATH": "/usr/bin:/bin"}
+        env = git_fixture_env.fixture_env({"RUNNER_NAME": "CMUX14-glaeda-2", "GITHUB_SHA": "a" * 40, "PATH": "/usr/bin:/bin"})
         report.write_text("mode=instance\nderived_data=/x\nprevious_sha=\n")
         printed = subprocess.run([script, str(report), str(out)], capture_output=True, text=True, check=True, env=env)
         self.assertEqual((printed.stdout, out.exists()), ("", False))

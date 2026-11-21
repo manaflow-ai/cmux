@@ -12,7 +12,7 @@
 import { useContext, useEffect, useState } from "react";
 import { SubagentClockContext } from "../subagents/subagentGroupModel";
 import type { SummaryWakeup } from "../summary/sessionSummary";
-import { formatDuration } from "../conversation/turns";
+import { spanDuration } from "../conversation/turns";
 import type { PaneLanguage, StringKey, Translate } from "../i18n";
 import { cronWords, nextCronFire } from "./cronWords";
 
@@ -117,7 +117,8 @@ export function scheduledTrailing(t: Translate, language: PaneLanguage, entry: S
   }
   const word = t(SCHEDULED_STATE[status.state]);
   if (status.state !== "done" || status.endedAt === undefined || item.startedAt === undefined) return word;
-  return `${word} · ${formatDuration(Math.max(0, status.endedAt - item.startedAt))}`;
+  const time = spanDuration(t, status.endedAt - item.startedAt);
+  return time === undefined ? word : `${word} · ${time}`;
 }
 
 const SCHEDULED_STATE: Record<Exclude<ScheduledState, "scheduled">, StringKey> = {

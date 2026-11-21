@@ -875,7 +875,7 @@ impl ServiceStream {
         }
     }
 
-    pub(crate) async fn wait_for_failure(&self) -> ServiceError {
+    pub async fn wait_for_failure(&self) -> ServiceError {
         let mut failure = self.failure.subscribe();
         loop {
             if let Some(failure) = failure.borrow().clone() {

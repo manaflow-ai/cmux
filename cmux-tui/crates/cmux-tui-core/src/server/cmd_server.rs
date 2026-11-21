@@ -95,7 +95,19 @@ pub(super) fn identify(
         identity.insert("machine_id", json!(mux.machine_public_id));
         identity.insert("session_resource_id", json!(mux.session_public_id));
         identity.insert("machine_platform", crate::resource_api::machine_platform());
+        // What kind of device this machine is and the SF Symbol that kind draws
+        // (`cmux-device-kind`): the sidebar's machine header, hover card and remote headers
+        // draw the symbol by this name.
+        let device = cmux_device_kind::this_device().kind;
+        identity.insert("machine_device", json!(device.as_str()));
+        identity.insert("machine_symbol", json!(device.symbol()));
         identity.insert("machine_capabilities", crate::resource_api::machine_capabilities());
+        // The worker's independently generated screen UUID is intentionally
+        // separate from the daemon machine ID. It is read only from the
+        // authenticated local supervisor cache and omitted from legacy
+        // identify replies.
+        identity
+            .insert("screen_device_id", json!(mux.control_clients.remote_host.screen_device_id()));
     }
     Ok(identity)
 }
@@ -142,6 +154,13 @@ pub(super) fn shutdown_daemon(
         "pid": actual_identity.pid,
         "generation": actual_identity.generation,
         "ended_terminals": ended_terminals,
+        // A stop that ended every terminal leaves nothing to resume: the
+        // stopping client removes the terminal and resume state in this
+        // directory once the owner released it; the other stores stay.
+        "session_dir": (end_terminals && !keep_layout)
+            .then(|| mux.session_state_directory())
+            .flatten()
+            .and_then(|dir| dir.to_str().map(str::to_owned)),
     }))
 }
 
@@ -193,7 +212,15 @@ pub(super) fn set_client_info(
     if identity_changed {
         mux.control_clients.set_sizing_identity(client, identity);
     }
-    if remote {
+    // A phone's carrier channel (`cloud-mobile-chat-v1` on a unix connection, phone_carrier.rs)
+    // is a remote device whether or not it says `remote`: incognito workspaces stay off it
+    // (incognito_remote.rs). Both marks are sticky, and this one is made before the
+    // declaration's reply, so nothing after it sees an incognito workspace.
+    #[cfg(unix)]
+    let phone = mux.phone_carrier_client(client);
+    #[cfg(not(unix))]
+    let phone = false;
+    if remote || phone {
         mux.control_clients.mark_remote_device(client);
     }
     mux.refresh_terminal_client_identity(client);

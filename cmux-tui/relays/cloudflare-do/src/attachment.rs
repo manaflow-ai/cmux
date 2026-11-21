@@ -28,10 +28,23 @@ pub(crate) struct SlotAttachment {
     /// before this field existed (`crate::daemon`).
     #[serde(default, skip_serializing_if = "is_zero")]
     pub last_seen_ms: u64,
+    /// A daemon owed the slot's unjoined circuits: it resumed after silence
+    /// past the liveness window while its registration wasn't current
+    /// (`crate::daemon::record_ping`), a Connect fell back to another legacy
+    /// registration (`crate::daemon::owed_handover_after_fallback`), or
+    /// another legacy registration closed
+    /// (`crate::daemon::owed_handover_after_close`). Its first Ping once it
+    /// is current is handed them.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pending_handover: bool,
 }
 
 fn is_zero(value: &u64) -> bool {
     *value == 0
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -139,6 +152,7 @@ mod tests {
             idle_deadline_ms: 2_000,
             parked: None,
             last_seen_ms: 0,
+            pending_handover: false,
         };
 
         let encoded = serde_json::to_vec(&attachment).unwrap();

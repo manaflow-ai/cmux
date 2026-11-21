@@ -17,6 +17,7 @@ import { cardCount, cardLine, listNames, runningPhases, workflowModel } from "./
 import "./WorkflowCard.css";
 import "./workflowDots.css";
 import { opener, sideTabOpener, listeners } from "./workflowCardModel";
+import { Clock } from "../../../ui/Typography";
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => void listeners.delete(listener);
@@ -112,7 +113,7 @@ export function WorkflowCard({
             <span className="acpmux-workflow-card__running">{listNames(phaseNames, language)}</span>
           )}
           {countText && <span>{countText}</span>}
-          <span>{formatDuration(elapsed)}</span>
+          <Clock text={formatDuration(elapsed)} />
           {tokens !== undefined && <span>{t("subagents.tokens", { n: tokens, tokens: compactTokens(tokens) })}</span>}
         </span>
         {presentation === "compact" ? (

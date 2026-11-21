@@ -74,9 +74,10 @@ public final class SavedGroupsBarView: NSView {
             }
         }
         tokenObservation = Task { [weak self] in
-            for await snapshot in ObservationStream({ TabStripMetrics() }) {
+            for await snapshot in ObservationStream({ (TabStripMetrics(), GroupChipGlass.current) }) {
                 guard let self else { return }
-                if snapshot != self.metrics { self.sync() }
+                for chip in self.chips.values { chip.look = snapshot.1 }
+                if snapshot.0 != self.metrics { self.sync() }
             }
         }
     }

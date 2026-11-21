@@ -67,6 +67,27 @@ struct SSHMachineSecretsTests {
         #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent(".cmux/machine-config/receive-secrets.a1b2.ticket").path))
     }
 
+    /// A set of any size is written whole by the real receiver: here a file past the 4 MiB the app
+    /// and the receiver once refused (70 values of 16 KiB apostrophes, each written as `'\''`).
+    @Test func aSetWhoseFileIsPastFourMiBIsWrittenWhole() async throws {
+        let home = try Self.scratchHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let ssh = try Self.standInSSH(in: home)
+        let link = SSHMachineSecrets.link(to: try SSHDestination(parsing: "ann@own-machine"),
+                                          environment: ["HOME": home.path, "PATH": "/usr/bin:/bin"],
+                                          commandLine: SSHCommandLine(sshBinary: ssh.path), word: "e5f6")
+        let values = (0..<70).map { (name: "SECRET_\($0)", value: String(repeating: "'", count: 16 * 1024)) }
+        let count = try await CloudMachineSecrets.deliver(values, over: link, receiverAt: SSHMachineSecrets.receiverPath,
+                                                          ticketAt: SSHMachineSecrets.ticketPath("e5f6"))
+        #expect(count == 70)
+        let file = home.appendingPathComponent(".config/cmux/machine-secrets.env")
+        let written = try Data(contentsOf: file)
+        #expect(written.count > 4 << 20, "\(written.count) bytes")
+        let quoted = String(repeating: "'\\''", count: 16 * 1024)
+        let lines = String(decoding: written, as: UTF8.self).split(separator: "\n")
+        #expect(lines == values.map { "export \($0.name)='\(quoted)'"[...] })
+    }
+
     /// An ssh that cannot reach the machine stops the delivery before any value is read off the pty,
     /// with ssh's own words.
     @Test func anUnreachableMachineStopsAtTheInstallWithSSHsWords() async throws {

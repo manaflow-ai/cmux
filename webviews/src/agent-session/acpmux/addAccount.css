@@ -5,12 +5,15 @@
   width: min(420px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
   overflow: auto;
-  padding: 16px;
+  padding: var(--ui-dialog-padding, 16px);
   color: var(--agent-text);
   /* The glass (.ui-glass .ui-glass-floats) in the sheet role's veil, radius and depth (ui/popupSurface.css .ui-dialog.ui-glass). */
   font-family: var(--font-ui);
   font-size: var(--text-body);
   letter-spacing: var(--text-body--letter-spacing);
+}
+.acpmux-add-account.ui-dialog {
+  --ui-dialog-padding: 16px;
 }
 .acpmux-add-account form {
   display: grid;
@@ -100,7 +103,7 @@
   font: inherit;
   outline: none;
 }
-.acpmux-add-account input:not([type="radio"]):focus {
+.acpmux-add-account input:not([type="radio"]):focus-visible {
   border-color: var(--agent-text);
 }
 .acpmux-add-account .acpmux-add-account-error {

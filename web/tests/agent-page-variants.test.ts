@@ -3,6 +3,7 @@ import {
   buildLlmsText,
   resolveAgentPageVariant,
   variantPathForPage,
+  isEnglishOnlyAgentPage,
 } from "../app/lib/agent-page-paths";
 import { sitemapEntries as sitemap } from "../app/sitemap";
 import {
@@ -366,6 +367,28 @@ describe("agent page variants", () => {
     );
   });
 
+  // cmux-next docs are English-only: a reader preferring Japanese had the
+  // canonical fetch negotiated to /ja/docs/next/..., which 404s.
+  test("asks for English when fetching an English-only page's HTML", () => {
+    const requestHeaders = new Headers({
+      cookie: "_vercel_sso_nonce=abc; NEXT_LOCALE=ja",
+      "accept-language": "ja,en;q=0.9",
+    });
+    const searchParams = new URLSearchParams();
+    for (const path of ["/docs/nightly/next/own-keys", "/docs/next/own-keys", "/docs/next"]) {
+      expect(isEnglishOnlyAgentPage(path)).toBe(true);
+    }
+    expect(isEnglishOnlyAgentPage("/docs/getting-started")).toBe(false);
+
+    const headers = headersForCanonicalFetch({ requestHeaders, searchParams, englishOnly: true });
+    expect(headers.get("accept-language")).toBe("en");
+    expect(headers.get("cookie")).toBe("_vercel_sso_nonce=abc; NEXT_LOCALE=en");
+    expect(
+      headersForCanonicalFetch({ requestHeaders: new Headers({ "accept-language": "ja" }), searchParams, englishOnly: true })
+        .has("cookie"),
+    ).toBe(false);
+  });
+
   test("keeps internal redirects on the same origin", () => {
     expect(
       sameOriginRedirectUrl({
@@ -406,6 +429,35 @@ describe("agent page variants", () => {
       "[How to run multiple Claude Code agents in parallel](https://preview.example/compare/multiple-claude-code-agents-parallel)",
     );
     expect(llms).not.toContain("https://cmux.com/compare/");
+  });
+
+  // The nightly docs zone served llms.txt with its own host and the public
+  // /docs/nightly/next paths, which that host serves as /docs/next, so every
+  // cmux-next link 404'd. Sending every link to cmux.com instead broke docs
+  // only the nightly zone has, since cmux.com/docs reaches the release zone.
+  test("llms.txt on a docs zone keeps its own docs and links the rest to cmux.com", () => {
+    const nightly = "https://cmux-docs-nightly.vercel.app";
+    const nightlyEnv = { CMUX_DOCS_CHANNEL: "nightly" };
+    const fromNightly = buildLlmsText(nightly, nightlyEnv);
+    expect(fromNightly).toContain(`(${nightly}/docs/next/own-keys.md)`);
+    expect(fromNightly).toContain(`(${nightly}/docs/next.md)`);
+    expect(fromNightly).toContain(`(${nightly}/docs/cloud.md)`);
+    expect(fromNightly).toContain("(https://cmux.com/pricing.md)");
+    expect(fromNightly).toContain("(https://cmux.com/compare/cmux-vs-herdr)");
+    expect(fromNightly).not.toContain(`${nightly}/docs/nightly`);
+    expect(fromNightly).not.toContain(`${nightly}/pricing`);
+
+    const release = "https://cmux-docs-release.vercel.app";
+    const fromRelease = buildLlmsText(release, { CMUX_DOCS_CHANNEL: "release" });
+    expect(fromRelease).toContain(`(${release}/docs/cloud.md)`);
+    // cmux-next docs are only in the nightly zone: their public cmux.com URL.
+    expect(fromRelease).toContain("(https://cmux.com/docs/nightly/next/own-keys.md)");
+    expect(fromRelease).not.toContain(`${release}/docs/next`);
+    expect(fromRelease).toContain("(https://cmux.com/pricing.md)");
+
+    const fromSite = buildLlmsText("https://preview.example", {});
+    expect(fromSite).toContain("(https://preview.example/docs/nightly/next/own-keys.md)");
+    expect(fromSite).toContain("(https://preview.example/docs/cloud.md)");
   });
 
   test("limits en-ja docs variants to translated locales", () => {

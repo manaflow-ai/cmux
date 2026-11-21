@@ -89,7 +89,34 @@ def unguarded_target_adds(text: str) -> list[int]:
     return found
 
 
+NIGHTLY_STEPS = "scripts/ci/nightly-steps/"
+SHELL_TOOLCHAIN_INSTALL = re.compile(r"^\s*(?:if\s+!\s+)?(?:\S*/)?rustup\s+toolchain\s+install\b")
+
+
+def direct_toolchain_installs(text: str) -> list[int]:
+    """Line numbers in TEXT whose command runs `rustup toolchain install` (not prose, not a comment)."""
+    return [number for number, line in logical_lines(text)
+            if not line.lstrip().startswith("#") and SHELL_TOOLCHAIN_INSTALL.search(line)]
+
+
 class RustTargetsInstalledFirst(unittest.TestCase):
+    def test_nightly_steps_install_the_toolchain_through_the_helper(self) -> None:
+        """The nightly's steps run on fleet Macs that already hold the pinned toolchain; a direct
+        `rustup toolchain install` still syncs the manifest and failed the nightly on a network blip
+        (run 43180668014). ensure_rust_toolchain reads the local list first and retries."""
+        offenders = []
+        for name in tracked_scripts():
+            if not name.startswith(NIGHTLY_STEPS):
+                continue
+            text = (ROOT / name).read_text(encoding="utf-8")
+            offenders += [f"{name}:{line}" for line in direct_toolchain_installs(text)]
+        self.assertEqual(offenders, [], f"source {HELPER} and call ensure_rust_toolchain instead")
+        self.assertEqual(direct_toolchain_installs('rustup toolchain install "$t" --profile minimal'), [1])
+        self.assertEqual(direct_toolchain_installs('if ! rustup toolchain install "$t"; then'), [1])
+        self.assertEqual(direct_toolchain_installs('ensure_rust_toolchain "$t" --profile minimal'), [])
+        self.assertEqual(direct_toolchain_installs('echo "run: rustup toolchain install 1.95"'), [])
+
+
     def test_scripts_use_the_helper(self) -> None:
         offenders = []
         for name in tracked_scripts():

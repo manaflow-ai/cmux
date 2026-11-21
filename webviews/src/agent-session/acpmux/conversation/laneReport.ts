@@ -25,13 +25,20 @@ export type LaneNoticeDelivery = {
   readonly harness?: string;
   /// Its sender's session, from its sender record (the thread's may name another sender's).
   readonly session?: string;
+  /// When acpmux recorded it (ms).
+  readonly at?: number;
 };
 export type LaneNoticeThread = {
   readonly id: string;
   readonly sender: string;
+  /// The newest sender as acpmux recorded it (inboxNotice.ts `SenderRef`), for a row with no
+  /// messages to ask for that chat by.
+  readonly senderRecord?: { readonly session?: string; readonly label?: string };
   /// The newest sender's key (`LaneNoticeDelivery.lookup`).
   readonly lookup?: string;
   readonly preview?: string;
+  /// The newest message whole, for a thread with no messages (inboxNotice.ts `newest`).
+  readonly newest?: string;
   readonly messages?: readonly LaneNoticeDelivery[];
   readonly label?: string;
   readonly promptIds?: readonly string[];
@@ -74,7 +81,8 @@ const REVIEW = /Review\s*\([^)]*\):\s*(SHIP|BLOCK|FIX|HOLD)\s+at\s+([0-9a-f]{40}
 const NEW_VERDICT = /^\s*(SHIP|BLOCK|FIX|HOLD)\s+at\s+([0-9a-f]{12,40})(?![0-9a-f])/i;
 const FINDING = /^\s*\[P([123])\]\s+(.+)$/i;
 const INBOX_HEAD = /^(?:\[inbox\]\s+)?New messages from other agents(?:\s+in\s+\d+\s+threads?)?\.?/i;
-const THREAD = /\(thread\s+([^\s)]+)\)/gi;
+/// A thread named in the text, `(thread ID)`: an id may hold spaces (`topic:picker plan`).
+const THREAD = /\(thread\s+([^)\n]*[^)\s])\s*\)/gi;
 const FOOTER = /^\s*\(?acpmux sends this[^\n]*\)?\s*$/i;
 
 function firstSentence(text: string): string {
@@ -152,26 +160,31 @@ function inboxNotice(message: LaneNoticePayload): LaneNotice {
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]!.trim();
     const match =
-      /^-\s+(?:\[blocker\]\s+)?(\d+)\s+new\s+in\s+(.+?)\s+from\s+(.+?)(?:\s*:\s*(.*?))?\s*\(thread\s+([^\s)]+)\)/i.exec(
+      /^-\s+(?:\[blocker\]\s+)?(\d+)\s+new\s+in\s+(.+?)\s+from\s+(.+?)(?:\s*:\s*(.*?))?\s*\(thread\s+([^)\n]*[^)\s])\s*\)/i.exec(
         line,
       );
     if (!match) continue;
     const [, countText, , fromText, inlinePreview, id] = match;
     // An older acpmux wrote what it could not verify into the name ("lane (self-declared,
-    // unauthenticated)"): the line names it bare and marks it (senderIdentity.ts).
+    // unauthenticated)"): the line names it bare and marks it (senderIdentity.ts). That suffix
+    // holds a comma, so the senders split only on a comma outside parentheses.
     const named = fromText!
-      .split(/,\s*/)
+      .split(/,\s*(?![^()]*\))/)
       .map((name) => bareSender(name))
       .filter((sender) => sender.name);
     const senderNames = named.map((sender) => sender.name);
     const unverified = named.at(-1)?.declared ? ({ unverified: true } as const) : {};
+    // A thread acpmux named (`noticeThreads`) keeps its sender; the line only repeats it for older
+    // clients, so a name read back from it never replaces it.
+    const existing = threads.find((thread) => thread.id === id);
+    const structured = message.noticeThreads?.some((thread) => thread.id === id) ? existing?.sender : undefined;
+    const lineSender = structured ?? senderNames.at(-1) ?? "inbox";
     const deliveries: LaneNoticeDelivery[] = [];
     // A relayed message's preview holds the broker's head first, often cut inside it: the message
     // alone, or nothing when the cut left none of it (relayEnvelope.ts).
     const inline = withoutRelayHead(inlinePreview?.trim() ?? "");
     if (inline) {
-      const sender = senderNames.at(-1) ?? "inbox";
-      deliveries.push({ sender, text: inline, ...unverified });
+      deliveries.push({ sender: lineSender, text: inline, ...unverified });
     } else {
       let current: LaneNoticeDelivery | undefined;
       const flush = () => {
@@ -199,15 +212,18 @@ function inboxNotice(message: LaneNoticePayload): LaneNotice {
         } else if (current) {
           current = { ...current, text: `${current.text}\n${content}` };
         } else {
-          current = { sender: senderNames.at(-1) ?? "inbox", text: content.trim(), ...unverified };
+          current = { sender: lineSender, text: content.trim(), ...unverified };
         }
       }
       flush();
     }
-    const existing = threads.find((thread) => thread.id === id);
     const messages = deliveries.length ? deliveries : existing?.messages;
     const sender =
-      messages?.at(-1)?.sender ?? senderNames.at(-1) ?? existing?.sender ?? id!.replace(/^(?:from|declared):/, "");
+      structured ??
+      messages?.at(-1)?.sender ??
+      senderNames.at(-1) ??
+      existing?.sender ??
+      id!.replace(/^(?:from|declared):/, "");
     const preview = messages?.at(-1)?.text ?? existing?.preview;
     const next: LaneNoticeThread = {
       id: id!,

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextTestSupport
 import Foundation
 @testable import CmuxNextHome
 @testable import CmuxNextHomeModel
@@ -11,7 +12,7 @@ import Testing
     /// A defaults suite of its own, so the test never reads or writes the person's settings.
     static func isolatedDefaults() -> (defaults: UserDefaults, suite: String) {
         let suite = "cmux-chief-intro-\(UUID().uuidString)"
-        return (UserDefaults(suiteName: suite) ?? .standard, suite)
+        return (UserDefaults(testSuiteName: suite) ?? .standard, suite)
     }
 
     static let first = CmuxHomeCore.ConversationID("chief-first")
