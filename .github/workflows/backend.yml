@@ -899,7 +899,8 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/staging-runs.json
-          key: prod-promote-staging-runs-${{ github.run_id }}-${{ github.run_attempt }}
+          # Never saved, so the newest prod-promote-staging-runs- entry restores.
+          key: prod-promote-staging-runs-newest
           restore-keys: |
             prod-promote-staging-runs-
       - name: Production staleness (opens or closes the prod-stale issue)
@@ -932,13 +933,23 @@ jobs:
           fi
           rc=$?
           [ "$rc" = 0 ] || [ "$rc" = 3 ] || exit "$rc"
-      - name: Save the staging run verdicts
-        # Even after a hold or error: the verdicts read so far are still true. (No file: the save only warns.)
+      # The save is keyed by what the file holds, never by the run (tests/test_ci_no_run_scoped_cache_keys.py): an
+      # unchanged file saves nothing new, and a changed one becomes the newest entry the next promote restores.
+      - name: Hash the staging run verdicts
+        id: staging-runs-digest
+        # Even after a hold or error: the verdicts read so far are still true. (No file: nothing to save.)
         if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          RUNS_CACHE: ${{ runner.temp }}/staging-runs.json
+        run: if [ -s "$RUNS_CACHE" ]; then echo "sha=$(sha256sum "$RUNS_CACHE" | cut -c1-32)" >> "$GITHUB_OUTPUT"; fi
+      - name: Save the staging run verdicts
+        if: ${{ !cancelled() && steps.staging-runs-digest.outputs.sha != '' }}
+        continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/staging-runs.json
-          key: prod-promote-staging-runs-${{ github.run_id }}-${{ github.run_attempt }}
+          key: prod-promote-staging-runs-${{ steps.staging-runs-digest.outputs.sha }}
 
   promote-production:
     needs: [promote-gates]
