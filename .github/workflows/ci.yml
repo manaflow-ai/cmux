@@ -882,6 +882,8 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           OWNED_WARM: ${{ vars.CI_OWNED_WARM }}
           OWNED_WARM_DISTANCE: ${{ vars.CI_OWNED_WARM_DISTANCE }}
+          # The overflow probe's expected-wait verdict (`_admission`): a saturated owned pool is skipped.
+          RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
         run: python3 scripts/ci/simple_pool_picker.py
 
       # A job queued on a persistent pool (owned Macs) waits for it however long
