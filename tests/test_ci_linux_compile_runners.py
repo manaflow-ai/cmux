@@ -47,6 +47,8 @@ sys.path.insert(0, str(ROOT / "tests"))
 from blacksmith_linux_sizes import label as size_label, table  # noqa: E402
 from runs_on_labels import holds_signing_material, unwrap_fork_pool_reads  # noqa: E402
 import workflow_jobs  # noqa: E402
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+import linux_runner_labels  # noqa: E402
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 BIG = "blacksmith-32vcpu-ubuntu-2404"
@@ -195,29 +197,35 @@ FORK_PULL_REQUEST = (
     "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name"
     " != github.repository && '{label}' || "
 )
-FORK_PR_LABELS = {
-    ("ci-web.yml", "web-typecheck", "runs-on"): SMALL,
-    ("ci-web.yml", "web-production-build", "runs-on"): BIG,
-    ("ci-web.yml", "web-tests", "runs-on"): SMALL,
-    ("ci-web.yml", "web-instant-navigation", "runs-on"): SMALL,
-    ("ci-web.yml", "diff-sidecar-check", "runs-on"): BIG,
-    ("cmux-next-fast-gates.yml", "fast-gates", "runs-on"): SMALL,
-    ("cmux-vm-clients.yml", "rust", "runs-on"): "blacksmith-8vcpu-ubuntu-2404",
-    ("cmux-vm-clients.yml", "sdk", "runs-on"): SMALL,
-    ("remote-daemon.yml", "remote-daemon-tests", "runs-on"): SMALL,
-}
+# A fork pull request's label is not listed here: it is an ephemeral member of the pool the
+# selector reads (.github/runners.json), which scripts/ci/linux_runner_labels.py checks and --fix writes.
+POOL_DEFAULTS = linux_runner_labels.pool_defaults()
+FORK_LABEL_PLACEHOLDER = "blacksmith-4vcpu-ubuntu-2404"
+
+
+FORK_LABEL_MASK = "<fork label: a member of its pool>"
+
+
+def with_pool_fork_labels(value: str) -> str:
+    """`value` with each pool-backed fork pull request label masked: which member it names is
+    linux_runner_labels.fork_problems' call, checked per job below."""
+    for fork, members in reversed(linux_runner_labels.fork_branches(value, POOL_DEFAULTS)):
+        if members:
+            value = value[: fork.start(2)] + FORK_LABEL_MASK + value[fork.end(2):]
+    return value
+
+
 PREFIX: dict[tuple[str, str, str], tuple[str, str]] = {
     # (prefix, closing) for selectors with a special owner/fork expression.
     ("cmux-tui-sdks.yml", "conformance", "runs-on"): (
-        OWNER + FORK_PULL_REQUEST.format(label="blacksmith-8vcpu-ubuntu-2404"), ""),
+        OWNER + FORK_PULL_REQUEST.format(label=FORK_LABEL_PLACEHOLDER), ""),
     # These read no variable before the move, so a fork pull request took the
     # trusted literal. Reading LINUX_RUNNER now needs the fork pull request
     # branch first (test_ci_fork_runner_routing.py).
     ("cmux-next-car-guards.yml", "linux", "runs-on"): (
-        OWNER + FORK_PULL_REQUEST.format(label="blacksmith-16vcpu-ubuntu-2404"), ""),
-    # A fork pull request keeps the 16 vCPU literal it took before the move.
+        OWNER + FORK_PULL_REQUEST.format(label=FORK_LABEL_PLACEHOLDER), ""),
     ("swift-linux-packages.yml", "swift-linux-packages", "runs-on"): (
-        OWNER + FORK_PULL_REQUEST.format(label="blacksmith-16vcpu-ubuntu-2404"), ""),
+        OWNER + FORK_PULL_REQUEST.format(label=FORK_LABEL_PLACEHOLDER), ""),
     ("cmux-tui-artifacts.yml", "macos-cross-shadow", "runs-on"): (OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
     # Its pull request run is an advisory copy of the push run (post-merge-checks.json, CI v2 step 5): the 4 vCPU
     # pool, since a compile there only reports, and the 8/16 vCPU sizes stall first.
@@ -270,10 +278,10 @@ def expected_selector(workflow: str, job_id: str, where: str, label: str) -> str
         if (workflow, job_id) in OWNER_ONLY:
             prefix = OWNER
         else:
-            fork_label = FORK_PR_LABELS.get((workflow, job_id, where), "blacksmith-4vcpu-ubuntu-2404")
-            prefix = OWNER + FORK_PULL_REQUEST.format(label=fork_label)
+            prefix = OWNER + FORK_PULL_REQUEST.format(label=FORK_LABEL_PLACEHOLDER)
     ref = lambda size: route_ref(size, workflow, job_id)  # noqa: E731
-    return "${{ " + prefix + trusted_fallback(label, OTHER.get((workflow, job_id)), ref) + closing + " }}"
+    return with_pool_fork_labels(
+        "${{ " + prefix + trusted_fallback(label, OTHER.get((workflow, job_id)), ref) + closing + " }}")
 
 
 def load(name: str) -> dict:
@@ -343,8 +351,8 @@ class LinuxCompileRunners(unittest.TestCase):
                 )
 
     def test_fork_pull_requests_use_the_selected_blacksmith_size(self) -> None:
-        # The trusted job's size is also the fork pull request's size, while
-        # small routing/status jobs retain the 4-vCPU default.
+        # A fork pull request takes an ephemeral member of the pool the job reads
+        # (.github/runners.json), as scripts/ci/linux_runner_labels.py --fix writes it.
         for workflow, job_id, where, label in EXPECTED:
             value = selector(load(workflow)["jobs"][job_id], where)
             with self.subTest(workflow=workflow, job=job_id, where=where):
@@ -353,16 +361,13 @@ class LinuxCompileRunners(unittest.TestCase):
                     continue
                 # A pool read a fork could reach is wrapped to keep the fork's old label
                 # (tests/test_ci_no_single_size_pins.py); compare what every other run takes.
-                self.assertEqual(unwrap_fork_pool_reads(value), expected_selector(workflow, job_id, where, label))
+                self.assertEqual(with_pool_fork_labels(unwrap_fork_pool_reads(value)),
+                                 expected_selector(workflow, job_id, where, label))
                 if "repository_owner != 'manaflow-ai'" in value:
                     self.assertRegex(value, r"github\.repository_owner != 'manaflow-ai' && '(ubuntu-24\.04|ubuntu-latest)'")
                 if (workflow, job_id) not in OWNER_ONLY and (workflow, job_id, where) not in PREFIX:
-                    fork_label = FORK_PR_LABELS.get((workflow, job_id, where), "blacksmith-4vcpu-ubuntu-2404")
-                    self.assertIn(
-                        OWNER + FORK_PULL_REQUEST.format(label=fork_label),
-                        value,
-                        f"fork pull requests use {fork_label}",
-                    )
+                    self.assertIn(OWNER + "github.event_name == 'pull_request' && ", value)
+                    self.assertEqual(linux_runner_labels.fork_problems(value, POOL_DEFAULTS), [], value)
 
     def test_every_listed_label_is_known_to_actionlint(self) -> None:
         config = yaml.safe_load((ROOT / ".github" / "actionlint.yaml").read_text(encoding="utf-8"))
