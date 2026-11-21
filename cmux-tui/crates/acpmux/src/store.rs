@@ -45,6 +45,26 @@ mod shared_value;
 mod text_index;
 pub use shared_value::{SharedRows, SharedText, SharedValue};
 
+/// A chat's rolling summary (`hub/rolling_summary.rs`): one short line on where it stands and
+/// the next action, kept current after each turn a person started (or one that ended on a
+/// `wrap_up`). The sidebar and the chat header draw it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RollingSummary {
+    /// Where the chat stands, one or two short sentences.
+    pub text: String,
+    /// The next action, for the person or the agent; absent when there is none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub next: Option<String>,
+    /// Who wrote it: `wrap_up` (the agent's own recap and ask, no model call) or `model`.
+    pub source: String,
+    /// The chat's turn count it covers.
+    pub turn: u64,
+    /// When it was written, Unix ms.
+    pub at: u64,
+}
+
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -428,6 +448,10 @@ pub struct SessionMeta {
     /// None until the first recap.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub away_recap: Option<AwayRecap>,
+    /// The chat's rolling summary and next action (`hub/rolling_summary.rs`); None until the
+    /// first turn that makes one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rolling_summary: Option<RollingSummary>,
     /// Each person's seen cursor (`hub/seen.rs` `read_through`): the newest log seq they had on
     /// screen while they attended the chat, keyed by person id (`_meta.acpmux.author` id,
     /// [`crate::hub::seen::OWNER_READER`] for the owner). Only `_acpmux/seen` moves it forward; a
@@ -2106,75 +2130,10 @@ fn cut_torn_tail(file: &File, path: &Path) -> Result<u64> {
     Ok(end)
 }
 
-/// The next log append on this thread writes only its first `kept` bytes and then fails as a
-/// full disk does (`ENOSPC`), the partial write a full disk or a killed process leaves.
-#[cfg(test)]
-pub(crate) mod test_write_fault {
-    use std::cell::Cell;
-
-    thread_local!(static NEXT: Cell<Option<usize>> = const { Cell::new(None) });
-    thread_local!(static FAIL_CUT: Cell<bool> = const { Cell::new(false) });
-
-    pub(crate) fn partial(kept: usize) {
-        NEXT.with(|n| n.set(Some(kept)));
-    }
-
-    /// `partial`, and the cut back after it fails too (the disk refuses the truncate).
-    pub(crate) fn partial_and_failed_cut(kept: usize) {
-        partial(kept);
-        FAIL_CUT.with(|f| f.set(true));
-    }
-
-    pub(super) fn take() -> Option<usize> {
-        NEXT.with(Cell::take)
-    }
-
-    pub(super) fn take_cut_failure() -> bool {
-        FAIL_CUT.with(|f| f.replace(false))
-    }
-}
-
-/// Debug builds only: the fault harness's disk switch (`cmux-fault` `disk.rs`, the `disk-full`
-/// fault). With `ACPMUX_TEST_DISK_FAULT_FILE=<path>`, that file's line fails every log append
-/// before it writes, as a full disk (`enospc`) or a spent quota (`edquot`) does, or slows every
-/// log sync (`slow-fsync <ms>`); no file, a healthy disk. A journaled append writes its log line
-/// first, so it fails here too. The variable is read per process, so parallel tests never share
-/// a switch. Release builds have no seam.
 #[cfg(debug_assertions)]
-pub(crate) mod disk_fault {
-    use std::path::PathBuf;
-    use std::sync::OnceLock;
-
-    fn switch() -> Option<String> {
-        static PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
-        let path = PATH
-            .get_or_init(|| std::env::var_os("ACPMUX_TEST_DISK_FAULT_FILE").map(PathBuf::from))
-            .as_ref()?;
-        std::fs::read_to_string(path).ok()
-    }
-
-    pub(crate) fn write() -> std::io::Result<()> {
-        use std::io::{Error, ErrorKind};
-        match switch().as_deref().map(str::trim) {
-            Some("enospc") => {
-                Err(Error::new(ErrorKind::StorageFull, "no space left on device (disk-full fault)"))
-            }
-            Some("edquot") => {
-                Err(Error::new(ErrorKind::QuotaExceeded, "disk quota exceeded (disk-full fault)"))
-            }
-            _ => Ok(()),
-        }
-    }
-
-    pub(crate) fn sync() {
-        let slow = switch().and_then(|line| {
-            line.trim().strip_prefix("slow-fsync ").and_then(|ms| ms.parse::<u64>().ok())
-        });
-        if let Some(ms) = slow {
-            std::thread::sleep(std::time::Duration::from_millis(ms));
-        }
-    }
-}
+pub(crate) mod disk_fault;
+#[cfg(test)]
+pub(crate) mod test_write_fault;
 
 /// [`LocalStore::history_writer`]'s segment `000000`.
 struct SegmentZero {
@@ -2503,7 +2462,7 @@ impl Store for LocalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_kinds_in(id, kinds, false, &mut |rec| rec.seq <= after || visit(rec))
+        self.scan_kinds_past(id, after, kinds, false, visit)
     }
 
     fn scan_kinds_after_strict(
@@ -2513,7 +2472,7 @@ impl Store for LocalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_kinds_in(id, kinds, true, &mut |rec| rec.seq <= after || visit(rec))
+        self.scan_kinds_past(id, after, kinds, true, visit)
     }
 
     fn scan_kinds_keyed(

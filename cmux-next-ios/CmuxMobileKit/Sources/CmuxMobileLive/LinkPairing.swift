@@ -354,7 +354,7 @@ public struct LinkPairing: Sendable {
         try await LinkDeadline.run(
             timeout: deadline - clockNow(),
             timeoutError: LinkError(code: approval ? "timeout" : "reply_timeout",
-                                   message: "The Mac didn't answer. Retry."),
+                                   message: "pairing reply timed out"),
             operation: operation,
             onCancel: { await channel.close(code: "eof", reason: "pairing ended") }
         )

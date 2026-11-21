@@ -1284,6 +1284,7 @@ name = "cmux-agent-customize"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cmux-config",
  "cmux-process",
  "cmux-tui-hooks",
  "cmux-tui-platform",
@@ -1757,6 +1758,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-deadline"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-device-kind"
 version = "0.1.0"
 dependencies = [
@@ -1853,6 +1862,14 @@ dependencies = [
  "serde",
  "serde_json",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "cmux-follow-cam"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2171,9 +2188,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bincode",
+ "cmux-process",
  "fuser",
  "libc",
  "serde",
+ "sha1",
  "tempfile",
  "zstd",
 ]
@@ -2209,6 +2228,7 @@ name = "cmux-rd-host"
 version = "0.2.7"
 dependencies = [
  "cc",
+ "cmux-computer-use",
  "cmux-encode",
  "cmux-file-lock",
  "cmux-hub-host",
@@ -2274,6 +2294,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-build-identity",
+ "cmux-deadline",
  "cmux-fault",
  "cmux-json",
  "cmux-link",
