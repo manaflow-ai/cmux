@@ -1,0 +1,14 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/claude-code-notification-levels",
+  "name": "Claude Code Notification Levels",
+  "description": "Keep finished turns in the app. Input requests and errors follow your notification settings.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "cmuxProfile": 1,
+  "settings": {
+    "notifications.delivery.finished": "inApp",
+    "notifications.delivery.needsInput": "inherit",
+    "notifications.delivery.error": "inherit"
+  }
+}

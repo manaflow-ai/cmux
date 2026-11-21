@@ -1332,6 +1332,221 @@
           "page_hidden": "ids and per-level rules; set from the sidebar row and group menus, the palette and the CLI"
         }
       ]
+    },
+    {
+      "name": "delivery",
+      "section": "notifications",
+      "group": {
+        "key": "settings.group.notificationDelivery",
+        "text": "Delivery by Event"
+      },
+      "rows": [
+        {
+          "key": "notifications.delivery.finished",
+          "name": "finishedDelivery",
+          "title": {
+            "key": "settings.notifications.sounds.event.finished",
+            "text": "Agent Finished"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "inherit",
+              "title": {
+                "key": "settings.notifications.delivery.inherit",
+                "text": "Use Notification Settings"
+              }
+            },
+            {
+              "value": "bannerOnly",
+              "title": {
+                "key": "settings.notifications.delivery.bannerOnly",
+                "text": "Banner Without Sound"
+              }
+            },
+            {
+              "value": "inApp",
+              "title": {
+                "key": "settings.notifications.delivery.inApp",
+                "text": "In App Only"
+              }
+            }
+          ],
+          "default": "inherit",
+          "keywords": [
+            "banner",
+            "delivery"
+          ],
+          "swift_enum": {
+            "name": "NotificationDeliveryLevel",
+            "generated": true
+          }
+        },
+        {
+          "key": "notifications.delivery.needsInput",
+          "name": "needsInputDelivery",
+          "title": {
+            "key": "settings.notifications.sounds.event.needsInput",
+            "text": "Agent Needs Input"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "inherit",
+              "title": {
+                "key": "settings.notifications.delivery.inherit",
+                "text": "Use Notification Settings"
+              }
+            },
+            {
+              "value": "bannerOnly",
+              "title": {
+                "key": "settings.notifications.delivery.bannerOnly",
+                "text": "Banner Without Sound"
+              }
+            },
+            {
+              "value": "inApp",
+              "title": {
+                "key": "settings.notifications.delivery.inApp",
+                "text": "In App Only"
+              }
+            }
+          ],
+          "default": "inherit",
+          "keywords": [
+            "banner",
+            "delivery"
+          ],
+          "swift_enum": {
+            "name": "NotificationDeliveryLevel",
+            "generated": false
+          }
+        },
+        {
+          "key": "notifications.delivery.error",
+          "name": "errorDelivery",
+          "title": {
+            "key": "settings.notifications.sounds.event.error",
+            "text": "Error"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "inherit",
+              "title": {
+                "key": "settings.notifications.delivery.inherit",
+                "text": "Use Notification Settings"
+              }
+            },
+            {
+              "value": "bannerOnly",
+              "title": {
+                "key": "settings.notifications.delivery.bannerOnly",
+                "text": "Banner Without Sound"
+              }
+            },
+            {
+              "value": "inApp",
+              "title": {
+                "key": "settings.notifications.delivery.inApp",
+                "text": "In App Only"
+              }
+            }
+          ],
+          "default": "inherit",
+          "keywords": [
+            "banner",
+            "delivery"
+          ],
+          "swift_enum": {
+            "name": "NotificationDeliveryLevel",
+            "generated": false
+          }
+        },
+        {
+          "key": "notifications.delivery.bell",
+          "name": "bellDelivery",
+          "title": {
+            "key": "settings.notifications.sounds.event.bell",
+            "text": "Terminal Notification"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "inherit",
+              "title": {
+                "key": "settings.notifications.delivery.inherit",
+                "text": "Use Notification Settings"
+              }
+            },
+            {
+              "value": "bannerOnly",
+              "title": {
+                "key": "settings.notifications.delivery.bannerOnly",
+                "text": "Banner Without Sound"
+              }
+            },
+            {
+              "value": "inApp",
+              "title": {
+                "key": "settings.notifications.delivery.inApp",
+                "text": "In App Only"
+              }
+            }
+          ],
+          "default": "inherit",
+          "keywords": [
+            "banner",
+            "delivery"
+          ],
+          "swift_enum": {
+            "name": "NotificationDeliveryLevel",
+            "generated": false
+          }
+        },
+        {
+          "key": "notifications.delivery.message",
+          "name": "messageDelivery",
+          "title": {
+            "key": "settings.notifications.sounds.event.message",
+            "text": "cmux notify Message"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "inherit",
+              "title": {
+                "key": "settings.notifications.delivery.inherit",
+                "text": "Use Notification Settings"
+              }
+            },
+            {
+              "value": "bannerOnly",
+              "title": {
+                "key": "settings.notifications.delivery.bannerOnly",
+                "text": "Banner Without Sound"
+              }
+            },
+            {
+              "value": "inApp",
+              "title": {
+                "key": "settings.notifications.delivery.inApp",
+                "text": "In App Only"
+              }
+            }
+          ],
+          "default": "inherit",
+          "keywords": [
+            "banner",
+            "delivery"
+          ],
+          "swift_enum": {
+            "name": "NotificationDeliveryLevel",
+            "generated": false
+          }
+        }
+      ]
     }
   ]
 }

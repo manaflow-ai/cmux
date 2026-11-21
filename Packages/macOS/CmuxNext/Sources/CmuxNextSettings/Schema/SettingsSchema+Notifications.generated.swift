@@ -165,6 +165,24 @@ extension NotificationSoundPreferences {
     public nonisolated static let agentsDefault: JSONValue = .object([:])
 }
 
+extension NotificationPreferences {
+    /// `notifications.delivery.finished`.
+    public nonisolated static let finishedDeliveryPath = ["notifications", "delivery", "finished"]
+    public nonisolated static let finishedDeliveryDefault: NotificationDeliveryLevel = .inherit
+    /// `notifications.delivery.needsInput`.
+    public nonisolated static let needsInputDeliveryPath = ["notifications", "delivery", "needsInput"]
+    public nonisolated static let needsInputDeliveryDefault: NotificationDeliveryLevel = .inherit
+    /// `notifications.delivery.error`.
+    public nonisolated static let errorDeliveryPath = ["notifications", "delivery", "error"]
+    public nonisolated static let errorDeliveryDefault: NotificationDeliveryLevel = .inherit
+    /// `notifications.delivery.bell`.
+    public nonisolated static let bellDeliveryPath = ["notifications", "delivery", "bell"]
+    public nonisolated static let bellDeliveryDefault: NotificationDeliveryLevel = .inherit
+    /// `notifications.delivery.message`.
+    public nonisolated static let messageDeliveryPath = ["notifications", "delivery", "message"]
+    public nonisolated static let messageDeliveryDefault: NotificationDeliveryLevel = .inherit
+}
+
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum NotificationSettingsSchema {
     static var dismissalDescriptors: [SettingDescriptor] {
