@@ -15931,8 +15931,8 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             # (scripts/ci/pr_router.json), whose check names carry the `pr router / ` prefix, as the fallback's do.
             "pr-router.yml"),
         "bots, labels, receipts, comments and policy reads of the pull request or GitHub, not of the tree": (
-            "cla-policy-guard.yml", "cla.yml", "classic-frozen-guard.yml", "contributor-welcome.yml", "labels-sync.yml",
-            "merge-freeze.yml", "merge-receipt.yml", "namespace-autofix.yml", "pr-body-checks.yml", "risk-tier.yml",
+            "classic-frozen-guard.yml", "labels-sync.yml",
+            "merge-freeze.yml", "namespace-autofix.yml", "pr-body-checks.yml", "risk-tier.yml",
             "thunderdome-label.yml", "cmux-next-pr-autofix-closed-cancel.yml", "cmux-next-pr-autofix.yml",
             "cmux-next-pr-closed-cancel.yml", "ci-pr-closed-cancel.yml", "language-boundaries.yml",
             "required-checks-drift.yml",
@@ -17075,6 +17075,98 @@ class CutSearchConsumers(unittest.TestCase):
         self.assert_incomplete(str(cut.exception))
         with self.assertRaisesRegex(excuse.Refused, "has no completed run of this workflow"):
             excuse.stacked_parent_verdicts(SWIFT, "lane/x", parent, iter(()))
+
+
+# A repo whose base pushes run no job of the workflow and whose verdict of record is a sibling repo's runs
+# (BASE_VERDICT_REPO, teamleaderleo/glaeda's main verified in manaflow-ai/glaeda). The mapping is patched here, so
+# these tests read the mechanism, not the one live entry (asserted on its own below).
+SIBLING = "manaflow-ai/cmux-verifier"
+
+
+class SiblingVerdictGitHub(FakeGitHub):
+    """FakeGitHub where every base read must name SIBLING, and must name the workflow by its file (`ci.yml`): a
+    workflow's id is per repo, so the id 7 of this repo means nothing there. A base read that names REPO, or the
+    sibling's workflow by id, is an error, which is what the excuse used to do for every red of such a repo."""
+
+    FILE = ".github/workflows/ci.yml"
+
+    def __init__(self):
+        super().__init__()
+        self.asked: list[str] = []  # as asked, before a sibling route is rewritten to this fixture's own
+
+    def json(self, route, *, paginate=False):
+        self.asked.append(route)
+        if route.startswith(f"repos/{SIBLING}/"):
+            own = route.replace(f"repos/{SIBLING}/", f"repos/{REPO}/", 1)
+            assert "/actions/workflows/7/" not in own, route  # named by id in the sibling: its ids are its own
+            return super().json(own.replace("/actions/workflows/ci.yml/", "/actions/workflows/7/", 1),
+                                paginate=paginate)
+        assert f"/actions/workflows/7/runs?branch=" not in route, route  # a base-run list in the PR's repo
+        assert "/actions/runs/20/" not in route and not route.endswith("/actions/jobs/2"), route  # a base job there
+        if re.fullmatch(rf"repos/{re.escape(REPO)}/actions/runs/\d+", route):
+            # The head run's record, with the workflow path the sibling's runs are named by (workflow_file).
+            return {**super().json(route, paginate=paginate), "path": self.FILE}
+        return super().json(route, paginate=paginate)
+
+    def log(self, repo, job):
+        assert repo == (REPO if job["id"] == 1 else SIBLING), (repo, job["id"])
+        return super().log(repo, job)
+
+
+class NoSiblingVerdictGitHub(SiblingVerdictGitHub):
+    """SiblingVerdictGitHub where the sibling has no run of the workflow either: the refusal stands, and says where
+    it looked."""
+
+    def json(self, route, *, paginate=False):
+        if route.startswith(f"repos/{SIBLING}/actions/workflows/"):
+            return {"workflow_runs": []}
+        return super().json(route, paginate=paginate)
+
+
+class BaseVerdictInASiblingRepo(unittest.TestCase):
+    def test_glaedas_main_is_verified_in_the_fleet_fork(self):
+        # ci.yml gates every job on `pull_request || repository == manaflow-ai/glaeda`, so a push to main in the
+        # personal repo runs nothing and only the fork holds that commit's verdict (its own comment says so).
+        self.assertEqual(excuse.BASE_VERDICT_REPO.get("teamleaderleo/glaeda"), "manaflow-ai/glaeda")
+
+    def test_a_red_is_excused_by_the_sibling_repos_base_verdict(self):
+        github = SiblingVerdictGitHub()
+        with unittest.mock.patch.dict(excuse.BASE_VERDICT_REPO, {REPO: SIBLING}, clear=True):
+            lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertIn("run 20", "\n".join(lines))
+        self.assertTrue([route for route in github.asked
+                         if f"repos/{SIBLING}/actions/workflows/ci.yml/runs?" in route], github.asked)
+        # The head's own reads stay the PR's repo, and the base's runs, job lists and logs are all the sibling's.
+        self.assertEqual([route for route in github.asked if "/actions/runs/20" in route or route.endswith("/jobs/2")],
+                         [route for route in github.asked
+                          if route.startswith(f"repos/{SIBLING}/") and ("/actions/runs/20" in route
+                                                                        or route.endswith("/jobs/2"))])
+
+    def test_no_verdict_in_the_sibling_says_where_it_looked(self):
+        github = NoSiblingVerdictGitHub()
+        with unittest.mock.patch.dict(excuse.BASE_VERDICT_REPO, {REPO: SIBLING}, clear=True):
+            with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow has a verdict for it "
+                                                        f"to compare with in {re.escape(SIBLING)}, where "
+                                                        f"{re.escape(REPO)}'s feat-cmux-next is verified"):
+                excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_a_repo_the_mapping_does_not_name_reads_its_own_base(self):
+        github = FakeGitHub()
+        with unittest.mock.patch.dict(excuse.BASE_VERDICT_REPO, {"other/repo": SIBLING}, clear=True):
+            lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertIn("run 20", "\n".join(lines))
+        self.assertEqual([route for route in github.routes if SIBLING in route], [])
+
+    def test_the_refusal_of_a_repo_the_mapping_does_not_name_is_unchanged(self):
+        github = StrBaseRunsGitHub()
+        said = []
+        for mapping in ({}, {"other/repo": SIBLING}):
+            with unittest.mock.patch.dict(excuse.BASE_VERDICT_REPO, mapping, clear=True):
+                with self.assertRaises(excuse.Refused) as refused:
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+            said.append(str(refused.exception))
+        self.assertEqual(said[0], said[1])
+        self.assertNotIn("BASE_VERDICT_REPO", said[0])
 
 
 if __name__ == "__main__":

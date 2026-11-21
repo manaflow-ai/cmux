@@ -127,8 +127,49 @@ jobs:
     permissions:
       contents: read
 
+  cmux-tui-windows-check:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' cmux-tui-windows-check ')
+    uses: ./.github/workflows/cmux-tui-windows-check.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
+  acpmux-sim-sweep:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' acpmux-sim-sweep ')
+    uses: ./.github/workflows/acpmux-sim-sweep.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
+  swift-acpmux-protocol:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' swift-acpmux-protocol ')
+    uses: ./.github/workflows/swift-acpmux-protocol.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
+  rust-workspaces:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' rust-workspaces ')
+    uses: ./.github/workflows/rust-workspaces.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      actions: read
+      contents: read
+
   judge:
-    needs: [plan, drill]
+    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces]
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15

@@ -382,7 +382,7 @@ struct MockDialer: MacLinkDialer {
             Issue.record("expected waiting, got \(controller.phase)")
             return
         }
-        #expect(reason == "the Mac didn't answer in time")
+        #expect(reason == LinkError.timeoutReason)
     }
 }
 

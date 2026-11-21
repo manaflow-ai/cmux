@@ -39,6 +39,7 @@ import { threadMinimapCard } from "../agent-session/acpmux/threadMinimap/card.ex
 import { chatMinimapPlaceholder } from "../agent-session/acpmux/chatMinimap/placeholder.experiment";
 import { codeActionsLook } from "../agent-session/acpmux/conversation/codeActions.experiment";
 import { startedSessionCards } from "../agent-session/acpmux/started/startedSessions.experiment";
+import { agentDotGrid } from "../agent-session/acpmux/dotGrid/agentDotGrid.experiment";
 import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.experiment";
 import { claudeTurnFold } from "../agent-session/acpmux/conversation/claudeTurnFold.experiment";
 import { commandLabelLook } from "../agent-session/acpmux/conversation/commandLabel.experiment";
@@ -97,6 +98,7 @@ import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.
 import { composerDockMotion } from "../agent-session/acpmux/composer/dockMotion.experiment";
 import { teamAudit } from "../agent-session/acpmux/teamAudit/teamAudit.experiment";
 import { jumpPairLook } from "../agent-session/acpmux/jumpPair.experiment";
+import { composerV2Look } from "../agent-session/acpmux/composerV2.experiment";
 import { composerShellLook } from "../agent-session/acpmux/composer/shellLook.experiment";
 import { composerFooterControls } from "../agent-session/acpmux/composer/footerControls.experiment";
 import { composerEmptyHeight } from "../agent-session/acpmux/composer/emptyHeight.experiment";
@@ -110,6 +112,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   chiefDock,
   hoverActions,
   startedSessionCards,
+  agentDotGrid,
   fileKindIcon,
   followMotion,
   finishedTaskLook,
@@ -204,6 +207,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   teamAudit,
   jumpPairLook,
   glassToolbarLook,
+  composerV2Look,
   composerShellLook,
   composerFooterControls,
   composerEmptyHeight,
