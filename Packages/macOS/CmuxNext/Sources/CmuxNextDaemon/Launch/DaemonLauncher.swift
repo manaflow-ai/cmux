@@ -161,7 +161,16 @@ public struct DaemonLauncher: Sendable {
         // shell integration keeps the bundled `cmux` first (cmux-tui `cli_path`).
         let cli = bundle.resourceURL.map { BundledCLIEnvironment(binDirectory: $0.path + "/bin", pathIntegration: nil) }
         let environment = appEnvironment(cache: .shared, base: processEnvironment, overrides: overrides, cli: cli)
-        var launcher = DaemonLauncher(configuration: configuration, environment: { await environment().merging(daemonEnvironment) { _, owner in owner } })
+        // A DEV build runs the owner under "cmux Files (dev)" (docs/cmux-files-host.md), so its
+        // terminals' Files and Folders checks are one identity's for every DEV build.
+        // The helper check reads the disk, so it runs with the ensure, not here.
+        let bundleURL = bundle.bundleURL, bundleIdentifier = bundle.bundleIdentifier
+        var launcher = DaemonLauncher(configuration: configuration, environment: {
+            let ownerEnvironment = filesHostEnvironment(bundleURL: bundleURL, bundleIdentifier: bundleIdentifier,
+                                                        processEnvironment: processEnvironment)
+                .merging(daemonEnvironment) { _, given in given }
+            return await environment().merging(ownerEnvironment) { _, owner in owner }
+        })
         launcher.health = health
         return launcher
     }
@@ -193,11 +202,26 @@ public struct DaemonLauncher: Sendable {
         let installKey = FrontendInstallKeyStores.forApp(stateDirectory: stateDirectory)?.loadOrCreate()
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
                                           installKey: installKey, binaryIsBundled: isBundledBinary(binary, bundle: bundle))
+        let bundleURL = bundle.bundleURL, bundleIdentifier = bundle.bundleIdentifier
+        let filesHost: @Sendable () -> [String: String] = {
+            filesHostEnvironment(bundleURL: bundleURL, bundleIdentifier: bundleIdentifier,
+                                 processEnvironment: processEnvironment)
+        }
         if let ownerEnvironment {
-            return DaemonLauncher(configuration: configuration, environment: { chiefEnvironment(await ownerEnvironment()) })
+            return DaemonLauncher(configuration: configuration, environment: {
+                chiefEnvironment(await ownerEnvironment()).merging(filesHost()) { _, host in host }
+            })
         }
         let environment = chiefEnvironment(processEnvironment)
-        return DaemonLauncher(configuration: configuration, environment: { environment })
+        return DaemonLauncher(configuration: configuration, environment: { environment.merging(filesHost()) { _, host in host } })
+    }
+
+    /// `CMUX_TUI_OWNER_LAUNCHER` for `server ensure` when the app at `bundleURL` is a DEV build that embeds
+    /// "cmux Files (dev)" (``FilesHost``), else nothing.
+    static func filesHostEnvironment(bundleURL: URL, bundleIdentifier: String?,
+                                     processEnvironment: [String: String]) -> [String: String] {
+        FilesHost(bundleURL: bundleURL, bundleIdentifier: bundleIdentifier,
+                  environment: processEnvironment)?.ownerEnvironment ?? [:]
     }
 
     /// The Chief owner's `server ensure` environment: the user's basic
