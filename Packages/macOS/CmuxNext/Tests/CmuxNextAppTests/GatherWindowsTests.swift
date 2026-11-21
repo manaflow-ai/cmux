@@ -136,7 +136,8 @@ struct GatherWindowsTests {
         try services.windows.bringSpace(Self.rooms[1], into: here.state)
 
         let registry = services.windows.registry.value
-        #expect(registry.window(there.state.id)?.workspaceIDs == ["k1"], "a workspace of another space moved")
+        // What a window owns: since #44275 a window on a space also lists, as guests, that space's workspaces another window owns.
+        #expect(registry.window(there.state.id)?.ownedIDs == ["k1"], "a workspace of another space moved")
         #expect(registry.window(here.state.id)?.workspaceIDs.sorted() == ["k0", "k2", "k3"])
         #expect(here.state.profileID == Self.rooms[1])
         #expect(there.state.profileID == Self.rooms[0])
@@ -154,7 +155,7 @@ struct GatherWindowsTests {
         try services.windows.bringSpace(Self.rooms[1], into: here.state)
 
         let registry = services.windows.registry.value
-        #expect(registry.window(there.state.id)?.workspaceIDs == ["remote-unresolved"], "an unresolved workspace moved with the space")
+        #expect(registry.window(there.state.id)?.ownedIDs == ["remote-unresolved"], "an unresolved workspace moved with the space")
         #expect(registry.window(here.state.id)?.workspaceIDs.sorted() == ["k0", "k2"])
         #expect(here.state.profileID == Self.rooms[1])
     }
@@ -188,7 +189,7 @@ struct GatherWindowsTests {
         try services.windows.bringSpace(Self.rooms[1], into: here.state)
         let registry = services.windows.registry.value
         #expect(registry.window(there.state.id) == nil)
-        #expect(registry.window(other.state.id)?.workspaceIDs == ["k1"])
+        #expect(registry.window(other.state.id)?.ownedIDs == ["k1"])
     }
 
     /// A window's own Home stays with its window: moved next to another window's Home it would be
@@ -202,7 +203,7 @@ struct GatherWindowsTests {
 
         try services.windows.bringSpace(Self.rooms[1], into: here.state)
         #expect(services.windows.registry.value.window(here.state.id)?.workspaceIDs.contains("wh") == false, "Move Space took a window's Home")
-        #expect(services.windows.registry.value.window(there.state.id)?.workspaceIDs == ["wh"])
+        #expect(services.windows.registry.value.window(there.state.id)?.ownedIDs == ["wh"])
 
         try services.windows.mergeWindows(into: here.state)
         let registry = services.windows.registry.value
