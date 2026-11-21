@@ -59,8 +59,9 @@ public final class CloudEnvironmentsSettings {
         self.confirm = confirm
     }
 
-    /// Runs one gesture, then reads the list again.
-    public func run(_ request: CloudEnvironmentsRun) async -> Result {
+    /// Runs one gesture, then reads the list again. `clicked`: the person's own click or key in the page
+    /// started it, so a Build runs on it with no sheet (as a person's own Cloud create); a Delete still asks.
+    public func run(_ request: CloudEnvironmentsRun, clicked: Bool = false) async -> Result {
         guard available() else {
             state = State()
             return request.action == .refresh ? Result() : Result(error: strings.unavailable)
@@ -78,9 +79,9 @@ public final class CloudEnvironmentsSettings {
                 let (title, body, button) = build
                     ? (strings.buildTitle(name), strings.buildBody, strings.buildButton)
                     : (strings.deleteTitle(name), strings.deleteBody, strings.deleteButton)
-                let confirm = confirm
+                let confirm = confirm, asks = !(build && clicked)
                 let sent = try await approvedCall(build ? "cloud.environment.build" : "cloud.environment.delete", id) {
-                    await confirm(title, body, button)
+                    asks ? await confirm(title, body, button) : true
                 }
                 if !sent { return Result() }
             }

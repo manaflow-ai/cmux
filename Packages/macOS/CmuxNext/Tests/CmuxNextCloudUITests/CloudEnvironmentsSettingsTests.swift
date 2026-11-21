@@ -3,7 +3,8 @@ import Foundation
 import Testing
 
 /// Settings > Accounts > Cloud Environments: the list, Save, Build and Delete through the app's seams.
-/// Build and Delete ask the person natively first; a no sends nothing and is not an error.
+/// A clicked Build runs at once; Delete, and a Build page script started alone, ask the person natively
+/// first; a no sends nothing and is not an error.
 @MainActor @Suite(.serialized) struct CloudEnvironmentsSettingsTests {
     @MainActor final class Backend {
         var raw: [Data] = []
@@ -72,6 +73,20 @@ import Testing
         #expect(sent["name"] == nil && sent["repo"] == nil && sent["setup_script"] == nil, "only the edited field")
         let rows = try #require(sent["env"] as? [[String: String]])
         #expect(rows == [["name": "NODE_ENV", "value": "development"], ["name": "OPENAI_API_KEY", "secret": "openai"]])
+    }
+
+    @Test func aClickedBuildRunsWithNoSheet() async throws {
+        let b = Backend()
+        let m = model(b)
+        _ = await m.run(.init(action: .refresh))
+        #expect(await m.run(.init(action: .build, id: "env_00000000000000000001"), clicked: true).error == nil)
+        #expect(b.confirms == 0, "the person's click on Build is the go-ahead")
+        #expect(b.approved.map(\.op) == ["cloud.environment.build"])
+        // A clicked Delete still asks: it removes the environment's snapshot.
+        b.answerYes = false
+        #expect(await m.run(.init(action: .delete, id: "env_00000000000000000001"), clicked: true).error == nil)
+        #expect(b.confirms == 1)
+        #expect(b.approved.map(\.op) == ["cloud.environment.build"])
     }
 
     @Test func buildAndDeleteAskTheNativeConfirmationFirst() async throws {

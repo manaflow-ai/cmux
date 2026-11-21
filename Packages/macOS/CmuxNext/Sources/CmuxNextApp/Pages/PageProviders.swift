@@ -112,12 +112,15 @@ final class AppPageNativeProvider: PageProvider {
 
     /// A confirmed op (``PageDescriptor/confirmedOps``): the native sheet, then the op as the user's
     /// own on the namespace's provider. A declined sheet answers `{confirmed: false}` (the Cloud
-    /// page's contract), an approved one `{confirmed: true, value}`.
+    /// page's contract), an approved one `{confirmed: true, value}`. The person's own click on one of
+    /// ``PageConfirmation/clickRunsOps`` is the approval: no sheet.
     private func runConfirmed(_ op: String, kind: PageConfirmation.Kind, args: CmuxNextSettings.JSONValue,
                               context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
         guard let forward else { throw PageError.unknownOp(op) }
         let labels = (args.objectValue ?? [:]).compactMapValues(\.stringValue)
-        guard await presenter.confirm(.forOp(op, kind: kind, args: labels), anchor: anchor()) else { return ["confirmed": false] }
+        if !(context.userGesture && PageConfirmation.clickRunsOps.contains(op)) {
+            guard await presenter.confirm(.forOp(op, kind: kind, args: labels), anchor: anchor()) else { return ["confirmed": false] }
+        }
         let value = try await forward(op, args, PageCallContext(page: context.page, origin: "user", confirmed: true, opid: context.opid))
         return ["confirmed": true, "value": value]
     }

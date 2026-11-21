@@ -225,11 +225,12 @@ struct PageFactory {
                 }
             })
         provider.environmentsState = { (try? JSONValue.parse(JSONEncoder().encode(environments.state))) ?? .null }
-        provider.environmentsRun = { params in
+        provider.environmentsRun = { params, context in
             guard let run = try? JSONDecoder().decode(CloudEnvironmentsRun.self, from: JSONSerialization.data(withJSONObject: params.foundationObject)) else {
                 throw PageError.invalidParams("unknown environments action")
             }
-            return (try? JSONValue.parse(JSONEncoder().encode(await environments.run(run)))) ?? .object([:])
+            // The person's click on Build is the go-ahead; page script alone still gets the sheet.
+            return (try? JSONValue.parse(JSONEncoder().encode(await environments.run(run, clicked: context.userGesture)))) ?? .object([:])
         }
         let devices = services.deviceHub.settingsModel
         devices.openScreen = { [weak services] id in services?.openMacScreen(for: id, in: nil) }
