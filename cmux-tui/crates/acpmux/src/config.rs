@@ -1337,7 +1337,7 @@ pub struct SummariesConfig {
     pub generate: Option<bool>,
     /// `command`: an argv that reads the request on stdin and prints the summary. Env
     /// `ACPMUX_SUMMARY_COMMAND` (one program) wins. Unset: one completion on the chat's own
-    /// harness (`_acpmux/complete`), on `model`.
+    /// harness and route (`complete::ChatRoute`), on `model`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command: Option<Vec<String>>,
     /// `model`: the completion's model. Unset: `titles.model`, else the harness's small model
