@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import CmuxSidebar
 import Testing
 @testable import cmux_DEV
@@ -718,5 +719,44 @@ struct SidebarCompactAgentStatusTests {
         let off = snapshot(compact: false)
         #expect(Set(off.metadataEntries.map(\.key)) == ["claude_code", "deploy"])
         #expect(off.compactStatusGlyph == nil)
+    }
+
+    /// `sidebar.hiddenStatusKeys` hides a key's pill in both layouts and
+    /// leaves the workspace's entry, and every other key, alone.
+    @Test
+    func factoryLeavesOutHiddenStatusKeys() {
+        let workspace = Workspace(
+            title: "Project",
+            workingDirectory: FileManager.default.currentDirectoryPath,
+            portOrdinal: 0
+        )
+        defer { workspace.teardownAllPanels() }
+        workspace.statusEntries["claude_code"] = Self.entry("claude_code", "Needs input")
+        workspace.statusEntries["deploy"] = Self.entry("deploy", "green")
+        // See `factoryFoldsAgentRowsAndKeepsCustomOnesWhenCompact`: a PID lets
+        // the structured agent key reach the factory at all.
+        workspace.agentPIDs["claude_code"] = 4242
+
+        func snapshot(compact: Bool) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
+            let defaults = Self.makeDefaults()
+            defaults.set(compact, forKey: "sidebarCompactAgentStatus")
+            defaults.set(["claude_code"], forKey: SidebarCatalogSection().hiddenStatusKeys.userDefaultsKey)
+            return SidebarWorkspaceSnapshotFactory(
+                workspace: workspace,
+                settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+                showsAgentActivity: false
+            ).makeSnapshot()
+        }
+
+        let full = snapshot(compact: false)
+        #expect(full.metadataEntries.map(\.key) == ["deploy"])
+
+        // Without the hidden entry nothing in this fixture builds a glyph.
+        let compact = snapshot(compact: true)
+        #expect(compact.metadataEntries.map(\.key) == ["deploy"])
+        #expect(compact.compactStatusGlyph?.tooltip.contains("Needs input") != true)
+
+        // Display only: the entry is still there for the CLI and socket.
+        #expect(workspace.sidebarStatusEntriesInDisplayOrder().contains { $0.key == "claude_code" })
     }
 }
