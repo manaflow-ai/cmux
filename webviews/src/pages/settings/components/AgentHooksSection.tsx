@@ -254,13 +254,12 @@ export function AgentHooksSection() {
   const [busy, setBusy] = useState(false);
   const [agent, setAgent] = useState<Agent | "all">("all");
   const run = useCallback(
-    async (gesture: AgentHooksRun) => {
+    (gesture: AgentHooksRun) => {
       setBusy(true);
-      try {
-        setState(await store.runAgentHooks(gesture));
-      } finally {
-        setBusy(false);
-      }
+      return store
+        .runAgentHooks(gesture)
+        .then(setState)
+        .finally(() => setBusy(false));
     },
     [store],
   );
