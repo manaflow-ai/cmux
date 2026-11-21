@@ -8,6 +8,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
+from argparse import Namespace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -48,6 +50,43 @@ class TickTest(unittest.TestCase):
         self.assertEqual(pmb.window_minutes(""), 120)
         self.assertEqual(pmb.window_minutes("bad"), 120)
         self.assertEqual(pmb.window_minutes("45"), 45)
+
+
+class WebTickTest(unittest.TestCase):
+    """The tick also dispatches cmux-next-web.yml's coalescing tick, so no coalesce job sleeps out its window."""
+
+    def tick(self, branch: str = "feat-cmux-next", dry_run: bool = False, web_fails: bool = False) -> list:
+        calls = []
+
+        def api(path, method="GET", fields=None, **_):
+            calls.append((method, path, fields))
+            if method == "POST" and pmb.WEB_WORKFLOW in path and web_fails:
+                raise RuntimeError("gh api POST: 502")
+            return {"sha": "a" * 40} if path.endswith(f"/commits/{branch}") else None
+
+        args = Namespace(repo="o/r", branch=branch, window_minutes="120", dry_run=dry_run)
+        with unittest.mock.patch.object(pmb, "gh_api", api), \
+                unittest.mock.patch.object(pmb, "list_runs", lambda repo, branch: [run(1, "a" * 40, "2026-11-21T11:00:00Z")]), \
+                unittest.mock.patch("sys.stdout"):
+            self.assertEqual(pmb.cmd_tick(args), 0)
+        return calls
+
+    def test_each_tick_dispatches_the_web_tick_on_the_branch(self) -> None:
+        posts = [call for call in self.tick() if call[0] == "POST"]
+        self.assertEqual(posts, [("POST", "repos/o/r/actions/workflows/cmux-next-web.yml/dispatches",
+                                  {"ref": "feat-cmux-next", "inputs": {"tick": "true"}})])
+
+    def test_a_dry_run_or_another_branch_dispatches_nothing(self) -> None:
+        self.assertFalse([call for call in self.tick(dry_run=True) if call[0] == "POST"])
+        self.assertFalse([call for call in self.tick(branch="main") if pmb.WEB_WORKFLOW in call[1]])
+
+    def test_a_failed_web_tick_never_skips_the_batch_tick(self) -> None:
+        calls = self.tick(web_fails=True)
+        self.assertIn(("GET", "repos/o/r/commits/feat-cmux-next", None), calls)
+
+    def test_the_web_workflow_takes_the_tick_input(self) -> None:
+        web = yaml.safe_load((ROOT / ".github" / "workflows" / pmb.WEB_WORKFLOW).read_text())
+        self.assertEqual(web[True]["workflow_dispatch"]["inputs"]["tick"]["type"], "boolean")
 
 
 class PlanAndJudgeTest(unittest.TestCase):
@@ -317,6 +356,27 @@ class PushTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             pmb.push_branch("u", "r", run=run, sleep=lambda s: None)
         self.assertEqual(len(calls), 4)
+
+
+class StartBranchTest(unittest.TestCase):
+    """The revert branch is created by API at the tip; one left by an earlier try is reused."""
+
+    def test_creates_the_ref_at_the_tip(self) -> None:
+        calls = []
+        pmb.start_branch("o/r", "revert/x", "abc", api=lambda path, **kw: calls.append((path, kw)))
+        self.assertEqual(calls, [("repos/o/r/git/refs", {"method": "POST", "fields": {"ref": "refs/heads/revert/x", "sha": "abc"}})])
+
+    def test_an_existing_branch_is_reused_and_other_errors_raise(self) -> None:
+        def exists(path, **kw):
+            raise RuntimeError("gh api POST repos/o/r/git/refs: Reference already exists (HTTP 422)")
+
+        pmb.start_branch("o/r", "revert/x", "abc", api=exists)
+
+        def denied(path, **kw):
+            raise RuntimeError("gh api POST repos/o/r/git/refs: Resource not accessible by integration (HTTP 403)")
+
+        with self.assertRaises(RuntimeError):
+            pmb.start_branch("o/r", "revert/x", "abc", api=denied)
 
 
 if __name__ == "__main__":
