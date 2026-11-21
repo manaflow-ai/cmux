@@ -58,6 +58,12 @@ SIZE = re.compile(r"blacksmith-\d+vcpu-ubuntu-2404(?!-)|RUNNER_POOLS\)\.linux(?!
                   r"|CI_CLOUD_OVERFLOW_SAVED")
 
 
+def write_token_route(runs_on: str) -> bool:
+    """A secret or write-token job reads the ephemeral_only linux_4 pool, never the persistent cmux-linux label;
+    tests/test_ci_ephemeral_pool_readers.py owns its route."""
+    return runs_on.rstrip().endswith("fromJSON(vars.RUNNER_POOLS).linux_4 }}")
+
+
 def resolved(runs_on: str, owner: str, linux_runner: str, overflow: str, trusted: str,
              darwin_cross: str = "") -> set[str]:
     """Resolve the route of a push (a fork pull request's own branch is test_a_fork_keeps_github_hosted_ubuntu's)."""
@@ -172,6 +178,8 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         for (name, runs_on), linux_runner, overflow, trusted in itertools.product(
             routes, LINUX_RUNNER_VALUES, ("", OVERFLOW_RECORD), TRUSTED_RUNNER_VALUES
         ):
+            if write_token_route(runs_on):
+                continue
             labels = resolved(runs_on, "manaflow-ai", linux_runner, overflow, trusted)
             # No variable sizes a job any more; the nightly path's attempt 1 takes the owned pool.
             allowed = {LABEL, JIT} | ({OWNED, NIGHTLY} if name in NIGHTLY_TREE_JOBS + OWNED_FIRST_OWN_ROUTE_JOBS else set())
@@ -181,6 +189,8 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
 
     def test_no_linux_job_names_a_size(self) -> None:
         for name, runs_on in linux_routes():
+            if write_token_route(runs_on):
+                continue
             with self.subTest(job=name):
                 self.assertIsNone(SIZE.search(runs_on), runs_on)
                 self.assertTrue(runs_on.endswith("'cmux-linux' }}"), runs_on)

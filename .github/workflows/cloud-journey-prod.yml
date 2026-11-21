@@ -72,7 +72,7 @@ jobs:
       fail-fast: false
       matrix:
         model: [stub, real]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # The cmux-tui build (warm from the rust cache) comes before the journey's own 25 minutes.
     timeout-minutes: 60
     environment:

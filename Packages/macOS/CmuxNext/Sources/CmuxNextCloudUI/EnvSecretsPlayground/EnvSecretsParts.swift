@@ -77,9 +77,12 @@ func envProvenance(_ entry: EnvSecretsEntry) -> NSView {
              size: TypeScale.caption, color: EnvInk.secondary, digits: true)
 }
 
-/// The type menu of a review row: the row's badge and a chevron; a click lists the four types.
+/// The type menu of a review row, drawn as a borderless menu: the type's symbol and short name in the text
+/// colour, then a small chevron; a click lists the four types.
 func envKindMenu(_ model: EnvSecretsPlaygroundModel, _ entry: EnvSecretsEntry, reload: @escaping @MainActor () -> Void) -> NSView {
-    let content = envH([envKindBadge(model.kind(of: entry)), envSymbol("chevron.down", size: TypeScale.caption, color: EnvInk.tertiary)], spacing: 3)
+    let kind = model.kind(of: entry)
+    let content = envH([envIconLabel(kind.short, symbol: kind.symbol, size: TypeScale.body, color: EnvInk.text),
+                        envSymbol("chevron.down", size: TypeScale.caption, weight: .semibold, color: EnvInk.text)], spacing: 3)
     return EnvClickArea(content) { area in
         let menu = NSMenu()
         for kind in EnvSecretsKind.allCases {  // visible-only: the four row types

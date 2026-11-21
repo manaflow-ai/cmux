@@ -123,7 +123,10 @@ class WorkflowShape(unittest.TestCase):
                 runner = runner_text(doc["jobs"][key])
                 self.assertNotIn(f"cmux-next-fast-gates.yml#{key}", declared)
                 self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", runner)
-                self.assertTrue(runner.endswith("|| 'cmux-linux' }}"), runner)
+                # receipt and post hold write tokens, so they read the ephemeral-only linux_4 pool
+                # (tests/test_ci_ephemeral_pool_readers.py); resolve keeps the reconciled linux pool.
+                pool = "linux_4" if key in ("receipt", "post") else "linux"
+                self.assertTrue(runner.endswith(f"|| fromJSON(vars.RUNNER_POOLS).{pool} }}}}"), runner)
                 self.assertNotIn("vars.LINUX_RUNNER", runner)
         # Never a mini for them: an owned Mac's runner setup and teardown (20-60 s) dwarfs their ~5 s of work
         # (2026-11-11: resolve on a mini 41 s p50, hosted Ubuntu 5 s), on the fast gate's critical path.

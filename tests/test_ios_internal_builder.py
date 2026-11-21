@@ -633,9 +633,12 @@ class TriggerRunnerTests(unittest.TestCase):
         # The one Linux label (scripts/ci/one_linux_label.py), an owned pool sized by load, never a fixed
         # Blacksmith size that can stall (tests/test_ci_linux_single_size.py).
         self.assertNotIn("32vcpu", runs_on)
-        self.assertIsNone(re.search(r"vars\.LINUX_RUNNER(?![A-Z_])", runs_on))
-        self.assertNotIn("RUNNER_POOLS).linux", runs_on)
-        self.assertTrue(runs_on.endswith("|| 'cmux-linux' }}"), runs_on)
+        self.assertNotIn("vars.LINUX_RUNNER", runs_on)
+        # Only a member of the Linux pool, so the nightly runner label policy can read it (HQ
+        # tests/test_runner_label_policy.py); a stale or unset pool takes the 4 vCPU member.
+        # It holds a write token, so it reads only the ephemeral_only pool (tests/test_ci_ephemeral_pool_readers.py).
+        self.assertNotIn("fromJSON(vars.RUNNER_POOLS).linux)", runs_on)
+        self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), runs_on)
 
     def test_a_persons_dispatch_is_not_replaced_by_the_next_push(self):
         """Run 44328490608: a person's dispatch waited behind a running decide and the next push replaced it."""

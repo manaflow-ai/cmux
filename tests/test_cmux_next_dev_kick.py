@@ -42,11 +42,9 @@ check(len(tick_steps) == 1 and "sha=" not in str(tick_steps[0].get("run")),
 check(len(tick_steps) == 1 and "!cancelled()" in str(tick_steps[0].get("if", "")),
       "a failed DEV dispatch still wakes the tick")
 
-import re  # noqa: E402
-
-check(re.search(r"vars\.LINUX_RUNNER(?![A-Z_])", text) is None and "32vcpu" not in text and
-      "RUNNER_POOLS).linux" not in text and "|| 'cmux-linux' }}" in text and "'ubuntu-24.04'" in text,
-      "DEV kick takes the one Linux label, cmux-linux, never a fixed Blacksmith size that can stall")
+check("vars.LINUX_RUNNER" not in text and "32vcpu" not in text and
+      "|| fromJSON(vars.RUNNER_POOLS).linux_4 }}" in text and "'ubuntu-24.04'" in text,
+      "DEV kick reads the ephemeral_only Linux pool (it holds a write token), never a fixed Blacksmith size that can stall")
 
 if failures:
     print("FAIL: cmux NEXT DEV kick\n  " + "\n  ".join(failures))
