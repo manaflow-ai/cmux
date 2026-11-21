@@ -2826,8 +2826,10 @@ fn unmade_fresh_retry(
         return error;
     }
     let text = at(&error, "message").as_str().unwrap_or_default();
-    let message =
-        format!("{}`{}`{}", &text[..start], again_command(request, &Machine::New), &text[end..]);
+    let (Some(before), Some(after)) = (text.get(..start), text.get(end..)) else {
+        return error;
+    };
+    let message = format!("{before}`{}`{after}", again_command(request, &Machine::New));
     error.set("message", json!(message));
     error
 }
@@ -2838,11 +2840,12 @@ fn fresh_start_command(message: &str, name: &str) -> Option<(usize, usize)> {
     ["cloud", "vm"].iter().find_map(|scope| {
         let opening = format!("`cmux {scope} start-session --name {name}");
         let start = message.find(&opening)?;
-        let after = start + opening.len();
-        if !matches!(message[after..].chars().next(), Some(' ' | '`')) {
+        let after = start.checked_add(opening.len())?;
+        let rest = message.get(after..)?;
+        if !matches!(rest.chars().next(), Some(' ' | '`')) {
             return None;
         }
-        Some((start, after + message[after..].find('`')? + 1))
+        Some((start, after.checked_add(rest.find('`')?)?.checked_add(1)?))
     })
 }
 
