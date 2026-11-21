@@ -188,7 +188,7 @@ fn slides_writes_opens_and_updates_a_deck_in_place() {
     assert_eq!(result["structuredContent"]["shown"], "updated in place", "{result}");
     assert_eq!(result["structuredContent"]["slides"], 2, "{result}");
     assert_eq!(runs(&server), opened, "no second tab");
-    let sent = super::live_open::reloads_after(&reloads, 1);
+    let sent = live_open::reloads_after(&reloads, 1);
     assert_eq!(sent.len(), 1, "{sent:?}");
     assert_eq!(sent[0]["params"]["browser"], NEW_BROWSER);
     let html = String::from_utf8(fetch(port, "GET", &format!("/{token}/"), &host).2).unwrap();

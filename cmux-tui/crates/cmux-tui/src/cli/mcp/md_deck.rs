@@ -295,13 +295,13 @@ fn markdown_html(markdown: &str) -> (String, bool) {
                         let name = if in_head { "th" } else { "td" };
                         match table.get(cell) {
                             Some(Alignment::Left) => {
-                                out.push_str(&format!("<{name} style=\"text-align:left\">"))
+                                out.push_str(&format!("<{name} style=\"text-align:left\">"));
                             }
                             Some(Alignment::Center) => {
-                                out.push_str(&format!("<{name} style=\"text-align:center\">"))
+                                out.push_str(&format!("<{name} style=\"text-align:center\">"));
                             }
                             Some(Alignment::Right) => {
-                                out.push_str(&format!("<{name} style=\"text-align:right\">"))
+                                out.push_str(&format!("<{name} style=\"text-align:right\">"));
                             }
                             _ => out.push_str(&format!("<{name}>")),
                         }
