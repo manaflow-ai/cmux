@@ -59,8 +59,6 @@ ALLOWED: dict[str, str] = {
         "a few kB of submitted URLs, one scheduled job; the next run restores the newest by prefix",
     "base-coalesce.yml: Record this tip as tested":
         "a 41-byte marker per tip a coalesced run started on (one a window); the next push finds the newest by prefix",
-    "cmux-next-web.yml: Record this push as the last covered one":
-        "an empty marker per feat-cmux-next push that the next push reads to coalesce",
     "cmux-next.yml: Save the DEV compile cache (Blacksmith)":
         "per-commit compile cache for the DEV build, restored by prefix; a candidate for a stable key",
     "ios-appstore-upload.yml: Save iOS compilation cache":

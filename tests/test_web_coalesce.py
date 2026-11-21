@@ -566,37 +566,25 @@ class WorkflowTests(unittest.TestCase):
         self.web = yaml.safe_load(WEB.read_text())
         self.lint = yaml.safe_load(LINT.read_text())
 
-    def test_the_coalesce_job_waits_one_at_a_time_and_never_cancels_a_started_one(self):
+    def test_the_window_gate_holds_no_runner_while_it_waits(self):
+        # 2026-11-21: base-coalesce.yml decides per push (the first push of each 120-minute window runs the checks)
+        # and nothing sleeps; the coalesce job that slept up to its window held a pool runner about 2,200 minutes a day.
         job = self.web["jobs"]["coalesce"]
-        self.assertIs(job["concurrency"]["cancel-in-progress"], False)
-        self.assertIn("'cmux-next-web-coalesce'", job["concurrency"]["group"])
-        # A dispatch, another branch and the off switch get a group of their own.
-        self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
-                      job["concurrency"]["group"])
-        self.assertIn("vars.NEXT_WEB_COALESCE", job["concurrency"]["group"])
-        # #34158: a re-run's own group, so a newer push's pending job never replaces it.
-        shared, own = job["concurrency"]["group"].split("||", 1)
-        self.assertIn("github.run_attempt == '1'", shared)
-        self.assertIn("github.run_attempt", own)
-        # ... and it never saves a marker, so a late save cannot roll the newest one back.
-        save = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/cache/save@"))
-        self.assertIn("github.run_attempt == '1'", save["if"])
-        self.assertIn("--hold-minutes 120", next(s for s in job["steps"] if s.get("id") == "wait")["run"])
-        # The sleep, then a few minutes of work; the bound on the window is 120 minutes (CI time map, 2026-11-21).
-        self.assertEqual(coalesce.HOLD_MINUTES, 120.0)
-        self.assertLessEqual(job["timeout-minutes"], 125)
+        self.assertEqual(job["uses"], "./.github/workflows/base-coalesce.yml")
+        self.assertEqual(job["with"]["key"], "cmux-next-web")
+        self.assertEqual(job["with"]["hold_minutes"], 120)
+        self.assertEqual(job["with"]["no_coalesce"], "${{ vars.NEXT_WEB_COALESCE == '0' }}")
+        gate = yaml.safe_load((ROOT / ".github/workflows/base-coalesce.yml").read_text())
+        for step in gate["jobs"]["coalesce"]["steps"]:
+            self.assertNotIn("sleep", step.get("run", ""), step.get("name"))
+        self.assertLessEqual(gate["jobs"]["coalesce"]["timeout-minutes"], 5)
         self.assertIs(self.web["concurrency"]["cancel-in-progress"], False)
         self.assertNotIn("cancel-in-progress: true", WEB.read_text())
 
-    def test_a_yielded_job_runs_no_checks_and_records_nothing(self):
-        # #33872: the job that slept yields to a newer push (run=false): no web checks, no marker.
-        job = self.web["jobs"]["coalesce"]
-        wait = next(s for s in job["steps"] if s.get("id") == "wait")
-        self.assertIn('--ref "$GITHUB_REF"', wait["run"])
-        self.assertEqual(job["outputs"]["run"], "${{ steps.wait.outputs.run }}")
-        save = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/cache/save@"))
-        self.assertIn("steps.wait.outputs.run == 'true'", save["if"])
+    def test_a_coalesced_push_runs_no_checks(self):
         self.assertIn("needs.coalesce.outputs.run != 'false'", self.web["jobs"]["web"]["if"])
+        # A dispatch skips the gate job: its web checks still run.
+        self.assertIn("!cancelled()", self.web["jobs"]["web"]["if"])
         # The bisect needs a failed web job, so a skipped one never starts it.
         self.assertIn("needs.web.result == 'failure'", self.web["jobs"]["web-bisect"]["if"])
 
@@ -621,28 +609,25 @@ class WorkflowTests(unittest.TestCase):
                          "pin-browser-test-font.sh"):
                 self.assertTrue(Path(tmp + runner, name).is_file(), name)
 
-    def test_the_marker_is_restored_from_and_saved_to_one_path(self):
+    def test_the_gate_reads_and_saves_its_markers_at_one_path(self):
         # Actions keys a cache's version by its path, so a save at another path is never restored, even by prefix.
-        steps = self.web["jobs"]["coalesce"]["steps"]
-        restore = next(s for s in steps if str(s.get("uses", "")).startswith("actions/cache/restore@"))
-        save = next(s for s in steps if str(s.get("uses", "")).startswith("actions/cache/save@"))
-        wait = next(s for s in steps if s.get("id") == "wait")["run"]
-        self.assertEqual(restore["with"]["path"], save["with"]["path"])
-        self.assertTrue(save["with"]["key"].startswith(restore["with"]["restore-keys"]))
-        marker = restore["with"]["path"].replace("${{ runner.temp }}", "$RUNNER_TEMP")
-        self.assertIn(f'--last "{marker}"', wait)
-        self.assertIn(f'--out "{marker}"', wait)
+        steps = yaml.safe_load((ROOT / ".github/workflows/base-coalesce.yml").read_text())["jobs"]["coalesce"]["steps"]
+        paths = {s["with"]["path"] for s in steps if str(s.get("uses", "")).startswith("actions/cache/")}
+        self.assertEqual(paths, {".base-coalesce/record"})
 
     def test_the_web_checks_route_from_the_last_covered_commit(self):
         web = self.web["jobs"]["web"]
         self.assertEqual(web["needs"], "coalesce")
-        self.assertEqual(web["with"]["push_base"], "${{ github.event_name == 'push' && needs.coalesce.outputs.base || '' }}")
+        # With no tip recorded ('unknown'), every web check runs.
+        self.assertEqual(web["with"]["push_base"],
+                         "${{ github.event_name == 'push' && (needs.coalesce.outputs.base == 'unknown' && "
+                         f"'{coalesce.EVERYTHING}' || needs.coalesce.outputs.base) || '' }}}}")
 
     def test_the_bisect_runs_on_a_red_push_and_never_fails(self):
         job = self.web["jobs"]["web-bisect"]
         self.assertIn("needs.web.result == 'failure'", job["if"])
         # A run of every web check has no covered range to bisect.
-        self.assertIn(f"needs.coalesce.outputs.base != '{coalesce.EVERYTHING}'", job["if"])
+        self.assertIn("needs.coalesce.outputs.base != 'unknown'", job["if"])
         self.assertIn("github.event_name == 'push'", job["if"])
         checkout = next(s for s in job["steps"] if s.get("name") == "Checkout with history")
         self.assertIs(checkout["with"]["persist-credentials"], False)

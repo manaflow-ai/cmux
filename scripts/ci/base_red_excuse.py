@@ -7695,9 +7695,15 @@ def web_base_runs(repo: str, workflow, github, evidence: "Evidence"):
     """(run, its red webview shard jobs) for each of EVIDENCE's newest webview runs of WORKFLOW that gave every shard
     a verdict, newest first, read lazily: the window above. An all-green run is yielded and ends it."""
     reads, count, newest = 0, 0, None
-    for run in evidence.runs(workflow):
+    runs = evidence.runs(workflow)
+    suites = SuiteChecks(github, repo)
+    for index, run in enumerate(runs):
         if run.get("status") == "completed" and run.get("conclusion") in ("cancelled", "skipped"):
             continue  # a superseded coalesced run: no shard of it ran
+        # A push that was not its window's first (base-coalesce.yml) is a success run whose shards were skipped: its
+        # check suite says so in a batched read, so it costs no job read (about 44 such runs a window).
+        if not may_hold(suites, runs, index, WEB_SHARD.format(1), verdict=True):
+            continue
         if reads >= WEB_BASE_JOB_READS:
             return
         reads += 1
