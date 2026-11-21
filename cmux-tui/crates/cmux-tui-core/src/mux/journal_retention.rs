@@ -16,18 +16,13 @@
 //! [`RetentionSchedule`]. One retention worker per mux coalesces the marks
 //! into at most one checkpoint per interval. The checkpoint after a wave
 //! covers every gap of that wave; terminals that ended meanwhile are skipped.
-//! A hosted reader whose terminal lane is full records the same kind of gap
-//! (reason `journal_queue_full`) for the output it could not journal, and the
-//! same checkpoint covers it. Such a gap marks its terminal when it becomes
-//! pending, before its record can enter the lane, and the worker records a
-//! gap that is still pending ahead of its checkpoint: a terminal that prints
-//! nothing after the drop still gets its gap record and its checkpoint.
+//! Terminal output itself is not in the journal (output_store.rs), so a
+//! checkpoint holds no terminal screens and output no longer fails its cut.
+//! A gap or resize record that finds the terminal lane full (a stalled
+//! writer) is not recorded; its terminal is still marked, so the checkpoint
+//! covers it.
 //!
-//! Unlike feat, whose checkpoints hold no terminal screens, a checkpoint here
-//! replays every terminal under its parser lock, and it fails ("session
-//! changed during checkpoint capture") while output continues. A failed
-//! capture is therefore retried only after the full interval: a sooner retry
-//! would stall the hosted readers again and make their hosts drop them.
+//! A failed capture is retried only after the full interval.
 //!
 //! Trade-off: a crash between a reconnect and its coalesced checkpoint
 //! restores from an older checkpoint whose tail contains the gap record, so
@@ -177,38 +172,34 @@ enum CaptureOutcome {
 }
 
 impl Mux {
-    /// O(1) gap bookkeeping for a terminal whose journal lost output: the
-    /// host dropped the daemon's tap (`host_reconnect`), or the terminal lane
-    /// was full (`journal_queue_full`). Records the gap without waiting and,
-    /// with `note_retention`, notes the terminal for the next coalesced
-    /// checkpoint. `false` when the terminal lane has no room: nothing was
-    /// recorded, and the caller keeps the gap pending ahead of its next
-    /// output.
+    /// O(1) gap bookkeeping when the host dropped the daemon's tap
+    /// (`host_reconnect`): records the `terminal.output.gap` marker without
+    /// waiting (the hosted reader must never wait for a stalled writer) and
+    /// notes the terminal for the next coalesced checkpoint, which also
+    /// covers a marker the full terminal lane did not take.
     pub(crate) fn journal_terminal_output_gap(
         self: &Arc<Self>,
         terminal_id: Arc<TerminalPublicId>,
         generation: Arc<str>,
         reason: &'static str,
-        note_retention: bool,
-    ) -> bool {
-        let recorded = self.journal_ingress.try_send_terminal_gap(
+    ) {
+        if let Err(error) = self.journal_ingress.try_send_terminal_gap(
             crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
                 terminal_id: terminal_id.clone(),
                 generation,
                 occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
                 reason,
             },
-        );
-        if recorded.is_err() {
-            return false;
+        ) {
+            eprintln!(
+                "cmux-tui: terminal {terminal_id} {reason} gap marker was not journaled: {error:#}"
+            );
         }
-        if note_retention {
-            self.note_journal_gap_for_retention(&terminal_id);
-        }
-        true
+        self.note_journal_gap_for_retention(&terminal_id);
     }
 
-    /// Notes a terminal whose journal lost output for the next coalesced
+    /// Notes a terminal whose replay boundary moved (a host reconnect, a
+    /// record the full terminal lane did not take) for the next coalesced
     /// checkpoint, and starts the retention worker on first use.
     pub(crate) fn note_journal_gap_for_retention(self: &Arc<Self>, terminal_id: &TerminalPublicId) {
         let retention = &self.journal_retention;
@@ -238,32 +229,6 @@ impl Mux {
         self.journal_retention.captures.load(Ordering::Acquire)
     }
 
-    /// Waits until the retention worker has committed `count` coalesced
-    /// checkpoints; `false` when `timeout` ends first.
-    #[cfg(test)]
-    pub(crate) fn wait_for_coalesced_checkpoints_for_test(
-        &self,
-        count: u64,
-        timeout: Duration,
-    ) -> bool {
-        let retention = &self.journal_retention;
-        let deadline = Instant::now() + timeout;
-        let mut schedule = retention.shared.schedule.lock().unwrap_or_else(PoisonError::into_inner);
-        while retention.captures.load(Ordering::Acquire) < count {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return false;
-            }
-            schedule = retention
-                .shared
-                .changed
-                .wait_timeout(schedule, remaining)
-                .unwrap_or_else(PoisonError::into_inner)
-                .0;
-        }
-        true
-    }
-
     fn capture_coalesced_checkpoint(&self, batch: &[TerminalPublicId]) -> CaptureOutcome {
         if self.shutting_down.load(Ordering::Acquire) {
             return CaptureOutcome::NothingLive;
@@ -272,13 +237,6 @@ impl Mux {
         let Some(first) = batch.first().filter(|_| live > 0) else {
             return CaptureOutcome::NothingLive;
         };
-        // A gap still pending (its terminal printed nothing since the drop)
-        // goes into the journal ahead of the checkpoint that covers it.
-        for terminal in batch {
-            if let Some(surface) = self.terminal_resource_surface(terminal) {
-                surface.record_pending_journal_gap();
-            }
-        }
         let sequence = self.journal_retention.captures.load(Ordering::Acquire);
         let key = format!(
             "host-reconnects:{}:{}:{sequence}:{}",
@@ -341,8 +299,6 @@ fn run_retention_worker(shared: &RetentionShared, mux: &Weak<Mux>) {
             CaptureOutcome::NothingLive => {}
             CaptureOutcome::Failed => schedule.failed(batch, Instant::now()),
         }
-        // Wakes test waiters for a capture; the worker itself is not waiting.
-        shared.changed.notify_all();
     }
 }
 

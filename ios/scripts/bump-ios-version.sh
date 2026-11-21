@@ -11,6 +11,7 @@ set -euo pipefail
 # Usage:
 #   ios/scripts/bump-ios-version.sh                    # Bump beta patch
 #   ios/scripts/bump-ios-version.sh --lane appstore    # Bump App Store patch
+#   ios/scripts/bump-ios-version.sh --lane classic     # Bump cmux CLASSIC patch
 #   ios/scripts/bump-ios-version.sh 1.0.1 --lane appstore
 #   ios/scripts/bump-ios-version.sh minor              # Bump beta minor
 #   ios/scripts/bump-ios-version.sh --lane beta 1.2.3  # Set beta version
@@ -33,8 +34,8 @@ if [[ ! -f "$XCCONFIG" ]]; then
 fi
 
 usage() {
-  echo "Usage: $0 [--lane beta|appstore] [version|patch|minor|major]" >&2
-  echo "       $0 [version|patch|minor|major] [--lane beta|appstore]" >&2
+  echo "Usage: $0 [--lane beta|classic|appstore] [version|patch|minor|major]" >&2
+  echo "       $0 [version|patch|minor|major] [--lane beta|classic|appstore]" >&2
 }
 
 read_xcconfig_setting() {
@@ -88,6 +89,10 @@ case "$LANE" in
   beta)
     KEY="CMUX_IOS_BETA_MARKETING_VERSION"
     DISPLAY_LANE="beta"
+    ;;
+  classic)
+    KEY="CMUX_IOS_CLASSIC_MARKETING_VERSION"
+    DISPLAY_LANE="cmux CLASSIC"
     ;;
   appstore)
     KEY="CMUX_IOS_APPSTORE_MARKETING_VERSION"

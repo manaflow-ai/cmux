@@ -80,6 +80,11 @@
       "message": "Cette machine démarre, se met en pause ou ne tourne pas, elle ne peut donc pas faire cela pour le moment.",
       "action": "Patientez un instant et réessayez. Vérifiez l'état de la machine avec cmux vm ls et reprenez-la d'abord si elle est en pause."
     },
+    "hostRecovery": {
+      "title": "L'hôte de la machine est en cours de récupération",
+      "message": "Le disque de cette machine se trouve sur un hôte Cloud en cours de récupération, elle ne peut donc pas encore démarrer. Ses fichiers sont conservés.",
+      "action": "Réessayez dans quelques minutes. Ne supprimez pas et ne recréez pas la machine : son disque est conservé et revient avec elle. Si elle ne démarre toujours pas après une heure, contactez le support avec l'ID de trace."
+    },
     "networkRuleCapacity": {
       "title": "Règles réseau à saturation",
       "message": "Votre politique réseau est enregistrée mais n'a pas été appliquée : cmux Cloud a atteint sa capacité de règles réseau.",
@@ -375,6 +380,7 @@
     "typingCodingAgents": "agents de code",
     "typingMultitasking": "multitâche",
     "subtitle": "Terminal macOS natif open source et gratuit basé sur Ghostty. Onglets verticaux, anneaux de notification quand les agents ont besoin d'attention, panneaux divisés et une <cliLink>CLI</cliLink> pour la programmabilité.",
+    "nextCallout": "Nouveau : essayez <link>cmux NEXT</link>, un aperçu du prochain cmux.",
     "features": "Fonctionnalités",
     "faq": "FAQ",
     "communitySection": "Communauté",
@@ -979,7 +985,12 @@
         "deleteConfirmBody": "Cette action est irréversible et supprime toutes les données associées à votre compte.",
         "deleteAcknowledge": "Je comprends que mon compte et ses données seront définitivement supprimés.",
         "deleteConfirm": "Supprimer le compte",
-        "deleteError": "Impossible de supprimer le compte. Réessayez."
+        "deleteError": "Impossible de supprimer le compte. Réessayez.",
+        "deleteErrorPending": "Votre compte est déjà en cours de suppression. Réessayez dans un instant.",
+        "deleteErrorRetryable": "La suppression du compte n'a pas pu aboutir. Vérifiez votre connexion et réessayez.",
+        "deleteAppStoreTitle": "Votre abonnement App Store continuera de se renouveler",
+        "deleteAppStoreBody": "Supprimer votre compte cmux n'annule pas votre abonnement App Store. Apple continue de vous facturer jusqu'à ce que vous l'annuliez dans l'App Store.",
+        "deleteAppStoreManage": "Gérer l'abonnement dans l'App Store"
       }
     },
     "teams": {
@@ -1257,7 +1268,10 @@
           "failed": "échec",
           "paused": "en pause",
           "destroyed": "supprimée"
-        }
+        },
+        "wake": "Réveiller",
+        "waking": "Réveil en cours…",
+        "wakeError": "Impossible de réveiller cette machine. Réessayez."
       },
       "network": {
         "open": "Réseau",
