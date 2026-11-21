@@ -74,12 +74,15 @@ const icon = (props: Record<string, unknown>): SceneOp[] => [
   { op: "root", id: "icon" },
 ];
 
+// The glyph's drawn layers: a `.fill` name draws the Solid form, whose clear layers live in a mask.
 const paths = (container: HTMLElement) =>
-  [...container.querySelectorAll('[data-app-node="icon"] path')].map((path) => ({
-    fill: path.getAttribute("fill"),
-    stroke: path.getAttribute("stroke"),
-    opacity: path.getAttribute("opacity"),
-  }));
+  [...container.querySelectorAll('[data-app-node="icon"] path')]
+    .filter((path) => !path.closest("mask"))
+    .map((path) => ({
+      fill: path.getAttribute("fill"),
+      stroke: path.getAttribute("stroke"),
+      opacity: path.getAttribute("opacity"),
+    }));
 
 test("a linear gradient becomes a CSS linear-gradient with tokens resolved and the angle normalized", () => {
   expect(sceneGradient({ linear: { colors: ["#112233", "success"] } })).toBe(

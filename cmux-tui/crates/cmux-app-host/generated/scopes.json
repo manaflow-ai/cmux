@@ -989,6 +989,14 @@
       "scope": "mail:read",
       "class": "read"
     },
+    "media.control": {
+      "scope": "media:control",
+      "class": "mutation"
+    },
+    "media.get": {
+      "scope": "media:read",
+      "class": "read"
+    },
     "memory_app.cycle_variant": {
       "scope": "memory_app:write",
       "class": "mutation"
@@ -1651,6 +1659,14 @@
     },
     "stash.restore": {
       "scope": "stash:write",
+      "class": "mutation"
+    },
+    "system_calendar.events": {
+      "scope": "system_calendar:read",
+      "class": "read"
+    },
+    "system_calendar.request_access": {
+      "scope": "system_calendar:read",
       "class": "mutation"
     },
     "tab_group.add_tabs": {
