@@ -46,6 +46,12 @@ extension ThemeFileSetting {
     public nonisolated static let configPath = ["appearance", "themeFile"]
 }
 
+extension ThemeFileExceptionsSetting {
+    /// `appearance.themeFileExceptions`.
+    public nonisolated static let configPath = ["appearance", "themeFileExceptions"]
+    public nonisolated static let fallback: [String] = []
+}
+
 extension HighlightColorSetting {
     /// `appearance.highlightColor`.
     public nonisolated static let configPath = ["appearance", "highlightColor"]
@@ -77,6 +83,8 @@ extension BackdropSelectionSetting {
     public nonisolated static let dynamicDefault: BackdropDynamicMode = .appearance
     /// `appearance.backgroundLocation`: LAT,LON in degrees for sun events and solar frames; unset: the system time zone's coordinates from /usr/share/zoneinfo/zone.tab (no location permission).
     public nonisolated static let locationPath = ["appearance", "backgroundLocation"]
+    /// `appearance.backgroundMemory`: What Background's modes last showed, so switching modes never loses one (Leo, 2026-11-19: "it lost the folder ... i couldn't get back into it"): rotate is Rotate's last shuffle (daily or folder:<path>), folder the last folder it shuffled, off the picture Off last showed (none for No Wallpaper). The Settings page's Background card writes it when the background moves to another mode and reads it back in a new page or after a restart; the app's engine never reads it.
+    public nonisolated static let memoryPath = ["appearance", "backgroundMemory"]
     /// `appearance.displayBackgrounds`.
     public nonisolated static let displayBackgroundsPath = ["appearance", "displayBackgrounds"]
     /// `appearance.displayBackgroundRotations`.
@@ -92,6 +100,18 @@ extension PaneBackgroundsSetting {
 extension ReducedBackgroundsSetting {
     /// `ui.reducedBackgrounds`.
     public nonisolated static let configPath = ["ui", "reducedBackgrounds"]
+    public nonisolated static let fallback = false
+}
+
+extension AgentGlowSetting {
+    /// `appearance.agentGlow`.
+    public nonisolated static let configPath = ["appearance", "agentGlow"]
+    public nonisolated static let fallback = false
+}
+
+extension PreviousGlassSetting {
+    /// `appearance.previousGlass`: Web pages only: on sends glassLevels "previous" with the web theme (WebTheme), data-glass-levels="previous" on <html>, and webviews ui/glass/glass.css (PREVIOUS GLASS) restores the glass numbers from before the one glass system (design/glass-system.md, cmux#48174). Off (default) draws the one glass system.
+    public nonisolated static let configPath = ["appearance", "previousGlass"]
     public nonisolated static let fallback = false
 }
 
@@ -165,7 +185,7 @@ extension UIScaleSetting {
 extension InterfaceSizeSetting {
     /// `appearance.metrics.chromeFontSize`.
     public nonisolated static let configPath = ["appearance", "metrics", "chromeFontSize"]
-    public nonisolated static let range: ClosedRange<Double> = 10...16
+    public nonisolated static let range: ClosedRange<Double> = 10...20
     public nonisolated static let placeholder: Double = 12
 }
 
@@ -250,6 +270,12 @@ extension TitleAreaContrastSetting {
     public nonisolated static let placeholder: Double = 1
 }
 
+extension CornerFlushSetting {
+    /// `appearance.cornerFlush`: How the selected tab meets the content card (CornerFlush, CmuxNextDesign). A missing key is the default, flush with no goo, drawn only over the stock chrome (CornerFlush.defaultFits); a set value draws over any chrome, as a Debug Settings pick of chrome.cornerFlush does, which still overrides it in DEV and NIGHTLY. Compact density keeps the pill under every value. Leo 2026-11-13: "lawrence wanted no goo by default"; Leo 2026-11-18: the gooey look is a toggle a theme or a setup can pick.
+    public nonisolated static let configPath = ["appearance", "cornerFlush"]
+    public nonisolated static let fallback: CornerFlush = .flush
+}
+
 extension PaneAnimationsSetting {
     /// `ui.paneAnimations`.
     public nonisolated static let configPath = ["ui", "paneAnimations"]
@@ -309,73 +335,4 @@ extension PaneRingConfigParser {
     /// `focusRing.showWhenSinglePane`.
     nonisolated static let focusRingShowWhenSinglePanePath = ["focusRing", "showWhenSinglePane"]
     nonisolated static let focusRingShowWhenSinglePaneDefault = false
-}
-
-extension MenuLookSetting {
-    /// `appearance.menu.cornerRadius`: The menu panel's corner (GlassMenu and every web menu). Unset: today's popup radius (the design scale's popup radius, 8 on the web).
-    public nonisolated static let menuCornerRadiusPath = ["appearance", "menu", "cornerRadius"]
-    public nonisolated static let menuCornerRadiusRange: ClosedRange<Double> = 0...24
-    public nonisolated static let menuCornerRadiusPlaceholder: Double = 8
-    /// `appearance.menu.borderOpacity`: The panel's hairline edge, as a share of the text color (the web's --menu-border). Unset: today's 12%.
-    public nonisolated static let menuBorderOpacityPath = ["appearance", "menu", "borderOpacity"]
-    public nonisolated static let menuBorderOpacityRange: ClosedRange<Double> = 0...1
-    public nonisolated static let menuBorderOpacityPlaceholder: Double = 0.12
-    /// `appearance.menu.shadow`: The menu panel's drop shadow: standard is today's raised elevation step (0 2px 6px black 11%); subtle is the card step (0 1px 2px black 7%); strong a soft, larger drop (0 8px 24px black 28%); none draws no shadow.
-    public nonisolated static let menuShadowPath = ["appearance", "menu", "shadow"]
-    public nonisolated static let menuShadowDefault = "standard"
-    public nonisolated static let menuShadowValues = ["standard", "none", "subtle", "strong"]
-    /// `appearance.menu.fill`: The menu panel's fill as #RRGGBB or #RRGGBBAA, over the glass. Unset: today's glass (its tint and veil).
-    public nonisolated static let menuFillPath = ["appearance", "menu", "fill"]
-    /// `appearance.menu.padding`: The panel's inner padding, which is also the hover fill's inset from its edges (the web's --menu-padding); labels, shortcuts and separators keep their place on the menu grid. Unset: the grid's 5.
-    public nonisolated static let menuPaddingPath = ["appearance", "menu", "padding"]
-    public nonisolated static let menuPaddingRange: ClosedRange<Double> = 0...16
-    public nonisolated static let menuPaddingPlaceholder: Double = 5
-    /// `appearance.menu.highlightRadius`: The hover fill's corner. Unset: today's 5.
-    public nonisolated static let menuHighlightRadiusPath = ["appearance", "menu", "highlightRadius"]
-    public nonisolated static let menuHighlightRadiusRange: ClosedRange<Double> = 0...16
-    public nonisolated static let menuHighlightRadiusPlaceholder: Double = 5
-    /// `appearance.menu.rowHeight`: A one-line row's height. Unset: today's control row of the density (28 at the default).
-    public nonisolated static let menuRowHeightPath = ["appearance", "menu", "rowHeight"]
-    public nonisolated static let menuRowHeightRange: ClosedRange<Double> = 18...40
-    public nonisolated static let menuRowHeightPlaceholder: Double = 28
-    /// `appearance.menu.shortcuts`: The shortcut column's ink: standard is today's (each surface's own muted ink); muted is quieter (the text at 45%, the native tertiary ink).
-    public nonisolated static let menuShortcutsPath = ["appearance", "menu", "shortcuts"]
-    public nonisolated static let menuShortcutsDefault = "standard"
-    public nonisolated static let menuShortcutsValues = ["standard", "muted"]
-    /// `appearance.menu.sectionLabel`: A section label (Open in): standard is today's (caption, emphasis weight, the row ink at 55%); muted is regular weight in the text at 45% (the web's --menu-label-color and --menu-label-weight).
-    public nonisolated static let menuSectionLabelPath = ["appearance", "menu", "sectionLabel"]
-    public nonisolated static let menuSectionLabelDefault = "standard"
-    public nonisolated static let menuSectionLabelValues = ["standard", "muted"]
-    /// `appearance.menu.separator`: A separator between row groups: standard is today's line; subtle a line at half its ink; none leaves only the gap (the web's --menu-separator).
-    public nonisolated static let menuSeparatorPath = ["appearance", "menu", "separator"]
-    public nonisolated static let menuSeparatorDefault = "standard"
-    public nonisolated static let menuSeparatorValues = ["standard", "subtle", "none"]
-    /// `appearance.menu.destructiveInk`: A destructive row (Delete): standard is today's danger red; plain draws it in the row's own ink.
-    public nonisolated static let menuDestructiveInkPath = ["appearance", "menu", "destructiveInk"]
-    public nonisolated static let menuDestructiveInkDefault = "standard"
-    public nonisolated static let menuDestructiveInkValues = ["standard", "plain"]
-    /// `appearance.menu.submenu`: Where a submenu opens: standard is today's (a 6 pt gap beside its row); flush puts its panel against the menu's edge with its first row level with the row that opened it (the web's --menu-submenu-offset and --menu-submenu-align-offset).
-    public nonisolated static let menuSubmenuPath = ["appearance", "menu", "submenu"]
-    public nonisolated static let menuSubmenuDefault = "standard"
-    public nonisolated static let menuSubmenuValues = ["standard", "flush"]
-    /// `appearance.menu.subtitle`: A row's second line (a subtitle under its title): standard is today's (the row ink at 55%); muted is the text at 45% (the web's --menu-subtitle-color).
-    public nonisolated static let menuSubtitlePath = ["appearance", "menu", "subtitle"]
-    public nonisolated static let menuSubtitleDefault = "standard"
-    public nonisolated static let menuSubtitleValues = ["standard", "muted"]
-    /// `appearance.popover.padding`: A popover's inner padding. Unset: today's (the design scale's space 2).
-    public nonisolated static let popoverPaddingPath = ["appearance", "popover", "padding"]
-    public nonisolated static let popoverPaddingRange: ClosedRange<Double> = 0...24
-    public nonisolated static let popoverPaddingPlaceholder: Double = 8
-    /// `appearance.popover.header`: A popover's header line: standard is today's (detail type, muted ink); strong is body type at emphasis weight in the primary ink.
-    public nonisolated static let popoverHeaderPath = ["appearance", "popover", "header"]
-    public nonisolated static let popoverHeaderDefault = "standard"
-    public nonisolated static let popoverHeaderValues = ["standard", "strong"]
-    /// `appearance.popover.progressHeight`: A progress track's height in a popover (plan usage). Unset: today's 4.
-    public nonisolated static let popoverProgressHeightPath = ["appearance", "popover", "progressHeight"]
-    public nonisolated static let popoverProgressHeightRange: ClosedRange<Double> = 1...12
-    public nonisolated static let popoverProgressHeightPlaceholder: Double = 4
-    /// `appearance.popover.progressFill`: A progress bar's fill: standard is today's accent; muted the secondary ink; strong the primary ink.
-    public nonisolated static let popoverProgressFillPath = ["appearance", "popover", "progressFill"]
-    public nonisolated static let popoverProgressFillDefault = "standard"
-    public nonisolated static let popoverProgressFillValues = ["standard", "muted", "strong"]
 }

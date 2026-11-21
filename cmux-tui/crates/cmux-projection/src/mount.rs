@@ -7,10 +7,10 @@
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 use fuser::{
     BackgroundSession, FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyCreate,
@@ -18,8 +18,8 @@ use fuser::{
     TimeOrNow,
 };
 
-use crate::manifest::Kind;
-use crate::overlay::{Attr, Overlay};
+use crate::overlay::{Attr, Overlay, Set, Type, Who};
+use crate::upper::SetTime;
 
 /// How long the kernel may keep an answer.
 const TTL: Duration = Duration::from_secs(1);
@@ -50,8 +50,62 @@ impl Drop for Mounted {
     }
 }
 
+/// How to mount.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Options {
+    /// Only the read-only view: every write answers `EROFS` from the kernel. The lower a kernel
+    /// overlay can stack an upper on, and what the conformance suites check alone.
+    pub read_only: bool,
+    /// Let users other than the mounting one in (`allow_other`: root, or `user_allow_other` in
+    /// `/etc/fuse.conf`). The product never sets it; the conformance suites, which switch users,
+    /// do.
+    pub allow_other: bool,
+    /// The source the mount table shows (default `cmux-projection`): a suite that finds its mount
+    /// by its device name sets one.
+    pub fsname: Option<String>,
+    /// Access times follow the machine's disk (its `relatime`) instead of staying put (`noatime`,
+    /// the default). A read-only mount always keeps them.
+    pub disk_atime: bool,
+}
+
 /// Mounts `overlay` at `at` (an existing, empty folder).
 pub fn mount(overlay: Arc<Overlay>, at: &Path) -> anyhow::Result<Mounted> {
+    mount_with(overlay, at, Options::default())
+}
+
+/// Mounts `overlay` at `at` (an existing, empty folder) as `options` say.
+pub fn mount_with(overlay: Arc<Overlay>, at: &Path, options: Options) -> anyhow::Result<Mounted> {
+    let session =
+        fuser::spawn_mount2(filesystem(overlay, &options)?, at, &mount_options(&options))?;
+    Ok(Mounted { session: Some(session) })
+}
+
+/// Mounts `overlay` at `at` and serves it on this thread until it is unmounted from outside
+/// (`fusermount3 -u`). `mounted` runs once the mount is up, before the first request.
+pub fn serve(overlay: Arc<Overlay>, at: &Path, mounted: impl FnOnce()) -> anyhow::Result<()> {
+    let options = Options::default();
+    let mut session =
+        fuser::Session::new(filesystem(overlay, &options)?, at, &mount_options(&options))?;
+    mounted();
+    session.run()?;
+    Ok(())
+}
+
+fn mount_options(options: &Options) -> Vec<MountOption> {
+    let mut mount_options = vec![
+        MountOption::FSName(options.fsname.clone().unwrap_or_else(|| "cmux-projection".into())),
+        MountOption::Subtype("cmux".into()),
+        MountOption::DefaultPermissions,
+        if options.disk_atime { MountOption::Atime } else { MountOption::NoAtime },
+        if options.read_only { MountOption::RO } else { MountOption::RW },
+    ];
+    if options.allow_other {
+        mount_options.push(MountOption::AllowOther);
+    }
+    mount_options
+}
+
+fn filesystem(overlay: Arc<Overlay>, options: &Options) -> anyhow::Result<Fs> {
     let (sender, receiver) = channel::<Job>();
     let receiver = Arc::new(Mutex::new(receiver));
     for index in 0..WORKERS {
@@ -66,16 +120,8 @@ pub fn mount(overlay: Arc<Overlay>, at: &Path) -> anyhow::Result<Mounted> {
             }
         })?;
     }
-    let fs = Fs { overlay, jobs: sender, listings: HashMap::new(), next_handle: AtomicU64::new(1) };
-    let options = [
-        MountOption::FSName("cmux-projection".into()),
-        MountOption::Subtype("cmux".into()),
-        MountOption::DefaultPermissions,
-        MountOption::NoAtime,
-        MountOption::RW,
-    ];
-    let session = fuser::spawn_mount2(fs, at, &options)?;
-    Ok(Mounted { session: Some(session) })
+    overlay.keep_atime(options.read_only || !options.disk_atime);
+    Ok(Fs { overlay, jobs: sender, listings: HashMap::new() })
 }
 
 /// Lazily unmounts whatever is mounted at `at` (a dead mount a daemon restart left), ignoring
@@ -93,39 +139,39 @@ pub fn unmount_stale(at: &Path) {
 struct Fs {
     overlay: Arc<Overlay>,
     jobs: Sender<Job>,
-    /// Folder listings by handle, taken at `opendir` so paging is stable and cheap.
+    /// Folder listings by handle, taken at `opendir` and again at each read from the start, so
+    /// paging is stable and cheap.
     listings: HashMap<u64, Vec<(u64, FileType, String)>>,
-    next_handle: AtomicU64,
 }
 
-fn file_type(kind: Kind) -> FileType {
+fn file_type(kind: Type) -> FileType {
     match kind {
-        Kind::File => FileType::RegularFile,
-        Kind::Dir => FileType::Directory,
-        Kind::Link => FileType::Symlink,
+        Type::File => FileType::RegularFile,
+        Type::Dir => FileType::Directory,
+        Type::Link => FileType::Symlink,
+        Type::Fifo => FileType::NamedPipe,
+        Type::Socket => FileType::Socket,
+        Type::Char => FileType::CharDevice,
+        Type::Block => FileType::BlockDevice,
     }
 }
 
-fn time(ns: i64) -> SystemTime {
-    UNIX_EPOCH + Duration::from_nanos(u64::try_from(ns).unwrap_or(0))
-}
-
 fn file_attr(attr: &Attr) -> FileAttr {
-    let at = time(attr.mtime_ns);
+    let mtime = Overlay::time_of(attr.mtime_ns);
     FileAttr {
         ino: attr.ino,
         size: attr.size,
-        blocks: attr.size.div_ceil(512),
-        atime: at,
-        mtime: at,
-        ctime: at,
-        crtime: at,
+        blocks: attr.blocks,
+        atime: Overlay::time_of(attr.atime_ns),
+        mtime,
+        ctime: Overlay::time_of(attr.ctime_ns),
+        crtime: mtime,
         kind: file_type(attr.kind),
         perm: u16::try_from(attr.mode & 0o7777).unwrap_or(0o644),
         nlink: attr.nlink,
         uid: attr.uid,
         gid: attr.gid,
-        rdev: 0,
+        rdev: u32::try_from(attr.rdev).unwrap_or(0),
         blksize: 4096,
         flags: 0,
     }
@@ -135,30 +181,58 @@ fn name_of(name: &OsStr) -> Result<&str, i32> {
     name.to_str().ok_or(libc::EINVAL)
 }
 
-fn ns_of(value: TimeOrNow) -> i64 {
-    let at = match value {
-        TimeOrNow::SpecificTime(at) => at,
-        TimeOrNow::Now => SystemTime::now(),
-    };
-    at.duration_since(UNIX_EPOCH)
-        .ok()
-        .and_then(|since| i64::try_from(since.as_nanos()).ok())
-        .unwrap_or(0)
+fn set_time(value: TimeOrNow) -> SetTime {
+    match value {
+        TimeOrNow::Now => SetTime::Now,
+        TimeOrNow::SpecificTime(at) => {
+            SetTime::At(match at.duration_since(SystemTime::UNIX_EPOCH) {
+                Ok(since) => i64::try_from(since.as_nanos()).unwrap_or(i64::MAX),
+                Err(before) => {
+                    i64::try_from(before.duration().as_nanos()).map_or(i64::MIN, |ns| -ns)
+                }
+            })
+        }
+    }
+}
+
+fn who(req: &Request<'_>) -> Who {
+    Who { uid: req.uid(), gid: req.gid() }
 }
 
 impl Fs {
+    /// Folder `ino`'s listing as `readdir` pages it: `.`, `..`, then its names.
+    fn listing(&self, ino: u64) -> Result<Vec<(u64, FileType, String)>, i32> {
+        let entries = self.overlay.readdir(ino)?;
+        let mut listing = Vec::with_capacity(entries.len() + 2);
+        listing.push((ino, FileType::Directory, ".".to_owned()));
+        listing.push((ino, FileType::Directory, "..".to_owned()));
+        listing.extend(entries.into_iter().map(|(ino, kind, name)| (ino, file_type(kind), name)));
+        Ok(listing)
+    }
+
     fn run(&self, job: impl FnOnce(&Overlay) + Send + 'static) {
         let overlay = self.overlay.clone();
         let _ = self.jobs.send(Box::new(move || job(&overlay)));
     }
 }
 
+fn entry(reply: ReplyEntry, made: Result<Attr, i32>) {
+    match made {
+        Ok(attr) => reply.entry(&TTL, &file_attr(&attr), 0),
+        Err(errno) => reply.error(errno),
+    }
+}
+
+fn empty(reply: ReplyEmpty, done: Result<(), i32>) {
+    match done {
+        Ok(()) => reply.ok(),
+        Err(errno) => reply.error(errno),
+    }
+}
+
 impl Filesystem for Fs {
     fn lookup(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        match name_of(name).and_then(|name| self.overlay.lookup(parent, name)) {
-            Ok(attr) => reply.entry(&TTL, &file_attr(&attr), 0),
-            Err(errno) => reply.error(errno),
-        }
+        entry(reply, name_of(name).and_then(|name| self.overlay.lookup(parent, name)));
     }
 
     fn getattr(&mut self, _req: &Request<'_>, ino: u64, reply: ReplyAttr) {
@@ -173,21 +247,23 @@ impl Filesystem for Fs {
         _req: &Request<'_>,
         ino: u64,
         mode: Option<u32>,
-        _uid: Option<u32>,
-        _gid: Option<u32>,
+        uid: Option<u32>,
+        gid: Option<u32>,
         size: Option<u64>,
-        _atime: Option<TimeOrNow>,
+        atime: Option<TimeOrNow>,
         mtime: Option<TimeOrNow>,
         _ctime: Option<SystemTime>,
-        _fh: Option<u64>,
+        fh: Option<u64>,
         _crtime: Option<SystemTime>,
         _chgtime: Option<SystemTime>,
         _bkuptime: Option<SystemTime>,
         _flags: Option<u32>,
         reply: ReplyAttr,
     ) {
-        let mtime = mtime.map(ns_of);
-        self.run(move |overlay| match overlay.setattr(ino, size, mode, mtime) {
+        let set =
+            Set { size, mode, uid, gid, atime: atime.map(set_time), mtime: mtime.map(set_time) };
+        // A size or mode change may copy a lower file up (a fetch): off the session loop.
+        self.run(move |overlay| match overlay.setattr(ino, fh, set) {
             Ok(attr) => reply.attr(&TTL, &file_attr(&attr)),
             Err(errno) => reply.error(errno),
         });
@@ -200,47 +276,62 @@ impl Filesystem for Fs {
         }
     }
 
+    fn mknod(
+        &mut self,
+        req: &Request<'_>,
+        parent: u64,
+        name: &OsStr,
+        mode: u32,
+        umask: u32,
+        rdev: u32,
+        reply: ReplyEntry,
+    ) {
+        let who = who(req);
+        let mode = (mode & libc::S_IFMT) | (mode & 0o7777 & !umask);
+        entry(
+            reply,
+            name_of(name)
+                .and_then(|name| self.overlay.mknod(parent, name, mode, u64::from(rdev), who)),
+        );
+    }
+
     fn mkdir(
         &mut self,
-        _req: &Request<'_>,
+        req: &Request<'_>,
         parent: u64,
         name: &OsStr,
         mode: u32,
         umask: u32,
         reply: ReplyEntry,
     ) {
-        match name_of(name).and_then(|name| self.overlay.mkdir(parent, name, mode & !umask)) {
-            Ok(attr) => reply.entry(&TTL, &file_attr(&attr), 0),
-            Err(errno) => reply.error(errno),
-        }
+        let who = who(req);
+        entry(
+            reply,
+            name_of(name).and_then(|name| self.overlay.mkdir(parent, name, mode & !umask, who)),
+        );
     }
 
     fn unlink(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
-        match name_of(name).and_then(|name| self.overlay.unlink(parent, name)) {
-            Ok(()) => reply.ok(),
-            Err(errno) => reply.error(errno),
-        }
+        empty(reply, name_of(name).and_then(|name| self.overlay.unlink(parent, name)));
     }
 
     fn rmdir(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
-        match name_of(name).and_then(|name| self.overlay.rmdir(parent, name)) {
-            Ok(()) => reply.ok(),
-            Err(errno) => reply.error(errno),
-        }
+        empty(reply, name_of(name).and_then(|name| self.overlay.rmdir(parent, name)));
     }
 
     fn symlink(
         &mut self,
-        _req: &Request<'_>,
+        req: &Request<'_>,
         parent: u64,
         link_name: &OsStr,
         target: &Path,
         reply: ReplyEntry,
     ) {
-        match name_of(link_name).and_then(|name| self.overlay.symlink(parent, name, target)) {
-            Ok(attr) => reply.entry(&TTL, &file_attr(&attr), 0),
-            Err(errno) => reply.error(errno),
-        }
+        let who = who(req);
+        entry(
+            reply,
+            name_of(link_name).and_then(|name| self.overlay.symlink(parent, name, target, who)),
+        );
     }
 
     fn rename(
@@ -253,32 +344,46 @@ impl Filesystem for Fs {
         flags: u32,
         reply: ReplyEmpty,
     ) {
-        if flags != 0 {
-            // RENAME_NOREPLACE, RENAME_EXCHANGE: not in this slice.
-            reply.error(libc::EINVAL);
-            return;
-        }
         let (Ok(name), Ok(newname)) = (name_of(name), name_of(newname)) else {
             reply.error(libc::EINVAL);
             return;
         };
         let (name, newname) = (name.to_owned(), newname.to_owned());
         // A rename may copy a lower file up (a fetch): off the session loop.
-        self.run(move |overlay| match overlay.rename(parent, &name, newparent, &newname) {
-            Ok(()) => reply.ok(),
-            Err(errno) => reply.error(errno),
+        self.run(move |overlay| {
+            empty(reply, overlay.rename(parent, &name, newparent, &newname, flags));
         });
     }
 
-    fn open(&mut self, _req: &Request<'_>, _ino: u64, _flags: i32, reply: ReplyOpen) {
-        reply.opened(0, 0);
+    fn link(
+        &mut self,
+        _req: &Request<'_>,
+        ino: u64,
+        newparent: u64,
+        newname: &OsStr,
+        reply: ReplyEntry,
+    ) {
+        let Ok(newname) = name_of(newname).map(str::to_owned) else {
+            reply.error(libc::EINVAL);
+            return;
+        };
+        // A link of a lower file copies it up (a fetch): off the session loop.
+        self.run(move |overlay| entry(reply, overlay.link(ino, newparent, &newname)));
+    }
+
+    fn open(&mut self, _req: &Request<'_>, ino: u64, flags: i32, reply: ReplyOpen) {
+        // A write open copies a lower file up (a fetch): off the session loop.
+        self.run(move |overlay| match overlay.open_handle(ino, flags) {
+            Ok(handle) => reply.opened(handle, 0),
+            Err(errno) => reply.error(errno),
+        });
     }
 
     fn read(
         &mut self,
         _req: &Request<'_>,
         ino: u64,
-        _fh: u64,
+        fh: u64,
         offset: i64,
         size: u32,
         _flags: i32,
@@ -286,7 +391,7 @@ impl Filesystem for Fs {
         reply: ReplyData,
     ) {
         let offset = u64::try_from(offset).unwrap_or(0);
-        self.run(move |overlay| match overlay.read(ino, offset, size) {
+        self.run(move |overlay| match overlay.read_handle(fh, ino, offset, size) {
             Ok(bytes) => reply.data(&bytes),
             Err(errno) => reply.error(errno),
         });
@@ -296,7 +401,7 @@ impl Filesystem for Fs {
         &mut self,
         _req: &Request<'_>,
         ino: u64,
-        _fh: u64,
+        fh: u64,
         offset: i64,
         data: &[u8],
         _write_flags: u32,
@@ -306,7 +411,7 @@ impl Filesystem for Fs {
     ) {
         let offset = u64::try_from(offset).unwrap_or(0);
         let data = data.to_vec();
-        self.run(move |overlay| match overlay.write(ino, offset, &data) {
+        self.run(move |overlay| match overlay.write_handle(fh, ino, offset, &data) {
             Ok(written) => reply.written(written),
             Err(errno) => reply.error(errno),
         });
@@ -320,33 +425,41 @@ impl Filesystem for Fs {
         &mut self,
         _req: &Request<'_>,
         _ino: u64,
-        _fh: u64,
+        fh: u64,
         _flags: i32,
         _lock_owner: Option<u64>,
         _flush: bool,
         reply: ReplyEmpty,
     ) {
+        self.overlay.release(fh);
         reply.ok();
     }
 
-    fn fsync(&mut self, _req: &Request<'_>, ino: u64, _fh: u64, _data: bool, reply: ReplyEmpty) {
-        match self.overlay.fsync(ino) {
-            Ok(()) => reply.ok(),
-            Err(errno) => reply.error(errno),
-        }
+    fn fsync(&mut self, _req: &Request<'_>, _ino: u64, fh: u64, _data: bool, reply: ReplyEmpty) {
+        self.run(move |overlay| empty(reply, overlay.fsync(fh)));
+    }
+
+    fn fallocate(
+        &mut self,
+        _req: &Request<'_>,
+        _ino: u64,
+        fh: u64,
+        offset: i64,
+        length: i64,
+        mode: i32,
+        reply: ReplyEmpty,
+    ) {
+        self.run(move |overlay| empty(reply, overlay.fallocate(fh, offset, length, mode)));
     }
 
     fn opendir(&mut self, _req: &Request<'_>, ino: u64, _flags: i32, reply: ReplyOpen) {
-        match self.overlay.readdir(ino) {
-            Ok(entries) => {
-                let handle = self.next_handle.fetch_add(1, Ordering::Relaxed);
-                let mut listing = vec![
-                    (ino, FileType::Directory, ".".to_owned()),
-                    (ino, FileType::Directory, "..".to_owned()),
-                ];
-                listing.extend(
-                    entries.into_iter().map(|(ino, kind, name)| (ino, file_type(kind), name)),
-                );
+        // The overlay's handle keeps the folder's attributes readable (fstat) after it is deleted
+        // or renamed over, as an open folder on a disk does.
+        let listed = self.listing(ino).and_then(|listing| {
+            Ok((self.overlay.open_handle(ino, libc::O_RDONLY | libc::O_DIRECTORY)?, listing))
+        });
+        match listed {
+            Ok((handle, listing)) => {
                 self.listings.insert(handle, listing);
                 reply.opened(handle, 0);
             }
@@ -357,11 +470,24 @@ impl Filesystem for Fs {
     fn readdir(
         &mut self,
         _req: &Request<'_>,
-        _ino: u64,
+        ino: u64,
         fh: u64,
         offset: i64,
         mut reply: ReplyDirectory,
     ) {
+        // A read from the start (the first, or one after rewinddir) lists the folder as it is now:
+        // POSIX has rewinddir see names made or deleted since the folder was opened.
+        if offset == 0 && self.listings.contains_key(&fh) {
+            match self.listing(ino) {
+                Ok(listing) => {
+                    self.listings.insert(fh, listing);
+                }
+                Err(errno) => {
+                    reply.error(errno);
+                    return;
+                }
+            }
+        }
         let Some(listing) = self.listings.get(&fh) else {
             reply.error(libc::EBADF);
             return;
@@ -385,11 +511,24 @@ impl Filesystem for Fs {
         reply: ReplyEmpty,
     ) {
         self.listings.remove(&fh);
+        self.overlay.release(fh);
         reply.ok();
     }
 
     fn statfs(&mut self, _req: &Request<'_>, _ino: u64, reply: ReplyStatfs) {
-        reply.statfs(1 << 40, 1 << 39, 1 << 39, 1 << 32, 1 << 31, 4096, 255, 4096);
+        match self.overlay.statfs() {
+            Ok(vfs) => reply.statfs(
+                vfs.f_blocks,
+                vfs.f_bfree,
+                vfs.f_bavail,
+                vfs.f_files,
+                vfs.f_ffree,
+                u32::try_from(vfs.f_bsize).unwrap_or(4096),
+                255,
+                u32::try_from(vfs.f_frsize).unwrap_or(4096),
+            ),
+            Err(errno) => reply.error(errno),
+        }
     }
 
     fn access(&mut self, _req: &Request<'_>, ino: u64, _mask: i32, reply: ReplyEmpty) {
@@ -401,7 +540,7 @@ impl Filesystem for Fs {
 
     fn create(
         &mut self,
-        _req: &Request<'_>,
+        req: &Request<'_>,
         parent: u64,
         name: &OsStr,
         mode: u32,
@@ -409,8 +548,9 @@ impl Filesystem for Fs {
         _flags: i32,
         reply: ReplyCreate,
     ) {
-        match name_of(name).and_then(|name| self.overlay.create(parent, name, mode & !umask)) {
-            Ok(attr) => reply.created(&TTL, &file_attr(&attr), 0, 0, 0),
+        let who = who(req);
+        match name_of(name).and_then(|name| self.overlay.create(parent, name, mode & !umask, who)) {
+            Ok((attr, handle)) => reply.created(&TTL, &file_attr(&attr), 0, handle, 0),
             Err(errno) => reply.error(errno),
         }
     }

@@ -143,6 +143,9 @@
  "el-greco-view-of-toledo": {
   "mode": "auto"
  },
+ "fan-kuan-travelers": {
+  "mode": "auto"
+ },
  "fragonard-swing": {
   "mode": "auto"
  },
@@ -179,10 +182,25 @@
  "grimshaw-silver-moonlight": {
   "mode": "auto"
  },
+ "guo-xi-early-spring": {
+  "mode": "auto"
+ },
  "hesselbom-dusk": {
   "mode": "auto"
  },
  "hiroshige-hota-coast": {
+  "mode": "auto"
+ },
+ "hiroshige-kanbara-snow": {
+  "mode": "auto"
+ },
+ "hiroshige-moon-pine": {
+  "mode": "auto"
+ },
+ "hiroshige-plum-garden": {
+  "mode": "auto"
+ },
+ "hiroshige-sudden-shower": {
   "mode": "auto"
  },
  "hiroshige-zoshigaya": {
@@ -201,10 +219,28 @@
   ],
   "quiet": "right"
  },
+ "hokusai-kajikazawa": {
+  "mode": "auto"
+ },
+ "hokusai-red-fuji": {
+  "mode": "auto"
+ },
+ "hokusai-storm-below-fuji": {
+  "mode": "auto"
+ },
  "hokusai-umezawa": {
   "mode": "auto"
  },
  "holbein-ambassadors": {
+  "mode": "auto"
+ },
+ "jakuchu-mandarin-ducks": {
+  "mode": "auto"
+ },
+ "jeong-seon-geumgang": {
+  "mode": "auto"
+ },
+ "jeong-seon-inwang": {
   "mode": "auto"
  },
  "kandinsky-composition-viii": {
@@ -214,6 +250,9 @@
   "mode": "auto"
  },
  "kandinsky-yellow-red-blue": {
+  "mode": "auto"
+ },
+ "kim-hong-do-samgong": {
   "mode": "auto"
  },
  "klee-fish-magic": {
@@ -235,6 +274,9 @@
  "klimt-tree-of-life": {
   "mode": "auto"
  },
+ "korin-irises": {
+  "mode": "auto"
+ },
  "korovin-place-opera": {
   "mode": "auto"
  },
@@ -251,6 +293,9 @@
   "mode": "auto"
  },
  "leonardo-vitruvian-man": {
+  "mode": "auto"
+ },
+ "ma-yuan-clouds-green-sea": {
   "mode": "auto"
  },
  "marc-foxes": {
@@ -389,6 +434,9 @@
  "steinlen-chat-noir": {
   "mode": "auto"
  },
+ "tohaku-pine-trees": {
+  "mode": "auto"
+ },
  "toulmouche-reluctant-bride": {
   "mode": "auto"
  },
@@ -454,6 +502,15 @@
  "vigee-lebrun-madame-grand": {
   "mode": "auto"
  },
+ "wang-ximeng-thousand-li": {
+  "mode": "crop",
+  "box": [
+   0.02,
+   0,
+   0.5,
+   1
+  ]
+ },
  "waterhouse-lady-shalott": {
   "mode": "auto"
  },
@@ -468,5 +525,9 @@
  },
  "wright-vesuvius": {
   "mode": "auto"
+ },
+ "zhang-zeduan-qingming": {
+  "mode": "auto",
+  "quality": 38
  }
 }
