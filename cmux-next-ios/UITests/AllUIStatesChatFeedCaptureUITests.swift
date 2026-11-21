@@ -176,8 +176,11 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
             scenes.append(Scene(group: g, id: "sym\(i)-filtered", args: args(symbol)) { app in Self.hideFirstWorkspace(app) })
             scenes.append(Scene(group: g, id: "sym\(i)-pressed-alert", args: args(symbol)) { app in Self.markAllAlert(app) })
         }
-        for style in ["default", "darktint", "whitelabel", "prominent"] {
-            scenes.append(Scene(group: g, id: "alert-\(style)", args: Self.feed + ["-cmux-mobile-feed-alert-style", style]) { app in Self.markAllAlert(app) })
+        for style in ["default", "hosttint", "uikit", "sheet"] {
+            scenes.append(Scene(group: g, id: "alert-\(style)", args: Self.feed + ["-cmux-mobile-feed-alert-style", style]) { app in
+                C.steps([{ C.tap(app.buttons["feed.markAllRead"].firstMatch, "Mark All as Read", timeout: 30) },
+                         { C.wait(app.buttons["feed.markAllRead.confirm"].firstMatch, "confirmation", timeout: 10) }])
+            })
         }
         // Last: once everything is read (read marks persist), the button is disabled.
         for (i, symbol) in symbols.enumerated() {

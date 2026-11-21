@@ -66,6 +66,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                 }
             }
             .agentChatDestinations()
+            .tint(FeedMarkAllReadButton.style == "hosttint" ? FeedMarkAllReadButton.confirmBlue : nil) // PROTOTYPE ONLY
             .sheet(isPresented: $choosingWorkspaces) { FeedWorkspacesSheet(store: store) }
             .alert("Couldn't clear notifications", isPresented: Binding(get: { clearFailure != nil }, set: { if !$0 { clearFailure = nil } })) {
                 Button("OK", role: .cancel) {}
@@ -353,10 +354,19 @@ private struct FeedMarkAllReadButton: View {
     /// Why Mark All Notifications as Read failed (the screen's alert).
     @Binding var markFailure: String?
     @State private var confirming = false
+    // PROTOTYPE ONLY: white-on-blue confirmation variants.
+    @State private var uikitConfirming = false
+    @State private var sheetConfirming = false
+    static var style: String { UserDefaults.standard.string(forKey: "cmux-mobile-feed-alert-style") ?? "default" }
+    static let confirmBlue = Color(red: 0, green: 0x64 / 255.0, blue: 0xD1 / 255.0)
 
     var body: some View {
         Button {
-            confirming = true
+            switch Self.style {
+            case "uikit": uikitConfirming = true
+            case "sheet": sheetConfirming = true
+            default: confirming = true
+            }
         } label: {
             Label("Mark All as Read", systemImage: UserDefaults.standard.string(forKey: "cmux-mobile-feed-mark-all-symbol") ?? "checkmark.circle") // PROTOTYPE ONLY
         }
@@ -365,27 +375,9 @@ private struct FeedMarkAllReadButton: View {
         .alert("Mark All as Read?", isPresented: $confirming) {
             // The Mac's Mark All Notifications as Read (NotificationActionCatalog): every Feed
             // event here, and every tab each linked Mac shows unread (`ack-tab-notifications`).
-            // PROTOTYPE ONLY: three ways to get white text on the blue button.
-            switch UserDefaults.standard.string(forKey: "cmux-mobile-feed-alert-style") ?? "default" {
-            case "darktint":
-                Button("Mark All as Read") { markAllRead() }
-                    .keyboardShortcut(.defaultAction)
-                    .tint(Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? .systemBlue : UIColor(red: 0, green: 0.38, blue: 0.86, alpha: 1) }))
-                    .accessibilityIdentifier("feed.markAllRead.confirm")
-            case "whitelabel":
-                Button { markAllRead() } label: { Text("Mark All as Read").foregroundStyle(.white) }
-                    .keyboardShortcut(.defaultAction)
-                    .accessibilityIdentifier("feed.markAllRead.confirm")
-            case "prominent":
-                Button("Mark All as Read") { markAllRead() }
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("feed.markAllRead.confirm")
-            default:
-                Button("Mark All as Read") { markAllRead() }
-                    .keyboardShortcut(.defaultAction)
-                    .accessibilityIdentifier("feed.markAllRead.confirm")
-            }
+            Button("Mark All as Read") { markAllRead() }
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier("feed.markAllRead.confirm")
             if let clear = FeedRouting.shared.clearAllNotifications {
                 // The Mac's Clear All Notifications: its notification ledger, as its panel's Clear All.
                 Button("Clear All Notifications", role: .destructive) {
@@ -402,6 +394,33 @@ private struct FeedMarkAllReadButton: View {
         } message: {
             Text("Every event in the Feed, and every unread tab on your Mac, will be marked as read.")
         }
+        .background(UIKitMarkAllAlert(isPresented: $uikitConfirming, onConfirm: markAllRead))
+        .sheet(isPresented: $sheetConfirming) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Mark All as Read?").font(.headline)
+                Text("Every event in the Feed, and every unread tab on your Mac, will be marked as read.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                Button {
+                    sheetConfirming = false
+                    markAllRead()
+                } label: {
+                    Text("Mark All as Read").font(.body.weight(.semibold)).foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                        .background(Self.confirmBlue, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("feed.markAllRead.confirm")
+                Button { sheetConfirming = false } label: {
+                    Text("Cancel").font(.body.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 50)
+                        .background(Color(uiColor: .tertiarySystemFill), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("feed.markAllRead.cancel")
+            }
+            .padding(24)
+            .presentationDetents([.height(260)])
+            .presentationDragIndicator(.visible)
+        }
     }
 
     private func markAllRead() {
@@ -412,6 +431,36 @@ private struct FeedMarkAllReadButton: View {
                 markFailure = UserFacingError.message(error)
             }
         }
+    }
+}
+
+/// PROTOTYPE ONLY: a UIKit alert whose tint is the light-mode blue that takes white text.
+private struct UIKitMarkAllAlert: UIViewControllerRepresentable {
+    @Binding var isPresented: Bool
+    let onConfirm: () -> Void
+
+    func makeUIViewController(context: Context) -> UIViewController { UIViewController() }
+
+    func updateUIViewController(_ host: UIViewController, context: Context) {
+        guard isPresented, host.presentedViewController == nil else { return }
+        let alert = UIAlertController(
+            title: "Mark All as Read?",
+            message: "Every event in the Feed, and every unread tab on your Mac, will be marked as read.",
+            preferredStyle: .alert)
+        let confirm = UIAlertAction(title: "Mark All as Read", style: .default) { _ in
+            isPresented = false
+            onConfirm()
+        }
+        confirm.accessibilityIdentifier = "feed.markAllRead.confirm"
+        alert.addAction(confirm)
+        let cancel = UIAlertAction(title: "Cancel", style: .cancel) { _ in isPresented = false }
+        cancel.accessibilityIdentifier = "feed.markAllRead.cancel"
+        alert.addAction(cancel)
+        alert.preferredAction = confirm
+        alert.view.tintColor = UIColor { $0.userInterfaceStyle == .dark
+            ? UIColor(red: 0x40 / 255.0, green: 0x9C / 255.0, blue: 1, alpha: 1)
+            : UIColor(red: 0, green: 0x64 / 255.0, blue: 0xD1 / 255.0, alpha: 1) }
+        DispatchQueue.main.async { host.present(alert, animated: true) }
     }
 }
 
