@@ -5,7 +5,7 @@ use super::*;
 impl Mux {
     pub(crate) fn claim_render_attachment(&self) -> Option<RenderAttachmentPermit> {
         self.active_render_attachments
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |active| {
                 (active < RENDER_ATTACHMENT_LIMIT).then_some(active + 1)
             })
             .ok()?;

@@ -244,11 +244,11 @@ class ToolchainNoticesTest(unittest.TestCase):
         manifest = tn.load()
         self.assertEqual(tn.text_problems(manifest), [])
         rust = {e.version: e for e in manifest.rust}
-        self.assertIn("cmux-tui/rust-toolchain.toml", rust["1.95.0"].toolchain_files)
-        self.assertIn("first-party-apps/cloud/server/rust-toolchain.toml", rust["1.95.0"].toolchain_files)
-        self.assertIn("Native/DiffSidecar/rust-toolchain.toml", rust["1.98.1"].toolchain_files)
-        self.assertEqual(rust["1.95.0"].rustc_commit, "59807616e1fa2540724bfbac14d7976d7e4a3860")
-        self.assertEqual(rust["1.95.0"].sha256, "90567e2718bf7fd65a71a3a43c5596488e80e5f51ed02bfea6fec54458b5f3d1")
+        self.assertIn("cmux-tui/rust-toolchain.toml", rust["1.100.0"].toolchain_files)
+        self.assertIn("first-party-apps/cloud/server/rust-toolchain.toml", rust["1.100.0"].toolchain_files)
+        self.assertIn("Native/DiffSidecar/rust-toolchain.toml", rust["1.100.0"].toolchain_files)
+        self.assertEqual(rust["1.100.0"].rustc_commit, "0ef1bc386059596dada8fb65b50425aab2ea637a")
+        self.assertEqual(rust["1.100.0"].sha256, "626556344c12679d7cab2c1aa2ce80de01937b62c2c88c62f0650a469be18799")
         zig = {e.version: e for e in manifest.zig}
         # 0.17.0 builds the shipped ghostty-next since the upstream sync
         # (manaflow-ai/ghostty-next#74); 0.16.0 stays reviewed for the classic

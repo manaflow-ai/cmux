@@ -1586,7 +1586,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "tempfile",
  "tokio",
  "tower-http",
  "tracing",
@@ -1728,7 +1727,6 @@ dependencies = [
  "getrandom 0.3.4",
  "libc",
  "log",
- "serde",
  "serde_json",
  "windows-sys 0.61.2",
 ]
@@ -1867,7 +1865,6 @@ version = "0.1.0"
 dependencies = [
  "getrandom 0.3.4",
  "icu_normalizer",
- "proptest",
  "rusqlite",
  "serde",
  "serde_json",
@@ -2119,7 +2116,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "subtle",
  "tempfile",
  "tokio",
  "tokio-tungstenite",
@@ -2477,7 +2473,6 @@ dependencies = [
  "cmux-tasks-core",
  "fs4",
  "getrandom 0.3.4",
- "proptest",
  "serde",
  "serde_json",
  "tempfile",
@@ -2487,7 +2482,6 @@ dependencies = [
 name = "cmux-tasks-core"
 version = "0.1.0"
 dependencies = [
- "proptest",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -2497,7 +2491,6 @@ dependencies = [
 name = "cmux-terminal-client"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "base64",
  "bytes",
  "cmux-json",
@@ -2546,7 +2539,6 @@ name = "cmux-transport"
 version = "0.1.0"
 dependencies = [
  "libc",
- "proptest",
 ]
 
 [[package]]

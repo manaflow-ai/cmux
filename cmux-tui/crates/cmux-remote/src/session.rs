@@ -783,7 +783,7 @@ impl ScheduledSender {
     async fn send(&self, lane: Lane, frame: Bytes) -> Result<(), ScheduleError> {
         let budget = self.budgets.get(lane);
         budget
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |current| {
                 current
                     .checked_add(frame.len())
                     .filter(|next| *next <= self.limits.queued_bytes_per_lane)

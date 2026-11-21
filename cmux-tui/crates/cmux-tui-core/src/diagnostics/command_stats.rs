@@ -220,9 +220,8 @@ impl ConnectionKind {
             add_one(&stats.accepted, kind);
             if let Some(from) = stats.accepted.get(usize::from(previous)) {
                 // Never below 0: a count a concurrent change already moved stays where it is.
-                let _ = from.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
-                    count.checked_sub(1)
-                });
+                let _ = from
+                    .try_update(Ordering::Relaxed, Ordering::Relaxed, |count| count.checked_sub(1));
             }
         }
     }

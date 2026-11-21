@@ -4,6 +4,13 @@
 `scripts/cmux-next/generate-third-party-notices.sh` (`--check` fails when it is
 stale). Do not edit it by hand.
 
+After merging a new base, regenerate the committed file in the default pin mode,
+then run `generate-third-party-notices.sh --check`. A clean Git merge and
+`toolchain_notices.py check-repo` do not prove that generated crate lists match
+the merged locks and binary pins. Preserve historical artifact reviews verbatim;
+add a new compiler's registry entry without dropping reviewed versions that
+prebuilt binaries still use. Source toolchain changes do not update those binaries.
+
 - `hand-written.md` holds the sections that no tool generates yet (Ghostty,
   Sparkle, Swift packages, web assets, encoders and others). It is owned by the
   license review: change it only with a license-review reason, and never edit a

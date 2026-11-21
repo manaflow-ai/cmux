@@ -485,7 +485,7 @@ impl CloudConversations {
         let limit = self.inner.options.max_concurrent_requests;
         self.inner
             .requests_in_flight
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |running| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |running| {
                 (running < limit).then_some(running + 1)
             })
             .map_err(|_| {

@@ -38,12 +38,11 @@ impl OrderedSession {
 
     pub(in crate::app) fn settle_pending_mutation(&self, impact: MutationImpact) {
         let result =
-            self.pending_mutations.fetch_update(Ordering::AcqRel, Ordering::Acquire, |pending| {
-                pending.checked_sub(1)
-            });
+            self.pending_mutations
+                .try_update(Ordering::AcqRel, Ordering::Acquire, |pending| pending.checked_sub(1));
         debug_assert!(result.is_ok(), "session mutation completion without a pending operation");
         if impact.blocks_pointer() {
-            let result = self.pending_pointer_mutations.fetch_update(
+            let result = self.pending_pointer_mutations.try_update(
                 Ordering::AcqRel,
                 Ordering::Acquire,
                 |pending| pending.checked_sub(1),

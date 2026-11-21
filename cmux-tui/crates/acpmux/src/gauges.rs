@@ -128,8 +128,8 @@ impl PeerLists {
     /// The loop took a list of `bytes`. Saturating: a test may send a list no link counted.
     pub fn taken(&self, bytes: u64) {
         let less = |by: u64| move |v: u64| Some(v.saturating_sub(by));
-        let _ = self.lists.fetch_update(Ordering::Relaxed, Ordering::Relaxed, less(1));
-        let _ = self.bytes.fetch_update(Ordering::Relaxed, Ordering::Relaxed, less(bytes));
+        let _ = self.lists.try_update(Ordering::Relaxed, Ordering::Relaxed, less(1));
+        let _ = self.bytes.try_update(Ordering::Relaxed, Ordering::Relaxed, less(bytes));
     }
 
     fn status(&self) -> Value {

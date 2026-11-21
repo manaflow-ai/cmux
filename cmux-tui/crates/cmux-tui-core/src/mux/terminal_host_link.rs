@@ -249,7 +249,7 @@ impl Mux {
         #[cfg(debug_assertions)]
         if self
             .terminal_host_reconnect_completion_failures
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |remaining| {
                 (remaining > 0).then(|| remaining - 1)
             })
             .is_ok()

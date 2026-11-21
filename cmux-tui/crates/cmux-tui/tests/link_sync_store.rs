@@ -175,7 +175,7 @@ fn serve_machine(
                         let answer = blob_fetch::answer_line(Some(fetch), true, &line);
                         if cmd == "blob.fetch.start"
                             && lose_starts
-                                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+                                .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
                                     left.checked_sub(1)
                                 })
                                 .is_ok()

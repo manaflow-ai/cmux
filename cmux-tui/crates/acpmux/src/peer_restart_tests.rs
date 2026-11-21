@@ -164,7 +164,7 @@ impl Daemon {
                 let (mut stream, _) = listener.accept().await.unwrap();
                 let _ = accepted.send(Instant::now());
                 let refused = left
-                    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                    .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
                     .is_ok();
                 if !refused {
                     tokio::spawn(answer(stream, restarts.clone()));
