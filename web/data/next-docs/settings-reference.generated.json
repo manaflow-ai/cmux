@@ -4376,7 +4376,7 @@
           "title": "Show Spaces",
           "help": "",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Sidebar"
         },
         {
