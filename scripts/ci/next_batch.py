@@ -1871,11 +1871,12 @@ class Controller:
             return [item for item in items if item.get("head_branch") == BASE and item.get("status") == "completed"]
 
         def coalesced(item: dict) -> bool:
-            """A push run cmux-next-web.yml's coalescing left without web checks (web_coalesce.py): replaced while
-            pending (cancelled), or yielded to a newer push after its wait (success, its checks skipped), and no job
-            but `coalesce` gave a verdict. Its jobs are read first: a run cancelled by hand after a job passed or
-            failed is still the base's verdict."""
-            if item.get("event") != "push" or item.get("conclusion") not in ("cancelled", "success"):
+            """A push or tick run cmux-next-web.yml's coalescing left without web checks (web_coalesce.py): replaced
+            while pending (cancelled), or yielded inside the window or on a covered tip (success, its checks
+            skipped), and no job but `coalesce` gave a verdict. Its jobs are read first: a run cancelled by hand after
+            a job passed or failed is still the base's verdict. A plain dispatch runs every job, so it never reads
+            as coalesced."""
+            if item.get("event") not in ("push", "workflow_dispatch") or item.get("conclusion") not in ("cancelled", "success"):
                 return False
             jobs = self.gh.api(f"repos/{self.args.repo}/actions/runs/{item['id']}/jobs?per_page=100&filter=latest")["jobs"]
             return all(str(job.get("name") or "").rsplit(" / ", 1)[-1] == "coalesce" or (job.get("conclusion") or "") in ("cancelled", "skipped")
