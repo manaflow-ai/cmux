@@ -126,3 +126,100 @@ import Testing
         )
     }
 }
+
+@Suite struct FileExplorerSortSettingsTests {
+    private func makeDefaults() -> UserDefaults {
+        let suiteName = "cmux-file-explorer-sort-tests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        return defaults
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-explorer-sort-settings-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func writeSettingsFile(_ contents: String, to url: URL) throws {
+        try contents.data(using: .utf8)!.write(to: url, options: .atomic)
+    }
+
+
+    @Test func defaultSortIsNameAscending() {
+        #expect(FileExplorerSortOptions.defaultValue == FileExplorerSortOptions(key: .name, order: .ascending))
+    }
+
+    @Test func parsesEachKnownSortKeyRawValue() {
+        #expect(FileExplorerSortKey(resolvingRawValue: "name") == .name)
+        #expect(FileExplorerSortKey(resolvingRawValue: "dateCreated") == .dateCreated)
+        #expect(FileExplorerSortKey(resolvingRawValue: "dateModified") == .dateModified)
+    }
+
+    @Test func parsesEachKnownSortOrderRawValue() {
+        #expect(FileExplorerSortOrder(resolvingRawValue: "ascending") == .ascending)
+        #expect(FileExplorerSortOrder(resolvingRawValue: "descending") == .descending)
+    }
+
+    @Test func unknownSortValuesFallBackToDefaults() {
+        for raw in [nil, "", "modified", "date-created", "DESC", "newest"] {
+            #expect(FileExplorerSortKey(resolvingRawValue: raw) == .name)
+            #expect(FileExplorerSortOrder(resolvingRawValue: raw) == .ascending)
+        }
+    }
+
+    @Test func rawValuesMatchConfigSchema() {
+        #expect(FileExplorerSortKey.allCases.map(\.rawValue) == ["name", "dateCreated", "dateModified"])
+        #expect(FileExplorerSortOrder.allCases.map(\.rawValue) == ["ascending", "descending"])
+    }
+
+    @Test func resolvedOptionsRoundTripThroughUserDefaults() {
+        let defaults = makeDefaults()
+        let settings = FileExplorerSortSettings(defaults: defaults, notificationCenter: NotificationCenter())
+        let options = FileExplorerSortOptions(key: .dateModified, order: .descending)
+
+        settings.setOptions(options)
+
+        #expect(settings.resolvedOptions() == options)
+    }
+
+    @Test func settingsFileStoreParsesFileExplorerSortOptions() throws {
+        // An isolated suite keeps this test independent of `UserDefaults.standard`
+        // and of any other test that touches the sort or settings-file keys.
+        let defaults = makeDefaults()
+        let sortSettings = FileExplorerSortSettings(defaults: defaults, notificationCenter: NotificationCenter())
+
+        #expect(sortSettings.resolvedOptions() == FileExplorerSortOptions.defaultValue)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "fileExplorer": {
+                "sortBy": "dateModified",
+                "sortOrder": "descending"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            userDefaults: defaults,
+            startWatching: false
+        )
+
+        withExtendedLifetime(store) {
+            #expect(defaults.string(forKey: FileExplorerSortSettings.sortKeyKey) == "dateModified")
+            #expect(defaults.string(forKey: FileExplorerSortSettings.sortOrderKey) == "descending")
+            #expect(sortSettings.resolvedOptions() == FileExplorerSortOptions(key: .dateModified, order: .descending))
+        }
+    }
+}

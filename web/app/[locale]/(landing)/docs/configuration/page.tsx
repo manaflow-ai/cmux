@@ -115,7 +115,9 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
 
   // "fileExplorer": {
   //   // ${t("exampleFileExplorerDoubleClickAction")}
-  //   "doubleClickAction": "preview"
+  //   "doubleClickAction": "preview",
+  //   "sortBy": "dateModified",
+  //   "sortOrder": "descending"
   // },
 
   // "automation": {
