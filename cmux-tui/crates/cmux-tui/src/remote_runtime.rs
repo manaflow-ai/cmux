@@ -938,7 +938,10 @@ async fn dial_first_connection(
     network: watch::Receiver<u64>,
 ) -> anyhow::Result<(Arc<ClientConnection>, String)> {
     let attempt_shutdown = shutdown.clone();
-    let progress = StartupProgress::new();
+    let progress = StartupProgress::new(match &options.auth {
+        ClientAuthMode::Invitation { id, .. } => Some(id.clone()),
+        _ => None,
+    });
     let progress = &progress;
     let dial = cell.dial(options.reconnect, network, || {
         let mut attempt =
