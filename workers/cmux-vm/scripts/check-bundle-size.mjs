@@ -18,7 +18,10 @@ import { gzipSync } from "node:zlib";
 // The classic VM import (POST /v1/imports/classic-vm-snapshots, its proof and the upstream snapshot create) measured
 // 451.5 KiB alone and 458.1 KiB with the mesh create; no dependency was added. One bundle file, so a dynamic import
 // would not shrink it.
-const BUDGET_GZIP_BYTES = 460 * 1024; // 298 KiB at S1
+// The upstream server-timing tally with its body-read timing (src/upstream/timing.ts) measured 454.1 KiB; no
+// dependency was added.
+// Both together (the classic VM import and the server-timing tally) measured 459.7 KiB.
+const BUDGET_GZIP_BYTES = 465 * 1024; // 298 KiB at S1
 const dir = process.argv[2] ?? "dist";
 
 const files = readdirSync(dir, { recursive: true })

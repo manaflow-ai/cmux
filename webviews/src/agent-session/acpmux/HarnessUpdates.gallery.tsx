@@ -78,8 +78,18 @@ export default componentEntry<Props>({
   load: async () => GalleryHarnessUpdates,
   variants: {
     "three-harnesses": {
-      note: "The chat's Claude Code (with Skip This Version), Codex and OpenCode: one row each, Update all in the heading.",
+      note: "The chat's Claude Code, Codex and OpenCode: a name and Update each, Update all in the heading; versions wait for Option.",
       props: { own: true, rows: [codex, opencode] },
+    },
+    // David Beyer (Nov 20 call): the versions show only when asked, by holding Option.
+    "option-held": {
+      note: "Option held: each row adds its installed and newest versions, and the chat's own row Skip This Version.",
+      props: { own: true, rows: [codex, opencode] },
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        view.dispatchEvent(new view.KeyboardEvent("keydown", { key: "Alt", altKey: true }));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-harness-update-versions") !== null);
+      },
     },
     "reference-pair": {
       note: "The reference's pair, Codex and OpenCode, in a chat whose own agent is current.",

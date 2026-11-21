@@ -2,14 +2,17 @@
 """update-dev-daily.sh moves cmux NEXT DEV from build N to N+1 with no hand work.
 
 The script runs against stand-ins for the network and the macOS tools (curl,
-shasum, ditto, plutil, codesign, osascript, open, and the app's bundled cmux
-CLI), each recording its call. The stand-ins play a running app: the bundled
-CLI's `app quit-keep-sessions` and osascript's quit stop it, `open` starts it.
+shasum, ditto, plutil, codesign, osascript, lsappinfo, open, and the app's
+bundled cmux CLI), each recording its call. The stand-ins play a running app:
+the bundled CLI's `app quit-keep-sessions` and osascript's quit stop it, `open`
+starts it, and lsappinfo answers which app is in front.
 
 - When the release asset's `updated_at` is the one already installed, the
   script says so and leaves the running app alone: no download, no quit.
 - An update quits through the app's own Quit and Keep Sessions (terminals and
-  agents keep running), swaps the bundle, and opens the app again.
+  agents keep running), swaps the bundle, and opens the app again: in front
+  only when it was the front app at its quit, else behind the front app
+  (`open -g` with the app's own background-reopen argument).
 - An app that was not running is installed and stays closed.
 - Run from another cmux's terminal (its CMUX_SOCKET_PATH, CMUX_BUNDLE_ID and
   CMUX_TAG set), the quit still goes to cmux NEXT DEV, not that app.
@@ -86,6 +89,13 @@ elif name == "osascript":
         if (state / "running").read_text() == "unknown": sys.exit(1)
         print("true" if running() else "false")
     elif "to quit" in script: running(False)
+elif name == "lsappinfo":
+    # `front` names the front app; `info -only bundleid ASN` says the bundle id of that ASN, as macOS prints it.
+    # A quit app is the front app no more (the app behind it is), and another ASN is not the front app's.
+    front = (state / "front").read_text()
+    if front == "com.cmuxterm.app.debug.next" and not running(): front = "com.apple.Terminal"
+    if args[:1] == ["front"]: print("ASN:0x0-0x1001:")
+    elif args == ["info", "-only", "bundleid", "ASN:0x0-0x1001:"]: print('"CFBundleIdentifier"="%s"' % front)
 elif name == "open":
     running(True)
 elif name == "cmux":
@@ -106,7 +116,7 @@ def release(updated_at: str) -> str:
 class Mac:
     """A scratch home with the stand-ins on PATH and an installed build N."""
 
-    def __init__(self, scratch: str, *, running: bool | str, installed: bool = True) -> None:
+    def __init__(self, scratch: str, *, running: bool | str, installed: bool = True, front: bool = False) -> None:
         self.root = Path(scratch)
         self.state = self.root / "state"
         self.bin = self.root / "bin"
@@ -116,8 +126,10 @@ class Mac:
         tool = self.bin / "stand-in"
         tool.write_text(STAND_IN)
         tool.chmod(tool.stat().st_mode | stat.S_IEXEC)
-        for name in ("curl", "shasum", "ditto", "plutil", "codesign", "osascript", "open"):
+        for name in ("curl", "shasum", "ditto", "plutil", "codesign", "osascript", "lsappinfo", "open"):
             (self.bin / name).symlink_to(tool)
+        # The front app: cmux NEXT DEV itself, or another app's terminal.
+        (self.state / "front").write_text("com.cmuxterm.app.debug.next" if front else "com.apple.Terminal")
         state = running if isinstance(running, str) else "true" if running else "false"
         (self.state / "running").write_text(state)
         self.app = self.home / "Applications" / APP
@@ -162,8 +174,9 @@ def test_nothing_new_leaves_the_running_app_alone() -> None:
 
 
 def test_an_update_keeps_sessions_and_reopens_the_app() -> None:
+    # The app was the front app at its quit: the new build opens in front again.
     with tempfile.TemporaryDirectory(prefix="dev-daily-") as scratch:
-        mac = Mac(scratch, running=True)
+        mac = Mac(scratch, running=True, front=True)
         mac.publish("2026-10-11T19:02:10Z", "bbbb  cmux-NEXT-DEV.zip\n")
         result = mac.update()
         assert result.returncode == 0, result.stderr
@@ -175,6 +188,22 @@ def test_an_update_keeps_sessions_and_reopens_the_app() -> None:
         assert mac.running()
         # Installed now, so the same asset is nothing new.
         assert "up to date" in mac.update().stdout
+
+
+def test_an_update_run_from_elsewhere_reopens_the_app_behind() -> None:
+    # Another app was in front (a schedule, an agent, another app's terminal): the reopen takes no focus.
+    with tempfile.TemporaryDirectory(prefix="dev-daily-") as scratch:
+        mac = Mac(scratch, running=True)
+        mac.publish("2026-10-11T19:02:10Z", "bbbb  cmux-NEXT-DEV.zip\n")
+        result = mac.update()
+        assert result.returncode == 0, result.stderr
+        calls = [c for c in mac.calls() if c[0] in ("cmux", "osascript", "open")
+                 and "exists process" not in " ".join(c) and c[1:3] != ["app", "ping"]]
+        assert calls == [["cmux", "app", "quit-keep-sessions"],
+                         ["open", "-g", str(mac.app), "--args", "--cmux-update-reopened-behind"]], calls
+        assert mac.installed() == "bbbb  cmux-NEXT-DEV.zip\n"
+        assert mac.running()
+        assert "Reopened" in result.stdout, result.stdout
 
 
 def test_a_closed_app_is_updated_and_stays_closed() -> None:
