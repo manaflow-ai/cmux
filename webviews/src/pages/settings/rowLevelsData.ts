@@ -295,7 +295,7 @@ export const ROW_LEVELS: {
     "agentPane.display.statusVerbs.mode": "more",
     "agentPane.showMachineLoadWarnings": "more",
     "agentPane.display.statusVerbs.custom": "hidden",
-    "agentPane.display.width": "hidden",
+    "agentPane.display.width": "more",
     "agentPane.display.vscodeMinimap": "hidden",
     "agentPane.display.trayHandle": "hidden",
     "agentPane.display.senderIcon.lead": "hidden",
