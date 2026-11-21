@@ -11,6 +11,9 @@ final class GlassMenuStepperRowView: PopupRowView {
     let plus: GlassMenuStepperButton
     let resetButton: GlassMenuStepperButton
     let valueLabel: ThemedLabel
+    /// The value changed after the row first showed it (a press, a key, the page's zoom settling): the
+    /// list announces it, so VoiceOver says the new zoom.
+    var onNewValue: (String) -> Void = { _ in }
 
     init(_ item: GlassMenuStepperItem, leading: NSView?, layout: Layout) {
         self.item = item
@@ -36,8 +39,9 @@ final class GlassMenuStepperRowView: PopupRowView {
         controls.spacing = 2
         controls.setCustomSpacing(8, after: plus)
         super.init(leading: leading, title: item.title, trailing: controls, layout: layout)
-        // The row's VoiceOver element is a group: the buttons are its children, the value its value.
-        setAccessibilityRole(.group)
+        // One of the menu's items for VoiceOver ("Zoom, 100%"): the buttons are its children, the
+        // value its value.
+        setAccessibilityRole(.menuItem)
         minus.onPress = { [weak self] in self?.run(item.decrement) }
         plus.onPress = { [weak self] in self?.run(item.increment) }
         reset.onPress = { [weak self] in self?.run(item.reset) }
@@ -56,11 +60,13 @@ final class GlassMenuStepperRowView: PopupRowView {
     func refresh() {
         item.validate()
         let value = item.value()
+        let shown = valueLabel.stringValue
         valueLabel.stringValue = value
         setAccessibilityValue(value)
         minus.isEnabled = item.isEnabled(item.decrement)
         plus.isEnabled = item.isEnabled(item.increment)
         resetButton.isEnabled = item.isEnabled(item.reset)
+        if !shown.isEmpty, shown != value { onNewValue(value) }
     }
 
     /// Runs `part` with the menu open, then shows its result.
