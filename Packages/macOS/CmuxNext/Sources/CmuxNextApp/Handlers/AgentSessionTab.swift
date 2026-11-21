@@ -67,8 +67,8 @@ enum AgentSessionTab {
     /// of a listed workspace. A binding that resolves to none is passed over, so the chat opens again instead.
     static func liveTab(showing session: String, host: String?, services: AppServices, in workspace: String? = nil) -> (tab: TabModel, pane: PaneModel)? {
         var live: (tab: TabModel, pane: PaneModel)?
-        _ = services.agentTabs.tab(showing: session, host: host, where: { key in
-            live = services.locateTabOnAnyMachine(key).flatMap { found in services.daemon(for: found.1).store.workspace(containing: found.1.handle).flatMap { AgentSessionOpenAnswer.holds($0, workspace) ? found : nil } }
+        _ = services.agentTabs.tab(showing: session, host: host, where: { key, machine in
+            live = services.locateTab(key, onMachine: machine).flatMap { found in services.daemon(for: found.1).store.workspace(containing: found.1.handle).flatMap { AgentSessionOpenAnswer.holds($0, workspace) ? found : nil } }
             return live != nil
         })
         return live
