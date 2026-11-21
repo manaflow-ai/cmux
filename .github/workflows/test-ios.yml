@@ -112,7 +112,9 @@ env:
   # ...) is a style guard. For pull requests and merge groups into
   # feat-cmux-next it prints its findings as warnings and passes (Leo,
   # 2026-10-19), and the iOS suites run whatever it reports. The lint's own
-  # tests still fail the job, and so the ios-tests gate.
+  # tests still fail the job, and so the ios-tests gate. One rule still fails a
+  # pull request: a namespace type it adds that --namespace-fix rewrites
+  # (scripts/ci/pr_added_namespace_types.py; label namespace-lint-override skips it).
   # Everywhere else it still fails. Change `warn` to `fail` to make it block
   # feat-cmux-next again.
   CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.event.merge_group.base_ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
@@ -482,12 +484,18 @@ jobs:
       - name: Lint iOS package conventions
         env:
           GATE_SCOPE: ${{ github.event_name == 'pull_request' && '--pr' || '' }}
+          NAMESPACE_OVERRIDE: ${{ contains(github.event.pull_request.labels.*.name, 'namespace-lint-override') }}
         run: |
           # The lint's own tests always gate: they protect the lint itself.
           python3 scripts/tests/test_ios_package_conventions.py
           python3 scripts/tests/test_pr_scoped_lint_gates.py
           rc=0
           scripts/ci/package-conventions-gate.sh ${GATE_SCOPE:+"$GATE_SCOPE"} || rc=$?
+          # Warn-only still fails a pull request that adds a namespace type the
+          # safe rewrite fixes: each one that merged turned the base red.
+          if (( rc != 0 )) && [[ "$CMUX_NEXT_STYLE_GUARDS" == warn && -n "$GATE_SCOPE" && "$NAMESPACE_OVERRIDE" != true ]]; then
+            python3 scripts/ci/pr_added_namespace_types.py || exit 1
+          fi
           if (( rc != 0 )) && [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]]; then
             echo "::warning title=package conventions (warn-only)::the package conventions lint reported findings; see this step's log"
             exit 0

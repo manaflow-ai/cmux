@@ -2077,8 +2077,10 @@ class HotAwareWorkflows(unittest.TestCase):
         import yaml
         guards = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text(encoding="utf-8"))
         job = guards["jobs"]["tooling-tests"]
-        self.assertEqual(job["needs"], ["portable-placement"])
-        self.assertEqual(job["if"], "${{ !cancelled() }}")  # a skipped or failed placement still runs the tests
+        # The 30-minute window gate (#48652) holds a push's guards; a pull request skips it (its output is
+        # empty, never 'false'), and a skipped or failed placement still runs the tests.
+        self.assertEqual(job["needs"], ["coalesce", "portable-placement"])
+        self.assertEqual(job["if"], "${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}")
         legs = job["runs-on"].split(" || ")
         mini = [leg for leg in legs if "outputs.mini_runner" in leg]
         linux = [leg for leg in legs if "outputs.linux_runner" in leg]
