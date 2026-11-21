@@ -105,14 +105,17 @@ pub(crate) fn cached(
 }
 
 /// The launch answer that needs no fetch: a valid cache, else a known deployment's built-in
-/// configuration. None (fetch) for a custom origin with no cache or any unreadable cache.
+/// configuration. None (fetch) for a custom origin with no cache or any unreadable cache. A tailnet
+/// stack is custom too: it serves its own mobile and device hub origins, and a first launch on the
+/// development table instead would register the Mac with the shared mobile service while the
+/// tag's iPhone build, on the stack's, looks for it there (scripts/cmux-next/cloud-dev-stack).
 pub(crate) fn without_fetch(resolver: &Resolver, mut selection: Selection) -> Option<Selection> {
     match cached(resolver, selection.clone()) {
         Ok(Some(cached)) => Some(cached),
         Ok(None)
             if !matches!(
                 Environment::parse(&selection.api_origin),
-                Ok(Environment::LocalOrigin(_)) | Err(_)
+                Ok(Environment::LocalOrigin(_) | Environment::Tailnet(_)) | Err(_)
             ) =>
         {
             selection.config_source = ConfigSource::KnownOriginFallback;
@@ -143,6 +146,7 @@ pub(crate) async fn resolve(
     // Short bounded fetches keep launch responsive; cache or the known-origin
     // fallback covers backend outages without mixing sign-in credentials.
     let client = reqwest::Client::builder()
+        .default_headers(cmux_build_space::headers().map_err(|error| error.to_string())?)
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(2))
         .timeout(Duration::from_secs(5))
@@ -249,6 +253,28 @@ pub(crate) fn is_loopback_origin(value: &str) -> bool {
     })
 }
 
+/// A tailnet backend: `https://<host>.<tailnet>.ts.net[:port]`, the name Tailscale Serve gives a
+/// dev VM's per-tag stack. HTTPS only (Serve's certificate); a bare `ts.net` or an IP never matches.
+pub(crate) fn is_tailnet_origin(value: &str) -> bool {
+    url::Url::parse(value).is_ok_and(|url| {
+        url.scheme() == "https"
+            && matches!(url.host(), Some(url::Host::Domain(_)))
+            && url.host_str().is_some_and(|host| {
+                host.strip_suffix(".ts.net").is_some_and(|name| {
+                    name.split('.').count() >= 2
+                        && name.split('.').all(|label| {
+                            !label.is_empty()
+                                && label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                        })
+                })
+            })
+    })
+}
+
+fn host(value: &str) -> Option<String> {
+    url::Url::parse(value).ok()?.host_str().map(str::to_owned)
+}
+
 fn allowed_origin(value: &str, selected: &str) -> Result<(), String> {
     let origin = bare_origin(value)?;
     if is_loopback_origin(&origin) {
@@ -256,6 +282,15 @@ fn allowed_origin(value: &str, selected: &str) -> Result<(), String> {
             Ok(())
         } else {
             Err(format!("remote client-config cannot name a loopback origin: {value}"))
+        };
+    }
+    // A tailnet stack may name its own other services (same host, any port); no other backend
+    // may send credentials to a tailnet host.
+    if is_tailnet_origin(&origin) {
+        return if is_tailnet_origin(selected) && host(&origin) == host(selected) {
+            Ok(())
+        } else {
+            Err(format!("client-config cannot name another tailnet host: {value}"))
         };
     }
     if approved_remote_host(&origin) {
@@ -269,7 +304,9 @@ fn allowed_origin(value: &str, selected: &str) -> Result<(), String> {
 /// destinations. Keep that data constrained to domains operated by cmux (and
 /// Stack's documented API) so a compromised response cannot exfiltrate tokens.
 fn approved_remote_host(origin: &str) -> bool {
-    let Ok(url) = url::Url::parse(origin) else { return false };
+    let Ok(url) = url::Url::parse(origin) else {
+        return false;
+    };
     if url.scheme() != "https" || url.host_str().is_none() {
         return false;
     }
@@ -581,6 +618,49 @@ mod tests {
         assert_eq!(served.configuration, cached.configuration);
         let other = resolver.resolve(Some("http://127.0.0.1:1")).unwrap();
         assert!(resolver.client_config(other).await.is_err());
+    }
+
+    #[test]
+    fn a_tailnet_stack_may_name_its_own_host_only_and_no_one_else_may_name_a_tailnet_host() {
+        let stack = "https://cmux-dev-backend-1.tail137216.ts.net:3850";
+        let mut own = config(stack);
+        own.configuration.platform_origin =
+            "https://cmux-dev-backend-1.tail137216.ts.net:3851".into();
+        validate(&own, stack).unwrap();
+        let mut other = config(stack);
+        other.configuration.platform_origin = "https://other-host.tail137216.ts.net".into();
+        assert!(validate(&other, stack).is_err());
+        let mut from_dev = config(crate::DEVELOPMENT_API);
+        from_dev.configuration.platform_origin =
+            "https://cmux-dev-backend-1.tail137216.ts.net:3851".into();
+        assert!(validate(&from_dev, crate::DEVELOPMENT_API).is_err());
+    }
+
+    #[test]
+    fn a_tailnet_launch_fetches_the_stacks_own_services_once_and_an_outage_falls_back_to_dev() {
+        let stack = "https://cmux-dev-backend-1.tail137216.ts.net:3850";
+        let home = Home::new();
+        let resolver = Resolver::new("com.cmuxterm.app.debug.cnx-tag", &home.0).unwrap();
+        let selected = resolver.resolve(Some(stack)).unwrap();
+        // No cache yet: the launch asks the stack, whose client-config names its own mobile Worker
+        // and device hub (never the development table's, which the tag's iPhone build does not use).
+        assert!(without_fetch(&resolver, selected.clone()).is_none());
+        // Once fetched, every later launch reads the stack's services from the cache, no network.
+        let mut served = config(stack);
+        served.configuration.mobile_origin =
+            "https://cmux-dev-backend-1.tail137216.ts.net:3851".into();
+        served.configuration.device_hub_origin =
+            "https://cmux-dev-backend-1.tail137216.ts.net:3852".into();
+        let path = cache_path(&resolver, stack).unwrap();
+        atomic_cache(&path, &serde_json::to_vec(&served).unwrap()).unwrap();
+        let launch = without_fetch(&resolver, selected.clone()).expect("cached: no fetch");
+        assert_eq!(launch.config_source, ConfigSource::Cache);
+        assert_eq!(launch.mobile_origin, served.configuration.mobile_origin);
+        assert_eq!(launch.device_hub_origin, served.configuration.device_hub_origin);
+        // A stack that never answered and left no cache: the development services, as before.
+        fs::remove_file(&path).unwrap();
+        let fallback = cached_or_fallback(selected, &path, stack).unwrap();
+        assert_eq!(fallback.platform_origin, crate::DEVELOPMENT_PLATFORM);
     }
 
     #[tokio::test]

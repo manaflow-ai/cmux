@@ -537,8 +537,8 @@ import Testing
     }
 
     func settle(until done: @escaping () -> Bool) async {
-        let deadline = ContinuousClock.now + .seconds(5)
-        while !done(), ContinuousClock.now < deadline {
+        var deadline = AwakeDeadline(.seconds(5))
+        while !done(), deadline.hasTimeLeft() {
             try? await Task.sleep(for: .milliseconds(5)) // test: waits for the reporter's send task
         }
     }
@@ -672,30 +672,27 @@ import Testing
 /// The link reports real drops, never deliberate redials, and the coordinator reads its phases.
 @MainActor
 @Suite struct ConnectivityIncidentLinkTests {
-    @Test func aLiveLinkThatDiesIsADropAndAResumeIsNot() async {
-        let controller = LinkController(transport: .webRTC, dialer: MockDialer(fail: false), accessToken: { _ in "t" })
+    @Test func aLiveLinkThatDiesIsADropAndAResumeIsNot() async throws {
+        // The test clock: no heartbeat or probe bound fires unless the test moves it.
+        let clock = LinkTestClock()
+        let controller = LinkController(transport: .webRTC, dialer: MockDialer(fail: false), clock: clock, beat: .off,
+                                        accessToken: { _ in "t" })
+        defer { controller.send(.target(nil)); clock.stop() }
         controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://api.example")!, teamID: "team-1", deviceID: "d", macDeviceID: $0) }
         var signals: [LinkController.LinkSignal] = []
         controller.onSignal = { signals.append($0) }
         controller.send(.target(LinkMachine.Target(macID: "mac-1", name: "Mac", isOnline: true)))
-        let deadline = ContinuousClock.now + .seconds(10)
-        while !controller.phase.isConnected, ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(5)) // test: waits for the mock dial
-        }
-        #expect(controller.phase.isConnected)
+        try await pollUntil { controller.phase.isConnected }
         // A deliberate redial (back from the background) is no drop.
         controller.send(.background)
         controller.send(.resume)
         #expect(!signals.contains { if case .dropped = $0 { true } else { false } })
-        while !controller.phase.isConnected, ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(5)) // test: waits for the redial
-        }
+        try await pollUntil { controller.phase.isConnected }
         // A transport switch redials on purpose: no drop either.
         controller.send(.transport(.wireGuard))
         #expect(!signals.contains { if case .dropped = $0 { true } else { false } })
-        while !controller.phase.isConnected, ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(5)) // test: waits for the redial on the new transport
-        }
+        try await pollUntil { controller.phase.isConnected }
+        #expect(!signals.contains { if case .dropped = $0 { true } else { false } })
         controller.send(.linkDropped(generation: controller.dialGeneration, reason: "stream ended"))
         #expect(signals.contains(.dropped(reason: "stream ended")))
         #expect(signals.contains { if case .phase(.connecting) = $0 { true } else { false } })

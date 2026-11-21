@@ -149,6 +149,22 @@ def stop_running() -> None:
             pass
 
 
+
+def interrupt_on_term(signum, frame) -> None:
+    """SIGTERM (a caller's `timeout`) stops the run as Ctrl-C does: the running steps'
+    process groups are killed, not left behind as orphans."""
+    raise KeyboardInterrupt
+
+
+TIMED_OUT = threading.Event()
+
+
+def time_out() -> None:
+    """--deadline passed: stop the run the way SIGTERM does (a mini has no GNU `timeout` to do it from outside)."""
+    TIMED_OUT.set()
+    os.kill(os.getpid(), signal.SIGTERM)
+
+
 def cache_root() -> Path:
     base = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
     return Path(base) / "cmux-guards"
@@ -547,7 +563,16 @@ def select_steps(units: list[Unit], names: set[str]) -> list[Unit]:
 
 def affected_units(units: list[Unit], base: str) -> list[Unit]:
     """Only the steps the change from `base` can reach (guard_step_inputs.py), with the steps that hand them
-    state. No base, or a change to the selection itself, keeps every step."""
+    state. No base, a change to the selection itself, or a selection that fails keeps every step."""
+    try:
+        return _affected_units(units, base)
+    except Exception as error:  # noqa: BLE001 - a broken selection fails open: every step runs
+        safe_print(f"affected guard steps: the selection failed ({type(error).__name__}: {error}); every step runs",
+                   flush=True)
+        return units
+
+
+def _affected_units(units: list[Unit], base: str) -> list[Unit]:
     import guard_step_inputs  # noqa: PLC0415 - the selection, beside this script
 
     if not base:
@@ -689,6 +714,8 @@ class IncrementalResults:
         self._failures: dict[str, list[str]] = {}
 
     def add(self, result: StepResult) -> None:
+        if STOPPING.is_set() and result.ok is False:
+            return  # stopped by an interrupt or the deadline: no verdict, never a red
         with self._lock:
             if result.ok is not None:
                 self._outcome[result.step.name] = self._outcome.get(result.step.name, True) and bool(result.ok)
@@ -738,6 +765,10 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--step", action="append", default=[], help="run only this step (exact name); repeatable, no stamp")
     parser.add_argument("--root", help="run this checkout's guard steps instead of the runner's own (no stamp)")
     parser.add_argument("--results", help="write {step name: passed} as JSON to this file")
+    parser.add_argument(
+        "--deadline", type=float, metavar="SECONDS",
+        help="stop every step after SECONDS and exit 124; --results then has the finished steps and is "
+             "marked incomplete (guards_new_reds.py --tip reports a timeout)")
     parser.add_argument("--json", dest="json_path", help="write the plan and every step's result to this file")
     parser.add_argument(
         "--feat-routes", metavar="FILE",
@@ -857,6 +888,11 @@ def main(argv: list[str]) -> int:
     batches.append([task for task in tasks if not needs_clean_tree(task[1])])
     results: list[StepResult] = []
     writer = IncrementalResults(Path(args.results), ROOT) if args.results else None
+    signal.signal(signal.SIGTERM, interrupt_on_term)
+    deadline = threading.Timer(args.deadline, time_out) if args.deadline else None
+    if deadline is not None:
+        deadline.daemon = True
+        deadline.start()
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs))
     try:
         def submit(task: tuple[Unit, list[Step]]) -> concurrent.futures.Future:
@@ -898,8 +934,14 @@ def main(argv: list[str]) -> int:
     except KeyboardInterrupt:
         pool.shutdown(wait=False, cancel_futures=True)
         stop_running()
+        if TIMED_OUT.is_set():
+            safe_print(f"cmux guards: timed out after {args.deadline:.0f}s: {len(results)} steps finished, "
+                       "the running ones were stopped and have no result", flush=True)
+            return 124
         safe_print("cmux guards: interrupted", file=sys.stderr)
         return 130
+    if deadline is not None:
+        deadline.cancel()
     pool.shutdown()
     seconds = time.monotonic() - started
     failed = [r for r in results if r.ok is False]
