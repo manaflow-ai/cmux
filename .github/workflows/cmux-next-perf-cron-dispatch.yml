@@ -22,7 +22,10 @@ concurrency:
 jobs:
   dispatch:
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Our own GCP Linux runners on attempt 1 (the gha-runners reconciler keeps two idle ahead of any queue), the shared
+    # pool on a re-run: on 2026-11-19 every dispatch since 07:14Z waited behind one queued on Blacksmith, so no tick
+    # started (feat-cmux-next's cmux-next-perf-budgets.yml routes its control jobs the same way).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-fleet-linux-x64' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       actions: write
       contents: read
