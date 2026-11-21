@@ -36,6 +36,30 @@
           ]
         },
         {
+          "key": "experiments.composerV2",
+          "note": "Taste prototype: the agent chat composer as a glass panel with an edge light on focus, mode and scope chips in a row inside it (only the active one raised), inline @mention chips, the model picker left and + and Send right, and a round Send dimmed until there is text (webviews useExperimentSwitch(\"composerV2\"), composerV2.css). Off by default; off keeps today's composer.",
+          "title": {
+            "key": "settings.experiments.composerV2",
+            "text": "Composer Refresh"
+          },
+          "help": {
+            "key": "settings.experiments.composerV2.help",
+            "text": "The chat composer becomes a glass panel with mode chips, mention chips and a round Send button."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "composer",
+            "glass",
+            "chips",
+            "mention",
+            "send"
+          ]
+        },
+        {
           "key": "experiments.agentBadges",
           "note": "Taste build 5 (2026-11-19): agent counts and status on the tab strip and the sidebar, drawn natively (CmuxNextTabs TabCell+CountPill, CmuxNextSidebar WorkspaceRowView+AgentPill; DesignSettings.agentBadges). An agent chat tab shows a neutral count pill (unread plus a pending approval) in a slot always as wide as \"99+\", so no tab moves; a sidebar row shows one tinted status pill (Running, Needs approval, Done) in a slot as wide as the widest label. Off by default; off keeps today's marks.",
           "title": {

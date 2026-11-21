@@ -31,6 +31,13 @@ final class WorkspaceRowView: SidebarRowView {
     /// when the same workspace's work finishes (`configureBadges`), never on a first configure or a
     /// row the pool hands to another workspace (cleared in `prepareForReuse`).
     var shownBadges: (workspace: WorkspaceID, states: [StatusIndicatorState])?
+    /// The state a waiting row's glow stands in for, and its halo (WorkspaceRowView+NeedsYouGlow).
+    var needsYouTone: StatusIndicatorState?, needsYouGlowLayer: CALayer?
+    /// The window is on screen and not covered, as the list tracks it for the rows' indicators
+    /// (`SidebarListView.setWindowVisible`): the glow breathes only then.
+    var isNeedsYouWindowVisible = true {
+        didSet { if isNeedsYouWindowVisible != oldValue { updateNeedsYouGlowMotion() } }
+    }
     /// `experiments.agentBadges` (WorkspaceRowView+AgentPill): the setting this row drew with, the pill it shows (nil:
     /// none) and for which workspace (a pill cross-fades only when the same workspace's state changes). The views are
     /// made the first time the experiment is on; off, the row has neither.
@@ -98,6 +105,8 @@ final class WorkspaceRowView: SidebarRowView {
     var iconKind: WorkspaceIcon?
     /// The workspace color as a leading rail or a full fill (`WorkspaceRowView+Color`).
     var rowColor: (color: GroupColor, style: WorkspaceColorIndicatorStyle)?, colorRail = NSView()
+    /// How a `leftRail` row draws its color (`WorkspaceRowContent.railLook`).
+    var railLook = WorkspaceRailLook.standard
     /// Selected but not active (the active row paints the selection fill).
     var isSecondarySelected = false {
         didSet {
@@ -248,6 +257,13 @@ final class WorkspaceRowView: SidebarRowView {
         shownAgentPill = nil
     }
 
+    /// A row made or parked while its window is covered starts from the window's own state, as a row's
+    /// indicators do; the list keeps it current after that (`SidebarListView.setWindowVisible`).
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let window { isNeedsYouWindowVisible = window.occlusionState.contains(.visible) }
+    }
+
     private struct Content: Hashable {
         var ws: SidebarWorkspace
         var group: GroupID?
@@ -257,6 +273,8 @@ final class WorkspaceRowView: SidebarRowView {
         var rowBadge: SidebarRowBadgeStyle, stackLimit: Int
         var rowTitle: SidebarRowTitleMode, rowTitleSingleChat: Bool
         var agentBadges: AgentBadgesExperiment
+        /// The badge or glow (`notifications.attention.mark`) and the glow's breath (WorkspaceRowView+NeedsYouGlow).
+        var needsYouMark = DesignSettings.shared.attention.mark, animatesLoops = Motion.indicators.animatesLoops
         var row: WorkspaceRowContent?
     }
 
