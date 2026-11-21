@@ -26,4 +26,17 @@ test("missing and inconsistent reports are not actionable", () => {
   expect(diskHealthState(undefined, 1_000_000)).toBe("unknown");
   expect(diskHealthState(report({ used_mb: 70_000 }), 1_000_000)).toBe("unknown");
   expect(diskHealthState(report({ free_mb: 60_000, used_mb: 10_000 }), 1_000_000)).toBe("unknown");
+  expect(diskHealthState(report({ observed_at: Number.NaN }), 1_000_000)).toBe("unknown");
+  expect(diskHealthState(report({ observed_at: 2_000_000 }), 1_000_000)).toBe("unknown");
+  expect(
+    diskHealthState(
+      report({
+        top_users: [
+          { path: "", used_mb: 1 },
+          { path: "/tmp", used_mb: Number.NaN },
+        ],
+      }),
+      1_000_000,
+    ),
+  ).toBe("unknown");
 });
