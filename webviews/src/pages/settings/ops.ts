@@ -682,7 +682,8 @@ export type ModelsState = {
 
 /** One Settings > Models gesture. `addKey`, `addClaudeToken` and `orgKey` carry a pasted secret once:
  * the app moves it into the Keychain and passes acpmux or the team only a reference.
- * `claudeSetupToken` opens a cmux terminal tab running `claude setup-token`. */
+ * `claudeSetupToken` opens a cmux terminal tab running `claude setup-token`; `addClaudeToken {first}`
+ * puts the new connection first. */
 export type ModelsRun =
   | { action: "order"; ids: string[] }
   | { action: "spread"; on: boolean }
@@ -692,7 +693,7 @@ export type ModelsRun =
   | { action: "cancelChatGPT" }
   | { action: "connectClaude" }
   | { action: "claudeSetupToken" }
-  | { action: "addClaudeToken"; token: string; label?: string }
+  | { action: "addClaudeToken"; token: string; label?: string; first?: boolean }
   | { action: "addKey"; provider: ModelProvider; key: string; label?: string }
   | { action: "orgKey"; agent: "claude" | "codex"; key: string | null }
   | { action: "members"; ownConnections?: boolean; chooseRunout?: boolean };

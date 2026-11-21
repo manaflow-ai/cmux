@@ -265,7 +265,13 @@ public final class SettingsModels {
             guard let harnesses else { throw PageError.unavailable("no terminal tab could be opened on this Mac") }
             try await harnesses.typeLine("claude setup-token")
         case "addClaudeToken":
+            let known = Set(connections.compactMap { $0["id"]?.stringValue })
             try await addClaudeToken(params["token"]?.stringValue ?? "", label: params["label"]?.stringValue)
+            // From a failed Cloud chat's Set up Claude (`first`): the new connection goes first, so Cloud chats run on it.
+            let ids = connections.compactMap { $0["id"]?.stringValue }
+            if params["first"]?.boolValue == true, let added = ids.first(where: { !known.contains($0) }) {
+                try await mutate(.connectionsOrderSet, ["ids": [added] + ids.filter { $0 != added }])
+            }
         case "addKey":
             try await addKey(provider: params["provider"]?.stringValue ?? "", key: params["key"]?.stringValue ?? "",
                              label: params["label"]?.stringValue)
