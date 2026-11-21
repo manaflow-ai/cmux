@@ -27,9 +27,9 @@ EXEMPTIONS: dict[str, str] = {
     "cmux-vm-cloud.yml": "push covers backend/** on codex/vm-api-cloud-* branches; pull requests "
     "name the cloud-VM API files inside it",
     # The push filter only registers the workflow on feat-cmux-next (its jobs skip on push); pull requests take
-    # every path but prose (the docs-only block, scripts/ci/docs_only_paths.py).
+    # only the paths a look can apply without a build (the workflow's path gate).
     "cmux-next-hot-verify.yml": "push names only its own file, to register the workflow for dispatch; pull "
-    "requests carry the docs-only block",
+    "requests name the paths a no-build look can apply (web and Rust layers)",
 }
 
 # name -> (filter, push-only patterns, why). A narrower exemption: only these
@@ -58,6 +58,11 @@ PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
             "scripts/cmux-next/chromium-objc-contract.json",
             "scripts/import-apple-developer-id-intermediates.sh",
             "scripts/prune_nightly_release_assets.py",
+            # The cmux-tui tree key's build recipe, named one by one on push; a pull request admits each through
+            # .github/workflows/**, scripts/cmux-next/**, scripts/ci/** and Resources/** (below).
+            ".github/workflows/cmux-tui-build-package.yml", "Resources/cmux-cli-path/**",
+            "Resources/theme-files/**", "scripts/ci/stage-agent-detector.sh",
+            "scripts/cmux-next/cmux-tui-build-profiles.json",
             # Files the app build or its packaging reads (cmux_next_route.py NATIVE_SCRIPT_INPUTS): pull
             # requests admit them through scripts/ci/** and scripts/cmux-next/**, which pushes do not take.
             "scripts/ci/cmux_tui_tree_key.py", "scripts/ci/fleet-rust-cache.sh",

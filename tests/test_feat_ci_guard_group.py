@@ -49,7 +49,8 @@ def covers_feat(trigger) -> bool:
 
 def runs_ci_group(job: dict) -> bool:
     """The job runs guards-local.sh's default set (the `ci` group) and nothing keeps it off feat-cmux-next."""
-    condition = str(job.get("if", ""))
+    # The pull_request_skip guard's base clause runs the job on other bases; it never keeps it off feat-cmux-next.
+    condition = str(job.get("if", "")).replace("github.event.pull_request.base.ref != 'feat-cmux-next' ||", "")
     if "feat-cmux-next" in condition and "!=" in condition:
         return False
     for step in job.get("steps") or []:
@@ -268,11 +269,10 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
         measured = entry("cmux-next-guards.yml", "ci-guard-group")
         pool_route = (f"vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_{measured['failover']}"
                       f" || fromJSON(vars.RUNNER_POOLS).linux_{measured['size']}")
-        self.assertNotIn("needs", self.job())
-        # The replay's Tier B (scripts/ci/affected-jobs.json pull_request_skip): a pull request skips it unless
-        # labeled full-ci; the feat-cmux-next push runs it.
-        self.assertEqual(self.job()["if"],
-                         "${{ (!cancelled()) && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}")
+        # The window gate (base-coalesce.yml), and the replay's Tier B (scripts/ci/affected-jobs.json
+        # pull_request_skip): a pull request skips it unless labeled full-ci; the feat-cmux-next push runs it.
+        self.assertEqual(self.job()["needs"], "coalesce")
+        self.assertEqual(self.job()["if"], "${{ (!cancelled() && needs.coalesce.outputs.run != 'false') && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}")
         self.assertEqual(
             workflow_jobs.single_runs_on(self.job()),
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"

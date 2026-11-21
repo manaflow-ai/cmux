@@ -3593,12 +3593,6 @@
       "title" : "Engine",
       "type" : "string"
     },
-    "home.chiefPanel.seesScreen" : {
-      "default" : true,
-      "description" : "The floating Chief takes one look at your screen when it opens. The eye turns it off.",
-      "title" : "Chief Sees Your Screen When It Opens",
-      "type" : "boolean"
-    },
     "home.chiefPanel.style" : {
       "default" : "composeBar",
       "description" : "How the Chief looks floating over a workspace. Drag any style by its grip.",
@@ -3672,6 +3666,12 @@
       "title" : "Connect iMessage",
       "type" : "boolean"
     },
+    "labs.agentCustomization" : {
+      "default" : false,
+      "description" : "Show and edit the MCP servers Claude Code and Codex use, in their own config files.",
+      "title" : "Claude Code and Codex Customization",
+      "type" : "boolean"
+    },
     "labs.liveCode" : {
       "default" : false,
       "description" : "Swift changes you compile apply to the running app. Takes effect after cmux restarts.",
@@ -3686,7 +3686,7 @@
     },
     "labs.previewFeatures" : {
       "default" : false,
-      "description" : "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
+      "description" : "Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view.",
       "title" : "Show Preview Features",
       "type" : "boolean"
     },
@@ -5156,7 +5156,7 @@
       "type" : "boolean"
     },
     "sidebar.showSpaces" : {
-      "default" : true,
+      "default" : false,
       "description" : "sidebar.showSpaces",
       "title" : "Show Spaces",
       "type" : "boolean"

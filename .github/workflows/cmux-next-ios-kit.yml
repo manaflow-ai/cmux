@@ -38,6 +38,7 @@ on:
       - "Packages/Shared/CMUXMobileCore/**"
       - "Packages/Shared/CmuxAgentBrands/**"
       - "Packages/Shared/CmuxSpinner/**"
+      - "Packages/Shared/CmuxChiefList/**"
       - "Packages/Shared/CmuxChiefVoiceCore/**"
       - "Packages/iOS/CmuxTabsKit/**"
       - "Packages/iOS/CmuxConversation/**"
@@ -68,6 +69,7 @@ on:
       - "Packages/Shared/CMUXMobileCore/**"
       - "Packages/Shared/CmuxAgentBrands/**"
       - "Packages/Shared/CmuxSpinner/**"
+      - "Packages/Shared/CmuxChiefList/**"
       - "Packages/Shared/CmuxChiefVoiceCore/**"
       - "Packages/iOS/CmuxTabsKit/**"
       - "Packages/iOS/CmuxConversation/**"
@@ -224,7 +226,7 @@ jobs:
       # (CI_SAME_TREE_AUDIT_PERCENT), and a red there names the receipt. CI_SAME_TREE_REUSE=0 turns it off.
       - name: Same-tree keys
         id: same-tree-keys
-        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_SAME_TREE_REUSE != '0' }}
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (vars.CI_SAME_TREE_REUSE || '1') != '0' }}
         continue-on-error: true
         run: python3 scripts/ci/same_tree_reuse.py keys --workflow .github/workflows/cmux-next-ios-kit.yml --jobs kit-tests >> "$GITHUB_OUTPUT"
       - name: Look up a same-tree pass of kit-tests
