@@ -1331,8 +1331,9 @@ fn attach_terminal_id_is_advertised_and_resolves_the_terminal_in_the_attach() {
     )
     .unwrap_err();
     assert!(error.to_string().contains("terminal_not_found"), "{error:#}");
-    let incarnation = mux.resolve_terminal(&terminal).unwrap().unwrap().terminal.incarnation;
-    mux.close_terminal(&terminal, incarnation.as_deref().unwrap_or_default()).unwrap();
+    let record = mux.resolve_terminal(&terminal).unwrap().unwrap().terminal;
+    mux.close_terminal(&record.terminal_id, record.incarnation.as_deref().unwrap_or_default())
+        .unwrap();
     let error = handle_command(
         &mux,
         client,
