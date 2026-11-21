@@ -2213,17 +2213,28 @@ def newest_snapshot_artifact(artifacts: Sequence[Any], *, now: dt.datetime,
     return newest
 
 
+# The kept snapshot's directory under RUNNER_TEMP (the workflows carry it between jobs with actions/cache), and
+# the marker beside it that says this job read the API, so the workflow saves a new cache entry only then.
+KEPT_SNAPSHOT_DIR = "cmux-pool-snapshot"
+SNAPSHOT_FETCHED_MARKER = "cmux-pool-snapshot.fetched"
+# A shared copy is reused for less than this long after it was read from the API: the janitor publishes every few
+# minutes, so by then the artifact list may hold a newer one. The snapshot itself may be older (the artifact read
+# accepts up to MAX_SNAPSHOT_MINUTES), and snapshot_problem() still applies to the copy.
+KEPT_SNAPSHOT_MAX_MINUTES = 5
+
+
 def kept_snapshot_path(branch: str) -> Path | None:
-    """Where this job keeps the snapshot it read (RUNNER_TEMP, which the runner empties for each job), or None.
+    """Where this job keeps the snapshot it read (RUNNER_TEMP/KEPT_SNAPSHOT_DIR), or None outside Actions.
 
     While the runner census is stale, every placement step reads the janitor's artifact (a list and a download,
-    two calls from the job's GITHUB_TOKEN, the REST hour the promote gates share), and cmux-tui-artifacts.yml's
-    tree-preflight runs four such steps. A later step of the same job reuses the first read while
-    snapshot_problem() still accepts it (tests/test_ci_pool_snapshot_job_cache.py)."""
+    two calls from the job's GITHUB_TOKEN, the REST hour the promote gates share). A later step of the same job,
+    or a later job that restored the directory from the Actions cache (no REST call), reuses it for less than
+    KEPT_SNAPSHOT_MAX_MINUTES after it was read (tests/test_ci_pool_snapshot_job_cache.py). The file holds
+    {"fetched_at": ..., "snapshot": ...}."""
     temp = os.environ.get("RUNNER_TEMP", "").strip()
     if not temp:
         return None
-    return Path(temp) / f"cmux-pool-snapshot-{re.sub(r'[^A-Za-z0-9._-]', '_', branch)}.json"
+    return Path(temp) / KEPT_SNAPSHOT_DIR / f"{re.sub(r'[^A-Za-z0-9._-]', '_', branch)}.json"
 
 
 @dataclasses.dataclass
@@ -2455,11 +2466,16 @@ class GitHub:
         kept = kept_snapshot_path(branch)
         if kept is not None:
             try:
-                held = json.loads(kept.read_text())
+                kept_copy = json.loads(kept.read_text())
             except (OSError, ValueError):
-                held = None
-            if held is not None and not snapshot_problem(held, now):
-                print("Pool snapshot: read earlier in this job (no artifact API requests)", file=sys.stderr)
+                kept_copy = None
+            held = kept_copy.get("snapshot") if isinstance(kept_copy, Mapping) else None
+            fetched = parse_time(str(kept_copy.get("fetched_at") or "")) if isinstance(kept_copy, Mapping) else None
+            fetch_age = (now - fetched).total_seconds() / 60 if fetched is not None and fetched.tzinfo else None
+            if (isinstance(held, Mapping) and not snapshot_problem(held, now)
+                    and fetch_age is not None and 0 <= fetch_age < KEPT_SNAPSHOT_MAX_MINUTES):
+                print("Pool snapshot: shared copy from this job or an earlier one (no artifact API requests)",
+                      file=sys.stderr)
                 return held
         artifacts = self.get(f"/actions/artifacts?name={ARTIFACT_NAME}&per_page={PAGE_SIZE}").get("artifacts") or []
         newest = newest_snapshot_artifact(artifacts, now=now, branch=branch)
@@ -2469,9 +2485,15 @@ class GitHub:
         loaded = json.loads(archive.read(SNAPSHOT_FILE))
         if kept is not None and isinstance(loaded, Mapping):
             try:
+                kept.parent.mkdir(parents=True, exist_ok=True)
                 partial = kept.with_name(f".{kept.name}.{os.getpid()}")
-                partial.write_text(json.dumps(loaded))
+                stamp = now.astimezone(dt.timezone.utc)
+                partial.write_text(json.dumps({"fetched_at": stamp.isoformat().replace("+00:00", "Z"),
+                                               "snapshot": loaded}))
                 os.replace(partial, kept)
+                # The workflow saves the directory to the Actions cache only after an API read, keyed by this
+                # read's time (a cache key may hold no `:`), never by the run.
+                (kept.parent.parent / SNAPSHOT_FETCHED_MARKER).write_text(stamp.strftime("%Y%m%dT%H%M%SZ"))
             except OSError:
                 pass  # only a saving: the next step reads the API again
         return loaded
