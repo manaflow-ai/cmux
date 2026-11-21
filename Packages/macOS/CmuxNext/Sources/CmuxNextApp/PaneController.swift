@@ -125,9 +125,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         view.stripView.primaryNewTabMenuProvider = { [weak self] in
             guard let self else { return nil }
-            return services.registry.makeConfiguredPlusMenu(root: services.settings?.snapshot.root ?? .null,
-                target: ActionTargetRef(kind: .pane, id: paneKey), machineID: daemon.machineID,
-                localMachineID: services.machines.local.machineID)
+            return self.services.registry.makeConfiguredPlusMenu(root: self.services.settings?.snapshot.root ?? .null,
+                target: ActionTargetRef(kind: .pane, id: paneKey), machineID: self.daemon.machineID,
+                localMachineID: self.services.machines.local.machineID)
                 .map { $0.themeRows(in: view.themeScope.fullStrength) }
         }
         view.stripView.hoverCards = services.hoverCards
