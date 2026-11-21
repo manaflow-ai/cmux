@@ -167,6 +167,12 @@ FIX = {
                               "allowing it; an allowance is for a call that must block, with its reason",
     "app_lines": "put new code in its own target, not CmuxNextApp (plans/cmux-next/code-quality.md SW14), or remove "
                  "as many App lines as the push adds; a move out of the App lowers the row",
+    "next_swift_logic_lines": "move the new state and logic to Rust and keep Swift to the view and the platform "
+                              "glue (plans/cmux-next/language-layers.md: state and logic with no view go to Rust), "
+                              "or add a reviewed, expiring exception. Moving a declaration inside Swift never lowers "
+                              "the row; a moved or renamed declaration whose plans/cmux-next/swift-logic-classes.tsv "
+                              "row did not follow it counts in full as unlisted logic until you update that row's "
+                              "path and name (same class)",
 }
 ESCAPE_ROW = "blocking_allow_escapes"
 # An independent review receipt (repo CLAUDE.md, risk tiers): the reviewer named, the exact head it passed.

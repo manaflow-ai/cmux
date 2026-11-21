@@ -3428,7 +3428,7 @@ def perf_cron_tests(repo: Path, ranges: list) -> None:
 # gate, guardrails.py and arch-ratchet.py alike. The arch_rules/*.py modules are compared as a folder
 # (_stale_rules), so a rule module added upstream needs no entry here.
 TRUSTED_COPIES = ("prepush-gate.py", "guardrails.py", "count-swift-code-lines.py", "arch-ratchet.py", "arch_counts.py",
-                  "push_range.py", "git_batch.py")
+                  "push_range.py", "git_batch.py", "swift-logic-lines.py")
 RULES_SUBDIR = "arch_rules"
 
 

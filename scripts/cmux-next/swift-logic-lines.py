@@ -546,6 +546,78 @@ def linked_scope(git, sha: str, scope):
                  if any(p in reached for p in ps)})
 
 
+def file_units(git, store, blobs: dict[str, str]) -> dict[str, list[Unit]]:
+    """{path: its units} of BLOBS ({path: blob id}): from STORE (arch_counts.FactsCache, by blob, path and this
+    script's fingerprint) when it has them, else read in one `git cat-file --batch` and kept there."""
+    files: dict[str, list[Unit]] = {}
+    missing = []
+    for path, blob in blobs.items():
+        text = store.get_text(f"{METHOD}:{FINGERPRINT}:{blob}:{path}")
+        if text is None:
+            missing.append((blob, path))
+        else:
+            files[path] = [Unit(*u) for u in json.loads(text)]
+    if missing:
+        texts = git.read_blobs(missing)
+        for blob, path in missing:
+            found = units(texts[(blob, path)] or "", path)
+            files[path] = found
+            store.put_text(f"{METHOD}:{FINGERPRINT}:{blob}:{path}",
+                           json.dumps([[u.kind, u.name, u.line, u.span, u.view, u.generated] for u in found],
+                                      separators=(",", ":")))
+    return files
+
+
+def count_at(git, store, sha: str, scope, table_text: str | None, blobs: dict[str, str] | None = None,
+             only=None) -> Count:
+    """The count at commit SHA over SCOPE (arch_counts' closure at SHA; linked_scope narrows it here) with the table
+    TABLE_TEXT. ONLY (a set of paths, or None for every file) restricts it to those files, BLOBS ({path: blob id},
+    or None: one `ls-tree` of the closure's Sources) gives their blobs: the count is a sum over files (a table key
+    names one file), so the files a range changes count its whole change when the table and the closure hold."""
+    scope = linked_scope(git, sha, scope)
+    scope.check()
+    if blobs is None:
+        blobs = git.swift_blobs(sha, scope)
+    blobs = {p: b for p, b in blobs.items() if b and scope.is_source(p) and (only is None or p in only)}
+    return count_units(file_units(git, store, blobs), table_text, sha)
+
+
+def table_files(old: str | None, new: str | None) -> set[tuple[str, str]]:
+    """{(module, path in the module)} of the files whose declarations the table change OLD -> NEW can count
+    differently: the file of every row added, removed or changed (a row names one file: parse_table's key)."""
+    a, b = parse_table(old)[0], parse_table(new)[0]
+    return {key[:2] for key in set(a) | set(b) if a.get(key) != b.get(key)}
+
+
+def range_counts(git, store, base: str, head: str, scopes: dict, files: list[tuple[str, str]],
+                 blobs: dict[tuple[str, str], str | None], tables: dict | None = None) -> tuple[Count, Count] | None:
+    """(count at BASE, count at HEAD) over just the files whose count BASE..HEAD can change, so head minus base is
+    the range's whole change of both rows; None when neither end has the table (the rows start with it).
+
+    SCOPES is {rev: arch_counts' closure}, FILES and BLOBS what arch_counts.Git.changed gives for the range. Those
+    files are the changed Swift sources and the files of every table row the range adds, removes or changes; a range
+    that changes a Package.swift (the closure, and which packages only tests reach) counts every file at both ends.
+    An end without the table counts every declaration unlisted, as this script does: deleting the table raises the
+    rows, it never lowers them. TABLES: {(rev, TABLE): text or None} of both ends, when the caller read them."""
+    tables = tables if tables is not None else git.read([(base, TABLE), (head, TABLE)])
+    old, new = tables[(base, TABLE)], tables[(head, TABLE)]
+    if old is None and new is None:
+        return None
+    if any(p == "Package.swift" or p.endswith("/Package.swift") for _, p in files):
+        return (count_at(git, store, base, scopes[base], old), count_at(git, store, head, scopes[head], new))
+    only = {p for _, p in files if p.endswith(".swift")}
+    keyed = table_files(old, new) if old != new else set()
+    out = []
+    for rev, table in ((base, old), (head, new)):
+        if keyed:  # a table change: the files its rows name, wherever they are
+            listed = git.swift_blobs(rev, scopes[rev])
+            mine = only | {p for p in listed if (AC.package_of(p), (in_module(p) or ("", p))[1]) in keyed}
+            out.append(count_at(git, store, rev, scopes[rev], table, listed, mine))
+        else:
+            out.append(count_at(git, store, rev, scopes[rev], table, {p: blobs.get((rev, p)) for p in only}, only))
+    return out[0], out[1]
+
+
 def count(repo: Path, rev: str = "HEAD", cache: bool = True, table_text: str | None = None) -> Count:
     """The count at REV, from git objects: the closure's Swift (arch_counts.read_paths) and the table at REV (or
     TABLE_TEXT: a baseline of a revision that has no table yet)."""
@@ -553,29 +625,11 @@ def count(repo: Path, rev: str = "HEAD", cache: bool = True, table_text: str | N
     sha = git.rev(rev)
     store = AC.FactsCache(git, cache)
     try:
-        scope = linked_scope(git, sha, AC._scope(git, sha, store))
-        scope.check()
-        blobs = git.swift_blobs(sha, scope)
-        files: dict[str, list[Unit]] = {}
-        missing = []
-        for path, blob in blobs.items():
-            text = store.get_text(f"{METHOD}:{FINGERPRINT}:{blob}:{path}")
-            if text is None:
-                missing.append((blob, path))
-            else:
-                files[path] = [Unit(*u) for u in json.loads(text)]
-        if missing:
-            texts = git.read_blobs(missing)
-            for blob, path in missing:
-                found = units(texts[(blob, path)] or "", path)
-                files[path] = found
-                store.put_text(f"{METHOD}:{FINGERPRINT}:{blob}:{path}",
-                               json.dumps([[u.kind, u.name, u.line, u.span, u.view, u.generated] for u in found],
-                                          separators=(",", ":")))
         table = table_text if table_text is not None else git.read([(sha, TABLE)])[(sha, TABLE)]
+        found = count_at(git, store, sha, AC._scope(git, sha, store), table)
     finally:
         store.flush()
-    return count_units(files, table, sha)
+    return found
 
 
 def main(argv: list[str] | None = None) -> int:

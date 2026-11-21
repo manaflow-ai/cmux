@@ -171,9 +171,11 @@ import concurrent.futures
 import dataclasses
 import datetime
 import hashlib
+import importlib.util
 import json
 import posixpath
 import re
+import shutil
 import sqlite3
 import subprocess
 import tempfile
@@ -218,6 +220,13 @@ COUNT_INPUTS = (MANIFEST, LAYERS_JSON)
 # ReadPaths.is_counted (the closure's Swift sources and manifests too) is the one test arch-ratchet.py's
 # measured_in_range uses.
 COUNTED_PATHS = COUNT_INPUTS + (METHOD_FILE,)
+# next_swift_logic_lines: swift-logic-lines.py's swift_logic_lines + mirror_lines, by the class table. The script is
+# read beside this file (the hook's copy of scripts/cmux-next), else from the counted commit (perf-cron exports this
+# file alone); the row is counted at a revision that has the table, so a fixture without one never counts it.
+LOGIC_ROW = "next_swift_logic_lines"
+LOGIC_SCRIPT = "scripts/cmux-next/swift-logic-lines.py"
+LOGIC_TABLE = "plans/cmux-next/swift-logic-classes.tsv"
+LOGIC_INPUTS = (LOGIC_TABLE, LOGIC_SCRIPT)
 APP_PACKAGE = "CmuxNextApp"
 SHA = re.compile(r"[0-9a-f]{40}")
 
@@ -244,6 +253,7 @@ ROWS = (
     Row("observer_sites", "NotificationCenter/KVO observer sites", True),
     Row("blocking_allow_escapes", "main-thread blocking allowances (`// blocking-allow:`, allowBlocking()", True),
     Row("app_lines", "CmuxNextApp Swift lines", True),
+    Row("next_swift_logic_lines", "NEXT Swift logic + mirror lines (swift-logic-lines.py)", True),
 )
 ROW_IDS = tuple(row.id for row in ROWS)
 LAYER_ROWS = ("layer_hard", "layer_soft", "layer_upward", "layer_unplaced")
@@ -3384,7 +3394,7 @@ def is_counted(path: str, scope: "ReadPaths | None" = None) -> bool:
     any Swift file under a Sources directory, since any of them can be in some revision's closure."""
     if scope is not None:
         return scope.is_counted(path)
-    return (path in COUNTED_PATHS or posixpath.basename(path) == "Package.swift"
+    return (path in COUNTED_PATHS or path in LOGIC_INPUTS or posixpath.basename(path) == "Package.swift"
             or (path.endswith(".swift") and (path.startswith("Sources/") or "/Sources/" in path)))
 
 
@@ -3421,13 +3431,13 @@ class ReadPaths:
     @property
     def counted_paths(self) -> tuple[str, ...]:
         """count_inputs and the row definitions: every non-Swift path whose change can change a count."""
-        return self.count_inputs + (METHOD_FILE,)
+        return self.count_inputs + (METHOD_FILE,) + LOGIC_INPUTS
 
     @property
     def files(self) -> tuple[str, ...]:
         """Every single file a count reads (the Swift aside): count_inputs, the ratchet record (its observer hint)
         and this file."""
-        return self.count_inputs + (RATCHET_JSON, METHOD_FILE)
+        return self.count_inputs + (RATCHET_JSON, METHOD_FILE) + LOGIC_INPUTS
 
     def package_dir(self, path: str) -> str | None:
         """The closure package whose Sources holds PATH, or None."""
@@ -3784,6 +3794,8 @@ class Counts:
     # The names a full count's shared observer wrappers are found by (Observers.hint_names): recorded in
     # arch-ratchet.json as `observer_wrappers`, a speed hint for the next count's first search.
     observer_wrappers: set[str] = dataclasses.field(default_factory=set)
+    # {row: [line]}: what a refusal of the row adds (next_swift_logic_lines: a declaration its table row lost).
+    notes: dict[str, list[str]] = dataclasses.field(default_factory=dict)
 
     @classmethod
     def empty(cls) -> "Counts":
@@ -3859,6 +3871,95 @@ def count_file_facts(facts: list[FileFacts], manifest_raw: str | dict[str, str |
     return counts, lay
 
 
+LOGIC_MODULE = "cmux_next_swift_logic_lines"
+
+
+def logic_script(git: "Git", rev: str):
+    """swift-logic-lines.py as a module, loaded once: the copy beside this file, else REV's own (a commit's
+    arch_counts.py run alone, as perf-cron-arch-report.py does). None when neither has it."""
+    if LOGIC_MODULE in sys.modules:
+        return sys.modules[LOGIC_MODULE]
+    # The script imports this file by that name: it gets this module, not a second copy.
+    sys.modules.setdefault("cmux_next_arch_counts", sys.modules[__name__])
+    path, tmp = Path(__file__).resolve().with_name(posixpath.basename(LOGIC_SCRIPT)), None
+    if not path.is_file():
+        text = git.read([(rev, LOGIC_SCRIPT)])[(rev, LOGIC_SCRIPT)]
+        if text is None:
+            return None
+        tmp = tempfile.mkdtemp(prefix="arch-counts-logic-")
+        path = Path(tmp) / posixpath.basename(LOGIC_SCRIPT)
+        path.write_text(text)
+    try:
+        spec = importlib.util.spec_from_file_location(LOGIC_MODULE, path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[LOGIC_MODULE] = module  # dataclasses resolve their module through sys.modules
+        try:
+            spec.loader.exec_module(module)
+        except BaseException:
+            del sys.modules[LOGIC_MODULE]
+            raise
+    finally:
+        if tmp is not None:
+            shutil.rmtree(tmp, ignore_errors=True)
+    return module
+
+
+def add_logic(counts: Counts, found) -> None:
+    """Adds swift-logic-lines' count FOUND (logic + mirror per module, a site per counted declaration) to the
+    next_swift_logic_lines row of COUNTS."""
+    for name in found.rows:
+        counts.rows[LOGIC_ROW].update(found.rows[name])
+    for name in found.rows:
+        for path, line, text in found.sites[name]:
+            counts.sites[LOGIC_ROW].append(Site(LOGIC_ROW, path, line, text))
+
+
+def _count_logic(git: "Git", store: "FactsCache", base: str, head: str, scopes: dict, files: list[tuple[str, str]],
+                 blobs: dict, before: Counts, after: Counts) -> None:
+    """next_swift_logic_lines at both ends over the files whose count the range can change (swift-logic-lines'
+    range_counts: the changed Swift, and the files of the table rows the range changes; every file when a
+    Package.swift changes). Nothing is read when the range touches no Swift, no Package.swift and neither input.
+    A failure of the script leaves the row unknown at both ends (not judged, a note names why)."""
+    if not any(p.endswith(".swift") or p in LOGIC_INPUTS for _, p in files):
+        return
+    tables = git.read([(base, LOGIC_TABLE), (head, LOGIC_TABLE)])
+    if tables[(base, LOGIC_TABLE)] is None and tables[(head, LOGIC_TABLE)] is None:
+        return  # the row starts with the table
+    try:
+        sll = logic_script(git, head)
+        if sll is None:
+            raise ValueError(f"no {LOGIC_SCRIPT}")
+        ends = sll.range_counts(git, store, base, head, scopes, files, blobs, tables)
+    except Exception as error:  # a new row's bug never stops a push: the note says it was not judged
+        why = f"{LOGIC_SCRIPT} failed ({type(error).__name__}: {error})"
+        before.unknown[LOGIC_ROW] = after.unknown[LOGIC_ROW] = why
+        return
+    if ends is None:
+        return
+    add_logic(before, ends[0])
+    add_logic(after, ends[1])
+    after.notes[LOGIC_ROW] = logic_moves(sll, ends[1], {p for _, p in files})
+
+
+def logic_moves(sll, head, changed: set[str]) -> list[str]:
+    """The rename hints of HEAD's count: an unlisted declaration whose kind and name a table row the count left
+    unused has in a file the range changes (a declaration moved or renamed with its table row left behind)."""
+    files = {sll.in_module(p) for p in changed} - {None}
+    left = collections.defaultdict(list)
+    for (module, where, kind, name, _), entry in head.missing:
+        if (module, where) in files:
+            left[(kind, name)].append(entry)
+    out = []
+    for path, line, text in head.sites.get("unlisted", []):
+        label = text.split(":", 1)[0]
+        kind, _, rest = label.partition(" ")
+        rows = left.get((kind, rest.rsplit(" #", 1)[0]))
+        if rows and text.endswith("(unlisted)"):
+            out.append(f"{path}:{line}: {label} has no table row, and the {rows[0].cls} row for it names "
+                       f"{rows[0].path}, a file this push changes: point that row's path (and name) at the new place")
+    return out
+
+
 def full_count(repo: Path, rev: str = "HEAD", cache: bool = True) -> tuple[str, Counts, Layers]:
     """(sha, counts, layers) of every file of the local package closure at REV (read_paths; facts of contents seen
     before come from FactsCache). Raises AmbiguousModule when two closure packages hold one module."""
@@ -3877,6 +3978,12 @@ def full_count(repo: Path, rev: str = "HEAD", cache: bool = True) -> tuple[str, 
                                        placing_map(repo, sha, meta[(sha, LAYERS_JSON)]))
         stand = StandIn(git, repo, sha, False, store, scope)
         count_observers(counts, observer_count(EndSource(stand, {}), recorded_wrappers(meta[(sha, RATCHET_JSON)])))
+        table = git.read([(sha, LOGIC_TABLE)])[(sha, LOGIC_TABLE)]
+        if table is not None:  # the row starts with the table (a revision without one counts 0)
+            sll = logic_script(git, sha)
+            if sll is None:
+                raise ValueError(f"{LOGIC_TABLE} at {sha[:12]} and no {LOGIC_SCRIPT} to count it")
+            add_logic(counts, sll.count_at(git, store, sha, scope, table, blobs))
     finally:
         store.flush()
     return sha, counts, lay
@@ -4268,6 +4375,7 @@ def _delta(git: Git, base: str, head: str, worktree: Path | None, dirty_proc: su
             changed_paths.add(path)
     changed = sorted(changed_paths)
     before, after = Counts.empty(), Counts.empty()
+    _count_logic(git, store, base, head, scopes, files, blobs, before, after)
     if any(p in scopes[base].count_inputs or p in scopes[head].count_inputs for _, p in files):
         # A manifest or the layer map changed: the layer rows at both ends, each over its own closure's manifests.
         texts = git.read_blobs([(b, p) for r in (base, head) for p, b in scopes[r].manifests.items()])
