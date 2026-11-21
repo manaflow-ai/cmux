@@ -675134,6 +675134,381 @@
           }
         }
       }
+    },
+    "cli.vm.lifecycle.pause.result": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ paused (status=%2$@); cmux vm resume %3$@ wakes it"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ pausiert (Status=%2$@); cmux vm resume %3$@ weckt die Maschine auf"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ mis en pause (état=%2$@) ; cmux vm resume %3$@ le réveille"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إيقاف %1$@ مؤقتًا (الحالة=%2$@)؛ يشغّل cmux vm resume %3$@ الآلة مجددًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ pausado (estado=%2$@); cmux vm resume %3$@ lo reactiva"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 已暫停（狀態=%2$@）；cmux vm resume %3$@ 會喚醒它"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 已暂停（状态=%2$@）；cmux vm resume %3$@ 会唤醒它"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 일시 중지됨(상태=%2$@); cmux vm resume %3$@ 명령으로 깨울 수 있습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ を一時停止しました（状態=%2$@）。cmux vm resume %3$@ で起動します"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ призупинено (стан=%2$@); cmux vm resume %3$@ відновить роботу"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ in pausa (stato=%2$@); cmux vm resume %3$@ lo riattiva"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ pauziran (status=%2$@); cmux vm resume %3$@ ga ponovo pokreće"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ satt på pause (status=%2$@); cmux vm resume %3$@ vekker den"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ sat på pause (status=%2$@); cmux vm resume %3$@ vækker den"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wstrzymano %1$@ (stan=%2$@); cmux vm resume %3$@ wznowi działanie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ pausada (estado=%2$@); cmux vm resume %3$@ a reativa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ приостановлена (состояние=%2$@); cmux vm resume %3$@ возобновит её работу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หยุด %1$@ ไว้ชั่วคราว (สถานะ=%2$@); cmux vm resume %3$@ จะปลุกเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ duraklatıldı (durum=%2$@); cmux vm resume %3$@ makineyi uyandırır"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ត្រូវបានផ្អាក (ស្ថានភាព=%2$@); cmux vm resume %3$@ នឹងបន្តដំណើរការវាឡើងវិញ"
+          }
+        }
+      }
+    },
+    "cli.vm.lifecycle.resume.result": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ resumed (status=%2$@)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ fortgesetzt (Status=%2$@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ repris (état=%2$@)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم استئناف %1$@ (الحالة=%2$@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ reanudado (estado=%2$@)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 已恢復（狀態=%2$@）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 已恢复（状态=%2$@）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 재개됨(상태=%2$@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ を再開しました（状態=%2$@）"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ відновлено (стан=%2$@)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ripreso (stato=%2$@)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ nastavljen (status=%2$@)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ gjenopptatt (status=%2$@)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ genoptaget (status=%2$@)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wznowiono %1$@ (stan=%2$@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ retomada (estado=%2$@)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Работа %1$@ возобновлена (состояние=%2$@)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ทำงานต่อแล้ว (สถานะ=%2$@)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ sürdürüldü (durum=%2$@)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ត្រូវបានបន្តដំណើរការ (ស្ថានភាព=%2$@)"
+          }
+        }
+      }
+    },
+    "cli.vm.target.ambiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm: “%1$@” matches multiple machines; use a machine id from cmux vm ls."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm: „%1$@“ passt zu mehreren Maschinen; verwenden Sie eine Maschinen-ID aus cmux vm ls."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm : « %1$@ » correspond à plusieurs machines ; utilisez un identifiant de machine avec cmux vm ls."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm: يطابق «%1$@» عدة آلات؛ استخدم معرّف آلة من cmux vm ls."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm: “%1$@” coincide con varias máquinas; usa un ID de máquina de cmux vm ls."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm：「%1$@」符合多部機器；請使用 cmux vm ls 顯示的機器 ID。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm：“%1$@”匹配多台机器；请使用 cmux vm ls 中的机器 ID。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm: “%1$@”이(가) 여러 머신과 일치합니다. cmux vm ls의 머신 ID를 사용하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm: 「%1$@」は複数のマシンに一致します。cmux vm ls のマシン ID を使用してください。"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm: «%1$@» відповідає кільком машинам; використайте ідентифікатор машини з cmux vm ls."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm: “%1$@” corrisponde a più macchine; usa un ID macchina da cmux vm ls."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm: „%1$@“ odgovara više mašina; koristite ID mašine iz cmux vm ls."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm: «%1$@» samsvarer med flere maskiner; bruk en maskin-ID fra cmux vm ls."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm: “%1$@” matcher flere maskiner; brug et maskin-ID fra cmux vm ls."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm: „%1$@” pasuje do wielu maszyn; użyj identyfikatora maszyny z cmux vm ls."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm: “%1$@” corresponde a várias máquinas; use um ID de máquina de cmux vm ls."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm: «%1$@» соответствует нескольким машинам; используйте идентификатор машины из cmux vm ls."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm: “%1$@” ตรงกับหลายเครื่อง โปรดใช้ ID เครื่องจาก cmux vm ls"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm: “%1$@” birden fazla makineyle eşleşiyor; cmux vm ls çıktısından bir makine kimliği kullanın."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm: «%1$@» ត្រូវគ្នានឹងម៉ាស៊ីនច្រើន; សូមប្រើលេខសម្គាល់ម៉ាស៊ីនពី cmux vm ls។"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

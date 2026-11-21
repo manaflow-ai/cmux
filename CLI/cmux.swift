@@ -7444,25 +7444,7 @@ struct CMUXCLI {
                 try runVMCleanCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
             case "pause", "resume", "restart":
-                // Lifecycle, not sizing: pausing parks the machine (compute stops, the volume
-                // stays); resuming brings the daemon and its terminals back.
-                let lifecycleArgs = rest.filter { $0 != "--json" }
-                guard lifecycleArgs.count == 1, let vmId = lifecycleArgs.first, !vmId.hasPrefix("-") else {
-                    throw CLIError(message: Self.vmLifecycleUsage)
-                }
-                let response = try client.sendV2(method: "vm.\(sub)", params: ["id": vmId], responseTimeout: sub == "restart" ? 60 : 180)
-                if jsonOutput {
-                    print(jsonString(response))
-                    break
-                }
-                let status = (response["status"] as? String) ?? "?"
-                if sub == "pause" {
-                    print("OK \(vmId) paused (status=\(status)); `cmux vm resume \(vmId)` wakes it")
-                } else if sub == "resume" {
-                    print("OK \(vmId) resumed (status=\(status))")
-                } else {
-                    print("OK " + String(format: String(localized: "cli.vm.restart.result", defaultValue: "%1$@ restarted (status=%2$@)"), vmId, status))
-                }
+                try runVMLifecycleCommand(action: sub, rest: rest, client: client, jsonOutput: jsonOutput)
 
             case "base":
                 let baseAction = rest.first?.lowercased()
