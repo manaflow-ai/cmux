@@ -28,7 +28,7 @@ import CmuxNextDesignTokens
 ///
 /// With `CONTRAST_AUDIT_OUT` set the suite writes every reading as a Markdown table
 /// (`native-control-contrast.md`) there; with `CMUX_CONTRAST_ALL_THEMES=1` it reads every bundled
-/// theme instead of the spread.
+/// theme instead of the spread; with `CMUX_CONTRAST_PRINT_FAILING=1` it prints every failing reading.
 @MainActor @Suite(.serialized, .closesItsWindows) struct NativeControlContrastAuditTests {
     /// The spread: the default pair, the high-chroma and mid-tone themes that broke chrome before
     /// (Hot Dog Stand, Grass, Blue Dolphin), and common light and dark terminal themes.
@@ -112,6 +112,11 @@ import CmuxNextDesignTokens
         for key in Set(known.keys).subtracting(worst.keys).sorted() where !all {
             print("native-control-contrast: baseline line no longer found, drop it: \(key)")
         }
+        if ProcessInfo.processInfo.environment["CMUX_CONTRAST_PRINT_FAILING"] == "1" {
+            for reading in failing.sorted(by: { ($0.control, $0.ratio) < ($1.control, $1.ratio) }) {
+                print("native-control-contrast failing: " + Self.line(reading))
+            }
+        }
         let failures = failing.filter { $0.ratio + 0.005 < (known[$0.key] ?? .infinity) }
         #expect(readings.count > themes.count * 6 * 10, "too few controls were read: \(readings.count)")
         var perControl: [String: Int] = [:]
@@ -149,8 +154,8 @@ import CmuxNextDesignTokens
         container.layer?.backgroundColor = groundColor.nsColor.cgColor
         let window = NSWindow(contentRect: container.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        // The capture is read as sRGB: a window in the screen's (or a headless Mac's generic) space
-        // painted the danger fill #d93b31 as #d84d3c, which misread white on it as 4.16:1.
+        // The capture is read as sRGB: a window in the screen's space shifts the danger fill
+        // #d93b31, which misread white on it as 4.16:1.
         window.colorSpace = .sRGB
         window.contentView = container
         defer { window.close() }
@@ -179,13 +184,22 @@ import CmuxNextDesignTokens
         container.layoutSubtreeIfNeeded()
         for view in allViews(container) { view.viewDidChangeEffectiveAppearance(); view.needsDisplay = true }
         container.layoutSubtreeIfNeeded()
-        let rep = try #require(container.bitmapImageRepForCachingDisplay(in: container.bounds))
-        container.cacheDisplay(in: container.bounds, to: rep)
-        let scale = CGFloat(rep.pixelsWide) / container.bounds.width
-        let painted = try #require(rep.colorAt(x: Int(4 * scale), y: rep.pixelsHigh - Int(4 * scale))?.usingColorSpace(.sRGB))
-        let drift = max(abs(painted.redComponent - swatchColor.red), abs(painted.greenComponent - swatchColor.green),
-                        abs(painted.blueComponent - swatchColor.blue))
-        #expect(drift < 2.5 / 255, "the capture shifts colors: #d93b31 read back as \(painted)")
+        let drawn = try #require(container.bitmapImageRepForCachingDisplay(in: container.bounds))
+        container.cacheDisplay(in: container.bounds, to: drawn)
+        let scale = CGFloat(drawn.pixelsWide) / container.bounds.width
+        // A headless Mac tags the capture with a generic RGB profile while its bytes hold the sRGB
+        // values (#d93b31 then converts to #e3523f, as if gamma 1.8): read it both as tagged and as
+        // sRGB, and keep the reading that gives the swatch back.
+        func swatchRead(_ rep: NSBitmapImageRep) -> (color: NSColor, drift: CGFloat)? {
+            guard let color = rep.colorAt(x: Int(4 * scale), y: rep.pixelsHigh - Int(4 * scale))?.usingColorSpace(.sRGB) else { return nil }
+            return (color, max(abs(color.redComponent - swatchColor.red), abs(color.greenComponent - swatchColor.green),
+                               abs(color.blueComponent - swatchColor.blue)))
+        }
+        let reads = [drawn, drawn.retagging(with: .sRGB)].compactMap { $0 }
+            .compactMap { rep in swatchRead(rep).map { (rep: rep, swatch: $0) } }
+        let best = try #require(reads.min { $0.swatch.drift < $1.swatch.drift })
+        let rep = best.rep
+        #expect(best.swatch.drift < 2.5 / 255, "the capture shifts colors: #d93b31 read back as \(best.swatch.color)")
         return samples.compactMap { sample in
             // The label sits in the middle of the control: its edges are the bezel's border and the ground.
             let frame = sample.view.frame
