@@ -199,12 +199,15 @@ final class ShortcutListModel {
 
     /// Returns the action `stroke` would collide with under `action`'s effective
     /// `when` clause, or `nil` when there is no conflict. Context-disjoint or
-    /// priority-routed clauses coexist, matching the app target's check.
+    /// priority-routed clauses coexist, matching the app target's check. The
+    /// system-wide hotkey takes its keystroke in every context, so nothing
+    /// coexists with it.
     private func detectConflict(for action: ShortcutAction, stroke: StoredShortcut) -> ShortcutAction? {
         let proposedClause = effectiveWhenClause(for: action)
         let unavailable = ShortcutAction.hostUnavailableActions
         for other in ShortcutAction.allCases where other != action && !unavailable.contains(other) {
-            guard ShortcutWhenClause.bindingsCollide(
+            guard action == .showHideAllWindows || other == .showHideAllWindows
+                || ShortcutWhenClause.bindingsCollide(
                 proposedClause,
                 lhsHasPriority: action.hasPriorityShortcutRouting,
                 effectiveWhenClause(for: other),
@@ -317,12 +320,16 @@ final class ShortcutListModel {
             markSystemReservedRejected(action)
             return
         }
+        let conflict = detectConflict(for: action, stroke: proposed)
+        // The host also refuses a keystroke another cmux action holds. That one
+        // falls through to the conflict banner below, which names the action.
         if action == .showHideAllWindows,
+           conflict == nil,
            !canRegisterSystemWideHotkey(proposed) {
             markSystemReservedRejected(action)
             return
         }
-        if let conflict = detectConflict(for: action, stroke: proposed) {
+        if let conflict {
             // Mirror legacy `KeyboardShortcutSettings.Action.normalizedRecordedShortcutResult`:
             // never write a conflicting binding. Surface the rejection
             // through `conflictRejections` so the banner + Undo button
