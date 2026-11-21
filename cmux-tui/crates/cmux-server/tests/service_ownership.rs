@@ -515,3 +515,255 @@ fn system_uninstall_stops_only_the_app_instances_it_checked() {
     assert!(stops.iter().any(|l| l.ends_with("stop cmux-app-server@notes.service")), "{stops:?}");
     assert!(!stops.iter().any(|l| l.contains('*')), "stopped by pattern: {stops:?}");
 }
+
+/// An app server instance the supervisor starts while uninstall stops it
+/// must be stopped too: uninstall lists the instances again after the
+/// supervisor is down, not only before.
+#[test]
+fn system_uninstall_stops_an_app_instance_started_while_the_supervisor_stopped() {
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = system_layout(tmp.path(), &tmp.path().join("state").display().to_string());
+    let template = tmp.path().join("units/cmux-app-server@.service");
+    let runner = std::sync::Arc::new(RecordingRunner::new());
+    runner.answer_always(
+        "--property=FragmentPath --value",
+        shows(&format!("{}\n", template.display())),
+    );
+    runner.answer_always("--property=LoadState", not_found());
+    // No instance until the supervisor stops; then one appears.
+    let late = std::sync::Arc::downgrade(&runner);
+    runner.on_run("disable --now cmux-server.service", move || {
+        if let Some(runner) = late.upgrade() {
+            runner.answer_always(
+                "list-units",
+                shows("cmux-app-server@late.service loaded active running cmux app server late\n"),
+            );
+        }
+    });
+    let svc = system_services(&layout, &runner);
+    svc.uninstall().unwrap();
+    let stops: Vec<String> = runner.lines().into_iter().filter(|l| l.contains(" stop ")).collect();
+    assert!(stops.iter().any(|l| l.ends_with("stop cmux-app-server@late.service")), "{stops:?}");
+}
+
+/// Adds a macOS ACL entry (`chmod +a`) to `path`.
+#[cfg(target_os = "macos")]
+fn add_acl(path: &Path, entry: &str) {
+    let status =
+        std::process::Command::new("/bin/chmod").arg("+a").arg(entry).arg(path).status().unwrap();
+    assert!(status.success(), "chmod +a {entry} {}", path.display());
+}
+
+/// macOS: an ACL entry can let another account write a folder or file whose
+/// mode bits say 0700 or 0600 (Codex R-004). Install must refuse one on the
+/// LaunchAgent log folder, on any folder above it, and on the log itself;
+/// launchd writes the log by its path as this user.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_launchagent_log_others_can_write_through_an_acl_is_refused() {
+    use std::os::unix::fs::PermissionsExt as _;
+    if skip_as_root() {
+        return;
+    }
+    let cases: [(&str, fn(&Path) -> PathBuf); 3] = [
+        ("group:everyone allow add_file,delete_child", |logs| logs.to_path_buf()),
+        ("group:everyone allow add_subdirectory,delete_child", |logs| {
+            logs.parent().unwrap().parent().unwrap().to_path_buf()
+        }),
+        ("group:everyone allow write,append", |logs| logs.join("server.log")),
+    ];
+    for (entry, target) in cases {
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = layout_at(tmp.path(), Platform::MacOs);
+        let logs = cmux_server::fsx::local(&layout.logs());
+        std::fs::create_dir_all(&logs).unwrap();
+        for dir in logs.ancestors().take_while(|d| d.starts_with(tmp.path())) {
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        std::fs::write(logs.join("server.log"), b"").unwrap();
+        std::fs::set_permissions(logs.join("server.log"), std::fs::Permissions::from_mode(0o600))
+            .unwrap();
+        let runner = RecordingRunner::new();
+        runner.answer_always("launchctl print", not_loaded());
+        let svc = services(&layout, &runner, &tmp.path().join(".local/bin/cmux-tui"));
+        svc.preflight().unwrap();
+        let path = target(&logs);
+        add_acl(&path, entry);
+        let err = svc.preflight().unwrap_err();
+        assert!(
+            err.to_string().contains(&path.display().to_string())
+                && err.to_string().contains("ACL"),
+            "{entry} on {}: {err}",
+            path.display()
+        );
+    }
+}
+
+/// launchd opens the LaunchAgent log by its path: a folder above the log
+/// folder that another account can write (mode bits here) lets it rename
+/// that folder and put its own in its place. Install refuses it.
+#[cfg(unix)]
+#[test]
+fn a_folder_above_the_launchagent_log_others_can_write_is_refused() {
+    use std::os::unix::fs::PermissionsExt as _;
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = layout_at(tmp.path(), Platform::MacOs);
+    let logs = cmux_server::fsx::local(&layout.logs());
+    std::fs::create_dir_all(&logs).unwrap();
+    for dir in logs.ancestors().take_while(|d| d.starts_with(tmp.path())) {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let runner = RecordingRunner::new();
+    runner.answer_always("launchctl print", not_loaded());
+    let svc = services(&layout, &runner, &tmp.path().join(".local/bin/cmux-tui"));
+    svc.preflight().unwrap();
+    // Two levels above the log folder: above the state folder cmux checks.
+    let above = logs.parent().unwrap().parent().unwrap();
+    std::fs::set_permissions(above, std::fs::Permissions::from_mode(0o777)).unwrap();
+    let err = svc.preflight().unwrap_err();
+    assert!(err.to_string().contains(&above.display().to_string()), "{err}");
+}
+
+/// A symlink on the log's path (`~/Library` pointing at a shared disk)
+/// puts the log under folders the written path never names. When one of
+/// them is writable by another account, install refuses it (Codex R-004).
+#[cfg(unix)]
+#[test]
+fn a_folder_above_the_launchagent_log_through_a_symlink_others_can_write_is_refused() {
+    use std::os::unix::fs::PermissionsExt as _;
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let shared = tmp.path().join("shared");
+    let real = shared.join("home");
+    std::fs::create_dir_all(&real).unwrap();
+    let home = tmp.path().join("home");
+    std::os::unix::fs::symlink(&real, &home).unwrap();
+    let layout = layout_at(&home, Platform::MacOs);
+    let logs = cmux_server::fsx::local(&layout.logs());
+    std::fs::create_dir_all(&logs).unwrap();
+    for dir in [tmp.path(), &shared, &real] {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let runner = RecordingRunner::new();
+    runner.answer_always("launchctl print", not_loaded());
+    let svc = services(&layout, &runner, &home.join(".local/bin/cmux-tui"));
+    svc.preflight().unwrap();
+    std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o777)).unwrap();
+    let err = svc.preflight().unwrap_err();
+    let shown = std::fs::canonicalize(&shared).unwrap();
+    assert!(err.to_string().contains(&shown.display().to_string()), "{err}");
+}
+
+/// A chain of symlinks (`~/Library` -> a link in a shared folder -> the
+/// real folder): the middle link's folder is on the path too, though
+/// neither the written path nor the resolved one names it. Another
+/// account that can write it (mode or ACL) could repoint the middle link.
+#[cfg(unix)]
+#[test]
+fn a_folder_of_a_middle_symlink_on_the_launchagent_log_path_others_can_write_is_refused() {
+    use std::os::unix::fs::PermissionsExt as _;
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let shared = tmp.path().join("shared");
+    let real = tmp.path().join("private").join("home");
+    std::fs::create_dir_all(&real).unwrap();
+    std::fs::create_dir(&shared).unwrap();
+    std::os::unix::fs::symlink(&real, shared.join("hop")).unwrap();
+    let home = tmp.path().join("home");
+    std::os::unix::fs::symlink(shared.join("hop"), &home).unwrap();
+    let layout = layout_at(&home, Platform::MacOs);
+    let logs = cmux_server::fsx::local(&layout.logs());
+    std::fs::create_dir_all(&logs).unwrap();
+    for dir in [tmp.path(), &shared, &real, real.parent().unwrap()] {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let runner = RecordingRunner::new();
+    runner.answer_always("launchctl print", not_loaded());
+    let svc = services(&layout, &runner, &home.join(".local/bin/cmux-tui"));
+    svc.preflight().unwrap();
+    let shown = std::fs::canonicalize(&shared).unwrap().display().to_string();
+    std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o777)).unwrap();
+    let err = svc.preflight().unwrap_err();
+    assert!(err.to_string().contains(&shown), "{err}");
+    #[cfg(target_os = "macos")]
+    {
+        std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o700)).unwrap();
+        svc.preflight().unwrap();
+        add_acl(&shared, "group:everyone allow add_file,delete_child");
+        let err = svc.preflight().unwrap_err();
+        assert!(err.to_string().contains(&shown) && err.to_string().contains("ACL"), "{err}");
+    }
+}
+
+/// A name in the system's sticky `/tmp` that does not exist: a test home
+/// or symlink target another account could make first.
+#[cfg(unix)]
+fn missing_in_tmp(tag: &str) -> PathBuf {
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let path = PathBuf::from(format!("/tmp/cmux-test-{tag}-{}-{nanos}", std::process::id()));
+    assert!(std::fs::symlink_metadata(&path).is_err(), "{} exists", path.display());
+    path
+}
+
+/// A folder of the log's path that does not exist yet, in a folder other
+/// accounts can write (a home in `/tmp`): another account could make it
+/// first and own it. Install refuses it and says to make it.
+#[cfg(unix)]
+#[test]
+fn a_missing_folder_of_the_launchagent_log_under_a_shared_folder_is_refused() {
+    if skip_as_root() {
+        return;
+    }
+    let home = missing_in_tmp("home");
+    let layout = layout_at(&home, Platform::MacOs);
+    let runner = RecordingRunner::new();
+    runner.answer_always("launchctl print", not_loaded());
+    let svc = services(&layout, &runner, &home.join(".local/bin/cmux-tui"));
+    let err = svc.preflight().unwrap_err();
+    let text = err.to_string();
+    let shown = std::fs::canonicalize("/tmp").unwrap().join(home.file_name().unwrap());
+    assert!(
+        text.contains(&shown.display().to_string()) && text.contains("does not exist"),
+        "{err}"
+    );
+}
+
+/// A symlink on the log's path that points at a folder that does not
+/// exist yet, in a folder other accounts can write: install would make
+/// that folder there, and another account could make it first. Install
+/// refuses it.
+#[cfg(unix)]
+#[test]
+fn a_dangling_symlink_into_a_shared_folder_on_the_launchagent_log_path_is_refused() {
+    use std::os::unix::fs::PermissionsExt as _;
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let gone = missing_in_tmp("gone");
+    let home = tmp.path().join("home");
+    std::os::unix::fs::symlink(&gone, &home).unwrap();
+    let layout = layout_at(&home, Platform::MacOs);
+    let runner = RecordingRunner::new();
+    runner.answer_always("launchctl print", not_loaded());
+    let svc = services(&layout, &runner, &home.join(".local/bin/cmux-tui"));
+    let err = svc.preflight().unwrap_err();
+    let shown = std::fs::canonicalize("/tmp").unwrap().join(gone.file_name().unwrap());
+    let text = err.to_string();
+    assert!(
+        text.contains(&shown.display().to_string()) && text.contains("does not exist"),
+        "{err}"
+    );
+}
