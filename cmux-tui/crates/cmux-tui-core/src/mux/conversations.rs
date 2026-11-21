@@ -48,7 +48,7 @@ impl Mux {
     /// The ids `inbox_op_once` keeps, its touch queue, and the repeats it answered.
     #[cfg(test)]
     pub(crate) fn inbox_ops_kept(&self) -> (usize, usize, u64) {
-        let once = self.conversations.inbox_ops.lock().unwrap();
+        let once = self.conversations.inbox_ops.lock().unwrap_or_else(PoisonError::into_inner);
         let (slots, order) = once.len();
         (slots, order, once.repeats)
     }

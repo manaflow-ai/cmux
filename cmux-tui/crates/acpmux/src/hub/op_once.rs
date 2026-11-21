@@ -92,7 +92,11 @@ impl OpOnce {
         Fut: Future<Output = Result<Value, RpcError>>,
     {
         let Some(op_id) = op_id(params)? else { return run().await };
-        let slot = self.recent.lock().unwrap().slot(format!("{method}\0{op_id}"));
+        let slot = self
+            .recent
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .slot(format!("{method}\0{op_id}"));
         let fingerprint = fingerprint(params);
         let mut kept = slot.lock().await;
         if let Some((first, result)) = kept.as_ref() {
