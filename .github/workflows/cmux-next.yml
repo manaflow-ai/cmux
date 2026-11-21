@@ -461,6 +461,7 @@ on:
       # cmux-tui tree-key inputs: the crates embed these files.
       - Resources/cmux-cli-path/**
       - Resources/theme-files/**
+      - Resources/sidebar-looks/**
       - backend/catalog/cloud-operations.json
       - backend/packages/home-core/conformance/**
       - mux/packages/brain/conformance/**
