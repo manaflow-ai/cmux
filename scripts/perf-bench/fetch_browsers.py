@@ -63,7 +63,8 @@ def install(name: str, url: str, dest: str):
     work = tempfile.mkdtemp(prefix=f"xbench-{name}-")
     try:
         dmg = os.path.join(work, "app.dmg")
-        subprocess.run(["curl", "-fsSL", "--retry", "3", "-o", dmg, url], check=True, timeout=1800)
+        subprocess.run(["curl", "-fsSL", "--connect-timeout", "20", "--retry", "5", "--retry-all-errors", "--retry-delay", "5",
+                        "-C", "-", "-o", dmg, url], check=True, timeout=1800)
         with open(dmg, "rb") as handle:
             is_pkg = handle.read(4) == b"xar!"  # Edge ships a flat installer package, not a disk image
         if is_pkg:
@@ -110,6 +111,7 @@ def install_pkg(name: str, pkg: str, dest: str, work: str):
     os.makedirs(dest)
     bundle = os.path.join(dest, os.path.basename(found[0]))
     subprocess.run(["ditto", found[0], bundle], check=True, timeout=600)
+    subprocess.run(["xattr", "-cr", bundle], capture_output=True)
     verified = subprocess.run(["codesign", "--verify", "--deep", "--strict", bundle], capture_output=True, text=True)
     if verified.returncode != 0:
         raise RuntimeError(f"{name}: codesign verify failed: {verified.stderr.strip()[:300]}")
