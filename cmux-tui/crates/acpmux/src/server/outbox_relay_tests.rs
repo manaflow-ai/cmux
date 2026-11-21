@@ -180,6 +180,24 @@ async fn a_send_to_a_down_peers_session_is_kept_here_and_relayed_by_its_session_
 }
 
 #[tokio::test]
+async fn a_relayed_class_warning_survives_delivery_and_later_status() {
+    let (hub, _) = setup(FakeHub::default());
+    let mut classed = request("huge-blue/lane", "prompt-relay-class-warning");
+    classed["request"]["_meta"]["acpmux"]["class"] = json!("block");
+    let id = queue(&hub, classed).await;
+    let delivered = after_attempt(&hub, &id, 1).await;
+    let warning =
+        delivered.accepted.as_ref().and_then(|a| a.get("warning")).and_then(Value::as_str);
+    assert_eq!(
+        warning,
+        Some("mesh relay cannot carry --class, so the class was dropped before delivery")
+    );
+
+    let status = call(&hub, method::MUX_SEND_STATUS, json!({"deliveryId": id})).await.unwrap();
+    assert_eq!(status["warning"], warning.unwrap());
+}
+
+#[tokio::test]
 async fn what_the_relay_cannot_carry_or_the_hub_does_not_take_stays_queued_for_the_peer() {
     let (hub, fake) = setup(FakeHub::default());
     let shot = crate::attach::block("shot.png", b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR");

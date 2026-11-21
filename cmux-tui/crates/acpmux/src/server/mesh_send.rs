@@ -18,6 +18,8 @@ use crate::mesh::{HubError, Kind, MeshHub, Mode, OutMessage, Receipt, Sender, Ta
 
 /// The prefix of a delivery id the hub holds.
 pub(super) const PREFIX: &str = "mesh:";
+const CLASS_DROP_WARNING: &str =
+    "mesh relay cannot carry --class, so the class was dropped before delivery";
 
 /// The hub's idempotency key for prompt id `id`: itself when the hub takes it
 /// (`[A-Za-z0-9._:-]{8,128}`), else a digest of it.
@@ -84,8 +86,8 @@ pub(super) async fn relay(
     delivery: &crate::hub::outbox::Delivery,
 ) -> Option<Result<Value, HubError>> {
     let mesh = hub.mesh.get()?;
-    let message = match &delivery.relay_post {
-        Some(post) => post.clone(),
+    let (message, class_dropped) = match &delivery.relay_post {
+        Some(post) => (post.clone(), class_dropped(&delivery.request)),
         None => {
             let to = down_peer_recipient(hub, &delivery.target)?;
             let carried = carried(&delivery.request, &delivery.target).ok()?;
@@ -99,21 +101,39 @@ pub(super) async fn relay(
                 idempotency_key: idempotency_key(&carried.prompt_id),
             };
             hub.outbox.update(&delivery.id, |d| d.relay_post = Some(message.clone()));
-            message
+            (message, carried.class_dropped)
         }
     };
     Some(mesh.send(&message).await.map(|receipt| {
         // Its sender reads the hub's status of it, as a direct send's (`status`).
         let caller = delivery.caller.as_deref();
-        hub.outbox.record_mesh_origin(&receipt.message_id, &delivery.target, caller, false);
-        json!({
+        let warning = class_dropped.then_some(CLASS_DROP_WARNING);
+        hub.outbox.record_mesh_origin(
+            &receipt.message_id,
+            &delivery.target,
+            caller,
+            false,
+            warning,
+        );
+        let mut accepted = json!({
             "via": "mesh",
             "relayDeliveryId": format!("{PREFIX}{}", receipt.message_id),
             "promptId": receipt.prompt_id.as_deref().unwrap_or(&receipt.message_id),
             "sessionId": receipt.to.session_id.clone().or_else(|| message.to.session_id.clone()),
             "steer": message.mode == Mode::Now,
-        })
+        });
+        if let Some(warning) = warning {
+            accepted["warning"] = json!(warning);
+        }
+        accepted
     }))
+}
+
+fn class_dropped(request: &Value) -> bool {
+    crate::prompt_class::declared(request)
+        .ok()
+        .flatten()
+        .is_some_and(|class| class != crate::prompt_class::PromptClass::Result)
 }
 
 /// What the relay carries of a `session/prompt` request: its text, its mode, its prompt id, the
@@ -200,6 +220,7 @@ pub(super) async fn send(
         }
     }
     let carried = carried(request, target)?;
+    let warning = carried.class_dropped.then_some(CLASS_DROP_WARNING);
     let caller = conn.caller().filter(|_| !conn.is_person());
     let message = OutMessage {
         to: recipient(target),
@@ -216,14 +237,11 @@ pub(super) async fn send(
     };
     let receipt = mesh.send(&message).await.map_err(|e| refusal(target, e))?;
     if target.starts_with('@') {
-        super::team::remember_sender(hub, conn, &receipt.message_id, target)?;
+        super::team::remember_sender(hub, conn, &receipt.message_id, target, warning)?;
     } else {
         // Sent either way; unrecorded, its status is gated as a team message's (`status`).
-        hub.outbox.record_mesh_origin(&receipt.message_id, target, caller, false);
+        hub.outbox.record_mesh_origin(&receipt.message_id, target, caller, false, warning);
     }
-    let warning = carried.class_dropped.then_some(
-        "mesh relay cannot carry --class, so the class was dropped before delivery".to_owned(),
-    );
     Ok(status_of(&receipt, target, warning.as_deref()))
 }
 
@@ -247,6 +265,8 @@ pub(super) async fn status(
         }
     })?;
     let origin = hub.outbox.mesh_origin(message);
+    let warning =
+        origin.as_ref().and_then(|d| d.request.get("meshWarning")).and_then(Value::as_str);
     let direct = origin.as_ref().filter(|d| !d.team_origin());
     if let Some(sent) = direct {
         // A direct `HOST/NAME` send's, which the hub stamps with `startWork` as it does every
@@ -281,7 +301,7 @@ pub(super) async fn status(
                 (_, name) => name.clone().unwrap_or_default(),
             }
         });
-    Ok(status_of(&receipt, &target, None))
+    Ok(status_of(&receipt, &target, warning))
 }
 
 /// A receipt in the outbox's status shape (`hub/outbox.rs` `Delivery::status`). Its `promptId`

@@ -147,7 +147,7 @@ async fn send(
         })
         .await
         .map_err(|e| RpcError::invalid_params(format!("the mesh hub refused team message: {e}")))?;
-    remember_sender(hub, conn, &receipt.message_id, &wire_address)?;
+    remember_sender(hub, conn, &receipt.message_id, &wire_address, None)?;
     Ok(serde_json::to_value(receipt).unwrap_or(Value::Null))
 }
 
@@ -252,8 +252,14 @@ pub(super) fn remember_sender(
     conn: &Conn,
     id: &str,
     address: &str,
+    warning: Option<&str>,
 ) -> Result<(), RpcError> {
-    if !hub.outbox.record_team_receipt(id, address, conn.caller().filter(|_| !conn.is_person())) {
+    if !hub.outbox.record_team_receipt(
+        id,
+        address,
+        conn.caller().filter(|_| !conn.is_person()),
+        warning,
+    ) {
         return Err(RpcError::internal("team message sent, but its origin could not be persisted")
             .with_data(json!({"messageId": id})));
     }
