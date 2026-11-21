@@ -68,7 +68,7 @@ export type SettingsPageVariant = VariantBase & {
   environments?: CloudEnvironmentsState;
   /** Settings > Privacy and Security > Shared Links fixture state; default the mock's shares. */
   sharedLinks?: SharesState;
-  /** Personalization > Customization Library fixture state; default the mock's few entries. */
+  /** Appearance > Customization Library fixture state; default the mock's few entries. */
   library?: LibraryListing;
   /** The CLI refuses every library change with this text (a preview is open). */
   libraryRefusal?: string;
@@ -319,6 +319,9 @@ export type DiffPageVariant = VariantBase & {
   sourceOptions?: SourceOption[];
   /** A machine error while the loaded diff remains visible. */
   fingerprintError?: { code: string; message: string };
+  /** The first diff never arrives (`loading`), or opening it fails with `openError` (`error`). */
+  mode?: "loading" | "error";
+  openError?: { code: string; message: string };
   /** Saved review comments the in-page host lists (`comments.list`). */
   comments?: DiffCommentRecord[];
   /** The host sends comments to the diff's chat (Send to agent). */
@@ -344,6 +347,10 @@ export type AppsPageVariant = VariantBase & {
     details: Record<string, AppDetail>;
     installed: Record<string, InstalledApp>;
     grants: Record<string, Grants>;
+    /** The owner offers the Examples shelf (developer mode, or a `cmux ext dev` app). */
+    examples?: boolean;
+    /** Package files `cmux.apps.asset.get` serves (screenshots, icon images), by app and path. */
+    assets?: Record<string, Record<string, string>>;
   };
 };
 

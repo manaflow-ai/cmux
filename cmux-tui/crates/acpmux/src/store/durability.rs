@@ -66,7 +66,8 @@ pub(crate) fn streamed(record: &EventRecord) -> bool {
 pub(crate) enum RecordClass {
     /// Agent output: shown at once, raises no gate (C4).
     Stream,
-    /// The line of a kept change (a chat's `renamed`): shown once written ([`ShowAfter::Written`]).
+    /// The line of a kept change (a chat's `renamed`, and the `titled` a rename writes with it):
+    /// shown once written ([`ShowAfter::Written`]), so a rename never waits for the disk.
     Kept,
     /// Every other line: shown once durable.
     Acked,
@@ -75,7 +76,7 @@ pub(crate) enum RecordClass {
 pub(crate) fn record_class(record: &EventRecord) -> RecordClass {
     if agent_output(record) {
         RecordClass::Stream
-    } else if record.dir == "mux" && record.kind == "renamed" {
+    } else if record.dir == "mux" && matches!(record.kind.as_str(), "renamed" | "titled") {
         RecordClass::Kept
     } else {
         RecordClass::Acked
