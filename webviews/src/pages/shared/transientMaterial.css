@@ -37,4 +37,4 @@
     --tooltip-blur: none;
   }
 }
-:root[data-reduce-transparency] :is(.ui-tooltip, .ui-title-tooltip) { --tooltip-blur: none; }
+:root:is([data-reduce-transparency], [data-glass="off"]) :is(.ui-tooltip, .ui-title-tooltip) { --tooltip-blur: none; }
