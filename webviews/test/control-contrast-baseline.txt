@@ -248,6 +248,7 @@ button.ui-glass.ui-glass-floats.acpmux-jump-latest text 3.92
 button.wn-copy-version text 1.07
 button.wn-notes-row text 1.15
 button.wn-notes-whatsnew text 1.15
+div.acpmux-cols-row text 4.37
 div.file-header icon 2.48
 div.nt-row text 3.76
 div.ui-listbox-row.ve-recent text 3.94
