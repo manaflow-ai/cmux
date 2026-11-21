@@ -108,6 +108,7 @@
     "CmuxNextDesign/GlassPanelView.swift": "material-source",
     "CmuxNextDesign/HoverCards/HoverCardPanel.swift": "material-source",
     "CmuxNextDesign/HoverCards/HoverCardRow.swift": "material-source",
+    "CmuxNextDesign/Launch/LaunchGlassMark.swift": "window-chrome",
     "CmuxNextDesign/Overlay/DeclarativePopupHost.swift": "web-host",
     "CmuxNextDesign/Overlay/WebPopupHost.swift": "web-host",
     "CmuxNextDesign/Overlay/WindowOverlayHost+AgentCursor.swift": "native-overlay",

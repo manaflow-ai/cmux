@@ -4,6 +4,12 @@ public nonisolated enum LaunchMarkStyle: String, Sendable, CaseIterable, Tunable
     case trace
     /// The mark condenses from a soft, slightly larger glow to its crisp size.
     case bloom
+    /// The mark sharpens from a soft blur, 4% smaller, to its crisp size (a chat app's launch). On a
+    /// window's glass (`LaunchGlassMark`) it sits in a small glass tile.
+    case lens
+    /// The mark fades in dim, and a soft highlight sweeps across it once a `MotionLoop.sheen` period
+    /// while it shows (an issue tracker's launch).
+    case sheen
 
     /// The Debug Settings switch for the style.
     public static let tunable = Tunable<LaunchMarkStyle>.choice(
@@ -15,6 +21,8 @@ public nonisolated enum LaunchMarkStyle: String, Sendable, CaseIterable, Tunable
         switch self {
         case .trace: "Trace"
         case .bloom: "Bloom"
+        case .lens: "Lens"
+        case .sheen: "Sheen"
         }
     }
 }

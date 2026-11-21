@@ -86,7 +86,7 @@ public nonisolated enum ChromeTunables {
 public nonisolated enum DesignTunables {
     public static var all: [TunableDescriptor] {
         MotionTunables.all + MetricTunables.metrics.map(\.descriptor) + ChromeTunables.fixed + [Borders.tunable.descriptor] + FocusIndicatorTunables.all
-            + StatusIndicatorTunables.all + [LaunchMarkStyle.tunable.descriptor, AttentionHighlightLook.tunable.descriptor, GlassLensMode.tunable.descriptor, TopRowLineLook.tunable.descriptor,
+            + StatusIndicatorTunables.all + [LaunchMarkStyle.tunable.descriptor, LaunchGlassReveal.tunable.descriptor, AttentionHighlightLook.tunable.descriptor, GlassLensMode.tunable.descriptor, TopRowLineLook.tunable.descriptor,
                CornerFlush.tunable.descriptor, TabCornerCurve.tunable.descriptor] + MotionTunables.launchDelays.map(\.descriptor)
             + ChromeTunables.mainPane + [ChromeTunables.dividerStrength.descriptor, ChromeTunables.tabRowDivider.descriptor] + TerminalDragTunables.all + frameOwnerTunables
             + ThemeDecorations.tunables + CmuxToastTunables.all + FloatingPaneTunables.all

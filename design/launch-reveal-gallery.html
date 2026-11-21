@@ -1,0 +1,133 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Launch reveal: the cmux mark on the glass until the cached first frame</title>
+<style>
+:root{color-scheme:dark}
+body{margin:0;padding:24px;background:#141416;color:#ececf0;font:13px/1.45 -apple-system,BlinkMacSystemFont,sans-serif}
+h1{font-size:18px;margin:0 0 4px} p.lead{color:#9a9aa2;max-width:900px;margin:0 0 12px} h2{font-size:14px;margin:22px 0 8px}
+code{font:11px ui-monospace,Menlo,monospace;color:#c9c9d1}
+.bar{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin:10px 0 16px;padding:10px 12px;border:1px solid #2a2a2e;border-radius:10px;background:#1b1b1e}
+.bar label{display:flex;gap:6px;align-items:center;color:#c9c9d1}
+.bar button{font:inherit;color:#ececf0;background:#26262c;border:1px solid #3a3a42;border-radius:6px;padding:3px 12px;cursor:pointer}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
+.var{border:1px solid #2a2a2e;border-radius:10px;padding:10px;background:#1b1b1e} .var.rec{border-color:#5e8bff;box-shadow:0 0 0 1px #5e8bff55}
+.vh{margin-bottom:6px;font-weight:600} .meta{color:#9a9aa2;font-size:11px;margin-top:6px}
+.ref{color:#9a9aa2;font-weight:400;font-size:11px}
+/* The window: wallpaper under a glass material (WindowMaterialView), sidebar and pane regions held clear (LaunchReveal). */
+.win{position:relative;height:220px;border-radius:10px;overflow:hidden}
+.wall{position:absolute;inset:0;background:radial-gradient(120% 90% at 20% 10%,#e3a75b 0%,#b5533c 30%,#3d2a4f 62%,#121827 100%)}
+.light .wall{background:radial-gradient(120% 140% at 15% 0%,#ffe2b8 0%,#f2a98f 35%,#b9a7d6 70%,#e9eef7 100%)}
+.glass{position:absolute;inset:0;background:rgba(28,28,32,.62);backdrop-filter:blur(22px)}
+.light .glass{background:rgba(246,246,248,.66)}
+.region{position:absolute;opacity:0}
+.side{left:6px;top:28px;bottom:6px;width:92px;display:flex;flex-direction:column;gap:5px;padding:4px}
+.row{height:16px;border-radius:5px;background:rgba(255,255,255,.07);font-size:9.5px;line-height:16px;padding-left:7px;color:#d8d8de;white-space:nowrap;overflow:hidden}
+.row.sel{background:rgba(255,255,255,.14)}
+.light .row{background:rgba(0,0,0,.05);color:#333}.light .row.sel{background:rgba(0,0,0,.1)}
+.pane{left:104px;right:6px;top:28px;bottom:6px;border-radius:8px;background:rgba(18,18,22,.55);padding:6px 9px;font:10px/1.5 ui-monospace,Menlo,monospace;color:#e8e8ec}
+.light .pane{background:rgba(255,255,255,.55);color:#222}
+.pane .d{color:#9a9aa2}
+.lights{position:absolute;left:10px;top:9px;display:flex;gap:6px}.lights i{width:9px;height:9px;border-radius:50%;background:#ff5f57}.lights i+i{background:#febc2e}.lights i+i+i{background:#28c840}
+/* The mark: the chevron of web/public/cmux-icon.svg (CGPath.launchMark), 36 pt tall (LaunchMarkView.height). */
+.mark{position:absolute;left:50%;top:50%;width:26px;height:36px;margin:-18px 0 0 -13px;opacity:0;pointer-events:none}
+.mark svg{width:100%;height:100%;overflow:visible;display:block}
+.mark .body{fill:rgba(236,236,240,.55)} .mark .edge{fill:none;stroke:rgba(236,236,240,.55);stroke-width:1.5;stroke-linejoin:round}
+.light .mark .body{fill:rgba(30,30,34,.5)} .light .mark .edge{stroke:rgba(30,30,34,.5)}
+.tile{position:absolute;left:50%;top:50%;width:64px;height:64px;margin:-32px 0 0 -32px;border-radius:16px;opacity:0;pointer-events:none;
+  background:rgba(255,255,255,.08);backdrop-filter:blur(30px) saturate(1.4);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.22),0 8px 24px rgba(0,0,0,.18);display:grid;place-items:center}
+.light .tile{background:rgba(255,255,255,.5);box-shadow:inset 0 0 0 .5px rgba(0,0,0,.08),0 8px 24px rgba(0,0,0,.08)}
+.tile .mark{position:static;margin:0;opacity:1}
+.sheen{position:absolute;inset:-4px;overflow:hidden;-webkit-mask:var(--chev) center/contain no-repeat;mask:var(--chev) center/contain no-repeat}
+.sheen::after{content:"";position:absolute;top:0;bottom:0;width:60%;left:-60%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.75),transparent)}
+.light .sheen::after{background:linear-gradient(100deg,transparent,rgba(255,255,255,.95),transparent)}
+.sheen.run::after{animation:sweep 1.2s cubic-bezier(.4,0,.2,1) infinite}
+@keyframes sweep{0%{left:-60%}60%,100%{left:110%}}
+/* Timeline under each window: the same two ticks in every variant. */
+.tl{position:relative;height:18px;margin-top:6px;border-top:1px solid #2a2a2e;font-size:10px;color:#9a9aa2}
+.tl b{position:absolute;top:-4px;width:1px;height:8px;background:#9a9aa2}.tl span{position:absolute;top:4px;white-space:nowrap;transform:translateX(-50%)}
+.tl .seen{position:absolute;top:-2px;height:4px;background:#5e8bff;border-radius:2px}
+@media (prefers-reduced-motion:reduce){.sheen.run::after{animation:none}}
+</style></head><body>
+<h1>Launch reveal: the cmux mark on the glass, only until the cached first frame</h1>
+<p class="lead">Leo, 2026-11-16: "do we have an initial load logo fade in glass thing like how [a chat app] has theirs/[an issue tracker] has a thing". We did not: the launch window opens on its glass, and each region (sidebar, pane, Home) fades in on its own when its data lands (<code>LaunchReveal</code>); a relaunch whose saved frame is ready draws it in the first frame. Every variant below puts the chevron on that glass in the gap only. Instant-first: the mark waits <code>motion.launch.markDelay</code> (150 ms) after the window's first frame, so a launch whose cached frame is ready sooner never shows it; when the frame is ready the regions fade in (<code>fadeIn</code>, 120 ms) at that same moment, and the mark fades out under them (<code>fadeOut</code>, 80 ms). The mark never holds a region: <code>reveal.*</code> marks land at the same time with or without it (numbers in the PR).</p>
+<p class="lead">Settled rules kept: a fresh profile's window still opens on the sidebar and the empty main pane, never the mark (cx-r650e, <code>FreshLaunchSidebarTests</code>); the connecting state keeps no mark until a failure (<code>DaemonConnectingView</code>). References: two desktop apps' launches in cmux-design-references (<code>launch-reveal/</code>).</p>
+
+<div class="bar">
+ <label>Cached frame ready <select id="gap"><option value="60">60 ms (fast relaunch)</option><option value="320" selected>320 ms</option><option value="900">900 ms (slow disk)</option><option value="1500">1500 ms (deadline)</option></select></label>
+ <label>Speed <select id="speed"><option value="1">1x</option><option value="4">4x slower</option></select></label>
+ <label><input type="checkbox" id="light"> Light</label>
+ <label><input type="checkbox" id="reduce"> Reduce Motion</label>
+ <button id="replay">Replay</button>
+</div>
+
+<div class="grid" id="grid"></div>
+<p class="meta">Pick: none recommended yet; Leo picks. Every variant is the <code>launch.reveal</code> Debug Settings choice (off, bloom, lens, trace, sheen) in the PR's build, so each can be tried on a real relaunch. A launch that misses the 1.5 s deadline shows its regions anyway and the mark leaves with them. Spec: <code>design/launch-reveal.md</code>.</p>
+
+<script>
+const CHEV = "M91 65 L179 128 L91 191 L91 151 L139 128 L91 105 Z";
+const VB = "88 62 94 132";
+document.documentElement.style.setProperty("--chev", `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='${VB}'><path d='${CHEV}'/></svg>`)}")`);
+const variants = [
+  {id:"off", title:"Today (off)", ref:"", note:"Glass alone until the regions fade in. Nothing to look at for the gap; nothing added either."},
+  {id:"bloom", title:"A. Bloom", ref:"ref: a centered mark that settles", note:"The chevron condenses from a soft glow, 6% larger, to its crisp size over 240 ms (the existing launch style). Quiet, one motion, then still."},
+  {id:"lens", title:"B. Glass lens", ref:"ref: an icon tile", note:"The chevron inside a 64 pt glass tile (a brighter, more saturated blur of the same window glass), resolving from blurred and 96% scale. Reads most like an app icon on the glass."},
+  {id:"trace", title:"C. Trace", ref:"", note:"The outline draws itself, then the body fills over the second half (240 ms). Most motion per frame; on a 320 ms gap it rarely finishes before it leaves."},
+  {id:"sheen", title:"D. Sheen", ref:"ref: a light passing over the mark", note:"The chevron fades in, then a soft highlight sweeps across it every 1.2 s while it waits. The only one that says 'still working' on a slow launch; its loop stops when the mark leaves."},
+];
+const W = 900; // ms shown on the timeline
+const grid = document.getElementById("grid");
+for (const v of variants) {
+  const el = document.createElement("div");
+  el.className = "var"; el.dataset.v = v.id;
+  const markSvg = `<div class="mark"><svg viewBox="${VB}"><path class="body" d="${CHEV}"/><path class="edge" d="${CHEV}" pathLength="1"/></svg>${v.id==="sheen"?'<div class="sheen"></div>':""}</div>`;
+  el.innerHTML = `<div class="vh">${v.title} <span class="ref">${v.ref}</span></div>
+   <div class="win"><div class="wall"></div><div class="glass"></div><div class="lights"><i></i><i></i><i></i></div>
+    <div class="region side"><div class="row sel">cmux</div><div class="row">leo-workspace</div><div class="row">hq</div><div class="row">glaeda</div></div>
+    <div class="region pane">~/Projects/cmux % cargo test<br><span class="d">running 412 tests</span><br>test result: ok. 412 passed</div>
+    ${v.id==="lens" ? `<div class="tile">${markSvg}</div>` : markSvg}</div>
+   <div class="tl"></div><div class="meta">${v.note}</div>`;
+  grid.appendChild(el);
+}
+const $ = (id) => document.getElementById(id);
+let timers = [];
+function at(ms, fn) { timers.push(setTimeout(fn, ms)); }
+function anim(el, frames, ms, opts = {}) { return el.animate(frames, {duration: ms, easing: "cubic-bezier(0,0,.58,1)", fill: "forwards", ...opts}); }
+function play() {
+  timers.forEach(clearTimeout); timers = [];
+  document.querySelectorAll(".var *").forEach((n) => n.getAnimations().forEach((a) => a.cancel()));
+  document.body.classList.toggle("light", $("light").checked);
+  const k = +$("speed").value, gap = +$("gap").value, reduce = $("reduce").checked;
+  const DELAY = 150 * k, LAUNCH = (reduce ? 80 : 240) * k, IN = (reduce ? 80 : 120) * k, OUT = 80 * k, READY = gap * k;
+  for (const card of document.querySelectorAll(".var")) {
+    const v = card.dataset.v, regions = card.querySelectorAll(".region");
+    const outer = card.querySelector(v === "lens" ? ".tile" : ".mark");
+    const mark = card.querySelector(".mark"), edge = card.querySelector(".edge"), body = card.querySelector(".body"), sheen = card.querySelector(".sheen");
+    regions.forEach((r) => (r.style.opacity = 0));
+    const shows = v !== "off" && gap > 150;
+    // The timeline: ready is the same tick in every card; the blue bar is when the mark is seen.
+    const tl = card.querySelector(".tl"), x = (ms) => `${Math.min(ms, W) / W * 100}%`;
+    tl.innerHTML = `<b style="left:0"></b><span style="left:0;transform:none">window</span><b style="left:${x(gap)}"></b><span style="left:${x(gap)}">ready ${gap} ms</span>` +
+      (shows ? `<div class="seen" style="left:${x(150)};width:calc(${x(gap + 80)} - ${x(150)})"></div>` : "");
+    if (shows) {
+      at(DELAY, () => {
+        if (reduce) { anim(outer, [{opacity: 0}, {opacity: 1}], LAUNCH); return; }
+        if (v === "bloom") anim(outer, [{opacity: 0, transform: "scale(1.06)", filter: "drop-shadow(0 0 8px rgba(255,255,255,.7))"}, {opacity: 1, transform: "scale(1)", filter: "drop-shadow(0 0 0 rgba(255,255,255,0))"}], LAUNCH);
+        if (v === "lens") anim(outer, [{opacity: 0, transform: "scale(.96)", filter: "blur(6px)"}, {opacity: 1, transform: "scale(1)", filter: "blur(0)"}], LAUNCH);
+        if (v === "trace") {
+          anim(outer, [{opacity: 0}, {opacity: 1}], LAUNCH / 4);
+          anim(edge, [{strokeDasharray: 1, strokeDashoffset: 1}, {strokeDasharray: 1, strokeDashoffset: 0}], LAUNCH);
+          anim(body, [{opacity: 0}, {opacity: 1}], LAUNCH / 2, {delay: LAUNCH / 2, fill: "both"});
+        }
+        if (v === "sheen") { anim(outer, [{opacity: 0}, {opacity: 1}], LAUNCH); at(LAUNCH, () => sheen.classList.add("run")); }
+      });
+    }
+    at(READY, () => {
+      // Ready: the regions fade in now, whatever the mark is doing; the mark fades out under them.
+      regions.forEach((r) => anim(r, [{opacity: 0}, {opacity: 1}], gap <= 0 ? 0 : IN));
+      if (shows && READY > DELAY) { anim(outer, [{opacity: getComputedStyle(outer).opacity}, {opacity: 0}], OUT); sheen && sheen.classList.remove("run"); }
+    });
+  }
+}
+for (const id of ["gap", "speed", "light", "reduce"]) $(id).addEventListener("change", play);
+$("replay").addEventListener("click", play);
+play();
+</script>
+</body></html>

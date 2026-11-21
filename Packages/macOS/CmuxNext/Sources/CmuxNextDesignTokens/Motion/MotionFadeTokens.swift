@@ -95,6 +95,8 @@ public nonisolated enum MotionLoop: String, Sendable, CaseIterable {
     case wiggle
     /// A pointing arrow's bob (the Computer Use drag panel's arrow up to the list): up and back down.
     case nudge
+    /// The launch mark's highlight crossing it once (`LaunchMarkStyle.sheen`).
+    case sheen
 
     /// Seconds per period, never under `minimumPeriod` (a Debug Settings
     /// override included).
@@ -119,6 +121,8 @@ public nonisolated enum MotionLoop: String, Sendable, CaseIterable {
         case .wiggle: 0.1
         // A bob moves, it does not flash; it stays slow enough to read as calm.
         case .nudge: Self.shortestFlashCycle
+        // A highlight passing over the mark, as the progress sweep: never twice a second.
+        case .sheen: Self.shortestFlashCycle
         }
     }
 }
