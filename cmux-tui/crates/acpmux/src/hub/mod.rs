@@ -122,7 +122,7 @@ mod harness_view;
 mod harness_watch;
 mod health_view;
 mod held_asks;
-pub(crate) mod host_level;
+mod host_level;
 pub(super) mod idle;
 mod idle_census;
 mod person_prompt_at;
@@ -1172,9 +1172,6 @@ pub struct Hub {
     pub(super) recap_due: StdMutex<HashMap<String, u64>>,
     /// Chats whose host below the level moved, or will not, in this daemon's run (`host_level.rs`).
     pub(super) host_moved: StdMutex<HashSet<String>>,
-    /// Per chat: the start nonce of its host below the level and what this daemon last set on it
-    /// about suggestions (`host_level.rs`, `old_host_suggestions`).
-    pub(super) suggestions_told: StdMutex<HashMap<String, (String, host_level::Told)>>,
     /// Wakes the recap loop when `recap_due` changes.
     pub(super) recap_wake: Arc<Notify>,
     /// What writes prompt coach rewrites instead of the small model (tests; `prompt_coach.rs`).
@@ -1598,7 +1595,6 @@ impl Hub {
             session_recap: AtomicBool::new(away_recap::saved_setting()),
             recap_due: StdMutex::new(HashMap::new()),
             host_moved: StdMutex::new(HashSet::new()),
-            suggestions_told: StdMutex::new(HashMap::new()),
             recap_wake: Arc::new(Notify::new()),
             coach_rewriter: StdMutex::new(None),
             start_mode_state,
@@ -2215,6 +2211,7 @@ impl Hub {
             inbox_load: StdMutex::new(()),
             hub_ref: std::sync::OnceLock::new(),
             last_active: AtomicU64::new(self.clock_now()),
+            start_for: std::sync::atomic::AtomicU8::new(0),
             hibernated_at: AtomicU64::new(hibernated_at),
             wake_cause: StdMutex::new(None),
             policy_refusal: Default::default(),
