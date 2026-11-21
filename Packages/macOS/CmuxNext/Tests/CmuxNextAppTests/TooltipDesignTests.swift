@@ -59,6 +59,27 @@ import Testing
         #expect(size.height > (TooltipMetrics.lineHeight * 2) * Self.scale)
     }
 
+    /// David Beyer, 2026-11-20: tooltips "look strangely wide". A tooltip is as wide as its text; a wrapped one
+    /// keeps its line count and loses the empty room beside its lines.
+    @Test func aTooltipIsAsWideAsItsText() {
+        let scale = Self.scale
+        let pad = TooltipMetrics.paddingInline * scale
+        let short = TooltipContentView()
+        short.set(text: "Back", shortcut: nil)
+        let label = ("Back" as NSString).size(withAttributes: [.font: TooltipContentView.font]).width
+        #expect(short.fittingSurfaceSize().width <= ceil(label) + 2 * pad + 8 * scale, "a one-word tooltip is wider than its word")
+        // Just past one line at the maximum: two lines, each about half, not one full line and a word.
+        let max = TooltipMetrics.maxWidth * scale
+        let words = "Open the session in a new window beside this one, keeping its scroll position"
+        let wrapped = TooltipContentView()
+        wrapped.set(text: words, shortcut: nil)
+        let size = wrapped.fittingSurfaceSize()
+        wrapped.text.preferredMaxLayoutWidth = max - 2 * pad
+        let atMax = wrapped.text.fittingSize.height
+        #expect(size.height == ceil(atMax + TooltipMetrics.paddingBlock * scale * 2), "the fit changed the line count")
+        #expect(size.width < max * 0.9, "a two-line tooltip kept the maximum width: \(size.width) of \(max)")
+    }
+
     @Test func thePanelHasTheTooltipCornerWhateverThePaneCorners() {
         let panel = TooltipPanel()
         defer { panel.close() }
