@@ -17,12 +17,17 @@ mod bg_replaced_binary;
 mod caller_identity_restart;
 #[path = "durable_agents/carried_restart.rs"]
 mod carried_restart;
+#[cfg(target_os = "linux")]
+#[path = "durable_agents/credential_restart.rs"]
+mod credential_restart;
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 #[path = "durable_agents/grant_cleared.rs"]
 mod grant_cleared;
 #[path = "durable_agents/host_crash.rs"]
 mod host_crash;
+#[path = "durable_agents/host_level_move.rs"]
+mod host_level_move;
 #[path = "durable_agents/idle_adopted.rs"]
 mod idle_adopted;
 #[path = "durable_agents/idle_subsessions_restart.rs"]

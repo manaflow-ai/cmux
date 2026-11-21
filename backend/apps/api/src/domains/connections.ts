@@ -207,6 +207,23 @@ export const connectionsDomain: Domain<ConnectionsState> = {
         return { ok: true, state: { ...state, connections: { ...state.connections, [c.id]: next } }, value: next, outbox: [outbox(next)] }
       }
 
+      case "connection.github.sync": {
+        const d = decodeParams<{ connection: string; scopes_granted?: Array<string>; repos_removed?: Array<string> }>(internalByName.get(op)!, params)
+        if (!d.ok) return d
+        const c = state.connections[d.value.connection]
+        if (!c) return reject("selector.not_found", "connection not found")
+        if (c.provider !== "github" || c.status === "revoked" || c.status === "pending" || c.status === "expired") return { ok: true, state, value: c, changed: false }
+        const gone = new Set((d.value.repos_removed ?? []).map((r) => r.toLowerCase()))
+        const repos = c.resources?.repos
+        // A recorded list loses the repositories that left the installation; `null` (the whole installation) stays.
+        const kept = Array.isArray(repos) ? repos.filter((r) => !gone.has(r.toLowerCase())) : repos
+        const scopes = d.value.scopes_granted ? [...d.value.scopes_granted].sort() : c.scopes_granted
+        const sameScopes = scopes.length === c.scopes_granted.length && scopes.every((s, i) => s === c.scopes_granted[i])
+        if (sameScopes && kept?.length === repos?.length) return { ok: true, state, value: c, changed: false }
+        const next: Connection = { ...c, scopes_granted: scopes, ...(c.resources ? { resources: { repos: kept ?? null } } : {}), updated_at: ctx.now }
+        return { ok: true, state: { ...state, connections: { ...state.connections, [c.id]: next } }, value: next, outbox: [outbox(next)] }
+      }
+
       case "connection.expire": {
         const d = decodeParams<{ connection: string; at: number }>(internalByName.get(op)!, params)
         if (!d.ok) return d

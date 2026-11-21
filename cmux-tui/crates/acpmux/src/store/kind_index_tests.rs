@@ -835,3 +835,67 @@ fn resend_scale_bench() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Bytes this thread has read (Linux `rchar`): other tests' reads are not counted.
+fn thread_read_bytes() -> u64 {
+    std::fs::read_to_string("/proc/thread-self/io")
+        .ok()
+        .and_then(|io| {
+            io.lines().find(|l| l.starts_with("rchar:"))?.split_whitespace().nth(1)?.parse().ok()
+        })
+        .unwrap_or(0)
+}
+
+/// A chat that ran on after its log load has segments with no copy: a page of its last 16 prompts
+/// (every open and attach asks for one) read each of them whole, back from its end, every time
+/// (cmuxterm-hq#13733: 26 MB per page of a busy chat). The first indexed read back makes their
+/// copies by the lines' heads, parsing none; the next reads the copies.
+#[test]
+fn an_indexed_read_back_makes_the_copies_a_chat_that_ran_on_lacks() {
+    if !cfg!(target_os = "linux") {
+        return; // A thread's reads are counted on Linux only.
+    }
+    let root = root();
+    let store = LocalStore::new(root.clone(), 2 << 20).unwrap();
+    let mut seq = 0;
+    // 40 turns of 200 updates each: 16 prompts span most of a 16 MB log.
+    for _ in 0..40 {
+        for kind in ["user_message"].into_iter().chain(std::iter::repeat_n("tool_call_update", 200))
+        {
+            seq += 1;
+            store.append("c", &rec(seq, kind)).unwrap();
+        }
+    }
+    store.flush().unwrap();
+    let segments = store.segments("c").unwrap();
+    assert!(segments.len() >= 4, "{} segments", segments.len());
+    assert!(!root.join("c").join(DIR).exists(), "no log load made a copy");
+    let log_bytes: u64 = segments.iter().map(|(_, p)| std::fs::metadata(p).unwrap().len()).sum();
+
+    let page = |store: &LocalStore| {
+        let mut prompts = Vec::new();
+        store
+            .scan_back_indexed("c", 0, u64::MAX, &|_, kind| kind != b"user_message", &mut |r| {
+                if r.kind == "user_message" {
+                    prompts.push(r.seq);
+                }
+                prompts.len() < 16
+            })
+            .unwrap();
+        prompts
+    };
+    // Fewer than 16 prompts past the newest segment's start: the page reads into older segments.
+    let first = page(&store);
+    assert_eq!(first.len(), 16);
+    let before = thread_read_bytes();
+    let parsed_before = PARSED_LINES.with(std::cell::Cell::get);
+    let again = page(&store);
+    let read = thread_read_bytes() - before;
+    assert_eq!(again, first);
+    assert!(read * 10 < log_bytes, "the second page read {read} bytes of a {log_bytes}-byte log");
+    assert!(
+        PARSED_LINES.with(std::cell::Cell::get) - parsed_before <= 64,
+        "the page parses its own records, not the log's"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}

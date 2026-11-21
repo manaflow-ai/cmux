@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 fn repo() -> PathBuf {
+    // affected-reads: plans/cmux-next/action-catalog.json plans/cmux-next/action-surfaces.json Packages/macOS/CmuxNext/Sources cmux-tui/crates/cmux-action-catalog
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
@@ -34,7 +35,10 @@ fn repo() -> PathBuf {
 /// - `fields/<id>`: fields of an existing action this crate changed, one JSON pointer into the
 ///   action's catalog row per line (`/surfacePlan/palette`); the dump keeps the old value of each.
 /// - `family/<family>/<id>`: a palette family member the dump does not have yet.
+/// - `members/<name>`: a top-level catalog member the dump does not have yet.
 /// - `tier/<list>/<id>`: an id the crate added to the palette tier list `daily` or `niche`.
+/// - `removal/<id>`: an action this crate removed that the exports still have; both leave its
+///   row out of the exports' side.
 ///
 /// Text after a `#` is a note (which pull request, why). Only `fields/` reads its lines; the
 /// other files may be empty. Each marker fails once the export has what it waits for, naming the
@@ -116,6 +120,32 @@ fn check_awaiting_repin(export: &[Value], file: &str) {
          (step A, docs/ci/app-ffi-release.md) waits for the re-pin: create each file (empty, or a \
          `# why` note): {missing:?}"
     );
+}
+
+/// Actions this crate removed and the pinned app FFI still has: `awaiting-repin/removal/<id>`. The
+/// exports are written from the pinned catalog, so they keep these rows until the re-pin, which
+/// deletes the markers.
+static REMOVAL_AWAITING_REPIN: LazyLock<Vec<String>> = LazyLock::new(|| marked("removal"));
+
+/// `export` (one of the exports' action lists) without the rows on [`REMOVAL_AWAITING_REPIN`]:
+/// each must be gone from this crate and still in `export`, else its marker is stale.
+fn without_removed(export: &[Value], file: &str) -> Vec<Value> {
+    for id in REMOVAL_AWAITING_REPIN.iter() {
+        let path = marker("removal", id);
+        assert!(
+            cmux_action_catalog::find(id).is_none(),
+            "{id} awaits its removal by the re-pin but is still an action: delete {path}"
+        );
+        assert!(
+            export.iter().any(|row| row["id"] == *id),
+            "{file} no longer has {id}: the re-pin landed, so delete {path}"
+        );
+    }
+    export
+        .iter()
+        .filter(|row| !row["id"].as_str().is_some_and(|id| listed(&REMOVAL_AWAITING_REPIN, id)))
+        .cloned()
+        .collect()
 }
 
 /// Actions whose default shortcut this crate has and the pinned app FFI does not yet:
@@ -258,6 +288,12 @@ fn first_difference(path: &str, a: &Value, b: &Value) -> Option<String> {
 #[test]
 fn english_catalog_equals_the_swift_dump() {
     let mut swift = read_json(&repo().join("plans/cmux-next/action-catalog.json"));
+    // `removal/<id>`: actions this crate removed that the pinned app FFI, and so the dump, still has.
+    let kept = without_removed(
+        swift["actions"].as_array().map_or(&[], Vec::as_slice),
+        "action-catalog.json",
+    );
+    swift["actions"] = Value::Array(kept);
     // The Swift dump reflects each binding's parsed `when` clause too; the catalog keeps its text.
     if let Some(defaults) = swift.get_mut("key_binding_defaults").and_then(Value::as_object_mut) {
         for list in defaults.values_mut() {
@@ -324,6 +360,16 @@ fn english_catalog_equals_the_swift_dump() {
     object.remove("locale");
     // The dump is a Debug build's, which has every Debug-only entry; the list of them is new.
     object.remove("debug_build_only");
+    // `members/<name>`: a top-level catalog member this crate added that the pinned app FFI,
+    // and so the dump, does not have yet.
+    for member in marked("members") {
+        assert!(
+            swift.get(&member).is_none(),
+            "action-catalog.json has {member}: the re-pin landed, so delete {}",
+            marker("members", &member)
+        );
+        object.remove(&member);
+    }
     check_awaiting_repin(
         swift["actions"].as_array().map_or(&[], Vec::as_slice),
         "action-catalog.json",
@@ -464,7 +510,9 @@ fn awaiting_tier_repin(rust: &mut Value, swift: &Value) {
 #[test]
 fn action_list_export_matches() {
     let export = read_json(&repo().join("plans/cmux-next/action-surfaces.json"));
-    let rows = export["actions"].as_array().expect("actions");
+    let rows =
+        without_removed(export["actions"].as_array().expect("actions"), "action-surfaces.json");
+    let rows = rows.as_slice();
     check_awaiting_repin(rows, "action-surfaces.json");
     let rust: Vec<_> =
         cmux_action_catalog::actions().filter(|a| !listed(&AWAITING_REPIN, a.id)).collect();
@@ -484,18 +532,43 @@ fn action_list_export_matches() {
             assert_eq!(row["palette"], action.surface_plan.palette.wire(), "{id}");
         }
         assert_eq!(row["cli"], action.surface_plan.cli.map_or("undeclared", |d| d.wire()), "{id}");
-        assert_eq!(
-            row["context_menu"],
-            action.surface_plan.context_menu().map_or("undeclared", |d| d.wire()),
-            "{id}"
-        );
+        // A context-menu change awaiting the re-pin keeps the pinned app's decision in this
+        // export too.
+        if !field_awaits_repin(id, "/surfacePlan/contextMenus") {
+            assert_eq!(
+                row["context_menu"],
+                action.surface_plan.context_menu().map_or("undeclared", |d| d.wire()),
+                "{id}"
+            );
+        }
         assert_eq!(
             row["mcp"],
             action.surface_plan.mcp().map_or("undeclared", |d| d.wire()),
             "{id}"
         );
-        assert_eq!(row["main_menu"], serde_json::json!(action.main_menu), "{id}");
-        assert_eq!(row["title"], action.title.en, "{id}");
+        // A main menu placement awaiting the re-pin keeps the pinned app's menu here too; once
+        // the export has the crate's menu, the marker's /mainMenu line is stale.
+        if field_awaits_repin(id, "/mainMenu") {
+            assert_ne!(
+                row["main_menu"],
+                serde_json::json!(action.main_menu),
+                "action-surfaces.json has {id}'s main menu: the re-pin landed, so take /mainMenu out of {} (delete the file when it is the last)",
+                marker("fields", id)
+            );
+        } else {
+            assert_eq!(row["main_menu"], serde_json::json!(action.main_menu), "{id}");
+        }
+        // A retitle awaiting the re-pin keeps the pinned app's title in this export.
+        if field_awaits_repin(id, "/title") {
+            assert_ne!(
+                row["title"],
+                action.title.en,
+                "action-surfaces.json has {id}'s new title: the re-pin landed, so take /title out of {}",
+                marker("fields", id)
+            );
+        } else {
+            assert_eq!(row["title"], action.title.en, "{id}");
+        }
         // `title_key` is not compared: the export guesses it from the English
         // (`ActionTitleCatalog`), and two keys can share one (Recently Closed is
         // `action.history.closed`, not `action.recentlyClosed`). The catalog keeps the key the

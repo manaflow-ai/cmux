@@ -39,7 +39,13 @@ impl Flush {
 fn send_event(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
     // Agent output shows nothing acknowledged: it raises no gate (`durable_gate.rs`).
     let _stream = durable_gate::stream_scope(&ev.record);
+    #[cfg(test)]
+    tests::panic_if_marked(&ev.session_id);
+    let row = ev.row.clone();
     deliver(hub, conn, ev);
+    // Queued what this connection owes for it: the last connection to get here times the
+    // event's fan-out (`gauges.fanout`).
+    row.fanout.taken();
 }
 
 pub(super) fn start(
@@ -47,13 +53,15 @@ pub(super) fn start(
     conn: Arc<Conn>,
     mut flushes: mpsc::UnboundedReceiver<oneshot::Sender<()>>,
 ) -> tokio::task::JoinHandle<()> {
-    let mut rx = hub.subscribe();
+    let (mut rx, seat) = hub.subscribe_fanout();
     let mut harnesses = hub.subscribe_harness_changes();
     let mut peer_states = hub.peer_states().subscribe();
     let mut catalog = hub.catalog.subscribe();
     let mut inventory = hub.health.inventory_changes();
     let mut presence = hub.presence.subscribe();
     tokio::spawn(async move {
+        // Counted in each event's fan-out until this task ends.
+        let _seat = seat;
         loop {
             let ev = tokio::select! {
                 ev = rx.recv() => ev,
@@ -62,9 +70,13 @@ pub(super) fn start(
                     loop {
                         match rx.try_recv() {
                             Ok(ev) => send_event(&hub, &conn, ev),
-                            Err(broadcast::error::TryRecvError::Lagged(n)) => conn.send(
-                                &Message::notification("_acpmux/lagged", json!({"dropped": n})),
-                            ),
+                            Err(broadcast::error::TryRecvError::Lagged(n)) => {
+                                crate::gauges::fanout_lagged(n);
+                                conn.send(&Message::notification(
+                                    "_acpmux/lagged",
+                                    json!({"dropped": n}),
+                                ))
+                            }
                             Err(_) => break,
                         }
                     }
@@ -135,6 +147,8 @@ pub(super) fn start(
             match ev {
                 Ok(ev) => send_event(&hub, &conn, ev),
                 Err(broadcast::error::RecvError::Lagged(n)) => {
+                    // Events this connection never queues: no latency sample, a drop.
+                    crate::gauges::fanout_lagged(n);
                     conn.controls.resync(&conn, "lagged");
                     conn.send(&Message::notification("_acpmux/lagged", json!({"dropped": n})));
                 }
@@ -157,5 +171,32 @@ fn send_presence(conn: &Conn, note: &serde_json::Value) {
         .is_some_and(|chat| conn.sub_opts(chat).is_some_and(|opts| !opts.remote));
     if attached {
         conn.send(&Message::notification(crate::rpc::method::MUX_PRESENCE, note.clone()));
+    }
+}
+
+/// The fan-out task of `conn` ended while its connection was still open: a panic in a delivery,
+/// or the hub's feed closed. The connection ends with it (`serve_connection_from`), never lives on answering
+/// requests with no pushes, which left an attached chat standing still with no close.
+pub(super) fn ended(conn: &Conn, ended: Result<(), tokio::task::JoinError>) {
+    match ended {
+        Err(error) if error.is_panic() => {
+            tracing::error!(conn = %conn.id, "the connection's fan-out task panicked: it is disconnected");
+        }
+        _ => {
+            tracing::warn!(conn = %conn.id, "the connection's fan-out task ended: it is disconnected")
+        }
+    }
+}
+
+#[cfg(test)]
+pub(super) mod tests {
+    /// A chat id with this prefix panics the fan-out task at its first delivery: no shared state,
+    /// so parallel tests never trip each other (the test-hooks check, cmux#41350).
+    pub(in crate::server) const PANIC_PREFIX: &str = "fanout-test-panic-";
+
+    pub(super) fn panic_if_marked(session: &str) {
+        if session.starts_with(PANIC_PREFIX) {
+            panic!("fan-out test panic for {session}");
+        }
     }
 }
