@@ -254,6 +254,16 @@ extension AppearanceSettingsSchema {
                 placeholder: SettingText(key: nil, text: "37.77,-122.42")
             ),
             SettingDescriptor(
+                BackdropSelectionSetting.memoryPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundMemory", "Background Mode Memory"),
+                help: SettingsText.keyed("settings.appearance.backgroundMemory.help", "The folder and picture each background mode last showed, so switching back restores them."),
+                kind: .stringMap,
+                default: nil,
+                keywords: ["wallpaper", "background", "folder", "rotate", "restore"]
+            ),
+            SettingDescriptor(
                 BackdropSelectionSetting.displayBackgroundsPath,
                 section: .appearance,
                 group: group,

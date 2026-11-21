@@ -83,6 +83,8 @@ extension BackdropSelectionSetting {
     public nonisolated static let dynamicDefault: BackdropDynamicMode = .appearance
     /// `appearance.backgroundLocation`: LAT,LON in degrees for sun events and solar frames; unset: the system time zone's coordinates from /usr/share/zoneinfo/zone.tab (no location permission).
     public nonisolated static let locationPath = ["appearance", "backgroundLocation"]
+    /// `appearance.backgroundMemory`: What Background's modes last showed, so switching modes never loses one (Leo, 2026-11-19: "it lost the folder ... i couldn't get back into it"): rotate is Rotate's last shuffle (daily or folder:<path>), folder the last folder it shuffled, off the picture Off last showed (none for No Wallpaper). The Settings page's Background card writes it when the background moves to another mode and reads it back in a new page or after a restart; the app's engine never reads it.
+    public nonisolated static let memoryPath = ["appearance", "backgroundMemory"]
     /// `appearance.displayBackgrounds`.
     public nonisolated static let displayBackgroundsPath = ["appearance", "displayBackgrounds"]
     /// `appearance.displayBackgroundRotations`.
@@ -177,7 +179,7 @@ extension UIScaleSetting {
 extension InterfaceSizeSetting {
     /// `appearance.metrics.chromeFontSize`.
     public nonisolated static let configPath = ["appearance", "metrics", "chromeFontSize"]
-    public nonisolated static let range: ClosedRange<Double> = 10...16
+    public nonisolated static let range: ClosedRange<Double> = 10...20
     public nonisolated static let placeholder: Double = 12
 }
 
