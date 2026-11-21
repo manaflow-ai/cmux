@@ -46,6 +46,8 @@ cmux customize use ~/.local/state/cmux/customize/recipes/glass.json
 
 Or ask: "make the window see-through glass"
 
+To put glass behind a piece of a view of your own, see [glass.md](glass.md).
+
 ### Ukiyo-e: the Great Wave
 
 Hokusai's Great Wave behind frosted washi paper, Prussian-blue ink, a two-tone window and serif pages. It ships its theme file (`themes/ukiyo-e.json`).
