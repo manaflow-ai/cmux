@@ -222,7 +222,7 @@ function HoverInputScene() {
         {/* The real card's content wrapper (LinkHoverCard, linkCard.css), which pads the text off the rim. */}
         <div
           className="cv-link-preview__content"
-          style={{ display: "grid", gap: "var(--ds-space-1)", padding: "8px 10px" }}
+          style={{ display: "grid", gap: "var(--ds-space-1)", padding: "var(--ds-space-2) var(--ds-space-3)" }}
         >
           <span style={{ fontWeight: "var(--weight-emphasis)" }}>Fix the trailing comma in the tokenizer #4812</span>
           <span style={{ color: "var(--cmux-text-secondary)" }}>manaflow/parser · opened 2 hours ago</span>
@@ -246,7 +246,7 @@ function HoverInputScene() {
             <div className="acpmux-md" style={{ padding: "12px 16px", color: "var(--agent-text)" }}>
               Rerun the parser suite at the new head, then post the numbers on the pull request.
             </div>
-            <div style={{ padding: "0 16px 10px", color: "var(--acpmux-composer-dim)" }}>
+            <div style={{ padding: "0 var(--ds-space-4) var(--ds-space-3)", color: "var(--acpmux-composer-dim)" }}>
               Opus 5.5 · Ask before edits
             </div>
           </div>

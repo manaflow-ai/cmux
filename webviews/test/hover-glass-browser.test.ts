@@ -21,78 +21,80 @@ import { HOVER_SURFACES } from "./browser/hoverSurfaces";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-const SRC = path.resolve(import.meta.dir, "../src");
-
-function sources(dir: string): string[] {
-  return readdirSync(dir).flatMap((name) => {
-    const file = path.join(dir, name);
-    if (statSync(file).isDirectory()) return name === "node_modules" ? [] : sources(file);
-    return /\.tsx$/.test(name) && !/\.(gallery|test)\.tsx$/.test(name) ? [file] : [];
-  });
-}
-
-/** The class names a hover surface's opening tag passes, from its string literals (a template's
- * arms included), without the shared ones every surface carries. */
-function ownClasses(tag: string): string[] {
-  const at = tag.search(/\b(?:className|cardClassName)=/);
-  if (at < 0) return [];
-  const start = tag.indexOf("=", at) + 1;
-  let end = start + 1;
-  if (tag[start] === "{")
-    for (let depth = 0, index = start; index < tag.length; index++) {
-      if (tag[index] === "{") depth++;
-      else if (tag[index] === "}" && --depth === 0) {
-        end = index + 1;
-        break;
-      }
-    }
-  else end = tag.indexOf('"', start + 1) + 1;
-  const value = tag.slice(start, end);
-  const literals =
-    tag[start] === '"' ? [value.slice(1, -1)] : [...value.matchAll(/["'`]([^"'`$]*)["'`]/g)].map((match) => match[1]!);
-  return literals
-    .flatMap((literal) => literal.split(/\s+/))
-    .filter((name) => /^[a-z][\w-]*$/.test(name) && !/^ui-/.test(name));
-}
-
-/** Every Tooltip, AnchoredCard (or its lazy twin) and role="tooltip" root the page code renders. */
-function hoverSurfacesInSource(): { file: string; classes: string[] }[] {
-  const found: { file: string; classes: string[] }[] = [];
-  for (const file of sources(SRC)) {
-    const text = readFileSync(file, "utf8");
-    for (const match of text.matchAll(/<(Tooltip|AnchoredCard|LazyCard)\b|<div\b(?=[^>]*role="tooltip")/g)) {
-      let end = match.index! + match[0].length;
-      for (let depth = 0; end < text.length; end++) {
-        const char = text[end];
-        if (char === "{") depth++;
-        else if (char === "}") depth--;
-        else if (char === ">" && depth === 0 && text[end - 1] !== "=") break;
-      }
-      const classes = ownClasses(text.slice(match.index!, end));
-      if (classes.length > 0) found.push({ file: path.relative(SRC, file), classes });
-    }
-  }
-  return found;
-}
-
-test("every hover surface the page code renders is in the harness's list", () => {
-  const listed = new Set(HOVER_SURFACES.flatMap((surface) => surface.className.split(/\s+/)));
-  const missing = hoverSurfacesInSource()
-    .filter(({ classes }) => !classes.some((name) => listed.has(name)))
-    .map(({ file, classes }) => `${file}: ${classes.join(" ")}`);
-  expect(missing).toEqual([]);
-});
-
-function alpha(color: string): number {
-  const srgb = color.match(/color\(srgb\s+[\d.e-]+\s+[\d.e-]+\s+[\d.e-]+(?:\s*\/\s*([\d.e-]+))?\)/);
-  if (srgb) return srgb[1] === undefined ? 1 : Number(srgb[1]);
-  const rgb = color.match(/rgba?\(\s*[\d.]+[,\s]+[\d.]+[,\s]+[\d.]+(?:[,/\s]+([\d.]+))?\s*\)/);
-  if (rgb) return rgb[1] === undefined ? 1 : Number(rgb[1]);
-  throw new Error(`unparsed color ${color}`);
-}
-type Seen = { name: string; fill: string; image: string; backdrop: string };
-
 await requireBrowserLane("hover-glass-browser.test.ts", async () => {
+  const SRC = path.resolve(import.meta.dir, "../src");
+
+  function sources(dir: string): string[] {
+    return readdirSync(dir).flatMap((name) => {
+      const file = path.join(dir, name);
+      if (statSync(file).isDirectory()) return name === "node_modules" ? [] : sources(file);
+      return name.endsWith(".tsx") && !/\.(gallery|test)\.tsx$/.test(name) ? [file] : [];
+    });
+  }
+
+  /** The class names a hover surface's opening tag passes, from its string literals (a template's
+   * arms included), without the shared ones every surface carries. */
+  function ownClasses(tag: string): string[] {
+    const at = tag.search(/\b(?:className|cardClassName)=/);
+    if (at < 0) return [];
+    const start = tag.indexOf("=", at) + 1;
+    let end = start + 1;
+    if (tag[start] === "{")
+      for (let depth = 0, index = start; index < tag.length; index++) {
+        if (tag[index] === "{") depth++;
+        else if (tag[index] === "}" && --depth === 0) {
+          end = index + 1;
+          break;
+        }
+      }
+    else end = tag.indexOf('"', start + 1) + 1;
+    const value = tag.slice(start, end);
+    const literals =
+      tag[start] === '"'
+        ? [value.slice(1, -1)]
+        : [...value.matchAll(/["'`]([^"'`$]*)["'`]/g)].map((match) => match[1]!);
+    return literals
+      .flatMap((literal) => literal.split(/\s+/))
+      .filter((name) => /^[a-z][\w-]*$/.test(name) && !name.startsWith("ui-"));
+  }
+
+  /** Every Tooltip, AnchoredCard (or its lazy twin) and role="tooltip" root the page code renders. */
+  function hoverSurfacesInSource(): { file: string; classes: string[] }[] {
+    const found: { file: string; classes: string[] }[] = [];
+    for (const file of sources(SRC)) {
+      const text = readFileSync(file, "utf8");
+      for (const match of text.matchAll(/<(Tooltip|AnchoredCard|LazyCard)\b|<div\b(?=[^>]*role="tooltip")/g)) {
+        let end = match.index! + match[0].length;
+        for (let depth = 0; end < text.length; end++) {
+          const char = text[end];
+          if (char === "{") depth++;
+          else if (char === "}") depth--;
+          else if (char === ">" && depth === 0 && text[end - 1] !== "=") break;
+        }
+        const classes = ownClasses(text.slice(match.index!, end));
+        if (classes.length > 0) found.push({ file: path.relative(SRC, file), classes });
+      }
+    }
+    return found;
+  }
+
+  function alpha(color: string): number {
+    const srgb = color.match(/color\(srgb\s+[\d.e-]+\s+[\d.e-]+\s+[\d.e-]+(?:\s*\/\s*([\d.e-]+))?\)/);
+    if (srgb) return srgb[1] === undefined ? 1 : Number(srgb[1]);
+    const rgb = color.match(/rgba?\(\s*[\d.]+[,\s]+[\d.]+[,\s]+[\d.]+(?:[,/\s]+([\d.]+))?\s*\)/);
+    if (rgb) return rgb[1] === undefined ? 1 : Number(rgb[1]);
+    throw new Error(`unparsed color ${color}`);
+  }
+  type Seen = { name: string; fill: string; image: string; backdrop: string };
+
+  test("every hover surface the page code renders is in the harness's list", () => {
+    const listed = new Set(HOVER_SURFACES.flatMap((surface) => surface.className.split(/\s+/)));
+    const missing = hoverSurfacesInSource()
+      .filter(({ classes }) => !classes.some((name) => listed.has(name)))
+      .map(({ file, classes }) => `${file}: ${classes.join(" ")}`);
+    expect(missing).toEqual([]);
+  });
+
   setDefaultTimeout(240_000);
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
@@ -137,7 +139,7 @@ await requireBrowserLane("hover-glass-browser.test.ts", async () => {
     }
   }
 
-  const windows = [
+  const windows: { name: string; attributes: Record<string, string> }[] = [
     { name: "an opaque window", attributes: {} },
     { name: "a see-through window", attributes: { "data-cmux-see-through": "" } },
   ];
