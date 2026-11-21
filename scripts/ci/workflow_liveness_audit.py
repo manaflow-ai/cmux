@@ -9,8 +9,10 @@ that finished in the window, from the build controller's webhook timing feed (GE
 every runner, every attempt, no GitHub quota) or from saved pulls (--records). It prints one line per candidate:
 
 - unreachable: no trigger in the file can fire for that ref. GitHub runs `schedule`, `workflow_run`,
-  `repository_dispatch`, `issues`, `issue_comment` and the other repository events from the default branch's copy
-  only; `push` and `pull_request[_target]` need a branch filter that admits the ref's branch; `workflow_call` needs
+  `repository_dispatch`, `issues`, `issue_comment`, `pull_request_target` and the other repository events from the
+  default branch's copy only (pull_request_target reads main's copy whatever base its filter names: cmux#48946 edited
+  feat-cmux-next's risk-tier.yml and nothing changed, cmux#49014 edited main's and it did); `push` and
+  `pull_request` need a branch filter that admits the ref's branch; `workflow_call` needs
   a caller on the same ref that can itself run. `workflow_dispatch` counts as reachable (anyone can dispatch it at
   any ref), as do tag pushes and `merge_group`.
 - never-ran: reachable, but no job of it finished in the window. A record is matched by the file's `name:` and by
@@ -51,9 +53,10 @@ DEFAULT_BRANCH_ONLY = {
     "discussion", "discussion_comment", "check_run", "check_suite", "status", "deployment", "deployment_status",
     "page_build", "project", "project_card", "project_column", "public", "watch", "fork", "gollum",
     "branch_protection_rule", "registry_package", "release", "create", "delete", "member", "workflow_job",
+    "pull_request_target",
 }
 # Events that run at a PR's merge ref, so the base branch decides which copy runs.
-PR_EVENTS = {"pull_request", "pull_request_target"}
+PR_EVENTS = {"pull_request"}
 PR_NO_FILTER = {"pull_request_review", "pull_request_review_comment"}
 ALWAYS_REACHABLE = {"workflow_dispatch", "merge_group"}
 EXPR = re.compile(r"\$\{\{(.*?)\}\}", re.S)
@@ -335,6 +338,34 @@ def audit(workflows: list[Workflow], runs: dict[str, int], default_branch: str) 
     return found
 
 
+def self_test() -> int:
+    """Checks of the trigger rules (run by hand: --self-test); not wired into CI."""
+    def wf(branch: str, triggers: dict) -> Workflow:
+        return Workflow(path=f"{WORKFLOW_DIR}/x.yml", ref=f"origin/{branch}", branch=branch, text="", triggers=triggers)
+    next_only = {"branches": ["feat-cmux-next"]}
+    cases = [
+        # pull_request_target runs main's copy, even for PRs into feat-cmux-next (cmux#48946 vs cmux#49014)
+        (wf("main", {"pull_request_target": next_only}), set(), {"pull_request_target"}),
+        (wf("feat-cmux-next", {"pull_request_target": next_only}), set(), set()),
+        (wf("feat-cmux-next", {"pull_request_target": None, "workflow_dispatch": None}), set(), {"workflow_dispatch"}),
+        # pull_request runs the base's copy under its filter
+        (wf("feat-cmux-next", {"pull_request": next_only}), set(), {"pull_request"}),
+        (wf("main", {"pull_request": next_only}), {"feat-cmux-next"}, set()),
+        (wf("feat-cmux-next", {"schedule": [{"cron": "0 0 * * *"}]}), set(), set()),
+        (wf("main", {"schedule": [{"cron": "0 0 * * *"}]}), set(), {"schedule"}),
+        (wf("feat-cmux-next", {"push": {"branches": ["nightly-next"]}}), {"main"}, {"push"}),
+        (wf("feat-cmux-next", {"push": {"branches": ["main"]}}), {"main"}, set()),
+    ]
+    bad = 0
+    for w, foreign, want in cases:
+        got = reachable_events(w, "main", frozenset(foreign))
+        if got != want:
+            bad += 1
+            print(f"FAIL {w.branch} {w.triggers}: got {sorted(got)}, want {sorted(want)}", file=sys.stderr)
+    print(f"self-test: {len(cases) - bad}/{len(cases)} passed")
+    return 1 if bad else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--ref", action="append", help="git ref to read workflows from (repeatable)")
@@ -344,7 +375,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--until", type=int)
     ap.add_argument("--records", action="append", help="saved timing records (JSONL, optionally .gz)")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--self-test", action="store_true", help="check the trigger rules and exit")
     args = ap.parse_args(argv)
+    if args.self_test:
+        return self_test()
     refs = args.ref or ["origin/feat-cmux-next", "origin/main"]
     until = args.until or int(time.time())
     since = args.since or int(until - args.days * 86400)
