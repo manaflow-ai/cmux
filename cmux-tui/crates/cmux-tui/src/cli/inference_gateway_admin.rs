@@ -2,8 +2,11 @@
 //!
 //! - `cmux inference gateway status [--personal]`: the team's (or the person's own) gateway: mode, named machine,
 //!   whether a gateway is online, its kind and since when (`GET /v1/cloud/inference-gateway[/personal]`).
-//! - `cmux inference gateway mode gateway|off [--personal] [--gateway-machine vm_… | --no-gateway-machine]`: sets it
-//!   (`PUT`). The person's own gateway serves every machine they created, in any team; the team's serves the team.
+//! - `cmux inference gateway mode gateway|off|joined [--personal] [--gateway-machine vm_…|machine_<uuid> |
+//!   --no-gateway-machine]`: sets it (`PUT`). The person's own gateway serves every machine they created, in any team;
+//!   the team's serves the team. `joined` serves only the team's hub-joined machines (`acpmux machine join`, their
+//!   `cmm_` credential): its Cloud machines get no edge rule, as in `off`. A joined machine named as the gateway
+//!   machine (`machine_<uuid>`) holds the socket with its own credential (`cmux inference gateway --token-command`).
 //! - `cmux inference route --machine vm_… [--agent claude|codex]`: which route that machine's next model call takes,
 //!   asked FROM the machine through its edge (`GET https://coderouter.cmux.internal/v1/cmux/route`), so it proves the
 //!   edge rule too. No model call is made and nothing secret is printed.
@@ -35,8 +38,8 @@ edge does not reach the gateway service: the team and the owner have no gateway 
 ";
 pub(super) const ADMIN_HELP: &str = "\
   cmux inference gateway status [--personal] [--json]
-  cmux inference gateway mode gateway|off [--personal]
-                         [--gateway-machine vm_... | --no-gateway-machine] [--json]
+  cmux inference gateway mode gateway|off|joined [--personal]
+                         [--gateway-machine vm_...|machine_<uuid> | --no-gateway-machine] [--json]
 ";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -98,7 +101,9 @@ pub(super) fn parse(
             "--agent" if kind == "route" => agent = Some(value()?),
             "--gateway-machine" if kind == "mode" => gateway_machine = Some(Some(value()?)),
             "--no-gateway-machine" if kind == "mode" => gateway_machine = Some(None),
-            "gateway" | "off" if kind == "mode" && mode.is_none() => mode = Some(arg.clone()),
+            "gateway" | "off" | "joined" if kind == "mode" && mode.is_none() => {
+                mode = Some(arg.clone());
+            }
             _ => return Err(format!("unexpected argument {arg}")),
         }
     }
@@ -114,12 +119,16 @@ pub(super) fn parse(
         "mode" => {
             if let Some(Some(m)) = &gateway_machine
                 && !valid_machine(m)
+                && !joined_machine(m)
             {
-                return Err("--gateway-machine takes a machine id (vm_...)".into());
+                return Err(
+                    "--gateway-machine takes a machine id (vm_..., or a joined machine's machine_<uuid>)"
+                        .into(),
+                );
             }
             Verb::Mode {
                 personal,
-                mode: mode.ok_or("mode takes gateway or off")?,
+                mode: mode.ok_or("mode takes gateway, off or joined")?,
                 machine: gateway_machine,
             }
         }
@@ -136,6 +145,16 @@ pub(super) fn parse(
         }
     };
     Ok((Common { api, team, token }, verb))
+}
+
+/// A hub-joined machine's id, as the join registry names it: `machine_` and a lowercase UUID.
+pub(super) fn joined_machine(id: &str) -> bool {
+    let Some(uuid) = id.strip_prefix("machine_") else { return false };
+    let groups: Vec<&str> = uuid.split('-').collect();
+    groups.iter().map(|g| g.len()).eq([8, 4, 4, 4, 12])
+        && groups
+            .iter()
+            .all(|g| g.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
 }
 
 /// The admin path for `personal`.
@@ -196,7 +215,8 @@ pub(super) async fn run(common: &Common, verb: &Verb) -> (Value, i32) {
 }
 
 /// The agents a gateway in mode `gateway` that is online serves now: Claude and Codex (the agents the edge routes
-/// through it, `cmux inference route`'s `team_gateway` / `owner_gateway`); none for any other state.
+/// through it, `cmux inference route`'s `team_gateway` / `owner_gateway`); none for any other state. `joined` serves
+/// none here: it takes only hub-joined machines' calls, never a Cloud chat's.
 pub(super) const GATEWAY_SERVES: [&str; 2] = ["claude", "codex"];
 
 /// The status or mode answer, scoped: `{ok, scope, gateway, serves}` or the API's error object. `serves` is what the
