@@ -23,6 +23,7 @@ import {
   type MachineEvent,
   type MachineResult,
   type TransferChanged,
+  type SurgeResult,
 } from "./ops";
 
 export { sampleMachines } from "./mockData";
@@ -46,6 +47,7 @@ const READS = new Set<string>([
   CloudOps.authStatus,
   AccountOps.teamList,
   CloudOps.machineList,
+  CloudOps.surgePreview,
   CloudOps.machineWatch,
   CloudOps.snapshotList,
   CloudOps.planGet,
@@ -59,6 +61,7 @@ const READS = new Set<string>([
 /** Server ops for origin `user` only (`Kind::UserOnly`): the page must send them as native actions. */
 const USER_ONLY = new Set<string>([
   CloudOps.machineCreate,
+  CloudOps.surgeCreate,
   CloudOps.machineResize,
   CloudOps.machineDelete,
   CloudOps.machineArchiveDelete,
@@ -115,6 +118,7 @@ export class MockCloudProvider implements PageClient {
   unsupported: Set<string>;
   /** Set to make every call reject as if the host went away. */
   offline = false;
+  surge: "available" | "unavailable" | "partial" = "available";
   /** The next call of this op fails with a retryable owner error. */
   failNext?: string;
   /** The code (and backend text "raw backend text") of the `failNext` failure; default upstream_error. */
@@ -541,6 +545,46 @@ export class MockCloudProvider implements PageClient {
         };
         this.onList?.();
         return result;
+      }
+      case CloudOps.surgePreview: {
+        only(p, ["count", "ttl_seconds"]);
+        const available = this.surge !== "unavailable";
+        return {
+          ...p,
+          available,
+          provider: available ? "Cloud provider" : null,
+          estimated_cost_usd: available ? 0.12 : null,
+          reason: available
+            ? "Temporary capacity is available for this team."
+            : "This team has reached its Surge limit.",
+        };
+      }
+      case CloudOps.surgeCreate: {
+        only(p, ["count", "ttl_seconds"]);
+        const count = Number(p.count);
+        const ttl_seconds = Number(p.ttl_seconds);
+        const slots = Array.from({ length: count }, (_, index): SurgeResult["slots"][number] => {
+          if (this.surge === "partial" && index > 0) {
+            return {
+              index,
+              status: "refused",
+              machine_id: null,
+              provider: "Cloud provider",
+              reason: "The requested capacity is no longer available.",
+              retryable: true,
+            };
+          }
+          const { machine } = this.create(`Surge machine ${index + 1}`, 4096);
+          return {
+            index,
+            status: "created",
+            machine_id: machine.id,
+            provider: "Cloud provider",
+            reason: "The machine request was accepted.",
+            retryable: false,
+          };
+        });
+        return { count, ttl_seconds, slots } satisfies SurgeResult;
       }
       case CloudOps.machineCreate: {
         only(p, ["name", "size", "image", "from_snapshot"]);
