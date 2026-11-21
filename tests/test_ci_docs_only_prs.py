@@ -43,8 +43,6 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 # migrations applied; feat-cmux-next requires clippy (changed cmux-tui packages) and React Doctor (changed React
 # projects)). They must start for every pull request: each gates its own work inside.
 REQUIRED = {
-    "cla.yml": "CLA Assistant (main)",
-    "cla-policy-guard.yml": "CLA policy guard (main)",
     "backend-migrations.yml": "backend migrations applied (main); its plan job finds no migration in prose",
     "cmux-tui-spec.yml": "clippy (changed cmux-tui packages) (feat-cmux-next); its changes job skips the rest",
     "cmux-next-react-doctor.yml": "React Doctor (changed React projects) (feat-cmux-next)",
@@ -62,7 +60,6 @@ ALLOWED: dict[str, str] = {
     "classic-api-guard.yml": "policy over every changed path; one job",
     "language-boundaries.yml": "policy over every changed path; one job",
     "thunderdome-label.yml": "labels by title; one job that skips unless the title asks",
-    "contributor-welcome.yml": "greets a first-time contributor on main; one job",
     "cmux-next-batch.yml": "batches every open pull request; one job, off unless CMUX_NEXT_BATCH_ENABLED",
     "docs-only-fallback.yml": "covers what the docs-only block can get wrong (GitHub reads only the first 300 changed "
                               "files; label events are filtered too); its gate skips with no runner for a pull request "
