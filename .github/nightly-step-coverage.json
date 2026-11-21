@@ -5,6 +5,7 @@
       "runner-preflight": {
         "Every routing label has an online runner": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly runner preflight fails a run whose routing label has no online runner", "note": "tests/test_nightly_runner_preflight.py runs scripts/ci/nightly_runner_preflight.py on the 2026-11-10 census and variables"}},
       "decide": {
+        "Read the Node pins": {"plumbing": true},
         "Mint the routing token for early nightly controls": {"plumbing": true},
         "Mint a spare read token for decide": {"nightly_only": "mints an optional glaeda-route GitHub App token for decide's rate-limit fallback; pull requests do not run the scheduled nightly decision"},
         "Place the light jobs on the all-nightly reservation while it has idle runners": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "guards-local.sh runs test_ci_portable_job_placement.py and test_nightly_dedicated_mini.py, which cover the reservation placement, its bounded wait and the runs-on fallbacks"},
@@ -80,6 +81,7 @@
         "Compute Xcode compilation cache key": {"plumbing": true},
         "Restore Xcode compilation cache": {"plumbing": true, "note": "local action: restores or saves a cache with actions/cache, WarpBuilds/cache or R2 and reports a receipt; no product check. Re-review this entry if the action gains a check"},
         "Install compilation dependencies": {"plumbing": true},
+        "Read the build tree's Node pin (cmux-next web bundles)": {"plumbing": true, "note": "Reads .node-version from the build tree, or the pre-pin Node web-bundle-key.py keys a tree without it"},
         "Check node is on PATH (cmux-next web bundles)": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow", "note": "tests/test_ensure_setup_node.py runs scripts/ci/ensure-setup-node.sh against a fake tool cache and dist"},
         "Source key of the web bundles (cmux-next)": {"plumbing": true},
         "Restore the published web bundles (cmux-next)": {"plumbing": true, "note": "Restores the same keyed bundle as cmux-next.yml; build-web-bundles.sh --from checks it before use"},
@@ -429,6 +431,7 @@
         "Restore the OptChat Chief cache": {"plumbing": true, "note": "restores an exact source and environment keyed Chief artifact; no product check"},
         "Build the OptChat Chief (cmux-next)": {"nightly_only": "cargo build of optchat-chief for the macOS arm64 and x86_64 targets needs the macOS SDK; PR builds skip it (bundle-optchat-chief.sh exits 0 without a binary)"},
         "Build the cmux-next iPhone host (cmux-mobile-host)": {"nightly_only": "cargo build of cmux-mobile-host and the Screen Sharing helper (cmux-rd-host) for macOS arm64 and x86_64 needs the macOS SDK and is never built in PR CI"},
+        "Read the build tree's Node pin (cmux-next web bundles)": {"plumbing": true, "note": "Reads .node-version from the build tree, or the pre-pin Node web-bundle-key.py keys a tree without it"},
         "Check node is on PATH (cmux-next web bundles)": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow", "note": "tests/test_ensure_setup_node.py runs scripts/ci/ensure-setup-node.sh against a fake tool cache and dist"},
         "Source key of the web bundles (cmux-next)": {"plumbing": true},
         "Restore the published web bundles (cmux-next)": {"plumbing": true, "note": "Restores the same keyed bundle as cmux-next.yml; build-web-bundles.sh --from checks it before use"},

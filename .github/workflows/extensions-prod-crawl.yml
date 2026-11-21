@@ -37,9 +37,18 @@ jobs:
       W: cmux-platform-production
       WR: npx -y wrangler@4.156.0
     steps:
+      # The job checks out nothing else: read only the Node pins (.node-version*) of this workflow's commit.
+      - name: Check out the Node pins
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .build/node-pin
+          sparse-checkout: /.node-version*
+          sparse-checkout-cone-mode: false
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24"
+          node-version-file: .build/node-pin/.node-version
       - name: Print the Worker's cron schedules and secret names
         run: |
           set +x

@@ -14,7 +14,7 @@
 # tool-cache layout, so later setup-node steps on this runner find it, and adds its bin to
 # GITHUB_PATH.
 #
-#   ensure-setup-node.sh 24.22.1
+#   ensure-setup-node.sh "$(cat .node-version)"
 set -euo pipefail
 
 want="${1:?usage: ensure-setup-node.sh VERSION}"
