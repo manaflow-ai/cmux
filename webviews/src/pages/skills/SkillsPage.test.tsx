@@ -1,3 +1,4 @@
+import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { SkillsPage } from "./SkillsPage";
 import { MockSkillsProvider, sampleEntries } from "./mockProvider";

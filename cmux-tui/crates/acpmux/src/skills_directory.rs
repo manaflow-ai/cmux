@@ -275,18 +275,18 @@ fn remove_managed_dir(dir: &Path, entry: &Entry, harness: &str) -> Result<()> {
     for path in owned {
         if let Some(metadata) = safe_metadata(&path)? {
             ensure!(metadata.is_file(), "refusing non-file target {}", path.display());
-            fs::remove_file(path)?;
+            crate::home_fs::remove_file(path)?;
         }
     }
     if entry.kind == "plugin" {
         let manifest_dir = dir.join(".claude-plugin");
         validate_directory(&manifest_dir)?;
         if manifest_dir.is_dir() && fs::read_dir(&manifest_dir)?.next().is_none() {
-            fs::remove_dir(manifest_dir)?;
+            crate::home_fs::remove_dir(manifest_dir)?;
         }
     }
     if dir.is_dir() && fs::read_dir(dir)?.next().is_none() {
-        fs::remove_dir(dir)?;
+        crate::home_fs::remove_dir(dir)?;
     }
     Ok(())
 }
