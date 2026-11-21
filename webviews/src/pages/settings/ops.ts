@@ -1436,6 +1436,73 @@ export type AgentSkillsRun =
   | { action: "open" | "reveal"; path: string }
   | { action: "on" | "off"; path: string; agent: "claude" | "codex" };
 
+/** One MCP server Claude Code or Codex starts, from its own config files (`cmux agent-config mcp
+ * list --json`, cmux-agent-customize `mcp.rs`). Never a secret: env and header values are names only. */
+export type AgentMcpServer = {
+  agent: "claude" | "codex";
+  name: string;
+  /** `user`: every folder; `local`: Claude, this folder only; `project`: the folder's own file; `plugin`: Codex, a plugin's. */
+  scope: "user" | "local" | "project" | "plugin";
+  transport: "stdio" | "http" | "sse";
+  command: string | null;
+  /** Arguments, a secret-looking flag's value masked. */
+  args: string[];
+  /** The URL without its password. */
+  url: string | null;
+  /** Whether the agent starts it (in the shown folder, for Claude's per-folder switches). */
+  enabled: boolean;
+  /** Claude project servers: approved in Claude, or waiting for the person there. */
+  approval?: "approved" | "pending";
+  env: string[];
+  headers: string[];
+  file: string;
+  plugin?: string;
+  /** Another scope's server of the same name runs instead. */
+  shadowed: boolean;
+  removable: boolean;
+};
+
+/** Settings > MCP Servers, Claude Code and Codex (`SettingsAgentMcpServers.state`); `enabled` false
+ * while Labs `labs.agentCustomization` is off, and then nothing else. */
+export type AgentMcpState = {
+  enabled: boolean;
+  loading?: boolean;
+  /** `unavailable`: no bundled cmux CLI; `failed`: the list did not answer. */
+  problem?: "unavailable" | "failed" | null;
+  /** The folder Claude's per-folder switches and the project files are read for. */
+  project?: string;
+  servers: AgentMcpServer[];
+  problems?: { agent: string; why: string }[];
+  /** The last edit's refusal, for the row `agent:scope:name`. */
+  error?: { key: string; why: string } | null;
+  /** The last list: click to rows, and the CLI's own share (ms). */
+  listMs?: number | null;
+  cliMs?: number | null;
+};
+
+/** One Claude Code / Codex MCP gesture; all but refresh run only on a click. */
+export type AgentMcpRun =
+  | { action: "refresh" | "pickFolder" }
+  | {
+      action: "enable" | "disable" | "remove";
+      agent: AgentMcpServer["agent"];
+      name: string;
+      scope: AgentMcpServer["scope"];
+    }
+  | {
+      action: "add";
+      agent: AgentMcpServer["agent"];
+      name: string;
+      scope: "user" | "local" | "project";
+      command?: string;
+      args?: string[];
+      url?: string;
+      transport?: "http" | "sse";
+      /** `KEY=VALUE` lines. */
+      env?: string[];
+      headers?: string[];
+    };
+
 /** One Agent integrations gesture; each runs only on a click. */
 export type IntegrationsRun = { action: "refresh" } | { action: "install" | "repair" | "remove"; id: string };
 
@@ -1645,6 +1712,10 @@ export type SettingsOps = {
   "cmux.settings.agentSkills.state": [Record<string, never>, AgentSkillsState];
   /** Native: one Skills gesture (`cmux agent-config skills on|off FILE`, open, reveal, or a refresh). */
   "cmux.settings.agentSkills.run": [AgentSkillsRun, AgentSkillsState];
+  /** Native: the MCP servers Claude Code and Codex start, from their own files (Labs `labs.agentCustomization`). */
+  "cmux.settings.agentMcp.state": [Record<string, never>, AgentMcpState];
+  /** Native: one Claude Code / Codex MCP gesture (`cmux agent-config mcp enable|disable|remove|add`, a folder pick or a refresh). */
+  "cmux.settings.agentMcp.run": [AgentMcpRun, unknown];
   /** Native: set the theme of one level of the active window; `spec` null uses the Ghostty config. */
   "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];
   /** Native: the colors of every published theme, for the theme preview and the picker's swatches. */

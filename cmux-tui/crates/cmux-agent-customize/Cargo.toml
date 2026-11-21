@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Claude Code and Codex customization from cmux: read and edit each agent's own config (skills and slash commands, MCP servers, hooks, settings) in the agent's own files, round-tripping what cmux does not know"
+description = "Reads and edits what the person configured for Claude Code and Codex in those agents' own files (MCP servers, skills and slash commands), for cmux Settings and `cmux agent-config`"
 
 [lints]
 workspace = true

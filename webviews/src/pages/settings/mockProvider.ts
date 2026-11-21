@@ -66,6 +66,8 @@ import {
   type LibraryRun,
   type ModelsRun,
   type ModelsState,
+  type AgentMcpRun,
+  type AgentMcpState,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -740,6 +742,47 @@ export class MockSettingsProvider {
         }
         return this.agentSkills;
       },
+      "cmux.settings.agentMcp.state": () => (this.agentMcp.enabled ? this.agentMcp : { enabled: false, servers: [] }),
+      "cmux.settings.agentMcp.run": (params) => {
+        const run = params as AgentMcpRun;
+        if (!this.agentMcp.enabled) throw new ProtocolError("cmux.page.unavailable", "labs.agentCustomization is off");
+        if (run.action === "refresh" || run.action === "pickFolder" || !("name" in run)) return {};
+        this.agentMcpRuns.push(run);
+        const { agent, name, scope } = run;
+        const same = (row: { agent: string; name: string; scope: string }) =>
+          row.agent === agent && row.name === name && row.scope === scope;
+        if (run.action === "add") {
+          const row = {
+            agent: run.agent,
+            name: run.name,
+            scope: run.scope,
+            transport: run.url ? (run.transport ?? "http") : "stdio",
+            command: run.command ?? null,
+            args: run.args ?? [],
+            url: run.url ?? null,
+            enabled: true,
+            env: (run.env ?? []).map((line) => line.split("=")[0]!),
+            headers: (run.headers ?? []).map((line) => line.split("=")[0]!),
+            file: run.agent === "claude" ? "/Users/me/.claude.json" : "/Users/me/.codex/config.toml",
+            shadowed: false,
+            removable: true,
+          } as const;
+          this.agentMcp = { ...this.agentMcp, servers: [...this.agentMcp.servers, row], error: null };
+          return {};
+        }
+        // Like the host: only a listed server.
+        if (!this.agentMcp.servers.some(same))
+          throw new ProtocolError("cmux.settings.invalid", "name must be a listed server");
+        this.agentMcp = {
+          ...this.agentMcp,
+          error: null,
+          servers:
+            run.action === "remove"
+              ? this.agentMcp.servers.filter((row) => !same(row))
+              : this.agentMcp.servers.map((row) => (same(row) ? { ...row, enabled: run.action === "enable" } : row)),
+        };
+        return {};
+      },
       "cmux.settings.mcp.state": () => this.mcpServers,
       "cmux.settings.mcp.run": (params) => {
         const run = params as McpServersRun;
@@ -841,6 +884,8 @@ export class MockSettingsProvider {
       "cmux.settings.agentSkills.state",
       "cmux.settings.agentSkills.run",
       "cmux.settings.mcp.run",
+      "cmux.settings.agentMcp.state",
+      "cmux.settings.agentMcp.run",
       "cmux.settings.theme.set",
       "cmux.settings.theme.colors",
       "cmux.settings.theme.accepts",
@@ -1519,6 +1564,113 @@ export class MockSettingsProvider {
   agentSkills: AgentSkillsState = { enabled: false };
   /** Skills gestures the page sent (open, reveal, on, off). */
   readonly agentSkillRuns: AgentSkillsRun[] = [];
+  /** Settings > MCP Servers, Claude Code and Codex: off (Labs) until a test or gallery turns it on. */
+  agentMcp: AgentMcpState = {
+    enabled: false,
+    loading: false,
+    problem: null,
+    project: "/Users/me/src/app",
+    listMs: 38,
+    cliMs: 21,
+    error: null,
+    problems: [],
+    servers: [
+      {
+        agent: "claude",
+        name: "agent-memory",
+        scope: "user",
+        transport: "stdio",
+        command: "/Users/me/bin/agent-memory",
+        args: ["mcp"],
+        url: null,
+        enabled: true,
+        env: [],
+        headers: [],
+        file: "/Users/me/.claude.json",
+        shadowed: false,
+        removable: true,
+      },
+      {
+        agent: "claude",
+        name: "linear",
+        scope: "user",
+        transport: "http",
+        command: null,
+        args: [],
+        url: "https://mcp.linear.app/mcp",
+        enabled: false,
+        env: [],
+        headers: ["Authorization"],
+        file: "/Users/me/.claude.json",
+        shadowed: false,
+        removable: true,
+      },
+      {
+        agent: "claude",
+        name: "playwright",
+        scope: "project",
+        transport: "stdio",
+        command: "npx",
+        args: ["@playwright/mcp@latest"],
+        url: null,
+        enabled: true,
+        approval: "pending",
+        env: [],
+        headers: [],
+        file: "/Users/me/src/app/.mcp.json",
+        shadowed: false,
+        removable: true,
+      },
+      {
+        agent: "codex",
+        name: "repo",
+        scope: "user",
+        transport: "stdio",
+        command: "/Users/me/bin/repo-tools",
+        args: ["mcp"],
+        url: null,
+        enabled: true,
+        env: ["REPO_TOKEN"],
+        headers: [],
+        file: "/Users/me/.codex/config.toml",
+        shadowed: false,
+        removable: true,
+      },
+      {
+        agent: "codex",
+        name: "openaiDeveloperDocs",
+        scope: "user",
+        transport: "http",
+        command: null,
+        args: [],
+        url: "https://developers.openai.com/mcp",
+        enabled: true,
+        env: [],
+        headers: [],
+        file: "/Users/me/.codex/config.toml",
+        shadowed: false,
+        removable: true,
+      },
+      {
+        agent: "codex",
+        name: "codex_app",
+        scope: "plugin",
+        transport: "stdio",
+        command: "./scripts/launch_codex_app_tools_mcp",
+        args: ["./server.mjs"],
+        url: null,
+        enabled: false,
+        env: ["CODEX_APP_TOOLS_DEFERRED"],
+        headers: [],
+        file: "/Users/me/.codex/plugins/cache/openai-bundled/codex-app-tools/1.0/.mcp.json",
+        plugin: "codex-app-tools@openai-bundled",
+        shadowed: false,
+        removable: false,
+      },
+    ],
+  };
+  /** Claude Code / Codex MCP gestures the page sent. */
+  readonly agentMcpRuns: AgentMcpRun[] = [];
   /** Agent integrations gestures the page sent (install, repair, remove). */
   readonly integrationRuns: IntegrationsRun[] = [];
 

@@ -89,6 +89,8 @@ import {
   type LibraryRun,
   type ModelsRun,
   type ModelsState,
+  type AgentMcpRun,
+  type AgentMcpState,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -808,6 +810,18 @@ export class SettingsStore {
   async runAgentSkills(run: AgentSkillsRun): Promise<AgentSkillsState | null> {
     const reply = await this.request("cmux.settings.agentSkills.run", run);
     return reply.ok ? reply.value : this.agentSkillsState();
+  }
+
+  /** Settings > MCP Servers, Claude Code and Codex; null when the host has none. */
+  async agentMcpState(): Promise<AgentMcpState | null> {
+    const reply = await this.request("cmux.settings.agentMcp.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Claude Code / Codex MCP gesture, then the groups as they are after it (null: the host has none). */
+  async runAgentMcp(run: AgentMcpRun): Promise<AgentMcpState | null> {
+    await this.request("cmux.settings.agentMcp.run", run);
+    return this.agentMcpState();
   }
 
   /** Reads Settings > Models (a host without it rejects, and the part stays null). */
