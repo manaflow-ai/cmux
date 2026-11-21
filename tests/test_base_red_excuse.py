@@ -7093,7 +7093,9 @@ class GitHubQuotaJobRed(unittest.TestCase):
         self.assertIsNone(excuse.tree_handoff_quota_only(job, log(self.NAME, self.STEP, self.EXIT)))
 
     def test_marker_parser_consumes_the_producer_annotation(self):
-        """The classifier fixture is the hand-off's actual stdout, converted to GitHub log syntax."""
+        """The classifier fixture is the hand-off's actual stdout, converted to GitHub log syntax. Since #45217 the
+        --published step passes on a quota refusal past its wait budget (the next push's sweep re-runs the commits),
+        so it is a warning; its text stays the exact [quota-only] line this parser reads in earlier runs' reds."""
         handoff_script = ROOT / "scripts/ci/cmux_tui_tree_handoff.py"
         with tempfile.TemporaryDirectory() as tmp:
             fake_gh = Path(tmp, "gh")
@@ -7102,13 +7104,16 @@ class GitHubQuotaJobRed(unittest.TestCase):
                                "print('gh: API rate limit exceeded for the repo installation (HTTP 403)', file=sys.stderr)\n"
                                "raise SystemExit(1)\n")
             fake_gh.chmod(0o755)
-            env = {**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "GH_TOKEN": "t"}
+            env = {**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "GH_TOKEN": "t",
+                   "TREE_HANDOFF_RATE_LIMIT_WAIT_S": "0", "GLAEDA_GH_DIR": tmp}
             produced = subprocess.run(
                 [sys.executable, str(handoff_script), "--repo", "o/r", "--run-id", "10", "--key", "k", "--published"],
                 capture_output=True, text=True, env=env)
-        annotation = next(line for line in produced.stdout.splitlines()
-                           if line.startswith("::error title=deferred runs not re-run::"))
-        live_error = annotation.replace("::error title=deferred runs not re-run::", "##[error]", 1)
+        self.assertEqual(produced.returncode, 0, produced.stdout + produced.stderr)
+        self.assertNotIn("::error", produced.stdout)
+        title = "::warning title=deferred runs not re-run (rate limit)::"
+        annotation = next(line for line in produced.stdout.splitlines() if line.startswith(title))
+        live_error = annotation.replace(title, "##[error]", 1)
         job = failed_job(1, 10, HEAD, name=self.NAME, step=self.STEP)
         job["id"] = 12345
         self.assertEqual(excuse.tree_handoff_quota_only(job, log(self.NAME, self.STEP, live_error)),
