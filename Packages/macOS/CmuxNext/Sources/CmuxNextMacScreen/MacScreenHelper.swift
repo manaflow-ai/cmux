@@ -194,7 +194,7 @@ nonisolated final class MacScreenHelper: Sendable {
     }
 }
 
-private extension Result where Failure == MacScreenHelper.NoAnswerError {
+private nonisolated extension Result where Failure == MacScreenHelper.NoAnswerError {
     var failure: MacScreenHelper.NoAnswer? {
         if case let .failure(error) = self { return error.cause }
         return nil
