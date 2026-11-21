@@ -4,6 +4,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { HistoryEntry } from "../src/pages/history/types";
 import { teardownDom } from "./support/domTeardown";
+import { historySizes, installVirtualSizes } from "./support/virtualSizes";
 
 const scope = globalThis as Record<string, unknown>;
 const names = [
@@ -38,6 +39,8 @@ beforeAll(() => {
     setTimeout(() => callback(Date.now()), 0) as unknown as number;
   scope.cancelAnimationFrame = (handle: number) => clearTimeout(handle);
   dom.window.HTMLElement.prototype.scrollIntoView = () => undefined;
+  // The list is windowed: give it a viewport and its rows a height, as a browser would.
+  installVirtualSizes(dom.window, historySizes);
   host = dom.window.document.getElementById("root")!;
 });
 
