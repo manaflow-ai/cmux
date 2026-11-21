@@ -46,7 +46,7 @@ jobs:
   resolve:
     name: Resolve the branch and its CEF
     if: github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # 5 minutes of work plus up to an hour waiting out the API budget.
     timeout-minutes: 65
     permissions:

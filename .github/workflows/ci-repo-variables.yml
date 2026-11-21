@@ -49,7 +49,7 @@ jobs:
     name: Check repository variables
     if: ${{ github.repository == 'manaflow-ai/cmux' }}
     # The linux pool, not LINUX_RUNNER: this job checks LINUX_RUNNER, so it must not wait on it.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -180,6 +180,7 @@ jobs:
             CI_NIGHTLY_MINI_SIGNER=${{ vars.CI_NIGHTLY_MINI_SIGNER }}
             CI_NIGHTLY_NEXT_BUILD_RUNNER=${{ vars.CI_NIGHTLY_NEXT_BUILD_RUNNER }}
             CI_NIGHTLY_NEXT_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER }}
+            CI_OVERFLOW_LINUX=${{ vars.CI_OVERFLOW_LINUX }}
             CI_NIGHTLY_ONLY_RUNNER=${{ vars.CI_NIGHTLY_ONLY_RUNNER }}
             CI_NIGHTLY_SIGN_RUNNER=${{ vars.CI_NIGHTLY_SIGN_RUNNER }}
             CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
