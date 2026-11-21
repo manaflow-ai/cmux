@@ -960,6 +960,13 @@ jobs:
       # A red the PR autofix repairs (machine-applicable lints in this change's own files) passes as autofixed
       # once the autofix push is on (vars.CMUX_PR_AUTOFIX_PUSH, cmux-next-pr-autofix-push.yml on main): the fix
       # arrives as its own commit, linted strictly (the script's --autofixed-ok).
+      # Every cargo step below compiles through sccache on the shared store (.github/actions/rust-compile-cache).
+      - name: Shared Rust compile cache
+        uses: ./.github/actions/rust-compile-cache
+        with:
+          mode: start
+          job: clippy (changed cmux-tui packages)
+
       - name: cargo clippy --all-targets on changed cmux-tui packages
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
@@ -1008,6 +1015,13 @@ jobs:
           path: ${{ runner.temp }}/panic-clippy.jsonl
           if-no-files-found: ignore
           retention-days: 3
+
+      - name: Report the shared compile cache
+        if: ${{ always() }}
+        uses: ./.github/actions/rust-compile-cache
+        with:
+          mode: report
+          job: clippy (changed cmux-tui packages)
 
       # Before the sticky disk's post step commits it: bound it, then record the source
       # mtimes and the commit next to the artifacts, so the next run restores them.

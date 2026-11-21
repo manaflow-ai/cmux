@@ -3830,6 +3830,14 @@ jobs:
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
         uses: ./.github/actions/ghostty-zig-packages
 
+      # Every cargo step below compiles through sccache on the shared store (.github/actions/rust-compile-cache).
+      - name: Shared Rust compile cache
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
+        uses: ./.github/actions/rust-compile-cache
+        with:
+          mode: start
+          job: cmux-next fast tier (cargo)
+
       - name: Run the fast tier (cargo and script entries)
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
         env:
@@ -3837,6 +3845,13 @@ jobs:
           # fixit-compile (scripts/ci/oops/fixit_compile.py, ci-oops 0a) wraps the cargo build: the head its patch is for.
           FIXIT_COMPILE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: python3 -I scripts/cmux-next/fast-tier.py --kind cargo --kind script --receipt "$RUNNER_TEMP/cmux-next-fast-tier-cargo.json"
+
+      - name: Report the shared compile cache
+        if: ${{ always() && env.RCC_SCCACHE != '' }}
+        uses: ./.github/actions/rust-compile-cache
+        with:
+          mode: report
+          job: cmux-next fast tier (cargo)
 
       - name: Upload fast-tier timing receipt
         if: ${{ (always()) && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
