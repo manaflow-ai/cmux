@@ -221,19 +221,26 @@ If a remote policy, mode or folder check refuses a start, the JSON error's
 the prompt and launcher options. A `--prompt-file` is piped through stdin so
 the file does not need to exist on the remote host.
 
-Replace `codex` with an installed harness, such as `claude`. A remote-started
-Claude session needs the host's sandbox, which acpmux has only on macOS so far:
-on a Linux host, `cmux agent new --machine` refuses `-m claude`. The exception is a
-dedicated agent VM (`vmHost`): the VM is the sandbox, so Claude runs there, and
-sessions your peer daemon starts with no policy run approve-all. A Cloud VM
-cmux created for you is one by default (its `/etc/cmux/vm-kind` reads `owner`);
-a team VM, a personal machine and an SSH-added machine never are. Turn it off
-or back on per machine with `cmux agent machine dedicated [NAME] off|on` (no restart;
-`on` is refused on a machine cmux did not create), or set `"vmHost": true` or
-`false` in that machine's `~/.acpmux/config.json`. A Mac ignores `vmHost`, and
-Web clients and sessions started with an explicit `--policy` keep their
-approvals. Ctrl-Q detaches
-the TUI; the agent remains on the host. You can use that TUI in a cmux terminal.
+Replace `codex` with an installed harness, such as `claude`. A remote-origin
+Claude session is sandboxed on both macOS and Linux before every cold start and
+respawn. Linux requires `/usr/bin/bwrap` 0.9 or newer, with user namespaces and
+`--bind-fd`/`--ro-bind-fd` support; when the probe or sandbox canary fails, the
+person sees `remote chain refused: bwrap unavailable: ...` (or `remote chain
+refused: the sandbox canary shows no sandbox (...)`) and the JSON-RPC error has
+`data.reason` `remote.sandbox_refused`. The join and doctor offer the exact
+package-manager command to install bubblewrap when it is missing.
+
+The exception is a dedicated agent VM (`vmHost`): the VM is the sandbox, so
+Claude runs there, and sessions your peer daemon starts with no policy run
+approve-all. A Cloud VM cmux created for you is one by default (its
+`/etc/cmux/vm-kind` reads `owner`); a team VM, a personal machine and an
+SSH-added machine never are. Turn it off or back on per machine with
+`cmux agent machine dedicated [NAME] off|on` (no restart; `on` is refused on a
+machine cmux did not create), or set `"vmHost": true` or `false` in that
+machine's `~/.acpmux/config.json`. A Mac ignores `vmHost`, and Web clients and
+sessions started with an explicit `--policy` keep their approvals. Ctrl-Q
+detaches the TUI; the agent remains on the host. You can use that TUI in a cmux
+terminal.
 To view a remote session as a native cmux NEXT chat tab, select a local pane,
 wait for the app's peer inventory to load, and run:
 

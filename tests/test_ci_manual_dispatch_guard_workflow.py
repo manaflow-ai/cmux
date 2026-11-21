@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Contracts for the privileged manual-dispatch cancellation watcher."""
+"""Contracts for the manual-dispatch guard's CI-side check and its non-main dispatch route."""
 
 from pathlib import Path
 import unittest
@@ -9,40 +9,7 @@ from test_seed_derived_data import evaluate, github_context
 import workflow_jobs
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = ROOT / ".github" / "workflows" / "ci-manual-dispatch-guard.yml"
 CI = ROOT / ".github" / "workflows" / "ci.yml"
-
-
-def trigger(document: dict) -> dict:
-    return document.get("on", document.get(True))
-
-
-def test_watcher_is_requested_ci_workflow_run() -> None:
-    document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    event = trigger(document)
-    assert event["workflow_run"] == {"workflows": ["CI"], "types": ["requested"], "branches": ["main"]}
-    assert document["env"]["SOURCE_WORKFLOW_PATHS"] == ".github/workflows/ci.yml"
-    assert document["permissions"] == {}
-    watcher_env = document["jobs"]["guard"]["steps"][-1]["env"]
-    for key in ("SOURCE_EVENT_NAME", "SOURCE_REPOSITORY", "SOURCE_REF_NAME", "SOURCE_SHA", "SOURCE_RUN_ID", "SOURCE_COVERAGE_FINGERPRINT"):
-        assert key in watcher_env
-    assert "GITHUB_EVENT_NAME" not in watcher_env
-
-
-def test_only_manual_dispatches_get_a_writer() -> None:
-    document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    guard = document["jobs"]["guard"]
-    assert guard["if"] == (
-        "github.event.workflow_run.path == '.github/workflows/ci.yml' && "
-        "github.event.workflow_run.event == 'workflow_dispatch' && "
-        "github.event.workflow_run.head_branch == 'main'"
-    )
-    assert guard["permissions"] == {
-        "actions": "write",
-        "contents": "read",
-        "pull-requests": "read",
-    }
-    assert "scripts/ci/manual_dispatch_guard.py" in guard["steps"][-1]["run"]
 
 
 def test_ci_changes_job_remains_read_only() -> None:
