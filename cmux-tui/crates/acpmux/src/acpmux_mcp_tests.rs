@@ -94,7 +94,7 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
     );
     let send = tools[0]["description"].as_str().unwrap();
     assert!(send.contains("Message another agent session"), "{send}");
-    assert!(send.contains("instead of running `acpmux send` in a shell"), "{send}");
+    assert!(send.contains("instead of running `cmux agent send` in a shell"), "{send}");
     assert!(send.contains("batch them in one call with messages"), "{send}");
     assert_eq!(tools[7]["inputSchema"]["required"], json!(["to", "body"]));
     assert_eq!(tools[9]["inputSchema"]["required"], json!(["id"]));
@@ -256,6 +256,27 @@ fn a_batch_has_no_message_count_cap() {
     assert_eq!(items.len(), 1001);
     assert!(items.iter().all(Result::is_ok));
     assert_eq!(items.last().unwrap().as_ref().unwrap().to.as_deref(), Some("lane-1000"));
+}
+
+/// The notice's length limits, the daemon's own (`prompt_provenance`), are in its schema, on the
+/// call and on each batch item, so a caller sees them before it sends.
+#[test]
+fn the_notice_schema_carries_the_daemons_length_limits() {
+    use crate::prompt_provenance::{MAX_NAME_CHARS, MAX_NOTICE_TITLE_CHARS};
+    let props = &tools()[0]["inputSchema"]["properties"];
+    let item_notice = &props["messages"]["items"]["properties"]["notice"];
+    for notice in [&props["notice"], item_notice] {
+        let fields = &notice["properties"];
+        for (key, max) in [
+            ("sender", MAX_NAME_CHARS),
+            ("host", MAX_NAME_CHARS),
+            ("title", MAX_NOTICE_TITLE_CHARS),
+        ] {
+            assert_eq!(fields[key]["maxLength"], max, "{key}");
+            let said = fields[key]["description"].as_str().unwrap();
+            assert!(said.contains(&format!("at most {max} characters")), "{key}: {said}");
+        }
+    }
 }
 
 /// `notice`: a tool's notice, checked as the daemon checks it, its sender this session's name by
