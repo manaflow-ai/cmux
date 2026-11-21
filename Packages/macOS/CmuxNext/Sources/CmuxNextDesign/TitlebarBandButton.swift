@@ -55,10 +55,12 @@ public final class TitlebarBandButton: ClickableButton {
         imageScaling = .scaleProportionallyDown
         applyText()
         renderSymbol()
-        contentTintColor = performWithTheme { Palette.textSecondary }
+        // The glyph keeps its own ink while disabled: AppKit's dimming took it under 2:1; the tertiary
+        // text is the disabled ink, which holds the legible floor (NativeControlContrastAuditTests).
+        (cell as? NSButtonCell)?.imageDimsWhenDisabled = false
+        applyInk()
         badgeLabel.font = Typography.caption
         badgeLabel.alignment = .center
-        badgeLabel.textColor = performWithTheme { Palette.textSecondary }
         badgeLabel.isBezeled = false
         badgeLabel.drawsBackground = false
         badgeLabel.isEditable = false
@@ -79,7 +81,36 @@ public final class TitlebarBandButton: ClickableButton {
     /// Disabled under a still pointer (Back with no history left): hover
     /// follows at once (cx-3wu5).
     override public var isEnabled: Bool {
-        didSet { if followsPointer, isEnabled != oldValue { hover.pointer?.refresh() } }
+        didSet {
+            if followsPointer, isEnabled != oldValue { hover.pointer?.refresh() }
+            applyInk()
+        }
+    }
+
+    // The ink is read in the button's own theme scope (a workspace's theme, not only the app's) when it
+    // joins a window, on every theme change and when it shows: read once at init it kept the app
+    // theme's gray (#bfc0c3) in every room, 1.3 to 2.6:1 on light and tinted themes.
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyInk()
+    }
+
+    override public func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyInk()
+    }
+
+    override public func viewDidUnhide() {
+        super.viewDidUnhide()
+        applyInk()
+    }
+
+    /// Secondary text at rest, tertiary while disabled, in the button's scope.
+    private func applyInk() {
+        performWithTheme {
+            contentTintColor = isEnabled ? Palette.textSecondary : Palette.textTertiary
+            badgeLabel.textColor = Palette.textSecondary
+        }
     }
 
     override public func layout() {

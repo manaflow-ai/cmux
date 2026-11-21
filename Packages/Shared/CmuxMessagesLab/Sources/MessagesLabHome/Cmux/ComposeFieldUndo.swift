@@ -41,13 +41,20 @@ extension FieldTextView {
         if let storage = textStorage { undo.removeAllActions(withTarget: storage) }
     }
 
-    /// The undo of a `takeDraftText` step: its text goes back over its range as an edit of the
-    /// field (the redo is NSTextView's own, and the draft follows through `textDidChange`).
+    /// The undo (and the redo) of a `takeDraftText` step: its text goes back over its range, and
+    /// the step that puts back what was there goes on the other stack. The step registers that
+    /// inverse itself: while Edit > Undo runs it, NSTextView's `shouldChangeText` registered a redo
+    /// entry with the range the edit replaced, not the range of its text after the edit, and the
+    /// Redo read past the end of the field (NSRangeException in
+    /// `-[NSUndoReplaceCharacters undoRedo:]`, a1318). The draft follows through `textDidChange`.
     @objc private func undoDraftStep(_ step: DraftUndoStep) {
         let range = step.range, text = step.text
         guard let storage = textStorage, NSMaxRange(range) <= storage.length else { forgetUndo(); return }
-        guard shouldChangeText(in: range, replacementString: text.string) else { return }
+        let current = storage.attributedSubstring(from: range)
+        breakUndoCoalescing()
         storage.replaceCharacters(in: range, with: text)
+        let inverse = DraftUndoStep(range: NSRange(location: range.location, length: text.length), text: current)
+        undoManager?.registerUndo(withTarget: self, selector: #selector(undoDraftStep(_:)), object: inverse)
         setSelectedRange(NSRange(location: range.location + text.length, length: 0))
         didChangeText()
     }
