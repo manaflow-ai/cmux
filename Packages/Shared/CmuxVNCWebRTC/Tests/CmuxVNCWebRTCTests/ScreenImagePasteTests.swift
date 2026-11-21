@@ -86,18 +86,71 @@ struct ScreenImagePasteTests {
         #expect(Self.host(messages, backend: RecordingBackend()) == [.refused])
     }
 
-    @Test func tooLargeOrUnknownTypesAreNeverSent() {
-        #expect(ScreenInput.pasteImage(Data(count: ScreenInput.pasteImageMaximumBytes + 1), type: "public.png").isEmpty)
+    @Test func unknownTypesOrEmptyImagesAreNeverSent() {
         #expect(ScreenInput.pasteImage(Self.image, type: "public.data").isEmpty)
         #expect(ScreenInput.pasteImage(Data(), type: "public.png").isEmpty)
     }
 
-    @Test func aChunkClaimingAnUnknownTypeOrTooManyChunksIsRefused() {
+    /// No size limit: a 21 MiB image (past the 20 MiB the host once took) goes in chunks and is pasted whole.
+    @Test func anImageOfAnySizeIsSentInChunksAndPastedWhole() throws {
+        let image = Data((0 ..< (21 << 20)).map { UInt8(truncatingIfNeeded: $0 &* 7) })
+        let messages = try Self.wire(ScreenInput.pasteImage(image, type: "public.png", id: "big"))
+        #expect(messages.count == (image.count + ScreenInput.pasteImageChunkBytes - 1) / ScreenInput.pasteImageChunkBytes)
+        let backend = PastingBackend()
+        #expect(Self.host(messages, backend: backend) == [.pasted])
+        #expect(backend.pasted.first?.0 == image)
+    }
+
+    /// An unknown type is refused; a large chunk count is only the image's size, so it is taken (no answer yet).
+    @Test func aChunkClaimingAnUnknownTypeIsRefusedAndManyChunksAreTaken() {
         let backend = PastingBackend()
         let chunk = Data("x".utf8).base64EncodedString()
         #expect(Self.host([ScreenInput(t: "paste-image", s: chunk, i: 0, n: 1, id: "a", f: "public.data")], backend: backend) == [.refused])
-        #expect(Self.host([ScreenInput(t: "paste-image", s: chunk, i: 0, n: 1_000_000, id: "a", f: "public.png")], backend: backend) == [.refused])
+        #expect(Self.host([ScreenInput(t: "paste-image", s: chunk, i: 0, n: 1_000_000, id: "a", f: "public.png")], backend: backend) == [])
         #expect(backend.pasted.isEmpty)
+    }
+
+    /// The viewer's session ended halfway through a paste: ``ScreenImageAssembler/cancel()`` drops the
+    /// image, so a late chunk of it is answered as incomplete and the next image is taken as usual.
+    @Test func aCancelledPasteDropsItsImage() throws {
+        let messages = try Self.wire(ScreenInput.pasteImage(Self.image, type: "public.png", id: "a"))
+        var images = ScreenImageAssembler()
+        #expect(images.take(messages[0]) == .partial)
+        images.cancel()
+        #expect(images.take(messages[1]) == .failed(.incomplete, id: "a"))
+        let next = try Self.wire(ScreenInput.pasteImage(Data("next".utf8), type: "public.png", id: "b"))
+        #expect(images.take(next[0]) == .complete(Data("next".utf8), type: "public.png", id: "b"))
+    }
+
+    /// Counts the chunks a sequence has made, for ``aSenderHoldsOneEncodedChunkAtATime()``.
+    final class MadeCount {
+        var made = 0
+    }
+
+    /// A chunk source that counts each chunk as it is made.
+    struct CountingChunks: Sequence {
+        let chunks: PasteImageChunks
+        let count: MadeCount
+        func makeIterator() -> AnyIterator<ScreenInput> {
+            var inner = chunks.makeIterator()
+            return AnyIterator { inner.next().map { self.count.made += 1; return $0 } }
+        }
+    }
+
+    /// The viewer's sender makes a chunk's base64 only after the one before it was sent: at most one
+    /// encoded chunk exists at a time, whatever the image's size (no 2.3x copy of the image).
+    @Test func aSenderHoldsOneEncodedChunkAtATime() async throws {
+        let chunks = try #require(ScreenInput.pasteImageChunks(Self.image, type: "public.png", id: "a"))
+        let count = MadeCount()
+        var sent = 0
+        var mostAhead = 0
+        let ok = await ScreenStreamViewer.sendPasteImage(CountingChunks(chunks: chunks, count: count)) { _ in
+            mostAhead = max(mostAhead, count.made - sent)
+            sent += 1
+        }
+        #expect(ok)
+        #expect(sent == chunks.count)
+        #expect(mostAhead == 1)
     }
 
     @Test func theHostAnswerRoundTrips() throws {
@@ -194,6 +247,44 @@ struct ScreenImagePasteStreamTests {
         var all: [ScreenHostMessage.PasteImageOutcome] { lock.withLock { outcomes } }
         func setCaps(_ value: [String]) { lock.withLock { caps = value } }
         func append(_ outcome: ScreenHostMessage.PasteImageOutcome) { lock.withLock { outcomes.append(outcome) } }
+    }
+
+    /// Host log lines, for a test that reads what the host did.
+    final class HostLog: @unchecked Sendable {
+        // @unchecked: behind `lock`.
+        private let lock = NSLock()
+        private var lines: [String] = []
+        var all: [String] { lock.withLock { lines } }
+        func append(_ line: String) { lock.withLock { lines.append(line) } }
+        func contains(_ text: String) -> Bool { all.contains { $0.contains(text) } }
+    }
+
+    /// The viewer leaves halfway through a paste: the host's session end (``ScreenStreamHost``'s
+    /// `endSession`) drops the unfinished image's bytes at once.
+    @Test(.timeLimit(.minutes(1))) func aSessionThatEndsHalfwayThroughAPasteDropsItsBytes() async throws {
+        let (hostSide, viewerSide) = LoopbackSignaling.pair()
+        let backend = PastingScreen()
+        let log = HostLog()
+        let host = ScreenStreamHost(name: "Mac", backend: { backend }, log: { log.append($0) })
+        let hostTask = Task { try? await host.serve(hostSide) }
+        defer { hostTask.cancel() }
+
+        let answers = Answers()
+        let viewer = ScreenStreamViewer(signaling: viewerSide)
+        viewer.onCapabilities = { answers.setCaps($0) }
+        try await viewer.connect()
+        defer { viewer.close() }
+        // task-owner: bounded wait for the host's caps message (sent as its channel opens)
+        for _ in 0 ..< 100 where answers.capabilities.isEmpty { try await Task.sleep(for: .milliseconds(50)) }
+
+        let chunks = ScreenInput.pasteImage(ScreenImagePasteTests.image, type: "public.png", id: "half")
+        viewer.send(chunks[0])
+        // task-owner: bounded wait for the host to log the paste's first chunk
+        for _ in 0 ..< 100 where !log.contains("paste image: half started") { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(log.contains("paste image: half started"))
+        host.disconnectViewer()
+        #expect(log.contains("paste image: dropped \(ScreenInput.pasteImageChunkBytes) bytes of an unfinished image"))
+        #expect(backend.paster.pasted.isEmpty)
     }
 
     /// 3 MB: past the channel's 2 MB high-water mark once base64'd, so the send must pace.

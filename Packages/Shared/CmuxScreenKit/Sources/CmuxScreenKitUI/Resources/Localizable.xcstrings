@@ -1,0 +1,24 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "paste.photo.unreadable" : {
+      "comment" : "Shown after the person picks a photo to paste on the Mac when it cannot be read or prepared.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This photo could not be read."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この写真を読み込めませんでした。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
