@@ -64,6 +64,7 @@ import {
   type LinkItem,
 } from "../attachments";
 import { composerCommand } from "../cmuxCommands";
+import { shownResumeReference } from "../resumeCommand";
 import { customizeMessage, newChatRunsElsewhere } from "../customizeCommand";
 import type { UploadResult } from "../cloudUploads";
 import { AttachmentStrip } from "../composer/attachmentIntake";
@@ -1412,6 +1413,10 @@ export function NewTabScreen(props: Props) {
       case "run":
         touch();
         return props.onShell(row.command);
+      case "resume":
+        // The chat composer's `/resume <ref>` (resumeCommand.ts): its refusal shows under the field.
+        touch();
+        return void command.intercept(`/resume ${row.ref}`, harness);
     }
   };
   /// Open in Profile…: the field empties to search the profiles; the rows list them all.
@@ -2880,6 +2885,8 @@ function rowTitle(nt: NewTabTranslate, row: ScreenRow): string {
       return nt("row.launch", { agent: row.agent, folder: homePath(row.folder) });
     case "run":
       return nt("row.runInTerminal");
+    case "resume":
+      return nt("row.resumeChat");
   }
 }
 
@@ -2920,6 +2927,8 @@ function rowDetail(row: ScreenRow): string | undefined {
     case "newProfile":
     case "profile":
       return shortHost(row.url);
+    case "resume":
+      return shownResumeReference(row.ref);
     default:
       return undefined;
   }

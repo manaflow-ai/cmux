@@ -16,7 +16,7 @@ import type { MarkdownFieldElement } from "../MarkdownField";
 import { proseMirrorGlobals } from "../promptFieldTesting";
 import { inlineToken, type ComposerAttachment } from "../attachments";
 import { translate } from "../i18n";
-import { CMUX_PASS_THROUGH } from "../cmuxCommands";
+import { CMUX_PASS_THROUGH, CmuxCommandRefused } from "../cmuxCommands";
 import { seedLastPicks } from "../lastPick";
 import { EMPTY_OMNIBAR } from "../omnibar";
 import { CloudTypingPrewarm, CLOUD_TYPING_PREWARM_REFRESH_MS, cloudTypingMachineID } from "../cloudTypingPrewarm";
@@ -2397,4 +2397,56 @@ test("a key in the New Tab field renders the chips no more", async () => {
     renders.length - before,
     `chips rendered again for 4 keys, props that changed: ${JSON.stringify(changed)}`,
   ).toBe(0);
+});
+
+// User 2026-11-20: "resuming claude sessions needs to 'just work'". `/resume <id>` in the New Tab field
+// offered `file:///resume%20<id>` on top; a click on it opened a file tab, and a refused resume said "This
+// command requires an active chat" instead of why. The Resume row leads; Return and a click on it run the
+// one /resume path, and its refusal says what the app said.
+test("/resume <id> resumes through the cmux command, by Return or the Resume row, and a refusal says why", async () => {
+  const id = "3224ed6e-c1e0-4741-bc35-60295c2878fb";
+  const commands: unknown[][] = [];
+  const opens: unknown[] = [];
+  const asks: unknown[] = [];
+  let answer: () => Promise<void> = () => Promise.resolve();
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat()}
+        onAsk={(...args) => void asks.push(args)}
+        onOpen={(url: string) => void opens.push(url)}
+        onCmuxCommand={(command, args) => (commands.push([command.action, args]), answer())}
+      />,
+    );
+  });
+  let field = await typePrompt(`/resume ${id}`);
+  const rows = [...document.querySelectorAll<HTMLElement>(".nt-row")];
+  expect(rows[0]?.dataset.type).toBe("resume");
+  expect(rows.some((row) => row.textContent?.includes("file://"))).toBe(false);
+  await press(field, "Enter");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(commands).toEqual([["resume", id]]);
+  // A pasted session id: its Resume row, clicked, runs the same command.
+  field = await typePrompt(id);
+  const resume = document.querySelector<HTMLElement>('.nt-row[data-type="resume"]')!;
+  await act(async () =>
+    resume.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+  );
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(commands).toEqual([
+    ["resume", id],
+    ["resume", id],
+  ]);
+  // No chat has the id: the page says the app's reason and keeps what was typed.
+  const unknown = "deadbeef-0000-4000-8000-000000000000";
+  answer = () => Promise.reject(new CmuxCommandRefused(`No chat on this Mac has the session ${unknown}.`));
+  field = await typePrompt(`/resume ${unknown}`);
+  await press(field, "Enter");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(container.textContent).toContain(`No chat on this Mac has the session ${unknown}.`);
+  expect(container.textContent).not.toContain(translate("composer.cmuxUnavailable"));
+  expect(promptValue(field)).toBe(`/resume ${unknown}`);
+  expect(opens).toEqual([]);
+  expect(asks).toEqual([]);
 });
