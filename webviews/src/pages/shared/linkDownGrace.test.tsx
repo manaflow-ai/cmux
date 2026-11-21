@@ -137,6 +137,121 @@ test("Passwords: a lost link keeps the list and says so only once it lasts", asy
   });
 });
 
+/// One page, one dropped link: what the page shows is the same text before and after the bound
+/// (nothing wiped, no sentence in its place), plus the chip, and no chip before the bound.
+async function keepsContentWhenDown(
+  element: HTMLElement,
+  message: string,
+  drop: () => Promise<void>,
+  connectionOf: () => string,
+): Promise<void> {
+  const shown = () => element.textContent!.replace(message, "");
+  const before = shown();
+  expect(before.length).toBeGreaterThan(0);
+  await drop();
+  expect(connectionOf()).toBe("disconnected");
+  await advance(CONNECTION_QUIET_MS - 100);
+  expect(element.querySelector("[data-connection-chip]")).toBeNull();
+  expect(shown()).toBe(before);
+  await advance(200);
+  const chip = element.querySelector("[data-connection-chip]");
+  expect(chip).not.toBeNull();
+  expect(chip!.getAttribute("title")).toBe(message);
+  expect(shown()).toBe(before);
+}
+
+function sizedForLists() {
+  installVirtualSizes(dom.window, (element) => (/scroll|list/.test(element.className) ? 600 : 30));
+}
+
+test("History: a lost link keeps the rows and says so only once it lasts", async () => {
+  sizedForLists();
+  const { HistoryPage } = await import("../history/HistoryPage");
+  const { HistoryStore } = await import("../history/store");
+  const { MockHistoryProvider } = await import("../history/mockProvider");
+  const strings = createStrings((await import("../history/generated/strings.json")).default);
+  const provider = new MockHistoryProvider();
+  const store = new HistoryStore(provider);
+  await mounted(<HistoryPage store={store} strings={strings} />, (element) =>
+    keepsContentWhenDown(
+      element,
+      strings.t("page.disconnected"),
+      () =>
+        act(async () => {
+          provider.page.setConnected(false);
+          await settle();
+        }),
+      () => store.getSnapshot().connection,
+    ),
+  );
+});
+
+test("Stash: a lost link keeps the rows and says so only once it lasts", async () => {
+  sizedForLists();
+  const { StashPage } = await import("../stash/StashPage");
+  const { StashStore } = await import("../stash/store");
+  const { MockStashProvider } = await import("../stash/mockProvider");
+  const strings = createStrings((await import("../stash/generated/strings.json")).default);
+  const provider = new MockStashProvider();
+  const store = new StashStore(provider);
+  await mounted(<StashPage store={store} strings={strings} />, (element) =>
+    keepsContentWhenDown(
+      element,
+      strings.t("stash.disconnected"),
+      () =>
+        act(async () => {
+          provider.page.setConnected(false);
+          await settle();
+        }),
+      () => store.getSnapshot().connection,
+    ),
+  );
+});
+
+test("Bookmarks: a lost link keeps the rows and says so only once it lasts", async () => {
+  sizedForLists();
+  const { BookmarksPage } = await import("../bookmarks/BookmarksPage");
+  const { BookmarksStore } = await import("../bookmarks/store");
+  const { MockBookmarksProvider } = await import("../bookmarks/mockProvider");
+  const strings = createStrings((await import("../bookmarks/generated/strings.json")).default);
+  const provider = new MockBookmarksProvider();
+  const store = new BookmarksStore(provider);
+  await mounted(<BookmarksPage store={store} strings={strings} />, (element) =>
+    keepsContentWhenDown(
+      element,
+      strings.t("page.disconnected"),
+      () =>
+        act(async () => {
+          provider.streams.setConnected(false);
+          await settle();
+        }),
+      () => store.getSnapshot().connection,
+    ),
+  );
+});
+
+test("Apps: a lost link keeps the listings and says so only once it lasts", async () => {
+  sizedForLists();
+  const { AppsPage } = await import("../apps/AppsPage");
+  const { AppsStore } = await import("../apps/store");
+  const { MockAppsProvider } = await import("../apps/mockProvider");
+  const strings = createStrings((await import("../apps/generated/strings.json")).default);
+  const provider = new MockAppsProvider();
+  const store = new AppsStore(provider);
+  await mounted(<AppsPage store={store} strings={strings} />, (element) =>
+    keepsContentWhenDown(
+      element,
+      strings.t("store.disconnected"),
+      () =>
+        act(async () => {
+          provider.page.setConnected(false);
+          await settle();
+        }),
+      () => store.getSnapshot().connection,
+    ),
+  );
+});
+
 test("CodeRouter: a page with nothing read yet stays blank, not 'not available', until the loss lasts", async () => {
   const { CodeRouterPage } = await import("../coderouter/CodeRouterPage");
   const { CodeRouterStore } = await import("../coderouter/store");
