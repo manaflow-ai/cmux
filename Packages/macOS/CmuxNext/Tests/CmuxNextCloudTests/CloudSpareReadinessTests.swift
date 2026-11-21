@@ -71,7 +71,7 @@ import Testing
                     if let dialGate { for await _ in dialGate { break } }
                     return isDialed
                 }, end: { _ = ends.yield(machine) })
-            })
+            }, team: { nil })
         }
 
         /// A serve that never starts: nothing here asks for its socket.
@@ -335,6 +335,46 @@ import Testing
         await readiness.settled("vm_spare")
         #expect(readiness.link(for: "vm_spare", team: "team_b") == nil)
         #expect(await firstValue(world.ended) == "vm_spare")
+    }
+
+    /// A prime that names no team links in ``CloudSpareReadiness/Dependencies/team`` (the install token's), the team the
+    /// claim's record is in, so the claim takes it; the App's active team (another one) would have ended it.
+    @Test func aPrimeWithNoTeamLinksInTheSparesTeamAndTheClaimTakesIt() async {
+        let world = World()
+        var dependencies = world.dependencies()
+        var linkedTeams: [String?] = []
+        let link = dependencies.link
+        dependencies.link = { machine, team in linkedTeams.append(team); return link(machine, team) }
+        dependencies.team = { "team_install" }
+        let readiness = CloudSpareReadiness(dependencies)
+        readiness.prime("vm_spare")
+        await readiness.settled("vm_spare")
+        #expect(linkedTeams == ["team_install"])
+        // The wire's prime (no team either) keeps the one link.
+        readiness.prime("vm_spare")
+        await readiness.settled("vm_spare")
+        #expect(world.links == ["vm_spare"])
+        #expect(readiness.link(for: "vm_spare", team: "team_install") != nil)
+    }
+
+    /// The claim asks for the link while its prime still reads the team (a token mint): the claim links its own, so the
+    /// prime dials no second serve nobody would take; the keying goes on beside it.
+    @Test func aClaimDuringTheTeamReadLeavesThePrimeLinkingNothing() async {
+        let world = World()
+        var dependencies = world.dependencies()
+        var claim: @MainActor () -> Void = {}
+        dependencies.team = { claim(); return "team_install" }
+        let readiness = CloudSpareReadiness(dependencies)
+        claim = { #expect(readiness.link(for: "vm_spare", team: "team_install") == nil) }
+        readiness.prime("vm_spare")
+        await readiness.settled("vm_spare")
+        #expect(world.links.isEmpty)
+        #expect(world.keys == ["vm_spare"])
+        // A later prime (the next warm) links again.
+        claim = {}
+        readiness.prime("vm_spare")
+        await readiness.settled("vm_spare")
+        #expect(world.links == ["vm_spare"])
     }
 
     @Test func aLinkPastItsKeepIsEndedNotTaken() async {
