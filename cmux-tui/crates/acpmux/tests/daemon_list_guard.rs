@@ -136,13 +136,17 @@ fn write_chats(home: &Path) {
 
 /// The rows of the list reply `first` and of each page after it: a list past one reply page
 /// comes in pages, each with the `nextCursor` of the rest (`server/list_reply.rs`), and a
-/// client that wants every row follows it.
+/// client that wants every row follows it. No chat is on two pages, so a count of the rows is
+/// a count of the chats.
 fn with_rest(rpc: &mut Rpc, first: Value) -> Vec<Value> {
     let (mut rows, mut page, mut cursor) = (Vec::new(), first, Value::Null);
     loop {
         rows.extend(page["sessions"].as_array().unwrap().iter().cloned());
         let next = page["nextCursor"].clone();
         if next.is_null() {
+            let ids: std::collections::BTreeSet<&str> =
+                rows.iter().map(|s| s["sessionId"].as_str().unwrap()).collect();
+            assert_eq!(ids.len(), rows.len(), "a chat is on two pages of one list");
             return rows;
         }
         assert_ne!(next, cursor, "the list's cursor did not move past a page");
