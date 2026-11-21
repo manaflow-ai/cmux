@@ -338,8 +338,8 @@ final class ListStressRig: NSObject {
         let probe = ListApplyProbe.shared
         probe.counting = true
         probe.onSlowApply = { [weak self, log] line in
-            let tick = self?.liveTick ?? (0, "")
-            log.notice("FRAMELOG list-stress slow \(line, privacy: .public) tick=\(tick.tick, privacy: .public) row=\(tick.row, privacy: .public)")
+            let (tick, row) = self?.liveTick ?? (0, "")
+            log.notice("FRAMELOG list-stress slow \(line, privacy: .public) tick=\(tick, privacy: .public) row=\(row, privacy: .public)")
         }
         live = Task { @MainActor [weak self] in
             var tick = 0
@@ -356,7 +356,7 @@ final class ListStressRig: NSObject {
                 if CACurrentMediaTime() - second >= 1 {
                     second = CACurrentMediaTime()
                     let counts = probe.takeCounts().sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
-                    log.notice("FRAMELOG list-stress live-second tick=\(tick, privacy: .public) \(counts, privacy: .public)")
+                    self?.log.notice("FRAMELOG list-stress live-second tick=\(tick, privacy: .public) \(counts, privacy: .public)")
                 }
                 store.workspaces = next
             }
