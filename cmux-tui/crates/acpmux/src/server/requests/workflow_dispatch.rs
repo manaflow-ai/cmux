@@ -322,14 +322,13 @@ pub(super) async fn local(
         _ => {
             // Forwarding metadata is already attached by dispatch_brief.
             new_params.set("mcpServers", json!([]));
-            Box::pin(dispatch_request_with_identity(
+            request_on_own_task(
                 hub,
                 conn,
                 method::SESSION_NEW,
                 new_params,
-                None,
                 Some(identity.session_id.clone()),
-            ))
+            )
             .await?;
             hub.resolve(&identity.session_id)?
         }
