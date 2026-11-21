@@ -31,7 +31,9 @@ pub(crate) fn match_agent_session_id(agent_id: Option<&str>, key: &str) -> Optio
 }
 
 pub(crate) fn agent_id_query(key: &str) -> bool {
-    key.len() >= 6 && key.bytes().all(|b| b.is_ascii_hexdigit())
+    key.len() >= 6
+        && key.bytes().filter(|b| b.is_ascii_hexdigit()).count() >= 6
+        && key.bytes().all(|b| b.is_ascii_hexdigit() || matches!(b, b'-' | b'_' | b'.'))
 }
 
 /// The identity receipt for one observed mux session.

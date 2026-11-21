@@ -117,15 +117,16 @@ fn id_prefix_distance(name: &str, key: &str) -> Option<usize> {
             return None;
         }
     }
-    let name_id = name.rsplit('/').next().unwrap_or(name).split(['-', '_', '.']).next()?;
-    if name_id.len() < key_id.len() || !name_id.bytes().all(|b| b.is_ascii_hexdigit()) {
+    let key_hex: Vec<u8> = key_id.bytes().filter(|b| b.is_ascii_hexdigit()).collect();
+    let name_id = name.rsplit('/').next().unwrap_or(name);
+    let name_hex: Vec<u8> = name_id.bytes().filter(|b| b.is_ascii_hexdigit()).collect();
+    if name_hex.len() < key_hex.len() {
         return None;
     }
-    let distance = name_id
-        .as_bytes()
+    let distance = name_hex
         .iter()
-        .zip(key_id.as_bytes())
-        .take(key_id.len())
+        .zip(key_hex.iter())
+        .take(key_hex.len())
         .filter(|(candidate, wanted)| !candidate.eq_ignore_ascii_case(wanted))
         .count();
     (distance <= 2).then_some(distance)
@@ -201,6 +202,12 @@ mod tests {
             candidates(["cosmic-gray/6e0bad7d-1100"], "cosmic-gray/6e0bad7e"),
             ["cosmic-gray/6e0bad7d-1100"]
         );
+    }
+
+    #[test]
+    fn candidates_include_nearby_full_uuid_ids() {
+        let id = "6e0bad7d-1100-4000-8000-000000000001";
+        assert_eq!(candidates([id], "6e0bad7e-1100-4000-8000-000000000001"), [id]);
     }
 
     #[test]

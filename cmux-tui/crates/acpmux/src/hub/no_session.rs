@@ -140,7 +140,9 @@ impl Hub {
         }
         let (host, name) = match key.split_once('/') {
             Some((host, rest))
-                if !rest.is_empty() && super::own_host::is_own_machine_name(host) =>
+                if !rest.is_empty()
+                    && (host.eq_ignore_ascii_case(crate::session_identity::LOCAL_HOST_ID)
+                        || super::own_host::is_own_machine_name(host)) =>
             {
                 (host.to_owned(), rest)
             }
@@ -311,5 +313,54 @@ mod tests {
         assert!(data["candidates"].as_array().is_some_and(|candidates| {
             candidates.iter().any(|candidate| candidate == "abcdef0123456789")
         }));
+    }
+
+    #[test]
+    fn full_uuid_typos_include_agent_ids_in_diagnostics() {
+        let hub = Hub::new(
+            crate::config::Config::default(),
+            Box::new(crate::store::MemoryStore::default()),
+        );
+        let meta: crate::store::SessionMeta = serde_json::from_value(serde_json::json!({
+            "schema": crate::store::META_SCHEMA,
+            "id": "mux-session",
+            "name": "lane",
+            "harness": "claude",
+            "cwd": "/tmp",
+            "status": "idle",
+            "agentSessionId": "6e0bad7d-1100-4000-8000-000000000001",
+            "createdAt": 1,
+            "updatedAt": 1,
+        }))
+        .unwrap();
+        let session = hub.make_session(meta);
+        hub.sessions.lock().unwrap().insert(session.id.clone(), session);
+
+        let (_, data) = hub.no_session_text("6e0bad7e-1100-4000-8000-000000000001");
+        assert_eq!(data["candidates"], serde_json::json!(["6e0bad7d-1100-4000-8000-000000000001"]));
+    }
+
+    #[test]
+    fn local_qualified_diagnostics_use_local_sessions() {
+        let hub = Hub::new(
+            crate::config::Config::default(),
+            Box::new(crate::store::MemoryStore::default()),
+        );
+        let meta: crate::store::SessionMeta = serde_json::from_value(serde_json::json!({
+            "schema": crate::store::META_SCHEMA,
+            "id": "mux-session",
+            "name": "review-lane",
+            "harness": "claude",
+            "cwd": "/tmp",
+            "status": "idle",
+            "createdAt": 1,
+            "updatedAt": 1,
+        }))
+        .unwrap();
+        let session = hub.make_session(meta);
+        hub.sessions.lock().unwrap().insert(session.id.clone(), session);
+
+        let (_, data) = hub.no_session_text("local/review-lan");
+        assert_eq!(data["candidates"], serde_json::json!(["review-lane"]));
     }
 }
