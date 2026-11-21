@@ -1,0 +1,127 @@
+{
+  "version": 1,
+  "build": "4492858484101",
+  "notes": "notes/4492858484101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 49108,
+      "title": "wsfactory warm: nearest-commit warm build trees per seat, callable step and harness",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48973,
+      "title": "cloud-flows: repeatable onboarding flow files with video, starting with GitHub connect",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47844,
+      "title": "Host glass: plain tooltips draw on the chip level's native glass, and a drawn surface lays no border of its own",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49105,
+      "title": "customize demo: open the New Tab page itself, so each look's own page shows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47862,
+      "title": "fix(next): a missing idleMinutes holds the update for 15 minutes, not 1",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/47862/hv-30e1a6621dc8-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 47889,
+      "title": "Cloud: a Worker machine's client session stays in daemon memory, so an exec doesn't mint first",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49007,
+      "title": "ci: write-token, ephemeral-required and fork pool readers read ephemeral_only linux_4",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47159,
+      "title": "Agent composer refresh behind Settings > Advanced > Experiments (off by default)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47244,
+      "title": "Extension hot reload proof: rows, pane, command and shortcut cases in edit-repaint, and a NIGHTLY read-back",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48989,
+      "title": "Needs your input: draw the wrap-up card the moment its call returns",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48916,
+      "title": "chat-size-ratio.py: one chat at 1 MB to 4 GB, five axes, each over the 1 MB chat's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49078,
+      "title": "acpmux: a task its own agent stops sends no end notice (the stop's answer told it)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49088,
+      "title": "ci-v2 step 3: delete 15 feat-cmux-next workflow copies that cannot run there",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48960,
+      "title": "ci: run nothing for a base merge into a PR idle 24 h",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47266,
+      "title": "coord-sim drive: stand-in agents and live load against an isolated acpmux daemon",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/47266/hv-e979d9559923-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 49072,
+      "title": "ci: pull request workflows start only for their inputs (v2 of #47267)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48857,
+      "title": "cmux-api: repositories the linking user adds to the GitHub App reach the connection",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47100,
+      "title": "cmux-projection: a projected checkout of a git commit for lane VMs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48924,
+      "title": "cmux cloud connect: add Claude, API key and ChatGPT model connections from the CLI",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
