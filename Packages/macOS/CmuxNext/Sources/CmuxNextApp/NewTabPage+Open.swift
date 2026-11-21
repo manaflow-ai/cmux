@@ -300,28 +300,14 @@ extension NewTabPage {
         }
         let list = NativeNewTabList(services.newTabActions)
         let actions = nativeActions(key, cwd: page.cwd, pane: pane, list: list)
-        let faviconRevision: NativeNewTabModel.FaviconRevision = { [weak services] in
-            guard let services else { return 0 }
-            return services.favicons.revision &+ services.bookmarks.generation
-        }
-        let faviconPage: NativeNewTabModel.FaviconPage = { [weak services] current in
-            guard let services else { return current }
-            var refreshed = current
-            let snapshot = Self.omnibar(services, excluding: key, paletteActions: false)
-            refreshed.omnibar.tabs = snapshot.tabs
-            refreshed.omnibar.history = snapshot.history
-            refreshed.omnibar.bookmarks = snapshot.bookmarks
-            return refreshed
-        }
+        let favicons = NativeNewTabFavicons(revision: { [weak services] in services.map { $0.favicons.revision &+ $0.bookmarks.generation } ?? 0 }, page: { [weak services] current in services.map { current.refreshingSuggestions(Self.omnibar($0, excluding: key, paletteActions: false)) } ?? current })
         // Cmd-T took the prepared page: it takes this tab's context, already laid out.
         if let spare = services.newTabSpares.claimNative(key), let model = spare.model {
-            model.adopt(page: page, actions: actions, list: list, chats: services.agentTabs.pageChats.chats)
-            model.setFaviconSource(revision: faviconRevision, page: faviconPage)
+            model.adopt(page: page, actions: actions, list: list, chats: services.agentTabs.pageChats.chats, favicons: favicons)
             closeFrame.scheduleFrame { closeFrame.scheduleFrameFromMain { [weak model] in model?.loadPaletteActions() } }
             return spare
         }
-        let model = NativeNewTabModel(page: page, actions: actions, list: list, chats: services.agentTabs.pageChats.chats,
-                                      faviconRevision: faviconRevision, faviconPage: faviconPage)
+        let model = NativeNewTabModel(page: page, actions: actions, list: list, chats: services.agentTabs.pageChats.chats, favicons: favicons)
         closeFrame.scheduleFrame { closeFrame.scheduleFrameFromMain { [weak model] in model?.loadPaletteActions() } }
         let host = NativeNewTabView.hosted(model)
         // The page counts as shown (leaving it ends the hold) only once its field exists: until then

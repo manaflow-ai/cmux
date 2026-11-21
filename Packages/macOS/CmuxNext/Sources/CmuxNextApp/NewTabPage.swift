@@ -56,20 +56,13 @@ enum NewTabPage {
     /// and recent pages, newest first.
     static func omnibar(_ services: AppServices, excluding selectedID: String?, paletteActions: Bool = true) -> AgentPaneOmnibar {
         let (tabs, workspaces, folders) = places(services, excluding: selectedID)
-        let history = services.cache.history(for: .default).entries.prefix(AgentPaneOmnibar.maximumEntries).map {
-            AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title, icon: AppServices.dataURL(services.siteFavicon($0.url, profile: .default)))
-        }
-        let bookmarks = services.bookmarks.tree(BrowserProfileRecord.defaultID).bookmarks.prefix(AgentPaneOmnibar.maximumEntries).compactMap { bookmark -> AgentPaneOmnibar.Page? in
-            guard let url = bookmark.url else { return nil }
-            let icon = services.bookmarks.favicon(of: bookmark, profile: BrowserProfileRecord.defaultID, fetching: true)
-            return AgentPaneOmnibar.Page(url: url.absoluteString, title: bookmark.displayTitle, icon: AppServices.dataURL(icon))
-        }
+        let history = services.cache.history(for: .default).entries.prefix(AgentPaneOmnibar.maximumEntries).map { AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title, icon: AppServices.dataURL(services.siteFavicon($0.url, profile: .default))) }
+        let bookmarks = services.bookmarks.tree(BrowserProfileRecord.defaultID).bookmarks.prefix(AgentPaneOmnibar.maximumEntries).compactMap { b in b.url.map { AgentPaneOmnibar.Page(url: $0.absoluteString, title: b.displayTitle, icon: AppServices.dataURL(services.bookmarks.favicon(of: b, profile: BrowserProfileRecord.defaultID, fetching: true))) } }
         let commands = services.history.commands.entries().prefix(AgentPaneOmnibar.maximumEntries).compactMap(\.title)
         // Every Commands palette (Cmd-Shift-P) action, from the palette's own rows (one source).
         let actions = paletteActions ? Self.paletteActions(services) : []
         return AgentPaneOmnibar(
-            tabs: tabs, workspaces: workspaces, folders: folders, projects: folders, actions: actions,
-            commands: Array(commands), history: Array(history), bookmarks: Array(bookmarks),
+            tabs: tabs, workspaces: workspaces, folders: folders, projects: folders, actions: actions, commands: Array(commands), history: Array(history), bookmarks: Array(bookmarks),
             uses: pickHistory(services),
             profiles: services.browserProfiles.ordered.map { .init(id: $0.id, name: $0.name, color: $0.color) }
         )

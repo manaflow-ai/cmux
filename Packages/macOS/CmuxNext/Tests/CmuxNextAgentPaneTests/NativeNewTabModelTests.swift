@@ -45,11 +45,11 @@ struct NativeNewTabModelTests {
     @Test func faviconRefreshChangesOnlyTheHostSnapshot() {
         var page = Self.page()
         page.omnibar.history = [AgentPaneOmnibar.Page(url: "https://swift.org/", title: "Swift")]
-        let model = NativeNewTabModel(page: page, actions: NativeNewTabActions(), faviconPage: { current in
+        let model = NativeNewTabModel(page: page, actions: NativeNewTabActions(), favicons: NativeNewTabFavicons(revision: { 0 }, page: { current in
             var refreshed = current
             refreshed.omnibar.history[0].icon = "data:image/png;base64,AAAA"
             return refreshed
-        })
+        }))
         model.refreshFaviconPage()
         #expect(model.page.omnibar.history[0].icon == "data:image/png;base64,AAAA")
         #expect(model.text.isEmpty)
