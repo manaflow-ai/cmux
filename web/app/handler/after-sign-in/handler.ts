@@ -559,7 +559,7 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
     }
 
     const nativeReturnTo = request.nextUrl.searchParams.get("native_app_return_to");
-    if (refreshToken && accessCookie && nativeReturnTo !== null) {
+    if (refreshToken && accessToken && accessCookie && nativeReturnTo !== null) {
       return nativeReturnFlow(request, stackCookies, nativeReturnTo, refreshToken, accessCookie, localizedMessages);
     }
 
