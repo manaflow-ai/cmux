@@ -18,7 +18,7 @@ const done = (text: string) => thought(text, { startedAt: 0, endedAt: 4_000 });
 const search = (n: number) => tool(`Search pattern${n}`, "search", "completed");
 const read = (n: number) =>
   tool(`Read file${n}.ts`, "read", "completed", { locations: [{ path: `/Users/you/src/atlas-web/file${n}.ts` }] });
-const settled = (items: ReturnType<typeof done>[] | ReturnType<typeof tool>[], working = false) =>
+const settled = (items: ReturnType<typeof tool>[], working = false) =>
   chat(
     [
       user(PROMPT, 2),

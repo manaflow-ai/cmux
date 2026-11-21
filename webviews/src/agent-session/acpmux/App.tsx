@@ -4533,7 +4533,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       snapshot.sessionId,
       stableBranches,
       runningBranchSessions,
-      forkable,
       turnForkable,
       forkSeq,
       forkAny,
