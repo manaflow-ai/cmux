@@ -89,6 +89,7 @@
         "sidebar.stepping",
         "sidebar.steppingWraps",
         "sidebar.side",
+        "sidebar.look",
         "sidebar.style",
         "sidebar.spacesPosition",
         "sidebar.spacesVisibility",
@@ -293,6 +294,7 @@
         "appearance.chromeStyle",
         "appearance.titleAreaTone",
         "appearance.titleAreaContrast",
+        "appearance.cornerFlush",
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",
@@ -758,6 +760,9 @@
         "agentPane.display.senderIcon.corner",
         "agentPane.display.font.preset",
         "agentPane.display.font.ui",
+        "agentPane.display.font.uiFamily",
+        "agentPane.display.font.proseFamily",
+        "agentPane.display.font.faces",
         "agentPane.display.font.size",
         "agentPane.display.font.lineHeight",
         "agentPane.display.code.family",
@@ -1281,7 +1286,7 @@
     },
     {
       "agent": "userOnly",
-      "why": "On, Settings edits the MCP servers, skills and commands in Claude Code's and Codex's own config files: only the person turns that on.",
+      "why": "On, Settings shows and edits Claude Code's and Codex's own settings, MCP servers, skills, commands and hooks in their own config files: only the person turns that on.",
       "keys": [
         "labs.agentCustomization"
       ]
