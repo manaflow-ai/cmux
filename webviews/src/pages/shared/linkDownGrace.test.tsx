@@ -15,6 +15,8 @@ import { installVirtualSizes } from "../../../test/support/virtualSizes";
 import { createStrings } from "./i18n";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
+// jsdom draws no layout, so it has no scrollIntoView; the Bookmarks tree reveals its selected row with it.
+dom.window.HTMLElement.prototype.scrollIntoView = () => undefined;
 const globals = globalThis as Record<string, unknown>;
 const replacements = {
   window: dom.window,
