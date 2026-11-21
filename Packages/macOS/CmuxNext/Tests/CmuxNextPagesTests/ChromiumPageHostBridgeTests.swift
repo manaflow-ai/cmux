@@ -161,6 +161,15 @@ struct ChromiumPageHostBridgeTests {
         #expect(!bridge.runtimeEnabled)
     }
 
+    @Test func aCommitCanResendInputReadinessAfterReaddingTheBinding() async throws {
+        let page = FakeChromiumPage()
+        let bridge = ChromiumPageHostBridge(page: page)
+        try await bridge.setUp(documentScripts: [])
+        let sent = await calls(page, count: 3) { bridge.documentCommitted(resendInputReadiness: true) }
+        #expect(sent == ["Runtime.disable", "Runtime.addBinding", "Runtime.evaluate"])
+        #expect(page.calls.last?.params["expression"] as? String == "globalThis.__cmuxInputReadyResend?.();")
+    }
+
     /// A reload and a navigation the app starts each turn the Runtime domain on (and add the binding,
     /// which `Runtime.disable` dropped) before the page navigates, and their commits turn it off again:
     /// every navigation follows enable, navigate, commit, disable. Measured: with the domain off at a
