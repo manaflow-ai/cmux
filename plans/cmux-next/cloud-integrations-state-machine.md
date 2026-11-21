@@ -1,7 +1,7 @@
 # Cloud integrations: the state machines
 
 Status: written 2026-11-21 from the code on `feat-cmux-next` and cmux-platform `main` (1c739cd1), while
-dogfooding the Cloud integrations end to end. Leo, 2026-11-21: "the fucking stateful state machines in order to
+dogfooding the Cloud integrations end to end. Leo, 2026-11-21: "the f***ing stateful state machines in order to
 fully properly deal with cloud, like having that mapped out ... do you want to be able to like do it without the
 GitHub account linked? Maybe, maybe not."
 
