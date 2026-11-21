@@ -57,6 +57,12 @@ def repo(tmp: str, files: dict[str, str]) -> Path:
     for helper in ("select_package_tests.py", "focused_tests.py", "car_guards.py", "cmux_next_route.py",
                    "ci_process_tree.py", "gh_expressions.py", "nightly-next-car-guard.sh", "car-guard-python.sh"):
         write(root, {f"scripts/ci/{helper}": (ROOT / "scripts/ci" / helper).read_text(encoding="utf-8")})
+    # cmux_next_route reads these committed routing inputs even for a small fixture.
+    # Keep the fixture's helper checkout aligned with the production router instead of
+    # making every focused-test case recreate the full repository tree.
+    for path in ("scripts/ci/affected-jobs.json", "scripts/cmux-next/cmux-tui-tree-inputs.txt",
+                 "Packages/macOS/CmuxNext/ci-target-graph.json"):
+        write(root, {path: (ROOT / path).read_text(encoding="utf-8")})
     write(root, files)
     git(root, "init", "-q")
     git(root, "add", "-A")
