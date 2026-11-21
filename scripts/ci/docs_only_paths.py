@@ -97,7 +97,6 @@ WORKFLOWS: tuple[str, ...] = (
     ".github/workflows/cmux-next-guards.yml",
     ".github/workflows/cmux-next-pr-autofix.yml",
     ".github/workflows/cmux-next-size-budget.yml",
-    ".github/workflows/cmux-next-tab-switch.yml",
     ".github/workflows/pr-checks.yml",
     ".github/workflows/rust-workspaces.yml",
     ".github/workflows/web-validation.yml",

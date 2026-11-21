@@ -5,7 +5,7 @@ import Foundation
 enum ExtensionStrings {
     static var needsChromiumTab: String { String(localized: "extensions.failed.needsChromiumTab", defaultValue: "Focus a Chromium tab first; extensions run in Chromium tabs.", table: "Extensions", bundle: .module) }
     static var needsFork: String { String(localized: "extensions.failed.needsFork", defaultValue: "Extensions can't be changed from here. Use Manage Extensions.", table: "Extensions", bundle: .module) }
-    static var needsPane: String { String(localized: "extensions.failed.needsPane", defaultValue: "No pane is focused.", table: "Extensions", bundle: .module) }
+    static var needsPane: String { String(localized: "extensions.failed.needsPane", defaultValue: "Click a tab first, then try again.", table: "Extensions", bundle: .module) }
     static var refused: String { String(localized: "extensions.failed.refused", defaultValue: "Couldn't change this extension. Try it in Manage Extensions.", table: "Extensions", bundle: .module) }
     static var noOptions: String { String(localized: "extensions.failed.noOptions", defaultValue: "This extension has no options page.", table: "Extensions", bundle: .module) }
     static var commandFailed: String { String(localized: "extensions.failed.command", defaultValue: "The extension shortcut could not run.", table: "Extensions", bundle: .module) }
