@@ -2806,6 +2806,8 @@ def test_sweep_runs_after_the_markers_on_every_feat_push_without_waiting():
     assert "fetch-depth: 41" in job
     script = (ROOT / "scripts/ci/cmux_tui_manifest_sweep.py").read_text()
     assert "sleep" not in script and "time.sleep" not in script
+    # One job, not the whole run (2026-11-21: a whole-run re-run of a feat push re-ran this sweep too).
+    assert "handoff.rerun_manifest(" in script and '"run", "rerun", str(run_id)' not in script
     # The re-run's own workflow must carry the adopt job the sweep looks for.
     assert "\n  adopt-commit-manifest:\n" in artifacts
 
