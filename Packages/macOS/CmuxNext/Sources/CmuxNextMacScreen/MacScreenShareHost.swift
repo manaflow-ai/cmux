@@ -20,6 +20,9 @@ import SystemConfiguration
 public final class MacScreenShareHost {
     public private(set) var screenRecordingGranted = false
     public private(set) var accessibilityGranted = false
+    /// The last read answered (a failed or unavailable probe did not): only then does a missing
+    /// Screen Recording grant turn sharing off by itself (MacScreenHubHost+DefaultSharing).
+    public private(set) var permissionsKnown = false
     /// The name System Settings lists the two grants under: the helper's
     /// ("cmux NIGHTLY Screen Sharing"), or nil while unknown and in a build
     /// without the helper (then they are this app's own).
@@ -111,6 +114,7 @@ public final class MacScreenShareHost {
         grantHolderName = holder?.name
         screenRecordingGranted = granted?.screen ?? false
         accessibilityGranted = granted?.control ?? false
+        permissionsKnown = granted != nil
     }
 
     /// The helper, found once on the system lane; nil in a build without one.
