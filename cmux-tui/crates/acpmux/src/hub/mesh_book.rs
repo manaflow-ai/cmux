@@ -328,14 +328,22 @@ impl Hub {
             .iter()
             .map(|(host, seen)| {
                 let count = book.rows.values().filter(|(_, r)| &r.peer == host).count();
-                json!({
+                let mut row = json!({
                     "name": host,
                     "connected": true,
                     "state": "connected",
                     "via": "hub",
                     "lastSeen": seen,
                     "sessions": count,
-                })
+                });
+                #[cfg(feature = "hub-carrier")]
+                if let Some((daemon_id, _)) =
+                    book.machines.iter().find(|(_, machine_host)| machine_host == &host)
+                {
+                    row["machineId"] = json!(daemon_id);
+                    row["daemonId"] = json!(daemon_id);
+                }
+                row
             })
             .collect()
     }
