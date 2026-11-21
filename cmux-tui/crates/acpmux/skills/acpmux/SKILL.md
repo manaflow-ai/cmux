@@ -141,6 +141,9 @@ cmux agent send NAME --no-wait --notice --severity fire --title "fast tier faile
 cmux agent send MACHINE/NAME "see" --attach shot.png     # send files with it (repeatable; no scp): images reach the agent and transcript as images, other files as a link; saved 0600 on the session's host; any size and number (large ones are uploaded in chunks first)
 cmux agent last NAME [-n 3]                            # last reply text
 cmux agent history NAME                                # one line per turn: prompt, status, tools, tokens, wall time
+cmux agent bg start 'make test'                         # inside a session, start a background shell command
+cmux agent bg list                                     # show this session's background tasks
+cmux agent notices                                     # read this session's inbox threads
 cmux agent search "cache"                              # every authorized session on this host and peers; session, host, UTC Z time, preview
                                                         # reachable hits remain visible; unreachable peers print unavailable with a stable reason
 cmux agent ls [--all] [--wide]                         # live named lanes + STUCK reason; --all: closed/reviewer/sub/unnamed too; --wide: + context, subagents, 24h cost
