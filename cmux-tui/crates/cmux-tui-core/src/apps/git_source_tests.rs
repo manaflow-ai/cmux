@@ -383,3 +383,28 @@ fn engines_read_alternatives_and_refuse_what_they_cannot_parse() {
         assert!(error.contains("is not a range this cmux reads"), "{bad}: {error}");
     }
 }
+
+#[test]
+fn a_failed_git_download_says_a_fixed_sentence_not_gits_stderr() {
+    let dir = std::env::temp_dir().join(format!("cmux-run-git-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let error = run_git(&["definitely-not-a-git-command"], &dir, 1 << 20, deadline).unwrap_err();
+    assert_eq!(error, GIT_DOWNLOAD_FAILED);
+    assert!(!error.contains("definitely-not-a-git-command"));
+    // A deadline already past kills a command that would run on.
+    let past = std::time::Instant::now();
+    let error = run_git(&["daemon", "--help"], &dir, 1 << 20, past);
+    assert!(error.is_ok() || error == Err(GIT_DOWNLOAD_FAILED.to_string()));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_size_count_stops_past_its_cap() {
+    let dir = std::env::temp_dir().join(format!("cmux-dir-bytes-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("a")).unwrap();
+    std::fs::write(dir.join("a/big"), vec![0u8; 4096]).unwrap();
+    assert!(dir_bytes(&dir, 1024) > 1024);
+    assert_eq!(dir_bytes(&dir, 1 << 20), 4096);
+    let _ = std::fs::remove_dir_all(&dir);
+}
