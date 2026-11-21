@@ -595,9 +595,14 @@ try {
   const { build } = await import("vite");
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
+    build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false, sourcemap: true } : {}) },
     logLevel: "error",
   });
+  // PROFILE keeps the build's source maps beside its profiles, to read their lines back as source.
+  const keepMaps = process.env.FAST_CHECKS_OUT ?? process.env.PROFILE_OUT;
+  if (PROFILE && keepMaps)
+    for (const file of fs.readdirSync(path.join(out, "assets")).filter((name) => name.endsWith(".js.map")))
+      fs.copyFileSync(path.join(out, "assets", file), path.join(keepMaps, file));
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
