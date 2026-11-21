@@ -566,6 +566,8 @@ pub enum ResourceOperation {
     ThemeSchemeExport,
     #[serde(rename = "theme.scheme.from_image")]
     ThemeSchemeFromImage,
+    #[serde(rename = "theme.slots.resolve")]
+    ThemeSlotsResolve,
     #[serde(rename = "stash.create")]
     StashCreate,
     #[serde(rename = "stash.list")]

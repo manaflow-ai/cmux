@@ -74,6 +74,9 @@ blob Resources/theme-files/classic-desktop.json
 blob Resources/theme-files/claude-desktop.json
 blob Resources/theme-files/harbor.json
 blob Resources/theme-files/phosphor.json
+# cmux-config checks a theme file's `slots` against the shipped slots
+# (theme_file::slots, theme.slots.resolve).
+blob schemas/theme/slots.json
 # cmux-config embeds the shipped sidebar looks (sidebar_look::shipped).
 blob Resources/sidebar-looks/claude.json
 blob Resources/sidebar-looks/codex.json
