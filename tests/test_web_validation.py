@@ -258,6 +258,12 @@ class WebValidationTests(unittest.TestCase):
         self.assertIn("include: ${{ fromJSON(needs.web-subarea-scope.outputs.react_shards) }}", block)
         scope = workflow[workflow.index("  web-subarea-scope:"):workflow.index("  web-typecheck:")]
         self.assertEqual(int(re.search(r'^          REACT_APPS_SHARDS: "(\d+)"$', scope, re.MULTILINE).group(1)), 12)
+        # A pull request's pick splits in 24, so shard 1 (always run, the verdict's long pole) runs half the share; a
+        # pick of every shard falls back to the push's 12 jobs.
+        self.assertEqual(int(re.search(r'^          REACT_APPS_PR_SHARDS: "(\d+)"$', scope, re.MULTILINE).group(1)), 24)
+        self.assertIn('--count "$REACT_APPS_PR_SHARDS"', scope)
+        self.assertIn('[ "$n" -lt "$REACT_APPS_PR_SHARDS" ]', scope)
+        self.assertIn('--all --count "$count"', scope)
         self.assertIn("react_shards: ${{ steps.react-shards.outputs.matrix }}", scope)
         self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_4 }}", block)
         base_start = workflow.index("  react-apps-base-check:")

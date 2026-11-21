@@ -125,11 +125,18 @@ jobs:
       # request runs shard 1 (the shard-independent checks) and each shard holding a test its change touches; a
       # build or runner input, the full-ci label, a push and a failed pick run all REACT_APPS_SHARDS. The pick reads
       # the duration manifest above with the shards' own widths and head start, so it splits as they will.
+      # A pull request's pick splits in REACT_APPS_PR_SHARDS, so shard 1, the one shard every pull request runs and
+      # the job that ended its verdict, runs half the share of the affected tests. On 2026-11-21 19:59-21:22Z, over 9
+      # same-repository runs on the 8 vCPU slots of cmux-fleet-linux-x64, the slowest shard ran 43.6 min at p50
+      # (Test webviews 33-38 min on shard 1), and CI / web / react-apps-check ended 8 of 14 pull request verdicts
+      # (p50 41.2 min). A pick of every shard (a build input) falls back to REACT_APPS_SHARDS, as a push runs, so it
+      # pays no more job setups than before.
       - name: Pick the react-apps-check shards
         id: react-shards
         if: ${{ steps.scope.outputs.react_apps == 'true' }}
         env:
           REACT_APPS_SHARDS: "12"
+          REACT_APPS_PR_SHARDS: "24"
           FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
           CMUX_WEB_TEST_DURATIONS: ${{ runner.temp }}/webviews-durations/manifest.json
           CMUX_WEB_TEST_JOBS: "8"
@@ -137,19 +144,28 @@ jobs:
           CMUX_WEB_TEST_SHARD_HEAD_START: "1:120"
         run: |
           picked=""
+          count="$REACT_APPS_SHARDS"
           if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$FULL_CI" != true ]; then
-            picked="$(timeout 150 python3 scripts/ci/webviews_pr_shards.py --base HEAD^1 --head HEAD --count "$REACT_APPS_SHARDS" \
-              --direct-out "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json")" || { picked=""; rm -f "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json"; }
+            picked="$(timeout 150 python3 scripts/ci/webviews_pr_shards.py --base HEAD^1 --head HEAD --count "$REACT_APPS_PR_SHARDS" \
+              --direct-out "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json")" || picked=""
+            # Fewer than every shard keeps the narrow split; every shard, or any error, runs the push's.
+            n="$(python3 -c 'import json,sys; print(len(json.loads(sys.argv[1])))' "$picked" 2>/dev/null)" || n=""
+            if [ -n "$n" ] && [ "$n" -lt "$REACT_APPS_PR_SHARDS" ]; then
+              count="$REACT_APPS_PR_SHARDS"
+            else
+              picked=""
+              rm -f "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json"
+            fi
           fi
-          [ -n "$picked" ] || picked="$(python3 scripts/ci/webviews_pr_shards.py --all --count "$REACT_APPS_SHARDS")"
+          [ -n "$picked" ] || picked="$(python3 scripts/ci/webviews_pr_shards.py --all --count "$count")"
           echo "react-apps-check shards: $picked"
           echo "matrix=$picked" >> "$GITHUB_OUTPUT"
           # The files those shards run, for react-apps-base-early (RFD 0023 item 3): only when the pick ran fewer
           # than every shard; any failure leaves no list, and the early job keeps its whole affected list.
           rm -f "$RUNNER_TEMP/webviews-durations/pr-shard-files"
-          shards="$(python3 -c 'import json,sys; m=json.loads(sys.argv[1]); print(",".join(str(e["shard"]) for e in m) if len(m) < int(sys.argv[2]) else "")' "$picked" "$REACT_APPS_SHARDS")" || shards=""
+          shards="$(python3 -c 'import json,sys; m=json.loads(sys.argv[1]); print(",".join(str(e["shard"]) for e in m) if len(m) < int(sys.argv[2]) else "")' "$picked" "$count")" || shards=""
           if [ -n "$shards" ]; then
-            timeout 150 python3 scripts/ci/webviews_pr_shards.py --base HEAD^1 --head HEAD --count "$REACT_APPS_SHARDS" --files-of "$shards" \
+            timeout 150 python3 scripts/ci/webviews_pr_shards.py --base HEAD^1 --head HEAD --count "$count" --files-of "$shards" \
               > "$RUNNER_TEMP/webviews-durations/pr-shard-files.tmp" &&
               mv "$RUNNER_TEMP/webviews-durations/pr-shard-files.tmp" "$RUNNER_TEMP/webviews-durations/pr-shard-files" ||
               rm -f "$RUNNER_TEMP/webviews-durations/pr-shard-files.tmp"
