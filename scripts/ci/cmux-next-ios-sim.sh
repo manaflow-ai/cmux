@@ -69,6 +69,10 @@
 #           KEY=VALUE words are the app's environment, e.g.
 #             --arg shots --arg devices=-cmux-mobile-settings-page,devices \
 #               --arg feed=CMUX_MOBILE_FEED_STRESS=60,-cmux-mobile-tab,feed
+#           A leading `@S,S,...` word (seconds after launch, each 1..60) takes a
+#           screenshot at each of those times instead of the one at 5 s, named
+#           name-LOOK-tS.png, e.g. `chat=@5,20,CMUX_MOBILE_LIST_STRESS=chat-200,...`
+#           to see whether a state is transient or stays.
 #           Run it at the base and at the head for a PR's before and after.
 #   clips   build, plus the What's New clip of one iPhone highlight
 #           (release-notes/next/clips/ID.json with "app": "iphone"): the app
@@ -188,7 +192,18 @@ if [[ "$mode" == shots && $# -eq 2 && "${2:-}" == handoff=* ]]; then
   set -- handoff "tag=${2#handoff=}"
   mode=handoff
 fi
-case "$mode" in build|release-build|test|bench|all|pair-e2e|shots|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy|handoff) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, shots, clips, chief-live-perf, chief-live-perf-baseline, listperf, energy or handoff, got '$mode'" >&2; exit 2 ;; esac
+# stress through the same shots form: `shots stress=KEY:VALUE,...` runs the real-user stress loop
+# (cmux-next-ios/verify/stress): a tagged Mac app built here (as pair-e2e), the simulator app, Codex
+# agents growing each cycle and Feed events, every phone path judged. Keys: cycles, start, add, max,
+# feed (seconds between Feed events), paths (ids joined with +). Example:
+#   --arg shots --arg stress=cycles:4,start:4,add:4,max:24,feed:4
+stress_opts=""
+if [[ "$mode" == shots && $# -eq 2 && "${2:-}" == stress=* ]]; then
+  stress_opts="${2#stress=}"
+  set -- stress
+  mode=stress
+fi
+case "$mode" in build|release-build|test|bench|all|pair-e2e|shots|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy|handoff|stress) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, shots, clips, chief-live-perf, chief-live-perf-baseline, listperf, energy, handoff or stress, got '$mode'" >&2; exit 2 ;; esac
 if [[ "$mode" == release-build && $# -ne 1 ]]; then
   echo "cmux-next-ios-sim.sh: release-build takes no further arguments" >&2; exit 2
 fi
@@ -1348,18 +1363,46 @@ if [[ "$mode" == shots ]]; then
     IFS=',' read -r -a words <<< "${scene#*=}"
     envs=(SIMCTL_CHILD_CMUX_MOBILE_MOCK_AUTH=1)
     args=()
+    times=()
+    if [[ ${#words[@]} -gt 0 && "${words[0]}" =~ ^@[0-9]+$ ]]; then
+      # @S,S,...: the times arrive as the leading words (the scene's commas split them).
+      words[0]="${words[0]#@}"
+      while [[ ${#words[@]} -gt 0 && "${words[0]}" =~ ^[0-9]+$ ]]; do
+        # Decimal 1..60, checked as text after leading zeros go: bash arithmetic reads a leading 0 as octal.
+        while [[ "${words[0]}" == 0?* ]]; do words[0]="${words[0]#0}"; done
+        [[ "${words[0]}" =~ ^([1-9]|[1-5][0-9]|60)$ ]] || { note "- scene '$name': shot time ${words[0]} s is outside 1..60"; words=(); times=(); break; }
+        times+=("${words[0]}"); words=("${words[@]:1}")
+      done
+      [[ ${#times[@]} -gt 0 ]] || continue
+    fi
     for w in ${words[@]+"${words[@]}"}; do
       if [[ ${#args[@]} -eq 0 && "$w" =~ ^[A-Z_][A-Z0-9_]*= ]]; then envs+=("SIMCTL_CHILD_$w"); else args+=("$w"); fi
     done
+    shots=()
     for look in dark light; do
       simctl ui "$udid" appearance "$look" >/dev/null 2>&1 || true
       env "${envs[@]}" xcrun simctl --set "$sims" launch "$udid" "$bundle_id" ${args[@]+"${args[@]}"} >/dev/null
-      # A bounded wait for the scene to draw; demo drivers have no signal to wait on.
-      sleep "${CMUX_NEXT_IOS_SHOT_WAIT:-5}"
-      simctl io "$udid" screenshot "$out/screens/$name-$look.png" >/dev/null
+      if [[ ${#times[@]} -eq 0 ]]; then
+        # A bounded wait for the scene to draw; demo drivers have no signal to wait on.
+        sleep "${CMUX_NEXT_IOS_SHOT_WAIT:-5}"
+        simctl io "$udid" screenshot "$out/screens/$name-$look.png" >/dev/null
+        shots+=("screens/$name-$look.png")
+      else
+        # Each gap since the last mark is slept in full (whole seconds, from the launch's return), so a
+        # shot is never early; the screenshot's own time only makes later shots a little late.
+        prev=0
+        for t in $(printf '%s\n' "${times[@]}" | sort -n -u); do
+          sleep $(( t - prev ))
+          prev=$t
+          simctl io "$udid" screenshot "$out/screens/$name-$look-t$t.png" >/dev/null
+          shots+=("screens/$name-$look-t$t.png")
+        done
+      fi
       simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
     done
-    note "- $name: screens/$name-dark.png, screens/$name-light.png"
+    shot_list="${shots[0]}"
+    for shot in "${shots[@]:1}"; do shot_list+=", $shot"; done
+    note "- $name: $shot_list"
   done
   simctl ui "$udid" appearance dark >/dev/null 2>&1 || true
   note "- screens: $((SECONDS - t0)) s"
@@ -1602,7 +1645,7 @@ if [[ "$mode" == energy ]]; then
 fi
 
 # --- Pairing by QR code ----------------------------------------------------
-if [[ "$mode" == pair-e2e ]]; then
+if [[ "$mode" == pair-e2e || "$mode" == stress ]]; then
   t0=$SECONDS
   # A tag of this run only: its own bundle id, socket, settings and state.
   mac_tag="iospair-$(git rev-parse --short=8 HEAD)-$$"
@@ -1644,6 +1687,48 @@ if [[ "$mode" == pair-e2e ]]; then
   mac_app="$mac_dd/Build/Products/Debug/cmux DEV $mac_tag.app"
   [[ $status -eq 0 && -d "$mac_app" ]] || { tail -60 "$work/mac-build.log"; echo "error: tagged cmux NEXT Mac app build failed" >&2; exit 1; }
   note "- Mac app: $((SECONDS - t0)) s (reload.sh --tag $mac_tag, Debug)"
+fi
+if [[ "$mode" == stress ]]; then
+  t0=$SECONDS
+  # Codex from npm into the step, reaching its model through the fleet's subrouter (a CODEX_HOME of
+  # this step only, so the worker's own Codex settings are never read or changed).
+  node_bin="$(dirname "$(command -v node 2>/dev/null || ls -d "$HOME"/.local/share/cmux-node/node-*/bin/node 2>/dev/null | tail -1)")"
+  PATH="$node_bin:$PATH" npm install -g --silent @openai/codex --prefix "$work/npm" >"$work/npm.log" 2>&1 ||
+    { tail -20 "$work/npm.log"; echo "error: could not install the Codex CLI" >&2; exit 1; }
+  export CODEX_HOME="$work/codex-home"
+  mkdir -p "$CODEX_HOME"
+  cat >"$CODEX_HOME/config.toml" <<'TOML'
+model_provider = "subrouter"
+[model_providers.subrouter]
+name = "subrouter"
+base_url = "http://100.89.225.106:31415/v1"
+wire_api = "responses"
+experimental_bearer_token = "subrouter"
+stream_idle_timeout_ms = 900000
+supports_websockets = true
+http_headers = { "X-Subrouter-Agent" = "codex", "X-Subrouter-Retry-Policy" = "autonomous" }
+TOML
+  stress_args=()
+  IFS=, read -r -a kvs <<<"$stress_opts"
+  for kv in ${kvs[@]+"${kvs[@]}"}; do
+    case "${kv%%:*}" in
+      cycles) stress_args+=(--cycles "${kv#*:}") ;; start) stress_args+=(--start-agents "${kv#*:}") ;;
+      add) stress_args+=(--add-per-cycle "${kv#*:}") ;; max) stress_args+=(--max-agents "${kv#*:}") ;;
+      feed) stress_args+=(--feed-interval "${kv#*:}") ;; paths) v="${kv#*:}"; stress_args+=(--paths "${v//+/,}") ;;
+      "") ;; *) echo "error: stress= takes cycles, start, add, max, feed and paths, got '$kv'" >&2; exit 2 ;;
+    esac
+  done
+  set +e
+  # The loop's own simulator (default device set, like verify/e2e's rig) on the runtime chosen above.
+  CMUX_CI_IOS_SIM_RUNTIME="$runtime" PATH="$node_bin:$PATH" python3 -I cmux-next-ios/verify/stress/stress.py --mac-app "$mac_app" --ios-app "$app" \
+    --codex "$work/npm/bin/codex" --node-bin "$node_bin" --codex-home "$CODEX_HOME" \
+    --sim-name "cmux-stress-${CMUX_CI_STEP_KEY:-local}" --out "$out/stress" ${stress_args[@]+"${stress_args[@]}"}
+  stress_status=$?
+  set -e
+  python3 -I cmux-next-ios/verify/stress/render_report.py --out "$out/stress/report.html" "$out/stress" >/dev/null 2>&1 || true
+  note "- stress: $((SECONDS - t0)) s, exit $stress_status; report stress/report.html"
+fi
+if [[ "$mode" == pair-e2e ]]; then
   set +e
   python3 -I scripts/ci/cmux_next_pair_e2e.py --mac-app "$mac_app" --ios-app "$app" --sims "$sims" \
     --udid "$udid" --bundle-id "$bundle_id" --work "$work" --out "$out" --summary "$summary"
@@ -1685,6 +1770,7 @@ if [[ "${test_status:-0}" -ne 0 ]]; then exit "$test_status"; fi
 if [[ "${ui_status:-0}" -ne 0 ]]; then exit "$ui_status"; fi
 if [[ "${profile_status:-0}" -ne 0 ]]; then exit "$profile_status"; fi
 if [[ "${pair_status:-0}" -ne 0 ]]; then exit "$pair_status"; fi
+if [[ "${stress_status:-0}" -ne 0 ]]; then exit "$stress_status"; fi
 if [[ "${listperf_status:-0}" -ne 0 ]]; then exit "$listperf_status"; fi
 if [[ "${energy_status:-0}" -ne 0 ]]; then exit "$energy_status"; fi
 if [[ "${clip_status:-0}" -ne 0 ]]; then exit "$clip_status"; fi
