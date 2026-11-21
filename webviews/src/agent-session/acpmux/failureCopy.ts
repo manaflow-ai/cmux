@@ -209,12 +209,31 @@ export function failureVia(message: string | undefined, route?: FailureRoute): s
   return route?.harness ? PROXY_PROFILES[route.harness] : undefined;
 }
 
+/** The account pool the gateway explicitly said was exhausted. A bare 503 identifies no pool. */
+export function exhaustedPool(message: unknown): string | undefined {
+  if (typeof message !== "string") return undefined;
+  const pool = /\bno non-exhausted\s+([a-z][a-z0-9-]{0,31})\s+accounts?\b/i.exec(message)?.[1];
+  if (!pool) return undefined;
+  switch (pool.toLowerCase()) {
+    case "claude":
+      return "Claude";
+    case "codex":
+      return "Codex";
+    case "openai":
+      return "OpenAI";
+    default:
+      return pool;
+  }
+}
+
 /// `code`: acpmux's typed reason for the failure (the turn's `errorCode`), when it gives one.
 export function failureKind(message: string | undefined, route?: FailureRoute, code?: string): FailureKind {
   if (TEAM_CAP.test(message ?? "") || TEAM_CAP.test(code ?? "")) return "team-cap";
   const typed = code ? TYPED.find(([words]) => words.test(code))?.[1] : undefined;
   // The router types its own limits `insufficient_quota` too: its code in the text makes it a limit.
   if (typed === "no-credit" && message && ROUTER_CODE.test(message)) return "rate-limited";
+  // A wrapper can say the process exited while the provider gives the cause of that exit.
+  if ((typed === "agent-exited" || typed === "spawn-failed") && exhaustedPool(message)) return "rate-limited";
   if (typed) return typed;
   if (!message) return "other";
   if (/\btrust\.pending\b/i.test(message)) return "trust-pending";
@@ -361,8 +380,10 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
         ? t("turn.failure.cloudSsoExpired", { harness })
         : t("turn.failure.cloudCredentialsExpired", { harness });
     }
-    case "rate-limited":
-      return t("turn.failure.rateLimited", { harness });
+    case "rate-limited": {
+      const pool = exhaustedPool(message);
+      return pool ? t("turn.failure.poolPaused", { pool }) : t("turn.failure.rateLimited", { harness });
+    }
     case "unreachable":
       return via ? t("turn.failure.unreachableVia", { harness, via }) : t("turn.failure.unreachable", { harness });
     case "invalid-key":

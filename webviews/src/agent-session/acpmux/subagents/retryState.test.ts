@@ -1,6 +1,9 @@
 // l10n-allow-file: test fixture subagent names and tasks, not shipped UI.
 import { describe, expect, test } from "bun:test";
-import { translate } from "../i18n";
+import { currentLanguage, translate } from "../i18n";
+import { autoResumeStatus } from "../autoResumeStatus";
+import { failureCopy } from "../failureCopy";
+import { errorMessage } from "../transportErrors";
 import { sessionEntry } from "../sessionList";
 import { SubagentFold } from "./subagentFold";
 import { subsessionInfo } from "./subsessions";
@@ -62,7 +65,11 @@ describe("the adapter reads acpmux's retry", () => {
   });
 
   test("the label names the try, how many, and why", () => {
-    expect(retryLabel(translate, FIXTURE.subagentRetry)).toBe("Retrying (2/4) after a capacity error");
+    const time = new Date(FIXTURE.subagentRetry.nextAt).toLocaleTimeString(currentLanguage(), {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    expect(retryLabel(translate, FIXTURE.subagentRetry)).toBe(`Retrying (2/4) after a capacity error at ${time}`);
     expect(retryLabel(translate, { attempt: 1, of: 3, reason: "transport" })).toBe(
       "Retrying (1/3) after a connection error",
     );
@@ -70,6 +77,28 @@ describe("the adapter reads acpmux's retry", () => {
       "Retrying (3/3) after the agent exited",
     );
     expect(retryLabel(translate, { attempt: 1, of: 3, reason: "something_new" })).toBe("Retrying (1/3)");
+  });
+
+  test("an exhausted account pool is named in the failed turn, resume refusal and scheduled retry", () => {
+    const error = "503 no non-exhausted claude accounts available (retry after 2945s)";
+    const paused = translate("turn.failure.poolPaused", { pool: "Claude" });
+    expect(failureCopy(translate, error)).toBe(paused);
+    expect(failureCopy(translate, error, undefined, "agent.exited")).toBe(paused);
+    expect(errorMessage(new Error(error))).toBe(paused);
+    expect(errorMessage({ code: "transport.intent_invalid", method: "session/load", detail: error })).toBe(paused);
+    expect(errorMessage({ code: "transport.intent_invalid", method: "session/load" })).toBe(
+      translate("transport.intentInvalidStart"),
+    );
+    expect(autoResumeStatus(null, undefined, error)).toBeUndefined();
+    const status = autoResumeStatus(FIXTURE.subagentRetry, undefined, error);
+    const retry = sessionEntry({ sessionId: "s", retry: FIXTURE.subagentRetry, lastTurn: { errorText: error } }).retry;
+    expect(retry).toEqual({ ...FIXTURE.subagentRetry, pool: "Claude" });
+    expect(status?.retry).toEqual(retry);
+    expect(retryLabel(translate, retry!)).toContain("Claude account pool is out of capacity. Retry 2/4 at");
+    expect(readRetry(FIXTURE.subagentRetry, "503 Service Unavailable")?.pool).toBeUndefined();
+    expect(retryLabel(translate, { attempt: 1, of: 2, reason: "capacity", pool: "Codex" })).toBe(
+      "Codex account pool is out of capacity. Retry 1/2",
+    );
   });
 
   test("the session list's row carries it", () => {
@@ -130,7 +159,7 @@ describe("the fold keeps a subagent's retry", () => {
     let agent = fold.all()[0]!;
     expect([agent.state, agent.retry, agent.retryable]).toEqual([
       "failed",
-      { attempt: 1, of: 2, reason: "capacity" },
+      { attempt: 1, of: 2, reason: "capacity", pool: "Claude" },
       true,
     ]);
     // A progress report that says nothing of the retry keeps it.
@@ -166,7 +195,7 @@ describe("the fold keeps a subagent's retry", () => {
     const chat = { sessionId: "s", title: "Push relay", state: "failed" as const, retry: FIXTURE.subagentRetry };
     expect(sessionStatus(chat)).toBe("running");
     expect(sessionStateText(translate, chat)).toEqual({
-      text: "Retrying (2/4) after a capacity error",
+      text: retryLabel(translate, FIXTURE.subagentRetry),
       working: true,
     });
     expect(sessionStatus({ ...chat, state: "idle" })).toBe("done");
