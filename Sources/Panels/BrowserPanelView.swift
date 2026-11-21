@@ -1793,6 +1793,7 @@ struct BrowserPanelView: View {
                 isFocused: $addressBarFocused,
                 selectAllRequestId: omnibarSelectAllRequestId,
                 inlineCompletion: inlineCompletion,
+                selectedSuggestionFillText: omnibarState.fillTextForSelectedSuggestion,
                 placeholder: String(localized: "browser.addressBar.placeholder", defaultValue: "Search or enter URL"),
                 onTap: {
                     handleOmnibarTap()
@@ -3938,6 +3939,24 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
     return effects
 }
 
+extension OmnibarState {
+    /// The text Tab, Right arrow or End copies into the field from the row picked
+    /// with the arrow keys (or Ctrl+N/P): the row's URL, or the query of a search
+    /// row. Nothing loads, so the text can be edited before Return, like Chrome
+    /// filling its omnibox from the selected row. Nil keeps the key's own behavior:
+    /// no row was picked by keyboard (a hovered or auto-picked row doesn't count),
+    /// or the field already holds the row's text.
+    var fillTextForSelectedSuggestion: String? {
+        guard isFocused, selectionIsExplicit else { return nil }
+        guard suggestions.indices.contains(selectedSuggestionIndex) else { return nil }
+        let suggestion = suggestions[selectedSuggestionIndex]
+        guard suggestion.id == selectedSuggestionID else { return nil }
+        let fill = suggestion.completion.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !fill.isEmpty, fill != buffer else { return nil }
+        return fill
+    }
+}
+
 struct OmnibarSuggestion: Identifiable, Hashable {
     enum Kind: Hashable {
         case search(engineName: String, query: String)
@@ -4381,6 +4400,8 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     @Binding var isFocused: Bool
     let selectAllRequestId: UInt64
     let inlineCompletion: OmnibarInlineCompletion?
+    /// From `OmnibarState.fillTextForSelectedSuggestion`; nil when no row was picked by keyboard.
+    var selectedSuggestionFillText: String? = nil
     let placeholder: String
     let onTap: () -> Void
     let onSubmit: (OmnibarLiveFieldSnapshot?) -> Void
@@ -4678,6 +4699,12 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 #endif
                 return true
             case #selector(NSResponder.moveRight(_:)), #selector(NSResponder.moveToEndOfLine(_:)):
+                if fillFieldFromSelectedSuggestion(editor: textView, requireCaretAtEnd: true) {
+#if DEBUG
+                    handled = true
+#endif
+                    return true
+                }
                 if parent.inlineCompletion != nil {
                     parent.onAcceptInlineCompletion()
 #if DEBUG
@@ -4687,6 +4714,12 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 }
                 return false
             case #selector(NSResponder.insertTab(_:)):
+                if fillFieldFromSelectedSuggestion(editor: textView, requireCaretAtEnd: false) {
+#if DEBUG
+                    handled = true
+#endif
+                    return true
+                }
                 if parent.inlineCompletion != nil {
                     parent.onAcceptInlineCompletion()
 #if DEBUG
@@ -4842,6 +4875,39 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             return selected.location == typedCount && selected.length == 0
         }
 
+        /// Tab, Right arrow and End on a row picked with the arrow keys put the
+        /// row's text in the field with the caret at the end, without navigating.
+        /// The pick wins over a showing inline completion for another row, as it
+        /// does for Return (`omnibarSubmitDecision`); when the pick is the inline
+        /// completion's own row, the caller accepts the inline completion. With
+        /// no inline completion, Right arrow and End act only when the caret is
+        /// already at the end, so they still move it otherwise.
+        /// The edit goes through the field editor's undo path, so Cmd+Z brings
+        /// back the typed text, and publishes the buffer once, like typing.
+        func fillFieldFromSelectedSuggestion(editor: NSTextView?, requireCaretAtEnd: Bool) -> Bool {
+            guard let fill = parent.selectedSuggestionFillText,
+                  let editor,
+                  !editor.hasMarkedText() else { return false }
+            if let inline = parent.inlineCompletion, inline.acceptedText == fill { return false }
+            let length = (editor.string as NSString).length
+            let selection = editor.selectedRange()
+            if requireCaretAtEnd, parent.inlineCompletion == nil,
+               selection.length != 0 || selection.location != length {
+                return false
+            }
+            let fullRange = NSRange(location: 0, length: length)
+            editor.breakUndoCoalescing()
+            guard editor.shouldChangeText(in: fullRange, replacementString: fill) else { return false }
+            isProgrammaticMutation = true
+            editor.replaceCharacters(in: fullRange, with: fill)
+            editor.setSelectedRange(NSRange(location: (fill as NSString).length, length: 0))
+            editor.didChangeText()
+            isProgrammaticMutation = false
+            publishSelectionState()
+            parent.text = fill
+            return true
+        }
+
         func handleKeyEvent(_ event: NSEvent, editor: NSTextView?) -> Bool {
 #if DEBUG
             let typingTimingStart = CmuxTypingTiming.start()
@@ -4925,6 +4991,14 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 #endif
                 return true
             case 124, 119: // Right arrow / End
+                // Shift+Right and Option+Right keep their editing meaning.
+                if modifiers.subtracting(.function).isEmpty,
+                   fillFieldFromSelectedSuggestion(editor: editor, requireCaretAtEnd: true) {
+#if DEBUG
+                    handled = true
+#endif
+                    return true
+                }
                 if parent.inlineCompletion != nil {
                     parent.onAcceptInlineCompletion()
 #if DEBUG
@@ -4933,6 +5007,14 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                     return true
                 }
             case 48: // Tab
+                // Shift+Tab stays focus traversal.
+                if modifiers.isEmpty,
+                   fillFieldFromSelectedSuggestion(editor: editor, requireCaretAtEnd: false) {
+#if DEBUG
+                    handled = true
+#endif
+                    return true
+                }
                 if parent.inlineCompletion != nil {
                     parent.onAcceptInlineCompletion()
 #if DEBUG
