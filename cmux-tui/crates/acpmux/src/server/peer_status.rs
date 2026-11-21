@@ -373,6 +373,14 @@ pub(crate) fn swap() -> Option<(u64, u64)> {
     Some((total.saturating_sub(free).saturating_mul(1024), total.saturating_mul(1024)))
 }
 
+/// The 1, 5 and 15 minute load averages.
+#[cfg(unix)]
+pub(crate) fn load() -> Option<[f64; 3]> {
+    let mut l = [0f64; 3];
+    // SAFETY: a writable array of the three entries asked for.
+    (unsafe { libc::getloadavg(l.as_mut_ptr(), 3) } == 3).then_some(l)
+}
+
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub(crate) fn swap() -> Option<(u64, u64)> {
     None
@@ -397,14 +405,6 @@ mod tests {
             }))
         );
     }
-}
-
-/// The 1, 5 and 15 minute load averages.
-#[cfg(unix)]
-pub(crate) fn load() -> Option<[f64; 3]> {
-    let mut l = [0f64; 3];
-    // SAFETY: a writable array of the three entries asked for.
-    (unsafe { libc::getloadavg(l.as_mut_ptr(), 3) } == 3).then_some(l)
 }
 
 #[cfg(not(unix))]
