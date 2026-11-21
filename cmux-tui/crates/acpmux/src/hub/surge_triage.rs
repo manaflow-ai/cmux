@@ -349,6 +349,7 @@ impl Hub {
         self.persist_surge_triage(session, msg, open)
     }
 
+    #[cfg(test)]
     pub(crate) fn set_surge_triager(&self, triager: Option<SurgeTriager>) {
         *self.surge_triager.lock().unwrap_or_else(|e| e.into_inner()) = triager;
     }
@@ -413,14 +414,11 @@ impl Hub {
         session: &Arc<Session>,
     ) -> Result<PassEnd, RpcError> {
         let mut journal = self.surge_journal(session)?;
-        let result = self.surge_triage_pass_on(session, &mut journal).await;
         // A failed write leaves the cached state ahead of the disk: the next pass reads it again.
-        if result.is_err() {
-            return result;
-        }
+        let end = self.surge_triage_pass_on(session, &mut journal).await?;
         let mut all = self.surge_triage_journals.lock().unwrap_or_else(|e| e.into_inner());
         all.insert(session.id.clone(), journal);
-        result
+        Ok(end)
     }
 
     async fn surge_triage_pass_on(
