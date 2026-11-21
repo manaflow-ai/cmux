@@ -312,6 +312,18 @@ def _contains_commit(git_dir: str, commit: str, head: str,
     return None
 
 
+def _ancestors_since(git_dir: str, head: str, since: float, run: Callable = subprocess.run) -> Optional[set]:
+    """Every commit ``head`` holds committed at or after ``since``, or None when git cannot list them. One rev-list
+    per feed head answers every merge in the window, which the same --since-as-filter selected: 40 lists instead of
+    ~2,000 `merge-base --is-ancestor` calls (41 s on the 11/21 readback)."""
+    try:
+        done = run(["git", "-C", git_dir, "rev-list", f"--since-as-filter={iso(since)}", head],
+                   capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return set(done.stdout.split()) if done.returncode == 0 else None
+
+
 def pr_attribution(records: List[Dict[str, Any]], git_dir: str, base_ref: str = BASE_REF,
                    run: Callable = subprocess.run, now: Optional[float] = None,
                    window_days: int = PR_WINDOW_DAYS) -> Dict[str, Any]:
@@ -332,6 +344,15 @@ def pr_attribution(records: List[Dict[str, Any]], git_dir: str, base_ref: str = 
         if feed is not None and record.get("sha"):
             feeds.append((feed, record))
     feeds.sort(key=lambda item: item[0])
+    held: Dict[str, Optional[set]] = {}
+
+    def contains(commit: str, head: str) -> Optional[bool]:
+        if head not in held:
+            held[head] = _ancestors_since(git_dir, head, since, run)
+        if held[head] is None:
+            return _contains_commit(git_dir, commit, head, run)
+        return commit in held[head]
+
     rows: List[Dict[str, Any]] = []
     for merge in merges:
         row: Dict[str, Any] = {"sha": merge["sha"], "pr": merge["pr"], "subject": merge["subject"],
@@ -345,13 +366,13 @@ def pr_attribution(records: List[Dict[str, Any]], git_dir: str, base_ref: str = 
             for feed_ts, record in feeds:
                 if feed_ts <= merge["merged_ts"]:
                     continue
-                contains = _contains_commit(git_dir, merge["sha"], record.get("sha"), run)
-                if contains:
+                holds = contains(merge["sha"], record.get("sha"))
+                if holds:
                     row.update({"feed_at": record.get("feed_at"), "build": record.get("build"),
                                 "merge_to_nightly": minutes(merge["merged_ts"], feed_ts),
                                 "status": "attributed"})
                     break
-                if contains is None:
+                if holds is None:
                     row["reason"] = "could not verify nightly head ancestry"
                     break
             if row["status"] != "attributed" and row["reason"] is None:

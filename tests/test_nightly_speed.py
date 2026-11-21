@@ -182,6 +182,8 @@ class PrAttribution(unittest.TestCase):
             ]) + "\n"
 
         def __call__(self, cmd, **kw):
+            if "rev-list" in cmd:
+                return subprocess.CompletedProcess(cmd, 128, "", "no rev-list in this fake")
             if "log" in cmd:
                 return subprocess.CompletedProcess(cmd, 0, self.log, "")
             if "merge-base" in cmd:
@@ -242,6 +244,8 @@ class PrAttribution(unittest.TestCase):
     def test_a_merge_before_the_oldest_observed_feed_is_unattributed_and_out_of_the_quantiles(self):
         class Git:
             def __call__(self, cmd, **kw):
+                if "rev-list" in cmd:
+                    return subprocess.CompletedProcess(cmd, 0, "m1\nm2\nm3\n", "")
                 if "log" in cmd:
                     return subprocess.CompletedProcess(cmd, 0, "\n".join([
                         "m3\tp1\t1794787200\tlate (#3)",      # 2026-11-16T00:00Z
@@ -298,8 +302,15 @@ class PrAttribution(unittest.TestCase):
             g("merge", "-q", "--no-ff", "-m", "Merge origin/feat-cmux-next into feat-cmux-next", remote,
               when="2026-11-19T01:11:00Z")
             merges = ns.first_parent_pr_merges(repo, "local", ns.ts("2026-11-15T00:00:00Z"))
+            head = g("rev-parse", "HEAD")
+            data = ns.pr_attribution([{"build": "n0", "sha": fork, "feed_at": "2026-11-18T03:00:00Z"},
+                                      {"build": "n1", "sha": head, "feed_at": "2026-11-19T02:00:00Z"}],
+                                     repo, "local", now=ns.ts("2026-11-20T00:00:00Z"), window_days=5)
         self.assertEqual([m["pr"] for m in merges], [None, 48675, 102, 100])
         self.assertEqual(merges[1]["merged_at"], "2026-11-19T01:10:00Z")
+        rows = {r["pr"]: r for r in data["rows"]}
+        self.assertEqual((rows[48675]["build"], rows[48675]["merge_to_nightly"]), ("n1", 50.0))
+        self.assertEqual(rows[102]["reason"], ns.BEFORE_FEEDS)
 
     def test_a_week_of_merges_leaves_every_record_in_the_body(self):
         """The readback of 2026-11-21: ~2,500 first-parent merges in the window made a 279 KB body even with every
@@ -317,12 +328,15 @@ class PrAttribution(unittest.TestCase):
                        + (f"(#{40000 + i})" if i % 50 else "with no number"))
             lines.append(f"{rnd.getrandbits(160):040x}\tp{i} q{i}\t{stamp}\t{subject}")
         log = "\n".join(reversed(lines)) + "\n"
+        feed_of = {r["sha"]: ns.ts(r["feed_at"]) for r in recs}
 
         def git(cmd, **kw):
             if "log" in cmd:
                 return subprocess.CompletedProcess(cmd, 0, log if "^" not in cmd[-1] else "", "")
-            if "merge-base" in cmd:
-                return subprocess.CompletedProcess(cmd, 0 if rnd.random() < 0.8 else 1, "", "")
+            if "rev-list" in cmd:  # a head holds the merges before its feed, a few late ones excepted
+                held = [ln.split("\t")[0] for ln in lines
+                        if int(ln.split("\t")[2]) < feed_of[cmd[-1]] - 3600 * rnd.random()]
+                return subprocess.CompletedProcess(cmd, 0, "\n".join(held) + "\n", "")
             raise AssertionError(cmd)
 
         data = ns.pr_attribution(recs, ".", run=git, now=end, window_days=4)
