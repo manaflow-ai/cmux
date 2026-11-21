@@ -358,6 +358,15 @@
   min-width: 0;
   max-width: none;
 }
+/* A ready chip held with its gesture's others (attachmentIntakeModel.ts heldReady): unseen and no width
+   until they show, then with them. After the width rules above, at their weight, so it outweighs them. */
+.acpmux-attachments .acpmux-attachment-slot[data-held] > * {
+  visibility: hidden;
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+}
 /* The one retry control of a failed attachment, in the strip and in the text: a small round glyph
    button on the composer's own surface, like the tile's × beside it. */
 .acpmux-attachment-retry,

@@ -573,6 +573,7 @@ export function NewTabScreen(props: Props) {
     attachments,
     setAttachments,
     pending: reading,
+    held: heldChips,
     originalFailures,
     unsettled,
     cancel,
@@ -919,6 +920,7 @@ export function NewTabScreen(props: Props) {
     attachmentsRef,
     setAttachments,
     pending: reading,
+    held: heldChips,
     cancel,
     retry,
     revive,
@@ -2522,6 +2524,7 @@ export function NewTabScreen(props: Props) {
           <AttachmentStrip
             attachments={attachmentView === "inline" ? attachments.filter((item) => !placed.has(item.id)) : attachments}
             pending={attachmentView === "inline" ? reading.filter((item) => !placed.has(item.id)) : reading}
+            held={heldChips}
             {...(command.error || attachError || heldForHost
               ? { error: command.error ?? attachError ?? t("composer.sendingWhenReady") }
               : {})}
