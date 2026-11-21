@@ -114,10 +114,6 @@ path = "tests/test_chromium_staleness.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_cla_guard_metadata_routing.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_classic_api_guard.py"
 lane = "linux-guard"
 

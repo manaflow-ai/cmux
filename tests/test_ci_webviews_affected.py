@@ -283,6 +283,30 @@ class PullRequestShardsTest(unittest.TestCase):
         self.assertEqual(self.touched("webviews/scripts/baseline.jsonl"), [])
         self.assertIsNone(self.touched("webviews/test/preload.ts"))
 
+    def test_a_script_a_build_input_loads_or_a_file_reads_runs_every_shard(self) -> None:
+        (self.root / "webviews/scripts/lint").mkdir(parents=True, exist_ok=True)
+        (self.root / "webviews/scripts/plugin.mjs").write_text('import { d } from "./dep.mjs";\nexport const p = d;\n')
+        (self.root / "webviews/scripts/dep.mjs").write_text("export const d = 1;\n")
+        (self.root / "webviews/scripts/lint/rule.mjs").write_text("export default {};\n")
+        (self.root / "webviews/scripts/table-baseline.tsv").write_text("a\t1\n")
+        (self.root / "webviews/scripts/other-baseline.tsv").write_text("b\t2\n")
+        (self.root / "webviews/scripts/check-only.mjs").write_text("export {};\n")
+        (self.root / "webviews/package.json").write_text('{"scripts": {"check": "bun scripts/check-only.mjs"}}\n')
+        (self.root / "webviews/vite.config.ts").write_text(
+            'import { p } from "./scripts/plugin.mjs";\n'
+            'const rule = new URL("./scripts/lint/rule.mjs", import.meta.url);\nexport default { p, rule };\n')
+        (self.root / "webviews/test/table.test.ts").write_text(
+            'import { readFileSync } from "node:fs";\nreadFileSync("scripts/table-baseline.tsv");\n'
+            'readFileSync(join(dir, "other-baseline.tsv"));\n')
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "scripts")
+        self.assertIsNone(self.touched("webviews/scripts/plugin.mjs"))
+        self.assertIsNone(self.touched("webviews/scripts/dep.mjs"))  # through the plugin
+        self.assertIsNone(self.touched("webviews/scripts/lint/rule.mjs"))  # named, not imported
+        self.assertIsNone(self.touched("webviews/scripts/table-baseline.tsv"))  # read as data
+        self.assertIsNone(self.touched("webviews/scripts/other-baseline.tsv"))  # a file reader names its basename
+        self.assertEqual(self.touched("webviews/scripts/check-only.mjs"), [])  # only shard 1's checks run it
+
     def test_build_and_runner_inputs_and_deleted_sources_run_every_shard(self) -> None:
         self.assertIsNone(self.touched("webviews/package.json"))
         self.assertIsNone(self.touched("scripts/ci/webviews_affected.py"))
