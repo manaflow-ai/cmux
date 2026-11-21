@@ -62,4 +62,31 @@ struct BarSwipe: Equatable, Sendable {
         if velocity < -reverseVelocity { return false }
         return progress + velocity * projection > 0.5
     }
+
+    /// One swipe up, with its travel fixed when it starts. The card's rect
+    /// moves while the swipe runs (the grid lays out under the page and
+    /// reports its scroll origin a frame or two later); a travel recomputed
+    /// from it on every event made the page jump under the finger.
+    struct Tracking: Equatable, Sendable {
+        let travel: CGFloat
+
+        init(path: ZoomRectPath?) { travel = BarSwipe.travel(path: path) }
+
+        func progress(up: CGFloat) -> Double { BarSwipe.progress(up: up, travel: travel) }
+        func velocity(_ velocity: CGFloat) -> Double { BarSwipe.velocity(velocity, travel: travel) }
+    }
+
+    /// A swipe the system cancelled (the app left the foreground, a system
+    /// gesture took the touch) never reports its end, and the zoom it drives
+    /// stays part-way with the bar untouchable. Only the swipe's own
+    /// interactive zoom is released: a pinch that holds it ends on its own.
+    static func releasesOnCancel(phase: TabZoomState.Phase, pinchActive: Bool) -> Bool {
+        phase == .interactive && !pinchActive
+    }
+
+    /// Where a cancelled swipe settles: there is no last finger speed, so the
+    /// page goes to the nearer end from where it is.
+    static func releaseToOverviewOnCancel(progress: Double) -> Bool {
+        releaseToOverview(progress: progress, velocity: 0)
+    }
 }

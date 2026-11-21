@@ -126,3 +126,110 @@ fn a_resize_returns_while_the_terminal_journal_lane_is_full() {
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// JOURNAL STALL DESIGN (iv): the store rejects a geometry change every time, so the writer drops
+/// it. Memory and disk must agree afterwards: the journal says a record is missing (a
+/// `journal_commit_failed` marker ahead of the terminal's next record) and the next checkpoint
+/// states the terminal's geometry from memory, the size the terminal really has.
+#[test]
+fn a_dropped_resize_leaves_a_marker_and_the_next_checkpoint_has_the_live_size() {
+    let (mux, root) = persistent_mux("dropped-resize");
+    // A workspace's terminal: the session snapshot (and so the checkpoint) names it. No coalesced
+    // checkpoint runs meanwhile; the test takes its own.
+    let surface = mux.new_workspace(None, None).unwrap();
+    let teardown = mux.begin_terminal_teardown();
+    flush_terminal_lane(&mux);
+    let database = std::fs::read_dir(&root)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+        .find(|path| path.is_file())
+        .expect("persistent journal database");
+    let injector = rusqlite::Connection::open(database).unwrap();
+    injector
+        .execute_batch(
+            "CREATE TRIGGER reject_test_resize BEFORE INSERT ON session_journal
+                 WHEN NEW.kind = 'terminal.resized'
+                 BEGIN SELECT RAISE(ABORT, 'injected resize failure'); END;",
+        )
+        .unwrap();
+    assert!(surface.resize(101, 31).unwrap());
+    // The barrier behind the rejected record is answered once the writer dropped it.
+    mux.flush_terminal_journal().expect("the barrier behind a dropped resize");
+    injector.execute_batch("DROP TRIGGER reject_test_resize;").unwrap();
+
+    let checkpoint = mux.create_journal_checkpoint("test", "after-dropped-resize").unwrap();
+    // A checkpoint keeps no replay blob (journal_checkpoint.rs): its session snapshot states each
+    // terminal's size, read from the live surface.
+    let captured = checkpoint.checkpoint.state["session_snapshot"]["terminals"]
+        .as_array()
+        .expect("the checkpoint names its terminals")
+        .iter()
+        .map(|terminal| (terminal["cols"].as_u64(), terminal["rows"].as_u64()))
+        .collect::<Vec<_>>();
+    assert_eq!(captured, [(Some(101), Some(31))], "the checkpoint has the terminal's live size");
+
+    assert!(surface.resize(102, 32).unwrap());
+    flush_terminal_lane(&mux);
+    let records = geometry_and_gap_records(&mux);
+    let marker = records.iter().position(|(kind, payload)| {
+        kind == "terminal.output.gap" && payload["reason"] == "journal_commit_failed"
+    });
+    let next = records.iter().rposition(|(kind, payload)| {
+        kind == "terminal.resized" && payload["cols"].as_u64() == Some(102)
+    });
+    assert!(marker.is_some(), "the journal says a record was dropped: {records:?}");
+    assert!(marker < next, "the marker goes ahead of the terminal's next record: {records:?}");
+    assert!(
+        !records.iter().any(|(kind, payload)| {
+            kind == "terminal.resized" && payload["cols"].as_u64() == Some(101)
+        }),
+        "the rejected resize was not committed"
+    );
+    drop(injector);
+    drop(teardown);
+    drop(surface);
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// JOURNAL STALL DESIGN (5): while one journal commit is stalled (held inside its transaction, past
+/// its deadline), the terminal's input and output do not wait for it. The writer holds only the
+/// registry connection lock; terminal input and output take neither that lock nor the writer.
+#[test]
+fn a_stalled_journal_commit_does_not_block_terminal_input_or_output() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-journal-stall-io-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let options =
+        SurfaceOptions { command: Some(vec!["/bin/cat".into()]), ..SurfaceOptions::default() };
+    let mux = Mux::open_persistent("journal-stall-io", options, &root).unwrap();
+    let events = mux.subscribe();
+    let surface = mux.new_workspace(None, None).unwrap();
+    flush_terminal_lane(&mux);
+    let (entered, entered_receiver) = sync_channel(1);
+    let (release, release_receiver) = sync_channel(1);
+    mux.install_journal_before_commit_for_test(entered, release_receiver);
+    // A geometry record takes the writer into its commit, where the hook holds it.
+    assert!(surface.resize(90, 30).unwrap());
+    entered_receiver.recv_timeout(Duration::from_secs(10)).unwrap();
+    while events.try_recv().is_ok() {}
+
+    surface.write_bytes(b"typed while the journal is stalled\n").unwrap();
+    let mut echoed = false;
+    while let Ok(event) = events.recv_timeout(Duration::from_secs(10)) {
+        if matches!(event, MuxEvent::SurfaceOutput(id) if id == surface.id) {
+            echoed = true;
+            break;
+        }
+    }
+    release.send(()).unwrap();
+    assert!(echoed, "terminal input or output waited for the stalled journal commit");
+    flush_terminal_lane(&mux);
+    drop(surface);
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
+}

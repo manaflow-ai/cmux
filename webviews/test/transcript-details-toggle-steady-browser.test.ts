@@ -432,6 +432,22 @@ await requireBrowserLane("transcript-details-toggle-steady-browser.test.ts", asy
       await page.close();
     });
 
+    // The message card itself (`.cv-agentmsg`, a flex gap over its fold body), closed and opened at
+    // the latest row five times: the gap folds with the card, so the close has no last step.
+    test(`${name}: near the bottom: the message card closes and opens with nothing under it moving`, async () => {
+      browser = browsers[name];
+      const page = await open(true);
+      const failures: string[] = [];
+      for (let round = 0; round < 5; round += 1) {
+        failures.push(
+          ...(await bottomToggle(page, `message card ${round}`, '[data-row-id="msg"] .cv-agentmsg__toggle', "msg")),
+        );
+        await toLatest(page);
+      }
+      expect(failures).toEqual([]);
+      await page.close();
+    });
+
     test(`${name}: up the screen from the bottom: the clicked line and the rows above it stay, the rows under it move`, async () => {
       browser = browsers[name];
       const page = await open();

@@ -24,19 +24,11 @@
   letter-spacing: var(--text-title--letter-spacing);
 }
 
-.stats-private,
 .stats-muted,
 .stats-day-label,
 .stats-tile-label,
 .stats-tile-detail {
   color: var(--page-text-3);
-}
-
-.stats-private {
-  margin: 2px 0 0;
-  font-size: var(--text-caption);
-  line-height: var(--text-caption--line-height);
-  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .stats-ranges {

@@ -121,6 +121,7 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .or_else(|| resource_refusal_code(error, crate::mux::PINNED_COLUMN_CODE))
         .or_else(|| agent_chat_column_code(error))
         .or_else(|| super::rows::error_code(error))
+        .or_else(|| super::floating_panes::error_code(error))
         .or_else(|| super::column_move::error_code(error))
         .or_else(|| super::bookmarks::error_code(error))
         .or_else(|| crate::mux::creating_input::error_code(error))
@@ -138,6 +139,7 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .or_else(|| super::renderer_grant::error_code(error))
         .or_else(|| super::browser_host_command::error_code(error))
         .or_else(|| super::remote_host_command::error_code(error))
+        .or_else(|| super::computer_use_command::error_code(error))
         .or_else(|| super::tab_restart::error_code(error))
         .or_else(|| super::conversation_tabs_wire::error_code(error))
 }

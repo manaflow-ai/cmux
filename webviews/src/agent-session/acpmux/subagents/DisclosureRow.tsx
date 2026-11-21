@@ -34,6 +34,8 @@ export type DisclosureRowProps = {
   label: ReactNode;
   meta?: ReactNode;
   status?: ReactNode;
+  /// Use the visible status as the details control instead of a chevron.
+  chevron?: boolean;
   /// The chip's accessible name when it opens a chat ("Open chat").
   openLabel?: string;
   /// The chip's tooltip, when it says more than `openLabel`.
@@ -76,6 +78,7 @@ export function DisclosureRow({
   label,
   meta,
   status,
+  chevron = true,
   openLabel,
   openTitle,
   onOpen,
@@ -128,10 +131,10 @@ export function DisclosureRow({
         <span className="cv-disclosure__label">{label}</span>
       )}
       {meta && <span className="cv-disclosure__meta">{meta}</span>}
-      {status && <span className="cv-disclosure__status">{status}</span>}
+      {status && (chevron || !onOpen) && <span className="cv-disclosure__status">{status}</span>}
     </>
   );
-  const chevron = <ChevronRight size={14} className={`cv-rotor${collapse.open ? " is-open" : ""}`} />;
+  const arrow = chevron && <ChevronRight size={14} className={`cv-rotor${collapse.open ? " is-open" : ""}`} />;
   return (
     <div
       className={className ? `cv-disclosure ${className}` : "cv-disclosure"}
@@ -152,13 +155,13 @@ export function DisclosureRow({
             <span className="cv-disclosure__open">{content}</span>
             <button
               type="button"
-              className="cv-disclosure__toggle is-chevron"
+              className={`cv-disclosure__toggle ${chevron ? "is-chevron" : "is-status"}`}
               aria-expanded={collapse.open}
               aria-controls={collapse.present ? bodyId : undefined}
-              aria-label={toggleLabel ?? t("message.details")}
+              aria-label={toggleLabel ?? (chevron ? t("message.details") : undefined)}
               onClick={collapse.toggle}
             >
-              {chevron}
+              {chevron ? arrow : <span className="cv-disclosure__status">{status ?? t("message.details")}</span>}
             </button>
           </>
         ) : (
@@ -172,7 +175,7 @@ export function DisclosureRow({
             onClick={collapse.toggle}
           >
             {content}
-            {chevron}
+            {arrow}
           </button>
         )}
         {actions}

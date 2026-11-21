@@ -9,10 +9,12 @@ import {
   runResume,
   settledResume,
   shownResume,
+  SUBSESSION_RESUME_CAPABILITY,
+  subsessionResumeRow,
 } from "./resumeState";
 import type { Subagent } from "./subagentFold";
 
-type Agent = Pick<Subagent, "id" | "state" | "parent" | "resumable" | "resumes" | "resumedBy" | "harness">;
+type Agent = Pick<Subagent, "id" | "state" | "parent" | "resumable" | "resumes" | "resumedBy" | "harness" | "child">;
 const stopped = (over: Partial<Agent> = {}): Agent => ({ id: "s/t1", state: "cancelled", parent: null, ...over });
 const served = new Set([RESUME_CAPABILITY]);
 
@@ -57,6 +59,58 @@ describe("a stopped subagent's Resume", () => {
     const request = async () => void (asked = true);
     const note = await runResume(stopped({ resumable: true }), "c", { request, reaches: () => false });
     expect([note, asked]).toEqual(["retry.failed", false]);
+  });
+});
+
+describe("a stopped sub-session's Resume", () => {
+  const subsession = (over: Partial<Agent> = {}): Agent =>
+    stopped({ id: "s/run-1", child: "child-1", harness: "codex", ...over });
+  const both = new Set([RESUME_CAPABILITY, SUBSESSION_RESUME_CAPABILITY]);
+
+  test("is offered on the chat's own stopped sub-session where acpmux serves it", () => {
+    // acpmux carries its own chat on: no `resumable` needed, whatever its harness.
+    expect(canResume(subsession(), new Set([SUBSESSION_RESUME_CAPABILITY]))).toBe(true);
+    expect(canResume(subsession(), undefined)).toBe(true);
+    expect(canResume(subsession({ harness: undefined }), both)).toBe(true);
+    expect(canResume(subsession(), served)).toBe(false);
+    expect(canResume(subsession(), new Set())).toBe(false);
+  });
+
+  test("is not offered on one that completed, failed, runs or was lost, nor on a nested one", () => {
+    for (const state of ["completed", "failed", "running", "disconnected"])
+      expect(canResume(subsession({ state }), both)).toBe(false);
+    expect(canResume(subsession({ parent: "s/t0" }), both)).toBe(false);
+  });
+
+  test("asks acpmux to carry on its own session", async () => {
+    const asked: [string, Record<string, unknown>][] = [];
+    const request = async (method: string, params: Record<string, unknown>) => void asked.push([method, params]);
+    expect(await runResume(subsession(), "chat-1", { request, capabilities: both })).toBeUndefined();
+    expect(asked).toEqual([[RETRY_METHOD, { sessionId: "child-1" }]]);
+    const busy = async () => Promise.reject({ reason: "retry.busy" });
+    expect(await runResume(subsession(), "chat-1", { request: busy, capabilities: both })).toBe("retry.busy");
+    const gone = async () => Promise.reject({ reason: "retry.nothing_failed" });
+    expect(await runResume(subsession(), "chat-1", { request: gone, capabilities: both })).toBe("retry.nothingFailed");
+  });
+
+  test("leaves the Claude subagent's Resume as it was", () => {
+    expect(canResume(stopped({ resumable: true }), new Set([SUBSESSION_RESUME_CAPABILITY]))).toBe(false);
+    expect(canResume(stopped({ resumable: true }), both)).toBe(true);
+    expect(canResume(stopped(), both)).toBe(false);
+  });
+
+  test("a session row resumes as a sub-session's row while its last turn ended stopped", async () => {
+    expect(subsessionResumeRow({ sessionId: "child-1", name: "tests" })).toBeUndefined();
+    const row = subsessionResumeRow({ sessionId: "child-1", title: "Run the tests", stoppedAt: 20 })!;
+    expect(row).toMatchObject({ id: "child-1", child: "child-1", parent: null, name: "Run the tests" });
+    expect(canResume(row, both)).toBe(true);
+    const asked: Record<string, unknown>[] = [];
+    const request = async (_: string, params: Record<string, unknown>) => void asked.push(params);
+    await runResume(row, "chat-1", { request, capabilities: both });
+    expect(asked).toEqual([{ sessionId: "child-1" }]);
+    // A second stop keys a new note: a Resume that went last time does not hold this one.
+    const again = subsessionResumeRow({ sessionId: "child-1", name: "tests", stoppedAt: 30 })!;
+    expect(resumeVersion(again)).not.toBe(resumeVersion(row));
   });
 });
 

@@ -50,6 +50,8 @@ _ACRONYMS = {
 
 _SPECIAL_METHODS = {
     "identify",  # Preserve the existing zero-argument API; raw/identify.go adds explicit options.
+    # Preserve the zero-argument API too; raw/list_workspaces.go adds `known`.
+    "list-workspaces",
     "send",
     "subscribe",
     "attach-surface",

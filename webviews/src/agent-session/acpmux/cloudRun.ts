@@ -7,9 +7,13 @@
 /// message (CloudStartView, cloudStartProgress.ts); the prompt stays in the composer until the chat
 /// opens on the machine.
 
+import { shownChatFolder } from "./folderlessCloud";
+import { githubFolderRepo } from "./githubRepos";
 import { isAgentHome } from "./sessionList";
 import { pickFolder } from "./startFolderModel";
 import type { ComposerAttachment } from "./attachments";
+import { currentCloudPlan } from "./cloudMachines";
+import type { CloudSize } from "./cloudPlans";
 
 /// What the page hands the host. `home`: the chat has no project folder on this Mac, so nothing is
 /// copied and the chat starts in the machine's own home folder (cloudStartFolder).
@@ -22,6 +26,11 @@ export type CloudStart = {
   model?: string;
   /** The permission mode picked before the first send (cloudModePick.ts); none: the machine's own start mode. */
   mode?: string;
+  /** The picker's effort for `model`: the machine's agent starts on it (AgentPaneCloudStart `effort`). */
+  effort?: string;
+  /** The connection the picker's Account menu chose (a route id); none is the family default. The machine's
+   *  agent names it to the edge as `x-cmux-connection` (cmux-tui/docs/model-connections.md). */
+  account?: string;
   environment?: string;
   reservationKey?: string;
   /** A native gesture ticket reserved before waiting for a Cloud machine lease. */
@@ -30,6 +39,12 @@ export type CloudStart = {
   signedIn?: true;
   /** The plan card's Switch to <team>: the host switches to this team (as the team picker does), then starts. */
   team?: string;
+  /** This tab's empty local chat, which the start replaces: the host accepts a start from a tab whose
+   *  chat is this one, and closes the tab with it once the Cloud chat opens (AgentPaneHandOff). */
+  replacesChat?: string;
+  /** The largest size the account's plan gives; none: the plan the page last read (`cloudMachine.list`), when active.
+   *  The host asks it, its disk grown, for a folder past it that the plan's disk holds (AgentPaneCloudStart `planMax`). */
+  planMax?: CloudSize;
 };
 
 /// Which folder a Cloud chat starts in: the chat's project on this Mac, copied to the machine, when
@@ -37,13 +52,30 @@ export type CloudStart = {
 /// whose folder is home or above it, which is never copied). Leo, 2026-10-31: "whenever i start a
 /// chat it should be able to send me to cloud autommatically".
 export function cloudStartFolder(project: string | undefined): { cwd: string } | { home: true } {
+  // A GitHub repository picked in the folder menu (githubRepos.ts): the machine clones it, nothing is copied.
+  if (githubFolderRepo(project)) return { cwd: project! };
   const folder = project?.replace(/\/+$/, "");
   // `/`, `/Users`, a home folder: never copied (NewTabScreen's homeOrAbove, CloudMoveFolder isTooBroad).
   if (!folder?.startsWith("/") || /^(?:\/(?:Users|home)(?:\/[^/]+)?)?$/.test(folder)) return { home: true };
   // A no-project chat's private agent-home folder (sessionList.ts isAgentHome) is no project either:
   // never copied.
   if (isAgentHome(folder)) return { home: true };
+  // Chief's own home (`~/.cmux/chief/<account>`, BuildIdentity.swift): the folder a tab with "No folder"
+  // reports. RED before: a no-folder Cloud start copied it (3,602 files, 1.2 GB, refused as not git).
+  if (/\/\.cmux\/chief(?:\/|$)/.test(folder)) return { home: true };
   return { cwd: folder };
+}
+
+/// The Cloud start of a new chat sent from its composer: the folder the composer's chip names (the
+/// chat's own folder on this Mac, `shownChatFolder`), and with none, `home`, nothing copied. Never a
+/// folder the chip does not show: a New Tab page's inherited `cwd` (the host's start folder, which can
+/// be any folder the app was launched from) once went as the project of a chip that said "No folder",
+/// and its 23 GB copy was asked about instead of starting in the machine's own folder.
+/// `summary` is the one the composer draws (App.tsx `composerSnapshot`, a picked folder included).
+export function composerCloudStartFolder(
+  summary: Parameters<typeof shownChatFolder>[0],
+): ReturnType<typeof cloudStartFolder> {
+  return cloudStartFolder(shownChatFolder(summary, "local", false));
 }
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -65,7 +97,8 @@ export function newTabProjectPick(
   if (!offerable) return {};
   return {
     onProjectPicked: (cwd) => {
-      if (!("cwd" in cloudStartFolder(cwd))) return;
+      // A GitHub repository is no folder on this Mac: nothing to grant.
+      if (!("cwd" in cloudStartFolder(cwd)) || githubFolderRepo(cwd)) return;
       const grant = pickFolder(callNative, cwd, () => undefined);
       granted?.(cwd, grant);
     },
@@ -87,7 +120,7 @@ export function cloudFolderGrants(waitMs: number = CLOUD_FOLDER_GRANT_WAIT_MS) {
     /// A grant of `cwd` is out. A folder Cloud never copies is never sent, so nothing waits for it.
     granting(cwd: string, grant: Promise<unknown>): void {
       const folder = cloudStartFolder(cwd);
-      if (!("cwd" in folder)) return;
+      if (!("cwd" in folder) || githubFolderRepo(folder.cwd)) return;
       grants.set(folder.cwd, grant);
       const leave = () => {
         if (grants.get(folder.cwd) === grant) grants.delete(folder.cwd);
@@ -121,6 +154,42 @@ export function grantedCloudStart(
 ): (start: CloudStart, key?: string) => Promise<CloudStartAnswer> | undefined {
   return oneCloudStart((method, params) =>
     grants.settled(typeof params.cwd === "string" ? params.cwd : undefined).then(() => callNative(method, params)),
+  );
+}
+
+/// How long a Cloud start waits for the local start a pick on its page began (``pickedChatCloudCall``).
+/// Bounded well under the Send gesture's 30 s life: past it the start goes as it is.
+export const PICK_SESSION_WAIT_MS = 8000;
+
+/// A Cloud start from a new chat that holds an agent or model pick (GPT-6.1 Sol picked on a Claude
+/// page): that pick started a local session the page never showed, and the host counts it as a chat
+/// opened in this tab. The start waits for that session (`pickSession`, bounded) and names it as the
+/// chat it replaces, so the host lets the Cloud start go instead of refusing it as "A chat is already
+/// starting in this tab" (cmux#45946). A start that already names one, or a page with no pick, goes as is.
+export function pickedChatCloudCall(
+  call: (method: string, params?: Record<string, unknown>) => Promise<unknown>,
+  pickSession: (timeoutMs: number) => Promise<string | undefined>,
+): (method: string, params?: Record<string, unknown>) => Promise<unknown> {
+  return async (method, params = {}) => {
+    if (method !== "cloud.startChat" || typeof params.replacesChat === "string") return call(method, params);
+    const picked = await pickSession(PICK_SESSION_WAIT_MS);
+    return call(method, picked ? { ...params, replacesChat: picked } : params);
+  };
+}
+
+/// A new chat whose only start is the person's agent or model pick (a harness switch on a page with no
+/// chat yet): Cloud is still where it runs. The pick goes with the Cloud start (`heldPick`) and the
+/// local session it began is the one the start replaces (``pickedChatCloudCall``).
+export function pickOnlyNewChat(page: {
+  fresh: boolean;
+  sessionId?: string;
+  summarySessionId?: string;
+  switching: boolean;
+  selectionPending: boolean;
+  quick: boolean;
+}): boolean {
+  return (
+    page.fresh && !page.sessionId && !page.summarySessionId && page.switching && !page.selectionPending && !page.quick
   );
 }
 
@@ -165,6 +234,25 @@ export function makeCloudSignInRetry(resume: () => Promise<CloudStartAnswer> | u
     resumed = false;
   };
   return retry;
+}
+
+/// Whether this page's chat runs on another machine: a Cloud machine's (a new tab or split in a Cloud chat's
+/// workspace, whose handshake names the machine), an SSH machine's, or a chat whose summary names one. Its
+/// new chat already starts on that machine, and the host refuses `cloud.startChat` from it (AgentPaneHandOff
+/// `chatIsElsewhere`, CloudStartChat's runner). Offering Cloud there made Enter end in "Cloud isn't available
+/// for this chat" instead of starting the chat in this pane (cmux#47679): Cloud is never offered or picked there.
+export function pageOnOtherMachine(page: {
+  cloudMachineID?: string | undefined;
+  origin?: string | undefined;
+  summary?: { peer?: string | undefined; hostKind?: string | undefined } | undefined;
+}): boolean {
+  return (
+    page.cloudMachineID !== undefined ||
+    page.origin === "remote" ||
+    page.origin === "peer" ||
+    Boolean(page.summary?.peer) ||
+    page.summary?.hostKind === "cloud"
+  );
 }
 
 /// Why Cloud can't start from this tab yet, before anything goes to the host:
@@ -256,11 +344,17 @@ export async function startCloudChat(
   // The mode picked for this start (cloudModePick.ts); the host starts the chat in it on the
   // person's own machine (AgentPaneCloudStart `mode`).
   if (start.mode) params.mode = start.mode;
+  if (start.effort) params.effort = start.effort;
+  if (start.account) params.account = start.account;
   if (start.environment) params.environment = start.environment;
   if (start.reservationKey) params.reservationKey = start.reservationKey;
   if (start.gestureTicket) params.gestureTicket = start.gestureTicket;
   if (start.signedIn) params.signedIn = true;
   if (start.team) params.team = start.team;
+  if (start.replacesChat) params.replacesChat = start.replacesChat;
+  const plan = currentCloudPlan();
+  const planMax = start.planMax ?? (plan.state === "active" ? plan.maxSize : null);
+  if (planMax) params.planMax = planMax;
   try {
     await call("cloud.startChat", params);
     return { ok: true };
@@ -327,6 +421,8 @@ export function cloudStartFingerprint(start: CloudStart): string {
     ...(start.team ? [start.team] : []),
     // A start in another mode is another start; one with no pick keeps the key it had.
     ...(start.mode ? [`mode:${start.mode}`] : []),
+    // The same for the picker's effort and account: a start that names neither keeps its key.
+    ...(start.effort || start.account ? [start.effort ?? null, start.account ?? null] : []),
   ]);
   // FNV-1a, two 32-bit lanes: a short stable name for the entry, never the prompt itself.
   let a = 0x811c9dc5;
@@ -439,9 +535,13 @@ export function cloudStartTeam() {
 export function cloudStartSaid(answer: CloudStartAnswer): boolean {
   return (
     !answer.ok &&
-    ["cloud_start_failed", "cloud_plan_required", "cloud_chat_already_started", "cloud_prompt_changed"].includes(
-      answer.code,
-    )
+    [
+      "cloud_start_failed",
+      "cloud_plan_required",
+      "cloud_chat_already_started",
+      "cloud_prompt_changed",
+      "cloud_setup_required",
+    ].includes(answer.code)
   );
 }
 
@@ -449,4 +549,17 @@ export function cloudStartSaid(answer: CloudStartAnswer): boolean {
 /// made, and the page sends the kept prompt to a chat on this Mac instead.
 export function cloudRunsHere(answer: CloudStartAnswer): boolean {
   return !answer.ok && answer.code === "run_on_this_mac";
+}
+
+/// The picker's effort and account for a Cloud start (cmux-tui/docs/model-connections.md, "The picker's
+/// model and account in Cloud"): the effort the composer shows, and the chat's route when the Account
+/// menu bound one. A route that is not a connection id (acpmux `cloud_model_plane::is_connection_id`) is left out.
+export function cloudPickExtras(summary: { effort?: string; route?: string } | undefined): {
+  effort?: string;
+  account?: string;
+} {
+  const effort =
+    summary?.effort && summary.effort !== "default" && summary.effort.length <= 128 ? summary.effort : undefined;
+  const account = summary?.route && /^[A-Za-z0-9._:@-]{1,128}$/.test(summary.route) ? summary.route : undefined;
+  return { ...(effort ? { effort } : {}), ...(account ? { account } : {}) };
 }

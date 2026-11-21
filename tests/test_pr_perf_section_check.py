@@ -171,7 +171,9 @@ class SectionTests(unittest.TestCase):
         listing = next(s for s in steps if s.get("id") == "paths")["run"]
         paths_line = next(line for line in listing.splitlines() if '"$RUNNER_TEMP/paths.txt"' in line)
         self.assertIn("--no-renames", paths_line)
-        perf = next(s for s in steps if s.get("name") == "Check the description for a Performance table")["run"]
+        import tomllib
+
+        perf = tomllib.loads((ROOT / "ci/steps.toml").read_text())["step"]["perf-section"]["run"]
         self.assertIn("previous_filename", perf)
 
 

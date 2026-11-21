@@ -5,7 +5,7 @@
 .acpmux-minimap {
   position: sticky;
   top: 0;
-  z-index: 3;
+  z-index: var(--layer-sticky);
   height: 0;
 }
 /* The rail's tokens; the card takes them too, as it draws outside the rail (PreviewCard.tsx). */
@@ -675,4 +675,14 @@
 .acpmux-minimap__rail[data-side="right"] .acpmux-minimap__list,
 .acpmux-scrollmap[data-side="right"] {
   transform: scaleX(-1);
+}
+
+/* Increase Contrast: a resting tick is the muted ink at full strength (3:1 or more on every theme's
+   ground, test/control-contrast-N.test.ts), so the rail reads without a pointer on it. The lit and
+   bookmarked ticks keep their own steps over it, in the text ink. */
+@media (prefers-contrast: more) {
+  .acpmux-minimap__tick[data-tone="rest"] .acpmux-minimap__bar,
+  .acpmux-minimap__tick[data-tone="rest"] .acpmux-minimap__dot {
+    opacity: 1;
+  }
 }

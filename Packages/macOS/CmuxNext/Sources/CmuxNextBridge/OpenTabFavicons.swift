@@ -3,6 +3,12 @@ public import CmuxNextDaemon
 public import Foundation
 import Observation
 
+/// What gives ``OpenTabFavicons`` one workspace's open tab favicons (the app's services): none for an incognito
+/// workspace, read from that workspace's own state only (it runs inside the workspace's observation).
+@MainActor public protocol OpenTabFaviconSource: AnyObject, Sendable {
+    func openTabFavicons(of workspace: WorkspaceModel) -> [OpenTabFavicons.Favicon]
+}
+
 /// The favicon address an open browser tab shows, by the tab's site origin: the first tab per origin in workspace
 /// order, without the origins whose first tab shows the site's own `/favicon.ico` (a link draws that one without
 /// storing it). What the sidebar's link items store (``SidebarDocMachines/followFavicons(_:revision:byOrigin:faviconKey:)``).
@@ -14,7 +20,7 @@ import Observation
 /// cell kept for it): a read of the store's tab index, its workspace list or the whole window registry there is woken
 /// by a tab added in any workspace, once per workspace.
 ///
-/// The work after one workspace's change does not grow with the session (the person's session has 826 workspaces): the
+/// The work after one workspace's change does not grow with the session, in a large session as in a small one: the
 /// changed workspace's favicons arrive as one change (`ObservedItems.Change`), and the table is updated for that
 /// workspace's sites only, from the places that hold each site (``SortedPositions``: the first holder gives the
 /// favicon). Only a change of the workspace list reads the items of every workspace and builds the table again.
@@ -44,19 +50,54 @@ import Observation
     /// Follows `workspaces` (the list only) and each workspace through `favicons` (its open tab favicons in model order;
     /// the app: ``favicons(of:incognito:faviconKey:)``) from now on. `favicons` runs inside that workspace's
     /// observation, so it must read that workspace's own state only. Once; a second call does nothing.
+    ///
+    /// The first list is read in this call (one pass over the workspaces of now), so ``byOrigin`` and
+    /// ``address(origin:incognito:)`` are right directly after it; the task takes each later list. A caller inside an
+    /// observation tracking gets that pass's reads in its own tracking, so the app starts the table from plain code
+    /// where it can (the sidebar's set-up).
     public func start(workspaces: @escaping @MainActor @Sendable () -> [WorkspaceModel],
                       favicons: @escaping @MainActor @Sendable (WorkspaceModel) -> [Favicon]) {
         guard listTask == nil else { return }
         observed = ObservedItems(item: { workspace in favicons(workspace) }, same: { $0 == $1 },
                                  changedItem: { [weak self] change in self?.itemChanged(change) })
+        let (first, later) = ObservationStream.current({ workspaces() })
+        listed = first
         // task-owner: the app's services (live for the app); event-driven (Observation)
         listTask = Task { [weak self] in
-            for await models in ObservationStream({ workspaces() }) {
+            for await models in later {
                 guard let self else { return }
                 listed = models
                 listChanged()
             }
         }
+        listChanged()
+    }
+
+    /// This table, started: while ``start(workspaces:favicons:)`` did not run, it makes that call over the workspaces
+    /// of `store`, each through `source` (held weakly). For an owner that asks at each read: the closures of the start
+    /// are made one time, not at each ask.
+    public func started(over store: DaemonStore, from source: any OpenTabFaviconSource) -> OpenTabFavicons {
+        if listTask == nil {
+            start(workspaces: { store.workspaces }, favicons: { [weak source] in source?.openTabFavicons(of: $0) ?? [] })
+        }
+        return self
+    }
+
+    /// The favicon address that a page of site `origin` draws when the page is not an open tab (a bookmark, a recent
+    /// page, an omnibar row): the one the first open tab of the site shows, else the site's own `/favicon.ico`. One
+    /// read of ``byOrigin``: no workspace is visited, and a reader hears a change of the table.
+    ///
+    /// `incognito` is asked for ONE workspace at most: the one whose tab gave the table's address (the app:
+    /// `WindowManager.isIncognito(workspace:)` of the model, its facts of now). The table hears a workspace's turn to
+    /// incognito some main actor turns late (the workspace's watch task), and until then it still has the address
+    /// of that workspace's page. With this read the answer is the site's own address in the turn of the flag
+    /// already, so an incognito page's address never goes out. A reader inside a tracking hears a change of that one
+    /// workspace's incognito facts too. While the table is late, a later holder of the site is not asked: the
+    /// answer is the site's own address until the table has the change (a walk gave the later holder's address).
+    public func address(origin: String, incognito: @MainActor (WorkspaceModel) -> Bool) -> String {
+        guard let address = byOrigin[origin] else { return origin + "/favicon.ico" }
+        guard let first = holders[origin]?.first, listed.indices.contains(first), incognito(listed[first]) else { return address }
+        return origin + "/favicon.ico"
     }
 
     /// One workspace's open tab favicons, in model order.

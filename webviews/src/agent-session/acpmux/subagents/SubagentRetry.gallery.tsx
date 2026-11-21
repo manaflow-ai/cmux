@@ -3,10 +3,11 @@
 // died on a transient capacity error (2026-10-26: "this needs to retry :("). While acpmux waits to
 // retry, the line reads "Retrying (2/4) after a capacity error" with the turning ring, never a dot.
 // A failed line offers Retry once, on hover: on the line, or only in its ⋯ menu, never both; one
-// acpmux gave up on says how many tries it had; a Task subagent acpmux cannot retry offers the same
-// "Retry", which asks the chat's agent. A subagent the harness refused to start is one quiet line
-// with nothing to click. Three places for the failed line's Retry are compared: an inline button
-// (the pick), a link after the line, and the ⋯ menu alone. Synthetic data.
+// acpmux gave up on says how many tries it had; a Task subagent acpmux cannot retry offers none
+// (Leo, 2026-11-14: "we maybe want to remove the "ask parent to retry" if we haven't already"). A
+// subagent the harness refused to start is one quiet line with nothing to click. Three places for
+// the failed line's Retry are compared: an inline button (the pick), a link after the line, and the
+// ⋯ menu alone. Synthetic data.
 import { componentEntry } from "../../../gallery/format";
 import { minutesAgo } from "../../../gallery/clock";
 import type { Play } from "../../../gallery/play";
@@ -139,7 +140,7 @@ export default componentEntry<Props>({
       props: { lines: MIXED },
     },
     "grid-long-cells": {
-      note: "The grid's growing cells: Retry on a subagent acpmux cannot retry, and a run past an hour. Retry and the time grow instead of spilling into the next column.",
+      note: "The grid's growing cells: a subagent acpmux cannot retry (no Retry, its cell left empty), and a run past an hour. Retry and the time grow instead of spilling into the next column.",
       props: {
         lines: [
           THREE[0]!,
@@ -210,8 +211,8 @@ export default componentEntry<Props>({
       note: "acpmux gave up after its last try: the line says so, and Retry runs it once more.",
       props: { lines: [relay({ retryable: true, retriedOut: { attempt: 4, of: 4, reason: "capacity" } })] },
     },
-    "task-ask-parent": {
-      note: "A Task subagent acpmux cannot retry (no `retryable`): the same Retry, which sends the chat one line naming the task and its description.",
+    "task-no-retry": {
+      note: "A Task subagent acpmux cannot retry (no `retryable`): no Retry and no ⋯ menu; the chat's agent already read the error.",
       props: { lines: [relay()] },
     },
   },

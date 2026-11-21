@@ -74,8 +74,7 @@ extension SidebarListViewComponents {
                 press.clickOnRelease = id
             case .shows:
                 // A click switches at once, on the press (Lawrence 2026-10-21: a switch on the release read as lag).
-                // Leo 2026-10-21 ("MOUSE DOWN DRAGGING ... SHOULDN'T BE IMMEDIATELY FOCUSING"): if the press becomes
-                // a drag, `beginDrag` puts the shown workspace and the selection back.
+                // A press that becomes a drag keeps this switch, as Chrome and Edge do (Leo 2026-11-08, `beginDrag`).
                 press.switchedOnPress = (model.activeWorkspaceID, model.selection)
                 model.click(id)
             }

@@ -31,3 +31,13 @@ export function onVisualViewport<T extends ViewportEdges>(box: T, view: Window |
     bottom: (box.bottom - y) * scale,
   };
 }
+
+/** `point` (layout viewport CSS px, a pointer's `clientX`/`clientY`) where it shows on the pinch-zoomed
+ * screen, in unzoomed CSS px. */
+export function pointOnVisualViewport(
+  point: { x: number; y: number },
+  view: Window | null | undefined,
+): { x: number; y: number } {
+  const box = onVisualViewport({ left: point.x, top: point.y, right: point.x, bottom: point.y }, view);
+  return { x: box.left, y: box.top };
+}

@@ -1,0 +1,16 @@
+# gitleaks config for scripts/static-analysis/gitleaks.sh.
+# Starts from gitleaks' default rules; add entries here only for known non-secrets.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "lockfiles, test data and public client identifiers"
+paths = [
+  '''(^|/)(bun\.lock|package-lock\.json|Cargo\.lock|Package\.resolved|go\.sum|yarn\.lock|pnpm-lock\.yaml)$''',
+  '''(^|/)static-analysis-out/''',
+  '''(^|/)testdata/''',
+]
+# Stack Auth publishable client keys (pck_...) ship inside apps by design.
+regexes = [
+  '''^pck_[a-z0-9]+$''',
+]

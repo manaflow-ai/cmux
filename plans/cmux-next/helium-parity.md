@@ -42,6 +42,23 @@ Colors are not ported: cmux keeps its theme tokens (`Palette.hoverFill`, `select
 | Tab hover | tabs.patch (PaintBackgroundHover removed; hovered fill is the tab background color) | flat fill, no radial glow | flat `hoverFill` pill |
 | Close x on inactive tabs | tabs.patch:300 `mouse_hovered_ &&` | only while hovered | only while hovered |
 
+## Ported 2026-11-13 (density thread: Helium = Default, pixel for pixel)
+
+Lawrence, 2026-11-13: "Helium is nearly pixel perfect", "use helium for default, for spacious, still keep helium
+details, but match chrome's sizing/padding", "need to match the X icon on helium in terms of hover too". Source values,
+measured captures and links: [helium-density/source-values.md](helium-density/source-values.md) and the table in
+[design-tokens.md](spec-proposals/visuals/design-tokens.md) ("Browser chrome: Helium and Chrome source values").
+These replace the matching "Not ported" rows below.
+
+| Item | Helium | cmux before | cmux after (Default; Compact 20, Comfortable 31, Spacious 34 scale with the row) |
+|---|---|---|---|
+| Tab pill / omnibar height | 28 | 30 (the sidebar row) | 28 (`browserRowHeight`) |
+| Gap above the pills, pill to omnibar, omnibar to page | 3 | 4.5 under a set padding, 3 under the flush corner | 3 (`browserRowGap`); Spacious 6, Chrome's |
+| Tab, omnibar and button corner | 8 on 28 | 8 on 30 (7 on 28) | 8 on 28 (`chromeRowCornerRadius`) |
+| Tab x hover | 14 square, r 4, 6 from the pill's end | 16 square, nested r, 4 from the end | 14, r 4, 6 (`closeButtonSize`, `closeCornerRadius`, `contentTrailingInset`) |
+| Tab x ink | 8, about 1.5 stroke | 7, 1.3 | 8, 1.5 |
+| Tab title | 12 pt | 13 pt | 12 pt |
+
 ## Not ported (default picked, can change)
 
 | Item | Helium | cmux now | Why kept |

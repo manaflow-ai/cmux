@@ -12,7 +12,7 @@
 //! no input and no output in any terminal for that time.
 
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::super::{LogState, OutputStore, TerminalLog};
 use super::{Plan, Seen, flush_tail};
@@ -83,8 +83,8 @@ fn a_quit_appends_the_unwritten_bytes_to_the_tail_and_syncs_it() {
     let directory = directory("sync");
     let store = OutputStore::new(None);
     let log = log(b"", b"last words");
-    // The tail was synced just now: a pass that is not the quit waits a second for the next sync.
-    log.state.lock().unwrap().tail_synced_at = Some(Instant::now());
+    // A pass that is not the quit only writes: the store syncs its tails together, later
+    // (tail_sync_tests.rs).
     flush_tail(
         &store,
         &directory,

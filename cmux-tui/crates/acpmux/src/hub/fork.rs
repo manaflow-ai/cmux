@@ -172,6 +172,7 @@ impl Hub {
         retarget: Retarget,
         cwd: &Path,
     ) -> Result<Option<Target>, RpcError> {
+        self.rediscover_head(Some(retarget.harness.as_str()), None).await;
         let cfg = self.config.read().await;
         let remote = parent.remote_origin || retarget.remote;
         let r = self.resolve_new(
@@ -286,10 +287,15 @@ impl Hub {
             .as_ref()
             .map(|(id, _)| id.clone())
             .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
-        let turn_cut = {
+        let (turn_cut, codex_fork) = {
             let cfg = self.config.read().await;
-            cfg.profile(&parent_meta.harness)
-                .and_then(|p| crate::config::turn_cut(&parent_meta.harness, p))
+            let profile = cfg.profile(&parent_meta.harness);
+            (
+                profile.and_then(|p| crate::config::turn_cut(&parent_meta.harness, p)),
+                // A Codex parent's profile argv, for the HTTP `cmux` entry check.
+                crate::agent_tools::is_codex(&parent_meta, profile)
+                    .then(|| profile.map(|p| p.argv.clone()).unwrap_or_default()),
+            )
         };
         if before.is_some() && turn_cut.is_none() {
             return Err(super::fork_before::refused(
@@ -506,7 +512,36 @@ impl Hub {
             }
             // The list the parent's agent got at its start (`spawn.rs`).
             let all = child.all_tools.load(std::sync::atomic::Ordering::Relaxed);
-            let mut fork_params = json!({"sessionId": sid, "cwd": cwd, "mcpServers": crate::agent_tools::acp_servers_for(parent_meta.remote_origin, &fork_env, &id, all)});
+            // Codex's answer for the person's own `cmux` entry, asked once for this fork, off the
+            // runtime.
+            let answer = crate::agent_tools::CodexAnswer::default();
+            if let Some(argv) = codex_fork.as_deref() {
+                crate::agent_tools::warm_codex_answer(&cwd, argv, &fork_env, &answer).await;
+            }
+            let codex = codex_fork.as_deref().map(|argv| crate::agent_tools::CodexLaunch {
+                cwd: &cwd,
+                argv,
+                answer: Some(&answer),
+            });
+            let servers = crate::agent_tools::acp_servers_for(
+                parent_meta.remote_origin,
+                &fork_env,
+                &id,
+                all,
+                crate::agent_tools::takes_http(session.meta().agent_capabilities.as_ref()),
+                std::path::Path::new(&cwd),
+                codex,
+            );
+            // The person's own stdio `cmux` entry learns which chat starts it, where cmux gives none.
+            // With the parent's answer, for a chat another Mac started (`cmux_tools_answer.rs`).
+            let mut answer_env =
+                super::cmux_tools_answer::inherited(fork_env.clone(), &parent_meta.session_env);
+            crate::agent_tools::remote_origin_answer(&mut answer_env, parent_meta.remote_origin);
+            let entry_env = codex.and_then(|launch| {
+                crate::agent_tools::person_entry_env(&servers, launch, &answer_env, &id)
+            });
+            let mut fork_params = json!({"sessionId": sid, "cwd": cwd, "mcpServers": servers});
+            crate::agent_tools::send_person_entry_env(&mut fork_params, entry_env);
             // The parent's folders, as its own start gave them (`additional_dirs.rs`).
             if let Some(dirs) = super::additional_dirs::acp_value(&parent_meta) {
                 fork_params.set(super::additional_dirs::FIELD, dirs);
@@ -608,7 +643,9 @@ impl Hub {
             schema: META_SCHEMA.into(),
             id: id.clone(),
             name,
+            handle: None,
             name_given,
+            former_names: Vec::new(),
             harness: parent_meta.harness.clone(),
             harness_argv: parent_meta.harness_argv.clone(),
             spawn_argv: None,
@@ -619,6 +656,10 @@ impl Hub {
             cwd,
             // A fork sees what its parent saw, but never its own folder twice.
             additional_directories: fork_dirs,
+            // A fork is the person's new chat: its parent's stop condition (a Chief's goal) stays
+            // with the parent.
+            stop_condition: None,
+            stop_condition_sent: false,
             // A fork is a new chat. Its parent transcript is authorized through parent_id; it
             // must not inherit the parent's historical native session ids as its own.
             previous_agent_session_ids: Vec::new(),
@@ -635,6 +676,7 @@ impl Hub {
             // A referencing fork's own records follow the history it shows.
             last_seq: if referenced { fork_seq } else { 0 },
             transcript_seq: if referenced { fork_seq } else { 0 },
+            recovered_after: None,
             parent_id: Some(session.id.clone()),
             fork_seq: if empty { None } else { Some(fork_seq) },
             fork_before: before.as_ref().map(|(_, b)| b.clone()),
@@ -695,15 +737,20 @@ impl Hub {
             usage_limits: parent_meta.usage_limits.clone(),
             available_commands: parent_meta.available_commands.clone(),
             goal: None,
+            task_list: None,
             permission_rules: None,
             tags: Default::default(),
             unread: false,
             seen_seq: None,
             unread_turns: 0,
             last_return: None,
+            away_recap: None,
+            rolling_summary: None,
+            read_through: Default::default(),
             claude_unstored: false,
             // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
             wait_start: false,
+            throwaway: false,
             hibernated_ms: 0,
             idle_launch: None,
             moved_to: None,
@@ -716,8 +763,9 @@ impl Hub {
             // onto another harness is that device's new chat ([`Retarget::remote`]).
             remote_origin: parent_meta.remote_origin || target.as_ref().is_some_and(|t| t.remote),
             vm_boundary: parent_meta.vm_boundary,
-            // Never inherited: the fork request sets its own or runs without one.
-            session_env,
+            // Never inherited: the fork request sets its own or runs without one; but for the
+            // answer of the Mac that started a remote chain (`cmux_tools_answer.rs`).
+            session_env: super::cmux_tools_answer::inherited(session_env, &parent_meta.session_env),
             workspace_id,
             // The fork resumes the parent from its store, and its conversation lands there.
             chat_store: parent_meta.chat_store.clone(),
@@ -748,6 +796,7 @@ impl Hub {
             totals: None,
             pull_requests: vec![],
             pull_request_times: Default::default(),
+            closed_pull_requests: vec![],
             touched_files: vec![],
             harness_cost_usd: if matches!(made, Made::ClaudeResume) {
                 parent_meta.harness_cost_usd
@@ -836,7 +885,7 @@ impl Hub {
         }
         self.update_live_session_index(&new);
         // A session that came may be another row's parent: every closed row is built again.
-        self.events.changed();
+        self.session_came(&new);
         // Indexed again once published (`transfer.rs` `import_into`).
         self.child_tags.note(&new);
         let creation_guard = super::lifecycle::CreationGuard::new(self.clone(), new.clone(), 0);
@@ -857,6 +906,9 @@ impl Hub {
         let mut running_turn_seq: Option<u64> = None;
         // Cancel stops the copy where it is; the fork is then discarded whole (`fork_cancel.rs`).
         let mut cancelled = false;
+        // A copy the journal refused is neither stored nor heard (`append_record_locked`): the
+        // fork would read as whole with history missing, so it fails instead and is purged.
+        let mut refused = false;
         if referenced {
             // Only the running turn is read, from its start: which of its tool calls still run.
             if let Some(turn) = &running {
@@ -903,7 +955,7 @@ impl Hub {
                             .and_then(Value::as_str)
                             .map(|text| short_text(text, 200));
                     }
-                    let (copy, _) = self.append_at_locked(
+                    let (copy, stored) = self.append_at_locked(
                         &new,
                         &e.dir,
                         &e.kind,
@@ -913,6 +965,10 @@ impl Hub {
                         false,
                         false,
                     );
+                    if !stored {
+                        refused = true;
+                        return false;
+                    }
                     if starts_running {
                         running_turn_seq = Some(copy.seq);
                     }
@@ -930,6 +986,13 @@ impl Hub {
             if cancelled {
                 self.ledger.unsuppress(&new.id);
                 return Err(super::fork_cancel::cancelled_refusal());
+            }
+            if refused {
+                self.ledger.unsuppress(&new.id);
+                return Err(super::fork_before::refused(
+                    "fork.incomplete",
+                    "the journal refused a copied record",
+                ));
             }
             if before.is_some()
                 && let Err(e) = copied

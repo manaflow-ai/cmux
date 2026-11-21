@@ -16,7 +16,7 @@
 .chief-web__dock{flex:none;padding:8px max(var(--chief-inset),env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(var(--chief-inset),env(safe-area-inset-left));display:flex;flex-direction:column;gap:8px}
 .chief-web .guest-composer{gap:4px;padding:8px;border:1px solid var(--agent-border);border-radius:16px;align-items:flex-end}
 .chief-web .guest-composer__field{min-height:var(--chief-touch-target);max-height:min(40dvh,320px);padding:12px 8px;border:0;border-radius:0;background:transparent;font-size:var(--chief-type);line-height:1.5}
-.chief-web .guest-composer .guest-join__button{display:grid;place-items:center;min-width:44px;height:var(--chief-touch-target);padding:0;border-radius:12px;background:transparent;color:var(--agent-text)}
+.chief-web .guest-composer .guest-join__button{display:grid;place-items:center;min-width:44px;height:var(--chief-touch-target);padding:0;border-radius:var(--ds-radius-control);background:transparent;color:var(--agent-text)}
 .chief-web .guest-composer__note{padding:0 8px}
 .chief-web__outbox{max-height:25dvh;overflow-y:auto}
 .chief-web__pending{margin:0 0 8px auto;max-width:85%;padding:8px 12px;border-radius:16px;background:var(--agent-surface);overflow-wrap:anywhere}
@@ -85,7 +85,7 @@
   color: inherit;
   background: transparent;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--ds-radius-control);
 }
 .chief-machine-login button.chief-web__action {
   border: 1px solid var(--agent-border);

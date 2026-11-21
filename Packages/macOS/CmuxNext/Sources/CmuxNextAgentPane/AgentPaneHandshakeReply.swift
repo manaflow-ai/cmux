@@ -36,9 +36,13 @@ enum AgentPaneHandshakeReply {
                 if (seed.prompt?.isEmpty == false || seed.promptAttachments?.isEmpty == false), seed.promptBy.sendsBySelf {
                     let issued = model.transport.gestures.issueSeedTicket()
                     handshake.promptTicket = AgentPaneHandshake.PromptTicket(promptId: issued.promptId, ticket: issued.ticket)
+                } else if seed.prompt?.isEmpty == false || seed.promptAttachments?.isEmpty == false {
+                    // A CLI, MCP or script seed waits in the composer for the person's own Send.
+                    model.transport.gestures.holdAutomationSeed()
                 }
                 handshake.harness = seed.harness
                 handshake.model = seed.model
+                handshake.effort = seed.effort
                 handshake.peer = seed.host
                 if let peer = seed.host { handshake.machineName = peer }
                 if seed.showsHarnesses { handshake.harnesses = true }
@@ -98,6 +102,7 @@ enum AgentPaneHandshakeReply {
                 model.wakeSource = nil
                 handshake.wake = model.pendingWake
                 (model.handedWake, model.pendingWake) = (model.pendingWake, nil)
+                model.openWaits.ran(.handshake)
             }
             model.hasHandshake = true
             // A handshake starts a connection: the page says when its client is ready (`pane.clientReady`).
@@ -112,7 +117,10 @@ enum AgentPaneHandshakeReply {
             model.transport.acpmuxSocket = handshake.connection?.remote == nil ? handshake.connection?.socketPath : nil
             model.transport.acpmuxExecutable = handshake.connection?.remote == nil ? handshake.connection?.executable : nil
             handshake.connection = nil
-            return AgentPaneReply.handshake(handshake)
+            // A reconnect's page keeps its screen and reads no New Tab context (webviews App.tsx), so its reply
+            // carries none: a send here would mark its document with a shared text that the page did not keep.
+            if request == .reconnect { handshake.newTab = nil }
+            return AgentPaneReply.handshake(handshake, newTab: handshake.newTab.flatMap { model.newTabReply($0) })
         } catch {
             let message = AgentPaneHostError.userMessage(for: error)
             var reply = AgentPaneReply.failure(code: "host_unavailable", message: message)

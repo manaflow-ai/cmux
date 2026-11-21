@@ -531,91 +531,91 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا توجد عناصر بعد. أضف عنصرًا أعلاه، أو شغّل cmux workspace checklist add."
+            "value": "لا توجد عناصر بعد."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Još nema stavki. Dodajte jednu iznad ili pokrenite cmux workspace checklist add."
+            "value": "Još nema stavki."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen punkter endnu. Tilføj et ovenfor, eller kør cmux workspace checklist add."
+            "value": "Ingen punkter endnu."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Noch keine Einträge. Füge oben einen hinzu oder führe cmux workspace checklist add aus."
+            "value": "Noch keine Einträge."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No items yet. Add one above, or run cmux workspace checklist add."
+            "value": "No items yet."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aún no hay elementos. Añade uno arriba o ejecuta cmux workspace checklist add."
+            "value": "Aún no hay elementos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucun élément pour l’instant. Ajoutez-en un ci-dessus ou exécutez cmux workspace checklist add."
+            "value": "Aucun élément pour l’instant."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ancora nessun elemento. Aggiungine uno sopra o esegui cmux workspace checklist add."
+            "value": "Ancora nessun elemento."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "まだ項目がありません。上で追加するか、cmux workspace checklist add を実行してください。"
+            "value": "まだ項目がありません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនទាន់មានធាតុនៅឡើយ។ បន្ថែមមួយនៅខាងលើ ឬដំណើរការ cmux workspace checklist add។"
+            "value": "មិនទាន់មានធាតុនៅឡើយ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "아직 항목이 없습니다. 위에서 추가하거나 cmux workspace checklist add를 실행하세요."
+            "value": "아직 항목이 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen punkter ennå. Legg til ett ovenfor, eller kjør cmux workspace checklist add."
+            "value": "Ingen punkter ennå."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brak elementów. Dodaj jeden powyżej lub uruchom cmux workspace checklist add."
+            "value": "Brak elementów."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhum item ainda. Adicione um acima ou execute cmux workspace checklist add."
+            "value": "Nenhum item ainda."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Пунктов пока нет. Добавьте пункт выше или выполните cmux workspace checklist add."
+            "value": "Пунктов пока нет."
           }
         },
         "th": {
@@ -627,31 +627,31 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Henüz öğe yok. Yukarıdan bir tane ekleyin veya cmux workspace checklist add komutunu çalıştırın."
+            "value": "Henüz öğe yok."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Пунктів ще немає. Додайте пункт вище або виконайте cmux workspace checklist add."
+            "value": "Пунктів ще немає."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chưa có mục nào. Thêm một mục ở trên hoặc chạy cmux workspace checklist add."
+            "value": "Chưa có mục nào."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "还没有项目。在上方添加一项，或运行 cmux workspace checklist add。"
+            "value": "还没有项目。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "還沒有項目。在上方新增一項，或執行 cmux workspace checklist add。"
+            "value": "還沒有項目。"
           }
         }
       }

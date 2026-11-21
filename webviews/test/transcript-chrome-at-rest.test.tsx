@@ -3,8 +3,7 @@
 // of weird tbh", "why were all these added in the first place?", "plus the second opinion thing"):
 // - a subagent the harness refused to start (the concurrent subagent limit) is the parent's own
 //   failed tool call: its name and one short status, no Retry, ↺, ⋯ or "13ms";
-// - a row's controls on the line and in its ⋯ menu are disjoint: "Retry" never twice;
-// - a turn's footer keeps Try another approach, Pin and the Timeline for the pointer.
+// - a row's controls on the line and in its ⋯ menu are disjoint: "Retry" never twice.
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -175,11 +174,18 @@ test("a failed run offers Retry once: on the line with no menu, or only in the m
   act(() => root?.unmount());
   root = undefined;
 
-  host = render([ranAndFailed({ retryable: undefined, toolUses: 2 })], "menu");
+  host = render([ranAndFailed({ toolUses: 2 })], "menu");
   row = host.querySelector<HTMLElement>(".cv-subagent-done-row")!;
   expect(row.querySelector(":scope > :is(.cv-subagent-retry, .cv-subagent-retry-link)")).toBeNull();
   expect(row.querySelector('[data-menu="subagent-done"]')).not.toBeNull();
-  // "Ask parent to retry" named a mechanism: the ask reads "Retry" too.
+  act(() => root?.unmount());
+  root = undefined;
+
+  // One acpmux cannot retry offers no Retry at all: the chat's agent already read the error (Leo,
+  // 2026-11-14: "we maybe want to remove the "ask parent to retry" if we haven't already").
+  host = render([ranAndFailed({ retryable: undefined, toolUses: 2 })], "menu");
+  row = host.querySelector<HTMLElement>(".cv-subagent-done-row")!;
+  expect(row.querySelector(".cv-subagent-retry, .cv-subagent-retry-link, [data-menu]")).toBeNull();
   expect(host.textContent).not.toContain("parent");
 });
 
@@ -223,29 +229,4 @@ test('the catalog has no "Ask parent to retry"', () => {
     readFileSync(new URL("../src/agent-session/acpmux/Localizable.xcstrings", import.meta.url), "utf8"),
   ) as { strings: Record<string, unknown> };
   expect(catalog.strings["retry.askParent"]).toBeUndefined();
-});
-
-test("a turn's footer keeps Try another approach, Pin and the Timeline for the pointer, after its buttons", async () => {
-  const { renderToStaticMarkup } = await import("react-dom/server");
-  const { TurnFooter } = await import("../src/agent-session/acpmux/conversation/TurnRows");
-  const summary: AcpmuxRow = { id: "summary", version: 1, at: 1_000, kind: "turnSummary", status: "completed" };
-  const markup = renderToStaticMarkup(<TurnFooter row={summary} />);
-  expect(markup).toContain('class="cv-turn-action-quiet"');
-  const css = readFileSync(
-    new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
-    "utf8",
-  );
-  expect(css).toMatch(/\.cv-turn-actions \.cv-turn-action-quiet:not\([^)]*\)\) \{\s*opacity: 0;/);
-  expect(css).toMatch(/\.acpmux-turnSummary:hover \.cv-turn-action-quiet,[^{]*\{\s*opacity: 1;/);
-  // The group comes after the row's own buttons, so hiding it leaves no hole at rest.
-  const source = readFileSync(
-    new URL("../src/agent-session/acpmux/conversation/TurnRows.tsx", import.meta.url),
-    "utf8",
-  );
-  expect(source.indexOf("<MessageMore rowId={row.answerId} />")).toBeLessThan(
-    source.indexOf('className="cv-turn-action-quiet"'),
-  );
-  expect(source.indexOf("<PinButton rowId={row.id} />")).toBeGreaterThan(
-    source.indexOf('className="cv-turn-action-quiet"'),
-  );
 });

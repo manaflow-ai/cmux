@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "cmux passkey fallback probe",
+  "version": "1.0",
+  "description": "Test extension: copies how password managers (Bitwarden) take a WebAuthn get, show a chrome.windows.create popout, and fall back to the browser's own passkey sheet when that popout window closes.",
+  "background": { "service_worker": "worker.js" },
+  "permissions": ["storage"],
+  "content_scripts": [
+    { "matches": ["http://localhost/*"], "js": ["page-script.js"], "run_at": "document_start", "world": "MAIN" },
+    { "matches": ["http://localhost/*"], "js": ["relay.js"], "run_at": "document_start" }
+  ]
+}

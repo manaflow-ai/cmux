@@ -139,7 +139,7 @@
 
 .pairing-button {
   border: 1px solid var(--page-separator);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   padding: 4px 12px;
   background: var(--page-elevated);
   font-size: var(--text-control);
