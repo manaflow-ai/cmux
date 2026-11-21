@@ -6,11 +6,11 @@ import Testing
 /// Leo's NIGHTLY (2026-11-21): 214 chat tabs, a few streaming; every record of a hidden chat still reached its page, so
 /// its JSON crossed the main thread once (the Chromium push), whether anyone saw the chat or not.
 struct AgentPaneTransportHiddenTests {
-    private static func socket(visibility: AgentPaneStreamVisibility? = nil) throws -> AcpmuxPaneSocket {
+    private static func socket() throws -> AcpmuxPaneSocket {
         let url = try #require(URL(string: "ws://127.0.0.1"))
         return AcpmuxPaneSocket(request: URLRequest(url: url), limits: AgentPaneTransport.Limits(),
                                 options: AcpmuxPermissionOptions(), sessions: AcpmuxPaneSessions(), ids: AcpmuxRequestIds(),
-                                visibility: visibility, signal: {})
+                                signal: {})
     }
 
     private static func chunk(_ seq: Int) -> String {
@@ -119,16 +119,26 @@ struct AgentPaneTransportHiddenTests {
         #expect(end.first?["phase"] == nil)
     }
 
-    /// The pacer's visibility reaches every socket the transport opens: a reconnect while hidden starts hidden.
-    @Test func aSocketStartsFromThePanesVisibility() throws {
-        let visibility = AgentPaneStreamVisibility()
-        visibility.set(hidden: true)
-        let socket = try Self.socket(visibility: visibility)
+    /// The transport tells its socket both levels of sight (``AgentPaneSight``): a covered pane (its document still
+    /// visible, so the page checks that its stream moves) keeps its stream and only loses other chats' rows; a hidden
+    /// or frozen one loses its stream too.
+    @MainActor @Test func theTransportShedsTheStreamOnlyForAHiddenOrFrozenPage() throws {
+        let transport = AgentPaneTransport()
+        let socket = try Self.socket()
+        transport.socket = socket
+        transport.pageSight = AgentPaneSight(unseen: true, hidden: false)
         socket.receiveLocalReply(Self.chunk(1))
+        #expect(Self.drain(socket) == [Self.chunk(1)], "a covered pane lost its stream")
+        transport.pageSight = AgentPaneSight(unseen: true, hidden: true)
+        socket.receiveLocalReply(Self.chunk(2))
         #expect(Self.markers(Self.drain(socket)).count == 1)
-        visibility.set(hidden: false)
-        let end = Self.markers(Self.drain(socket))
-        #expect(end.first?["dropped"] as? Int == 1)
+        transport.pageSight = .seen
+        #expect(Self.markers(Self.drain(socket)).first?["dropped"] as? Int == 1)
+        transport.beforePageWork = {}
+        socket.receiveLocalReply(Self.chunk(3))
+        #expect(Self.markers(Self.drain(socket)).count == 1, "a frozen page got its stream")
+        transport.beforePageWork = nil
+        #expect(Self.markers(Self.drain(socket)).first?["dropped"] as? Int == 1)
     }
 
     /// A shown pane is untouched: no marker, no scan.

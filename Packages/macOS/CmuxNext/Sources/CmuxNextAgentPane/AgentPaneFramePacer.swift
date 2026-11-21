@@ -77,8 +77,10 @@ import CmuxNextWakeups
     private var lastCall: TimeInterval = -.infinity
     /// Calls made (tests).
     private(set) var calls = 0
-    /// Tells the pane's socket whether anyone sees the pane: nobody does, and its chat's stream stays in the daemon.
-    public let streamVisibility: AgentPaneStreamVisibility? = AgentPaneStreamVisibility()
+    /// Told how much of the pane anyone can see, on each change its probe sees (``AgentPaneTransport/pageSight``).
+    public var onSightChange: (@MainActor (_ sight: AgentPaneSight) -> Void)?
+    /// What ``onSightChange`` was last told; nil before the first report.
+    private var reportedSight: AgentPaneSight?
 
     public init(frames: any AgentPaneFrameTicks, fallback: any AgentPaneFallbackDeadline,
                 now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
@@ -208,9 +210,17 @@ import CmuxNextWakeups
         probe = nil
     }
 
+    /// Tells ``onSightChange`` how much of the pane anyone can see now, when that changed.
+    public func reportSight() {
+        let sight = AgentPaneSight(unseen: isHidden(), hidden: streamHidden())
+        guard sight != reportedSight else { return }
+        reportedSight = sight
+        onSightChange?(sight)
+    }
+
     /// The pane may have come into sight: frames held while it was hidden go now.
     func visibilityChanged() {
-        streamVisibility?.set(hidden: streamHidden())
+        reportSight()
         guard held || waitingWhileHidden, !isHidden() else { return }
         held = false
         if waitingWhileHidden {

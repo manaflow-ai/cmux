@@ -39,6 +39,9 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         /// nil while none is. `hiddenShedEnding`: its end is queued.
         var hiddenShed: Int?
         var hiddenShedEnding = false
+        /// The page is frozen (``setAsleep(_:)``): list notices are left out, and counted here.
+        var asleep = false
+        var sparedAsleep = 0
         var questionNotificationQueued = false
         var signaled = false
         var outstanding = 0
@@ -88,7 +91,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     private let decisions: AcpmuxDecisionContexts
     private let replacements: AcpmuxPaneReplacements
     /// The transport's id for this socket's connection (``AcpmuxPaneReplacements``).
-    private let connection: Int
+    let connection: Int
 
     /// A page frame with this decoded `method` is about to go out on this socket: false refuses it
     /// (a start or open while a Sandboxed send runs, ``AcpmuxPaneReplacements``).
@@ -119,7 +122,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
 
     init(request: URLRequest, wire: (any AcpmuxPaneWire)? = nil, limits: AgentPaneTransport.Limits,
          options: AcpmuxPermissionOptions, sessions: AcpmuxPaneSessions, decisions: AcpmuxDecisionContexts = AcpmuxDecisionContexts(),
-         replacements: AcpmuxPaneReplacements = AcpmuxPaneReplacements(), connection: Int = 0, ids: AcpmuxRequestIds, visibility: AgentPaneStreamVisibility? = nil, agentReplies: AgentPaneAgentReply.Send? = nil, onQuestionStateChanged: (@MainActor () -> Void)? = nil, signal: @escaping @Sendable () -> Void) {
+         replacements: AcpmuxPaneReplacements = AcpmuxPaneReplacements(), connection: Int = 0, ids: AcpmuxRequestIds, agentReplies: AgentPaneAgentReply.Send? = nil, onQuestionStateChanged: (@MainActor () -> Void)? = nil, signal: @escaping @Sendable () -> Void) {
         self.request = request
         self.wire = wire
         self.limits = limits
@@ -133,7 +136,6 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         self.onQuestionStateChanged = onQuestionStateChanged
         self.signal = signal
         super.init()
-        visibility?.attach(self)
     }
 
     func start(timeout: TimeInterval) async throws {
@@ -226,6 +228,17 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     /// queue, and only past the ceiling does the connection close.
     private func arrived(_ frame: String) {
         let received = Self.nativeUTF8(frame)
+        // A page nobody sees hears no other chat's row (``setAsleep(_:)``). The scans run only while
+        // it sleeps; the count is taken under the lock that a wake reads it under.
+        if wire == nil, state.withLock({ $0.asleep }), AcpmuxPaneShedding.sparedWhileAsleep(received),
+           !sessions.named(in: received),
+           state.withLock({ state -> Bool in
+               guard state.closed == nil, state.asleep else { return false }
+               state.sparedAsleep += 1
+               return true
+           }) {
+            return
+        }
         let bytes = received.utf8.count
         // The plain path: shown, nothing shed and room left, one lock and no scan.
         let decided = state.withLock { state -> Bool? in

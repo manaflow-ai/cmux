@@ -26,8 +26,6 @@ public nonisolated struct AgentPaneFlush: Equatable, Sendable {
     func delivered()
     /// The connection changed or closed: forget what was in flight.
     func reset()
-    /// Whether anyone can see the pane, for its socket (``AcpmuxPaneSocket/setHidden(_:)``); nil: always shown.
-    var streamVisibility: AgentPaneStreamVisibility? { get }
 }
 
 public extension AgentPaneTransportPacer {
@@ -37,7 +35,6 @@ public extension AgentPaneTransportPacer {
     }
     func delivered() {}
     func reset() {}
-    var streamVisibility: AgentPaneStreamVisibility? { nil }
 }
 
 /// Flushes on the next main-loop turn, again while more is waiting.
