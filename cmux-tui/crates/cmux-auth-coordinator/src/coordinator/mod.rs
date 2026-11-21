@@ -1,7 +1,7 @@
 //! The reducer: [`Coordinator::reduce`] takes an [`Event`] (a request, or the
 //! result of I/O the caller ran) and returns the [`Effect`]s to run, in order.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 use crate::event::{
@@ -54,13 +54,15 @@ pub struct Coordinator {
     is_revalidating_session: bool,
     restore_counter: u64,
     active_restore_id: Option<u64>,
-    is_capturing_sign_out_credentials: bool,
+    /// The sign-out epochs whose credential capture has not answered yet.
+    pending_sign_out_captures: BTreeSet<u64>,
     authenticated_teams_session_generation: Option<u64>,
     team_scope_generation: u64,
     last_published_team_scope: Option<TeamScope>,
     team_mutation_generation: u64,
     team_list_generation: u64,
-    active_team_refresh_count: u32,
+    pending_team_reads: BTreeSet<u64>,
+    team_read_counter: u64,
     team_scope_rate_limit: Option<RateLimitStreak>,
     team_scope_recovery: Option<Recovery>,
     next_recovery_id: u64,
@@ -96,13 +98,14 @@ impl Coordinator {
             is_revalidating_session: false,
             restore_counter: 0,
             active_restore_id: None,
-            is_capturing_sign_out_credentials: false,
+            pending_sign_out_captures: BTreeSet::new(),
             authenticated_teams_session_generation: None,
             team_scope_generation: 0,
             last_published_team_scope: None,
             team_mutation_generation: 0,
             team_list_generation: 0,
-            active_team_refresh_count: 0,
+            pending_team_reads: BTreeSet::new(),
+            team_read_counter: 0,
             team_scope_rate_limit: None,
             team_scope_recovery: None,
             next_recovery_id: 0,
@@ -185,7 +188,7 @@ impl Coordinator {
         });
         let validation_owns_store =
             self.is_revalidating_session && (self.is_restoring_session || self.is_authenticated);
-        sign_in_owns_store || validation_owns_store || self.is_capturing_sign_out_credentials
+        sign_in_owns_store || validation_owns_store || !self.pending_sign_out_captures.is_empty()
     }
 
     /// The current account and generation, while no token transition runs.
@@ -199,7 +202,7 @@ impl Coordinator {
     /// The identity the lifecycle streams carry: stable through same-account
     /// revalidation, gone at the synchronous start of sign-out.
     pub fn published_session_identity(&self) -> Option<SessionIdentity> {
-        if self.is_capturing_sign_out_credentials {
+        if !self.pending_sign_out_captures.is_empty() {
             return None;
         }
         self.identity_if_signed_in()
@@ -247,7 +250,7 @@ impl Coordinator {
     /// in flight to load it.
     pub fn needs_team_scope_recovery(&self) -> bool {
         self.is_authenticated
-            && self.active_team_refresh_count == 0
+            && self.pending_team_reads.is_empty()
             && self.authenticated_teams_session_generation != Some(self.session_generation)
     }
 
@@ -270,6 +273,14 @@ impl Coordinator {
         // must not end or steer the run that owns the restore now.
         if let Some(ticket) = event.restore_ticket()
             && self.active_restore_id != Some(ticket.id)
+        {
+            return fx;
+        }
+        // Likewise a sign-in answer for a flow that already finished (or was
+        // never this coordinator's): it must not re-record tokens, fetch a
+        // user or publish over the session that replaced it.
+        if let Some(flow) = event.sign_in_flow()
+            && !self.flow_is_active(flow)
         {
             return fx;
         }
@@ -328,9 +339,6 @@ impl Coordinator {
                 self.on_token_work_quiesced(flow, result, &mut fx);
             }
             Event::OnlineChecked { flow, online } => {
-                if !self.flow_is_active(flow) {
-                    return fx;
-                }
                 if !self.flow_is_current(flow) {
                     self.fail_sign_in(flow, AuthFailure::Cancelled, false, &mut fx);
                 } else if !online {
@@ -407,7 +415,9 @@ impl Coordinator {
             }
             Event::DebugCredentialsRemembered => self.has_debug_credentials = true,
             Event::SignOutRequested => self.on_sign_out_requested(&mut fx),
-            Event::SignOutLocalCleared => self.on_sign_out_local_cleared(&mut fx),
+            Event::SignOutLocalCleared { sign_out_epoch } => {
+                self.on_sign_out_local_cleared(sign_out_epoch, &mut fx);
+            }
             Event::TokenReadUnauthorized(kind) => {
                 if self.session_token_transition_is_active() {
                     fx.push(Effect::FailTokenRead(AuthFailure::NetworkError));
