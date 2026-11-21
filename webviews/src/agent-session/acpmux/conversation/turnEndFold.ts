@@ -650,7 +650,21 @@ export function playTurnEnd(
         return;
       }
       if (!before) {
-        // A row the swap added fades in where it lands, unless it plays its own entrance.
+        // A row the swap added above the lowest kept row, with a kept row sliding through its box,
+        // holds at no ink until that row has passed, as an arrival does. Its own entrance (a reply's
+        // 80 ms `acpmux-row--message-enter`) drew it at its place at once, over the kept row still
+        // travelling there (Leo, 2026-11-21: "it was in the agent chat gui the text goes atop one
+        // another"; agent-pane-stream-row-overlap, chromium no lag: 108 px of a new reply over the
+        // reply above it). With nothing crossing it, it keeps its own entrance.
+        const clear = curve ? clearFraction(index) : 0;
+        if (clear > 0) {
+          restart(node, moving, { delta: 0, fades: true, animations: [] }, () => [[{ opacity: 0 }, { opacity: 1 }]], {
+            delay: ms * clear,
+            fill: "backwards",
+          });
+          return;
+        }
+        // Otherwise it fades in where it lands, unless it plays its own entrance.
         if (node.matches(".acpmux-row--enter, .acpmux-row--message-enter")) return;
         const from = starts.get(node)?.opacity ?? 0;
         restart(node, moving, { delta: 0, fades: true, animations: [] }, () => [[{ opacity: from }, { opacity: 1 }]]);
