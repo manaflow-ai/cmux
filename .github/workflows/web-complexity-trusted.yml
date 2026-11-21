@@ -45,10 +45,12 @@ jobs:
     # GitHub can publish an unevaluated name expression when a job is skipped.
     name: Web complexity
     # The job reads untrusted source bytes, so it needs an ephemeral runner;
-    # no repository variable may select a persistent host. CI_TRUSTED_RUNNER
-    # only chooses GitHub-hosted or a one-job Blacksmith VM from the list
-    # below (anything else falls back to Blacksmith).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # no repository variable may select a persistent host. The persistent
+    # Linux pool registers every blacksmith-*-ubuntu-2404 label (cmuxterm-hq
+    # linux-runner-pool), so CI_TRUSTED_RUNNER's Blacksmith choices can land
+    # here on a reused VM: run 44801662760 did, on cmux-runner-pool-n4c-0027.
+    # GitHub-hosted ubuntu-24.04 is the one ephemeral label outside that pool.
+    runs-on: ubuntu-24.04 # github-hosted-required: reads untrusted pull request source; the persistent pool carries every Blacksmith Linux label
     timeout-minutes: 10
     env:
       # The policy comes from the base of a pull request or merge group, and

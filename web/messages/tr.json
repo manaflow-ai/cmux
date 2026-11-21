@@ -380,6 +380,7 @@
     "typingCodingAgents": "kodlama ajanları",
     "typingMultitasking": "çoklu görev",
     "subtitle": "Ghostty üzerine kurulu ücretsiz ve açık kaynaklı yerel macOS terminali. Dikey sekmeler, ajanlar ilgi gerektirdiğinde bildirim halkaları, bölünmüş paneller ve programlanabilirlik için bir <cliLink>CLI</cliLink>.",
+    "nextCallout": "Yeni: Bir sonraki cmux'un önizlemesi olan <link>cmux NEXT</link>'i deneyin.",
     "features": "Özellikler",
     "faq": "SSS",
     "communitySection": "Topluluk",
