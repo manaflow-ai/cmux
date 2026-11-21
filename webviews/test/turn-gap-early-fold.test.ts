@@ -171,3 +171,43 @@ for (const kind of ["message", "notice"] as const)
     const at = thought.view.findLastIndex((row) => row.kind === "user");
     expect(thought.gap(thought.view[at + 1]!.id)).toBe(TRANSCRIPT_BLOCK_GAP);
   });
+
+// A turn that ends on work (no reply) draws "Worked for" with an empty footer under it. The notice or
+// message that opens the next turn stood flush under that line (0 px: nothing follows "Worked for"
+// inside its turn), so it read as that turn's last step. It stands the block gap, as under a footer.
+test("turn_result (ended on work) > user_message(turnId, notice) > turn_started: the notice has a block gap over it", async () => {
+  const steps: Step[] = [
+    ["mux", "user_message", { text: "Watch the broker", turnId: "t1" }],
+    ["mux", "turn_started", { turnId: "t1" }],
+    call("c1", "lane-gh-broker status", "execute", { command: "lane-gh-broker status" }),
+    call("c2", "cat notes", "execute", { command: "cat notes" }),
+    ["mux", "turn_result", { turnId: "t1", status: "completed" }],
+    [
+      "mux",
+      "user_message",
+      {
+        text: "hq#16160 merged at 23b3c1da6",
+        turnId: "t2",
+        _meta: {
+          provenance: {
+            kind: "notice",
+            from: "acp:child-3",
+            fromName: "notice-flood-fix",
+            to: "acp:x",
+            display: "line",
+            notice: { sender: "notice-flood-fix", severity: "info", title: "hq#16160 merged" },
+          },
+        },
+      },
+    ],
+    ["mux", "turn_started", { turnId: "t2" }],
+  ];
+  for (const count of [6, 7]) {
+    const { view, gap } = await after(steps, count, count === 7);
+    const at = view.findLastIndex((row) => row.kind === "user");
+    const notice = view[at]!;
+    expect(notice.incoming).toBeDefined();
+    expect(view.slice(0, at).some((row) => row.kind === "worked")).toBe(true);
+    expect(gap(notice.id)).toBe(TRANSCRIPT_BLOCK_GAP);
+  }
+});

@@ -1713,10 +1713,15 @@ export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
   (wokenUnderFooter(row, prev) && wokenGapLook() === "tail" ? MARK_STATUS : rowGridMark(row, prev)) |
   (opensBackgroundTurn(row, prev) ? MARK_OPENS_TURN : 0) |
   (headsIncomingTurn(row, prev) ? MARK_HEADS_TURN : 0);
-/// Whether `row` is the running turn's live line right under the notice or another agent's message
-/// that opened the turn (transcriptGrid.ts MARK_HEADS_TURN). O(1).
+/// Whether `row` heads a turn another agent's line opened (transcriptGrid.ts MARK_HEADS_TURN): the
+/// running turn's live line right under that notice or message, or the notice or message itself right
+/// under the "Worked for" line of a turn that ended on work (its footer draws nothing), where it stood
+/// flush as that turn's last step. O(1).
 const headsIncomingTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean =>
-  prev !== undefined && prev.kind === "user" && isLiveLine(row) && isStatusRow(prev);
+  prev !== undefined &&
+  (prev.kind === "user"
+    ? isLiveLine(row) && isStatusRow(prev)
+    : prev.kind === "worked" && row.kind === "user" && isStatusRow(row));
 /// Whether `row` is the first tool row of a turn the agent ran on its own, right under the footer
 /// row of the turn before it: a background task's end woke the agent after that turn ended, and the
 /// task's line between them draws nothing (backgroundTurns.ts `drawsBackgroundLine`). O(1).

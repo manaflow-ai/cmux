@@ -114,11 +114,13 @@ export const MARK_LIVE_STEP = 12;
 /// does, so it never reads as the tail of the subagent or tool row above (Leo, 2026-11-08: "the
 /// text in this situation isn't from the subagent?"). Toward the rows after it, it is its own mark.
 export const MARK_OPENS_TURN = 64;
-/// Added to the running turn's live line ("Thinking", "Working") when it is the row right under the
-/// notice or another agent's message that opened its turn (model.ts `gridMark`): the line heads that
-/// turn's work as "Working for" does, so it stands the same gap over it (`workedHeadGap`), the block
-/// gap a person's prompt gives it, not the run gap it has under a tool run. Toward the rows after it,
-/// it is its own mark.
+/// Added to a row that heads a turn another agent's line opened (model.ts `gridMark`): the running
+/// turn's live line ("Thinking", "Working") right under that notice or message, which heads the turn's
+/// work as "Working for" does; or the notice or message itself right under the turn before's "Worked
+/// for" line when that turn's footer draws nothing (no stack gap follows "Worked for" inside its turn,
+/// so it stood flush, as that turn's last step). Either stands the "Working for" head gap over it
+/// (`workedHeadGap`), the block gap, not the run gap or none. Toward the rows after it, it is its own
+/// mark.
 export const MARK_HEADS_TURN = 128;
 /// A mark without its MARK_OPENS_TURN and MARK_HEADS_TURN bits.
 export const baseMark = (mark: number): number => mark & ~(MARK_OPENS_TURN | MARK_HEADS_TURN);
@@ -178,8 +180,9 @@ const workedHeadGap = (): number => {
 /// (The composer gap is the stack's, tailGap below.) Gaps never add.
 export function transcriptGap(previous: number, next: number): number {
   if ((next & MARK_OPENS_TURN) !== 0) return TRANSCRIPT_TURN_GAP;
-  // The live line under the notice or message that opened its turn: "Thinking" sat 16 under it, where
-  // under a person's prompt it stands 24 (the same class as the "Working for" rule below).
+  // The live line under the notice or message that opened its turn ("Thinking" sat 16 under it, where
+  // under a person's prompt it stands 24), or that notice right under the turn before's "Worked for"
+  // (it sat flush): the same class as the "Working for" rule below.
   if ((next & MARK_HEADS_TURN) !== 0) return workedHeadGap();
   next = baseMark(next);
   previous = baseMark(previous);
