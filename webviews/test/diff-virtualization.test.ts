@@ -195,7 +195,22 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
   }
 
   /** Clicks the files tree row of `name`, scrolling the tree's own list to it first. */
+  /** Shows or hides the files list with its toggle, and waits for its motion to end. */
+  async function setFilesShown(page: Page, shown: boolean) {
+    const hidden = await page.evaluate(() => document.body.dataset.filesHidden === "true");
+    if (hidden !== shown) return;
+    await page.click("#files-toggle");
+    await page.waitForFunction(
+      (shown) =>
+        document.body.dataset.filesHidden === String(!shown) &&
+        !document.querySelector<HTMLElement>("#files-sidebar")?.dataset.filesMotion,
+      shown,
+    );
+    await quiet(page);
+  }
+
   async function clickTreeRow(page: Page, name: string, approximateRow: number) {
+    await setFilesShown(page, true);
     for (let attempt = 0; attempt < 60; attempt += 1) {
       const point = await page.evaluate(
         ([name, approximateRow]) => {
@@ -263,8 +278,10 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
     throw new Error(`no tree row for ${name}`);
   }
 
-  /** Jump to a file through the toolbar's jump-to-file palette, and wait for its header to land. */
+  /** Jump to a file through the toolbar's jump-to-file palette, and wait for its header to land. The
+   *  button shows while the files list is hidden (toolbar-model.ts jumpToFileShown). */
   async function jumpToFile(page: Page, name: string) {
+    await setFilesShown(page, false);
     await page.click("button[aria-label='Jump to file']");
     await page.fill("input.jump-palette-input", name);
     await page.keyboard.press("Enter");

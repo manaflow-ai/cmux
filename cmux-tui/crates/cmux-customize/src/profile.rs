@@ -479,7 +479,11 @@ pub(crate) fn profile_findings(roots: &crate::Roots, profile: &Profile) -> Vec<F
                 Finding::error(
                     codes::SETTING_VALUE,
                     at,
-                    format!("the profile's value for {key} is not one that setting accepts"),
+                    if key == "workspaceColors.indicatorStyle" {
+                        "the profile's value for workspaceColors.indicatorStyle is invalid; use \"dot\", \"leftRail\" or \"fill\" (legacy \"solidFill\" is accepted)".to_owned()
+                    } else {
+                        format!("the profile's value for {key} is not one that setting accepts")
+                    },
                 )
                 .key(key.clone()),
             );
