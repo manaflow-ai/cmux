@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44914088713",
+  "recorded_at": "2026-11-21T14:36:54Z",
+  "reason": "cmux-tui 02365facd89e changes the image's cmux-tui (pinned a1143d5ccc80)",
+  "dry_run": false,
+  "cmux_tui": "02365facd89e6842bb83a99b0204577ebf4ddc4a",
+  "fixes": [
+    {
+      "sha": "02365facd89e6842bb83a99b0204577ebf4ddc4a",
+      "mergedAt": "2026-11-21T13:32:42+00:00",
+      "subject": "acpmux: Claude and Codex team mode on a hub-joined machine through the hub gateway; gateway mode joined (#48845)"
+    },
+    {
+      "sha": "b6455c202de9ff14e05ff5bb1a94508b356fd078",
+      "mergedAt": "2026-11-21T13:12:02+00:00",
+      "subject": "Cloud start-chat: a start refused before its fresh machine retries with no machine named (#48900)"
+    },
+    {
+      "sha": "b68d37d47fb444ffec7cff414d68da157a823c91",
+      "mergedAt": "2026-11-21T05:04:46-08:00",
+      "subject": "action catalog: drop Bring your history's rows and zoom-key terms (step A)"
+    },
+    {
+      "sha": "b31e95f39189ba0943d06387d37ed61a3eb778f3",
+      "mergedAt": "2026-11-21T04:48:49-08:00",
+      "subject": "Previews: the streamed table is its card; table cards never leave a test run; a finished turn's push says its last lines in words"
+    },
+    {
+      "sha": "a4345d770fb8240cce423ef372125ec677358a9d",
+      "mergedAt": "2026-11-21T04:48:49-08:00",
+      "subject": "Previews: red tests for the streamed table and the finished-turn push's last lines"
+    },
+    {
+      "sha": "12854f634d046cd581a00ae654851b22f6b15122",
+      "mergedAt": "2026-11-21T04:47:02-08:00",
+      "subject": "acpmux: a host below the level pauses next-prompt suggestions for an agent's turn"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-21T14:36:54Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
