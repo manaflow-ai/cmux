@@ -276,6 +276,19 @@ struct CmuxConfigSemanticValidatorTests {
         #expect(contains(future, path: "$.known", message: "expected boolean"))
     }
 
+    @Test("the reserved default Claude account must point at ~/.claude")
+    func reservesTheDefaultClaudeAccountName() throws {
+        func accountIssues(_ name: String, _ configDir: String) throws -> [CmuxConfigSemanticIssue] {
+            try issues(["agents": ["claudeAccounts": [["name": name, "configDir": configDir]]]])
+        }
+        let misplaced = try accountIssues("default", "~/.claude-work")
+        #expect(misplaced.contains { $0.path == "$.agents.claudeAccounts[0].configDir" }, "\(misplaced)")
+        #expect(try accountIssues("default", "~/.claude").isEmpty)
+        #expect(try accountIssues("default", "~/.claude/").isEmpty)
+        #expect(try accountIssues("default", "/Users/me/.claude").isEmpty)
+        #expect(try accountIssues("work", "~/.claude-work").isEmpty)
+    }
+
     @Test("project scope rejects global settings while keeping project hooks legal")
     func enforcesProjectScope() throws {
         let globalOnly = try issues(

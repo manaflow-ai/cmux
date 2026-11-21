@@ -316,6 +316,9 @@ extension TerminalController {
         if request.method == "agent.wake" {
             return try await agentWakeResponse(request)
         }
+        if request.method == "claude_account.switch" {
+            return try await claudeAccountSwitchResponse(request)
+        }
         if request.method == "surface.wait_text_change" {
             // Parks on the terminal's output stream, never on a worker thread.
             return await surfaceWaitTextChangeResponse(request)
