@@ -22,6 +22,9 @@ public struct BrowserDesignModeHomePicks: Sendable, Equatable {
     /// - Parameter draft: The content hashes of the draft's attachments.
     /// - Returns: Their ids, sorted, to take their picks off the page.
     public mutating func released(keeping draft: [String]) -> [String] {
-        []
+        let kept = Set(draft)
+        let gone = added.filter { !$0.value.isEmpty && kept.isDisjoint(with: $0.value) }.keys.sorted()
+        for id in gone { added[id] = nil }
+        return gone
     }
 }
