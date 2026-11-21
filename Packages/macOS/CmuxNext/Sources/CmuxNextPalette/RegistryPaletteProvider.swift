@@ -80,6 +80,8 @@ public final class RegistryPaletteProvider: PaletteProvider {
         /// The catalog as the pass started; each action's state is read when its turn comes.
         private let entries: [ActionEntry]
         private var next = 0
+        /// Catalog actions whose state this pass read so far.
+        var readCount: Int { next }
         private var items: [PaletteItem] = []
         private var tiers: [PaletteTier] = []
         private var listed: [RegistryPaletteRows.Listed] = []

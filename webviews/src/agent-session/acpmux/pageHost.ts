@@ -18,7 +18,7 @@ import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
 import { setReadAloudState } from "./conversation/readAloud";
 import { setAttentionTabs } from "./needsYou/attentionTabs";
-import { setLinkPlaces } from "./chips/cmuxLinkPlaces";
+import { setLinkPlaces, updateLinkPlaces } from "./chips/cmuxLinkPlaces";
 import { setHeaderState } from "./header/headerState";
 import { setTabRow } from "./header/tabRow";
 import { receiveNativeRowToolInvocation } from "./header/nativeRowTools";
@@ -133,6 +133,8 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.applyShortcuts?.(value);
     case "preview":
       return bridge?.applyPreview?.(event.value === true);
+    case "liveTree":
+      return bridge?.applyLiveTree?.(event.value === true);
     case "workflowLabs":
       // Separate from the existing preview environment toggle. The host can opt the
       // experimental workflow summary in without changing preview semantics.
@@ -182,6 +184,9 @@ export function applyHostEvent(event: HostEvent): void {
       // The workspaces and tabs a pasted cmux link can name (chips/cmuxLinkPlaces.ts), kept before
       // the transcript mounts.
       return setLinkPlaces(event.value);
+    case "linkPlacesChanged":
+      // Only the places renamed since the last push (an agent's title spinner), applied in place.
+      return updateLinkPlaces(event.value);
     case "toolCards":
       // Direct, like deviceChats: a push before the chat mounts is kept.
       return setToolCards(event.value);

@@ -222,6 +222,7 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<events::WatchParams, session::SessionsResult>(method::MUX_WATCH),
         untyped(method::MUX_RENAME, Request),
         untyped(method::MUX_REGISTER, Request),
+        untyped(method::MUX_INBOX_RELAY, Request),
         untyped(method::MUX_OFFER_SESSION, Request),
         keyed::<params::OfferRespondParams>(method::MUX_OFFER_RESPOND, Request),
         // Sub-sessions (`server/subsessions.rs`).
@@ -365,6 +366,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TASKS, Request),
         keyed::<params::ResolveParams>(method::MUX_RESOLVE, Request),
         untyped(method::MUX_WHO_ELSE, Request),
+        untyped(method::MUX_SEND_FANOUT, Request),
         untyped(method::MUX_MEDIA_OPEN, Request),
         untyped(method::MUX_MEDIA_RANGE, Request),
         // Permissions.
