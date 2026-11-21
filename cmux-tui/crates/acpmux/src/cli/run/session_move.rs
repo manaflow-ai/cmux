@@ -282,6 +282,7 @@ pub(crate) async fn move_running(
         host: host.to_owned(),
         all_idle: false,
         interrupt: true,
+        after_turn: false,
         leave_dirty: false,
         carry_changes: true,
         cwd: None,
