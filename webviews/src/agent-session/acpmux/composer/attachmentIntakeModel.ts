@@ -175,7 +175,33 @@ export type PendingAttachment = {
   /// wide and unseen, so it first shows at its thumbnail's size, never a stand-in width. For
   /// HEADER_WAIT_MS at most; one whose header does not answer by then shows at the stand-in.
   sizing?: boolean;
+  /// The paste or drop this chip came in with, when that gesture brought more than one file and one of
+  /// them is `sizing`: the gesture's chips first show in one frame, each at its final width, so the
+  /// prompt's text reflows once, not once for each file's header (a dropped image, video and file
+  /// mid-sentence wrapped the line after them twice). heldTogether draws it.
+  gesture?: string;
+  /// Drawn held (heldTogether): a chip of its gesture still has no width, so this one, sized or not,
+  /// takes none yet either, unseen. Never stored, only drawn.
+  held?: boolean;
 };
+
+/// Whether pending `chip` still has no width of its own: its header is being read and, for an image,
+/// has not answered its size (one whose size came takes its width while its picture is still coming).
+function widthless(chip: PendingAttachment): boolean {
+  return Boolean(chip.sizing && !chip.failed && !(chip.image && chip.size));
+}
+
+/// The chips as drawn: while any chip of a gesture (`gesture`) has no width yet, every chip of it is
+/// `held`, so the gesture's chips take their widths in one frame. A file's chip, which has no header to
+/// read, waits with them (HEADER_WAIT_MS or PICTURE_WAIT_MS at most). One that failed is never held.
+export function heldTogether(chips: readonly PendingAttachment[]): PendingAttachment[] {
+  const waiting = new Set<string>();
+  for (const chip of chips) if (chip.gesture && widthless(chip)) waiting.add(chip.gesture);
+  if (waiting.size === 0) return chips as PendingAttachment[];
+  return chips.map((chip) =>
+    chip.gesture && !chip.failed && waiting.has(chip.gesture) ? { ...chip, held: true } : chip,
+  );
+}
 
 /// The style that gives a tile its image's thumbnail shape (`size`, the image's pixels; imageWork.ts
 /// thumbRatio): its CSS (composerAttachments.css `[data-sized]`) holds the height and the width bounds
@@ -463,6 +489,11 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         scope: batch.scope,
       };
     });
+    // A gesture of several files, one of them sized from its header: its chips show together.
+    if (shown.length > 1 && shown.some((chip) => chip.sizing)) {
+      const gesture = crypto.randomUUID();
+      for (const chip of shown) chip.gesture = gesture;
+    }
     // Each image's own picture, on its tile while the tile still loads.
     files.forEach((file, index) => {
       const { id, image, video, sizing } = shown[index]!;
@@ -995,7 +1026,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       document.removeEventListener("paste", paste);
     };
   }, [attach, showDrop, refused]);
-  const shown = pending.filter((chip) => chip.scope === scope);
+  const shown = heldTogether(pending.filter((chip) => chip.scope === scope));
   /// The chips a send waits for. One still reading, one streaming to the session's machine and
   /// one whose upload failed (until its Retry makes it or its x takes it out) all hold the send,
   /// so a prompt never goes without a file the person added. Before, a send made while a pasted

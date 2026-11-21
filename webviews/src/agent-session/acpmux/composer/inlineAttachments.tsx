@@ -412,7 +412,7 @@ const InlineChip = memo(function InlineChip({
   // Sticky state set in render (not a ref read in render): it flips once, the first time it holds.
   const [loaded, setLoaded] = useState(false);
   // Only a tile that showed (not one held unseen for its size or picture) has a dim to come up from.
-  if (!loaded && pending && !pending.failed && !pending.sizing) setLoaded(true);
+  if (!loaded && pending && !pending.failed && !pending.sizing && !pending.held) setLoaded(true);
   /// Whether its loading tile already showed its own picture: the chip then just stays, with no
   /// second coming up (Leo, 2026-11-11: "this 3 stage attachment thing is still there").
   const [pictured, setPictured] = useState(false);
@@ -422,7 +422,7 @@ const InlineChip = memo(function InlineChip({
   if (!attachment && !pending) return null;
   if (!attachment && pending && !pending.image && !pending.video)
     return (
-      <span className="acpmux-md-inline-chip" data-chip="strip">
+      <span className="acpmux-md-inline-chip" data-chip="strip" {...(pending.held ? { "data-held": "" } : {})}>
         <PendingChip chip={pending} onCancel={onCancel} onRetry={onRetry} />
       </span>
     );
@@ -451,6 +451,7 @@ const InlineChip = memo(function InlineChip({
         // A video is the box its chip, poster and sent tile keep (videoShape.ts), loading or failed.
         {...(pending!.video ? { "data-video-shape": "", style: videoShapeStyle(pending!.videoShape) } : {})}
         {...(!pending!.failed && pending!.sizing ? { "data-sizing": "" } : {})}
+        {...(pending!.held ? { "data-held": "" } : {})}
         {...(!pending!.failed && pending!.image && pending!.preview ? { "data-instant": "" } : {})}
         aria-busy={pending!.failed ? undefined : "true"}
         aria-label={name}

@@ -208,6 +208,7 @@ export function PendingChip({
         aria-label={name}
         aria-busy={failed ? undefined : "true"}
         data-paste-look={failed ? undefined : look}
+        {...(chip.held ? { "data-held": "" } : {})}
         /* tooltip-allow: the tile shows no reason; the tooltip says why it failed */ title={chip.failed}
       >
         <FileAttachment
@@ -260,6 +261,7 @@ export function PendingChip({
       {...(chip.image && shape ? { "data-sized": "" } : {})}
       {...(chip.video ? { "data-video-shape": "" } : {})}
       {...(chip.sizing ? { "data-sizing": "" } : {})}
+      {...(chip.held ? { "data-held": "" } : {})}
       {...(chip.preview ? { "data-instant": "" } : {})}
       {...(style ? { style } : {})}
     >
