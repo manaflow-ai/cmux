@@ -17,6 +17,12 @@ use crate::store::Store;
 
 /// How long measuring one worktree may take.
 const MEASURE: std::time::Duration = std::time::Duration::from_secs(10);
+/// How long one pass may act. Past it the pass acts on nothing more (the
+/// action under way finishes) and reads no further repository; the next
+/// pass picks up where it stopped. A pass over hundreds of worktrees with
+/// an archive each kept git busy beside the person at the machine for as
+/// long as it took.
+pub const BUDGET: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 
 /// What a pass looks at and may do.
 #[derive(Clone)]
@@ -120,7 +126,17 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
     };
     let now = now_ms();
     let finished = Arc::new(inventory::FinishedMemo::load(store.finished_path()));
+    let started = std::time::Instant::now();
+    let spent = || started.elapsed() >= BUDGET;
     for common in repositories {
+        if spent() {
+            report.errors.push(format!(
+                "{}: not read, the pass spent its {} s",
+                common.display(),
+                BUDGET.as_secs()
+            ));
+            continue;
+        }
         let repo = match inventory::scan_with_memo(&common, &[], Arc::clone(&finished)) {
             Ok(repo) => repo,
             Err(error) => {
@@ -160,8 +176,15 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
             let bytes = (options.measure && verdict.action != Action::Keep)
                 .then(|| measure(worktree, verdict.action, facts));
             report.reclaimable += bytes.unwrap_or(0);
-            let outcome = (options.apply && verdict.action != Action::Keep)
-                .then(|| outcome(act(&repo, &worktree.path, &verdict, options, pressure, store)));
+            let outcome = (options.apply && verdict.action != Action::Keep).then(|| {
+                if spent() {
+                    return outcome(Err(format!(
+                        "the pass spent its {} s; the next pass acts on it",
+                        BUDGET.as_secs()
+                    )));
+                }
+                outcome(act(&repo, &worktree.path, &verdict, options, pressure, store))
+            });
             if let Some(outcome) = &outcome {
                 report.freed += outcome.freed;
             }

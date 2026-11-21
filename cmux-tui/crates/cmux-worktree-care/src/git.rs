@@ -138,8 +138,8 @@ pub(crate) fn run_within(
     mut command: Command,
     limit: Duration,
 ) -> Result<std::process::Output, String> {
+    cmux_git::run::lower_command_if_background(&mut command);
     let child = command.spawn().map_err(|error| format!("could not run: {error}"))?;
-    cmux_git::run::lower_if_background(child.id());
     let (sender, receiver) = std::sync::mpsc::channel();
     let id = child.id();
     std::thread::spawn(move || {
