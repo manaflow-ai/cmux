@@ -10,6 +10,7 @@
 // - Each row: avatar, name, a two-line preview, Messages' list time and the unread dot.
 import { activityAt, channelIds, chiefState, conversationName, type ChiefState } from "../../home-channels/model";
 import type { HomeConversation, HomeParticipant } from "../../home-channels/types";
+import { intl } from "../../../ui/intl";
 
 /** One conversation as the list draws it (a row or a pinned tile). */
 export interface ListItem {
@@ -100,10 +101,10 @@ export function listTime(at: number, now: number, language: string, yesterday: s
   const today = new Date(now);
   const startOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const days = Math.round((startOf(today) - startOf(then)) / 86_400_000);
-  if (days <= 0) return new Intl.DateTimeFormat(language, { hour: "numeric", minute: "2-digit" }).format(then);
+  if (days <= 0) return intl.DateTimeFormat(language, { hour: "numeric", minute: "2-digit" }).format(then);
   if (days === 1) return yesterday;
-  if (days <= 6) return new Intl.DateTimeFormat(language, { weekday: "long" }).format(then);
-  return new Intl.DateTimeFormat(language, { dateStyle: "short" }).format(then);
+  if (days <= 6) return intl.DateTimeFormat(language, { weekday: "long" }).format(then);
+  return intl.DateTimeFormat(language, { dateStyle: "short" }).format(then);
 }
 
 /** The list order before any search or filter: the pinned rows in my pin order (lower position
