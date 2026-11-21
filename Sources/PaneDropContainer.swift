@@ -432,9 +432,10 @@ extension Workspace: PaneDropContainer {
         handleSurfaceResourceDrop(group: group, destination: destination)
     }
 
-    /// Another workspace's row: its tabs merge here; this workspace's own row never does.
+    /// Another workspace's row in this workspace's group: its tabs merge here;
+    /// this workspace's own row and rows from other groups never do.
     func canPerformWorkspaceMergeDrop(_ sourceWorkspaceId: UUID) -> Bool {
-        AppDelegate.shared?.canMergeWorkspace(sourceWorkspaceId, into: id) == true
+        AppDelegate.shared?.canDragMergeWorkspace(sourceWorkspaceId, into: id) == true
     }
 
     func performWorkspaceMergeDrop(
