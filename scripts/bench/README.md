@@ -191,5 +191,7 @@ existing fleet routing already does this; `stress` uses it, and any bench can:
   `measure` and `gui-session-v1` labels, so the step asks for `[bench gui-session-v1 measure]`.
 
 `.github/workflows/cmux-next-stress-bench.yml` (workflow_dispatch: `base`, `head`, `angles`) runs `stress` at both
-shas this way and posts the before/after table to the run summary.
+shas this way and posts the before/after table to the run summary. The head side runs `--target-worker W
+--pin-strict` on the worker W the base side ran on, so the two numbers always come from one machine, even once a
+second Mac advertises `bench`; the run's artifact lists both workers in `workers.txt`.
 

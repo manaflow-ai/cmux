@@ -73,6 +73,11 @@ jobs:
           for side in base head; do
             sha="$BASE"; [ "$side" = head ] && sha="$HEAD"
             log="$out/$side.log"
+            # Before and after compare only on one machine: the head side runs strictly on the worker the base
+            # side ran on (any bench worker today is one Mac, but a second bench Mac must not split the pair).
+            if [ "$side" = head ] && [ -n "${base_worker:-}" ]; then
+              target=(--target-worker "$base_worker" --pin-strict)
+            fi
             "$client" run --class exclusive --measurement --label bench --display \
               --script scripts/measure/split-spring.sh --ref "$sha" --timeout 7200 \
               --key "stress-$side-$sha-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
@@ -83,7 +88,13 @@ jobs:
             if [[ -n "$step" ]]; then
               "$client" artifact "$step" "$out/$side.json" || "$client" artifact --failed "$step" "$out/$side.json" || true
             fi
-            echo "$side: fleet step ${step:-none}; report $([[ -s "$out/$side.json" ]] && echo returned || echo none)"
+            worker=""
+            if [[ -n "$step" ]]; then
+              worker="$("$client" status "$step" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("worker") or "")' 2>/dev/null || true)"
+            fi
+            [ "$side" = base ] && base_worker="$worker"
+            echo "$side: fleet step ${step:-none} on ${worker:-unknown worker}; report $([[ -s "$out/$side.json" ]] && echo returned || echo none)"
+            echo "$side=${worker:-unknown}" >> "$out/workers.txt"
           done
           exit "$status"
       - name: Upload the reports
