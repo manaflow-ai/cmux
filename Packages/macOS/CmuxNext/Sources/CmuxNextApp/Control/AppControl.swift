@@ -371,8 +371,7 @@ final class AppControl {
             // Types into (and adds) the open comment bubble of the browser tab in design mode
             // (BrowserDesignModeController.debugDrive), for captures of the element picker.
             .async("debug.design_mode") { [weak services] call in
-                guard let services = await MainActor.run(body: { services }) else { return .null }
-                return await services.designMode.debugDrive(call.params)
+                await BrowserDesignModeController.debugDrive(call.params, services: services)
             },
             // The app's resign and become-active path without activating it (DebugAppActivation).
             .mainActor("debug.app_activation") { call in
