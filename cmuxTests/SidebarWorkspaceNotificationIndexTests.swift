@@ -218,7 +218,7 @@ struct SidebarWorkspaceContextMenuTargetAggregateTests {
             groupId: groupId,
             index: 0,
             workspaceCount: 3,
-            workspace: SidebarWorkspaceSnapshotTests.snapshot(),
+            workspace: SidebarWorkspaceSnapshotTests.snapshot(workspaceId: workspaceId),
             isActive: false,
             isMultiSelected: isMultiSelected,
             hasUserCustomTitle: false,

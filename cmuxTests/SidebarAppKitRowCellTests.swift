@@ -12,6 +12,7 @@ import Testing
 @MainActor
 struct SidebarAppKitRowCellTests {
     private static func makeSnapshot(
+        workspaceId: UUID,
         title: String = "Workspace",
         customDescription: String? = nil,
         isPinned: Bool = false,
@@ -21,6 +22,7 @@ struct SidebarAppKitRowCellTests {
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
+                workspaceId: workspaceId,
                 settings: SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!),
                 showsAgentActivity: false,
                 customColorHex: nil
@@ -83,6 +85,7 @@ struct SidebarAppKitRowCellTests {
             workspaceId: workspaceId,
             index: 0,
             snapshot: makeSnapshot(
+                workspaceId: workspaceId,
                 customDescription: customDescription,
                 isPinned: isPinned,
                 metadataEntries: metadataEntries,
@@ -121,12 +124,13 @@ struct SidebarAppKitRowCellTests {
     private static func makeSwiftUIRow(
         settings: SidebarTabItemSettingsSnapshot
     ) -> SidebarWorkspaceRowSnapshot {
-        SidebarWorkspaceRowSnapshot(
-            workspaceId: UUID(),
+        let workspaceId = UUID()
+        return SidebarWorkspaceRowSnapshot(
+            workspaceId: workspaceId,
             groupId: nil,
             index: 0,
             workspaceCount: 1,
-            workspace: makeSnapshot(),
+            workspace: makeSnapshot(workspaceId: workspaceId),
             isActive: false,
             isMultiSelected: false,
             hasUserCustomTitle: false,
