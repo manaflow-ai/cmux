@@ -265,8 +265,9 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
         # Linux only: the one Linux label (scripts/ci/one_linux_label.py), no size. On a mini 24 of its steps red (no
         # python3.9 or node, temp-cwd scripts), so portable-placement never places it.
         import one_linux_label
-        self.assertNotIn("needs", self.job())
-        self.assertEqual(self.job()["if"], "${{ !cancelled() }}")
+        # Only the window gate (base-coalesce.yml): no other job holds it back.
+        self.assertEqual(self.job()["needs"], "coalesce")
+        self.assertEqual(self.job()["if"], "${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}")
         self.assertEqual(workflow_jobs.single_runs_on(self.job()), one_linux_label.CANONICAL)
 
     def test_each_guard_pass_uses_a_worker_per_core(self):

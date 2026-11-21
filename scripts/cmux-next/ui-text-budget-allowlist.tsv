@@ -267,7 +267,6 @@ webviews/src/pages/home-channels/Localizable.xcstrings	connect.listenerRefused	2
 webviews/src/pages/home-messages/cards/Localizable.xcstrings	home.firstRun.hero.body	31	25
 webviews/src/pages/home-messages/cards/Localizable.xcstrings	home.firstRun.intro	41	25
 webviews/src/pages/home-messages/cards/Localizable.xcstrings	home.firstRun.introFocus	34	25
-webviews/src/pages/import-history/Localizable.xcstrings	history.prompt	29	25
 webviews/src/pages/markdown/Localizable.xcstrings	run.all.title	17	6
 webviews/src/pages/markdown/Localizable.xcstrings	run.title	8	6
 webviews/src/pages/onboarding/Localizable.xcstrings	onboarding.access.none	11	10

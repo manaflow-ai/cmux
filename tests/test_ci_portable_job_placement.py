@@ -704,7 +704,8 @@ class Wiring(unittest.TestCase):
                     self.assertIn(name, listed)
                     # tooling-tests reads portable-placement's hot_only too: a hot-only pull request skips the mini
                     # leg (tests/test_cmux_next_route.py HotAwareWorkflows).
-                    self.assertEqual(job["needs"], ["portable-placement"])
+                    # cmux-next-guards.yml's jobs also wait for its window gate (base-coalesce.yml).
+                    self.assertEqual([n for n in job["needs"] if n != "coalesce"], ["portable-placement"])
                     self.assertTrue(str(job["if"]).startswith("${{ !cancelled()"))
                     for runs_on in routes(job, name):
                         linux = runs_on.index(f"contains(needs.portable-placement.outputs.linux_jobs, ' {name} ')")
@@ -721,7 +722,7 @@ class Wiring(unittest.TestCase):
         guards = jobs("cmux-next-guards.yml")
         self.assertIn("release-notary", guards["portable-placement"]["steps"][-1]["env"]["JOBS"].split())
         job = guards["release-notary"]
-        self.assertEqual(job["needs"], ["portable-placement"])
+        self.assertEqual(job["needs"], ["coalesce", "portable-placement"])
         self.assertTrue(str(job["if"]).startswith("${{ !cancelled()"))
         for runs_on in routes(job, "release-notary"):
             linux = runs_on.index("contains(needs.portable-placement.outputs.linux_jobs, ' release-notary ')")
