@@ -206,7 +206,7 @@ async fn run_mac(args: &Args, team: &str, ice: Vec<IceServer>, device: &str) -> 
             tokio::spawn(async move {
                 match dial::answer(&mac, first, events, &options, LinkConfig::default()).await {
                     Ok(connected) => {
-                        while let Some(mut incoming) = connected.link.accept().await {
+                        while let Some(incoming) = connected.link.accept().await {
                             incoming.channel.close("unknown_service", "").await;
                         }
                     }
@@ -353,7 +353,7 @@ async fn probe_path(
         *paths.entry(path_name(*connected.path.borrow())).or_default() += 1;
         connected.link.close("done");
     }
-    let reported = paths.iter().map(|(path, n)| format!("{path}x{n}")).collect::<Vec<_>>().join(" ");
+    let reported = paths.iter().map(|(path, n)| format!("{path} x{n}")).collect::<Vec<_>>().join(" ");
     let setup = Summary::of(&setups);
     let rtt = Summary::of(&rtts);
     let mut note = String::new();
@@ -537,7 +537,14 @@ async fn run(args: Args) -> Result<Value> {
         })),
         _ => None,
     };
-    let host = std::fs::read_to_string("/etc/hostname").unwrap_or_default().trim().to_owned();
+    // `hostname` exists on Linux and macOS; /etc/hostname is empty on some VMs and absent on Macs.
+    let host = std::process::Command::new("hostname")
+        .output()
+        .ok()
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_owned())
+        .filter(|name| !name.is_empty())
+        .or_else(|| std::env::var("HOSTNAME").ok())
+        .unwrap_or_default();
     let mode = if args.role == Role::Both { "both ends on this host" } else { "phone here, Mac elsewhere" };
     let mut md = format!(
         "cmux-mobile-path-probe on `{host}` ({mode}), {} dials x {} pings per path, base {}\n\n",
