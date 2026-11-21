@@ -20,7 +20,7 @@ It is built only from public surfaces, so you can copy any part of it:
 | --- | --- |
 | `cmux-setup.json` | Picks the theme file; sets the chat's font, size and width, the sidebar's density, and the aurora gradient for group colors |
 | `themes/aurora.json` | The window's glass, the light and dark colors (`appearance.theme` names a light and a dark theme, `appearance.themeEdits` colors each), and the chat's opacity |
-| `agent-pane/theme.css` | A teal prompt bubble with a violet hairline and neutral cards, with `cmux.agentPane.style/1` tokens only |
+| `agent-pane/theme.css` | A teal prompt bubble with a teal hairline and neutral cards, with `cmux.agentPane.style/1` tokens only |
 | `customize/` | A hover card whose status sits on a small chip of the app's glass (`.glass("chip")`) |
 | `DESIGN.md` | The references, the decisions, the contrast numbers in light and dark, and the Reduce Transparency check |
 
