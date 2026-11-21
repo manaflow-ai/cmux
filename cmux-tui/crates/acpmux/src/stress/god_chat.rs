@@ -20,6 +20,9 @@
 //!   receives every delta, and the one that never reads holds at most its queue and the hub's
 //!   event ring and is told it lagged (`_acpmux/lagged`), so it reads again instead of the hub
 //!   holding every delta for it.
+//! - grown restart: a loaded chat grows by `ACPMUX_STRESS_GROW_MB` (default 64) MB of turns
+//!   and goes quiet, then restarts with and without its restore point moved to the log's end
+//!   (`Hub::roll_restore_point`); the moved point must halve what the restart reads.
 //!
 //! The god size is 48 MB by default, a run of seconds; the GB run, for numbers:
 //! `ACPMUX_STRESS_GOD_MB=1024 cargo test -p acpmux --lib stress::god_chat -- --ignored --nocapture`.
@@ -46,6 +49,12 @@ const DELTAS: u64 = 20_000;
 fn god_bytes() -> u64 {
     let mb = std::env::var("ACPMUX_STRESS_GOD_MB").ok().and_then(|v| v.trim().parse().ok());
     mb.unwrap_or(48u64) << 20
+}
+
+/// What a loaded chat grows by before its grown restart: `ACPMUX_STRESS_GROW_MB` (default 64) MB.
+fn grow_bytes() -> u64 {
+    let mb = std::env::var("ACPMUX_STRESS_GROW_MB").ok().and_then(|v| v.trim().parse().ok());
+    mb.unwrap_or(64u64) << 20
 }
 
 /// Bytes this whole process has read (`rchar`): the restore runs on worker threads.
@@ -437,6 +446,63 @@ fn costs(bytes: u64) -> Costs {
     costs
 }
 
+/// A start over `home` with its log load, on a runtime of its own: bytes read and ms.
+fn restart(home: &std::path::Path) -> (u64, f64) {
+    let runtime =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+    let cost = runtime.block_on(async {
+        let (read, wall) = (process_read(), Instant::now());
+        let cfg = config();
+        let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, home).unwrap());
+        hub.load_logs();
+        let cost = (process_read() - read, wall.elapsed().as_secs_f64() * 1e3);
+        drop(hub);
+        cost
+    });
+    runtime.shutdown_timeout(Duration::from_secs(5));
+    cost
+}
+
+/// The god chat loaded, grown by [`grow_bytes`] of turns and quiet, then restarted from two
+/// copies of its home: one as it stands, one after its restore point moved to the log's end.
+/// Returns the two restarts' (bytes read, ms).
+fn grown() -> ((u64, f64), (u64, f64)) {
+    let (home, _, _) = fill(god_bytes());
+    let (unrolled, rolled) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let runtime =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+    runtime.block_on(async {
+        // Restart 1: the load of a quiet chat saves its point.
+        let cfg = config();
+        let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, home.path()).unwrap());
+        hub.load_logs();
+        let session =
+            hub.sessions().into_iter().find(|s| s.id == GOD).expect("the god chat is listed");
+        // Turns as a running agent writes them, each closed by its result.
+        let (start, mut seq, mut n) = (disk_bytes(home.path()), 0, 0);
+        loop {
+            for r in turn(n, &mut seq, 0) {
+                hub.append(&session, &r.dir, &r.kind, r.msg);
+            }
+            n += 1;
+            if n % 64 == 0 {
+                hub.flush();
+                if disk_bytes(home.path()) - start >= grow_bytes() {
+                    break;
+                }
+            }
+        }
+        crate::lost_home_race_tests::copy_tree(home.path(), unrolled.path());
+        assert!(hub.roll_restore_point(&session, 0), "the quiet chat did not move its point");
+        hub.flush();
+        crate::lost_home_race_tests::copy_tree(home.path(), rolled.path());
+        drop(session);
+        drop(hub);
+    });
+    runtime.shutdown_timeout(Duration::from_secs(5));
+    (restart(unrolled.path()), restart(rolled.path()))
+}
+
 fn print(size: &str, c: &Costs) {
     eprintln!(
         "STRESS god chat {size}: log={:.1} MB; restart read={:.0} B in {:.1} ms, then {:.0} B \
@@ -480,6 +546,17 @@ fn god_chat_alone() {
     print("small", &small);
     let god = costs(god_bytes());
     print("god", &god);
+    let ((no_roll, no_roll_ms), (rolled, rolled_ms)) = grown();
+    eprintln!(
+        "STRESS god chat grown restart: grow_mb={} no_roll read={no_roll} B ms={no_roll_ms:.1} ; \
+         rolled read={rolled} B ms={rolled_ms:.1}",
+        grow_bytes() >> 20
+    );
+    assert!(
+        rolled * 2 < no_roll,
+        "a moved restore point did not halve the grown restart's read: {rolled} B rolled, \
+         {no_roll} B not"
+    );
     // Fixed costs (the store's files, the hub's state files) sit under each floor; what grows
     // with the log is over it. Times and memory are printed, not judged: a loaded runner moves them.
     let flat = |what: &str, small: f64, god: f64, floor: f64| {

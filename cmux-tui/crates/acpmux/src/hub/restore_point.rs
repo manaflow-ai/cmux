@@ -166,7 +166,7 @@ impl Hub {
     /// Moves `session`'s restore point to the log's end, when the chat is quiet and a start from
     /// the point would read `min_bytes` or more (a store that cannot say reads as none, but for a
     /// `min_bytes` of 0). Returns whether it saved one. Blocking; reads the log from the point.
-    pub(super) fn roll_restore_point(
+    pub(crate) fn roll_restore_point(
         self: &Arc<Self>,
         session: &Arc<Session>,
         min_bytes: u64,
