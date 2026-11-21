@@ -402,6 +402,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `agent-session-login`: a Cloud chat's own sign-in on that machine (the failed turn's
     /// sign-in card), as acpmux's `_acpmux/agent_login/*` on the tab's own session.
     case agentSessionLogin = "agent-session-login-v1"
+    /// `agent-session-share-changed` on subscribe: a chat's link shares or invites changed, so an
+    /// open Invite People sheet reads its rows again (a later join, a departure, an expiry). A daemon
+    /// without it leaves the sheet as it was read.
+    case agentSessionShareEvents = "agent-session-share-events-v1"
     /// `agent-session-login` for a new chat with no session yet (an unbound tab of that machine's
     /// store): its agent's sign-in runs on that machine itself, gated there as a start is
     /// (`vm_kind: "owner"` on a Cloud VM). Without it a new chat's failed start says to sign in there.
@@ -651,7 +655,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionFork, .agentSessionSide, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
              .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionStartPermissionMode, .agentSessionStartMode, .agentSessionTrustVMKind, .agentSessionFolders,
-             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionLoginMachine, .agentSessionContext, .agentSessionBtw, .agentSessionPageBytes, .agentSessionSteer, .agentSessionQueueDecision, .agentSessionMember, .pageTabs, .pageTabRoute, .appScreens,
+             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionShareEvents, .agentSessionLoginMachine, .agentSessionContext, .agentSessionBtw, .agentSessionPageBytes, .agentSessionSteer, .agentSessionQueueDecision, .agentSessionMember, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
              .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "9e23695456a61db1d4ae9aa726f4287919ff5a51a8c001cf11da3b30c1555dd2";
+inline constexpr std::string_view kProtocolIrSha256 = "c2d305b12cb27ffd20f76a0147e95213dd4b1b84870902ec22ec7126da8c7e75";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -634,6 +634,7 @@ struct AgentCliLeanEvent;
 struct AgentInventoryChangedEvent;
 struct AgentInventoryWatchEndedEvent;
 struct AgentPresenceChangedEvent;
+struct AgentSessionShareChangedEvent;
 struct BellEvent;
 struct BookmarksChangedEvent;
 struct BrowserStateEvent;
@@ -919,6 +920,11 @@ struct AgentRecord {
 enum class AgentReportSource {
     socket,
     hook,
+};
+
+struct AgentSessionShareChangedEvent {
+    std::string session{};
+    friend bool operator==(const AgentSessionShareChangedEvent&, const AgentSessionShareChangedEvent&) = default;
 };
 
 struct AgentSessionSource {
@@ -10420,6 +10426,12 @@ template <>
 struct Codec<AgentPresenceChangedEvent> {
     static Result<Json> encode(const AgentPresenceChangedEvent& value);
     static Result<AgentPresenceChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentSessionShareChangedEvent> {
+    static Result<Json> encode(const AgentSessionShareChangedEvent& value);
+    static Result<AgentSessionShareChangedEvent> decode(const Json& value);
 };
 
 template <>
