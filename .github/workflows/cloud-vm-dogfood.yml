@@ -104,6 +104,8 @@ jobs:
           public="$RUNNER_TEMP/public-cmux/cmux"
           test -f "$public" && test ! -L "$public"
           attestation="$RUNNER_TEMP/cmux-tui-attestation.json"
+          # A pool VM's apt gh (2.45) has no `gh attestation`; this checkout is main, which has the helper once it lands there.
+          if [[ -f scripts/ci/ensure-gh-attestation.sh ]]; then source scripts/ci/ensure-gh-attestation.sh; fi
           gh attestation verify "$public" \
             --repo manaflow-ai/cmux \
             --signer-workflow manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml \
