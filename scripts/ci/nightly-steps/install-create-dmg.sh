@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# nightly.yml recover-nightly-next-notarization and sign-nightly-identity-legacy: "Install create-dmg". Moved out of the workflow to keep nightly.yml under
+# nightly.yml recover-nightly-next-notarization, sign-nightly-identity-legacy and sign-live-code-variant: "Install create-dmg". Moved out of the workflow to keep nightly.yml under
 # GitHub's workflow file size limit; the step's env: still sets every input.
 set -e  # the inline step ran under bash -e
 CMUX_NODE_BIN="$(command -v node)"

@@ -6931,6 +6931,7 @@ jobs:
             scripts/ci/gh_app_token.sh
             scripts/ci/nightly_next_dev_ring.sh
             scripts/ci/nightly-steps/publish-next-feed-keep-nightly.sh
+            scripts/ci/nightly-steps/republish-deltas.sh
             scripts/ci/nightly-steps/republish-deltas-upload-appcasts.sh
             scripts/ci/nightly-steps/republish-deltas-upload-next-appcasts.sh
             scripts/ci/signing-runner-claim.sh
@@ -6983,76 +6984,8 @@ jobs:
           GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # the uploader: App first, GH_TOKEN as fallback
           TRACK: ${{ needs.published-build.outputs.track }}
           DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}
-        run: |
-          set -euo pipefail
-          # The tag itself: `commits/<name>` resolves the nightly-next branch,
-          # which the promote job moves ahead during a build, and a skipped
-          # republish leaves the feed without its previous item (cx-urd.67).
-          # nightly-next: publish-nightly-next-github moves the tag later, off the feed's
-          # path; the live feed check below is the order check there.
-          if [ "${TRACK:-}" != nightly-next ]; then
-            tag_object="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$CHANNEL_RELEASE_TAG" --jq '.object.type + " " + .object.sha')"
-            read -r tag_type current_sha <<< "$tag_object"
-            if [ "$tag_type" = tag ]; then
-              current_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$current_sha" --jq .object.sha)"
-            fi
-            # The publication moved the tag to the resolved build commit.
-            if [ "$current_sha" != "${{ needs.published-build.outputs.resolve_build_sha }}" ]; then
-              echo "Skipping stale delta result: $CHANNEL_RELEASE_TAG is at $current_sha"
-              echo "publish=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-          if [ -n "${CHANNEL_FEED_BASE:-}" ]; then
-            live_feed="$(mktemp)"
-            curl -fsSL --retry 3 -A "cmux-delta-publisher/1" -o "$live_feed" "$CHANNEL_FEED_BASE/appcast-arm64.xml"
-            live_build="$(python3 -c 'import sys,xml.etree.ElementTree as E; r=E.parse(sys.argv[1]).getroot(); print(next(c.text or "" for i in r.iter() if i.tag.rsplit("}", 1)[-1] == "item" for c in i if c.tag.rsplit("}", 1)[-1] == "version"))' "$live_feed")"
-            # Above: a newer build published. Below: nightly-next-rollback.yml
-            # pulled this one, and the revised appcast would put it back.
-            if [[ "$live_build" =~ ^[0-9]+$ && "$NIGHTLY_BUILD" =~ ^[0-9]+$ ]] && (( live_build != NIGHTLY_BUILD )); then
-              echo "Skipping stale delta result: NEXT feed serves build $live_build, not $NIGHTLY_BUILD"
-              echo "publish=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-          deltas=()
-          for delta in nightly-deltas/*.delta; do
-            [ -f "$delta" ] || continue
-            deltas+=(--immutable "$delta")
-          done
-          if [ "${#deltas[@]}" -eq 0 ]; then
-            echo "No Sparkle deltas were generated; full appcasts remain current"
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # The revised feed lists earlier builds again, all on the new build's
-          # ring: each goes back to Nightly when its canary verdict is a pass. It
-          # keeps the live feed's newest Nightly item as publish-nightly does.
-          if [ "$TRACK" = nightly-next ]; then
-            bash .publish-tooling/scripts/ci/nightly-steps/publish-next-feed-keep-nightly.sh nightly-deltas/appcast*.xml
-            for feed in nightly-deltas/appcast*.xml; do
-              [ -f "$feed" ] || continue
-              python3 .publish-tooling/scripts/ci/nightly_next_ring.py retag --feed "$feed" --out "$feed" \
-                --mode "$DEV_RING" --verdicts-base "$NIGHTLY_NEXT_VERDICTS_BASE"
-            done
-          fi
-          feeds=()
-          for feed in nightly-deltas/appcast*.xml; do
-            [ -f "$feed" ] || continue
-            feeds+=(--feed "$feed")
-          done
-          [ "${#feeds[@]}" -gt 0 ]
-          if [ "${TRACK:-}" = nightly-next ]; then
-            # The deltas and the revised feed go to R2 in the next step, not to the release.
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # The workflow commit's publisher: its rate-limit backoff, serial uploads, shared wait.
-          publisher=.publish-tooling/scripts/ci/publish-release-assets.py
-          python3 "$publisher" \
-            --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
-            ${deltas[@]+"${deltas[@]}"} --replace-feeds ${feeds[@]+"${feeds[@]}"}
-          echo "publish=true" >> "$GITHUB_OUTPUT"
+          RESOLVE_BUILD_SHA: ${{ needs.published-build.outputs.resolve_build_sha }}
+        run: bash .publish-tooling/scripts/ci/nightly-steps/republish-deltas.sh
 
       - name: Upload revised appcasts to R2
         if: steps.republish.outputs.publish == 'true' && needs.published-build.outputs.track != 'nightly-next'
@@ -7632,6 +7565,113 @@ jobs:
         env:
           BUILD: ${{ needs.nightly-next-one.outputs.build }}
         run: set -o pipefail; python3 scripts/ci/nightly_next_delta_check.py check --feed-url "$NIGHTLY_NEXT_FEED_BASE/appcast-arm64.xml" --build "$BUILD" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # Leo's live code variant (docs/cmux-next/live-code.md), after this run wrote the feed; continue-on-error, so the
+  # nightly never waits on it or fails for it. NIGHTLY_NEXT_LIVE_CODE_VARIANT=off stops it. The build holds no secret.
+  build-live-code-variant:
+    needs: [decide, nightly-next-one]
+    if: "!cancelled() && github.ref == 'refs/heads/nightly-next' && needs.nightly-next-one.outputs.feed_written == 'true' && vars.NIGHTLY_NEXT_LIVE_CODE_VARIANT != 'off'"
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 240 || 120 }}
+    permissions:
+      contents: read
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    steps:
+      - *checkout-default
+      - *select-xcode
+      - *select-xcode-sdk
+      - name: Build the commit's live code overlay
+        env:
+          COMMIT: ${{ needs.nightly-next-one.outputs.build_sha }}
+          SWIFT_FLAGS: ${{ needs.decide.outputs.swift_import_flags }}
+          CMUX_SWAP_BINARY_ROOT: ${{ runner.temp }}/swap-binary-live-code
+        run: bash scripts/ci/nightly-steps/live-code-variant.sh build "$COMMIT" "$RUNNER_TEMP/live-code" "$SWIFT_FLAGS"
+      - name: Upload the live code overlay
+        id: upload-live-code
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with: &live-code-upload
+          name: live-code-${{ needs.nightly-next-one.outputs.build }}
+          path: ${{ runner.temp }}/live-code/*.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+      - name: Upload the live code overlay (retry)
+        if: "!cancelled() && steps.upload-live-code.outcome == 'failure'"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with: *live-code-upload
+
+  # Signs the overlay into the published nightly's app (no bundle code runs while a secret is in reach) on the signer.
+  sign-live-code-variant:
+    needs: [decide, nightly-next-one, build-live-code-variant]
+    if: "!cancelled() && needs.build-live-code-variant.result == 'success'"
+    continue-on-error: true
+    environment: ${{ needs.decide.outputs.environment }}
+    # The signer label, a literal, as nightly-next-one takes it. Why: docs/ci/nightly-workflow-notes.md#note-33
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-trusted-next-signing' }}
+    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 270 || 160 }}
+    permissions:
+      contents: read
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      BUILD: ${{ needs.nightly-next-one.outputs.build }}
+      COMMIT: ${{ needs.nightly-next-one.outputs.build_sha }}
+    steps:
+      - *hold-the-whole-mac
+      - *checkout-default
+      - name: Claim the whole Mac for signing
+        run: ./scripts/ci/signing-runner-claim.sh
+      - *legacy-route-shared-5
+      - *select-xcode
+      - *select-xcode-sdk
+      - *set-up-node
+      - name: Install create-dmg
+        run: bash scripts/ci/nightly-steps/install-create-dmg.sh
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: live-code-${{ needs.nightly-next-one.outputs.build }}
+          path: live-code
+      - name: Graft the overlay into the published nightly's app
+        run: bash scripts/ci/nightly-steps/live-code-variant.sh prepare "${{ needs.decide.outputs.dmg_prefix }}" "$BUILD" live-code
+      - name: Import the Developer ID certificate
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: ./scripts/ci/signing-keychain.sh create
+      - name: Sign the variant as the nightly is signed
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: bash scripts/ci/nightly-steps/live-code-variant.sh sign "$VARIANT_APP" "$VARIANT_ENTITLEMENTS"
+      - name: Notarize the variant and its DMG
+        timeout-minutes: 75
+        env:
+          CMUX_NOTARY_WAIT_TIMEOUT: 60m
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          CMUX_STAPLE_APP_IN_DMG: "true"
+          CMUX_NOTARY_PENDING_ON_TIMEOUT: "false"
+          CMUX_CHANNEL: next
+          CMUX_DEFER_LAUNCH_SMOKES: "true"
+        run: ./scripts/ci/notarize-nightly-dmg.sh "$VARIANT_APP" "$LIVE_CODE_DMG_RELEASE" "$LIVE_CODE_DMG_IMMUTABLE"
+      - name: Delete the signing keychain
+        if: always()
+        run: ./scripts/ci/signing-keychain.sh delete
+      - name: Publish the variant and its module outputs
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: bash scripts/ci/nightly-steps/live-code-variant.sh publish "$BUILD" "$COMMIT" "$LIVE_CODE_DMG_IMMUTABLE" "live-code/live-code-modules-$COMMIT.tar.gz" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" | tee -a "$GITHUB_STEP_SUMMARY"
 
   # Why: docs/ci/nightly-workflow-notes.md#note-22
   published-build:
