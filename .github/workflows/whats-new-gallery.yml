@@ -123,7 +123,7 @@ jobs:
             at="$RUNNER_TEMP/at-$parent"
             {
               # The same sparse tree as this checkout (.github/checkout-lean.json).
-              git -C "$GITHUB_WORKSPACE" worktree add --no-checkout --detach "$at" "$parent" &&
+              git -C "$GITHUB_WORKSPACE" worktree add -f -f --no-checkout --detach "$at" "$parent" &&
               git -C "$at" sparse-checkout set --no-cone '/*' '!/cmux-next-ios/verify/' &&
               git -C "$at" reset -q --hard &&
               # A variant the highlight's commit added to a gallery file already there: that file as the commit
@@ -137,7 +137,7 @@ jobs:
                   --out "$RUNNER_TEMP/cases-$parent.json") &&
               python3 "$GITHUB_WORKSPACE/scripts/cmux-next/media/whats-new-gallery.py" manifest --plan "$out/plan.json" \
                 --cases "$RUNNER_TEMP/cases-$parent.json" --parent "$parent" --out "$RUNNER_TEMP/manifest-$parent.json" &&
-              (cd "$at/webviews" && CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-$parent" bun run gallery:build) &&
+              (cd "$at/webviews" && CMUX_STRINGS_BEST_EFFORT=1 CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-$parent" bun run gallery:build) &&
               render "$RUNNER_TEMP/manifest-$parent.json" "$RUNNER_TEMP/gallery-$parent"
             } || echo "::warning title=What's New picture::no gallery at $parent; its befores wait"
           done
