@@ -93,8 +93,6 @@ mod cloud_run_account;
 #[cfg(unix)]
 mod cloud_secret;
 #[cfg(unix)]
-mod env_command;
-#[cfg(unix)]
 mod cloud_start_chat;
 #[cfg(unix)]
 mod cloud_team_keys;
@@ -106,6 +104,8 @@ mod coderouter;
 mod codex_app_server;
 mod command;
 mod completion;
+#[cfg(unix)]
+mod env_command;
 #[cfg(unix)]
 mod key_broker;
 #[cfg(unix)]
