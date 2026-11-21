@@ -15,6 +15,19 @@ spec = importlib.util.spec_from_file_location("bench_startup", os.path.join(HERE
 bench_startup = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bench_startup)
 
+
+def copy_sleep(dest):
+    """Copy `sleep` to DEST, a path inside a fake app bundle, as a binary that runs there. macOS's own sleep is an
+    Apple platform binary whose launch constraint lets it run only from the system volume: a copy run from a bundle
+    path is killed at exec (AMFI "Launch Constraint Violation"), and for a bundle's Contents/MacOS executable macOS
+    then shows `"cmux DEV <tag>" is damaged and can't be opened` on the Mac's screen (a CI mini, 2026-11-16;
+    manaflow-ai/cmuxterm-hq#12838). An ad hoc signature gives the copy its own code identity, outside the constraint."""
+    shutil.copy(shutil.which("sleep"), dest)
+    if sys.platform == "darwin":
+        subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", dest], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return dest
+
 APP = "/Users/cmux/steps/job-b/home/DerivedData/cmux-split-spring/Build/Products/Release/cmux DEV split-spring.app"
 OLD = "/Users/cmux/steps/job-a/home/DerivedData/cmux-split-spring/Build/Products/Release/cmux DEV split-spring.app"
 
@@ -256,13 +269,12 @@ class StopEveryCopy(unittest.TestCase):
         self.root = tempfile.mkdtemp(prefix="daemon-copies-")
         self.procs = []
         self.tag = "copytest"
-        sleep = shutil.which("sleep")
         self.bins = {}
         for copy in ("job-a", "job-b"):
             d = os.path.join(self.root, copy, f"DerivedData/cmux-{self.tag}/Build/Products/Release",
                              f"cmux DEV {self.tag}.app", "Contents/Resources/bin")
             os.makedirs(d)
-            shutil.copy(sleep, os.path.join(d, "cmux-tui"))
+            copy_sleep(os.path.join(d, "cmux-tui"))
             self.bins[copy] = os.path.join(d, "cmux-tui")
         bench_startup.APPS[self.tag] = os.path.dirname(os.path.dirname(os.path.dirname(self.bins["job-b"])))
 
@@ -287,7 +299,7 @@ class StopEveryCopy(unittest.TestCase):
         longer = os.path.join(self.root, "job-d", f"DerivedData/cmux-{self.tag}-spring/Build/Products/Release",
                               f"cmux DEV {self.tag}-spring.app", "Contents/Resources/bin")
         os.makedirs(longer)
-        shutil.copy(shutil.which("sleep"), os.path.join(longer, "cmux-tui"))
+        copy_sleep(os.path.join(longer, "cmux-tui"))
         p = subprocess.Popen([os.path.join(longer, "cmux-tui"), "30"])
         self.procs.append(p)
         time.sleep(0.3)
@@ -298,7 +310,7 @@ class StopEveryCopy(unittest.TestCase):
         macos = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(self.bins["job-a"]))), "MacOS")
         os.makedirs(macos)
         app_bin = os.path.join(macos, f"cmux DEV {self.tag}")
-        shutil.copy(shutil.which("sleep"), app_bin)
+        copy_sleep(app_bin)
         p = subprocess.Popen([app_bin, "30"])
         self.procs.append(p)
         time.sleep(0.3)
@@ -309,7 +321,7 @@ class StopEveryCopy(unittest.TestCase):
         other = os.path.join(self.root, "job-c", "DerivedData/cmux-othertag/Build/Products/Release",
                              "cmux DEV othertag.app", "Contents/Resources/bin")
         os.makedirs(other)
-        shutil.copy(shutil.which("sleep"), os.path.join(other, "cmux-tui"))
+        copy_sleep(os.path.join(other, "cmux-tui"))
         p = subprocess.Popen([os.path.join(other, "cmux-tui"), "30"])
         self.procs.append(p)
         time.sleep(0.3)

@@ -148,6 +148,9 @@ impl LocalStore {
         if let Some(w) = writers.open.remove(id) {
             w.close(id, &self.sync_failed);
         }
+        // Its lines change: the count goes up before the first rename and after the last
+        // (`store/log_bytes.rs`), so no read of it is taken for one of the log before.
+        self.bump_stamp_locked(id, writers, 1)?;
         let (segments, _) = self.list_segments(id)?;
         if let Some(mut staged) =
             self.stage_segments(id, segments, CompactMode::Truncate { after: intent.after })?
@@ -158,6 +161,7 @@ impl LocalStore {
                 }
             }
         }
+        self.bump_stamp_locked(id, writers, 1)?;
         sync_directory(&self.dir(id).join("events"))?;
         if let Ok(text) = std::fs::read(self.marker(id))
             && let Ok(mut marker) = serde_json::from_slice::<Marker>(&text)
@@ -332,6 +336,15 @@ impl LocalStore {
             if let Some(w) = writers.open.remove(id) {
                 w.close(id, &self.sync_failed);
             }
+            // A line that reads differently (a long string cut, a line dropped or cut away)
+            // bumps the log's count before the first rename and after the last, under this lock
+            // (`store/log_bytes.rs`): a read between two equal counts saw no line change. A pass
+            // that changed no line leaves it.
+            let changes = staged.stats.dropped + staged.stats.trimmed > 0
+                || staged.stats.bytes_before != staged.stats.bytes_after;
+            if changes {
+                self.bump_stamp_locked(id, &mut writers, 1)?;
+            }
             // Every segment stays, an empty one too: a reader that listed the segments a moment
             // ago opens each by its name.
             for (n, segment) in staged.segments.iter_mut().enumerate() {
@@ -345,6 +358,9 @@ impl LocalStore {
                 if let Some(tmp) = segment.tmp.take() {
                     crate::home_fs::rename(&tmp, &segment.path)?;
                 }
+            }
+            if changes {
+                self.bump_stamp_locked(id, &mut writers, 1)?;
             }
             sync_directory(&self.dir(id).join("events"))?;
             if intent.is_some() {
@@ -368,9 +384,10 @@ impl LocalStore {
 /// and the journal store freezes on a failed sync of its files (#35905).
 pub(super) fn write_durably(path: &Path, bytes: &[u8]) -> Result<()> {
     crate::config::refuse_lost_home(path)?;
-    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
+    // One name per file and process (`dead_temps`: each new name is one more path fseventsd
+    // keeps); this process's writers of it take turns.
+    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+    let turn = crate::dead_temps::hold(&tmp);
     // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
     // gets the record.
     let written = (|| -> Result<()> {
@@ -392,6 +409,8 @@ pub(super) fn write_durably(path: &Path, bytes: &[u8]) -> Result<()> {
     if written.is_err() {
         let _ = crate::home_fs::remove_file(&tmp);
     }
+    drop(turn);
+    crate::dead_temps::remove_beside(path);
     written
 }
 

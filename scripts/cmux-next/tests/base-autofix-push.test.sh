@@ -12,6 +12,8 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 script="$here/../base-autofix-push.sh"
 tmp="$(mktemp -d)"
 git_fixture_trap_exit 'rm -rf "$tmp"'
+# shellcheck source=scripts/cmux-next/tests/lib/action-parity-stub.sh
+source "$here/lib/action-parity-stub.sh"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 # No background git: a push or a commit starts a detached `git gc --auto` / maintenance run in
 # the repository, and one still writing there made the next `rm -rf "$tmp/remote.git"` fail with
@@ -57,6 +59,43 @@ setup
 repair="$(git -C "$tmp/bot" rev-parse HEAD)"
 run > "$tmp/out" || fail "an unmoved branch did not take the repair: $(cat "$tmp/out")"
 [[ "$(remote_tip)" == "$repair" ]] || fail "the remote is not at the repair commit"
+
+# Catalog parity is checked on the exact candidate before any automatic push.
+setup
+before="$(remote_tip)"
+if STUB_ACTION_PARITY_STATUS=1 run > "$tmp/out" 2>&1; then
+  fail "a catalog parity failure published the repair"
+fi
+[[ "$(remote_tip)" == "$before" ]] || fail "the parity failure moved the remote"
+grep -q 'swift_parity' "$tmp/out" || fail "the refusal does not name the failing parity check"
+setup
+lane_push source.txt "moved before parity"
+STUB_ACTION_PARITY_LOG="$tmp/parity-heads" run > "$tmp/out" 2>&1 || fail "a parity-checked repair failed: $(cat "$tmp/out")"
+[[ "$(tail -1 "$tmp/parity-heads")" == "$(remote_tip)" ]] || fail "parity checked an older head than the pushed candidate"
+
+setup
+lane_push source.txt "moved before failed parity"
+before="$(remote_tip)"
+if STUB_ACTION_PARITY_STATUS=1 run > "$tmp/out" 2>&1; then fail "a moved candidate ignored failed parity"; fi
+[[ "$(remote_tip)" == "$before" ]] || fail "a moved candidate published despite failed parity"
+
+# Cargo receives no publication credentials; the push still gets its own Git header.
+setup
+mkdir -p "$tmp/bot/.git/hooks"
+cat > "$tmp/bot/.git/hooks/pre-push" <<'HOOK'
+#!/usr/bin/env bash
+git config --get http.https://example.invalid/.extraheader > "$STUB_PUSH_AUTH"
+HOOK
+chmod +x "$tmp/bot/.git/hooks/pre-push"
+git -C "$tmp/bot" config core.hooksPath "$tmp/bot/.git/hooks"
+auth_index="${GIT_CONFIG_COUNT:-0}"
+(cd "$tmp/bot" && env "GIT_CONFIG_COUNT=$((auth_index + 1))" \
+  "GIT_CONFIG_KEY_$auth_index=http.https://example.invalid/.extraheader" \
+  "GIT_CONFIG_VALUE_$auth_index=AUTHORIZATION: basic fixture-token" \
+  TOKEN=fixture-token GH_TOKEN=fixture-token GITHUB_TOKEN=fixture-token STUB_PUSH_AUTH="$tmp/push-auth" \
+  bash "$script" "$tmp/remote.git" feat "$base") > "$tmp/out" 2>&1 \
+  || fail "credentials were not isolated from parity: $(cat "$tmp/out")"
+[[ "$(cat "$tmp/push-auth")" == 'AUTHORIZATION: basic fixture-token' ]] || fail "the push lost its own credentials"
 
 # 2. The branch moved in files the repair does not write: the repair lands on the new tip.
 setup
@@ -168,6 +207,16 @@ lane_commit() { # <subject> <file> <text> [<file> <text>]...
     && git add -A && git commit -q -m "$subject" && git push -q origin feat)
 }
 settings_files=(schemas/settings/settings-schema.json docs/mdm/com.manaflow.cmux.plist docs/mdm/com.manaflow.cmux.json)
+
+# A mixed settings/action repair cannot salvage the settings half when parity fails.
+setup_next
+(cd "$tmp/bot" && mkdir -p plans/cmux-next && echo 'new surface' > plans/cmux-next/action-surfaces.json \
+  && echo 'new dump' > plans/cmux-next/action-catalog.json && git add plans/cmux-next \
+  && git commit -q --amend --no-edit)
+before="$(remote_tip)"
+if STUB_ACTION_PARITY_STATUS=1 run > "$tmp/out" 2>&1; then fail "mixed exports ignored failed parity"; fi
+[[ "$(remote_tip)" == "$before" ]] || fail "mixed exports partially published despite failed parity"
+[[ "$(remote_show schemas/settings/settings-schema.json)" == "schema old" ]] || fail "settings were salvaged from a failed candidate"
 
 # 7. feat-cmux-next moved during the ten-minute Mac export and the move touched CmuxNextSettings,
 #    the exports' inputs (a revert, say). The exports made at BASE_SHA could be wrong at the tip,

@@ -137,6 +137,11 @@ impl KeyHolder {
         Ok(Self { dir: dir.to_path_buf(), lock })
     }
 
+    /// The directory the lock is in: the key files it guards sit next to it.
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
     /// Open `key` in `dir` for a session with `open` (the owner's own
     /// opener, with its permission checks).
     pub fn open<T, E>(

@@ -23,14 +23,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createServer } from "vite";
-import { chromium } from "playwright";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 import { agentPaneTheme, ghosttyDefault, ghosttyThemeFile } from "./theme.mjs";
+import { launchBrowser, settle, startDevServer, stubMockBridge, webviews } from "./mockLaunch.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const webviews = path.resolve(here, "../..");
 
 /// Rectangles are CSS px. `pane` is the reference's main content area, where the
 /// pane sits in the app; `compare` is the part scored, relative to `pane`.
@@ -101,15 +99,10 @@ const names = args.length ? args : Object.keys(scenarios);
 for (const name of names)
   if (!scenarios[name]) throw new Error(`unknown scenario ${name}; known: ${Object.keys(scenarios).join(", ")}`);
 
-const server = await createServer({
-  configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-  server: { port: 0, strictPort: false },
-  logLevel: "error",
-});
-await server.listen();
-const url = server.resolvedUrls.local[0];
+const server = await startDevServer("vite.config.acpmux-pane.mjs");
+const { url } = server;
 try {
-  const browser = await chromium.launch({ channel: "chrome" });
+  const browser = await launchBrowser();
   try {
     for (const name of names) console.log(await run(browser, name, scenarios[name]));
   } finally {
@@ -136,15 +129,7 @@ async function run(browser, name, scenario) {
     // A page that throws is not the pane being measured.
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.addInitScript(
-      (script) => {
-        if (script) window.cmuxAcpmuxMockScript = script;
-        window.cmuxAcpmuxActions = {
-          ready: async () => ({ protocolVersion: 1, transport: "mock" }),
-        };
-      },
-      fixture && { steps: fixture.steps, endAtMs: fixture.endAtMs },
-    );
+    await stubMockBridge(page, { script: fixture && { steps: fixture.steps, endAtMs: fixture.endAtMs } });
     await page.goto(url, { waitUntil: "networkidle" });
     // Swift applies the theme once the page has loaded.
     await page.waitForFunction(() => window.cmuxAcpmuxBridge && window.cmuxAcpmuxActions?.["chat.send"]);
@@ -204,10 +189,6 @@ async function run(browser, name, scenario) {
   } finally {
     await context.close();
   }
-}
-
-function settle(page) {
-  return page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 }
 
 /// Scrolls the transcript until `anchor.text` starts `anchor.top` px below the top.

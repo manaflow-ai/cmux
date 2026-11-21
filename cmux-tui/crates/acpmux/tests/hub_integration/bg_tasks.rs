@@ -157,6 +157,79 @@ async fn a_connection_that_proved_nothing_reaches_no_task() {
     }
 }
 
+/// Own tasks first (incident 2026-11-14: a subagent called `acpmux_bg_list`, got every task of
+/// its chat, and stopped all ten running ones, none its own). The chat's own agent lists the
+/// tasks its caller started (a subagent's, or with no subagent the lead's) and is told how many
+/// it left out; `all: true` lists every task with who started it. A stop of another caller's
+/// task is refused, names who started it and `force_other_owner`, and signals nothing; with
+/// `force_other_owner: true` it stops. The person still lists and stops every task.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_agent_lists_and_stops_only_the_tasks_its_caller_started() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(crate::daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "owners").await;
+    let mut agent = acpmux_caller(&r.hub, &id).await;
+    let a1 = json!({"id": "a1", "type": "general-purpose"});
+    let b2 = json!({"id": "b2", "type": "general-purpose"});
+    let mut started = Vec::new();
+    for (sub, what) in [(Value::Null, "lead watcher"), (a1.clone(), "a1 ci"), (b2.clone(), "b2 ci")]
+    {
+        let params = json!({"sessionId": id, "command": "sleep 60", "description": what,
+            "callerSubagent": sub});
+        let task = agent.request(method::MUX_BG_START, params).await.unwrap();
+        started.push(task["id"].as_str().unwrap().to_owned());
+    }
+    let (lead_task, a1_task, b2_task) = (&started[0], &started[1], &started[2]);
+    let ids = |list: &Value| -> Vec<String> {
+        let tasks = list["tasks"].as_array().unwrap();
+        tasks.iter().map(|t| t["id"].as_str().unwrap().to_owned()).collect()
+    };
+
+    // b2 sees its own task only, and how many it left out.
+    let list = json!({"sessionId": id, "callerSubagent": b2});
+    let mine = agent.request(method::MUX_BG_LIST, list).await.unwrap();
+    assert_eq!(ids(&mine), vec![b2_task.clone()], "{mine}");
+    assert_eq!(mine["otherOwners"], 2, "{mine}");
+    // The lead (no subagent) sees its own.
+    let lead = agent.request(method::MUX_BG_LIST, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(ids(&lead), vec![lead_task.clone()], "{lead}");
+    // all: true lists every task, each with who started it.
+    let list = json!({"sessionId": id, "callerSubagent": b2, "all": true});
+    let every = agent.request(method::MUX_BG_LIST, list).await.unwrap();
+    assert_eq!(ids(&every).len(), 3, "{every}");
+    let a1_view = every["tasks"].as_array().unwrap().iter().find(|t| t["id"] == *a1_task);
+    assert_eq!(a1_view.unwrap()["startedBy"], a1, "{every}");
+
+    // b2 stopping a1's task (the incident) is refused and names a1; the task keeps running.
+    let stop = json!({"sessionId": id, "id": a1_task, "callerSubagent": b2});
+    let refused = agent.request(method::MUX_BG_STOP, stop).await.unwrap_err();
+    assert!(refused.contains("started by the general-purpose subagent a1"), "{refused}");
+    assert!(refused.contains("force_other_owner: true"), "{refused}");
+    assert_eq!(state(&r, &id, a1_task), "running", "a refused stop stopped the task");
+    // So is stopping the lead's task, and the lead stopping b2's.
+    let stop = json!({"sessionId": id, "id": lead_task, "callerSubagent": b2});
+    let refused = agent.request(method::MUX_BG_STOP, stop).await.unwrap_err();
+    assert!(refused.contains("lead agent"), "{refused}");
+    let stop = json!({"sessionId": id, "id": b2_task});
+    assert!(agent.request(method::MUX_BG_STOP, stop).await.is_err(), "the lead stopped b2's");
+    assert_eq!(state(&r, &id, lead_task), "running");
+    assert_eq!(state(&r, &id, b2_task), "running");
+
+    // Its own task stops; another's stops with force_other_owner: true.
+    let stop = json!({"sessionId": id, "id": b2_task, "callerSubagent": b2});
+    assert_eq!(agent.request(method::MUX_BG_STOP, stop).await.unwrap()["state"], "stopped");
+    let stop =
+        json!({"sessionId": id, "id": a1_task, "callerSubagent": b2, "force_other_owner": true});
+    assert_eq!(agent.request(method::MUX_BG_STOP, stop).await.unwrap()["state"], "stopped");
+
+    // The person lists and stops every task, as before.
+    let every = r.c.request(method::MUX_BG_LIST, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(ids(&every).len(), 3, "{every}");
+    let stop = json!({"sessionId": id, "id": lead_task});
+    assert_eq!(r.c.request(method::MUX_BG_STOP, stop).await.unwrap()["state"], "stopped");
+}
+
 /// The task's whole output so far, as text.
 fn text(r: &Rig, id: &str, task: &str) -> String {
     let s = r.hub.resolve(id).unwrap();
@@ -456,6 +529,35 @@ async fn a_task_with_notify_tells_its_chat_once_when_it_ends() {
     let list = r.hub.bg_list(&r.hub.resolve(&id).unwrap());
     let statuses: Vec<_> = list["tasks"].as_array().unwrap().iter().map(|t| &t["status"]).collect();
     assert_eq!(statuses, [&json!("ok"), &json!("failed")], "{list}");
+}
+
+/// A task its own agent stops brings no end to the chat: the stop's answer told that agent how it
+/// ended, and the notice only woke the chat to say it again (hq#15820: 45 of 115 such notices in
+/// 48 h started a turn with no tool call). A stop by the person still brings the end, once.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_task_its_own_agent_stops_tells_the_chat_nothing_more() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(crate::daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "self-stopped").await;
+    let mut agent = acpmux_caller(&r.hub, &id).await;
+    let start = |what: &str| json!({"sessionId": id, "command": "sleep 60", "description": what, "notify": true});
+    let own = agent.request(method::MUX_BG_START, start("own stop")).await.unwrap();
+    let own = own["id"].as_str().unwrap().to_owned();
+    let theirs = agent.request(method::MUX_BG_START, start("person's stop")).await.unwrap();
+    let theirs = theirs["id"].as_str().unwrap().to_owned();
+    let stopped = agent.request(method::MUX_BG_STOP, json!({"sessionId": id, "id": own})).await;
+    assert_eq!(stopped.unwrap()["state"], "stopped", "the stop's answer carries the end");
+    let stopped = r.c.request(method::MUX_BG_STOP, json!({"sessionId": id, "id": theirs})).await;
+    assert_eq!(stopped.unwrap()["state"], "stopped");
+    r.until("the person's stop never reached the chat", || ends(&r.hub, &id).len() == 1).await;
+    // Time for the own stop's end to come, which must not.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let ends = ends(&r.hub, &id);
+    assert_eq!(ends.len(), 1, "{ends:?}");
+    assert!(ends[0].contains("Background command stopped: person's stop"), "{ends:?}");
+    let dir = acpmux::config::home().join("bg").join(&id);
+    assert!(acpmux::bg_run::notified_path(&dir, &own).exists(), "a restart would owe it");
 }
 
 /// Waits up to 20 s for `done`.

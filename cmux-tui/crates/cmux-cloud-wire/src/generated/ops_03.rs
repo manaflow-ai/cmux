@@ -5,6 +5,124 @@
 use super::*;
 
 wire_errors! {
+    /// The error codes cloud.machine.keep declares.
+    CloudMachineKeepError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists, or `desktop`, which connect_info never lists: the machine's creator only, on a machine whose daemon advertises link-desktop-v1) and the current epoch, valid at most 5 minutes. The token carries the caller's vm_kind (claim vmk, the same value as the result's vm_kind), so the owner answer is bound to this dial and ends with the token. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.
+    CloudMachineLinkTokenOp {
+        name: "cloud.machine.link_token",
+        class: Mutation,
+        idempotency: None,
+        owner: "cloud:CloudDO",
+        risk: "execute",
+        principals: [Install],
+        params: CloudMachineLinkTokenParams,
+        result: CloudMachineLinkTokenResult,
+        error: CloudMachineLinkTokenError,
+    }
+}
+
+wire_enum! {
+    CloudMachineLinkTokenParamsServicesItem {
+        Daemon = "daemon",
+        Ssh = "ssh",
+        Desktop = "desktop",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineLinkTokenParams {
+    pub host: HostId,
+    pub services: Vec<CloudMachineLinkTokenParamsServicesItem>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_proof: Option<ServerNetworkProof>,
+}
+
+wire_enum! {
+    CloudMachineLinkTokenResultServicesItem {
+        Daemon = "daemon",
+        Ssh = "ssh",
+        Desktop = "desktop",
+    }
+}
+
+wire_enum! {
+    CloudMachineLinkTokenResultVmKind {
+        Owner = "owner",
+        Team = "team",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineLinkTokenResult {
+    pub token: String,
+    pub expires_at: i64,
+    pub host: HostId,
+    pub epoch: i64,
+    pub services: Vec<CloudMachineLinkTokenResultServicesItem>,
+    pub vm_kind: CloudMachineLinkTokenResultVmKind,
+}
+
+wire_errors! {
+    /// The error codes cloud.machine.link_token declares.
+    CloudMachineLinkTokenError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudLinkInstallRefused = "cloud.link.install_refused",
+        CloudMachineNotBound = "cloud.machine.not_bound",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudMachinePaused = "cloud.machine.paused",
+        CloudRateLimited = "cloud.rate_limited",
+        OwnerUnreachable = "owner.unreachable",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// List the team's Cloud machines one page at a time; no cursor = the first page. `revision` is the team's registry revision when the page was read.
+    CloudMachineListOp {
+        name: "cloud.machine.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:CloudDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: CloudMachineListParams,
+        result: CloudMachineListResult,
+        error: CloudMachineListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineListResult {
+    pub machines: Vec<CloudMachine>,
+    pub next_cursor: Option<String>,
+    pub revision: Revision,
+}
+
+wire_errors! {
     /// The error codes cloud.machine.list declares.
     CloudMachineListError {
         AuthForbidden = "auth.forbidden",
@@ -782,113 +900,4 @@ wire_op! {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudVmNetworkPolicyParams {
     pub machine: MachineId,
-}
-
-wire_errors! {
-    /// The error codes cloud.vm.network_policy declares.
-    CloudVmNetworkPolicyError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        CloudRateLimited = "cloud.rate_limited",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Record the bound VM's receiver incarnation. read takes only machine and phase; begin needs expected generation and a 32-hex attempt ID; ready/end need expected generation. Begin/ready require running; retirement remains available through park. Retries preserve terminal state. No idempotency key: every call rechecks current VM authority instead of replaying a response. VM installs only (kind vm, grant vm-self, own bound machine). Listener and token consumers require separate wiring.
-    CloudVmReceiverLifecycleOp {
-        name: "cloud.vm.receiver.lifecycle",
-        class: Mutation,
-        idempotency: None,
-        owner: "cloud:CloudDO",
-        risk: "execute",
-        principals: [Install],
-        params: CloudVmReceiverLifecycleParams,
-        result: CloudVmReceiverLifecycleResult,
-        error: CloudVmReceiverLifecycleError,
-    }
-}
-
-wire_enum! {
-    CloudVmReceiverLifecycleParamsPhase {
-        Read = "read",
-        Begin = "begin",
-        Ready = "ready",
-        End = "end",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmReceiverLifecycleParams {
-    pub machine: MachineId,
-    pub phase: CloudVmReceiverLifecycleParamsPhase,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expected: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub attempt: Option<String>,
-}
-
-wire_enum! {
-    CloudVmReceiverLifecycleResultPhase {
-        Idle = "idle",
-        Starting = "starting",
-        Ready = "ready",
-        Stopped = "stopped",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmReceiverLifecycleResult {
-    pub machine: MachineId,
-    pub generation: String,
-    pub phase: CloudVmReceiverLifecycleResultPhase,
-}
-
-wire_errors! {
-    /// The error codes cloud.vm.receiver.lifecycle declares.
-    CloudVmReceiverLifecycleError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        CloudRateLimited = "cloud.rate_limited",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// The VM's own machine record (the public machine view). VM installs only (kind vm, grant vm-self, its own bound machine).
-    CloudVmSelfGetOp {
-        name: "cloud.vm.self.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:CloudDO",
-        risk: "read",
-        principals: [Install],
-        params: CloudVmSelfGetParams,
-        result: CloudVmSelfGetResult,
-        error: CloudVmSelfGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmSelfGetParams {
-    pub machine: MachineId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmSelfGetResult {
-    pub machine: CloudMachine,
-}
-
-wire_errors! {
-    /// The error codes cloud.vm.self.get declares.
-    CloudVmSelfGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        CloudRateLimited = "cloud.rate_limited",
-        ValidationInvalid = "validation.invalid",
-    }
 }

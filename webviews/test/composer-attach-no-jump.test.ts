@@ -19,6 +19,7 @@ import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR, PLUS_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 type Rect = { x: number; y: number; width: number; height: number };
 type Tile = { rect: Rect; where: string; fresh: boolean };
@@ -68,7 +69,7 @@ await requireBrowserLane("composer-attach-no-jump.test.ts", async () => {
     await vite?.close();
   });
 
-  const PROMPT = ".acpmux-composer-prompt [contenteditable='true']";
+  const PROMPT = COMPOSER_EDITOR;
 
   async function newChat(engine: string, width = 900): Promise<Page> {
     const page = await browsers.get(engine)!.newPage({ viewport: { width, height: 640 } });
@@ -193,7 +194,7 @@ await requireBrowserLane("composer-attach-no-jump.test.ts", async () => {
       for (const byte of data) text += String.fromCharCode(byte);
       return btoa(text);
     }, name);
-    await page.locator(".acpmux-composer-plus .acpmux-picker-button").click();
+    await page.locator(PLUS_PICKER).click();
     const chooser = page.waitForEvent("filechooser", { timeout: 5_000 });
     await page.locator('[role="menu"] [role="menuitem"][data-value="add.files"]').click();
     await (await chooser).setFiles({ name, mimeType: "image/png", buffer: Buffer.from(bytes, "base64") });
