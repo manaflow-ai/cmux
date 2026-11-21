@@ -31,6 +31,9 @@ struct BoundActionCatalogTests {
         // Meet Chief in the palette (c4736440) landed with its Rust row; the pinned app FFI ca616a68 predates it and
         // re-pin #48906 (cmux-app-ffi-1f8c4f28) carries it.
         "home.meetChief",
+        // Move Chat to Machine… (#49141) landed its Rust row (cloud.rs) with the Swift handler; the pinned app FFI
+        // ca616a68 predates it and gains it on the next re-pin.
+        "agent.moveToMachine",
     ]
 
     @Test func everyBoundActionIsInTheCatalog() {
