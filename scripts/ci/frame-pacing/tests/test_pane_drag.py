@@ -80,6 +80,13 @@ class Judge(unittest.TestCase):
         self.assertEqual(got["gesture"], "pane")
         self.assertEqual(pd.summarize([got])["drops"], 1)
 
+    def test_a_pane_swap_lands_on_the_strips_change(self):
+        rest, swapped = [["t1", 0, 100, 1], ["t2", 800, 100, 1]], [["t2", 0, 100, 1], ["t1", 800, 100, 1]]
+        frames = [(BEFORE, [], rest)] * 21 + [(BEFORE, [], swapped)] * 20
+        got = pd.judge_drop(drop(frames, gesture="pane"))
+        self.assertTrue(got["landed"])
+        self.assertEqual(got["jumps"], 0)
+
     def test_no_layout_change_is_not_landed(self):
         got = pd.judge_drop(drop([(BEFORE, [], [])] * 40))
         self.assertFalse(got["landed"])
