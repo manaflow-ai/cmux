@@ -738,8 +738,29 @@ function arrivedAtTail(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]
   return false;
 }
 
+type ReaderRoom = { followed: boolean; left?: true; kept?: { room: number; prompt: string | undefined } };
+
+/// The room under the last row this pass, and what of it is kept for the reader (`heldRoom.reader`): followed,
+/// the stack's room (`followedRoom`), or more where the reader came back down to room held while they were
+/// scrolled up; scrolled up, the room held (`held`).
+function roomUnderRows(
+  { room: held, reader }: { room: number; reader: ReaderRoom },
+  pass: { following: boolean; sessionSwitched: boolean; followedRoom: number; prompt: string | undefined },
+): { room: number; kept: ReaderRoom["kept"] } {
+  if (pass.sessionSwitched) return { room: pass.followedRoom, kept: undefined };
+  if (!pass.following) return { room: held, kept: undefined };
+  const kept = !reader.followed
+    ? reader.left && held > pass.followedRoom + 0.5
+      ? { room: held, prompt: pass.prompt }
+      : undefined
+    : reader.kept?.prompt === pass.prompt
+      ? reader.kept
+      : undefined;
+  return { room: Math.max(pass.followedRoom, kept?.room ?? 0), kept };
+}
+
 /// The newest prompt's row id (a user row that is no line), or undefined: the turn the room the reader
-/// came back to is kept for (`readerRoom`). Reads back from the end to that prompt only.
+/// came back to is kept for (`heldRoom.reader`). Reads back from the end to that prompt only.
 function newestPromptId(rows: readonly AcpmuxRow[]): string | undefined {
   for (let index = rows.length - 1; index >= 0; index--) {
     const row = rows[index]!;
@@ -3713,17 +3734,18 @@ function TranscriptView({
     if (pending !== pendingSentPromptCount) setPendingSentPromptCount(pending);
   }
   const previousViewport = useRef({ height, width, dockSpace, dockCard });
-  /// The room kept under the last row (`room` below) as of the last placement pass.
-  const heldRoom = useRef(dockRoom);
-  /// The room the reader scrolled back down to (`readerKept` below): what the room held while they were
+  /// `room`: the room kept under the last row (`room` below) as of the last placement pass.
+  /// `reader`: the room the reader scrolled back down to (`readerKept` below): what the room held while they were
   /// scrolled up, kept under the last row once the view follows again, with the newest prompt it was
   /// kept under. Cut back to the stack's room there, it moved every row in view down by what was cut
   /// (Leo, 2026-11-20: "And then like we cut it out. We cut out the extra space. And so that is the
   /// jump."). It stays, a scroll away, until a send, Jump to latest or the next prompt's turn.
-  /// `followed`: whether the last placement pass followed the latest row.
-  const readerRoom = useRef<{ followed: boolean; kept?: { room: number; prompt: string | undefined } }>({
-    followed: false,
-  });
+  /// `followed`: whether the last placement pass followed the latest row. `left`: the reader's own input
+  /// (a wheel or key up, a scrollbar drag, a touch) let the latest row go since the view last followed it.
+  /// Only then is there room they came back to: a layout pass that lets go and takes it again (the queue
+  /// closing at the latest row) leaves none (agent-pane-queue-scroll-bottom).
+  /// One ref for both, which the placement pass reads once (`roomUnderRows`).
+  const heldRoom = useRef<{ room: number; reader: ReaderRoom }>({ room: dockRoom, reader: { followed: false } });
   /// The composer card's height the room under the last row was last made for (`grown` below).
   const cardRest = useRef(0);
   /// The overlay dock (composer/dockMotion.experiment.ts): the composer card's height the room under
@@ -3753,10 +3775,10 @@ function TranscriptView({
     cardBase.current = dockCardRef.current;
     noticeBaseRef.current = dockNoticeRef.current;
     trayToggled.current = false;
-    const kept = readerRoom.current.kept !== undefined;
-    readerRoom.current = { followed: readerRoom.current.followed };
-    if (!held && !kept && Math.abs(heldRoom.current - dockRoomRef.current) <= 0.5) return;
-    heldRoom.current = dockRoomRef.current;
+    const kept = heldRoom.current.reader.kept !== undefined;
+    heldRoom.current.reader = { followed: heldRoom.current.reader.followed };
+    if (!held && !kept && Math.abs(heldRoom.current.room - dockRoomRef.current) <= 0.5) return;
+    heldRoom.current.room = dockRoomRef.current;
     flushSync(() => {
       setNoticeBase(dockNoticeRef.current);
       roomTaken();
@@ -4459,23 +4481,16 @@ function TranscriptView({
         )
       : grown;
   // Back at the latest row by the reader's own scroll, the room held while scrolled up stays under the
-  // last row (`readerRoom`) instead of being cut to the stack's while they look at it. A send or Jump
+  // last row (`heldRoom.reader`) instead of being cut to the stack's while they look at it. A send or Jump
   // to latest gives the stack's room before following (`takeRoom`, the send), so theirs keeps none.
   const followedRoom = dockRoom - lifted - trayHold - cardHold - noticeHold;
   const keptPrompt = following && !sessionSwitched ? newestPromptId(rows) : undefined;
-  const roomHeld = heldRoom.current;
-  const reader = readerRoom.current;
-  const readerKept =
-    !following || sessionSwitched
-      ? undefined
-      : !reader.followed
-        ? roomHeld > followedRoom + 0.5
-          ? { room: roomHeld, prompt: keptPrompt }
-          : undefined
-        : reader.kept?.prompt === keptPrompt
-          ? reader.kept
-          : undefined;
-  const room = sessionSwitched || following ? Math.max(followedRoom, readerKept?.room ?? 0) : roomHeld;
+  const { room, kept: readerKept } = roomUnderRows(heldRoom.current, {
+    following,
+    sessionSwitched,
+    followedRoom,
+    prompt: keptPrompt,
+  });
   const rowsHeight = measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + room;
   // The content's end without the room a collapse left (`foldRoom`), which it is released against.
   const rowsEnd = Math.max(floorHeight - lifted, rowsHeight);
@@ -4495,7 +4510,12 @@ function TranscriptView({
   );
   // Each commit: what this pass kept for the reader (`readerKept`), and whether it followed, for the next.
   useLayoutEffect(() => {
-    readerRoom.current = { followed: following && !sessionSwitched, kept: readerKept };
+    const followed = following && !sessionSwitched;
+    heldRoom.current.reader = {
+      followed,
+      kept: readerKept,
+      ...(!followed && heldRoom.current.reader.left ? { left: true as const } : {}),
+    };
   });
   // Where the rows draw against where they lay out: the followed offset of this layout against the
   // one the unlifted layout would hold. Negative draws them up, positive down.
@@ -5471,7 +5491,7 @@ function TranscriptView({
     previousViewport.current = { height, width, dockSpace, dockCard };
     // With the composer's growth, which is room again once the view stops following.
     // A hold for a line that went is room the rows still have: it stays in the room once scrolled up.
-    heldRoom.current = room + lifted + cardHold + Math.max(0, noticeHold);
+    heldRoom.current.room = room + lifted + cardHold + Math.max(0, noticeHold);
     appliedLift.current = lift;
     liftedBefore.current = lifted;
     // A view that follows keeps the card height it began following at; any other takes the card's.
@@ -5586,8 +5606,8 @@ function TranscriptView({
       foldBase.current = dockTrayRef.current;
       cardBase.current = dockCardRef.current;
       trayToggled.current = false;
-      // Room the reader came back down to stays under the list (`readerRoom`).
-      heldRoom.current = Math.max(dockRoomRef.current, readerRoom.current.kept?.room ?? 0);
+      // Room the reader came back down to stays under the list (`heldRoom.reader`).
+      heldRoom.current.room = Math.max(dockRoomRef.current, heldRoom.current.reader.kept?.room ?? 0);
       flushSync(() => {
         followRef.current(false);
         roomTaken();
@@ -6056,9 +6076,9 @@ function TranscriptView({
       chaseHeld.current = false;
     } else stopJump();
     // The room the stack grew while scrolled up is room under the last row again (`room`), and the
-    // room the reader came back down to goes with the send (`readerRoom`).
-    heldRoom.current = dockRoomRef.current;
-    readerRoom.current = { followed: readerRoom.current.followed };
+    // room the reader came back down to goes with the send (`heldRoom.reader`).
+    heldRoom.current.room = dockRoomRef.current;
+    heldRoom.current.reader = { followed: heldRoom.current.reader.followed };
     // The placement pass already has the latest estimated total and measured viewport. Reusing
     // those values avoids forcing a style/layout flush from the send effect before the new row
     // paints; the following placement pass reconciles any drawn-height correction. A fractional
@@ -6486,7 +6506,11 @@ function TranscriptView({
     // First on the window, so a fling's momentum held after a jump reaches no other listener.
     const removeMomentumHold = installMomentumHold(node, scrollRunning);
     const detachIntent = attachUserScrollIntent(node);
-    const followIntent = (next: boolean) => followRef.current(next);
+    const followIntent = (next: boolean) => {
+      // The reader let the latest row go: room they come back down to is theirs (`heldRoom.reader`).
+      if (!next) heldRoom.current.reader = { ...heldRoom.current.reader, left: true };
+      followRef.current(next);
+    };
     const cancelProgrammatic = (event?: Event) => {
       if (intent.isScrollbarDragging()) {
         if (!olderDragPending.current && previousLayout.current) {
