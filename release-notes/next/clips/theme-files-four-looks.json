@@ -1,0 +1,13 @@
+{
+  "caption": "Each shipped look repaints the whole app at once: Classic Desktop, Phosphor, Claude Desktop and Charcoal.",
+  "frameInterval": 0.25,
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "Classic Desktop", "cmux": ["settings", "set", "appearance.themeFile", "classic-desktop"], "wait": 1.5, "clip": true},
+    {"title": "Phosphor", "cmux": ["settings", "set", "appearance.themeFile", "phosphor"], "wait": 1.5, "clip": true},
+    {"title": "Claude Desktop", "cmux": ["settings", "set", "appearance.themeFile", "claude-desktop"], "wait": 1.5, "clip": true},
+    {"title": "Charcoal", "cmux": ["settings", "set", "appearance.themeFile", "charcoal"], "wait": 1.5, "clip": true},
+    {"title": "Back to the usual look", "cmux": ["settings", "reset", "appearance.themeFile"], "wait": 0.5}
+  ],
+  "crop": [0, 0, 0.7, 0.8]
+}

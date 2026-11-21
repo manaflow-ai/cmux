@@ -106,9 +106,11 @@ def post_publish_runnable() -> list[str]:
         return term
 
     def requires_a_skipped_job(term: str, skipped: set[str]) -> bool:
-        """The term holds only if one of the skipped jobs ran: needs.<job>.result or an output equals a non-empty value."""
+        """The term holds only if one of the skipped jobs ran: needs.<job>.result or an output equals a non-empty value,
+        or an output is not empty (a skipped job's outputs are all '': report-nightly-fix-forward, #47756)."""
         alternatives = [alt.strip() for alt in unwrap(term).split("||")]
         found = [re.fullmatch(r"needs\.([A-Za-z0-9_-]+)\.(?:result|outputs\.[A-Za-z0-9_]+) == '[^']+'", alt)
+                 or re.fullmatch(r"needs\.([A-Za-z0-9_-]+)\.outputs\.[A-Za-z0-9_]+ != ''", alt)
                  for alt in alternatives]
         return all(found) and all(match.group(1) in skipped for match in found)
 
@@ -132,7 +134,7 @@ def post_publish_runnable() -> list[str]:
             progressed = True
             cond = str(spec.get("if", ""))
             terms = conjuncts(cond) if cond else []
-            if name == "decide":
+            if name in ("decide", "runner-preflight"):  # the same if: (test_nightly_runner_preflight.py)
                 ok = "inputs.nightly_next_post_publish == ''" in cond
             elif not needed:
                 ok = any(requires_another_input(term) for term in terms)

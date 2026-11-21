@@ -28,7 +28,6 @@ export default componentEntry<Props>({
     "connection-wait": {
       props: { state: { retry: { attempt: 2, of: 4, reason: "transport" }, attempt: 1 } },
     },
-    resumed: { props: { state: { attempt: 2 } } },
     cleared: { props: { state: undefined } },
   },
 });

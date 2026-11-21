@@ -18,6 +18,8 @@ WebKit lays it out again), misses a display frame, or shows the page and its tab
 first display frame after the key.
 """
 import argparse, glob, json, os, signal, socket, statistics, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -297,9 +299,9 @@ try:
            "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1100,720"}
     app = subprocess.Popen([BINARY], env=env, stdout=open(os.path.join(SCRATCH, "app.log"), "a"),
                            stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-    print(f"launched pid {app.pid}", flush=True)
+    safe_print(f"launched pid {app.pid}", flush=True)
     wait("the tagged app comes up", lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 90)
-    print("app is up", flush=True)
+    safe_print("app is up", flush=True)
     time.sleep(2)  # test harness: let the first workspace settle
     if opts.bench:
         run_bench()
@@ -322,36 +324,36 @@ try:
         sys.exit(f"FAIL the second back-to-back opening should be cold: {opening}")
     time.sleep(5)  # test harness: let the cold page load before reading its field
     field = rpc("debug.new_tab", {"action": "field"}) or {}
-    print(f"cold opening: {opening['ms']:.2f} ms main thread; field after 5 s: {field} "
-          f"({'keys kept' if field.get('text') == opts.text else 'KEYS LOST on the cold path'})")
+    safe_print(f"cold opening: {opening['ms']:.2f} ms main thread; field after 5 s: {field} "
+               f"({'keys kept' if field.get('text') == opts.text else 'KEYS LOST on the cold path'})")
     for _ in range(2):
         rpc("debug.key", {"key": "w", "modifiers": ["command"]})
     p95 = sorted(spare_ms)[max(0, int(round(0.95 * len(spare_ms))) - 1)]
-    print(f"spare openings: n={len(spare_ms)} p50={statistics.median(spare_ms):.2f} ms p95={p95:.2f} ms max={max(spare_ms):.2f} ms")
+    safe_print(f"spare openings: n={len(spare_ms)} p50={statistics.median(spare_ms):.2f} ms p95={p95:.2f} ms max={max(spare_ms):.2f} ms")
     if footprints:
-        print(f"spare WebContent footprint: median={statistics.median(footprints):.1f} MB max={max(footprints):.1f} MB")
+        safe_print(f"spare WebContent footprint: median={statistics.median(footprints):.1f} MB max={max(footprints):.1f} MB")
     # One spare per app: a second window adopts the spare parked in the first (a reparent), and a
     # key-window change moves the parked spare (debug `retarget`, since no-activate windows never
     # become key).
     windows_before = len((rpc("debug.surfaces") or {}).get("windows", []))
-    print(f"new window: {rpc('action.run', {'id': 'newWindow'})}", flush=True)
+    safe_print(f"new window: {rpc('action.run', {'id': 'newWindow'})}", flush=True)
     wait("a second window", lambda: len((rpc("debug.surfaces") or {}).get("windows", [])) > windows_before, 30)
     WINDOW_IDS[:] = [w.get("id") for w in (rpc("debug.focus") or {}).get("windows", [])]
     time.sleep(2)  # test harness: let the new window's workspace settle
     wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
     cross = open_and_check(True, window=1)
-    print(f"cross-window adoption: {cross}", flush=True)
+    safe_print(f"cross-window adoption: {cross}", flush=True)
     wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
     moved = rpc("debug.new_tab", {"action": "retarget", "window": 1}) or {}
-    print(f"key-window change moves the spare: target={moved.get('target_window')} move={moved.get('last_retarget_ms')} ms", flush=True)
+    safe_print(f"key-window change moves the spare: target={moved.get('target_window')} move={moved.get('last_retarget_ms')} ms", flush=True)
     after = open_and_check(True, window=1)
-    print(f"after the move, same-window adoption: {after}", flush=True)
+    safe_print(f"after the move, same-window adoption: {after}", flush=True)
     if p95 > opts.budget_ms:
         sys.exit(f"FAIL p95 {p95:.2f} ms is over the {opts.budget_ms} ms budget")
-    print("ok: no lost key in any run; p95 within budget")
+    safe_print("ok: no lost key in any run; p95 within budget")
 finally:
     if app and app.returncode not in (None, 0):
-        print(open(os.path.join(SCRATCH, "app.log")).read()[-3000:])
+        safe_print(open(os.path.join(SCRATCH, "app.log")).read()[-3000:])
     if app and app.poll() is None:
         app.send_signal(signal.SIGKILL)
-        print(f"killed {app.pid}", flush=True)
+        safe_print(f"killed {app.pid}", flush=True)

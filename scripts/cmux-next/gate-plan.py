@@ -92,6 +92,24 @@ def git(*args: str) -> str:
     return subprocess.run(["git", "-C", str(ROOT), *args], check=True, capture_output=True, text=True).stdout.strip()
 
 
+def refresh_base(root, ref: str) -> str:
+    """Fetch REF (origin/feat-cmux-next) before this branch's own change is measured from where HEAD meets it: a clone's
+    copy older than a base the branch merged counts that base's files as the branch's own. One shared fetch
+    (scripts/cmux-next/push_range.py refresh_base, the pre-push gate's); a failed fetch is said on stderr."""
+    import importlib.util
+    push_range = Path(__file__).resolve().parent / "push_range.py"
+    spec = importlib.util.spec_from_file_location("cmux_next_push_range_fresh", push_range)
+    module = sys.modules.get(spec.name)
+    if module is None:
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+    note = module.refresh_base(Path(root), ref)
+    if note:
+        print(f"gate-plan: {note.lstrip('; ')}", file=sys.stderr)
+    return note
+
+
 # A test target with more test files than this runs only the suites the change names: a whole
 # CmuxNextAppTests run (271 files) passed the 900 s per-filter limit of package-test-lane.sh.
 BIG_TARGET_FILES = 40
@@ -177,6 +195,13 @@ def pushed(head: str) -> bool:
                for ref in refs)
 
 
+def own_change(base_ref: str) -> tuple[str, list[str]]:
+    """(where HEAD meets BASE_REF, the paths HEAD changes since), BASE_REF fetched first (refresh_base)."""
+    refresh_base(ROOT, base_ref)
+    base = git("merge-base", base_ref, "HEAD")
+    return base, [p for p in git("diff", "--name-only", "--no-renames", base, "HEAD").splitlines() if p]
+
+
 def hq_root() -> Path:
     if os.environ.get("HQ_ROOT"):
         return Path(os.environ["HQ_ROOT"])
@@ -210,8 +235,7 @@ def main(argv: list[str]) -> int:
     if git("status", "--porcelain", "--untracked-files=no"):
         print("gate-plan: tracked changes are not committed; the plan covers HEAD only", file=sys.stderr)
     head = git("rev-parse", "HEAD")
-    base = git("merge-base", args.base, "HEAD")
-    changed = [p for p in git("diff", "--name-only", "--no-renames", base, "HEAD").splitlines() if p]
+    base, changed = own_change(args.base)
     if not changed:
         raise SystemExit(f"gate-plan: HEAD has no change against {args.base}")
 

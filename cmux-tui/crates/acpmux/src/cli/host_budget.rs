@@ -54,14 +54,11 @@ pub(crate) fn warning_due(dir: &std::path::Path, caller: &str, warning: &str, no
     if last.is_some_and(|at| now_ms.saturating_sub(at) <= WARNING_EVERY_MS) {
         return false;
     }
-    let mut folder = std::fs::DirBuilder::new();
-    #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut folder, 0o700);
-    let made = match folder.create(dir) {
+    let made = match crate::home_fs::create_dir(dir, 0o700) {
         Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => Err(e),
         _ => Ok(()),
     };
-    let _ = made.and_then(|()| std::fs::write(&file, now_ms.to_string()));
+    let _ = made.and_then(|()| crate::home_fs::write(&file, now_ms.to_string()));
     true
 }
 

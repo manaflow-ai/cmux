@@ -10,10 +10,10 @@ const restore = installDom();
 afterAll(() => restore());
 const { renderPage, settle, ops } = await import("./testing");
 
-test("General lists the spaces and Browser the browser profiles, with no open-in-window link", async () => {
-  // The old section route (`#/settings/rooms`, `app settings rooms`) opens General.
+test("Sidebar lists the spaces and Browser the browser profiles, with no open-in-window link", async () => {
+  // The old section route (`#/settings/rooms`, `app settings rooms`) opens Sidebar, which shows the spaces.
   const page = await renderPage({ path: "/settings/rooms" });
-  expect(page.container.querySelector("[data-section]")?.getAttribute("data-section")).toBe("general");
+  expect(page.container.querySelector("[data-section]")?.getAttribute("data-section")).toBe("sidebar");
   expect(page.container.textContent).toContain("Work");
   expect(page.container.querySelectorAll('[data-card="rooms"] [data-host-row]').length).toBe(2);
   page.unmount();
@@ -23,6 +23,30 @@ test("General lists the spaces and Browser the browser profiles, with no open-in
   expect(text).toContain("Google Chrome · Work");
   expect(text).not.toContain("Open in Window");
   browser.unmount();
+});
+
+test("with one space the Sidebar page draws no Spaces card; a second space brings it back", async () => {
+  // Hide Spaces (a1283, a1315 2026-11-20): with one space no part of cmux names spaces, Settings neither.
+  const page = await renderPage({ path: "/settings/rooms" });
+  const card = () => page.container.querySelector('[data-card="rooms"]');
+  const rooms = page.provider.host.rooms!;
+  expect(card()).not.toBeNull();
+  await act(async () => {
+    page.provider.setHost({ ...page.provider.host, rooms: rooms.slice(0, 1) });
+  });
+  await settle();
+  expect(card()).toBeNull();
+  await act(async () => {
+    page.provider.setHost({ ...page.provider.host, rooms: null });
+  });
+  await settle();
+  expect(card()).toBeNull();
+  await act(async () => {
+    page.provider.setHost({ ...page.provider.host, rooms });
+  });
+  await settle();
+  expect(page.container.querySelectorAll('[data-card="rooms"] [data-host-row]').length).toBe(2);
+  page.unmount();
 });
 
 test("Machines lists the saved machines; a host change updates the list without a reload", async () => {

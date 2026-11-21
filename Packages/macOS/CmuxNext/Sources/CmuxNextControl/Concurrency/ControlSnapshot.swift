@@ -95,12 +95,12 @@ public final class ControlSnapshotStore: Sendable {
     public func markStale() { stale.store(true, ordering: .releasing) }
 
     /// Sets the closure that builds and publishes a stale snapshot on the main actor.
-    public func setRefresher(_ refresh: (@Sendable () async -> Void)?) { refresher.withLock { $0 = refresh } }
+    public func setRefresher(_ refresh: (@Sendable () async -> Void)?) { refresher.store(refresh) }
 
     /// The latest snapshot, built first when main-actor state changed since the last publish (``markStale()``):
     /// what a control call reads, so it covers the writes of the calls before it.
     public func fresh() async -> ControlSnapshot {
-        if isStale, let refresh = refresher.withLock({ $0 }) { await refresh() }
+        if isStale, let refresh = refresher.load() { await refresh() }
         return current
     }
 

@@ -22,6 +22,8 @@ import type { NativeSessionInfo as Model } from "../src/agent-session/acpmux/ses
 import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { assistant, chat, user } from "../src/gallery/fixtures/acpmux";
+import { settleReact } from "./support/domTeardown";
+import { SESSION_INFO, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -84,6 +86,7 @@ afterEach(async () => {
   resetSessionInfoState();
   setHeaderState({ inspector: false });
   frames.clear();
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -142,7 +145,7 @@ async function mount() {
   await flushFrames();
   // The page told the App about its panel on mount, so a closed state below is the App's too.
   expect(sent.length).toBeGreaterThan(0);
-  const toggle = () => container.querySelector<HTMLButtonElement>("button.acpmux-session-info-toggle")!;
+  const toggle = () => container.querySelector<HTMLButtonElement>(SESSION_INFO_TOGGLE)!;
   // A chat's panel may start open (its saved state); every case starts from closed.
   if (toggle().getAttribute("aria-pressed") === "true") {
     expect(sent.at(-1)?.open).toBe(true);
@@ -166,7 +169,7 @@ test("the header toggle is on while the native panel shows and off after it clos
   expect(pressed(toggle())).toBe(false);
   expect(nativeOpen()).toBe(false);
   // The App draws the panel, the page none of its own.
-  expect(document.querySelector("aside.acpmux-session-info")).toBeNull();
+  expect(document.querySelector(SESSION_INFO)).toBeNull();
 
   await click(toggle());
   expect(nativeOpen()).toBe(true);

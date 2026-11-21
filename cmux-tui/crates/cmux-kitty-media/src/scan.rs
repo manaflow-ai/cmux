@@ -22,6 +22,9 @@ static APC_INTRODUCER: LazyLock<memmem::Finder<'static>> =
     LazyLock::new(|| memmem::Finder::new(b"\x1b_"));
 static KITTY_INTRODUCER: LazyLock<memmem::Finder<'static>> =
     LazyLock::new(|| memmem::Finder::new(b"\x1b_G"));
+/// Capacity the borrowed path's scratch buffer keeps between reads: a read's
+/// copy fits, and the memory of a rewritten image goes back at the next read.
+const SCRATCH_KEEP_BYTES: usize = 256 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum State {
@@ -53,6 +56,10 @@ pub struct KittyMediaRewriter {
     direct_load_open: bool,
     rewritten: u64,
     last_refusal: Option<MediaRefusal>,
+    /// File bytes this [`Self::rewrite`] call may still read: one per-file
+    /// cap for all of a read's commands, so one read cannot grow the output
+    /// without bound.
+    read_budget: u64,
 }
 
 impl KittyMediaRewriter {
@@ -67,6 +74,7 @@ impl KittyMediaRewriter {
     /// Appends the rewritten form of `input` to `out`.
     // perf-hot: <1% of a 64 KiB copy, terminal-host PTY reader
     pub fn rewrite(&mut self, input: &[u8], out: &mut Vec<u8>) {
+        self.read_budget = self.limits.max_file_bytes;
         let mut index = 0;
         // Start of the run not yet copied to `out`.
         let mut copied = 0;
@@ -144,6 +152,9 @@ impl KittyMediaRewriter {
     /// bytes in `scratch`.
     // perf-hot: <1% of a 64 KiB copy, local PTY reader
     pub fn rewrite_borrowed<'a>(&mut self, input: &'a [u8], scratch: &'a mut Vec<u8>) -> &'a [u8] {
+        // A no-op unless the last read rewrote an image.
+        scratch.clear();
+        scratch.shrink_to(SCRATCH_KEEP_BYTES);
         if self.state == State::Ground && KITTY_INTRODUCER.find(input).is_none() {
             // Only the last bytes can begin a command the next read ends.
             // An unterminated other APC needs no state: its body ends at the
@@ -155,7 +166,6 @@ impl KittyMediaRewriter {
             };
             return input;
         }
-        scratch.clear();
         self.rewrite(input, scratch);
         scratch
     }
@@ -269,12 +279,15 @@ impl KittyMediaRewriter {
                 let medium = control.medium();
                 let read = match (control.number(b'O'), control.number(b'S')) {
                     (Some(offset), Some(size)) => {
-                        media::read(medium, payload, offset, size, self.limits.max_file_bytes)
+                        let cap = self.limits.max_file_bytes.min(self.read_budget);
+                        media::read(medium, payload, offset, size, cap)
                     }
                     _ => Err(MediaRefusal::BadRange),
                 };
                 match read {
                     Ok(data) => {
+                        let read = u64::try_from(data.len()).unwrap_or(u64::MAX);
+                        self.read_budget = self.read_budget.saturating_sub(read);
                         if self.direct_load_open {
                             out.extend_from_slice(CLOSE_OPEN_LOAD);
                         }

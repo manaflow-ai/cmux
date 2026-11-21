@@ -8,6 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ChiefDock } from "./ChiefDock";
 import type { AcpmuxSessionEntry } from "./sessionList";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -62,6 +63,7 @@ afterEach(async () => {
       root!.unmount();
     });
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -79,7 +81,11 @@ const chat = (sessionId: string, fields: Partial<AcpmuxSessionEntry> = {}): Acpm
   ...fields,
 });
 
-async function render(sessions: AcpmuxSessionEntry[], defaultExpanded = false): Promise<HTMLElement> {
+async function render(
+  sessions: AcpmuxSessionEntry[],
+  defaultExpanded = false,
+  onNewChat: () => void = () => {},
+): Promise<HTMLElement> {
   const container = installDom();
   await act(async () => {
     root = createRoot(container);
@@ -88,7 +94,7 @@ async function render(sessions: AcpmuxSessionEntry[], defaultExpanded = false): 
         sessions={sessions}
         defaultExpanded={defaultExpanded}
         onSelect={() => {}}
-        onNewChat={() => {}}
+        onNewChat={onNewChat}
         onMoveToTab={() => {}}
       />,
     );
@@ -193,4 +199,16 @@ test("the badge counts every chat that waits, not only the four cards drawn", as
   const dock = await render([...waiting, chat("quiet")]);
   expect(dock.querySelectorAll(".acpmux-chief-card")).toHaveLength(4);
   expect(dock.querySelector(".acpmux-chief-dock-badge")!.textContent).toBe("5");
+});
+
+test("with no chats the open dock says so and offers New chat, with no second mascot", async () => {
+  let started = 0;
+  const dock = await render([], true, () => (started += 1));
+  const empty = dock.querySelector<HTMLElement>(".acpmux-chief-dock-stack .ui-illustrated-empty")!;
+  expect(empty.querySelector("p")?.textContent).toBe("No chats yet");
+  expect(empty.querySelector("img")).toBeNull();
+  const button = empty.querySelector<HTMLButtonElement>("button")!;
+  expect(button.textContent).toBe("New chat");
+  await act(async () => button.click());
+  expect(started).toBe(1);
 });

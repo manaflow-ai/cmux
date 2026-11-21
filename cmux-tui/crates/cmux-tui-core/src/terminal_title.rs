@@ -10,8 +10,12 @@
 //!
 //! [`sanitize`] is the one way the daemon reads a title out of a terminal:
 //! no control characters, no bidi overrides, at most [`MAX_TITLE_CHARS`].
+//! [`TabTitle::terminal`] is the one rule for what a tab shows of it: the
+//! text without the leading status glyphs, and their [`TitleActivity`].
 
+#[cfg(test)]
 use std::borrow::Cow;
+use std::sync::Arc;
 
 /// The longest title the daemon stores or sends, in characters.
 pub(crate) const MAX_TITLE_CHARS: usize = 256;
@@ -59,6 +63,144 @@ fn is_hidden_format(c: char) -> bool {
     )
 }
 
+/// What a leading status glyph of a terminal title says about the program.
+///
+/// Agents animate their title: Claude Code writes `⠂ Fix the login bug`,
+/// `⠐ Fix the login bug`, … while it works and `✳ Fix the login bug` when it
+/// waits. [`TabTitle::terminal`] moves those glyphs into an activity, so a
+/// spinner frame changes nothing a tab shows and the daemon announces nothing
+/// for it (plans/cmux-next/main-thread-scheduling.md, D2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TitleActivity {
+    /// A spinner frame (Braille dots, a turning circle): the program works.
+    Working,
+    /// A resting marker (`✳`, `●`, `⏺`): the program waits.
+    Idle,
+    /// A check mark: the program finished.
+    Done,
+    /// A cross: the program failed.
+    Failed,
+}
+
+impl TitleActivity {
+    /// The wire name (`title-changed`'s and a tab snapshot's `title_activity`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Working => "working",
+            Self::Idle => "idle",
+            Self::Done => "done",
+            Self::Failed => "failed",
+        }
+    }
+
+    /// The activity a wire name names; `None` for an unknown name.
+    pub fn from_wire(name: &str) -> Option<Self> {
+        match name {
+            "working" => Some(Self::Working),
+            "idle" => Some(Self::Idle),
+            "done" => Some(Self::Done),
+            "failed" => Some(Self::Failed),
+            _ => None,
+        }
+    }
+
+    fn of(c: char) -> Option<Self> {
+        match u32::from(c) {
+            // Braille patterns: every terminal spinner frame (`⠋⠙⠹`, Claude's `⠂⠐`).
+            0x2801..=0x28FF => Some(Self::Working),
+            // Turning circles and half blocks used as spinners.
+            0x25D0..=0x25D3 | 0x25F4..=0x25F7 | 0x2596..=0x259F => Some(Self::Working),
+            // Claude Code's resting asterisks, a filled or empty dot, a record mark.
+            0x2733 | 0x2736 | 0x273B | 0x273D | 0x2722 | 0x00B7 | 0x25CF | 0x25CB | 0x25C9
+            | 0x23FA => Some(Self::Idle),
+            0x2713 | 0x2714 | 0x2705 => Some(Self::Done),
+            0x2717 | 0x2718 | 0x274C => Some(Self::Failed),
+            _ => None,
+        }
+    }
+}
+
+/// What a tab shows of a title: its text and what its leading glyphs said.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TabTitle {
+    /// The title without its leading status glyphs; empty for none.
+    pub text: Arc<str>,
+    /// What the stripped glyphs said; `None` when the title had none.
+    pub activity: Option<TitleActivity>,
+}
+
+impl TabTitle {
+    /// A page's title: shown as is (a remote terminal tab uses the terminal rule).
+    pub fn page(raw: &str) -> Self {
+        Self { text: Arc::from(raw), activity: None }
+    }
+
+    /// A terminal's title (already [`sanitize`]d) split into its text and the
+    /// activity its leading glyphs name. `✳ ⠂ Task` reads as working (the last
+    /// glyph wins); a title of glyphs only keeps them as its text, so the tab
+    /// is not blank.
+    pub fn terminal(raw: &str) -> Self {
+        let mut rest = raw;
+        let mut activity = None;
+        loop {
+            let mut chars = rest.chars();
+            let Some(found) = chars.next().and_then(TitleActivity::of) else { break };
+            activity = Some(found);
+            rest = chars
+                .as_str()
+                // A variation selector (`✔︎`) belongs to the glyph before it.
+                .trim_start_matches(is_variation_selector)
+                .trim_start_matches(char::is_whitespace);
+        }
+        let words = rest.trim();
+        let text = if words.is_empty() { raw.trim() } else { words };
+        Self { text: Arc::from(text), activity }
+    }
+}
+
+impl TabTitle {
+    /// What a tab of `kind` (a tree tab's `kind`) shows of `raw`: a local or a
+    /// remote terminal's title loses its status glyphs, any other shows as is.
+    pub(crate) fn of_kind(kind: Option<&str>, raw: &str) -> Self {
+        match kind {
+            Some("pty" | crate::state::remote_terminal_tabs_store::REMOTE_TERMINAL_KIND) => {
+                Self::terminal(raw)
+            }
+            _ => Self::page(raw),
+        }
+    }
+
+    /// What a `list-workspaces` tab shows: its `title_text` and
+    /// `title_activity`, or, from a daemon before them, the rule of its kind
+    /// over its raw `title`. Clients show this and never the raw title, which
+    /// keeps a spinner frame the daemon does not announce.
+    pub fn of_tree_tab(tab: &serde_json::Value) -> Self {
+        let field = |name| tab.get(name).and_then(serde_json::Value::as_str);
+        let Some(text) = field("title_text") else {
+            return Self::of_kind(field("kind"), field("title").unwrap_or_default());
+        };
+        let activity = field("title_activity").and_then(TitleActivity::from_wire);
+        Self { text: Arc::from(text), activity }
+    }
+}
+
+/// Unicode's `Variation_Selector` property.
+fn is_variation_selector(c: char) -> bool {
+    matches!(c, '\u{180B}'..='\u{180D}' | '\u{180F}' | '\u{FE00}'..='\u{FE0F}' | '\u{E0100}'..='\u{E01EF}')
+}
+
+/// Stores `title` as the terminal's raw title. Returns it when what a tab
+/// shows of it ([`TabTitle::terminal`]) moved: a spinner frame, or a program
+/// that writes the same title again, announces nothing.
+pub(crate) fn store(stored: &mut String, title: String) -> Option<String> {
+    if *stored == title {
+        return None;
+    }
+    let moved = TabTitle::terminal(stored) != TabTitle::terminal(&title);
+    *stored = title;
+    moved.then(|| stored.clone())
+}
+
 /// How many pushed titles the stack keeps, as xterm does.
 const MAX_STACK: usize = 10;
 /// The most title bytes kept: libghostty-vt cuts a title to 1024 bytes too.
@@ -94,15 +236,35 @@ pub(crate) struct TitleTracker {
 
 impl TitleTracker {
     /// `data` with the title sequences libghostty-vt cannot apply rewritten
-    /// into the `OSC 2` that applies them; borrowed when nothing changed.
+    /// into the `OSC 2` that applies them; borrowed when nothing changed. The
+    /// output paths run it inside `terminal_metadata`'s one shared scan.
+    #[cfg(test)]
+    // perf-hot: 0.1ns/byte terminal-output-scan (every output byte, host and daemon)
     pub(crate) fn rewrite<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
         let mut out: Option<Vec<u8>> = None;
         let mut copied = 0;
-        for (index, &byte) in data.iter().enumerate() {
+        let mut index = 0;
+        while let Some(rest) = data.get(index..) {
+            // On the ground only an ESC starts a sequence: jump to the next one.
+            if self.state == ScanState::Ground {
+                let Some(offset) = memchr::memchr(0x1b, rest) else { break };
+                index = index.saturating_add(offset);
+                // A whole CSI that is no window op (an SGR color, a cursor
+                // move) leaves the scan as it was: jump over it at once.
+                let skip = csi_not_window_op_len(data.get(index..).unwrap_or_default());
+                if skip > 0 {
+                    index = index.saturating_add(skip);
+                    continue;
+                }
+            }
+            let Some(&byte) = data.get(index) else { break };
+            index = index.saturating_add(1);
             let Some(title) = self.step(byte) else { continue };
-            let out = out.get_or_insert_with(|| Vec::with_capacity(data.len() + title.len() + 6));
-            out.extend_from_slice(&data[copied..=index]);
-            copied = index + 1;
+            let out = out.get_or_insert_with(|| {
+                Vec::with_capacity(data.len().saturating_add(title.len()).saturating_add(6))
+            });
+            out.extend_from_slice(data.get(copied..index).unwrap_or_default());
+            copied = index;
             out.extend_from_slice(b"\x1b]2;");
             out.extend_from_slice(&title);
             out.push(0x07);
@@ -110,10 +272,21 @@ impl TitleTracker {
         match out {
             None => Cow::Borrowed(data),
             Some(mut out) => {
-                out.extend_from_slice(&data[copied..]);
+                out.extend_from_slice(data.get(copied..).unwrap_or_default());
                 Cow::Owned(out)
             }
         }
+    }
+
+    /// Whether the tracker is outside every sequence: only an ESC moves it.
+    pub(crate) fn on_ground(&self) -> bool {
+        self.state == ScanState::Ground
+    }
+
+    /// One byte of the shared output scan (`terminal_metadata`); `Some(title)`
+    /// when the sequence it ends needs an `OSC 2 ; title` right after it.
+    pub(crate) fn step_byte(&mut self, byte: u8) -> Option<Vec<u8>> {
+        self.step(byte)
     }
 
     /// Advances over one byte; `Some(title)` when the sequence it ends needs
@@ -145,13 +318,19 @@ impl TitleTracker {
                 0x40..=0x7e => {
                     let ignored = self.state == ScanState::CsiIgnore;
                     self.state = ScanState::Ground;
-                    (!ignored && byte == b't').then(|| self.window_op()).flatten()
+                    let title = (!ignored && byte == b't').then(|| self.window_op()).flatten();
+                    // The parameters live only inside a CSI, so a CSI the
+                    // scan jumps (`csi_not_window_op_len`) leaves the same state.
+                    self.csi.clear();
+                    title
                 }
                 0x1b => {
+                    self.csi.clear();
                     self.state = ScanState::Escape;
                     None
                 }
                 0x18 | 0x1a => {
+                    self.csi.clear();
                     self.state = ScanState::Ground;
                     None
                 }
@@ -245,6 +424,24 @@ impl TitleTracker {
     }
 }
 
+/// Length of the complete CSI at the start of `data` (`ESC [`, parameter
+/// and intermediate bytes, then a final byte other than `t`), or 0 when
+/// `data` does not start with one. Such a CSI is no title op: stepping over
+/// it ends on the ground with nothing to rewrite, so the scan jumps it.
+pub(crate) fn csi_not_window_op_len(data: &[u8]) -> usize {
+    if data.get(..2) != Some(b"\x1b[".as_slice()) {
+        return 0;
+    }
+    let rest = data.get(2..).unwrap_or_default();
+    let Some(end) = rest.iter().position(|byte| !(0x20..=0x3f).contains(byte)) else {
+        return 0;
+    };
+    match rest.get(end) {
+        Some(&fin) if (0x40..=0x7e).contains(&fin) && fin != b't' => end.saturating_add(3),
+        _ => 0,
+    }
+}
+
 /// At most `max` bytes of `bytes`, never ending inside a UTF-8 sequence.
 fn clip_utf8(bytes: &[u8], max: usize) -> &[u8] {
     if bytes.len() <= max {
@@ -258,105 +455,5 @@ fn clip_utf8(bytes: &[u8], max: usize) -> &[u8] {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn run(tracker: &mut TitleTracker, chunks: &[&[u8]]) -> Vec<u8> {
-        chunks.iter().flat_map(|chunk| tracker.rewrite(chunk).into_owned()).collect()
-    }
-
-    fn terminal() -> ghostty_vt::Terminal {
-        ghostty_vt::Terminal::new(40, 4, 100, ghostty_vt::Callbacks::default()).unwrap()
-    }
-
-    /// Feeds `chunks` through the daemon's output path and returns the title after each.
-    fn titles_after(chunks: &[&[u8]]) -> Vec<String> {
-        let mut term = terminal();
-        let mut marks = crate::prompt_mode_reset::ShellMarks::default();
-        chunks
-            .iter()
-            .map(|chunk| {
-                let _ = crate::prompt_mode_reset::write_output(&mut term, chunk, &mut marks);
-                read(&term)
-            })
-            .collect()
-    }
-
-    #[test]
-    fn sanitize_drops_controls_and_bidi_and_caps_the_length() {
-        assert_eq!(sanitize("  build\u{7}\u{1b}[31m ok\t "), "build[31m ok");
-        assert_eq!(sanitize("evil\u{202e}gpj.exe"), "evilgpj.exe");
-        assert_eq!(sanitize("a\u{2066}b\u{2069}c\u{200f}d\u{061c}e\u{feff}"), "abcde");
-        assert_eq!(sanitize("line one\nline two"), "line one line two");
-        assert_eq!(sanitize("\u{85}c1"), "c1");
-        // A zero width joiner holds an emoji sequence together: it stays.
-        assert_eq!(sanitize("👩\u{200d}💻 dev"), "👩\u{200d}💻 dev");
-        let long = "é".repeat(MAX_TITLE_CHARS + 40);
-        assert_eq!(sanitize(&long).chars().count(), MAX_TITLE_CHARS);
-    }
-
-    #[test]
-    fn a_pop_restores_the_pushed_title() {
-        let titles = titles_after(&[
-            b"\x1b]2;zsh ~/src\x07",
-            b"\x1b[22;0t\x1b]2;vim notes.md\x07",
-            b"\x1b[23;0t",
-        ]);
-        assert_eq!(titles, ["zsh ~/src", "vim notes.md", "zsh ~/src"]);
-    }
-
-    #[test]
-    fn push_and_pop_with_title_only_and_default_params() {
-        let titles = titles_after(&[
-            b"\x1b]0;one\x1b\\",
-            b"\x1b[22t\x1b]2;two\x07\x1b[22;2t\x1b]2;three\x07",
-            b"\x1b[23;2t",
-            b"\x1b[23t",
-        ]);
-        assert_eq!(titles, ["one", "three", "two", "one"]);
-    }
-
-    #[test]
-    fn an_icon_only_push_and_an_empty_stack_leave_the_title() {
-        let titles = titles_after(&[
-            b"\x1b]2;kept\x07",
-            b"\x1b[22;1t\x1b]2;next\x07\x1b[23;1t",
-            b"\x1b[23;0t",
-        ]);
-        assert_eq!(titles, ["kept", "next", "next"]);
-    }
-
-    #[test]
-    fn a_pop_split_across_chunks_still_restores() {
-        let titles =
-            titles_after(&[b"\x1b]2;shell\x07\x1b[2", b"2;0t\x1b]2;tool\x07\x1b[23", b";0t"]);
-        assert_eq!(titles, ["shell", "tool", "shell"]);
-    }
-
-    #[test]
-    fn osc_1_names_the_terminal_only_until_an_osc_2() {
-        assert_eq!(titles_after(&[b"\x1b]1;icon name\x07"]), ["icon name"]);
-        assert_eq!(titles_after(&[b"\x1b]2;real\x07\x1b]1;icon\x07"]), ["real"]);
-    }
-
-    #[test]
-    fn the_stack_holds_at_most_ten_titles() {
-        let mut tracker = TitleTracker::default();
-        let mut stream = Vec::new();
-        for i in 0..12 {
-            stream.extend_from_slice(format!("\x1b]2;t{i}\x07\x1b[22;0t").as_bytes());
-        }
-        for _ in 0..12 {
-            stream.extend_from_slice(b"\x1b[23;0t");
-        }
-        let out = run(&mut tracker, &[&stream]);
-        let pops = out.windows(4).filter(|w| *w == b"\x1b]2;").count() - 12;
-        assert_eq!(pops, 10);
-    }
-
-    #[test]
-    fn plain_output_is_not_copied() {
-        let mut tracker = TitleTracker::default();
-        assert!(matches!(tracker.rewrite(b"hello \x1b]2;title\x07 world"), Cow::Borrowed(_)));
-    }
-}
+#[path = "terminal_title_tests.rs"]
+mod tests;

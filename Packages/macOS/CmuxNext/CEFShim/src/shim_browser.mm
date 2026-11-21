@@ -208,6 +208,10 @@ int cmux_shim_try_close(int browser_id) {
 
 int cmux_shim_devtools_call(int browser_id, const char* method, const char* params_json) {
   CefRefPtr<CefBrowserHost> host = HostOf(browser_id);
+  // A docked DevTools frontend is a browser of its own, not a page browser: a window image asks it for its picture.
+  if (!host) {
+    if (CefRefPtr<CefBrowser> frontend = DevToolsFrontendById(browser_id)) host = frontend->GetHost();
+  }
   const size_t params_size = params_json ? std::strlen(params_json) : 0;
   if (!host || !IsDevToolsMethodName(method) || (params_size > 0 && !IsOneJSONObject(params_json, params_size))) {
     return 0;

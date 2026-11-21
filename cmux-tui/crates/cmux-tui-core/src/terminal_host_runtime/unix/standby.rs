@@ -32,8 +32,10 @@ impl StandbyTerminalHost {
         // both as its first steps (`enter_terminal_host_process`).
         let session_env = host_session_env();
         let orphan_env = host_orphan_env();
+        // macOS: one malloc magazine and no nano zone (host_session.rs).
+        let malloc_env = host_malloc_env();
         let child = crate::host_exe::spawn_host(|command| {
-            for (name, value) in session_env.iter().chain(&orphan_env) {
+            for (name, value) in session_env.iter().chain(&orphan_env).chain(&malloc_env) {
                 command.env(name, value);
             }
             command

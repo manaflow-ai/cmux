@@ -21,7 +21,7 @@
   cursor: default;
 }
 .cv-walk__head:hover {
-  background: color-mix(in srgb, var(--cv-fg, var(--cv-text)) 6%, transparent);
+  background: var(--ds-surface-hover);
 }
 .cv-walk__head:focus-visible {
   outline: 2px solid var(--accent, currentColor);
@@ -70,7 +70,6 @@
   padding: 0 0 4px;
   overflow-x: auto;
   list-style: none;
-  scrollbar-width: thin;
 }
 .cv-walk__step {
   display: flex;
@@ -89,7 +88,7 @@
 }
 .cv-walk__shot {
   overflow: hidden;
-  background: color-mix(in srgb, var(--cv-fg, var(--cv-text)) 5%, transparent);
+  background: var(--ds-surface-card);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cv-fg, var(--cv-text)) 12%, transparent);
 }
 .cv-walk__step.is-failed .cv-walk__shot {

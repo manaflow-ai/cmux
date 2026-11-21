@@ -128,7 +128,26 @@ struct AgentPaneFeatureTipsTests {
         model.featureTipRecords = AgentPaneFeatureTipRecords(defaults: try defaults())
         _ = await model.respond(to: .featureTips(.read))
         #expect(!model.userTouched, "touched by \(model.touchedBy ?? "?")")
-        _ = await model.respond(to: .featureTips(.keep(id: Self.browserTip, state: "closed")))
+    }
+
+    /// A claim is the page's own question and the X of a tip keeps one record: both change the app's records and
+    /// leave the page as it was, so a closed New Tab page that sent them goes back to the spare pool
+    /// (`NewTabSpareStaysInWindowTests`). A claim the app refuses and one it grants are the same to the page.
+    /// `used` is the person's use of the tip's control in this page (a Cloud pick): that page holds the pick and
+    /// is touched.
+    @MainActor @Test func aClaimAndTheXLeaveThePageUntouchedAndAUseTouchesIt() async throws {
+        let model = AgentPaneModel(host: NoHost())
+        model.featureTipRecords = AgentPaneFeatureTipRecords(defaults: try defaults())
+        let granted = await model.respond(to: .featureTips(.claim(id: "cloud-chat", feature: nil)))
+        #expect((granted["value"] as? [String: Any])?["claimed"] as? Bool == true, "fixture: a fresh install grants its first claim: \(granted)")
+        #expect(!model.userTouched, "a granted claim: touched by \(model.touchedBy ?? "?")")
+        _ = await model.respond(to: .featureTips(.claim(id: Self.browserTip, feature: nil)))
+        #expect(!model.userTouched, "a refused claim: touched by \(model.touchedBy ?? "?")")
+        _ = await model.respond(to: .featureTips(.keep(id: "cloud-chat", state: "closed")))
+        #expect(!model.userTouched, "the X: touched by \(model.touchedBy ?? "?")")
+        #expect(model.featureTipRecords.records["cloud-chat"] == "closed")
+        _ = await model.respond(to: .featureTips(.keep(id: Self.browserTip, state: "used")))
         #expect(model.userTouched)
+        #expect(model.touchedBy == "featureTips")
     }
 }

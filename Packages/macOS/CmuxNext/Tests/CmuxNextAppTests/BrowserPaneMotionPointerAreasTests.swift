@@ -36,6 +36,9 @@ struct BrowserPaneMotionPointerAreasTests {
             let page = folder.appending(path: "index.html")
             try Data("<html><body><p>pointer areas</p><a href=\"#x\">a link</a><input value=\"field\"></body></html>".utf8).write(to: page)
             let surface = try await connection.newFrontendBrowserTab(url: page.absoluteString, engine: .webkit, in: pane.pane.handle, activate: true).surface
+            // The app's own opener asks for the tab it made (PaneBrowserTabOpener): a tab the daemon alone reports
+            // leaves the pane on the tab the window remembers, the split's terminal, and the page never shows.
+            pane.selectWhenReported(surface: surface)
             try await PasswordManagerRouteTests.until({ services.daemon.store.tab(surface: surface).map { pane.selectedTab?.id == $0.id } == true },
                                                       report: { WindowStateReport.describe(services, surface: surface) })
             let layout = try #require(controller.content?.layoutView)

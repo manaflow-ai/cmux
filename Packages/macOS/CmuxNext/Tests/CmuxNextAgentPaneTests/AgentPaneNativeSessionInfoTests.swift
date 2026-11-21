@@ -155,15 +155,23 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(String(describing: request) == "copyText")
     }
 
+    /// The page's copy needs the person's recent gesture, and it goes through the write the model was given: a test
+    /// never writes the person's own clipboard (`NSPasteboard.general`), and a fleet session has no pasteboard
+    /// server, where every write failed and the copy answered "unavailable".
     @Test func copyRequestsRequireARecentPersonGesture() async throws {
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), source: .bundled(file)))
+        let general = NSPasteboard.general.changeCount
+        var copied: [String] = []
+        let model = AgentPaneModel(host: NoHost(), sessionId: "session-a", writeClipboard: { copied.append($0); return true })
+        let view = try #require(AgentPaneView(model: model, source: .bundled(file)))
         defer { view.close() }
         let refused = await view.model.respond(to: .copyText("private reference"))
         #expect((refused["error"] as? [String: Any])?["code"] as? String == "transport.gesture_required")
         view.model.transport.gestures.record()
         let accepted = await view.model.respond(to: .copyText("private reference"))
-        #expect(accepted["ok"] as? Bool == true)
+        #expect(accepted["ok"] as? Bool == true, "the copy answered \(accepted)")
+        #expect(copied == ["private reference"], "the refused copy wrote, or the accepted one did not")
+        #expect(NSPasteboard.general.changeCount == general, "the test's copy wrote the person's clipboard")
     }
 
     /// The button's on state follows the panel: open makes the panel, closed removes it.
@@ -309,7 +317,8 @@ struct AgentPaneNativeSessionInfoTests {
         panel.layoutSubtreeIfNeeded()
         let backing = try #require(panel.backing)
         #expect(backing.frame == panel.bounds)
-        let content = try #require(panel.subviews.firstIndex { $0 is AgentPaneSessionInfoContent })
+        // The content sits in the panel's stage (its pinch magnification), above the glass.
+        let content = try #require(panel.subviews.firstIndex { $0.subviews.contains { $0 is AgentPaneSessionInfoContent } })
         #expect(panel.subviews.firstIndex { $0 === backing }! < content)
         backing.materialOverride = .opaque
         #expect(backing.material == .opaque)
@@ -627,12 +636,37 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(sent == ["fold:context:0"])
     }
 
+    /// A line with a control at its right end keeps the grip at its left, in the gutter before its icon:
+    /// the grip's box stays inside the line, clear of the icon, and far from the control.
+    @Test func aGripBesideATrailingControlStaysInTheLeftGutter() throws {
+        let ink = SessionInfoInk(colors: AgentPaneSessionInfoColors(), act: { _, _ in }, rect: { _ in nil })
+        let line = SessionInfoLineView(line: SessionInfoLine(
+            id: "remote", kind: .row, symbol: "cursorarrow.rays", title: "Remote Control", toggle: true,
+            reorderable: true, action: "remote"), ink: ink)
+        let enter = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: .zero, modifierFlags: [], timestamp: 0,
+                                                    windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+        for width in [200, 320] as [CGFloat] {
+            line.frame = CGRect(x: 0, y: 0, width: width, height: 28)
+            line.mouseEntered(with: enter)
+            line.layoutSubtreeIfNeeded()
+            let toggle = try #require(line.subviews.first { $0 is NSSwitch })
+            let grip = try #require(line.subviews.compactMap { $0 as? SessionInfoGripView }.first)
+            let icon = try #require(line.subviews.compactMap { $0 as? NSImageView }.first { !$0.isHidden })
+            let hit = try #require(line.gripHitRect)
+            #expect(hit.minX >= line.bounds.minX - 0.5, "the grip's box runs past the line: \(hit) in \(line.bounds)")
+            #expect(hit.maxX <= icon.frame.minX + 0.5, "the grip's box covers the icon: \(hit), icon \(icon.frame)")
+            #expect(hit.maxX < toggle.frame.minX)
+            #expect(hit.minX <= grip.frame.minX + 0.5 && grip.frame.maxX <= hit.maxX + 0.5)
+        }
+    }
+
     /// Section headers follow the web panel's SessionInfoSection: a medium-weight title (never the bold
     /// chrome header) on the rows' title column, a chevron after the title that shows on hover, and the
-    /// six-dot grip at the header's right edge that shows only on hover. At rest neither glyph draws, no
+    /// six-dot grip in the gutter left of the header's icon or title that shows only on hover (Lawrence,
+    /// 2026-11-15: "move the grabber dots to left, we have space on the left of the text"). At rest neither glyph draws, no
     /// `line.3.horizontal` grip sits over the icons, and hovering moves no title (Leo, 2026-11-02: "WE
     /// FUCKING HAD THESE" and, on the always-on grips, "THESE ARE JUST SO INSANELY STUPID LOOKING").
-    @Test func sectionHeadersShowTheirChevronAndRightEdgeGripOnlyOnHover() throws {
+    @Test func sectionHeadersShowTheirChevronAndLeftGutterGripOnlyOnHover() throws {
         let ink = SessionInfoInk(colors: AgentPaneSessionInfoColors(), act: { _, _ in }, rect: { _ in nil })
         func view(_ line: SessionInfoLine) -> SessionInfoLineView {
             let view = SessionInfoLineView(line: line, ink: ink)
@@ -647,8 +681,7 @@ struct AgentPaneNativeSessionInfoTests {
             view.subviews.compactMap { $0 as? SessionInfoGripView }.first
         }
         func images(_ view: SessionInfoLineView) -> [NSImageView] { view.subviews.compactMap { $0 as? NSImageView } }
-        /// Whether the line's trailing meta (a head's count and meter) is hidden; true for a line with none.
-        func countHidden(_ view: SessionInfoLineView) -> Bool { view.trailingMeta.allSatisfy { $0.isHidden } }
+        /// Whether the line's trailing meta (a head's count and meter) all shows.
         func countShown(_ view: SessionInfoLineView) -> Bool { view.trailingMeta.allSatisfy { !$0.isHidden } }
 
         let context = view(SessionInfoLine(id: "context", kind: .header, symbol: "gauge", title: "Context", trailing: "94K / 200K",
@@ -691,44 +724,27 @@ struct AgentPaneNativeSessionInfoTests {
 
         let enter = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: .zero, modifierFlags: [], timestamp: 0,
                                                     windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
-        // At rest the meters draw in the trailing column, left of the grip's own slot, at any width.
+        // The meters and counts keep the trailing column to themselves: the grip takes no slot there.
         #expect(context.trailingMeta.count == 2 && progress.trailingMeta.count == 2)
-        #expect(context.gripHasOwnSlot && progress.gripHasOwnSlot && !changes.gripHasOwnSlot)
-        for width in [200, 260, 320, 560] as [CGFloat] {
-            for line in [context, progress] {
-                line.frame.size.width = width
-                line.layoutSubtreeIfNeeded()
-                let hit = try #require(line.gripHitRect)
-                for meta in line.trailingMeta { #expect(meta.frame.maxX <= hit.minX + 0.5) }
-            }
-        }
-        for line in [context, progress] {
-            line.frame.size.width = 320
-            line.layoutSubtreeIfNeeded()
-        }
         for line in [context, changes, plain, machine, progress] {
             let before = try title(line)
             line.mouseEntered(with: enter)
             line.layoutSubtreeIfNeeded()
             #expect(line.showsGrip)
             #expect(try title(line) == before)
-            // The grip takes the trailing value's place: its dots end on the trailing column's right edge,
-            // the rows' (Leo, 2026-11-07: "the grip and the lef tside aren't flush"), the count hides under
-            // it, and nothing else reaches its box.
+            // The grip sits in the gutter left of the line's first mark (its icon, else its title), and
+            // the count stays on its edge: nothing in the trailing column moves or hides.
             let handle = try #require(grip(line))
             let hit = try #require(line.gripHitRect)
             #expect(!handle.isHidden)
             #expect(handle.frame.size == SessionInfoGripView.size)
-            #expect(abs(handle.frame.maxX - (line.bounds.maxX - SessionInfoMetrics.trail)) < 0.5)
-            #expect(hit.width == LayoutGrid.iconBox && abs(hit.midX - handle.frame.midX) < 0.5)
-            if line.gripHasOwnSlot {
-                // A head with a meter keeps its grip in a slot of its own: its count and meter stay.
-                #expect(countShown(line))
-            } else {
-                #expect(countHidden(line))
-            }
+            let firstMark = images(line).filter { !$0.isHidden && $0.frame.maxX <= before.minX }.map(\.frame.minX).min() ?? before.minX
+            #expect(handle.frame.maxX <= firstMark + 0.5)
+            #expect(hit.minX >= -0.5 && hit.maxX <= firstMark + 0.5)
+            #expect(handle.frame.minX >= hit.minX - 0.5 && handle.frame.maxX <= hit.maxX + 0.5)
+            #expect(countShown(line))
             for other in line.subviews where other !== handle && !other.isHidden {
-                #expect(other.frame.maxX <= hit.minX)
+                #expect(other.frame.minX >= hit.maxX - 0.5)
             }
             // Hovering the head lights neither the head nor the grip; only the grip's own box lights.
             #expect(line.layer?.backgroundColor == nil || line.line.kind == .row)
@@ -796,6 +812,27 @@ struct AgentPaneNativeSessionInfoTests {
         changes.mouseUp(with: try mouse(.leftMouseUp, drop, in: changes))
         #expect(sent == ["move:changes:context"])
         #expect(!changes.isDragging)
+
+        // A drag that starts on the header's title, away from the grip, reorders too (Lucas,
+        // 2026-11-10: "you don't necessarily need to hover on the 6 dot selector").
+        sent.removeAll()
+        // On the title's own text: the empty icon column left of it holds the grip.
+        let titleLabel = try #require(changes.subviews.compactMap { $0 as? ChromeLabel }.first { $0.stringValue == "Changes" })
+        let title = NSPoint(x: titleLabel.frame.minX + 6, y: start.y)
+        #expect(!hit.contains(title))
+        changes.mouseDown(with: try mouse(.leftMouseDown, title, in: changes))
+        changes.mouseDragged(with: try mouse(.leftMouseDragged, NSPoint(x: title.x, y: title.y + (drop.y - title.y) / 2), in: changes))
+        #expect(changes.isDragging)
+        changes.mouseUp(with: try mouse(.leftMouseUp, NSPoint(x: title.x, y: drop.y), in: changes))
+        #expect(sent == ["move:changes:context"])
+
+        // A click on the title, under the drag threshold, still folds the section and moves nothing.
+        sent.removeAll()
+        changes.mouseDown(with: try mouse(.leftMouseDown, title, in: changes))
+        changes.mouseDragged(with: try mouse(.leftMouseDragged, NSPoint(x: title.x + 2, y: title.y + 1), in: changes))
+        #expect(!changes.isDragging)
+        changes.mouseUp(with: try mouse(.leftMouseUp, title, in: changes))
+        #expect(sent == ["fold:changes:1"])
     }
 
     /// A Cloud machine row whose lifetime subtitle wraps puts its title, and its grip, above the row's
@@ -943,6 +980,108 @@ struct AgentPaneNativeSessionInfoTests {
         ]])
         #expect(tooMany == .unsupported("pane.sessionInfo.overlays"))
         #expect(AgentPageOps.methods.values.contains("pane.sessionInfo.overlays"))
+    }
+
+    /// Leo, 2026-11-12: "evidently you zoom in and it doesn't really, you know, it doesn't follow". The
+    /// page reports its trackpad pinch; the request carries it and refuses bad ones.
+    @Test func pinchReportsDecodeAndBadOnesAreRefused() {
+        let request = AgentPaneRequest(body: ["id": "p", "method": "pane.sessionInfo.pinch", "params": [
+            "scale": 2, "left": 300, "top": 40.5,
+        ]])
+        #expect(request == .sessionInfoPinch(AgentPaneSessionInfoPinch(scale: 2, left: 300, top: 40.5)))
+        #expect(String(describing: request) == "sessionInfoPinch")
+        let ended = AgentPaneRequest(body: ["id": "p", "method": "pane.sessionInfo.pinch", "params": [
+            "scale": 1, "left": 0, "top": 0,
+        ]])
+        #expect(ended == .sessionInfoPinch(.none))
+        for bad: [String: Any] in [["scale": 0, "left": 0, "top": 0], ["scale": 2, "left": 0],
+                                   ["scale": 50, "left": 0, "top": 0], ["scale": "2", "left": 0, "top": 0]] {
+            #expect(AgentPaneRequest(body: ["id": "p", "method": "pane.sessionInfo.pinch", "params": bad])
+                == .unsupported("pane.sessionInfo.pinch"))
+        }
+        #expect(AgentPageOps.methods.values.contains("pane.sessionInfo.pinch"))
+    }
+
+    /// Under a pinch the panel shows where the page's content it floats over shows, scaled as it is,
+    /// in either flip and at the page's zoom; with none it is where the page's numbers put it.
+    @Test func pinchMovesAndScalesThePanelWithThePage() {
+        let page = CGRect(x: 0, y: 0, width: 1200, height: 900)
+        let laid = CGRect(x: 872, y: 36, width: 320, height: 400)
+        #expect(AgentPaneView.sessionInfoPinchedFrame(laid, page: page, zoom: 1, pinch: .none, flipped: true) == laid)
+        let pinch = AgentPaneSessionInfoPinch(scale: 2, left: 600, top: 20)
+        // CSS (872, 36) shows at ((872 - 600) * 2, (36 - 20) * 2) = (544, 32), twice as large.
+        #expect(AgentPaneView.sessionInfoPinchedFrame(laid, page: page, zoom: 1, pinch: pinch, flipped: true)
+            == CGRect(x: 544, y: 32, width: 640, height: 800))
+        // Unflipped: the same rect from the page's bottom.
+        let unflipped = CGRect(x: 872, y: 900 - 36 - 400, width: 320, height: 400)
+        #expect(AgentPaneView.sessionInfoPinchedFrame(unflipped, page: page, zoom: 1, pinch: pinch, flipped: false)
+            == CGRect(x: 544, y: 900 - 32 - 800, width: 640, height: 800))
+        // At a page zoom of 1.5 the pinch offsets are CSS pixels, so they scale with it.
+        let zoomed = CGRect(x: 900, y: 54, width: 300, height: 300)
+        #expect(AgentPaneView.sessionInfoPinchedFrame(zoomed, page: page, zoom: 1.5, pinch: pinch, flipped: true)
+            == CGRect(x: (600 - 600) * 2 * 1.5, y: (36 - 20) * 2 * 1.5, width: 600, height: 600))
+    }
+
+    /// Zoomed in, a panel past the page's edge shows only its part on the page, starting where that
+    /// part lies in the whole panel; a panel wholly off the page shows nothing (no null frame).
+    @Test func pinchedPanelPastThePagesEdgeShowsOnlyItsPartOnThePage() throws {
+        let page = CGRect(x: 0, y: 0, width: 1200, height: 900)
+        let full = CGRect(x: 1000, y: 700, width: 640, height: 800)
+        let flipped = try #require(AgentPaneView.sessionInfoShownPart(full, page: page, flipped: true))
+        #expect(flipped.frame == CGRect(x: 1000, y: 700, width: 200, height: 200))
+        // Flipped pane: the bottom 600 points are cut off, so the shown part starts 600 up the panel.
+        #expect(flipped.offset == CGPoint(x: 0, y: 600))
+        let unflipped = try #require(AgentPaneView.sessionInfoShownPart(full, page: page, flipped: false))
+        #expect(unflipped.offset == CGPoint(x: 0, y: 0))
+        let left = try #require(AgentPaneView.sessionInfoShownPart(CGRect(x: -100, y: 0, width: 300, height: 300),
+                                                                   page: page, flipped: true))
+        #expect(left.frame == CGRect(x: 0, y: 0, width: 200, height: 300))
+        #expect(left.offset == CGPoint(x: 100, y: 0))
+        #expect(AgentPaneView.sessionInfoShownPart(CGRect(x: 1300, y: 0, width: 300, height: 300),
+                                                   page: page, flipped: true) == nil)
+    }
+
+    /// The stage shows the content that lies in the panel's shown part.
+    @Test func clippedPanelShowsTheContentThatLiesThere() throws {
+        func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
+        let store = AgentPaneSessionInfoStore()
+        let panel = AgentPaneSessionInfoPanel(store: store)
+        store.update(try Self.model(Self.info()))
+        panel.frame = CGRect(x: 0, y: 0, width: 200, height: 300)
+        panel.magnification = 2
+        panel.contentOffset = CGPoint(x: 100, y: 0)
+        panel.wholeSize = CGSize(width: 300, height: 300)
+        panel.layoutSubtreeIfNeeded()
+        let content = try #require(all(panel).compactMap { $0 as? AgentPaneSessionInfoContent }.first)
+        #expect(content.frame.size == CGSize(width: 150, height: 150))
+        // The panel's left edge shows the content 50 points (100 on screen) in.
+        #expect(panel.convert(CGPoint(x: 50, y: 0), from: content) == CGPoint(x: 0, y: 0))
+    }
+
+    /// A row's anchor on the zoomed screen goes back to the page's layout, where its menus are placed.
+    @Test func pinchedRowAnchorsGoBackToThePagesLayout() {
+        let pinch = AgentPaneSessionInfoPinch(scale: 2, left: 600, top: 20)
+        let shown = CGRect(x: 544, y: 32, width: 100, height: 40)
+        #expect(AgentPaneView.sessionInfoLayoutRect(shown, pinch: pinch) == CGRect(x: 872, y: 36, width: 50, height: 20))
+        #expect(AgentPaneView.sessionInfoLayoutRect(shown, pinch: .none) == shown)
+    }
+
+    /// The panel's content keeps its unzoomed layout and shows magnified: its stage's bounds are
+    /// the panel's size over the pinch's scale, and a line in it lands where it shows.
+    @Test func pinchedPanelDrawsItsContentMagnified() throws {
+        func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
+        let store = AgentPaneSessionInfoStore()
+        let panel = AgentPaneSessionInfoPanel(store: store)
+        store.update(try Self.model(Self.info()))
+        panel.frame = CGRect(x: 0, y: 0, width: 640, height: 600)
+        panel.magnification = 2
+        panel.layoutSubtreeIfNeeded()
+        let content = try #require(all(panel).compactMap { $0 as? AgentPaneSessionInfoContent }.first)
+        #expect(content.frame.size == CGSize(width: 320, height: 300))
+        #expect(panel.convert(content.bounds, from: content).size == CGSize(width: 640, height: 600))
+        panel.magnification = 1
+        panel.layoutSubtreeIfNeeded()
+        #expect(content.frame.size == CGSize(width: 640, height: 600))
     }
 
     /// A popup's viewport rect lands in pane coordinates in either flip and at the page's zoom.

@@ -44,6 +44,7 @@ export function historyFixtureOps(state: HistoryPageVariant, changed: () => void
       return {
         entries: entries.filter((entry) => historyMatches(entry, params)).slice(0, params.limit ?? 200),
         revision: 1,
+        ...(state.pending ? { pending_kinds: ["agent"] } : {}),
       };
     },
     [HistoryOps.remove]: (params: { ids: string[] }) => {

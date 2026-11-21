@@ -6,5 +6,6 @@
   "author": "lane/agenttabs-machine-key",
   "owner": "p0-machines-r3",
   "receipt": "Review (codex gpt-6-astra high; follow-up fixes): SHIP at 8a9303e88f94f97443f796b19863c16d468d0e3b",
-  "expiry": "2026-12-06"
+  "expiry": "2026-12-06",
+  "applied_sha": "2bb3ce00e99e3c1bd9e33c5b71941ff38825db9f"
 }

@@ -136,7 +136,7 @@ import Testing
     /// its inactive grey frost: the card lit up a lighter grey for the whole fade (the close's first
     /// frame was further from both the open and the closed dialog than they are from each other).
     /// The card's glass keeps the key-window look. The card's glass is the sheet surface the dialog
-    /// drawing (CmuxNextPages `OverlayDialogView`) makes with the dialog's active-look scope.
+    /// drawing (``CmuxDialogView``) makes with the dialog's active-look scope.
     @Test func aDialogCardKeepsTheKeyWindowGlass() throws {
         func glass(in view: NSView) -> [GlassPanelView] {
             (view as? GlassPanelView).map { [$0] } ?? view.subviews.flatMap(glass(in:))

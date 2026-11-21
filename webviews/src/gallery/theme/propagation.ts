@@ -7,6 +7,7 @@
 // sure it actually propagates and that it propagates properly".
 import type { AgentSessionTheme } from "../../agent-session/shared/types";
 import { deriveAppTheme, type AppAccent } from "../../theme/appTheme";
+import type { TitleAreaToneName } from "../env";
 import type { GhosttyTheme } from "./ghostty";
 import { cardMaterial, tooltipSurface, worstContrast } from "./overlays";
 import { composited, BLACK, contrast, wallpaperTintOpacity, WHITE, withAlpha, type ThemeTokens } from "./tokens";
@@ -35,6 +36,9 @@ export type KnobState = {
   borders: "lines" | "none";
   reducedMotion: boolean;
   glass: "plain" | "lens" | "spectrum";
+  /** `appearance.titleAreaTone`: Subtle Tone shades the chrome and turns the selected row into a
+   * folder tab in the content's surface (--cmux-chrome-tone, --cmux-folder-fill, --cmux-sidebar-surface). */
+  titleAreaTone: TitleAreaToneName;
 };
 
 export const BASE_STATE: KnobState = {
@@ -44,6 +48,7 @@ export const BASE_STATE: KnobState = {
   borders: "lines",
   reducedMotion: false,
   glass: "plain",
+  titleAreaTone: "one-color",
 };
 
 export type Knob = {
@@ -71,6 +76,14 @@ export const KNOBS: readonly Knob[] = [
   { key: "appearance.background", label: "Background picture", to: { picture: true }, reaches: ["pages", "agentPane"] },
   { key: "appearance.borders", label: "Borders", to: { borders: "none" }, reaches: ["pages", "agentPane"] },
   { key: "glass.lensMode", label: "Glass lens", to: { glass: "lens" }, reaches: ["glass"] },
+  // Leo, 2026-11-12: "fixing up the whole, like, polish of the two-tone mode". The toggle applies live:
+  // every page repaints its chrome shade and folder tab from the pushed variables, with no reload.
+  {
+    key: "appearance.titleAreaTone",
+    label: "Title area: Subtle Tone",
+    to: { titleAreaTone: "subtle-tone" },
+    reaches: ["pages"],
+  },
   { key: "Reduce Motion", label: "Reduce Motion", to: { reducedMotion: true }, reaches: ["agentPane", "motion"] },
 ];
 
@@ -136,6 +149,7 @@ export function appliedTheme(state: KnobState, themes: readonly GhosttyTheme[]):
     borders: state.borders,
     reducedMotion: state.reducedMotion,
     glass: state.glass,
+    titleAreaTone: state.titleAreaTone,
   });
   const agent = agentPaneTheme(tokens, state.reducedMotion, state.picture, state.borders) as AgentSessionTheme;
   return { web, agent, tokens };

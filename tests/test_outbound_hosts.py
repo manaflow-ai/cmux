@@ -12,12 +12,13 @@ people"). Each host is a table row `| `host` | kind | what for |`, with kind one
   not-a-host   a string that only looks like a host name: a file name, a bundle id, a symbol name
 
 The scan reads NEXT's source (SCAN, minus test, mock and fixture files and Rust #[cfg(test)] modules, the same
-rules as tests/test_classic_cloud_routes.py) with comments blanked, and finds two forms:
+rules as tests/test_classic_cloud_routes.py) with comments blanked, and finds three forms:
 
   url    a URL's host: "https://api.example.dev/x", `wss://${x}` has none, "https://KEY@host/1" gives host
   bare   a string literal that is a lowercase host name and nothing else ("presence.cmux.dev", "ssh.github.com"),
-         ending in one of BARE_TLDS and not starting with one (a bundle id: "com.cmuxterm.app"); a host the code
-         builds from parts is not seen (docs/privacy.md says so)
+         ending in one of BARE_TLDS and not starting with one (a bundle id: "com.cmuxterm.app")
+  built  either form with a placeholder (`\\(x)`, `${x}`, `{x}`) in the host and two fixed labels after it:
+         "https://${site}.atlassian.net" gives `*.atlassian.net`; a host that is all placeholders is not seen
 
 Reserved names (RFC 2606 and 6761: .example, .test, .invalid, .localhost, example.com), local names (.local, .lan,
 .internal, .home.arpa) and IP addresses are never listed. The test fails when code names a host with no row (add
@@ -42,7 +43,9 @@ ROOT = Path(__file__).resolve().parents[1]
 DOC = ROOT / "docs" / "privacy.md"
 KINDS = ("connects", "opens", "identifier", "example", "not-a-host")
 SCAN = {
-    "include": ["Packages/macOS/CmuxNext/", "Packages/Shared/", "cmux-tui/", "webviews/src/", "cmux-next-ios/"],
+    # The customize templates are app code too: an installed widget runs in NEXT's app host and fetches through it.
+    "include": ["Packages/macOS/CmuxNext/", "Packages/Shared/", "cmux-tui/", "webviews/src/", "cmux-next-ios/",
+                "skills/cmux-customization/templates/"],
     # Servers and developer tools, not the app: relays and the iPhone push backend run on our side.
     "exclude": ["cmux-tui/relays/", "cmux-next-ios/backend/", "/tools/", "/src/bin/", "/benches/",
                 "/typed_corpus.rs", "/hot_bench.rs", "/smoke.ts", "Fixture.swift", "/Mock", "/prototype/"],
@@ -58,6 +61,16 @@ BARE_TLDS = ("com", "net", "org", "dev", "io", "ai", "app", "sh", "so", "gg", "c
              "jp", "fr", "ca", "cn", "ru", "br", "gov", "xyz", "ly", "fm", "eu", "nl", "se", "ch", "au", "nz", "kr",
              "tw", "hk", "sg")
 BARE = re.compile(rf"""(?<![\w\\])(["'`])((?:{LABEL}\.)+(?:{"|".join(BARE_TLDS)}))(?:\1|[/:])""")
+# A host built from parts: a Swift `\(x)`, JS `${x}` or Rust format `{x}` placeholder in a host whose last two
+# labels are fixed text ("https://${site}.atlassian.net", "https://preview-{n}.debussy.workers.dev"). Each
+# placeholder reads as `*`, and the doc lists the pattern (`*.atlassian.net`). A host whose only fixed part is its
+# TLD (`www.\(typed).com`) names no one: it is what a person typed.
+PLACEHOLDER = re.compile(r"\\\((?:[^()\n]|\((?:[^()\n]|\([^()\n]*\))*\))*\)|\$\{[^{}\n]*\}|\{[\w:?.]*\}")
+HOLE = "\x01"
+PART = rf"(?:[a-z0-9-]|{HOLE})"
+BUILT = rf"(?=[a-z0-9.-]*{HOLE})(?:{PART}+\.)+{LABEL}\.{LABEL}"
+URL_BUILT = re.compile(rf"(?<![\w.+-])(?:https?|wss?)://(?:[^\s/@\"'`<>()\\]+@)?({BUILT})(?![\w.{HOLE}-])", re.I)
+BARE_BUILT = re.compile(rf"""(["'`])((?=[a-z0-9.-]*{HOLE})(?:{PART}+\.)+{LABEL}\.(?:{"|".join(BARE_TLDS)}))(?:\1|[/:])""")
 RESERVED = re.compile(r"(^|\.)(example|test|invalid|localhost|local|lan|internal|home\.arpa)$"
                       r"|(^|\.)example\.(com|net|org)$|^\d+(\.\d+){3}$")
 ROW = re.compile(r"^\|\s*`([^`]+)`\s*\|\s*([\w-]+)\s*\|\s*(.*?)\s*\|\s*$")
@@ -69,16 +82,21 @@ def hosts_in(text: str, rel: str) -> dict[str, list[int]]:
     code = clean(text, Path(rel).suffix)
     out: dict[str, list[int]] = {}
 
-    def add(host: str, at: int) -> None:
+    def add(host: str, at: int, text: str = code) -> None:
         host = host.lower().rstrip(".")
         if not RESERVED.search(host):
-            out.setdefault(host, []).append(code.count("\n", 0, at) + 1)
+            out.setdefault(host, []).append(text.count("\n", 0, at) + 1)
 
-    for m in URL.finditer(code):
-        add(m.group(1), m.start())
+    built = PLACEHOLDER.sub(HOLE, code)  # a placeholder is on one line, so each match keeps its line
+    for m in URL.finditer(built):  # with placeholders out, "https://\\(token)@api.cmux.dev" gives its host
+        add(m.group(1), m.start(), built)
     for m in BARE.finditer(code):
         if m.group(2).split(".", 1)[0] not in BARE_TLDS:  # a reverse-DNS bundle id or log subsystem: com.cmuxterm.app
             add(m.group(2), m.start())
+    for pattern in (URL_BUILT, BARE_BUILT):
+        for m in pattern.finditer(built):
+            if HOLE in m.group(pattern.groups):
+                add(re.sub(f"{HOLE}+", "*", m.group(pattern.groups)), m.start(), built)
     return out
 
 
@@ -172,6 +190,23 @@ class Matcher(unittest.TestCase):
                          {"twitch.tv", "bbc.co.uk"})
         self.assertEqual(self.hosts('let u = "http://cmux-lawrences-mac-mini.tail137216.ts.net:31415"'),
                          {"cmux-lawrences-mac-mini.tail137216.ts.net"})
+
+    def test_hosts_built_from_parts_are_found(self):
+        self.assertEqual(self.hosts("site = `https://${site}.atlassian.net`;", "webviews/src/a.ts"), {"*.atlassian.net"})
+        self.assertEqual(self.hosts('format!("https://cmux-api-preview-{number}.debussy.workers.dev")',
+                                    "cmux-tui/x/src/a.rs"), {"cmux-api-preview-*.debussy.workers.dev"})
+        self.assertEqual(self.hosts('let h = "\\(team.slug(for: "x")).presence.cmux.dev"'), {"*.presence.cmux.dev"})
+        self.assertEqual(self.hosts('let u = "https://\\(token)@api.cmux.dev/v1"'), {"api.cmux.dev"})
+        # A JS regex literal with `//` in it is not a comment: the host after it on the line is still read.
+        self.assertEqual(self.hosts("if (!/^https:\\/\\//.test(s)) s = `https://${s}.atlassian.net`;",
+                                    "webviews/src/a.ts"), {"*.atlassian.net"})
+        for source in ('let u = "https://\\(host)/v1"',            # all parts: a host someone configured
+                       'resolver.url(for: "www.\\(typed).com")',   # only a TLD fixed: what a person typed
+                       'let f = "\\(name).app"',
+                       'format!("{run_id}.sh")',
+                       'let s = "\\(name).session.json"'):
+            with self.subTest(source=source):
+                self.assertEqual(self.hosts(source), set())
 
     def test_comments_reserved_names_and_non_hosts_are_skipped(self):
         for source in ('// see https://cmux.com/docs\nlet x = 1',

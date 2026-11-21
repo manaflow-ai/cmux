@@ -9,7 +9,7 @@ extension PaneController {
         let host = view.contentHost
         guard let window = host.window else { return nil }
         // The terminal this pane shows now, if any: its view fills the content host.
-        let shown = selectedTab.flatMap { services.cache.existingTerminal($0.id)?.session }
+        let shown = selectedTab.flatMap { guestTerminal?.key == $0.id ? guestTerminal?.entry.session : services.cache.existingTerminal($0.id)?.session }
             .flatMap { $0.view.superview === host ? $0.gridForNewTerminal : nil }
         let scale = window.backingScaleFactor
         let choice = NewTerminalGrid(shownTerminalGrid: shown, hostSize: host.bounds.size, scale: scale,
