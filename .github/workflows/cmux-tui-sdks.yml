@@ -588,15 +588,19 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # The reused fleet image (LINUX_RUNNER) ships no clang; install it there.
+      # The reused fleet image (LINUX_RUNNER) may ship no clang or cmake; install what is missing.
       - name: Select Clang C++20
         if: matrix.language == 'cpp'
         run: |
-          if ! command -v clang++ >/dev/null 2>&1; then
+          missing=()
+          command -v clang++ >/dev/null 2>&1 || missing+=(clang)
+          command -v cmake >/dev/null 2>&1 || missing+=(cmake)
+          if [ "${#missing[@]}" -gt 0 ]; then
             sudo apt-get update
-            sudo apt-get install -y clang
+            sudo apt-get install -y "${missing[@]}"
           fi
           clang++ --version
+          cmake --version
 
       - name: Set up Zig
         if: matrix.language == 'zig'
@@ -792,15 +796,19 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # The reused fleet image (LINUX_RUNNER) ships no clang; install it there.
+      # The reused fleet image (LINUX_RUNNER) may ship no clang or cmake; install what is missing.
       - name: Select Clang C++20
         if: matrix.language == 'cpp'
         run: |
-          if ! command -v clang++ >/dev/null 2>&1; then
+          missing=()
+          command -v clang++ >/dev/null 2>&1 || missing+=(clang)
+          command -v cmake >/dev/null 2>&1 || missing+=(cmake)
+          if [ "${#missing[@]}" -gt 0 ]; then
             sudo apt-get update
-            sudo apt-get install -y clang
+            sudo apt-get install -y "${missing[@]}"
           fi
           clang++ --version
+          cmake --version
 
       - name: Set up Zig
         if: matrix.language == 'zig'
