@@ -267,6 +267,8 @@ struct ScreenSharingViewerScreen: View {
         Group {
             if let screen = viewer.screen {
                 ScreenSessionView(session: screen, features: Self.features, close: close)
+            } else if let model = viewer.rdScreen {
+                MacScreenRdView(model: model, title: viewer.hostName, control: viewer.rdControl, close: close)
             } else {
                 card.background(theme.colors.bg.color.ignoresSafeArea())
             }
