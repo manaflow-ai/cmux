@@ -53,16 +53,18 @@ function CopyRow({ title, value, id }: { title: string; value: string; id: strin
 
 function ProviderSteps({ provider, info }: { provider: CloudCredentialsProvider; info: CloudCredentialsInfo }) {
   return (
-    <div className="flex flex-col gap-2 pb-2" data-credentials-steps={provider}>
+    // min-w-0 down to the <pre>: a flex or grid child is as wide as its longest line unless told
+    // otherwise, so without it a long policy line widens the card instead of scrolling in its block.
+    <div className="flex min-w-0 flex-col gap-2 pb-2" data-credentials-steps={provider}>
       <p className="m-0 text-detail text-muted">{t(`settingsPage.cloudCredentials.${provider}.help`)}</p>
       {setupSteps(provider, info).map((step) => (
-        <div key={step.where} data-credentials-step={step.where}>
+        <div key={step.where} className="min-w-0" data-credentials-step={step.where}>
           <div className="row-title">
             {step.where === "cloud"
               ? t("settingsPage.cloudCredentials.inYourCloud")
               : t("settingsPage.cloudCredentials.onTheMachine")}
           </div>
-          <pre className="m-0 mt-1 overflow-x-auto rounded-md border border-solid border-edge p-2 font-mono text-detail text-fg select-text">
+          <pre className="m-0 mt-1 max-w-full overflow-x-auto rounded-md border border-solid border-edge p-2 font-mono text-detail text-fg select-text">
             <code>{step.code}</code>
           </pre>
         </div>
@@ -87,9 +89,12 @@ export function CloudCredentialsBody({
         <CopyRow id="jwks" title={t("settingsPage.cloudCredentials.jwks")} value={info.jwks_url} />
         <CopyRow id="subject" title={t("settingsPage.cloudCredentials.subject")} value={info.subject_format} />
       </div>
-      <h4 className="group-title mt-4">{t("settingsPage.cloudCredentials.connect")}</h4>
+      {/* The space sits on a wrapper: .group-title's own margin outranks a utility on the heading. */}
+      <div className="pt-4">
+        <h4 className="group-title">{t("settingsPage.cloudCredentials.connect")}</h4>
+      </div>
       {layout === "tabs" ? (
-        <Tabs variant="segmented" defaultValue="aws" data-credentials-layout="tabs">
+        <Tabs variant="segmented" defaultValue="aws" className="min-w-0" data-credentials-layout="tabs">
           <TabsList>
             {CLOUD_CREDENTIALS_PROVIDERS.map((p) => (
               <TabsTrigger key={p} value={p} data-credentials-provider={p}>
@@ -106,7 +111,7 @@ export function CloudCredentialsBody({
       ) : (
         <div className="rows" data-credentials-layout="rows">
           {CLOUD_CREDENTIALS_PROVIDERS.map((p) => (
-            <div className="row" key={p} data-credentials-provider={p}>
+            <div className="row min-w-0" key={p} data-credentials-provider={p}>
               <Disclosure label={PROVIDER_NAME[p]()}>
                 <ProviderSteps provider={p} info={info} />
               </Disclosure>
@@ -136,16 +141,32 @@ export function CloudCredentialsView({
       <p className="row-help">{t("settingsPage.cloudCredentials.help")}</p>
       {state === null ? null : !state.available ? (
         <div className="row" data-credentials-unavailable="">
-          <span className="row-help">{t("settingsPage.cloudCredentials.unavailable")}</span>
+          <div className="row-main">
+            <span className="row-label">
+              <span className="row-help">{t("settingsPage.cloudCredentials.unavailable")}</span>
+            </span>
+          </div>
         </div>
       ) : state.info ? (
         <CloudCredentialsBody info={state.info} layout={layout} />
       ) : (
         <div className="row" data-credentials-error={state.error ?? ""}>
-          <span className="row-help">{t("settingsPage.cloudCredentials.error")}</span>
-          <Button className="button" disabled={busy} data-credentials-refresh="" onClick={onRefresh}>
-            {t("settingsPage.cloudCredentials.refresh")}
-          </Button>
+          <div className="row-main">
+            <span className="row-label">
+              <span className="row-help">{t("settingsPage.cloudCredentials.error")}</span>
+            </span>
+            <span className="row-control">
+              <Button
+                type="button"
+                className="button"
+                disabled={busy}
+                data-credentials-refresh=""
+                onClick={onRefresh}
+              >
+                {t("settingsPage.cloudCredentials.refresh")}
+              </Button>
+            </span>
+          </div>
         </div>
       )}
     </section>

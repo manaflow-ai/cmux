@@ -46,7 +46,10 @@ export default componentEntry<Props>({
   widths: { narrow: 420, normal: 720 },
   covers: ["pages/settings/components/CloudCredentialsCard.tsx#CloudCredentialsView"],
   load,
-  styles: () => import("../page.css"),
+  // The app loads the page's Tailwind beside its sheets (main.tsx); the card's code blocks, spacing and
+  // overflow are utilities, so without it the gallery shows them unstyled. Its rules sit in cascade
+  // layers, so the order against page.css does not matter.
+  styles: () => Promise.all([import("../page.css"), import("../tailwind.css")]),
   variants: {
     rows: { note: "Layout A: the issuer's URLs, then each cloud as a disclosure row.", props: { state: ready } },
     tabs: {
