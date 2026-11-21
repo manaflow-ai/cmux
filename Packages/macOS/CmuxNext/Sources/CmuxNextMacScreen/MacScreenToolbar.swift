@@ -35,6 +35,8 @@ final class MacScreenToolbarView: MacScreenThemedView {
     private var accessIsViewOnly: Bool?
     private var reportedHeight: CGFloat?
     private var isFullScreen: Bool?
+    /// The viewer look whose material the toolbar was painted in (nil: not yet).
+    private var paintedLook: MacScreenViewerLook?
 
     init(model: MacScreenPaneModel, actions: MacScreenChromeActions) {
         self.model = model
@@ -92,8 +94,12 @@ final class MacScreenToolbarView: MacScreenThemedView {
     }
 
     override func colorsChanged() {
-        layer?.backgroundColor = colors.chrome.cgColor
-        line.isHidden = !colors.borders
+        let style = model.viewerLook.style
+        paintedLook = model.viewerLook
+        layer?.backgroundColor = (style.toolbarFilled ? colors.chrome : NSColor.clear).cgColor
+        layer?.cornerRadius = style.toolbarCornerRadius
+        layer?.cornerCurve = .continuous
+        line.isHidden = !colors.borders || style.toolbarPlacement == .floating
         super.colorsChanged()
     }
 
@@ -114,6 +120,11 @@ final class MacScreenToolbarView: MacScreenThemedView {
 
     private func apply() {
         applyType()
+        // A look change repaints the material; the pane lays the toolbar out again.
+        if paintedLook != model.viewerLook {
+            colorsChanged()
+            superview?.needsLayout = true
+        }
         dot.fill = statusColor
         if name.stringValue != model.name { name.stringValue = model.name }
         let session = model.session

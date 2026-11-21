@@ -65,5 +65,5 @@ public nonisolated struct MacScreenTunables {
         default: .quiet, code: "MacScreenTunables.devicesLook")
 
     /// Every Mac Screen tunable, for Debug Settings.
-    public static var all: [TunableDescriptor] { [sharingLook.descriptor, devicesLook.descriptor] }
+    public static var all: [TunableDescriptor] { [sharingLook.descriptor, devicesLook.descriptor, viewerLook.descriptor] }
 }

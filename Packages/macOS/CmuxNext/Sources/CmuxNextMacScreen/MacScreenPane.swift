@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 public import CmuxScreenKit
 public import CmuxNextDevices
 import CmuxNextRemoteView
@@ -35,6 +36,8 @@ public final class MacScreenPaneModel {
     public internal(set) var systemShortcuts: MacScreenSystemShortcuts?
     /// The device hub tab's session: its request, approval and ticket; nil for an unsupported record.
     public let hub: MacScreenHubViewer?
+    /// How the viewer is drawn (Debug Settings `macScreen.viewerLook`); the pane, toolbar and card follow it at once.
+    var viewerLook = MacScreenTunables.viewerLook.value
 
     init(session: MacScreenSession?, name: String, platform: DevicePlatform? = nil, gate: Gate, hub: MacScreenHubViewer? = nil) {
         self.session = session
@@ -327,7 +330,26 @@ public final class MacScreenPaneView: NSView {
     private(set) lazy var cursor = input.cursorCoordinator(video: video)
     let chrome: MacScreenChromeHost
     private let model: MacScreenPaneModel
-    var toolbarHeight: CGFloat { chrome.toolbar.height(for: bounds.width) }
+    /// Under the picture when its look gives it a shadow.
+    private let pictureShadow = CALayer()
+    private var style: MacScreenViewerStyle { model.viewerLook.style }
+    /// The toolbar's own height at the pane's width (a floating toolbar uses its capsule's width).
+    var toolbarHeight: CGFloat { chrome.toolbar.height(for: toolbarFrame(height: false).width) }
+    /// The room the toolbar takes from the screen: all of it in a top bar, none when it floats over the picture.
+    var reservedToolbarHeight: CGFloat { style.toolbarPlacement == .topBar ? toolbarHeight : 0 }
+
+    /// Where the toolbar sits: the full-width bar on top, or a capsule centered over the picture.
+    func toolbarFrame(height measured: Bool = true) -> CGRect {
+        let style = style
+        switch style.toolbarPlacement {
+        case .topBar:
+            return CGRect(x: 0, y: 0, width: bounds.width, height: measured ? toolbarHeight : 0)
+        case .floating:
+            let width = max(0, min(bounds.width - style.toolbarInset * 2, chrome.toolbar.expandedWidth))
+            let height = measured ? chrome.toolbar.height(for: width) : 0
+            return CGRect(x: (bounds.width - width) / 2, y: style.toolbarInset, width: width, height: height)
+        }
+    }
 
     init(model: MacScreenPaneModel) {
         self.model = model
@@ -335,6 +357,13 @@ public final class MacScreenPaneView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
+        pictureShadow.backgroundColor = NSColor.black.cgColor
+        pictureShadow.shadowColor = ThemeTokens.unresolved.shadow.cgColor
+        pictureShadow.shadowOpacity = 0.4
+        pictureShadow.shadowRadius = 24
+        pictureShadow.shadowOffset = CGSize(width: 0, height: 8)
+        pictureShadow.isHidden = true
+        layer?.addSublayer(pictureShadow)
         video.install(presenter)
         video.scaling = .fit
         addSubview(video)
@@ -353,7 +382,8 @@ public final class MacScreenPaneView: NSView {
 
     /// The screen area: everything under the toolbar.
     var screenRect: CGRect {
-        CGRect(x: 0, y: toolbarHeight, width: bounds.width, height: max(0, bounds.height - toolbarHeight))
+        let reserved = reservedToolbarHeight
+        return CGRect(x: 0, y: reserved, width: bounds.width, height: max(0, bounds.height - reserved))
     }
 
     /// Where the streamed display sits (aspect fit), for the input surface.
@@ -364,8 +394,10 @@ public final class MacScreenPaneView: NSView {
 
     public override func layout() {
         super.layout()
-        chrome.toolbar.frame = CGRect(x: 0, y: 0, width: bounds.width, height: toolbarHeight)
+        let style = style
+        chrome.toolbar.frame = toolbarFrame()
         capture.frame = screenRect
+        layer?.backgroundColor = (style.backdrop == .chrome ? chrome.toolbar.colors.chrome : NSColor.black).cgColor
         // Auto streams at the pane's size; the next session (Connect, a quality change) reads it.
         let pixels = Int((screenRect.width * (window?.backingScaleFactor ?? 2)).rounded(.up))
         if pixels > 0, let session = model.session, session.paneWidthPixels != pixels { session.paneWidthPixels = pixels }
@@ -374,6 +406,11 @@ public final class MacScreenPaneView: NSView {
         } else {
             video.frame = .zero
         }
+        video.layer?.cornerRadius = style.pictureCornerRadius
+        video.layer?.cornerCurve = .continuous
+        pictureShadow.isHidden = !style.pictureShadow || video.frame.isEmpty
+        pictureShadow.cornerRadius = style.pictureCornerRadius
+        pictureShadow.frame = video.frame
         cursor.update()
         let showsCard = chrome.showsCard
         chrome.card.isHidden = !showsCard
@@ -467,6 +504,7 @@ public final class MacScreenPaneView: NSView {
             _ = model.gate
             _ = model.hasFrame
             _ = model.viewOnly
+            _ = model.viewerLook
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.needsLayout = true

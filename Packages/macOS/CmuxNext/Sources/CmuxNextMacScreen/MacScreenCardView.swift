@@ -17,6 +17,8 @@ final class MacScreenCardView: MacScreenThemedView {
         var failedDetail: String
         /// The type scale the card was built at (`MacScreenType.sizes`).
         var typeSizes = MacScreenType.sizes
+        /// The viewer look the card's surface is drawn in.
+        var look = MacScreenViewerLook.current
     }
 
     static let width: CGFloat = 340
@@ -26,7 +28,10 @@ final class MacScreenCardView: MacScreenThemedView {
 
     private let model: MacScreenPaneModel
     private let actions: MacScreenChromeActions
-    private let background = MacScreenFill(\.popup, shape: .rounded(Metrics.panelCornerRadius), bordered: true)
+    /// The card's surface: its fill and corners follow the viewer look (``MacScreenViewerStyle``).
+    private var background = MacScreenCardView.makeBackground(MacScreenViewerStyle.current)
+    private var backgroundConstraints: [NSLayoutConstraint] = []
+    private var backgroundLook = MacScreenViewerLook.current
     private let stack = MacScreenStack.make(.vertical, spacing: 12, alignment: .centerX,
                                             insets: NSEdgeInsets(top: 24, left: 24, bottom: 24, right: 24))
     private(set) var shown: Shown?
@@ -36,11 +41,28 @@ final class MacScreenCardView: MacScreenThemedView {
         self.actions = actions
         super.init(frame: .zero)
         setAccessibilityElement(false)
+        installBackground(model.viewerLook)
+        render()
+    }
+
+    private static func makeBackground(_ style: MacScreenViewerStyle) -> MacScreenFill {
+        let background = MacScreenFill(style.cardFill, shape: .rounded(style.cardCornerRadius ?? Metrics.panelCornerRadius),
+                                       bordered: style.cardBordered)
         background.setAccessibilityElement(true)
         background.setAccessibilityRole(.group)
         background.setAccessibilityIdentifier("macScreen.card")
         background.translatesAutoresizingMaskIntoConstraints = true
         background.autoresizingMask = [.width, .height]
+        return background
+    }
+
+    /// Puts a surface in `look` behind the stack (the first one, and again when the look changes).
+    private func installBackground(_ look: MacScreenViewerLook) {
+        NSLayoutConstraint.deactivate(backgroundConstraints)
+        background.removeFromSuperview()
+        background = Self.makeBackground(look.style)
+        backgroundLook = look
+        background.isHidden = shown?.card == nil
         addSubview(background)
         background.addSubview(stack)
         // The card's frame comes from the pane (`fittingSize`): the far edges give way while it is not laid out yet.
@@ -48,14 +70,15 @@ final class MacScreenCardView: MacScreenThemedView {
         let bottom = stack.bottomAnchor.constraint(equalTo: background.bottomAnchor)
         trailing.priority = .init(999)
         bottom.priority = .init(999)
-        NSLayoutConstraint.activate([
+        backgroundConstraints = [
             stack.leadingAnchor.constraint(equalTo: background.leadingAnchor),
             stack.topAnchor.constraint(equalTo: background.topAnchor),
             stack.widthAnchor.constraint(equalToConstant: Self.width),
             trailing,
             bottom,
-        ])
-        render()
+        ]
+        NSLayoutConstraint.activate(backgroundConstraints)
+        needsLayout = true
     }
 
     override var isFlipped: Bool { true }
@@ -73,16 +96,17 @@ final class MacScreenCardView: MacScreenThemedView {
 
     private func render() {
         let next = withObservationTracking {
-            Shown(card: model.card, name: model.name, failedDetail: Self.failedDetail(model.card, model))
+            Shown(card: model.card, name: model.name, failedDetail: Self.failedDetail(model.card, model), look: model.viewerLook)
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.render() }
         }
         guard next != shown else { return }
         shown = next
+        if next.look != backgroundLook { installBackground(next.look) }
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         background.isHidden = next.card == nil
         if let card = next.card { content(card) }
-        paint(stack)
+        paint(background)
         // The pane centers the card at its new size.
         superview?.needsLayout = true
     }
