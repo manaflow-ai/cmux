@@ -9,29 +9,51 @@
 # tip's when the worker can fetch it, as the runner job does; the measured commit's benches run either way.
 # Its one artifact, artifacts/perf-cron-linux/step.json, is {"report": ..., "result": ...}: perf-cron.py fetch-result
 # reads both (linux_step_files). The rows carry the class fleet-linux-c4d-32 (LINUX_FLEET_CLASS).
-# Exit 0 whenever run-linux-part wrote its result (a failed bench is in it); 1 when it did not.
+# Exit 0 whenever run-linux-part wrote its result (a failed bench is in it). A setup failure (bun, the webviews
+# packages, WebKit, Chrome, Rust) is the worker's, not the commit's: the artifact's result says yielded with the
+# setup's last lines, and the script exits 0, so the cron asks again or runs the part on its runner job (record_part).
+# 1 when run-linux-part wrote no result.
 set -uo pipefail
 part="${1:-}"
 [ -n "$part" ] || { echo "usage: perf-cron-linux.sh PART" >&2; exit 2; }
 root="$(git rev-parse --show-toplevel)"
-cd "$root" || exit 1
+cd "$root" || { echo "perf-cron-linux.sh: no checkout" >&2; exit 2; }
 cache="${CMUX_CI_CACHE_DIR:-$HOME/.cache/cmux-ci}"
 tools="$cache/tools"
 out="$root/artifacts/perf-cron-linux"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$out"
+setup_log="$work/setup.log"
+: > "$setup_log"
+
+# setup_yield STEP: the setup failed; the part yields (the cron's result names STEP and the setup's last lines).
+setup_yield() {
+  echo "perf-cron-linux.sh: setup failed: $1" >&2
+  python3 -I - "$1" "$setup_log" "$out/step.json" <<'PY'
+import json, sys
+step, log, dest = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    lines = open(log, errors="replace").read().splitlines()[-30:]
+except OSError:
+    lines = []
+json.dump({"report": None, "result": {"state": "yielded", "tail": [*lines, f"perf-cron-linux.sh: setup failed: {step}"]}},
+          open(dest, "w"))
+PY
+  exit 0
+}
 
 # The pinned bun, beside the cache as scripts/ci/ensure-web-bundles.sh keeps it.
-bun_pin="$(python3 -I scripts/webviews_bun_version.py webviews/package.json)" || exit 1
+bun_pin="$(python3 -I scripts/webviews_bun_version.py webviews/package.json 2>>"$setup_log")" || setup_yield "bun version"
 if [ "$(bun --version 2>/dev/null || true)" != "$bun_pin" ]; then
   if [ ! -x "$tools/bun-$bun_pin/bin/bun" ]; then
     mkdir -p "$tools"
-    curl -fsSL https://bun.sh/install | BUN_INSTALL="$tools/bun-$bun_pin" bash -s "bun-v$bun_pin" > /dev/null || exit 1
+    curl -fsSL https://bun.sh/install | BUN_INSTALL="$tools/bun-$bun_pin" bash -s "bun-v$bun_pin" >>"$setup_log" 2>&1 \
+      || setup_yield "bun $bun_pin"
   fi
   export PATH="$tools/bun-$bun_pin/bin:$PATH"
 fi
-(cd webviews && bash ../scripts/ci/bun-install.sh --frozen-lockfile) || exit 1
+(cd webviews && bash ../scripts/ci/bun-install.sh --frozen-lockfile) 2>&1 | tee -a "$setup_log" || setup_yield "bun install"
 
 case "$part" in
   web-ui*)
@@ -39,22 +61,24 @@ case "$part" in
     # (scripts/ci/run-webviews-tests.sh does the same on these workers).
     playwright_version="$(cd webviews && python3 -I -c 'import json; print(json.load(open("package.json"))["devDependencies"]["playwright"])' 2>/dev/null || echo unknown)"
     export PLAYWRIGHT_BROWSERS_PATH="$cache/playwright-$playwright_version"
-    (cd webviews && ./node_modules/.bin/playwright install webkit) || exit 1
-    chrome_out="$(cd webviews && "$root/scripts/ci/ensure-system-chrome.sh" --optional)"
+    (cd webviews && ./node_modules/.bin/playwright install webkit) 2>&1 | tee -a "$setup_log" || setup_yield "playwright webkit"
+    # Required, as on the runner job (its "Install Playwright" step).
+    chrome_out="$(cd webviews && "$root/scripts/ci/ensure-system-chrome.sh" 2>>"$setup_log")" || setup_yield "system Chrome"
     printf '%s\n' "$chrome_out"
     shell_line="$(printf '%s\n' "$chrome_out" | grep '^CMUX_CHROME_HEADLESS_SHELL=' | tail -1 || true)"
     [ -n "$shell_line" ] && export CMUX_CHROME_HEADLESS_SHELL="${shell_line#CMUX_CHROME_HEADLESS_SHELL=}"
     ;;
   diff-viewer)
-    command -v cargo >/dev/null || ./scripts/install-rust-ci.sh || exit 1
+    command -v cargo >/dev/null || ./scripts/install-rust-ci.sh >>"$setup_log" 2>&1 || setup_yield "rust"
     export PATH="$HOME/.cargo/bin:$PATH"
     ;;
 esac
 
 # The branch tip's perf cron script judges the measured commit's benches (the runner job's "Fetch the perf cron
-# script of the branch tip"); a worker that cannot fetch it uses the commit's own.
+# script of the branch tip"); a worker that cannot fetch it uses the commit's own. A full fetch: a shallow one would
+# make the worker's warm clone shallow.
 cron="$root/scripts/cmux-next/perf-cron.py"
-if timeout 120 git fetch --no-tags --depth=1 origin feat-cmux-next 2>/dev/null \
+if timeout 300 git fetch --no-tags origin feat-cmux-next 2>/dev/null \
     && git show FETCH_HEAD:scripts/cmux-next/perf-cron.py > "$work/perf-cron-tip.py" 2>/dev/null; then
   cp "$work/perf-cron-tip.py" scripts/cmux-next/perf-cron-tip.py && cron="$root/scripts/cmux-next/perf-cron-tip.py"
 else

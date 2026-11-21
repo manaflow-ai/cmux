@@ -3149,7 +3149,7 @@ def plan(o):
         state["current"].setdefault("measure_version", tip_version)
     if measurement_id(state.get("current")) != loaded_id:
         clear_parts(o.dir)  # a dropped or replaced measurement's part files must never be read as the new one's
-    linux_request = ""
+    linux_request, route = "", ""
     if d.get("linux_part") and state.get("current"):
         route = linux_route(state["current"], d["linux_part"], t, bool(getattr(o, "linux_controller", False)),
                             commit_has(d["sha"], LINUX_SCRIPT))
@@ -3158,6 +3158,15 @@ def plan(o):
             print(f"perf-cron: Linux part {d['linux_part']}: "
                   + ("asked of the build controller" if linux_request else "its request to the build controller waits for an answer"))
             d["linux_part"] = ""
+    cur = state.get("current")
+    if cur and route == "wait" and not d.get("part"):
+        # Only the controller's answer is awaited: the wait does not count against ABANDON_HOURS (review of
+        # cmux#48328: two unanswered windows of a part are about 4 h).
+        if not cur.get("yield_since"):
+            start_yield(cur, t)
+            cur["linux_wait_yield"] = True
+    elif cur and cur.pop("linux_wait_yield", None):
+        end_yield(cur, t)
     for requested in (d.get("part"), d.get("linux_part"), linux_request):
         if requested and state.get("current"):
             # What this file asks the part to measure with: its rows carry it (a later tick may run a newer file).
@@ -3693,8 +3702,23 @@ def record_part(cur, part, result, run_url, t=None):
     failure: the next part builds the app itself (split-spring.sh --app-cache builds on a cache miss)."""
     if t is not None and not is_linux_part(part):
         end_yield(cur, t)
-    if is_linux_part(part) and isinstance(cur.get("linux_requests"), dict):
-        cur["linux_requests"].pop(part, None)  # answered (any result): the next ask starts a new count
+    if is_linux_part(part) and t is not None and cur.pop("linux_wait_yield", None):
+        end_yield(cur, t)  # the wait for the controller's answer (plan) ends with the answer
+    asks = cur.get("linux_requests") if isinstance(cur.get("linux_requests"), dict) else {}
+    ask = asks.get(part) if is_linux_part(part) else None
+    if isinstance(ask, dict) and not ask.get("fell_back_at") and result["state"] == "yielded":
+        # The controller answered without running the part (not queued: no idle Linux worker; pre-empted; the step's
+        # queue timeout; a setup failure of perf-cron-linux.sh): one unanswered request now, no answer window
+        # (linux_route), and no yield of the part, so the runner job is the last try before yielded_out (review of
+        # cmux#48328: three such answers ended the part yielded_out and the runner never ran it).
+        ask["answered_at"] = iso(t or now_utc())
+        entry = dict(cur["parts"].get(part) or {"yields": 0})
+        entry.update({"state": "yielded", "step_id": result.get("step_id"), "run_url": run_url,
+                      "seconds": result.get("seconds")})
+        cur["parts"][part] = entry
+        return entry
+    if is_linux_part(part):
+        asks.pop(part, None)  # answered (a run, or the runner's yield): the next ask starts a new count
     if not is_linux_part(part) and (not cur.get("host") or result.get("worker") in (None, cur.get("host"))):
         cur.pop("host_asked_since", None)  # the host answered (any result): give_up_host's wait starts again
     entry = dict(cur["parts"].get(part) or {"yields": 0})
@@ -4062,8 +4086,9 @@ def next_now(state, fleet_done):
 # controller runs LINUX_SCRIPT on an idle Linux pool worker of one machine type, which calls run-linux-part unchanged
 # and returns its report and result as LINUX_STEP_ARTIFACT. The rows carry LINUX_FLEET_CLASS, never the VM's name
 # (each pool VM is new, so its rows would never have a reference). A request with no answer within
-# linux_answer_minutes is unanswered; after LINUX_REQUESTS_MAX of them the part runs on the runner job once, and
-# then the controller is asked again.
+# linux_answer_minutes is unanswered, and so is a yielded answer at once (the controller found no idle Linux worker,
+# the step was pre-empted or timed out in its queue, or its setup failed); after LINUX_REQUESTS_MAX of them the part
+# runs on the runner job once, and then the controller is asked again.
 LINUX_SCRIPT = "scripts/measure/perf-cron-linux.sh"
 LINUX_STEP_ARTIFACT = "artifacts/perf-cron-linux/step.json"
 LINUX_FLEET_CLASS = "fleet-linux-c4d-32"
@@ -4090,8 +4115,9 @@ def linux_route(cur, part, t, controller, has_script):
         asks[part] = {"asked_at": iso(t), "unanswered": 0}
         return "request"
     asked = parse_started(ask.get("asked_at"))
-    if asked and (t - asked).total_seconds() < linux_answer_minutes(part) * 60:
+    if asked and (t - asked).total_seconds() < linux_answer_minutes(part) * 60 and not ask.get("answered_at"):
         return "wait"
+    ask.pop("answered_at", None)  # a yielded answer (record_part): unanswered now
     if ask.get("fell_back_at"):
         # The runner had its window too: back to the controller, a new count.
         asks[part] = {"asked_at": iso(t), "unanswered": 0}
@@ -4115,6 +4141,10 @@ def linux_step_files(artifact, result):
     report and result, the result's worker the fleet class. An artifact without both is a failed part, no report."""
     inner = artifact.get("result") if isinstance(artifact, dict) else None
     report = artifact.get("report") if isinstance(artifact, dict) else None
+    if isinstance(inner, dict) and inner.get("state") == "yielded" and report is None:
+        # perf-cron-linux.sh's setup failed: a yield (record_part counts it as an unanswered request), no rows.
+        tail = [str(x) for x in inner.get("tail") or []][-40:]
+        return None, {**result, "state": "yielded", "worker": LINUX_FLEET_CLASS, "tail": [*result.get("tail", []), *tail]}
     if not isinstance(inner, dict) or not isinstance(report, dict):
         return None, {**result, "state": "failed", "tail": [*result.get("tail", []), "the Linux step's artifact has no report and result"]}
     worker = inner.get("worker") if isinstance(inner.get("worker"), str) and HOST_RE.match(inner["worker"]) else LINUX_FLEET_CLASS
