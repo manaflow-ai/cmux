@@ -35,3 +35,6 @@ public struct AccessTokenExpiry: Equatable, Sendable {
         return exp.map { Date(timeIntervalSince1970: $0) }
     }
 }
+
+// Deliberately broken: cmux-ci compile-check red probe (never merge).
+let cmuxCiCompileCheckRedProbe: Int = "not an int"
