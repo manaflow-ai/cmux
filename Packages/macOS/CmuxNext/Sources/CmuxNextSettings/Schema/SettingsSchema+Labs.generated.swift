@@ -26,7 +26,7 @@ extension CmuxConfigSnapshot {
     /// `labs.hostsSidebar`: A Hosts section in the sidebar. It projects the Machines page catalog, including Add Host and per-machine terminal actions. Off by default until the sidebar surface is ready.
     public nonisolated static let hostsSidebarPath = ["labs", "hostsSidebar"]
     public nonisolated static let hostsSidebarDefault = false
-    /// `labs.agentCustomization`: Opt-in Claude Code and Codex customization (cmux-agent-customize, `cmux agent-config`): Settings > MCP Servers shows and edits the MCP servers the person gave Claude Code (~/.claude.json, .mcp.json) and Codex (~/.codex/config.toml, .codex/config.toml, plugins) in those agents own files. Off by default; off shows only cmux own servers, as before. Leo 2026-11-19: "when I say Claude Code, when I say Codex [...] I need you guys to be, like, doing the thing."
+    /// `labs.agentCustomization`: Opt-in Claude Code and Codex customization (cmux-agent-customize, `cmux agent-config`), each agent's own setup read and changed in the agent's own files: Settings > MCP Servers shows and edits the MCP servers the person gave Claude Code (~/.claude.json, .mcp.json) and Codex (~/.codex/config.toml, .codex/config.toml, plugins); Settings > Agents > Claude Code & Codex lists, edits and turns on or off their skills and slash commands. Off by default; off hides the card and shows only cmux own servers, as before. Leo 2026-11-19: "when I say Claude Code, when I say Codex [...] I need you guys to be, like, doing the thing."
     public nonisolated static let agentCustomizationPath = ["labs", "agentCustomization"]
     public nonisolated static let agentCustomizationDefault = false
 }
@@ -122,10 +122,10 @@ nonisolated enum LabsSettingsSchema {
                 section: .advanced,
                 group: group,
                 title: SettingsText.keyed("settings.labs.agentCustomization", "Claude Code and Codex Customization"),
-                help: SettingsText.keyed("settings.labs.agentCustomization.help", "Show and edit the MCP servers Claude Code and Codex use, in their own config files."),
+                help: SettingsText.keyed("settings.labs.agentCustomization.help", "Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.agentCustomizationDefault),
-                keywords: ["claude", "codex", "mcp", "servers", "customize", "agent", "config", "labs"]
+                keywords: ["labs", "claude", "codex", "mcp", "servers", "skills", "commands", "slash", "customize", "agent", "agents", "config"]
             ),
         ]
     }

@@ -100,7 +100,7 @@ extension SettingsSchema {
         "labs.liveCode": .userOnly,
         // Whether the Hosts section is visible in the sidebar: the person decides when this preview surface appears.
         "labs.hostsSidebar": .userOnly,
-        // On, Settings edits the MCP servers in Claude Code's and Codex's own config files: only the person turns that on.
+        // On, Settings shows and edits Claude Code's and Codex's own settings, MCP servers, skills, commands and hooks in their own config files: only the person turns that on.
         "labs.agentCustomization": .userOnly,
         // Whether cmux's own pages open developer tools, which read and change their live content: the person's call.
         "developerTools.appPages": .userOnly,

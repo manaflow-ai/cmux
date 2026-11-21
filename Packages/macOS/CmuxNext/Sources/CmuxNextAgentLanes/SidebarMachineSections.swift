@@ -37,8 +37,10 @@ public final class SidebarMachineSections {
 
     /// Keeps the process-wide turn feed's callback in the domain owner; the App only supplies its windows.
     public static func bindPeerState(_ turns: AgentTurnStateFeed,
-                                     sections: @escaping @MainActor () -> [SidebarMachineSections]) {
+                                     sections: @escaping @MainActor () -> [SidebarMachineSections],
+                                     also: @escaping @MainActor (_ peer: String?, _ state: String?) -> Void = { _, _ in }) {
         turns.peerStateChanged = { peer, state in
+            also(peer, state)
             sections().forEach { $0.peerStateChanged(peer: peer, state: state) }
         }
     }

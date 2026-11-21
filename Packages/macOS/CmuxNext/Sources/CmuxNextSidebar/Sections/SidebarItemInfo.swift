@@ -70,6 +70,9 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     /// What VoiceOver reads for the row; nil reads `title`. For a row whose title only makes sense
     /// under the item before it (a remote machine's room row names its machine here).
     public var accessibilityTitle: String?
+    /// The item's agent chat's task progress (a Chief subagent's `taskList`): a row look draws its quiet "3/7" before
+    /// the trailing marks, as a chat row does (`WorkspaceRowContent.trailingStatus`); nil draws nothing.
+    public var taskProgress: SidebarTaskProgress?
 
     public init(title: String, symbol: String, icon: IconName? = nil, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false,
                 isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, tooltip: String? = nil, brand: String? = nil,
@@ -156,7 +159,7 @@ extension SidebarBuiltIn {
     /// SF Symbol of the built-in.
     public var symbol: String {
         switch self {
-        case .home: "house"
+        case .home: "sparkles" // the Home item is the Chief (2026-11-20)
         case .settings: "gearshape"
         case .account: "person.crop.circle"
         case .notifications: "bell"
@@ -176,7 +179,7 @@ extension SidebarBuiltIn {
     /// The built-in's cmux icon.
     public var icon: IconName {
         switch self {
-        case .home: .home
+        case .home: .agentChief
         case .settings: .settings
         case .account: .account
         case .notifications: .notification
@@ -227,6 +230,15 @@ extension SidebarBuiltIn {
     }
 
     public var defaultInfo: SidebarItemInfo { SidebarItemInfo(title: title, symbol: symbol, icon: icon, caption: caption) }
+
+    /// ``defaultInfo``, hidden for the App Store while it is hidden until it is ready.
+    /// - Parameter showsStore: Whether the App Store shows (`CmuxConfigSnapshot.showsAppStore`, Labs on).
+    /// - Returns: The built-in's presentation; the App Store's is hidden when `showsStore` is false.
+    public func defaultInfo(showsStore: Bool) -> SidebarItemInfo {
+        var info = defaultInfo
+        if self == .appStore, !showsStore { info.isHidden = true }
+        return info
+    }
 }
 
 extension SidebarItemInfo {

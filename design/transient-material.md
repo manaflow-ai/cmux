@@ -38,7 +38,7 @@ source and rejects drift in each native token, or a missing native token file.
 | Native regular-glass tint multiplier | 1.25 |
 | Dark rim top/bottom | 0.30 / 0.06 |
 | Light rim top/bottom | 0.85 / 0.10 |
-| Web simulated menu tint / frost | 78%; 32 px blur, saturation 1.6 |
+| Web simulated menu tint / frost | 80% light, 72% dark; 32 px blur, saturation 1.6 ([glass-system.md](glass-system.md)) |
 | Native-host web veil | 40%; no second backdrop blur |
 | Native neutral seed | 0.11 dark / 0.99 light |
 | Mac theme | Current scoped theme tint, never accent-as-material |
