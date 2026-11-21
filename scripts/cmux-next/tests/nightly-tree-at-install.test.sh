@@ -434,8 +434,8 @@ check '[[ $status == 0 ]] && grep -qx "commit=$own" "$TMP/bundle-out" && grep -q
 
 # A fallback stops only the pending client prefetch; other background helpers (webview-checks) live on.
 state="$TMP/rt/nightly-helper-builds"; rm -rf "$state"
-python3 "$ROOT/scripts/ci/background_build.py" start --state "$state" cmux-tui-client -- sleep 300 >/dev/null
-python3 "$ROOT/scripts/ci/background_build.py" start --state "$state" webview-checks -- sleep 300 >/dev/null
+python3 "$ROOT/scripts/ci/background_build.py" start --state "$state" cmux-tui-client -- python3 -c "import time; time.sleep(300)" >/dev/null
+python3 "$ROOT/scripts/ci/background_build.py" start --state "$state" webview-checks -- python3 -c "import time; time.sleep(300)" >/dev/null
 cp "$ROOT/scripts/ci/background_build.py" "$B/scripts/ci/"
 bundle
 other=$(cat "$state/webview-checks.pid")
