@@ -46,7 +46,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import struct
+import subprocess
 import sys
 import tempfile
 import time
@@ -338,6 +340,7 @@ class Driver:
         self.deadline = deadline
         self.scale = None
         self.dead = False
+        self.workspace = None
         self.log: list[str] = []
 
     def rpc(self, method, params=None, timeout=30):
@@ -363,15 +366,28 @@ class Driver:
             time.sleep(step)  # bench: polling a live app, bounded by `until`
         return None
 
+    def cli(self, *args) -> str:
+        """The bundled CLI against this app's socket: stdout and stderr."""
+        app = self.app.app
+        cli = os.path.join(app, "Contents/Resources/bin/cmux")
+        env = {"HOME": os.environ.get("HOME", "/tmp"), "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+               "CMUX_SOCKET_PATH": self.app.socket, "CMUX_QUIET": "1", "CMUX_TAG": self.app.tag,
+               "CMUX_BUNDLED_CLI_PATH": cli}
+        from bench_launch import bundle_id  # noqa: E402  (macOS only)
+        if bundle_id(app):
+            env["CMUX_BUNDLE_ID"] = bundle_id(app)
+        try:
+            done = subprocess.run([cli, *args], capture_output=True, text=True, env=env,
+                                  timeout=max(1.0, min(30.0, self.left())))
+            return done.stdout + done.stderr
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return f"error: {error}"
+
     def action(self, name, args=None, target=None, timeout=60):
-        params = {"action": name, "args": args or {}, "focus": True}
-        if target:
-            # The trace's pane id as a target; an action that takes no pane target (or another id) runs on the
-            # focused pane, which the caller clicked first.
-            reply = self.rpc("action.run", {**params, "target": target}, timeout=timeout)
-            if "error" not in reply or reply.get("unreachable"):
-                return reply  # a timed-out action may have run: never send it twice
-        return self.rpc("action.run", params, timeout=timeout)
+        # The trace's pane ids are layout ids, not the `pane:` targets actions resolve (a target can name a pane of
+        # another workspace): the caller clicks the pane first, and the action runs on the focused pane.
+        del target
+        return self.rpc("action.run", {"action": name, "args": args or {}, "focus": True}, timeout=timeout)
 
     def rest(self) -> dict:
         """One trace sample of the window at rest."""
@@ -404,9 +420,23 @@ class Driver:
 
     def build(self, count: int, scratch: str) -> dict:
         """A fresh workspace split into `count` panes of mixed kinds; what it reached."""
-        self.action("newWorkspace")
-        if not self.wait(lambda: len(self.panes()) == 1, 20):
-            return {"error": f"no single-pane workspace ({len(self.panes())} panes shown)"}
+        # The CLI's `workspace create` (tab-switch-matrix.py's path): one terminal pane. `newWorkspace` is a person's
+        # New Space, which may open a chat beside it. Whatever it starts with, the splits below grow it to `count`.
+        made = self.cli("workspace", "create", "--name", f"pane-drag-{count}")
+        found = re.search(r"value\.workspace_id\s+(\S+)", made)
+        if found:
+            self.workspace = found.group(1)
+            self.cli("workspace", self.workspace, "focus")
+        else:
+            self.log.append(f"workspace create: {made[-300:]}")
+            self.workspace = None
+            self.action("newWorkspace")
+        time.sleep(1.0)  # bench: the workspace shows
+        start = self.wait(lambda: len(self.panes()), 20)
+        if not start:
+            return {"error": "no pane shown in a new workspace"}
+        if start > count:
+            return {"error": f"a new workspace shows {start} panes, more than {count}"}
         time.sleep(0.8)  # bench: the shell prompt
         refused = 0
         while self.left() > 60:  # the run's deadline bounds the splits
@@ -422,6 +452,8 @@ class Driver:
                     grew = True
                     break
             if not grew:
+                surfaces = sum(len(w.get("panes") or []) for w in (self.rpc("debug.surfaces") or {}).get("windows") or [])
+                self.log.append(f"split refused at {len(panes)} shown panes (debug.surfaces: {surfaces} panes)")
                 refused += 1
                 if refused >= 3:
                     break
@@ -558,6 +590,10 @@ class Driver:
             self._remove(record)
         verdict = judge_drop(drop)
         verdict["up_from"] = "journal" if journal else "send"
+        verdict["samples"] = len((drop.get("trace") or {}).get("samples") or [])
+        print("PANE-DRAG drop " + json.dumps({k: verdict.get(k) for k in (
+            "gesture", "kind", "drop", "landed", "note", "error", "panes_before", "panes_after", "drop_ms", "lift_ms",
+            "blank_frames", "jumps", "up_from", "samples", "pixel_measured")}), flush=True)
         time.sleep(0.4)  # bench: idle between drops
         return verdict
 
@@ -708,6 +744,7 @@ def main(argv=None) -> int:
         time.sleep(3)  # bench: launch work settles
         driver.learn_scale()
         report["pixels"] = bool(driver.pixels)
+        print(f"PANE-DRAG pixels={driver.pixels} scale={driver.scale} log={json.dumps(driver.log[-4:])[:800]}", flush=True)
         report["scale"] = driver.scale
         for count in [int(c) for c in opts.counts.split(",") if c.strip()]:
             if driver.left() < 120:
@@ -715,8 +752,10 @@ def main(argv=None) -> int:
                 break
             built = driver.build(count, scratch)
             entry: dict = {"asked": count, "setup": {k: v for k, v in built.items() if k != "kind_of"}}
+            print("PANE-DRAG setup " + json.dumps(entry["setup"]) + " log " + json.dumps(driver.log[-6:])[:1500], flush=True)
             if "error" in built:
                 entry["error"] = built["error"]
+                print(f"PANE-DRAG setup count={count}: {built['error']}; log: " + json.dumps(driver.log[-6:])[:1500], flush=True)
             else:
                 kinds = built["kind_of"]
                 for gesture, run in (("tab", driver.tab_drops), ("pane", driver.pane_drops)):
@@ -731,9 +770,13 @@ def main(argv=None) -> int:
             report["refresh_ms"] = next((d.get("refresh_ms") for g in ("tab", "pane") for d in (entry.get(g) or {}).get("each", [])
                                          if d.get("refresh_ms")), report.get("refresh_ms"))
             write()
-            driver.action("closeWorkspace")
+            if driver.workspace:
+                driver.cli("workspace", driver.workspace, "close")
+            else:
+                driver.action("closeWorkspace")
             time.sleep(1.5)  # bench: the workspace's content goes
         report["log"] = driver.log[-40:]
+        print("PANE-DRAG log " + json.dumps(driver.log[-25:])[:4000], flush=True)
         write()
     finally:
         app.stop()
