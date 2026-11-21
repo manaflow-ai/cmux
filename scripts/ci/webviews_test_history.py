@@ -593,9 +593,11 @@ def fetch(repo: str, branch: str, token: str | None, get=_get) -> tuple[list[dic
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
     query = urllib.parse.urlencode({"name": ARTIFACT, "per_page": LIST_PAGE})
     try:
-        status, _, body = get(f"{api}/repos/{repo}/actions/artifacts?{query}", token)
+        status, headers, body = get(f"{api}/repos/{repo}/actions/artifacts?{query}", token)
         if status != 200:
-            return [], f"listing the {ARTIFACT} artifacts answered {status}", False
+            left = {k.lower(): v for k, v in (headers or {}).items()}.get("x-ratelimit-remaining")
+            quota = f" (rate limit remaining {left})" if left is not None else ""
+            return [], f"listing the {ARTIFACT} artifacts answered {status}{quota}", False
         found = newest(json.loads(body), branch)
         if found is None:
             return [], f"no {ARTIFACT} artifact from a push on {branch}", True

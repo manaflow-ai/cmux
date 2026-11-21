@@ -108,6 +108,8 @@ public final class AgentPaneView: NSView {
     private var pageResources: AgentPageResources?
     /// Whether the page can take typing yet (the key dispatcher queues keys until then).
     public let inputReadiness: PageInputReadiness
+    /// The text of held keys on its way into the page while the app is not active (``typeHeldText(of:appIsActive:)``), in order.
+    var heldKeyTyping: Task<Void, Never>?
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
     /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
     private var motionObservation: Task<Void, Never>?, sessionStatusObservation: Task<Void, Never>?, iconFamilyObservation: Task<Void, Never>?
