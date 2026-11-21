@@ -350,7 +350,8 @@ impl LocalStore {
             true
         };
         for (index, path) in self.segments(id)?.into_iter().rev() {
-            if first_seq(&path)?.is_some_and(|first| first >= before) {
+            if self.segment_starts.first_seq(id, index, &path)?.is_some_and(|first| first >= before)
+            {
                 continue;
             }
             let mut file = crate::config::private_state_file(&path)?;

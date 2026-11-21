@@ -518,7 +518,9 @@ class PullRequestTiers(unittest.TestCase):
                 result = tiers([path])
                 self.assertEqual(result["native"], "true")
                 self.assertEqual(result["scheme"], "true")
-                self.assertEqual(result["daemon"], "true")
+                # The daemon tier runs the published binaries, which build none of the FFI-only crates; the
+                # toolchain builds them all (scripts/ci/affected-jobs.json daemon-test).
+                self.assertEqual(result["daemon"], "true" if path.endswith("rust-toolchain.toml") else "false")
 
     def test_app_ffi_inputs_match_the_pin_check(self):
         """The router's CCmuxAppFFI crates are the ones check-app-ffi-pin.sh derives."""
