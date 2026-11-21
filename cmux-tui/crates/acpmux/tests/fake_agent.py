@@ -24,6 +24,7 @@ Behaviour per prompt text:
   "goal: <objective>" -> a Codex goal as session_info_update _meta.goal (running 32 min), then a short reply
   "/goal pause|resume|clear|<text>" -> that goal paused, running again, gone, or set to <text>
   "work-gate: <p>" -> a plan step in progress and a running tool call, then as "gate:"
+  "plan-json: <entries>" -> a plan update with the JSON list of entries, then "planned" and end_turn
   "elapsed-tour:" -> a finished shell, a shell gone on in the background, then a shell
                  held running in the foreground (until session/cancel, else 300 s)
   image blocks -> the echo ends with " image:<sha256 of its bytes>" for each
@@ -776,6 +777,13 @@ def handle_prompt(rid, params):
                 return
             time.sleep(0.1)
         done("et-fg", "test result: ok. 412 passed")
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "plan-json: [ENTRIES]" reports a plan with those entries (as Claude's TodoWrite or Codex's
+    # update_plan reach acpmux), then answers "planned" and ends the turn.
+    if text.startswith("plan-json:"):
+        update(sid, {"sessionUpdate": "plan", "entries": json.loads(text[len("plan-json:"):])})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "planned"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "work-gate: PATH [| TITLE]" reports a plan step in progress and a running

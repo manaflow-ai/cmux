@@ -32,6 +32,8 @@ name: gallery visual evidence (advisory)
 # post reads it, and a capture that breaks on a push never reddens the base. A pull
 # request's squash merge (GitHub's `web-flow` commit with a `(#N)`) had its receipt
 # on the PR, and bot pushes change no UI, so neither runs.
+# Cut from pull requests on 2026-11-21 (ci-time-map: advisory, 'Do not add this check to branch protection'; ~2.4k runner-min a day).
+# The receipt after a direct push to feat-cmux-next stays.
 on:
   push:
     branches: [feat-cmux-next]
@@ -42,16 +44,7 @@ on:
       - "scripts/ci/gallery_select.py"
       - "bun.lock"
       - ".github/workflows/gallery-advisory.yml"
-  pull_request:
-    branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened, edited, ready_for_review]
-    paths:
-      - "webviews/**"
-      - "scripts/gallery-matrix/**"
-      - "scripts/cmux-next/build-agent-pane-web.sh"
-      - "scripts/ci/gallery_select.py"
-      - "bun.lock"
-      - ".github/workflows/gallery-advisory.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
