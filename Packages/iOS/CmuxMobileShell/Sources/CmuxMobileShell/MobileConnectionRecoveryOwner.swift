@@ -46,6 +46,11 @@ final class MobileConnectionRecoveryOwner {
         }
     }
 
+    var probingAttemptID: UUID? {
+        if case .probing(let attempt) = phase { return attempt.id }
+        return nil
+    }
+
     var isValidatingReplacement: Bool {
         if case .validatingReplacement = phase { return true }
         return false
