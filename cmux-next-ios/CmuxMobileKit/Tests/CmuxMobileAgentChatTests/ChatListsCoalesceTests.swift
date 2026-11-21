@@ -75,6 +75,42 @@ import Testing
         #expect(text.hasPrefix("w0 w1 ") && text.hasSuffix("w98 w99 "))
     }
 
+    /// SUB-11: 1000 tokens in one frame are one coalesced apply and one row build.
+    @Test func aThousandTokenBurstIsOneApplyAndOneRowBuild() async throws {
+        let store = store(["b"])
+        let frames = TestFrames()
+        store.nextFrame = { await frames.next() }
+        let memo = SubagentRowsMemo()
+        _ = memo.rows(for: try #require(store.subagent("b")))
+        for n in 0..<1000 {
+            store.receive(.subagentUpdate(subagentID: "b", .agentMessageChunk(text: "w\(n) ", messageId: "m")))
+        }
+        await Task.yield()
+        #expect(store.subagent("b")?.items.isEmpty == true, "the tokens wait for the frame")
+        await frames.fire()
+        #expect(store.chunkFlushes == 1, "1000 tokens, \(store.chunkFlushes) applies")
+        let rows = memo.rows(for: try #require(store.subagent("b"))).rows
+        #expect(memo.builds == 2, "1000 tokens built rows \(memo.builds - 1) times")
+        guard case .message(_, let text)? = rows.last else { Issue.record("no message row"); return }
+        #expect(text.hasPrefix("w0 w1 ") && text.hasSuffix("w998 w999 "))
+    }
+
+    /// SUB-11: 1000 mixed items (tool runs and answers) landing between two redraws build the
+    /// rows once, and every item is in them.
+    @Test func aThousandItemBurstBuildsRowsOnce() throws {
+        let store = store(["b"])
+        let memo = SubagentRowsMemo()
+        _ = memo.rows(for: try #require(store.subagent("b")))
+        for n in 0..<1000 {
+            store.apply(.subagentUpdate(subagentID: "b", n % 2 == 0 ? Self.tool(n) : .agentMessageChunk(text: "a\(n)", messageId: "m\(n)")))
+        }
+        let agent = try #require(store.subagent("b"))
+        #expect(agent.items.count == 1000)
+        _ = memo.rows(for: agent)
+        _ = memo.rows(for: agent)
+        #expect(memo.builds == 2, "1000 items between redraws built rows \(memo.builds - 1) times")
+    }
+
     @Test func otherSubagentRecordsKeepTheirOrderAfterWaitingChunks() async throws {
         let store = store(["b"])
         let frames = TestFrames()
