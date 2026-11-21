@@ -191,7 +191,7 @@ final class AgentTabStore {
     /// "This chat runs on <machine>" for tabs whose session another Mac's acpmux runs.
     var notices: AgentTabMap<AgentTabElsewhereView> = .init()
     /// A provisional tab's id -> the store's id once the creation answered (``AgentTabStore/rekey(_:to:)``): one page.
-    var aliases: AgentTabMap<String> = .init()
+    var aliases: AgentTabMap<String> = .init(); let frontedChats = CloudFrontedChats() // and the Cloud chats Mac tabs show in place (cmux#47677)
     /// Tabs a live tree has listed: only those can be gone from it.
     var seenLive: Set<AgentTabKey> = []
     /// The tree each opened or shown tab belongs to, so a tab closed out of sight (by the CLI,
@@ -516,7 +516,7 @@ final class AgentTabStore {
     /// pane then shows the "runs on" notice).
     func view(for key: String, machine: String? = nil, known: (record: AgentSessionRef, store: DaemonStore)? = nil) -> AgentPaneView? { // known: a tab no store lists (a reserved Cmd-N page)
         let tabKey = tabKey(key, machine: machine)
-        if let view = views[tabKey] { return view }
+        if let view = views[tabKey] { return view }; if let front = frontedChats.front(of: tabKey) { return CloudFrontedChats.view(of: tabKey, front, in: self) } // a Mac tab that shows a Cloud chat draws its page (CloudFrontedChats)
         let key = tabKey.key
         guard let (record, store) = known ?? record(for: tabKey) else { return nil }
         let kind = hostKind(record, listedHere: daemon(for: tabKey)?.isLocal != false)
@@ -558,7 +558,7 @@ final class AgentTabStore {
         // already as idle work (``reserveWorkspace(on:cwd:)``): a take here was a cold open on an empty pool, marking a launch's pool used.
         if known == nil, local, kind == .local, sessions[tabKey] == nil, record.session == nil, let newTab = newTabPages[tabKey],
            seed?.holdsOnlyFolder ?? true, wakeStates[tabKey] == nil, !relaunchWake.mayHold(tabKey.relaunchKeyCandidates), let spare = takeSpare?(.now) {
-            adoptSpare(spare, key: tabKey, page: newTab.page.listing(newTab.handler.places(tabKey.key)))
+            adoptSpare(spare, key: tabKey, page: newTab.page.listing(newTab.handler.listsAtViewMake(tabKey.key)))
             track(key, in: store, machine: tabKey.machine)
             onPageBuilt?(key)
             return spare
@@ -579,7 +579,7 @@ final class AgentTabStore {
         // spare too: it is loaded and connected, and switches to the chat in place.
         if let session = AgentPaneSpareAdoption(thisMac: kind == .local, session: sessions[tabKey] ?? record.session,
                                                 newTabPage: newTabPages[tabKey] != nil, seeded: seed != nil,
-                                                wake: wakeStates[tabKey] != nil || relaunchWake.mayHold(tabKey.relaunchKeyCandidates))
+                                                wake: wakeStates[tabKey].map { !$0.holdsOnlyPlace } ?? false || relaunchWake.mayHold(tabKey.relaunchKeyCandidates))
             .adopted(chiefKeeps: chiefKeepsSession),
            let spare = takeConnectedSpare?(), adoptSpare(spare, key: tabKey, session: session, revealTurn: pendingTurns.removeValue(forKey: tabKey)) {
             track(key, in: store, machine: tabKey.machine)
@@ -592,7 +592,7 @@ final class AgentTabStore {
             sessionId: sessions[tabKey] ?? record.session,
             seed: seed,
             // A new chat this app opened on another machine shows the same New Tab page (cx-k21v).
-            newTab: local || record.host.hasPrefix(AgentTabRemoteStart.registryPrefix) ? newTabPages[tabKey].map { $0.page.listing($0.handler.places(tabKey.key)) } : nil,
+            newTab: local || record.host.hasPrefix(AgentTabRemoteStart.registryPrefix) ? newTabPages[tabKey].map { $0.page.listing($0.handler.listsAtViewMake(tabKey.key)) } : nil,
             allowsTabConversion: local
         )
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: tabKey) ?? seed?.revealTurn
@@ -711,9 +711,9 @@ final class AgentTabStore {
             if let self, let view = views[self.resolvedKey(scoped)], view.model.newTab != nil, let host = view.superview { AgentPaneNewTabFrame.shared.capture(view, in: host) }
             return answer
         }
-        model.onAppAction = { [weak self] id in
+        model.onAppAction = { [weak self] id, shown in
             guard let self else { return }
-            newTabPages[resolvedKey(scoped)]?.handler.action(id)
+            newTabPages[resolvedKey(scoped)]?.handler.action(id, shown)
         }
         model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
         model.onGit = { [weak self] request in
@@ -766,7 +766,7 @@ final class AgentTabStore {
         return view
     }
 
-    func existingView(_ key: String, machine: String? = nil) -> AgentPaneView? { machine == nil && !views.hasKey(answering: key, aliases: aliases) ? nil : views[tabKey(key, machine: machine)] }
+    func existingView(_ key: String, machine: String? = nil) -> AgentPaneView? { if !frontedChats.isEmpty, let front = frontedChats.front(of: tabKey(key, machine: machine)) { return views[front.tab] }; return machine == nil && !views.hasKey(answering: key, aliases: aliases) ? nil : views[tabKey(key, machine: machine)] }
 
     func newTabPage(_ key: String, machine: String? = nil) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)? {
         let scoped = tabKey(key, machine: machine)

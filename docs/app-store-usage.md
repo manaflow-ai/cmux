@@ -8,7 +8,11 @@ installs without your click on that card.
 
 ## 1. Open the App Store
 
-The App Store is on in every build; it needs no Labs setting. Open it with one of these:
+The App Store is hidden until it is ready: it is a preview feature, off by default. Turn it on
+first: Settings > Experimental > Labs > Show Preview Features (search Settings for "App Store"),
+or `cmux settings set labs.previewFeatures true`.
+
+Then use one of these:
 
 - the **App Store** item at the top of the sidebar;
 - the palette (Cmd-Shift-P): type `App Store`;

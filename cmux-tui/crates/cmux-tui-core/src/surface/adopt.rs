@@ -251,6 +251,7 @@ impl Surface {
                     input_port::InputRoute::Exited,
                 ))),
                 input_port: Default::default(),
+                paste_pacer: Mutex::default(),
                 runtime: RankedMutex::new(
                     LockRank::Runtime,
                     "pty.runtime",
