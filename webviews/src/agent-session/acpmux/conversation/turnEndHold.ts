@@ -103,11 +103,20 @@ function openRunKeyOf(drawn: readonly AcpmuxRow[], rowId: string): string | unde
   return undefined;
 }
 
-/// `folds` with `extra` open too.
+/// `folds` with `extra` open too. The same `folds` and the same held keys give back the same object, so
+/// the turn view's reuse of unchanged rows (keyed by the folds it shaped with) holds while the reader is
+/// scrolled up with folds held, as it does at the bottom.
 export function withHeldFolds(folds: Folds, extra: ReadonlySet<string>): Folds {
   if (extra.size === 0) return folds;
-  return { has: (id) => extra.has(id) || folds.has(id), size: folds.size + extra.size };
+  const key = [...extra].sort().join("\n");
+  const kept = heldFoldsMade.get(folds);
+  if (kept?.key === key) return kept.out;
+  const held = new Set(extra);
+  const out: Folds = { has: (id) => held.has(id) || folds.has(id), size: folds.size + held.size };
+  heldFoldsMade.set(folds, { key, out });
+  return out;
 }
+const heldFoldsMade = new WeakMap<Folds, { key: string; out: Folds }>();
 
 // A command still running in an earlier run is the live line's, and that run draws no row for it
 // (turns.ts `lineCall`, `codexRuns`; Leo, 2026-10-22, wanted it off its row and on the line). When

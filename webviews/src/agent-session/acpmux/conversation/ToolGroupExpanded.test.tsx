@@ -431,8 +431,12 @@ for (const agentFamily of ["claude", "codex"])
       expect(work.foldRun).toBe(true);
       const container = await render(<ToolRows row={work} sessionId={`${agentFamily}-${working}`} />);
       const header = container.querySelector<HTMLButtonElement>("button.cv-tool")!;
-      expect(header.getAttribute("aria-expanded")).toBe("false");
-      await act(async () => header.click());
+      // The run the agent still works in, no paragraph under it yet, stays drawn open until the next
+      // paragraph closes it (liveRunFold.experiment.ts; Leo, 2026-11-21: "sometimes it does so too soon in
+      // the midst of a turn"); the finished turn's run is closed until a click.
+      expect(work.runOpen).toBe(working ? true : undefined);
+      expect(header.getAttribute("aria-expanded")).toBe(working ? "true" : "false");
+      if (!working) await act(async () => header.click());
       // A finished call stays in its run while the live line reads Thinking (#37635), so a live
       // turn of finished calls lists every step, as the ended turn does.
       expect(container.querySelectorAll("[data-mixed-tool-steps] > .cv-step")).toHaveLength(5);

@@ -159,3 +159,13 @@ test("the last turn's Worked for keys are its opener's and each steer's, never a
   const failed = row("f", "user", { text: "Also the cap", failed: true } as Partial<AcpmuxRow>);
   expect(lastTurnWorkedKeys([...ended, failed]).at(-1)).toBe("worked-u");
 });
+
+test("the same folds and the same held keys give back the same open folds, so unchanged rows are reused", () => {
+  const folds = new Set(["a"]);
+  const first = withHeldFolds(folds, new Set(["x", "y"]));
+  expect(withHeldFolds(folds, new Set(["y", "x"]))).toBe(first);
+  const grown = withHeldFolds(folds, new Set(["x", "y", "z"]));
+  expect(grown).not.toBe(first);
+  expect(grown.has("z") && grown.has("a")).toBe(true);
+  expect(withHeldFolds(new Set(["a"]), new Set(["x", "y"]))).not.toBe(first);
+});

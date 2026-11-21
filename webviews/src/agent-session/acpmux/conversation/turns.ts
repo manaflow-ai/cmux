@@ -42,6 +42,7 @@ import { subsessionCall } from "./subsessionCalls";
 import { experimentArm } from "../../../experiments/experiment";
 import { finishedTaskLook } from "./taskLine.experiment";
 import { liveTurnWork } from "./liveTurnWork.experiment";
+import { liveRunFold } from "./liveRunFold.experiment";
 import { turnFoldReplies } from "./turnFoldReplies.experiment";
 import { liveTurnClock } from "./liveTurnClock.experiment";
 import { turnFoldSteered } from "./turnFoldSteered.experiment";
@@ -2813,7 +2814,7 @@ function shapeLiveTurn(
   const lineOnly = experimentArm(liveTurnWork) === "line";
   // A call still running before the latest run keeps its own row.
   const carried = lineOnly ? undefined : runningBeforeLastRun(drawn);
-  const rows = codexRuns(drawn, named?.tool.id, lineOnly, carried);
+  const rows = codexRuns(drawn, named?.tool.id, lineOnly, carried, experimentArm(liveRunFold));
   // The status ticks on this computer's clock, from the live turn's start moved onto it. A resumed
   // turn can still open with an older prompt, so the prompt's time (`user.at`) is only the fallback.
   // A notice that set the agent going again after it had replied (a background task's end, another
@@ -3348,7 +3349,7 @@ function runningBeforeLastRun(rows: readonly AcpmuxRow[]): Set<string> | undefin
 /// the turn on every record (bench/live-turn-rows.bench.ts: 28 ms a record at 10,000 records). An
 /// earlier run is a function of its row and of whether the live line names one of its calls, so the
 /// rows made for it are kept while both hold. `named`: the named call, when it is one of the row's.
-type EarlierRun = { named: string | undefined; out: AcpmuxRow[] };
+type EarlierRun = { named: string | undefined; open: boolean; out: AcpmuxRow[] };
 const earlierRuns = new WeakMap<AcpmuxRow, EarlierRun>();
 /// The rows `codexRuns` makes of a run that keeps its own row (a change waiting for its permission,
 /// a call that keeps its row while it runs), by that row.
@@ -3364,10 +3365,10 @@ function namedIn(row: AcpmuxRow, named: string | undefined): string | undefined 
 
 /// An earlier run's rows (`codexRuns`): what it draws of `row`'s calls, without the ones that have
 /// nothing to show yet and the one the live line names.
-function earlierRun(row: AcpmuxRow, named: string | undefined): AcpmuxRow[] {
+function earlierRun(row: AcpmuxRow, named: string | undefined, open = false): AcpmuxRow[] {
   const own = namedIn(row, named);
   const kept = earlierRuns.get(row);
-  if (kept && kept.named === own) return kept.out;
+  if (kept && kept.named === own && kept.open === open) return kept.out;
   const out = withoutDrafts(row).flatMap((drawn) => {
     const items = drawn.items ?? [];
     const shown = own === undefined ? items : items.filter((item) => item.tool?.id !== own);
@@ -3376,14 +3377,31 @@ function earlierRun(row: AcpmuxRow, named: string | undefined): AcpmuxRow[] {
     // differs from every other state of the run (`RUN_STATES`).
     const lined = shown.length !== items.length;
     return [
-      { ...drawn, items: shown, settled: true, foldRun: true, version: row.version * RUN_STATES + (lined ? 4 : 2) },
+      {
+        ...drawn,
+        items: shown,
+        settled: true,
+        foldRun: true,
+        version: row.version * RUN_STATES + (lined ? 4 : 2),
+        // `turn-end` (liveRunFold.experiment.ts): an earlier run of the running turn stays open too.
+        ...(open && { runOpen: true as const }),
+      },
     ];
   });
-  earlierRuns.set(row, { named: own, out });
+  earlierRuns.set(row, { named: own, open, out });
   return out;
 }
 
-function codexRuns(rows: AcpmuxRow[], named?: string, lineOnly = false, carried?: ReadonlySet<string>): AcpmuxRow[] {
+/// `hold` (liveRunFold.experiment.ts): which runs of the running turn stay drawn open, their summary
+/// line over their steps (`runOpen`), rather than closed: the latest one until the agent's next
+/// paragraph ends it (`paragraph`), every one until the turn ends (`turn-end`), or none (`now`).
+function codexRuns(
+  rows: AcpmuxRow[],
+  named?: string,
+  lineOnly = false,
+  carried?: ReadonlySet<string>,
+  hold: "paragraph" | "turn-end" | "now" = "now",
+): AcpmuxRow[] {
   // A started chats' card after the run is not a step: the run before it is still in flight.
   let latest = rows.length - 1;
   while (latest > 0 && rows[latest]!.kind === STARTED_SESSIONS) latest -= 1;
@@ -3407,7 +3425,7 @@ function codexRuns(rows: AcpmuxRow[], named?: string, lineOnly = false, carried?
     }
     if (lineOnly && index > ended) return [];
     // An earlier run draws no call that has nothing to show yet; its row comes with its input.
-    if (index !== latest) return earlierRun(row, named);
+    if (index !== latest) return earlierRun(row, named, hold === "turn-end");
     // The latest run: what is happening now leaves it for the live line, so the run holds only
     // finished steps and never grows a stack of live rows (Leo 2026-10-20: "rows pile up instead
     // of replacing each other").
@@ -3443,7 +3461,20 @@ function codexRuns(rows: AcpmuxRow[], named?: string, lineOnly = false, carried?
     if (!items.length) return [];
     // Whether it shows its thought is the row's own (its text and its chunks' times, not the
     // clock), so the version it has says it: state 1 either way, never an ended fold's 3.
-    return [{ ...row, items, settled: true, foldRun: true, version: row.version * RUN_STATES + 1 }];
+    // The run the agent works in stays open until the agent's next paragraph ends it (`hold`): its
+    // second call finishing never closes the lines the reader is reading to one, mid-turn (Leo,
+    // 2026-11-21: "sometimes it does so too soon in the midst of a turn"). The paragraph makes it an
+    // earlier run, which closes; so does the turn's end.
+    return [
+      {
+        ...row,
+        items,
+        settled: true,
+        foldRun: true,
+        version: row.version * RUN_STATES + 1,
+        ...(hold !== "now" && { runOpen: true as const }),
+      },
+    ];
   };
   const out: AcpmuxRow[] = [];
   for (let index = 0; index < rows.length; index += 1) {
