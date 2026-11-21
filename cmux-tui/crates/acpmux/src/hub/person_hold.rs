@@ -1,7 +1,7 @@
 //! Part of `Hub`; see `queue.rs`. The person's prompts to a chat the config names wait a while to
 //! go in together, unless a small model says one is urgent.
 //!
-//! Leo, 2026-11-20: "to be honest sometimes if im raging i think you can batch my shit too it's
+//! Leo, 2026-11-20: "to be honest sometimes if im raging i think you can batch my sh*t too it's
 //! not always something i need that's on fire, at the very least another model could go case by
 //! case if something actually warrants rushing vs just waiting lke 30s or so which isnt a big deal
 //! to wait".
