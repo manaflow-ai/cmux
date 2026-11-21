@@ -558,7 +558,17 @@ fn action_list_export_matches() {
         } else {
             assert_eq!(row["main_menu"], serde_json::json!(action.main_menu), "{id}");
         }
-        assert_eq!(row["title"], action.title.en, "{id}");
+        // A retitle awaiting the re-pin keeps the pinned app's title in this export.
+        if field_awaits_repin(id, "/title") {
+            assert_ne!(
+                row["title"],
+                action.title.en,
+                "action-surfaces.json has {id}'s new title: the re-pin landed, so take /title out of {}",
+                marker("fields", id)
+            );
+        } else {
+            assert_eq!(row["title"], action.title.en, "{id}");
+        }
         // `title_key` is not compared: the export guesses it from the English
         // (`ActionTitleCatalog`), and two keys can share one (Recently Closed is
         // `action.history.closed`, not `action.recentlyClosed`). The catalog keeps the key the
