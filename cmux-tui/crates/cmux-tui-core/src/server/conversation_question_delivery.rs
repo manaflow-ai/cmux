@@ -261,19 +261,24 @@ fn transport(
             if remaining.is_zero() {
                 return Err(refuse("question.delivery_unknown"));
             }
-            link.call(method, params, remaining).map_err(|error| {
-                let reason = match error {
-                    LinkError::Rpc(_, data) => match data.get("reason").and_then(Value::as_str) {
-                        Some("agent_gone") => "question.agent_gone",
-                        Some("permission.person_required") => "question.person_decision_required",
-                        Some("question.stale") => "question.stale",
-                        Some("policy_changed") => "question.refused",
+            link.call_until(method, params, deadline.min(Instant::now() + remaining)).map_err(
+                |error| {
+                    let reason = match error {
+                        LinkError::Rpc(_, data) => match data.get("reason").and_then(Value::as_str)
+                        {
+                            Some("agent_gone") => "question.agent_gone",
+                            Some("permission.person_required") => {
+                                "question.person_decision_required"
+                            }
+                            Some("question.stale") => "question.stale",
+                            Some("policy_changed") => "question.refused",
+                            _ => "question.delivery_unknown",
+                        },
                         _ => "question.delivery_unknown",
-                    },
-                    _ => "question.delivery_unknown",
-                };
-                refuse(reason)
-            })
+                    };
+                    refuse(reason)
+                },
+            )
         };
         // A successful read on one configured socket does not imply session ownership.
         let found = (|| -> anyhow::Result<bool> {
