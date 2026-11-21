@@ -307,9 +307,9 @@ function datedHost(names: string[]) {
       records.push({ at: Date.now(), kind, directory });
     },
     localPaths: async (kind: DroppedKind, batch: File[], gestureAt?: number) => {
-      const index = records.findLastIndex(
-        (record) => record.kind === kind && (gestureAt === undefined || record.at <= gestureAt),
-      );
+      let index = records.length - 1;
+      while (index >= 0 && !(records[index]!.kind === kind && (gestureAt === undefined || records[index]!.at <= gestureAt)))
+        index -= 1;
       const [record] = index < 0 ? [] : records.splice(index, 1);
       if (!record || batch.map((file) => file.name).join() !== names.join()) return undefined;
       return names.map((name) => ({ path: `${record.directory}/${name}`, folder: name === "assets" }));
@@ -337,7 +337,7 @@ test("two fast pastes with twin screenshots each keep their own native paths", a
   const directories = ["/Users/you/first", "/Users/you/second"];
   const host = datedHost(names);
   const composer = await openComposer([], { localPaths: host.localPaths });
-  const held: PromiseWithResolvers<ArrayBuffer>[] = [];
+  const held: { resolve: (value: ArrayBuffer) => void }[] = [];
   const pasteFiles = async (directory: string, index: number) => {
     const image = screenshot(index);
     const bytes = await image.arrayBuffer();

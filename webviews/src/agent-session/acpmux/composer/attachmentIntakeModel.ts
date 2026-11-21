@@ -465,7 +465,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     if (given.length === 0) return;
     // When the page took the gesture: the host answers its source only from a record made before
     // it (composer/attachmentSources.ts).
-    const gestureAt = made?.gestureAt ?? Date.now();
+    const gestureAt = chat?.gestureAt ?? Date.now();
     const files = again === undefined ? given : given.slice(0, 1);
     // A pick in the file input too: a chat on this Mac links the picked files where they are, as it
     // does a Finder drop, instead of streaming a copy of each (an older host answers nothing).
