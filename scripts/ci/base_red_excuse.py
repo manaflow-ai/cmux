@@ -4718,7 +4718,9 @@ def one_check(found: list[dict], name: str, sha: str, repo: str, github, seen: d
     The workflow here is the run's display name, not its path, because that is what the checks page shows and so what
     a caller can type -- unlike superseding_run, which keys on path precisely because two workflows can share a
     display name. Two such workflows are grouped as one here and the newest of them answers, the way an unreadable
-    workflow degrades below: the name the caller can give cannot tell them apart either, so neither can we."""
+    workflow degrades below: the name the caller can give cannot tell them apart either, so neither can we.
+    One group answers a name that leaves the workflow open, or one it cannot read; a name that does name a workflow
+    and names none of theirs is not theirs, so it has not run (None) rather than taking the only group on offer."""
     if len(found) < 2:
         return next(iter(found), None)
     groups: dict[tuple, list[dict]] = {}
@@ -4726,13 +4728,16 @@ def one_check(found: list[dict], name: str, sha: str, repo: str, github, seen: d
         groups.setdefault((check_workflow(repo, check, github, seen), check["name"]), []).append(check)
     named = [checks for (workflow, check_name), checks in groups.items()
              if workflow and name == f"{workflow} / {check_name}"]
-    if len(named) != 1:
-        named = list(groups.values()) if len(groups) == 1 else []
+    if len(named) != 1 and len(groups) == 1:
+        [((workflow, check_name), only)] = groups.items()
+        if not workflow or name == check_name:
+            return max(only, key=lambda check: check["id"])
+        return None  # the name names a workflow, and this group's is another: the caller's check has not run here
     if len(named) == 1:
         return max(named[0], key=lambda check: check["id"])
     labels = sorted({f"{workflow} / {check_name}" if workflow else check_name for workflow, check_name in groups})
-    raise Refused(f"{name}: names {len(found)} check runs at exact head {sha} ({', '.join(map(repr, labels))[:300]}); "
-                  "which one is unknown, so none is judged: name it in full")
+    raise Refused(f"{name}: names {len(found)} check runs at exact head {sha}, spelled "
+                  f"{', '.join(map(repr, labels))[:300]}; which one is unknown, so none is judged: name it in full")
 
 
 def spelled_check(at_head: dict, name: str, sha: str, repo: str, github, seen: dict) -> dict | None:
