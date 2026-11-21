@@ -1039,10 +1039,31 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       if (Array.isArray(once)) return void attach(once, uploads, kind);
       const { options } = live.current;
       const made = { scope: options.scope, options };
+      // The native record belongs to this drop. Ask for its full batch before a later drop can
+      // replace it while we compare the images.
+      const dropPaths = kind === "drop" ? options.localPaths?.(kind, files).catch(() => undefined) : undefined;
       setTwinReads((reads) => [...reads, made]);
-      void once.then((files) => {
+      void once.then((kept) => {
         setTwinReads((reads) => reads.filter((read) => read !== made));
-        return attach(files, uploads, kind, false, made);
+        if (!dropPaths) return attach(kept, uploads, kind, false, made);
+        return attach(kept, uploads, kind, false, {
+          ...made,
+          options: {
+            ...options,
+            // Keep the returned paths aligned with the surviving files.
+            localPaths: async () => {
+              const paths = await dropPaths;
+              if (paths?.length !== files.length) return undefined;
+              if (kept.length === files.length) return paths;
+              let next = 0;
+              return paths.filter((_, index) => {
+                if (files[index] !== kept[next]) return false;
+                next += 1;
+                return true;
+              });
+            },
+          },
+        });
       });
     };
     const paste = (event: ClipboardEvent) => {
