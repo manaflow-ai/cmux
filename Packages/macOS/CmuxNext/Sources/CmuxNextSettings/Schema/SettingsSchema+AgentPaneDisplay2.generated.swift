@@ -166,6 +166,8 @@ extension AgentPaneDisplaySettingsSchema {
                     SettingChoice("source-sans", SettingsText.keyed("settings.choice.agentChatUiFontSourceSans", "Source Sans 3")),
                     SettingChoice("geist", SettingsText.keyed("settings.choice.agentChatUiFontGeist", "Geist")),
                     SettingChoice("cmux-sans", SettingsText.keyed("settings.choice.agentChatUiFontCmuxSans", "cmux Sans")),
+                    SettingChoice("cmux-sans-squat", SettingsText.keyed("settings.choice.agentChatUiFontCmuxSansSquat", "cmux Sans Squat")),
+                    SettingChoice("cmux-sans-candy", SettingsText.keyed("settings.choice.agentChatUiFontCmuxSansCandy", "cmux Sans Candy")),
                     SettingChoice("hanken", SettingsText.keyed("settings.choice.agentChatUiFontHanken", "Hanken Grotesk")),
                     SettingChoice("atkinson", SettingsText.keyed("settings.choice.agentChatUiFontAtkinson", "Atkinson Hyperlegible Next")),
                 ]),

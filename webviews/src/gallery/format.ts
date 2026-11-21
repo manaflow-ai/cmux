@@ -205,6 +205,9 @@ type VariantBase = {
   /** A whole look the variant is drawn under (golden/look.ts): its theme file for the env's scheme
    * over the env's theme, and, in the agent pane, its settings, stylesheet and composer look. */
   look?: import("./golden/look").GoldenLook;
+  /** A font study pairing (fontStudy/candidates.ts) the variant is drawn in, applied before the page
+   * mounts as the `fontStudy` URL key is (which wins over it); the mock app draws its chrome in it too. */
+  fontStudy?: string;
 };
 
 /** The whole agent pane (AcpmuxApp) on the pane bridge, as the app hosts it. */

@@ -49,7 +49,7 @@ extension AgentPaneDisplaySettingsSchema {
     /// `agentPane.display.font.ui`: The face of the whole chat (webviews .../chatUiFont.ts; Leo, 2026-11-05: "I haven't tried switching fonts in my own app yet. So we could just try some stuff like that"). The default is the macOS system font (Lawrence, 2026-11-07: "default fonts on cmux for everything should be macos default, not inter"); Inter, with its calculated tracking or stock, is a choice.
     nonisolated static let uiFontPath = ["agentPane", "display", "font", "ui"]
     nonisolated static let uiFontDefault = "system-ui"
-    nonisolated static let uiFontValues = ["system-ui", "system-ui-tight", "inter-tuned", "inter", "verdana", "roboto", "plex", "source-sans", "geist", "cmux-sans", "hanken", "atkinson"]
+    nonisolated static let uiFontValues = ["system-ui", "system-ui-tight", "inter-tuned", "inter", "verdana", "roboto", "plex", "source-sans", "geist", "cmux-sans", "cmux-sans-squat", "cmux-sans-candy", "hanken", "atkinson"]
     /// `agentPane.display.font.uiFamily`: A CSS family or comma stack, no quotes; when set it wins over agentPane.display.font.ui (webviews chatUiFont). A theme's font pack names its faces here and in agentPane.display.font.faces.
     nonisolated static let uiFamilyPath = ["agentPane", "display", "font", "uiFamily"]
     /// `agentPane.display.font.proseFamily`: The face of the agent's reply prose; when set it wins over agentPane.display.font.preset.
