@@ -62,6 +62,12 @@ class OneLinuxLabelTest(unittest.TestCase):
         self.assertEqual(out, text)
         self.assertEqual(len(report.exceptions), 1)
 
+    def test_owned_pool_unfit_job_stays(self) -> None:
+        text = job("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # owned-pool-unfit: timed out")
+        out, report = rewrite(text)
+        self.assertEqual(out, text)
+        self.assertEqual(len(report.exceptions), 1)
+
     def test_ephemeral_only_and_signing_jobs_stay(self) -> None:
         mirror = (f"${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || {FORK} && 'blacksmith-4vcpu-ubuntu-2404' || "
                   "contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\"]'), vars.LINUX_RUNNER) && "

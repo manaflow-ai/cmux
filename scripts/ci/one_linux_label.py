@@ -16,8 +16,8 @@ A fork repository and a fork pull request never reach an owned host: a fork pull
 (`cmux-gcp-nightly-*`, `cmux-gcp-lane-build-x64`, `CI_RELEASE_PIN_SLOT`, the darwin cross build lane, a
 caller's `inputs.*` override) keep their branch, after the fork branch; only the size fallback goes.
 
-Left unchanged, and printed as exceptions: a line whose comment marks it `ephemeral-required` or
-`github-hosted-required`, and a provenance or npm publish job. macOS, Windows and arm64 pickers are not
+Left unchanged, and printed as exceptions: a line whose comment marks it `ephemeral-required`,
+`github-hosted-required` or `owned-pool-unfit` (a job that failed on the owned pool), and a provenance or npm publish job. macOS, Windows and arm64 pickers are not
 Linux x64; inside a mixed expression (a macOS job that takes Linux on one branch) only the Linux
 `(fork && '<size>' || pool)` group is rewritten. `${{ matrix.* }}` runs-on lines are not touched; the
 matrix values that feed them are rewritten like any other value line.
@@ -95,7 +95,7 @@ FRESH_VM_JOBS = {
 # A runner whose label is what it measures: it probes the vendor runner pool, so it keeps its picker.
 PROBE_JOBS = {("ci-cloud-overflow-probe.yml", "probe")}
 NOT_LINUX_X64 = re.compile(r"'(?:macos|windows)[\w.-]*'|-arm'|ubuntu-latest|RUNNER_POOLS\)\.provenance")
-EXCEPTION_COMMENT = re.compile(r"ephemeral-required|github-hosted-required")
+EXCEPTION_COMMENT = re.compile(r"ephemeral-required|github-hosted-required|owned-pool-unfit")
 # A route that admits only an ephemeral vendor runner (`contains(fromJSON('["<vendor sizes>"]'), vars.X) && vars.X`):
 # a credentialed job the guard tests keep off persistent hosts. cmux-linux is a persistent pool, so it stays.
 EPHEMERAL_ONLY = re.compile(r"contains\(fromJSON\('\[[^\]]*\"blacksmith-")

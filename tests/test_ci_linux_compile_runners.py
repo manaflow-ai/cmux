@@ -34,7 +34,7 @@ EXPECTED: tuple[tuple[str, str, str], ...] = (
     # Rust: cargo build, test, clippy, cross builds.
     ("ci-web.yml", "diff-sidecar-check", "runs-on"),
     ("cmux-next-fast-gates.yml", "fast-gates", "runs-on"),
-    ("cloudflare-relay.yml", "cloudflare-relay", "runs-on"),
+    # cloudflare-relay.yml cloudflare-relay is `owned-pool-unfit` (its Worker builder install failed twice on cmux-linux).
     ("cmux-browser-host-chromium.yml", "chromium", "runs-on"),
     ("cmux-browser-host-release.yml", "build", "matrix:target=x86_64-unknown-linux-gnu:runs_on"),
     ("cmux-cloud-cli.yml", "test", "runs-on"),
@@ -57,7 +57,7 @@ EXPECTED: tuple[tuple[str, str, str], ...] = (
     ("coderouter-ci.yml", "test", "runs-on"),
     ("coderouter-release.yml", "build-linux", "runs-on"),
     ("iroh-relay-minter.yml", "test", "runs-on"),
-    ("macos-cross-parity.yml", "linux-build", "runs-on"),
+    # macos-cross-parity.yml linux-build: scheduled with no main twin, so the pre-push gate keeps it as it is until main has one.
     ("rust-workspaces.yml", "workspace", "runs-on"),
     ("sdk-publish-crates.yml", "bindings-e2e-rust", "runs-on"),
     ("sdk-publish-go.yml", "bindings-e2e-go", "runs-on"),
