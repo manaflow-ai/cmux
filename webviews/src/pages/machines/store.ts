@@ -67,9 +67,11 @@ export class MachinesStore {
 
   getSnapshot = () => this.state;
 
-  /** Follows the host's snapshots, then reads the current one. */
+  /** Reads the current snapshot while it subscribes to the host's, so the first rows never wait for the
+   * subscribe; once the stream is on it reads once more, which a change between the two would need. */
   async start(): Promise<void> {
     if (!this.client) return this.set({ ...this.state, unavailable: true });
+    const first = this.refresh();
     try {
       const stop = await this.client.subscribe<MachinesSnapshot>(MachinesOps.changes, (snapshot) =>
         this.land(snapshot),
@@ -77,8 +79,9 @@ export class MachinesStore {
       if (this.stopped) stop();
       else this.stopChanges = stop;
     } catch {
-      // Without the stream the section still shows what the read below returns.
+      // Without the stream the section still shows what the reads return.
     }
+    await first;
     await this.refresh();
   }
 
