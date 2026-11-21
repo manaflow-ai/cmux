@@ -220,16 +220,8 @@ const folderTrust: AgentQuestion = {
       header: "Folder trust",
       prompt: "split-importer wants to work in /Users/you/src/vendor-sdk. Do you trust this folder?",
       options: [
-        {
-          id: "trust",
-          label: "Trust folder",
-          detail: "cmux stops asking about this folder. Your permission rules still apply.",
-        },
-        {
-          id: "not_now",
-          label: "Not now",
-          detail: "The sub-session does not start, and the agent is told you declined.",
-        },
+        { id: "trust", label: "Trust folder" },
+        { id: "not_now", label: "Not now" },
       ],
       multiSelect: false,
       allowsOther: false,
