@@ -25,6 +25,7 @@ import {
   stages,
   substitutions,
   unwrap,
+  type Loop,
   type Stage,
 } from "./shellSteps";
 import { commandFolder } from "./commandFolder";
@@ -40,9 +41,12 @@ export type CommandAction = {
   files?: string[];
   /// Steps after the named one, left unnamed.
   more?: boolean;
+  /// Named by reading a loop's passes (`for f in …; do cat "$f"; done`): a call's description, the
+  /// model's word for the whole loop, comes first (`commandSaid`).
+  loop?: boolean;
 };
 
-type Act = Omit<CommandAction, "more">;
+type Act = Omit<CommandAction, "more" | "loop">;
 
 // ---------------------------------------------------------------------------------------------
 // Steps and stages (shellSteps.ts).
@@ -153,8 +157,9 @@ function mainStep(command: string): {
   more: boolean;
   vars: Map<string, string[]>;
   bodies: string[];
+  loops: Loop[];
 } {
-  let { step, more, before, bodies } = workingStep(command);
+  let { step, more, before, bodies, loops } = workingStep(command);
   const vars = new Map<string, string[]>();
   for (const earlier of before) if (isAssignmentOnly(earlier)) assigned(earlier, vars);
   for (let depth = 0; depth < 4 && isAssignmentOnly(step); depth += 1) {
@@ -166,7 +171,7 @@ function mainStep(command: string): {
     more ||= found.more;
     bodies = found.bodies;
   }
-  return { step, more, vars, bodies };
+  return { step, more, vars, bodies, loops };
 }
 
 /// The files an assignment's value names: a path (`F=a/b.json`), or the paths the command in its
@@ -462,7 +467,11 @@ const read = (files: readonly string[]): Act | undefined =>
     ? undefined
     : files.length === 1
       ? { key: "command.read", values: { file: baseName(files[0]!) }, files: [...files] }
-      : { key: "tools.read.other", values: { n: files.length }, files: [...files] };
+      : {
+          key: "command.readFiles",
+          values: { n: files.length, files: [...new Set(files.map(baseName))].join(", ") },
+          files: [...files],
+        };
 
 const search = (pattern: string | undefined): Act | undefined =>
   pattern
@@ -1016,7 +1025,7 @@ function fromTo(key: StringKey, args: string[]): Act | undefined {
 
 /// What a command did, from the table; undefined for anything it does not list.
 export function commandAction(command: string): CommandAction | undefined {
-  const { step, more } = mainStep(command);
+  const { step, more, loops, vars } = mainStep(command);
   // The first stage names the step only when nothing else in it changes anything: no write to a
   // file, no code run inside a word, and only stages after it that trim what it printed (`curl … |
   // bash` ran what it fetched and `cat a | tee b` wrote b, so those read as their line).
@@ -1032,8 +1041,61 @@ export function commandAction(command: string): CommandAction | undefined {
   const [program, ...args] = words;
   if (!program) return undefined;
   const rule = own(PROGRAMS, baseName(program));
-  const act = rule?.(args);
-  return act && { ...act, ...(more ? { more } : {}) };
+  if (!rule) return undefined;
+  // Each argument as typed, for the variables it reads: `'$x'` in single quotes is no variable.
+  const raws = first.words.slice(first.words.length - args.length).map((word) => word.raw);
+  const act = expanded(rule, args, raws, loops, vars);
+  const loop = act !== undefined && loops.some((each) => each.name !== undefined);
+  return act && { ...act, ...(more ? { more } : {}), ...(loop ? { loop } : {}) };
+}
+
+/// `$name` and `${name}` in a word.
+const VARIABLE = /\$\{?([A-Za-z_]\w*)\}?/g;
+
+/// What a rule names once the variables in its words read as their values: a loop's (`for f in a.md
+/// b.md; do git show main:$f; done` read 2 files, "Read 2 files (a.md, b.md)"), or a value an
+/// assignment before the step named (`F=a/b.json; cat "$F"`). A variable it cannot read (set from a
+/// `$(…)`, a loop over a glob, from the environment) leaves the row unnamed, so a label never shows
+/// a `$f` (Leo, 2026-11-21, on "Read $f": "this is not a good enough tool call heading that we have
+/// derived"); the call's description or its line names it instead (`commandSaid`).
+function expanded(
+  rule: Rule,
+  args: string[],
+  raws: readonly string[],
+  loops: readonly Loop[],
+  vars: ReadonlyMap<string, string[]>,
+): Act | undefined {
+  const reads = raws.map((raw) => [...raw.replace(/'[^']*'/g, "").matchAll(VARIABLE)].map((match) => match[1]!));
+  const names = new Set(reads.flat());
+  if (names.size === 0) return rule(args);
+  const fixed = new Map<string, string>();
+  let loop: { name: string; values: string[] } | undefined;
+  for (const name of names) {
+    // The innermost loop of that name is the one its step reads.
+    const bound = [...loops].reverse().find((each) => each.name === name);
+    if (bound) {
+      if (!bound.values?.length || loop) return undefined;
+      loop = { name, values: bound.values };
+      continue;
+    }
+    const value = vars.get(name);
+    if (value?.length !== 1) return undefined;
+    fixed.set(name, value[0]!);
+  }
+  const fill = (pass?: string) =>
+    args.map((arg, at) =>
+      reads[at]!.length
+        ? arg.replace(VARIABLE, (whole, name: string) => (name === loop?.name ? pass! : (fixed.get(name) ?? whole)))
+        : arg,
+    );
+  if (!loop) return rule(fill());
+  const acts = loop.values.map((value) => rule(fill(value)));
+  if (acts.some((act) => act === undefined)) return undefined;
+  const all = acts as Act[];
+  if (all.every((act) => act.files?.length)) return read([...new Set(all.flatMap((act) => act.files!))]);
+  // Every pass did the same thing (`for i in 1 2 3; do git status; done`): it reads once.
+  const one = JSON.stringify({ key: all[0]!.key, values: all[0]!.values });
+  return all.every((act) => JSON.stringify({ key: act.key, values: act.values }) === one) ? all[0] : undefined;
 }
 
 /// An action in the reader's language: "Searched memory for “x”", "Staged all changes …".
@@ -1074,8 +1136,9 @@ export function commandSaid(t: Translate, tool: Tool, look: CommandLabelLook = c
   if (running(tool)) return scriptSaid(t, command, true);
   const action = failed(tool) ? undefined : commandAction(command);
   if (look === "description" && description) return description;
-  // The table names one step: a line with more steps after it reads whole, never as its first.
-  const named = action && !action.more ? action : undefined;
+  // The table names one step: a line with more steps after it reads whole, never as its first. A
+  // loop the table read pass by pass is a compound command: its description says it first.
+  const named = action && !action.more && !(action.loop && description) ? action : undefined;
   if (look === "description")
     return named ? actionText(t, named) : (pipelineSaid(t, command) ?? scriptSaid(t, command));
   if (named) return actionText(t, named);
