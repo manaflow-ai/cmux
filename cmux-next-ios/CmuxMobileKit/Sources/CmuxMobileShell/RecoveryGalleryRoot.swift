@@ -312,6 +312,7 @@ public struct RecoveryGalleryRoot: View {
                 }
                 galleryLabel("A · signed out: the banner, also over the rows")
                 List {
+                    // visible-only: a fixed gallery of five rows.
                     ForEach(rows, id: \.self) { Text($0) }
                 }
                 .listStyle(.insetGrouped)
