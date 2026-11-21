@@ -303,7 +303,6 @@ class Loop:
     # -- reload.sh
     def reload(self, label):
         logpath = os.path.join(self.out, "logs", "reload-%s.out" % label)
-        before = dict((p, os.path.getmtime(p)) for p in self.reload_logs())
         t0 = now_ms()
         with open(logpath, "w") as f:
             p = subprocess.Popen(["scripts/reload.sh", "--tag", TAG, "--no-global-cli-links"], cwd=self.repo, stdout=f,
@@ -318,20 +317,15 @@ class Loop:
         text = open(logpath, errors="replace").read()
         if rc != 0:
             raise RuntimeError("reload.sh %s exited %d: %s" % (label, rc, text[-1500:]))
-        m = re.findall(r"App path:\s*(.+\.app)\s*$", text, re.M)
+        m = re.findall(r"^App path:[ \t]*\n[ \t]*(\S.*\.app)[ \t]*$", text, re.M)  # reload.sh: the path on the next line
         if not m:
             raise RuntimeError("reload.sh %s printed no App path" % label)
         self.app = m[-1].strip()
-        build_log = ""
-        for path in self.reload_logs():
-            if before.get(path) != os.path.getmtime(path):
-                build_log = open(path, errors="replace").read()
-                with open(os.path.join(self.out, "logs", "build-%s.log" % label), "w") as f:
-                    f.write(build_log)
+        logs = re.findall(r"^==> log: (\S.*?)\s*$", text, re.M)
+        build_log = open(logs[-1], errors="replace").read() if logs and os.path.exists(logs[-1]) else ""
+        with open(os.path.join(self.out, "logs", "build-%s.log" % label), "w") as f:
+            f.write(build_log)
         return p.pid, t0, t1, build_log
-
-    def reload_logs(self):
-        return [os.path.join("/tmp", n) for n in os.listdir("/tmp") if n.startswith("cmux-reload-") and n.endswith(".log")]
 
     def executable(self):
         plist = os.path.join(self.app, "Contents", "Info.plist")
@@ -402,7 +396,7 @@ class Loop:
         sock = os.path.join(self.sock_dir, "app.sock")
         if os.path.exists(sock):
             os.unlink(sock)
-        p, outp, _, pid = self.launch("prime", 25)
+        p, outp, _, pid = self.launch("prime", 40)
         seed = subprocess.run(["/usr/bin/python3", "-I", "scripts/measure/launch-ready-seed.py", sock, "--windows", "1",
                                "--workspaces", "1", "--front", "tab", "--stay"], cwd=self.repo, capture_output=True,
                               text=True, timeout=180)
@@ -671,6 +665,8 @@ def self_test():
     assert quit_span(procs, 10, 78, 45) == (50, 78)
     assert quit_span(procs, 10, 78, 60) is None
     assert classify(procs) == [("sign", 31, 45)]
+    app_out = "==> reload succeeded in 9s\n\nApp path:\n  /d/Build/Products/Debug/cmux DEV dlc-startup.app\n"
+    assert re.findall(r"^App path:[ \t]*\n[ \t]*(\S.*\.app)[ \t]*$", app_out, re.M) == ["/d/Build/Products/Debug/cmux DEV dlc-startup.app"]
     print("self-test ok")
     return 0
 
