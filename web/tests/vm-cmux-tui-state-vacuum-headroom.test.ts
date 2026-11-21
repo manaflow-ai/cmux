@@ -18,6 +18,8 @@ const MIB = 1024 * 1024;
 const GIB = 1024 * MIB;
 /** The helper's STATE_MIN_FREE_KB floor (128 MiB). */
 const FLOOR_KB = 131072;
+/** The helper's STATE_CRITICAL_FREE_KB: below it the daemon stays deferred (16 MiB). */
+const CRITICAL_KB = 16384;
 
 type Disk = {
   /** Free KiB `df` reports for the mounted state filesystem. */
@@ -149,16 +151,36 @@ describe("cmux-tui state image keeps room for a registry VACUUM", () => {
   );
 
   test(
-    "still refuses below the floor when growth is impossible",
+    "starts the daemon below the floor when growth is impossible but working room remains",
     async () => {
+      // A full root disk blocks growth. Deferring the daemon here would leave
+      // the machine unreachable while the state filesystem still has room.
       const result = await runEnsure({
         stateFreeKb: FLOOR_KB - 1,
         rootFreeKb: 512 * 1024,
         registryBytes: 2 * MIB,
         imageBytes: 2 * GIB,
       });
+      expect(result.status).toBe(0);
+      expect(result.imageBytes).toBe(2 * GIB);
+      expect(result.stderr).toContain("insufficient root headroom");
+      expect(result.stderr).toContain("state growth unavailable; continuing");
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "still refuses when the state filesystem is critically full and cannot grow",
+    async () => {
+      const result = await runEnsure({
+        stateFreeKb: CRITICAL_KB - 1,
+        rootFreeKb: 512 * 1024,
+        registryBytes: 2 * MIB,
+        imageBytes: 2 * GIB,
+      });
       expect(result.status).toBe(1);
       expect(result.imageBytes).toBe(2 * GIB);
+      expect(result.stderr).toContain("state filesystem is full");
     },
     TEST_TIMEOUT_MS,
   );
