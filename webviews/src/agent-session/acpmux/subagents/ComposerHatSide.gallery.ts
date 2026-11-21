@@ -12,9 +12,11 @@ type Props = { start?: ComposerHatHeadState; standIn?: boolean };
 
 // The nth mark, in the hat's header (the `top` arm) or the rail: both carry the Rolodex key.
 const mark = (index: number) => `[data-rolodex-key]:nth-child(${index + 1})`;
+// A narrow hat (the `top` arm at 360) folds its marks into fewer, so the pointer takes the last one there.
 const onMark = (index: number) => async (ctx: PlayContext) => {
-  await ctx.waitFor(() => ctx.document.querySelectorAll("[data-rolodex-key]").length > index);
-  await ctx.hover({ selector: mark(index) });
+  await ctx.waitFor(() => ctx.document.querySelector("[data-rolodex-key]"));
+  const drawn = ctx.document.querySelectorAll("[data-rolodex-key]").length;
+  await ctx.hover({ selector: mark(Math.min(index, drawn - 1)) });
   await ctx.waitFor(() => ctx.document.querySelector("[data-rolodex-key][data-peeked]"));
 };
 const focusMark = async (ctx: PlayContext) => {
