@@ -24,19 +24,24 @@ import Observation
 ///   observation (no timer). The page reads `cmux.cloud.auth.status` again on each event, so a
 ///   Cloud page opened while signed out shows the machines once the account signs in.
 @MainActor
-final class CloudPageProvider: PageProvider {
+package final class CloudPageProvider: PageProvider {
     /// The namespace prefix the page calls.
     static let prefix = "cmux.cloud."
-    static let watchStream = "cmux.cloud.machine.watch"
-    static let authStream = "cmux.cloud.auth.watch"
+    package static let watchStream = "cmux.cloud.machine.watch"
+    package static let authStream = "cmux.cloud.auth.watch"
 
     private let op: CloudAppOp
-    struct SurgeScope: Equatable {
-        let user: String
-        let team: String
+    package struct SurgeScope: Equatable {
+        package let user: String
+        package let team: String
+
+        package init(user: String, team: String) {
+            self.user = user
+            self.team = team
+        }
     }
 
-    typealias SurgeCreate = @MainActor (SurgeScope, CmuxNextDaemon.JSONValue, String) async throws -> CmuxNextDaemon.JSONValue
+    package typealias SurgeCreate = @MainActor (SurgeScope, CmuxNextDaemon.JSONValue, String) async throws -> CmuxNextDaemon.JSONValue
     private let surgeScope: (@MainActor () -> SurgeScope?)?
     private let surgeCreate: SurgeCreate?
     private var surgePreview: (scope: SurgeScope, args: CmuxNextSettings.JSONValue)?
@@ -44,7 +49,7 @@ final class CloudPageProvider: PageProvider {
     private let signOut: @MainActor () async -> Void
     private var watchers: [UUID: @MainActor (CmuxNextSettings.JSONValue) -> Void] = [:]
     /// The app's account as the page's auth stream sends it; observed while a page watches it.
-    typealias Account = @MainActor () -> CmuxNextSettings.JSONValue
+    package typealias Account = @MainActor () -> CmuxNextSettings.JSONValue
     private let account: Account?
     private var accountWatchers: [UUID: @MainActor (CmuxNextSettings.JSONValue) -> Void] = [:]
     private var observingAccount = false
@@ -57,7 +62,7 @@ final class CloudPageProvider: PageProvider {
     ///   Both default to named functions, not async closure literals (cx-bsue).
     ///   - account: The app's account (``accountValue(signedIn:team:)``), read inside an observation;
     ///     nil: the auth stream is not served.
-    init(op: @escaping CloudAppOp, signIn: @escaping @MainActor () async -> Bool = CloudPageProvider.noSignIn,
+    package init(op: @escaping CloudAppOp, signIn: @escaping @MainActor () async -> Bool = CloudPageProvider.noSignIn,
          signOut: @escaping @MainActor () async -> Void = CloudPageProvider.noSignOut,
          account: Account? = nil,
          surgeScope: (@MainActor () -> SurgeScope?)? = nil,
@@ -72,20 +77,20 @@ final class CloudPageProvider: PageProvider {
 
     /// The account value the auth stream sends: whether it is signed in, the user and the team. The
     /// user is in it so a switch between two signed-in accounts with no team is a change too.
-    static func accountValue(signedIn: Bool, user: String?, team: String?) -> CmuxNextSettings.JSONValue {
+    package static func accountValue(signedIn: Bool, user: String?, team: String?) -> CmuxNextSettings.JSONValue {
         let text: (String?) -> CmuxNextSettings.JSONValue = { value in signedIn ? value.map { .string($0) } ?? .null : .null }
         return ["signedIn": .bool(signedIn), "user": text(user), "team": text(team)]
     }
 
     /// The default sign-in: nobody signs in.
-    static func noSignIn() async -> Bool { false }
+    package static func noSignIn() async -> Bool { false }
     /// The default sign-out: nothing to end.
-    static func noSignOut() async {}
+    package static func noSignOut() async {}
 
     /// Live watch streams (one per Cloud page that loaded its list).
-    var watcherCount: Int { watchers.count }
+    package var watcherCount: Int { watchers.count }
 
-    func call(_ name: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
+    package func call(_ name: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
         guard name.hasPrefix(Self.prefix) else { throw PageError.unknownOp(name) }
         switch name {
         case "cmux.cloud.auth.sign_in":
@@ -130,7 +135,7 @@ final class CloudPageProvider: PageProvider {
         return answer
     }
 
-    func subscribe(_ stream: String, filter: CmuxNextSettings.JSONValue, context: PageCallContext,
+    package func subscribe(_ stream: String, filter: CmuxNextSettings.JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (CmuxNextSettings.JSONValue) -> Void) async throws -> PageSubscription {
         if stream == Self.authStream, account != nil { return watchAccount(onEvent) }
         guard stream == Self.watchStream else { throw PageError.unknownOp(stream) }
@@ -213,7 +218,7 @@ final class CloudPageProvider: PageProvider {
 
 /// The daemon's JSON as the page's (the two modules each define the same shape); also
 /// `cmux cloud open-browser`'s route for ``BrowserTabOpen``.
-func pageJSON(_ value: CmuxNextDaemon.JSONValue) -> CmuxNextSettings.JSONValue {
+package func pageJSON(_ value: CmuxNextDaemon.JSONValue) -> CmuxNextSettings.JSONValue {
     switch value {
     case .null: .null
     case .bool(let flag): .bool(flag)
