@@ -37,7 +37,9 @@ import Testing
         let group = SidebarGroup(id: GroupID("grp"), name: "Pinned work", workspaces: [workspace("ws-1")])
         return [
             SidebarSection(kind: .machine(machine), nodes: [.workspace(workspace("ws-2")), .group(group)]),
-            SidebarSection(kind: .custom(.init(id: "recents", title: "Recents", showsTitle: true, region: .bottom)),
+            // In This Mac's region: a section order ranks sections only inside their region (the Rust planner keeps
+            // region boundaries), so a bottom-region Recents could never move above This Mac in the order variant.
+            SidebarSection(kind: .custom(.init(id: "recents", title: "Recents", showsTitle: true, region: .middle)),
                            nodes: [.workspace(workspace("ws-3"))]),
         ]
     }
