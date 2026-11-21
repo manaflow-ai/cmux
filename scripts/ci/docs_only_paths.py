@@ -256,6 +256,7 @@ jobs:
             scripts/ci/workflow_paths_cover_inputs.py
             scripts/ci/gh_expressions.py
             scripts/ci/deadline_http.py
+            scripts/ci/check_reusable_workflow_permissions.py
           sparse-checkout-cone-mode: false
       - name: List the workflows that should have started and did not
         id: plan
