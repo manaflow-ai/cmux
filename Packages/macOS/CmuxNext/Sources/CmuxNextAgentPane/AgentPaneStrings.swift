@@ -296,7 +296,7 @@ extension AgentPaneHostError {
         case .daemonStopped:
             String(localized: "agentPane.error.daemonStopped", defaultValue: "The agent service stopped.", bundle: .module)
         case .chiefStopped:
-            String(localized: "agentPane.error.chiefStopped", defaultValue: "The Chief is not running. Reopen cmux and open Home to start it.", bundle: .module)
+            String(localized: "agentPane.error.chiefStopped", defaultValue: "The Chief is not running. Reopen cmux and open Chief to start it.", bundle: .module)
         case .chiefStarting:
             String(localized: "agentPane.error.chiefStarting", defaultValue: "The Chief is starting. This chat connects when it is up.", bundle: .module)
         case .daemonRefused(let holder?, _, _, _, _):

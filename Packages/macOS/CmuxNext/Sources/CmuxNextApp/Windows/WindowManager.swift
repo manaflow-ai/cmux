@@ -9,6 +9,7 @@ import CmuxNextBridge
 import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextHomeEngine
+import CmuxNextHomeModel
 import CmuxNextLayout
 import CmuxNextWakeups
 import CmuxNextWindowRules
@@ -64,6 +65,9 @@ final class WindowManager {
     private var notSavedToasts: [String: CmuxToastHandle] = [:]
     /// New workspaces windows asked for before the daemon reported them (`WorkspaceClaims`).
     var claims = WorkspaceClaims()
+    /// Spaces off (#48355): a workspace moved into a window on another space, selected there once its pin shows it while the
+    /// window still shows what it showed at the move (`since`) or that workspace: a pick made since wins.
+    var pinSelections: [String: (window: String, since: String?)] = [:]
     /// Windows to open behind (automation, Option).
     var behindWindows: Set<String> = []
     /// While ``fileOpenedMachine(of:into:)`` re-runs reconcile: a window that pass opens files nothing again.
@@ -232,10 +236,10 @@ final class WindowManager {
             makeController(for: WindowRegistry.Window(id: id, frame: services.daemon.launchSnapshotWindows?.lastFrame?.rect,
                                                       display: services.daemon.launchSnapshotWindows?.lastDisplay))
         }
-        let store = services.daemon.store
+        let store = services.daemon.store; DebugTimings.markLaunch("window.restore_wait_start") // the wait on the daemon's first tree
         loadObservation = Task { [weak self] in
             for await loaded in ObservationStream({ store.isLoaded }) where loaded {
-                await self?.restore()
+                DebugTimings.markLaunch("window.restore_wait_end"); await self?.restore()
                 return
             }
         }
@@ -258,7 +262,8 @@ final class WindowManager {
         DebugTimings.markLaunch("daemon_snapshot_loaded")
         let saved = await readSavedWindows()
         guard !Task.isCancelled, !isTerminating else { return }
-        guard let document = saved else { restoreGaveUp = true; return reconcileMembership() }
+        // No saved session to tell a first run by: Meet Chief does not start, and Chief's welcome is not held.
+        guard let document = saved else { restoreGaveUp = true; services.onboarding.chief.begin(freshInstall: false); return reconcileMembership() }
         // Incognito workspaces a crashed run left on a daemon without state
         // resources: the app's ledger owns them, so they close, never shown.
         // A daemon with state resources owns its ephemeral workspaces (it closes them at its
@@ -341,13 +346,16 @@ final class WindowManager {
         // Classic cmux's session comes over once, after restore so the restored
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)
+        let isFirstRun = firstWorkspace != nil && document.windows.isEmpty // Meet Chief decides before Home's welcome:
+        services.onboarding.chief.begin(freshInstall: isFirstRun && ChiefIntroStore(defaults: .standard).welcomePending)
         Task {
             await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace)
-            let isFirstRun = firstWorkspace != nil && document.windows.isEmpty
-            // One step at a time: Agents, then Bring your history once its window closed.
+            // One step at a time: the Set Up cmux card, or the first-run windows one after another.
             await services.onboarding.showFirstRunSteps(isFirstRun: isFirstRun)
+            // A new person's first launch: a new agent chat, ready to type (cmux#48416).
+            await services.onboarding.openFirstChat(isFirstRun: isFirstRun)
             // Then, once per channel: `cmux` in Terminal that would not run this app.
-            await CLIInstallHandlers.offerAtLaunch(skipsOnboarding: services.environment.skipsOnboarding)
+            await CLIInstallHandlers.offerAtLaunch(skipsOnboarding: services.environment.launchSteps.skipsFirstRun)
         }
         savedWindowsUnread = false
         recordSaver.scheduleSave()
@@ -407,14 +415,14 @@ final class WindowManager {
     /// Creates the controller of registered window `id`.
     @discardableResult
     func makeController(for window: WindowRegistry.Window) -> WindowController {
-        let state = state(for: window.id)
+        DebugTimings.markLaunch("window.make_start"); let state = state(for: window.id) // the first window's marks (startup-tti)
         var frame = (window.frame ?? pendingFrames.removeValue(forKey: window.id)).map { WindowPlacementFallback.visible($0, display: window.display) }
         let placement = services.environment.testWindow
         if let placement, let placed = placement.windowFrame(ordinal: placedWindows, visibleFrames: NSScreen.screens.map(\.visibleFrame)) {
             frame = placed
             placedWindows += 1
         }
-        let controller = WindowController(state: state, services: services, frame: frame)
+        let controller = WindowController(state: state, services: services, frame: frame); DebugTimings.markLaunch("window.init_done")
         controller.window?.animationBehavior = Motion.panes.windowOpenBehavior(restoring: restoresSession(window.id)) // REOPEN-F2: a restore shows in place; a new window opens like one (#38128)
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
@@ -476,7 +484,7 @@ final class WindowManager {
             // A restored window shown alone comes forward without key; the order keeps its saved place.
             let kept = keepsOrder
             keepsOrder = restacks
-            WindowActivation.show(window, restacks ? .bringForward : behind ? .presentBehind : .present)
+            WindowActivation.show(window, restacks ? .bringForward : behind ? .presentBehind : .present); DebugTimings.markLaunch("window.ordered_front")
             keepsOrder = kept
         }
         onPresent?(controller)
