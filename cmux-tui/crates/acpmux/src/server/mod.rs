@@ -1155,6 +1155,8 @@ pub async fn serve_ws_until(
             // A ticket or a paired machine's credential (`pairing.rs`).
             let admitted: Arc<StdMutex<pairing::Admitted>> = Arc::default();
             let (record_admitted, pairing_hub) = (admitted.clone(), hub.clone());
+            let browser_app = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let record_browser_app = browser_app.clone();
             let callback = move |req: &tokio_tungstenite::tungstenite::handshake::server::Request,
                                  resp: tokio_tungstenite::tungstenite::handshake::server::Response| {
                 let values = |name: &str| {
@@ -1186,9 +1188,19 @@ pub async fn serve_ws_until(
                 let presented =
                     ws_auth::presented(&values("authorization"), &values("sec-websocket-protocol"))
                         .map_err(refuse)?;
-                let tickets = values(crate::pairing::TICKET_HEADER);
-                let proof = pairing::admit(&pairing_hub, peer, presented.token, &tickets, &expected);
-                *record_admitted.lock().unwrap_or_else(|e| e.into_inner()) = proof.map_err(refuse)?;
+                if req.uri().path() == "/app/ws" {
+                    // This capability is useful only here. No dashboard token, pairing ticket,
+                    // device credential or extra native proof can admit or promote this socket.
+                    cmux_local_auth::check_token(
+                        presented.token,
+                        &ws_auth::browser_app_token(&expected),
+                    ).map_err(refuse)?;
+                    record_browser_app.store(true, std::sync::atomic::Ordering::Relaxed);
+                } else {
+                    let tickets = values(crate::pairing::TICKET_HEADER);
+                    let proof = pairing::admit(&pairing_hub, peer, presented.token, &tickets, &expected);
+                    *record_admitted.lock().unwrap_or_else(|e| e.into_inner()) = proof.map_err(refuse)?;
+                }
                 let mut resp = resp;
                 if presented.answer_protocol {
                     resp.headers_mut().insert(
@@ -1257,7 +1269,7 @@ pub async fn serve_ws_until(
                 wire.clone(),
             ));
             children.track(&writer);
-            // The handshake above checked the listener token: every
+            // The handshake above checked the endpoint's credential: every
             // connection past it is authenticated (`conn_auth.rs`).
             let mut proof = ConnAuth::ListenerToken;
             // The first frame decides LocalApp; it reaches the protocol handler without the token.
@@ -1265,7 +1277,9 @@ pub async fn serve_ws_until(
             let mut first = None;
             let presented =
                 std::mem::take(&mut *seen_peer.lock().unwrap_or_else(|e| e.into_inner()));
-            if let Some(device) = &device {
+            if browser_app.load(std::sync::atomic::Ordering::Relaxed) {
+                proof = ConnAuth::BrowserApp;
+            } else if let Some(device) = &device {
                 (origin, proof) = pairing::origin_of(device);
             } else if peer_auth.as_ref().is_some_and(|a| a.is_peer(peer, &presented)) {
                 origin = Origin::Peer;
