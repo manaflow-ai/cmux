@@ -31,11 +31,32 @@ on:
     branches: [feat-cmux-next]
     paths:
       - "cmux-next-ios/**"
+      # The local packages the app links (scripts/ci/ios_app_package_paths.py --check keeps this list exact).
+      - "Packages/Shared/CMUXAuthCore/**"
+      - "Packages/Shared/CMUXMobileCore/**"
+      - "Packages/Shared/CmuxAgentBrands/**"
+      - "Packages/Shared/CmuxAgentQuestion/**"
+      - "Packages/Shared/CmuxAuthRuntime/**"
+      - "Packages/Shared/CmuxChiefList/**"
+      - "Packages/Shared/CmuxChiefVoiceCore/**"
+      - "Packages/Shared/CmuxConnectivityTelemetry/**"
+      - "Packages/Shared/CmuxDeviceHub/**"
+      - "Packages/Shared/CmuxGhosttyKit/**"
+      - "Packages/Shared/CmuxHomeCore/**"
+      - "Packages/Shared/CmuxScreenKit/**"
+      - "Packages/Shared/CmuxSpinner/**"
+      - "Packages/Shared/CmuxTheme/**"
+      - "Packages/Shared/CmuxVNC/**"
+      - "Packages/Shared/CmuxVNCWebRTC/**"
       - "Packages/iOS/CmuxConversation/**"
-      - "Packages/Shared/**"
+      - "Packages/iOS/CmuxMobileBilling/**"
+      - "Packages/iOS/CmuxMobileSupport/**"
+      - "Packages/iOS/CmuxTabsKit/**"
+      - "vendor/stack-auth-swift-sdk-prerelease/**"
       - "scripts/cmux-next/check-app-store-rules.py"
       - "tests/test_ios_app_review_gate.py"
       - ".github/workflows/ios-review-gate.yml"
+      - "scripts/ci/ios_app_package_paths.py"
       - ".github/ios-review-gate-devices.json"
       - ".github/scripts/ios_review_gate_devices.py"
       - "!**/*.md"
@@ -47,11 +68,32 @@ on:
   pull_request:
     paths:
       - "cmux-next-ios/**"
+      # The local packages the app links (scripts/ci/ios_app_package_paths.py --check keeps this list exact).
+      - "Packages/Shared/CMUXAuthCore/**"
+      - "Packages/Shared/CMUXMobileCore/**"
+      - "Packages/Shared/CmuxAgentBrands/**"
+      - "Packages/Shared/CmuxAgentQuestion/**"
+      - "Packages/Shared/CmuxAuthRuntime/**"
+      - "Packages/Shared/CmuxChiefList/**"
+      - "Packages/Shared/CmuxChiefVoiceCore/**"
+      - "Packages/Shared/CmuxConnectivityTelemetry/**"
+      - "Packages/Shared/CmuxDeviceHub/**"
+      - "Packages/Shared/CmuxGhosttyKit/**"
+      - "Packages/Shared/CmuxHomeCore/**"
+      - "Packages/Shared/CmuxScreenKit/**"
+      - "Packages/Shared/CmuxSpinner/**"
+      - "Packages/Shared/CmuxTheme/**"
+      - "Packages/Shared/CmuxVNC/**"
+      - "Packages/Shared/CmuxVNCWebRTC/**"
       - "Packages/iOS/CmuxConversation/**"
-      - "Packages/Shared/**"
+      - "Packages/iOS/CmuxMobileBilling/**"
+      - "Packages/iOS/CmuxMobileSupport/**"
+      - "Packages/iOS/CmuxTabsKit/**"
+      - "vendor/stack-auth-swift-sdk-prerelease/**"
       - "scripts/cmux-next/check-app-store-rules.py"
       - "tests/test_ios_app_review_gate.py"
       - ".github/workflows/ios-review-gate.yml"
+      - "scripts/ci/ios_app_package_paths.py"
       - ".github/ios-review-gate-devices.json"
       - ".github/scripts/ios_review_gate_devices.py"
       - "!**/*.md"
@@ -630,7 +672,7 @@ jobs:
   # job alone (tests/test_ci_pull_request_caches_are_read_only.py).
   seed-link-ffi:
     needs: reviewer-path
-    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
     # A seed that fails never turns the push run red; the report does not need it.
     continue-on-error: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
@@ -686,7 +728,7 @@ jobs:
 
   report:
     needs: [plan, lint, reviewer-path, asc-validate]
-    if: always() && needs.plan.result == 'success'
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     outputs:

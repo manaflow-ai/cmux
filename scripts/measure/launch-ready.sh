@@ -54,6 +54,10 @@
 #                and every launch samples its layout from the first on-screen frame (launch-ready.swift `layout`): the
 #                window's frame and the sidebar's edge until neither changed for 1 s or 3 s passed. Each LR-RUN row gets
 #                `layout`; LR-FRAMES per side: the median and highest move (points) and change count after the first frame.
+#   layout=movequit  layout=1 in DEBUG builds (--config debug: sidebar-width is a DEBUG command), and just before every
+#                quit the probe moves the window to the other of two frames and the sidebar to the other of two widths,
+#                then quits at once: the next launch starts from a record the launch snapshot may lag (row `movequit`).
+#                It times nothing a release build pays; read only its LR-FRAMES.
 
 #   type=1       every launch types one key the moment its first window frame is in (the app's LaunchTypeProbe: a space,
 #                then Delete, so the line stays as it was) and marks terminal.probe_key_typed, terminal_input_accepted (the
@@ -148,14 +152,15 @@ main() {
       preflight_wait=*) preflight_wait="${arg#preflight_wait=}" ;;
       preflight=0|preflight=1) preflight="${arg#preflight=}" ;;
       preflight_cpu=*) preflight_cpu="${arg#preflight_cpu=}" ;;
-      layout=0|layout=1) LR_LAYOUT="${arg#layout=}" ;;
+      layout=0|layout=1|layout=movequit) LR_LAYOUT="${arg#layout=}" ;;
       type=0|type=1) LR_TYPE="${arg#type=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
   [[ "$runs" =~ ^([1-9]|10)$ ]] || { echo "runs= must be 1 to 10" >&2; exit 2; }
-  [[ "$LR_LAYOUT" == 0 || "$dmg" == build ]] || { echo "layout=1 takes dmg=build (the sidebar edge needs a bench build)" >&2; exit 2; }
+  [[ "$LR_LAYOUT" == 0 || "$dmg" == build ]] || { echo "layout= takes dmg=build (the sidebar edge needs a bench or debug build)" >&2; exit 2; }
   [[ "$LR_LAYOUT" == 1 ]] && config=bench
+  [[ "$LR_LAYOUT" == movequit ]] && config=debug
   [[ "$machines" =~ ^[0-9]+$ && "$machines" -le 200 ]] || { echo "machines= takes 0 to 200" >&2; exit 2; }
   [[ -z "$workspaces" || ( "$workspaces" =~ ^[1-9][0-9]*$ && "$workspaces" -le 200 ) ]] || { echo "workspaces= takes 1 to 200" >&2; exit 2; }
   [[ "$windows" =~ ^[1-3]$ ]] || { echo "windows= takes 1 to 3" >&2; exit 2; }
@@ -376,7 +381,8 @@ probe() {
   fi
   checkers="$(checker_cpu)" exe="$(exe_stat "$app")"
   line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" "$LR_SOCKETS/$side.sock" \
-    $(probe_mode "$label") $([[ "$LR_LAYOUT" == 1 ]] && echo layout) $([[ "$LR_TYPE" == 1 ]] && echo type) 2>>"$out/probe.log" | grep '^LR-RUN ')"
+    $(probe_mode "$label") $([[ "$LR_LAYOUT" != 0 ]] && echo layout) $([[ "$LR_LAYOUT" == movequit ]] && echo movequit) \
+    $([[ "$LR_TYPE" == 1 ]] && echo type) 2>>"$out/probe.log" | grep '^LR-RUN ')"
   checkers="$(checker_delta "$checkers" "$(checker_cpu)") exe=$exe->$(exe_stat "$app")"
   # Every launch snapshot path the launch left must be in its own home: one in the other side's means it read that.
   # Unsaved defaults fail the same way, and the stale copy goes: the side's next launch starts empty, not from it.

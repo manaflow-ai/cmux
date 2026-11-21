@@ -293,9 +293,9 @@ fn matches(id: &str, pattern: &str) -> bool {
             parts.push(None);
             rest = after;
         } else {
-            let c = rest.chars().next().unwrap_or_default();
-            parts.push(Some(c));
-            rest = &rest[c.len_utf8()..];
+            let mut chars = rest.chars();
+            parts.push(Some(chars.next().unwrap_or_default()));
+            rest = chars.as_str();
         }
     }
     let chars: Vec<char> = id.chars().collect();
@@ -336,10 +336,10 @@ fn harness_model(
                 .unwrap_or_else(|| f.clone())
         })
     };
-    let short_name = match rules.short_name_prefix.as_deref() {
-        Some(prefix) if model.name.starts_with(prefix) && model.name.len() > prefix.len() => {
-            model.name[prefix.len()..].to_owned()
-        }
+    let short =
+        rules.short_name_prefix.as_deref().and_then(|prefix| model.name.strip_prefix(prefix));
+    let short_name = match short {
+        Some(rest) if !rest.is_empty() => rest.to_owned(),
         _ => model.name.clone(),
     };
     let default_effort = rules.default_effort.clone().filter(|e| efforts.contains(e));
@@ -363,7 +363,8 @@ fn clean_name(name: &str) -> String {
     let trimmed = name.trim_end();
     let lower = trimmed.to_ascii_lowercase();
     match lower.strip_suffix("(latest)") {
-        Some(rest) => trimmed[..rest.len()].trim_end().to_owned(),
+        // ASCII lowercasing keeps every byte offset, so `rest.len()` is a boundary of `trimmed`.
+        Some(rest) => trimmed.get(..rest.len()).unwrap_or(trimmed).trim_end().to_owned(),
         None => trimmed.to_owned(),
     }
 }
