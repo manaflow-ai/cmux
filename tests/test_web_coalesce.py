@@ -689,8 +689,9 @@ class WorkflowTests(unittest.TestCase):
         ci_web = yaml.safe_load(CI_WEB.read_text())
         base = ci_web["jobs"]["react-apps-base-check"]
         self.assertEqual(base["needs"], ["web-subarea-scope", "react-apps-check-shard", "react-apps-base-early"])
-        self.assertTrue(base["if"].startswith("${{ github.event_name == 'pull_request'"))
-        self.assertEqual(ci_web["jobs"]["react-apps-base-early"]["if"], base["if"])
+        self.assertIn("github.event_name == 'pull_request'", base["if"])
+        # The early job's scope, plus: a timed-out (cancelled) early shard never skips the verdict (cmux#48723).
+        self.assertIn(ci_web["jobs"]["react-apps-base-early"]["if"].removeprefix("${{ ").removesuffix(" }}"), base["if"])
 
 
 if __name__ == "__main__":

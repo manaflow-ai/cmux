@@ -1045,7 +1045,11 @@ class Workflow(unittest.TestCase):
         self.assertIn("react-apps-base-early", check["needs"])
         self.assertIn("react-apps-check-shard", check["needs"])
         self.assertIs(early["continue-on-error"], True)
-        self.assertEqual(early["if"], check["if"])
+        # The same scope as the early job, but a cancelled (timed-out) early shard never skips the check (cmux#48723).
+        self.assertTrue(check["if"].startswith("${{ !cancelled() && "), check["if"])
+        self.assertIn(early["if"].removeprefix("${{ ").removesuffix(" }}"), check["if"])
+        self.assertNotIn("needs.react-apps-base-early.result", check["if"])
+        self.assertIn("needs.react-apps-check-shard.result == 'success'", check["if"])
         sys.path.insert(0, str(ROOT / "tests"))
         import workflow_jobs  # noqa: PLC0415
         self.assertEqual(workflow_jobs.runs_on(early), workflow_jobs.runs_on(check))
