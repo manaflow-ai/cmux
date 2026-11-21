@@ -50,7 +50,7 @@ jobs:
     with:
       key: cmux-next-web
       hold_minutes: 120
-      no_coalesce: ${{ vars.NEXT_WEB_COALESCE == '0' }}
+      no_coalesce: ${{ format('{0}', vars.NEXT_WEB_COALESCE) == '0' }}
 
   web:
     needs: coalesce
