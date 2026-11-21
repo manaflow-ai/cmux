@@ -54,7 +54,7 @@ test("an order saved before the line keeps its less-used sections under it, in t
   expect(order[0]).toBe("environment");
   expect(order[1]).toBe("context");
   expect(order.indexOf(MORE_LINE)).toBe(order.indexOf("alsoHere") + 1);
-  expect(tuckedSections(order)).toEqual(["changes", "usage", "connectors"]);
+  expect(tuckedSections(order)).toEqual(["changes", "usage", "connectors", "storage"]);
 });
 
 test("dragging an app wins, and new app ids do not reorder saved positions", () => {

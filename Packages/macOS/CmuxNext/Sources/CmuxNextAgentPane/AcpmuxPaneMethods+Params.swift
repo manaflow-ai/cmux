@@ -75,6 +75,8 @@ nonisolated extension AcpmuxPaneMethods {
         // The page holds the running ones and the newest ended (`recent`); a daemon without it is
         // read page by page (`limit`, then each page's `nextCursor` as `cursor`).
         "_acpmux/process/list": (["sessionId", "limit", "cursor", "recent"], []),
+        "_acpmux/worktree/report": (["staleOnly"], []),
+        "_acpmux/worktree/free_stale": (["only"], []),
         "_acpmux/process/tail": (["processId", "maxBytes"], []),
         "_acpmux/process/kill": (["sessionId", "processId"], []),
         "_acpmux/process/background": (["sessionId", "toolCallId"], []),

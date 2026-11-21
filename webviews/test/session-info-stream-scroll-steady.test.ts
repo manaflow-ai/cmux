@@ -167,6 +167,7 @@ await requireBrowserLane("session-info-stream-scroll-steady.test.ts", async () =
             "tasks",
             "alsoHere",
             "outputs",
+            "storage",
           ])
             state.setSessionInfoSection(id, true);
         });

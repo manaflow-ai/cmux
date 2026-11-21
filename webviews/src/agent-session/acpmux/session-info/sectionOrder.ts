@@ -19,7 +19,7 @@ export type SessionInfoGroupId = "about" | "made" | "running";
 /// hairlines (SessionInfoGroup.tsx): a hairline sits wherever two adjacent sections come from
 /// different blocks. The order of the #27291 per-block format (parseOrder) is this one.
 export const GROUP_SECTIONS: Readonly<Record<SessionInfoGroupId, readonly SessionInfoSectionId[]>> = {
-  about: ["environment", "context", "usage", "connectors"],
+  about: ["environment", "context", "usage", "connectors", "storage"],
   made: ["changes", "sources", "outputs"],
   running: ["progress", "subagents", "tasks", "alsoHere"],
 };
@@ -35,8 +35,8 @@ export const MORE_LINE = "more" satisfies SessionInfoSectionId;
 /// Every section in its default place, top to bottom: the machine (Cloud or this Mac), Context, what
 /// it runs (its plan's Progress first), then Sources and Outputs (Leo, 2026-11-03: "1. Machines
 /// showing up so I know if it's cloud or not 2. context 3. Subagents/background tasks running 4.
-/// Sources"). Under the Show more line: pull requests, Usage and Connectors. A person's saved order
-/// (a drag) still wins over this one.
+/// Sources"). Under the Show more line: pull requests, Usage, Connectors and this Mac's Storage. A
+/// person's saved order (a drag) still wins over this one.
 export const DEFAULT_ORDER: readonly SessionInfoSectionId[] = [
   "environment",
   "context",
@@ -50,6 +50,7 @@ export const DEFAULT_ORDER: readonly SessionInfoSectionId[] = [
   "changes",
   "usage",
   "connectors",
+  "storage",
 ];
 
 /// Environment heads the panel and never moves: it is what the chat runs on, as ChatGPT's and Codex's

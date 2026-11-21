@@ -66,6 +66,24 @@ pub fn reclaim(
     uses: &Uses,
     open: &Open,
 ) -> Result<Manifest, String> {
+    reclaim_unless(repo, worktree, facts, action, reason, store, uses, open, &|| None)
+}
+
+/// [`reclaim`], asking `in_use` last, right before the folder goes, whether
+/// something the scan could not see now works in it (a chat opened while it
+/// was archived); a reason keeps it.
+#[allow(clippy::too_many_arguments)]
+pub fn reclaim_unless(
+    repo: &Repo,
+    worktree: &Worktree,
+    facts: &Facts,
+    action: Action,
+    reason: &str,
+    store: &Store,
+    uses: &Uses,
+    open: &Open,
+    in_use: &dyn Fn() -> Option<String>,
+) -> Result<Manifest, String> {
     if let Some(why) = &facts.unarchivable {
         return Err(format!("cannot archive: {why}"));
     }
@@ -148,6 +166,7 @@ pub fn reclaim(
         &id,
         uses,
         open,
+        in_use,
     ) {
         discard(&wt, store, &manifest);
         return Err(format!("{why}; it stays"));
@@ -178,6 +197,7 @@ fn unchanged(
     id: &str,
     uses: &Uses,
     open: &Open,
+    in_use: &dyn Fn() -> Option<String>,
 ) -> Result<(), String> {
     if fingerprint != self::fingerprint(repo, worktree)?.as_slice() {
         return Err("its status changed while it was archived".to_string());
@@ -200,6 +220,9 @@ fn unchanged(
     }
     if let Some(process) = procs::inside(&uses()?, &worktree.path) {
         return Err(format!("process {} started working in it", process.pid));
+    }
+    if let Some(why) = in_use() {
+        return Err(why);
     }
     // Last, right before the folder goes: what no registry records.
     match open(&worktree.path) {
