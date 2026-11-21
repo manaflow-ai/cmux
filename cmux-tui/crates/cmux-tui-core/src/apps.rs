@@ -98,6 +98,8 @@ mod store;
 #[cfg(unix)]
 mod store_panels;
 #[cfg(unix)]
+mod store_trust;
+#[cfg(unix)]
 mod subscriptions;
 #[cfg(unix)]
 mod supervisor;

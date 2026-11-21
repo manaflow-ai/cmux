@@ -69,7 +69,7 @@ AUTHOR_AGENT = re.compile(r"^[\s>*_`-]*author-agent[*_`]*\s*:[\s*_`]*(?P<id>[^\s
 # The aid in the `Agent session:` footer `agent-identity footer` writes at the end of every lane PR body
 # (`[...](https://cmux.com/deeplink/agent?id=aid-<20 hex>)`) names the author agent too. leo-workspace
 # tools/review_model.py reads both forms; reading only Author-agent here refused #42066's review-service SHIP
-# (the body carried the footer alone) after merge_hold and router-review had both read it as independent.
+# (the body carried the footer alone) after land-judge and router-review had both read it as independent.
 FOOTER_AGENT = re.compile(r"^[\s>*_`-]*agent session[*_`]*\s*:[^\n]*?[?&]id=(?P<id>aid-[0-9a-f]{20})(?![0-9a-f])",
                           re.I | re.M)
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
@@ -687,7 +687,7 @@ def missing_evidence(tier: str, human_ok: bool = False, body: str = "",
 
 def takeback_fix(numbers: list[int]) -> str:
     """What clears an unowned takeback of NUMBERS, the lines to paste with their numbers filled in. The summary and
-    the check's error annotation (risk-tier.yml, through `takes_back_fix`) both say it: merge_hold and the lander
+    the check's error annotation (risk-tier.yml, through `takes_back_fix`) both say it: land-judge and the lander
     quote the annotation, so a refused revert names the line without anyone opening the job summary (a revert is
     the fast route; on cmux#41154 the refusal said only "the job summary says how")."""
     lines = " and ".join(f"`Takes back #{n}: <why>`" for n in numbers)

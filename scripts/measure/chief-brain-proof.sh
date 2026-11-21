@@ -6,7 +6,9 @@
 #   cmux-ci run --class exclusive --script scripts/measure/chief-brain-proof.sh --ref SHA \
 #     --arg=brain=hermes|openclaw|default --arg=claude_url=http://HOST:PORT \
 #     [--arg=brain_url=http://HOST:PORT] [--arg=model=M] [--arg=claude=X.Y.Z] \
-#     [--arg=responsive=trivial,lookup] --timeout 7200
+#     [--arg=responsive=trivial,lookup] [--arg=runs=5] --timeout 7200
+# runs=N (1-10): N proofs in a row, each on a new scratch Chief home; prints one BRAIN-PASSRATE
+# line per check (passes/N) and exits 1 when any check failed in any run.
 # responsive=CLASSES: after the proof, one round of measure/responsive.py (the
 # responsiveness lane's harness) on the same brain, for those ask classes.
 # claude_url= is a Claude route that signs requests itself (SR2): the default harness and the
@@ -27,6 +29,7 @@ brain_url="http://100.89.225.106:31415"
 model=""
 claude_version="2.1.300"
 responsive=""
+runs=1
 for arg in "$@"; do
   case "$arg" in
     brain=*) brain="${arg#brain=}" ;;
@@ -35,6 +38,7 @@ for arg in "$@"; do
     model=*) model="${arg#model=}" ;;
     claude=*) claude_version="${arg#claude=}" ;;
     responsive=*) responsive="${arg#responsive=}" ;;
+    runs=*) runs="${arg#runs=}" ;;
     *) echo "chief-brain-proof.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -44,6 +48,7 @@ url_re='^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$'
 [[ "$brain_url" =~ $url_re ]] || { echo "chief-brain-proof.sh: brain_url=http://HOST[:PORT]" >&2; exit 2; }
 [[ -z "$model" || "$model" =~ ^[A-Za-z0-9._/-]{1,80}$ ]] || { echo "chief-brain-proof.sh: model is one model id" >&2; exit 2; }
 [[ "$claude_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "chief-brain-proof.sh: claude=X.Y.Z" >&2; exit 2; }
+[[ "$runs" =~ ^([1-9]|10)$ ]] || { echo "chief-brain-proof.sh: runs=1..10" >&2; exit 2; }
 [[ -z "$responsive" || "$responsive" =~ ^[a-z0-9,]{1,80}$ ]] || { echo "chief-brain-proof.sh: responsive=class,class" >&2; exit 2; }
 
 uv_version="0.13.9"
@@ -139,20 +144,35 @@ trap stop_all EXIT
 trap 'exit 143' TERM
 trap 'exit 130' INT
 status=0
-python3 Native/OptChat/optchat-chief/measure/chief_driver.py --scenario brain \
-  --out "$work/run" --bins "$work/bin" --turn-timeout 900 \
-  --engine-harness "$engine_harness" --engine-model "$model" --brain-base-url "$brain_url" ${fallback_flag[@]+"${fallback_flag[@]}"} \
-  --env "ANTHROPIC_BASE_URL=$claude_url" --env "ANTHROPIC_API_KEY=sk-ant-placeholder-the-router-signs" \
-  --env "CLAUDE_CONFIG_DIR=$work/home/.claude" --env "DISABLE_AUTOUPDATER=1" > "$work/driver.log" 2>&1 &
-driver_pid=$!
-wait "$driver_pid" || status=$?
-driver_pid=""
-grep -E '^\[chief .*\] BRAIN' "$work/driver.log" || true
-tail -5 "$work/driver.log"
-if ! grep -q "acpmux cleanup: .*no process holds its locks" "$work/driver.log"; then
-  echo "BRAIN acpmux cleanup not confirmed" >&2
-  status=1
-fi
+for n in $(seq 1 "$runs"); do
+  rs=0
+  python3 Native/OptChat/optchat-chief/measure/chief_driver.py --scenario brain \
+    --out "$work/run-$n" --bins "$work/bin" --turn-timeout 900 \
+    --engine-harness "$engine_harness" --engine-model "$model" --brain-base-url "$brain_url" ${fallback_flag[@]+"${fallback_flag[@]}"} \
+    --env "ANTHROPIC_BASE_URL=$claude_url" --env "ANTHROPIC_API_KEY=sk-ant-placeholder-the-router-signs" \
+    --env "CLAUDE_CONFIG_DIR=$work/home/.claude" --env "DISABLE_AUTOUPDATER=1" > "$work/driver-$n.log" 2>&1 &
+  driver_pid=$!
+  wait "$driver_pid" || rs=$?
+  driver_pid=""
+  echo "BRAIN-RUN $n of $runs: driver exit $rs"
+  grep -E '^\[chief .*\] BRAIN' "$work/driver-$n.log" | sed "s/^/run$n /" || true
+  [[ "$rs" == 0 ]] || status=1
+  if ! grep -q "acpmux cleanup: .*no process holds its locks" "$work/driver-$n.log"; then
+    echo "BRAIN acpmux cleanup not confirmed (run $n)" >&2
+    tail -5 "$work/driver-$n.log"
+    status=1
+  fi
+done
+# Pass rate per check over the runs (a check missing from a run's log counts as a failure).
+cat "$work"/driver-*.log | python3 -I -c '
+import re, sys
+runs = int(sys.argv[1]); seen = {}
+for line in sys.stdin:
+    m = re.search(r"BRAIN-PROOF (\w+)=(PASS|FAIL)", line)
+    if m: seen.setdefault(m.group(1), []).append(m.group(2) == "PASS")
+for k, v in seen.items():
+    print(f"BRAIN-PASSRATE {k}={sum(v)}/{runs}")
+' "$runs"
 if [[ -n "$responsive" ]]; then
   # The same engine through the responsiveness lane's harness: one round, a new scratch Chief.
   rs=0
