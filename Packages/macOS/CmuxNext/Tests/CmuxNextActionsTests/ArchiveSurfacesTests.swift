@@ -38,7 +38,8 @@ import Testing
         #expect(!more.items.contains { ActionRegistry.menuRun(of: $0)?.id == "workspace.toggleArchive" }, "Archive is still in More too")
     }
 
-    /// Archive adds no top-level row past the 12-row cap (`everyMenuKeepsAShortTopLevel`).
+    /// Archive adds no top-level row past the menu's cap (`everyMenuKeepsAShortTopLevel`): 12, and 13 for
+    /// the workspace row, whose top level also has Copy ▸ and now Archive above Close.
     @Test(arguments: actions.map(\.1))
     func theMenuKeepsAShortTopLevel(_ context: ActionMenuContext) {
         let rows = ContextMenuCatalog.shared.entries(for: context).compactMap { entry -> String? in
@@ -49,6 +50,7 @@ import Testing
             case .separator: nil
             }
         }
-        #expect(rows.count <= 12, "\(context) has \(rows.count) top-level rows: \(rows)")
+        let cap = context == .workspaceRow ? 13 : 12
+        #expect(rows.count <= cap, "\(context) has \(rows.count) top-level rows: \(rows)")
     }
 }
