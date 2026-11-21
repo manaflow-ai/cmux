@@ -661,8 +661,7 @@ class Wiring(unittest.TestCase):
 
     def test_status_reports_consume_live_capacity_without_a_routing_app(self):
         offered = 0
-        for workflow, name in (("pr-red-checks-comment.yml", "comment"),
-                               ("ci-guards.yml", "guard-status")):
+        for workflow, name in (("ci-guards.yml", "guard-status"),):
             with self.subTest(workflow=workflow):
                 workflow_jobs = jobs(workflow)
                 bootstrap = workflow_jobs.get("portable-placement")
@@ -688,8 +687,8 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(secret_names(bootstrap), set())
                 self.assertIn("CI_PORTABLE_LIGHT_JOBS_OFF != '1'", bootstrap["if"])
                 offered += len(placed.mini_jobs)
-        print(f"status reports offered an idle mini: {offered}/2")
-        self.assertEqual(offered, 2)
+        print(f"status reports offered an idle mini: {offered}/1")
+        self.assertEqual(offered, 1)
 
     PLACED = {"cmux-next.yml": {"checks": "linux_16"},
               "cmux-next-guards.yml": {"tooling-tests": "linux_4"}}
@@ -748,7 +747,9 @@ class Wiring(unittest.TestCase):
         workflow = jobs("cmux-tui-artifacts.yml")
         preflight = workflow["tree-preflight"]
         picker = next(step for step in preflight["steps"] if step.get("id") == "linux-placement")
-        self.assertEqual(picker["env"]["FLEET_LINUX"], "cmux-fleet-linux-x64")
+        # The persistent GCP build lane, vouched as Linux: cmux-fleet-linux-x64 had no runner on 2026-11-19.
+        self.assertEqual(picker["env"]["FLEET_LINUX"], "cmux-gcp-lane-build-x64")
+        self.assertEqual(picker["env"]["FLEET_LINUX_VOUCHED"], "1")
         self.assertEqual(picker["env"]["REQUIRE_LIVE_CAPACITY"], "1")
         daemon = single_runs_on(workflow["cmux-next-daemon-tests"])
         live = daemon.index("needs.tree-preflight.outputs.linux_runner")
@@ -943,9 +944,7 @@ class Wiring(unittest.TestCase):
 
     def test_new_light_workflows_place_status_jobs_before_hosted_overflow(self):
         expected = {
-            "pr-checks.yml": {"jobs": ("size", "ui-review", "split"), "fallback": "fromJSON(vars.RUNNER_POOLS).linux"},
-            "cmux-next-fast-gates.yml": {"jobs": ("resolve", "post"), "fallback": "fromJSON(vars.RUNNER_POOLS).linux"},
-            "web-validation.yml": {"jobs": ("web-validation",), "fallback": "fromJSON(vars.RUNNER_POOLS).linux"},
+            "cmux-next-fast-gates.yml": {"jobs": ("resolve", "receipt", "post"), "fallback": "fromJSON(vars.RUNNER_POOLS).linux"},
         }
         for workflow, spec in expected.items():
             with self.subTest(workflow=workflow):
@@ -999,9 +998,7 @@ class Wiring(unittest.TestCase):
 
     def test_portable_bootstraps_are_bounded_and_kill_switch_skips_the_job(self):
         expected = {
-            "pr-checks.yml": ("size", "ui-review", "split"),
-            "cmux-next-fast-gates.yml": ("resolve", "post"),
-            "web-validation.yml": ("web-validation",),
+            "cmux-next-fast-gates.yml": ("resolve", "receipt", "post"),
         }
         for workflow, consumers in expected.items():
             with self.subTest(workflow=workflow):
@@ -1009,8 +1006,6 @@ class Wiring(unittest.TestCase):
                 placement_job = workflow_jobs["portable-placement"]
                 placement_if = str(placement_job["if"])
                 self.assertIn("CI_PORTABLE_LIGHT_JOBS_OFF != '1'", placement_if)
-                if workflow == "web-validation.yml":
-                    self.assertIn("github.event_name != 'merge_group'", placement_if)
                 route = "\n".join(routes(placement_job, "portable-placement"))
                 # Blacksmith on every attempt: GitHub-hosted Ubuntu left these queued for hours (cmux#45735).
                 self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", route)
@@ -1025,11 +1020,12 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(placement_job["steps"][-1]["env"]["PORTABLE_ATTEMPT3_RESCUE"], "1")
                 for name in consumers:
                     condition = str(workflow_jobs[name]["if"])
-                    if name == "web-validation":
-                        self.assertEqual(condition, "always()")
+                    self.assertIn("!cancelled()", condition)
+                    if name == "receipt":
+                        self.assertIn("needs.resolve.result == 'success'", condition)
+                        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
                     else:
                         self.assertIn("always()", condition)
-                        self.assertIn("!cancelled()", condition)
 
     def test_other_portable_callers_do_not_opt_into_bot_attempt_three(self):
         for workflow in ("ci.yml", "cmux-next.yml"):
@@ -1037,9 +1033,9 @@ class Wiring(unittest.TestCase):
                 step = jobs(workflow)["portable-placement"]["steps"][-1]
                 self.assertNotIn("PORTABLE_ATTEMPT3_RESCUE", step.get("env", {}))
 
-    def test_merge_group_skips_placement_but_keeps_web_rollup(self):
+    def test_merge_group_keeps_web_rollup_without_placement(self):
         workflow_jobs = jobs("web-validation.yml")
-        self.assertIn("github.event_name != 'merge_group'", workflow_jobs["portable-placement"]["if"])
+        self.assertNotIn("portable-placement", workflow_jobs)
         self.assertEqual(workflow_jobs["web-validation"]["if"], "always()")
 
     def test_runner_state_bootstrap_does_not_fall_through_to_github_api(self):
@@ -1060,9 +1056,12 @@ class Wiring(unittest.TestCase):
         self.assertIsNone(queue)
 
     def test_placement_runs_the_trusted_base_copy(self):
-        for workflow in (*self.PLACED, "pr-checks.yml", "cmux-next-fast-gates.yml", "web-validation.yml"):
+        for workflow in (*self.PLACED, "cmux-next-fast-gates.yml"):
             with self.subTest(workflow=workflow):
-                checkout = jobs(workflow)["portable-placement"]["steps"][0]
+                # The first checkout (a pool job may first remove a reused workspace left sparse:
+                # tests/test_ci_reused_sparse_checkout.py).
+                checkout = next(step for step in jobs(workflow)["portable-placement"]["steps"]
+                                if str(step.get("uses", "")).startswith("actions/checkout@"))
                 self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.sha || github.sha }}")
 
 

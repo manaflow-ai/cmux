@@ -195,6 +195,7 @@ async fn serve(
         "authorization",
         format!("Bearer {}", cfg.key).parse().map_err(|_| Ended::Failed("bad key".into()))?,
     );
+    cmux_build_space::insert(req.headers_mut()).map_err(|e| Ended::Failed(e.to_string()))?;
     let (ws, _) =
         match tokio::time::timeout(Duration::from_secs(20), tokio_tungstenite::connect_async(req))
             .await
