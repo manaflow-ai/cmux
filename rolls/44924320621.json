@@ -1,0 +1,14 @@
+{
+  "production": {
+    "commit": "c3ddff9b3d04309ddefd8a656aa106f5b06b16f3",
+    "run": "https://github.com/manaflow-ai/cmux/actions/runs/44927632640",
+    "deploy": "success",
+    "product_smoke": "success",
+    "boot_image": "cloud-native-auto-ea3680dc-44924320621-1",
+    "smoke_done_at": "2026-11-21T17:10:56Z",
+    "green": true,
+    "superseded": false
+  },
+  "rolled_back": false,
+  "rollback": null
+}
