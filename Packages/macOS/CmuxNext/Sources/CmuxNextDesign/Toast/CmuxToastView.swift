@@ -217,6 +217,7 @@ public final class CmuxToastView: NSView {
             row.addArrangedSubview(button)
             if toast.action == nil { row.setCustomSpacing(Metrics.space5, after: text) }
         }
+        separateButtons(in: row, after: text)
         closeButton.target = self
         closeButton.action = #selector(close)
         for button in [secondaryButton, actionButton, neverShowButton, closeButton].compactMap({ $0 }) {
@@ -273,6 +274,33 @@ public final class CmuxToastView: NSView {
         }
         collapsed = [row.bottomAnchor.constraint(equalTo: content.bottomAnchor), heightAnchor.constraint(equalTo: row.heightAnchor)]
         NSLayoutConstraint.activate(collapsed)
+    }
+
+    /// The hairline between the message and the buttons (``CmuxToastButtonRow/divider``).
+    public private(set) var divider: NSView?
+
+    /// Sets the buttons apart from the message, as Debug Settings > Toasts > Buttons picks
+    /// (``CmuxToastTuning/buttonRow``): a hairline after the message, or a faint resting fill on the quiet
+    /// buttons. A toast with only close keeps it a gap after the message.
+    private func separateButtons(in row: NSStackView, after text: NSView) {
+        let quiet = [secondaryButton, neverShowButton].compactMap { $0 }
+        guard secondaryButton != nil || actionButton != nil || neverShowButton != nil else { return }
+        switch tuning.buttonRow {
+        case .plain:
+            break
+        case .divider:
+            let line = CmuxToastDivider(reduceTransparency: reduceTransparency)
+            guard let index = row.arrangedSubviews.firstIndex(of: text) else { return }
+            row.insertArrangedSubview(line, at: index + 1)
+            divider = line
+            // The same room on both sides of the line, to the message's last glyph and to the first title
+            // (a text button's title sits its padding in from its frame).
+            let gap = Metrics.space4
+            row.setCustomSpacing(gap, after: text)
+            row.setCustomSpacing(max(0, gap - CmuxToastButton.titlePadding), after: line)
+        case .chips:
+            for button in quiet { button.restsOnFill = true }
+        }
     }
 
     /// The glass the toast draws on: this Mac's material in the toast role's tone.
