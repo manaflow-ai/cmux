@@ -52,9 +52,26 @@ let package = Package(
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // The classic app's frozen copy of the Swift auth coordinator: the shared one is a thin
+        // client of the Rust reducer, which this app does not link.
+        .target(
+            name: "CmuxAuthRuntimeClassic",
+            dependencies: [
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
+                .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
+                .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .define("CMUX_DEV_AUTH", .when(configuration: .debug)),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
         .target(
             name: "CmuxiOSAuth",
             dependencies: [
+                "CmuxAuthRuntimeClassic",
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
                 .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
