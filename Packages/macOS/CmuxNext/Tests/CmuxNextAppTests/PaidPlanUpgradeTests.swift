@@ -61,6 +61,24 @@ import Testing
         #expect(calls.asked.isEmpty)
     }
 
+    /// A cmux NEXT plan opens cmux.com's checkout page for it (`api/billing/checkout?plan=`), signed in or out, never the
+    /// native checkout; a classic plan keeps the native one.
+    @Test func aNextPlanOpensItsWebCheckoutPage() async {
+        let web = URL(string: "https://cmux.com")!
+        for plan in ["next_plus", "next_pro", "next_max"] {
+            let calls = Calls()
+            var next = upgrade(calls) { plan, scheme in calls.asked.append((plan, scheme)); return StaticURL.pricing.url }
+            next.web = web
+            let page = URL(string: "https://cmux.com/api/billing/checkout?plan=\(plan)")!
+            #expect(await next.start(plan: plan, source: .cloudRefusal) == .checkout(page))
+            #expect(calls.opened == [page] && calls.asked.isEmpty)
+        }
+        #expect(PaidPlanUpgrade.plan("next_pro") == "next_pro" && PaidPlanUpgrade.plan("next_max") == "next_max")
+        #expect(PaidPlanUpgrade.plan("max") == "max" && PaidPlanUpgrade.plan("team") == "pro" && PaidPlanUpgrade.plan(nil) == "pro")
+        #expect(BillingStrings.planName("next_pro") == "cmux NEXT Pro" && BillingStrings.planName("next_max") == "cmux NEXT Max")
+        #expect(PaidPlanUpgrade.plan("next_plus") == "next_plus" && BillingStrings.planName("next_plus") == "cmux NEXT Plus")
+    }
+
     @Test func aLiveModeCheckoutIsNeverOpened() async {
         // Real charges stay off (BillingLivePolicy.shipped): a live session falls back to pricing.
         let calls = Calls()
@@ -118,5 +136,13 @@ import Testing
         #expect(o.observe(planID: "max", account: "u1") == PaidPlanOnboarding.Welcome(plan: "max"))
         o.markPending("pro")
         #expect(o.observe(planID: "pro", account: "u2") == PaidPlanOnboarding.Welcome(plan: "pro"))
+    }
+
+    /// The pricing card's Subscribe names its plan through the one upgrade action (`palette.pro.upgrade {plan}`): Max
+    /// asks Max's checkout, anything else Pro's.
+    @Test func theUpgradeActionTakesThePlanItNames() {
+        #expect(PaidPlanUpgrade.plan("max") == "max")
+        #expect(PaidPlanUpgrade.plan("pro") == "pro")
+        #expect(PaidPlanUpgrade.plan(nil) == "pro" && PaidPlanUpgrade.plan("team") == "pro")
     }
 }

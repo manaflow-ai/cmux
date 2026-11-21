@@ -5,6 +5,7 @@
 //! this boundary, so a relay or a TLS terminator is never an authority.
 
 mod dial;
+pub mod hedge;
 #[cfg(feature = "iroh-transport")]
 mod iroh;
 mod iroh_config;
@@ -49,8 +50,8 @@ pub use machine_pipe::{
     MACHINE_PIPE_METHOD, MachinePipeDialer, machine_pipe_reply, machine_pipe_request,
 };
 pub use relay::{
-    RelayClientConfig, RelayCredentialSource, RelayDaemonConfig, RelayDaemonRegistration,
-    RelayIncoming, RelayProvider, RelayTls, register_relay_daemon,
+    RegistrationState, RelayClientConfig, RelayCredentialSource, RelayDaemonConfig,
+    RelayDaemonRegistration, RelayIncoming, RelayProvider, RelayTls, register_relay_daemon,
     register_relay_daemon_with_credentials, register_relay_daemon_with_tls,
     spawn_relay_daemon_registration,
 };

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""session_real.py: ONE shared bench session of the size of the person who uses the app.
+"""session_real.py: ONE shared bench session of the size of a large session of real use.
 
-His session, read from his one session daemon on 2026-11-10: 826 workspaces, 858 panes, 1600 tabs,
+The size, read from one session daemon on 2026-11-10: 826 workspaces, 858 panes, 1600 tabs,
 798 terminals, 170 agents, 13 clients. Every bench owner uses this script (or the HOME it saved)
 for the `real` session arm; nobody writes a second "800" maker.
 
@@ -17,7 +17,7 @@ bench row talk about the same session. With pick(i, k, n) = "k of n, spread even
 
 PTY limit. macOS has `kern.tty.ptmx_max` PTYs for the whole machine (511 on the bench minis and
 on a default Mac), and the daemon keeps a reserve (PTY_RESERVE 64, pty_reclaim.rs). So 798 shells
-never run at one time, in his session neither: the daemon parks idle ones (`park-tabs`; the tab
+never run at one time, in a real session neither: the daemon parks idle ones (`park-tabs`; the tab
 stays, its shell starts again when its workspace is shown). `make` does the same on purpose:
 the agent terminals and `--live-shells` plain terminals keep a shell, the others are parked. It
 prints the split and the limit; it never makes fewer terminals than asked without an error.
@@ -28,7 +28,7 @@ box; a spinner line and a title at 10 Hz and one output line a second while it w
 its state through the product's own path, the hook helper every cmux-tui terminal exports
 (`$CMUX_TUI_HOOK claude <event>`). So the daemon's agent roster, the sidebar's agent marks and the
 restore rule ("a kept tab whose terminal ran an agent starts again at launch") all see an agent.
-`--agents-working` of them work (the default 8 is a guess of his usual state, written in each
+`--agents-working` of them work (the default 8 is a guess of the usual state, written in each
 result); the others wait at their prompt and print nothing.
 
 Commands (make, counts, agents, clients, measure and map take `--socket <daemon socket>` or
@@ -39,7 +39,7 @@ tagged DEV build; build and launch take `--app <bundle>`; save, install and unin
   agents   start the agent program in every agent terminal (after `make --no-agents`, or after a
            restore: a restored agent terminal has a new shell, or the real CLI that the product's
            "Resume Agents After Restart" started; that CLI is ended by its exact PIDs first)
-  clients  hold N more control connections open, as his 13 clients do, until killed
+  clients  hold N more control connections open, as the session's 13 clients do, until killed
   measure  memory of app + daemon + terminal hosts, process count, PTYs, idle CPU, main wakes/s
   map      the first map: 20 runs each of workspace switch, tab switch, new tab, split, workspace
            close on the app's own clocks (p50 / p95 / max)
@@ -1060,7 +1060,7 @@ def steady_clients(listed):
     """The clients of a `list-clients` reply that stay: not the asking connection, and either named (the app's
     connections and every bench client call `set-client-info`) or connected for STEADY_SECONDS or more. An agent's
     hook call is an unnamed connection for a moment (p50 0.3 s): it is in the daemon's list, and it is not one of
-    the person's clients."""
+    the session's own clients."""
     return [client for client in listed if isinstance(client, dict) and not client.get("self")
             and (client.get("name") or (client.get("connected_seconds") or 0) >= STEADY_SECONDS)]
 
@@ -2282,8 +2282,8 @@ def main():
 
     p = sub.add_parser("clients")
     target(p)
-    p.add_argument("--count", type=int, default=REAL["clients"] - 1, help="connections to hold (his 13 = the app + 12)")
-    p.add_argument("--total", type=int, default=0, help="hold as many as make the daemon's client list this long (his is 13)")
+    p.add_argument("--count", type=int, default=REAL["clients"] - 1, help="connections to hold (the session's 13 = the app + 12)")
+    p.add_argument("--total", type=int, default=0, help="hold as many as make the daemon's client list this long (the session's is 13)")
     p.add_argument("--seconds", type=float, default=0, help="0 = until killed")
     p.add_argument("--ready-file", help="write the read-back count here (JSON) when the connections are held")
     p.set_defaults(run=clients)

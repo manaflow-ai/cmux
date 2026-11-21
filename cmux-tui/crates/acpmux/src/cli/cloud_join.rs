@@ -31,7 +31,7 @@ use crate::machine_record::home_copy_state;
 pub(super) use crate::machine_record::load_at;
 pub use crate::machine_record::{
     CONSENT_REQUIRED, Consent, ConsentState, MachineCredential, SIGNED_IN_MACHINES,
-    require_consent, require_joined_consent,
+    require_consent, require_joined_consent, signed_in_machines_granted,
 };
 use crate::machine_record::{
     CREDENTIAL_FILE, CopyState, authority, consent_home, copied_here, copy_state, load, other_box,
@@ -167,7 +167,7 @@ fn origin(value: Option<String>) -> Result<String> {
 }
 
 fn local_name(name: Option<String>) -> String {
-    name.unwrap_or_else(crate::pairing::machine_name)
+    name.unwrap_or_else(crate::pairing::host_label)
 }
 
 fn save(record: &MachineCredential) -> Result<()> {
@@ -499,46 +499,19 @@ fn load_consent() -> Consent {
 
 /// Held until redeem and both local writes complete. A competing installer exits
 /// without redeeming; it can safely retry after this process finishes.
-#[cfg(unix)]
 pub(crate) fn join_lock() -> Result<HeldLock> {
     crate::config::private_state_dir(&state_dir())?;
     join_lock_at(&state_dir())
 }
 
 /// [`join_lock`] in acpmux home `home` (made private by the caller).
-#[cfg(unix)]
 fn join_lock_in(home: &std::path::Path) -> Result<HeldLock> {
     join_lock_at(home)
 }
 
-#[cfg(unix)]
 fn join_lock_at(dir: &std::path::Path) -> Result<HeldLock> {
     let file = crate::config::private_state_rw(&dir.join("machine-join.lock"))?;
-    #[cfg(unix)]
-    {
-        use std::os::fd::AsRawFd;
-        // SAFETY: this process owns the opened regular-file descriptor.
-        anyhow::ensure!(
-            unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0,
-            "another machine join is in progress; retry when it finishes"
-        );
-    }
-    Ok(HeldLock(file))
-}
-
-#[cfg(not(unix))]
-pub(crate) fn join_lock() -> Result<HeldLock> {
-    anyhow::bail!("machine join requires macOS or Linux")
-}
-
-#[cfg(not(unix))]
-fn join_lock_at(_: &std::path::Path) -> Result<HeldLock> {
-    anyhow::bail!("machine join requires macOS or Linux")
-}
-
-#[cfg(not(unix))]
-fn join_lock_in(_: &std::path::Path) -> Result<HeldLock> {
-    join_lock()
+    HeldLock::take(file, "another machine join is in progress; retry when it finishes")
 }
 
 pub(crate) fn credential_present() -> Result<bool> {
@@ -738,6 +711,13 @@ pub(crate) fn set_consent_for_person(surface: &str, granted: bool) -> Result<Con
     authority()?.set(surface, granted)
 }
 
+/// This machine's consent and the account it is joined as, read now (blocking file reads).
+pub fn signed_in_machines_granted_here() -> (bool, Option<String>) {
+    let account = machine_user_id();
+    let granted = signed_in_machines_granted(&consent_status_for(&json!({})), account.as_deref());
+    (granted, account)
+}
+
 /// `_acpmux/machine_consent_get`'s answer. With `{"use": "localComputerUse"}` (the app asking
 /// for its Computer Use helper, which serves only this Mac's own sessions), a requirement only
 /// sign-in joins made gates nothing ([`machine_consent::Authority::status_for`]); every other
@@ -782,6 +762,7 @@ pub(crate) fn hub_client(hub: &str, bearer: Option<&str>) -> Result<cmux_cloud_c
 pub(crate) fn http_client() -> Result<reqwest::Client> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     reqwest::Client::builder()
+        .default_headers(cmux_build_space::headers()?)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_secs(10))
         .build()
@@ -834,6 +815,43 @@ mod tests {
         super::save_at(home, &record).unwrap();
         crate::cli::mesh_node_key::load_or_create_at(home).unwrap();
         std::fs::read(home.join("node.wg.key")).unwrap()
+    }
+
+    /// Two VMs made from one image share a host name: each one joined under its own name
+    /// (`machine join --name`) is that name to its peers, so neither shadows the other on the
+    /// hub. A default join, a revoked or copied record, or a name no session name may be keeps
+    /// the host name.
+    #[test]
+    #[cfg(unix)]
+    fn a_machine_named_at_its_join_is_that_name_to_its_peers() {
+        let home = tempfile::tempdir().unwrap();
+        let named_at = |record: &super::MachineCredential, here: Option<&str>| {
+            super::save_at(home.path(), record).unwrap();
+            crate::machine_record::joined_name_at(home.path(), here)
+        };
+        assert_eq!(crate::machine_record::joined_name_at(home.path(), Some("fp")), None);
+        let record = super::MachineCredential {
+            credential: "cmm_x".into(),
+            name: "lane-7".into(),
+            host_fingerprint: Some("fp".into()),
+            named: true,
+            ..Default::default()
+        };
+        assert_eq!(named_at(&record, Some("fp")).as_deref(), Some("lane-7"));
+        assert_eq!(named_at(&record, None).as_deref(), Some("lane-7"), "no fingerprint here");
+        let default = super::MachineCredential { named: false, ..record.clone() };
+        assert_eq!(named_at(&default, Some("fp")), None, "took the host name");
+        let revoked = super::MachineCredential { revoked: true, ..record.clone() };
+        assert_eq!(named_at(&revoked, Some("fp")), None);
+        let cloned = super::MachineCredential { cloned: true, ..record.clone() };
+        assert_eq!(named_at(&cloned, Some("fp")), None);
+        assert_eq!(named_at(&record, Some("other-box")), None, "a copy on another box");
+        let odd = super::MachineCredential { name: "Lane 7".into(), ..record.clone() };
+        assert_eq!(named_at(&odd, Some("fp")), None, "not a session name");
+        // An older build's record has no `named`: the host name, as before.
+        let older: super::MachineCredential =
+            serde_json::from_str(r#"{"credential":"cmm_x","machine_id":"m","team_id":"t","name":"lane-7","hub_origin":"https://h","last_heartbeat":null,"revoked":false,"wgPublicKey":"k"}"#).unwrap();
+        assert!(!older.named);
     }
 
     /// The cmux link's Cloud tunnel runs only for a live join of this box: a sign-out's leave
@@ -1386,6 +1404,7 @@ mod tests {
             joined_by: None,
             capabilities: None,
             cloned_on: None,
+            named: false,
         };
         let identity = MachineIdentity::from_record(&record);
         let serialized = serde_json::to_string(&identity).unwrap();

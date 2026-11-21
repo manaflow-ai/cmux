@@ -55,4 +55,14 @@ extension LayoutModel {
         explicitReflowUntil = ProcessInfo.processInfo.systemUptime + Self.explicitReflowWindow
         return change.send(in: self) ? .equalized : .refused
     }
+
+    /// Equalizes `split` so every cell in its same-axis chain gets equal size. An explicit
+    /// equalize springs (`explicitReflowUntil`); the sizing that follows a split or a close moves
+    /// with that gesture instead.
+    public func equalizeSplit(_ split: SplitID) {
+        guard let tree = screens.lazy.compactMap({ $0.layout.tree(containing: split) }).first,
+              let ratio = tree.equalizedRatio(for: split) else { return }
+        explicitReflowUntil = ProcessInfo.processInfo.systemUptime + Self.explicitReflowWindow
+        setSplitRatio(split, ratio: ratio, transaction: .make(), phase: .ended)
+    }
 }

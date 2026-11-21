@@ -187,6 +187,11 @@ pub(super) struct Fixture {
     pub(super) prompt_refusal: Option<Value>,
     /// acpmux's Cloud mobile floor for a phone's start (agent_session_start_phone_tests.rs).
     pub(super) phone: Option<PhoneFloor>,
+    /// The attach page's session is a side chat of this chat (its `side` tag), as acpmux
+    /// summarizes one (agent_session_side_known.rs).
+    pub(super) side_of: Option<&'static str>,
+    /// acpmux refuses its `_acpmux/sessions` list.
+    pub(super) sessions_unreadable: bool,
     /// When set, `_acpmux/harnesses` answers this long after it is asked: a starting acpmux
     /// holds its catalog until its login shell read ends (`Hub::harnesses_reply`).
     pub(super) catalog_after: Option<Duration>,
@@ -345,6 +350,7 @@ fn serve(
                 Some(json!({}))
             }
             "_acpmux/kill" => Some(json!({})),
+            "_acpmux/prewarm" => Some(json!({"accepted": true})),
             "_acpmux/web_modes" if fixture.start_folder_trusted.is_some() => Some(json!({
                 "families": {"claude": ["default"]}, "refusedFamilies": [],
                 "session": {"family": "claude", "mode": "default"},
@@ -372,9 +378,13 @@ fn serve(
                     json!({"sessionId": SESSION, "seq": 1, "dir": "mux", "kind": "user_message", "msg": {}}),
                 ];
                 events.extend(fixture.page.iter().cloned());
+                let mut session = json!({"sessionId": SESSION, "name": "sub", "status": "running",
+                    "pending": [{"permissionId": "perm_attach", "options": []}]});
+                if let Some(chat) = fixture.side_of {
+                    session["tags"] = json!({"side": chat});
+                }
                 let mut page = json!({
-                    "session": {"sessionId": SESSION, "name": "sub", "status": "running",
-                                "pending": [{"permissionId": "perm_attach", "options": []}]},
+                    "session": session,
                     "events": events,
                     "hasMore": false,
                     "lastSeq": 1,
@@ -425,7 +435,21 @@ fn serve(
                     json!({"sessions": older, "nextCursor": "c1"})
                 })
             }
-            "_acpmux/sessions" => Some(machine_sessions()),
+            "_acpmux/sessions" => {
+                let mut list = machine_sessions();
+                // A side chat as acpmux lists it: its persisted `side` tag on the row.
+                if let Some(chat) = fixture.side_of
+                    && let Some(row) = list["sessions"]
+                        .as_array_mut()
+                        .and_then(|rows| rows.iter_mut().find(|row| row["sessionId"] == SESSION))
+                {
+                    row["tags"] = json!({"side": chat});
+                }
+                if fixture.sessions_unreadable {
+                    list = json!({FAKE_ERROR: "list.paced"});
+                }
+                Some(list)
+            }
             "_acpmux/info" => Some(json!({
                 "sessionId": params["sessionId"],
                 "transferBlocked": transfers.lock().unwrap().contains(
@@ -450,6 +474,8 @@ fn serve(
                 })
             }
             "_acpmux/permission_respond" | "_acpmux/view" => Some(json!({})),
+            // The owner's decision on a prompt held for them (agent-session-queue-*).
+            "_acpmux/queue_approve" | "_acpmux/queue_decline" => Some(json!({"ok": true})),
             // The media reader (agent_session_media_tests.rs): one video, [`FAKE_VIDEO`].
             "_acpmux/media_open" | "_acpmux/media_range" => Some(media_reply(&frame)),
             // A fork through turn 7 makes a copy acpmux then refuses to tag (side chat tests).
@@ -493,6 +519,10 @@ fn serve(
             "_acpmux/agent_login/finish" => Some(json!({"signedIn": true, "restarted": true})),
             "_acpmux/agent_login/api_key" => Some(json!({"saved": true, "restarted": true})),
             "_acpmux/agent_login/cancel" => Some(json!({})),
+            // The owner's refreshed credential (agent_session_credentials_tests.rs).
+            "agent/credentials.update" => {
+                Some(json!({"sessionId": params["sessionId"], "restart": "now"}))
+            }
             // The agent answers its whole option list, the value just set included.
             "session/set_config_option" => Some(json!({"configOptions": [{
                 "id": params["configId"], "currentValue": params["value"]}]})),
@@ -1041,6 +1071,45 @@ fn attach_takes_the_agent_panes_whole_kind_list() {
     let sent = fake.frame();
     assert_eq!(sent["method"], json!("_acpmux/attach"));
     assert_eq!(sent["params"]["kinds"], kinds);
+}
+
+/// hq#14027: the agent pane's page budget reaches acpmux as `maxBytes`, so a Cloud chat's open
+/// page is the 128 KiB a local one is, not acpmux's 1 MiB default. Zero is a bad request, a
+/// budget past this daemon's own page cap is held to it, and a page that names none still goes
+/// without one (acpmux's default).
+#[test]
+fn attach_and_events_pass_the_pages_byte_budget() {
+    let fake = FakeAcpmux::start("page-bytes");
+    let mux = mux_with(&fake, "asa-page-bytes");
+    let identity = run(&mux, json!({"cmd":"identify"}));
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == agent_session_attach::AGENT_SESSION_PAGE_BYTES_CAPABILITY)
+    );
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "page-bytes");
+    let refused = client.request(json!({"cmd":"agent-session-attach","surface":surface,
+                                        "max_bytes":0}));
+    assert_code(&refused, "agent_session.bad_request");
+    let reply = client.request(json!({"cmd":"agent-session-attach","surface":surface,
+                                      "limit":400,"max_bytes":131072}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/attach"));
+    assert_eq!(sent["params"]["maxBytes"], json!(131072));
+    let reply = client.request(json!({"cmd":"agent-session-events","surface":surface,
+                                      "before_seq":9,"max_bytes":u64::MAX}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/events"));
+    assert_eq!(sent["params"]["maxBytes"], json!(agent_session_attach::MAX_PAGE_BYTES as u64));
+    let reply = client.request(json!({"cmd":"agent-session-events","surface":surface,
+                                      "before_seq":9}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    assert!(fake.frame()["params"].get("maxBytes").is_none());
 }
 
 // MARK: Streaming

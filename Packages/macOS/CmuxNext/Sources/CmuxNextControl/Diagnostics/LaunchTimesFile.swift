@@ -6,7 +6,9 @@ import os
 
 /// Writes this launch's ``LaunchTimesRecord`` once, off the main thread (CMUX-571). The app's composition
 /// root makes one per launch and calls ``write(marks:)`` when the first window frame and Home's reveal are
-/// both marked; the write also logs the line at `.notice`, which a release build keeps.
+/// both marked; the write also logs the line at `.notice`, which a release build keeps. From its making it
+/// listens to the launch marks (its `listen`) and writes the row again, once, when the prior
+/// chat's marks are in (``heard(_:marks:)``, CMUX-119).
 public nonisolated struct LaunchTimesRecorder: Sendable {
     /// When this process started (`sysctl` `KERN_PROC_PID`): the launch marks' zero.
     public static let processStart: Date = {
@@ -23,30 +25,103 @@ public nonisolated struct LaunchTimesRecorder: Sendable {
     let version: String, build: String, commit: String?
     /// Whether the updater pre-warmed `build` before this launch (consumes its marker). Blocking.
     let prewarmed: @Sendable (_ build: String) -> Bool
+    /// The one rewrite of this launch's row with the prior chat's columns (CMUX-119), and the lock its file writes take.
+    let priorChat = LaunchPriorChatWatch()
 
-    /// - Parameter info: the bundle's Info.plist (`CFBundleShortVersionString`, `CFBundleVersion`, `CMUXCommit`).
-    public init(file: LaunchTimesFile, work: BackgroundWork, info: [String: Any], prewarmed: @escaping @Sendable (_ build: String) -> Bool) {
+    /// - Parameters:
+    ///   - info: the bundle's Info.plist (`CFBundleShortVersionString`, `CFBundleVersion`, `CMUXCommit`).
+    ///   - listen: registers a listener for the names of the launch marks to come (the agent pane's, which the
+    ///     prior chat's are); `marks` reads every launch mark so far.
+    public init(file: LaunchTimesFile, work: BackgroundWork, info: [String: Any],
+                listen: (@escaping @Sendable (String) -> Void) -> Void = { _ in }, marks: @escaping @Sendable () -> [String: Double] = { [:] },
+                prewarmed: @escaping @Sendable (_ build: String) -> Bool) {
         self.file = file
         self.work = work
         version = info["CFBundleShortVersionString"] as? String ?? ""
         build = info["CFBundleVersion"] as? String ?? ""
         commit = info["CMUXCommit"] as? String
         self.prewarmed = prewarmed
+        let recorder = self
+        listen { recorder.heard($0, marks: marks) }
     }
 
-    /// Appends the record of a launch with `marks` (milliseconds since ``processStart``) on a files lane.
-    public func write(marks: [String: Double]) {
+    /// Writes the record of this launch with `marks` (milliseconds since ``processStart``) on a files lane: appends
+    /// it, or rewrites this launch's row when it is written already (``LaunchTimesFile/append(_:rewritingLast:)``).
+    /// `workspaces`: the workspaces the launch restored; nil on the prior chat's rewrite, which keeps the row's.
+    public func write(marks: [String: Double], workspaces: Int? = nil) {
         let recorder = self
         work.post(.bestEffort, mayBlock: .files) {
-            let record = LaunchTimesRecord(marks: marks, startedAt: Self.processStart, version: recorder.version, build: recorder.build,
-                                           commit: recorder.commit, prewarmed: recorder.prewarmed(recorder.build))
             let log = Logger(subsystem: "com.cmuxterm.app.next", category: "launch")
             do {
-                let line = try recorder.file.append(record)
+                let line = try recorder.priorChat.writing(prewarmed: { recorder.prewarmed(recorder.build) }) { prewarmed, written in
+                    try recorder.file.append(LaunchTimesRecord(marks: marks, startedAt: Self.processStart, version: recorder.version,
+                                                               build: recorder.build, commit: recorder.commit, prewarmed: prewarmed,
+                                                               workspaces: workspaces),
+                                             rewritingLast: written)
+                }
                 log.notice("launch-times \(line, privacy: .public)")
             } catch {
                 log.error("launch-times not written: \(String(describing: error), privacy: .public)")
             }
+        }
+    }
+
+    /// Hears launch mark `name` (its `listen`): on the mark that completes the prior chat's
+    /// (``LaunchPriorChat/marks``) when the restored front tab is a chat, writes this launch's row again with
+    /// them, once. It never waits on Home's reveal: a relaunch into a chat workspace never shows Home.
+    public func heard(_ name: String, marks: () -> [String: Double]) {
+        if let marks = priorChat.complete(after: name, marks: marks) { write(marks: marks) }
+    }
+}
+
+/// The prior chat's launch columns (CMUX-119), on the launch marks' clock. Leo, 2026-11-16: "when i
+/// restart/re-launch... im expecting my prior workspace and the probable agent chat session that i had
+/// running. so THAT's the importtnt one". The marks are the ones the quit-reopen harness reads
+/// (scripts/ci/quit_gamut_check.py): `agent_pane.painted`, the chat's page drawn with its recent messages, and
+/// `agent_pane.transport_open`, its stream connected; ``frontMark`` says the chat was the tab in front.
+public nonisolated struct LaunchPriorChat {
+    public nonisolated init() {}
+    /// An agent chat (not a new tab's page) went on screen before the launch's pane region was ready: the
+    /// restored front tab is a chat (`AgentPaneView.viewDidMoveToWindow`).
+    public static let frontMark = "launch.front_chat_shown"
+    /// The marks both columns need.
+    public static let marks: Set<String> = [frontMark, "agent_pane.painted", "agent_pane.transport_open"]
+
+    /// (the chat in front and drawn, the same chat live: drawn and its stream open); nil unless every one of
+    /// ``marks`` is in `marks`.
+    public static func times(_ marks: [String: Double]) -> (painted: Double, live: Double)? {
+        guard let front = marks[frontMark], let painted = marks["agent_pane.painted"],
+              let open = marks["agent_pane.transport_open"] else { return nil }
+        let shown = max(front, painted)
+        return (shown, max(shown, open))
+    }
+}
+
+/// The once of a launch's prior-chat rewrite, and the lock that keeps its row's writes one at a time.
+public nonisolated final class LaunchPriorChatWatch: Sendable {
+    private let claimed = Mutex(false)
+    /// Held by every write of the row: the build's pre-warm answer, read on the first write, and whether the row is written.
+    private let files = Mutex<(prewarmed: Bool?, written: Bool)>((nil, false))
+
+    public init() {}
+
+    /// `marks()` when `name` is one of ``LaunchPriorChat/marks`` and they are all in, the first time only; nil otherwise.
+    public func complete(after name: String, marks: () -> [String: Double]) -> [String: Double]? {
+        guard LaunchPriorChat.marks.contains(name), !claimed.withLock({ $0 }) else { return nil }
+        let marks = marks()
+        guard LaunchPriorChat.times(marks) != nil, claimed.withLock({ claimed in defer { claimed = true }; return !claimed }) else { return nil }
+        return marks
+    }
+
+    /// Runs `write` alone, so the first write and the rewrite never race on the file, with whether the build was
+    /// pre-warmed (`prewarmed` is asked on the first write only: it consumes its marker) and whether the row is written.
+    func writing(prewarmed: () -> Bool, _ write: (_ prewarmed: Bool, _ written: Bool) throws -> String) throws -> String {
+        try files.withLock { state in
+            let warmed = state.prewarmed ?? prewarmed()
+            state.prewarmed = warmed
+            let line = try write(warmed, state.written)
+            state.written = true
+            return line
         }
     }
 }
@@ -71,27 +146,57 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
     public var mainMs: Double?
     /// Process start to the first window frame committed (`first_window_frame_committed`).
     public var firstWindowFrameMs: Double?
-    /// Process start to Home's first page (`home.first_page`); nil when Home showed by its deadline first.
+    /// Process start to Home's first page on screen: its page in its dock, drawn from its saved state
+    /// (`home.saved_page_shown`), else the Chief's first page (`home.first_page`, classic Home); nil when
+    /// Home showed by its deadline first.
     public var homeFirstPageMs: Double?
     /// What showed Home: `mark` (its first page came) or `deadline` (``LaunchReveal``'s deadline passed first).
     public var homeRevealedBy: String?
+    /// Process start to the window taking keys (`window_usable`): Home's message field has the keyboard in the key
+    /// window. Nil when it had not by the time the record was written (the keyboard went elsewhere, no Home).
+    public var windowUsableMs: Double?
+    /// Process start to the first live output of a shell this launch (`first_shell_live`), when one came before the record.
+    public var firstShellLiveMs: Double?
+    /// The launch found no launch snapshot (`launch.no_snapshot`): nothing saved to show, a fresh install's launch.
+    /// Nil in records written before this field.
+    public var noSnapshot: Bool?
+    /// Process start to the restored front tab's agent chat on screen, drawn with its recent messages
+    /// (`agent_pane.painted`); nil when the front tab is not a chat or it has not drawn yet (``LaunchPriorChat``).
+    public var priorChatPaintedMs: Double?
+    /// Process start to that chat live too: drawn and its stream connected (`agent_pane.transport_open`).
+    public var priorChatLiveMs: Double?
     /// The updater pre-warmed this build before this launch (`StagedUpdatePrewarm`): this is the first
     /// launch of a build the running app ran once while the update waited.
     public var prewarmed: Bool
     /// The launch before this one (in the file) was another build or there was none: the first launch of
     /// this bundle's build, so likely the first exec of its files.
     public var firstLaunchOfBuild: Bool
+    /// Process start to each of ``phaseMarks`` this launch reached, by mark name; nil in a row written before
+    /// it. A regression names its phase from the file alone (2026-11-16: main to first frame, 650 to 1900 ms).
+    public var phases: [String: Double]?
+    /// Process start to each of the launch's stages this launch reached (``LaunchStages``), by stage name: the
+    /// per-stage startup times (startup-tti). Nil in a row written before it.
+    public var stages: [String: Double]?
+    /// `cold`: the first launch of this build's files, not pre-warmed; `warm`: any other. Set by
+    /// ``LaunchTimesFile/append(_:rewritingLast:)``; nil in a row written before it.
+    public var launchKind: String?
+    /// The workspaces the launch restored; nil when the launch did not say.
+    public var workspaces: Int?
 
     enum CodingKeys: String, CodingKey {
         case startedAt = "started_at", version, build, commit
         case preMainMs = "pre_main_ms", mainMs = "main_ms", firstWindowFrameMs = "first_window_frame_ms"
         case homeFirstPageMs = "home_first_page_ms", homeRevealedBy = "home_revealed_by"
-        case prewarmed, firstLaunchOfBuild = "first_launch_of_build"
+        case windowUsableMs = "window_usable_ms", firstShellLiveMs = "first_shell_live_ms", noSnapshot = "no_snapshot"
+        case priorChatPaintedMs = "prior_chat_painted_ms", priorChatLiveMs = "prior_chat_live_ms"
+        case prewarmed, firstLaunchOfBuild = "first_launch_of_build", phases
+        case stages, launchKind = "launch_kind", workspaces
     }
 
     /// The record of a launch whose marks are `marks` (name to milliseconds since process start).
     /// ``firstLaunchOfBuild`` is set by ``LaunchTimesFile/append(_:)``, which knows the launch before.
-    public init(marks: [String: Double], startedAt: Date, version: String, build: String, commit: String?, prewarmed: Bool) {
+    public init(marks: [String: Double], startedAt: Date, version: String, build: String, commit: String?, prewarmed: Bool,
+                workspaces: Int? = nil) {
         func round(_ ms: Double?) -> Double? { ms.map { ($0 * 10).rounded() / 10 } }
         self.startedAt = startedAt.formatted(.iso8601)
         self.version = version
@@ -100,14 +205,73 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
         preMainMs = round(marks["main_start"])
         firstWindowFrameMs = round(marks["first_window_frame_committed"])
         if let main = marks["main_start"], let frame = marks["first_window_frame_committed"] { mainMs = round(frame - main) }
-        homeFirstPageMs = round(marks["home.first_page"])
+        homeFirstPageMs = round(marks["home.saved_page_shown"] ?? marks["home.first_page"])
         if marks["reveal.home"] != nil { homeRevealedBy = marks["reveal.home.by_deadline"] != nil ? "deadline" : "mark" }
+        windowUsableMs = round(marks["window_usable"])
+        firstShellLiveMs = round(marks["first_shell_live"])
+        noSnapshot = marks["launch.no_snapshot"] != nil
+        if let chat = LaunchPriorChat.times(marks) { (priorChatPaintedMs, priorChatLiveMs) = (round(chat.painted), round(chat.live)) }
+        let phases = marks.filter { Self.phaseMarks.contains($0.key) }.mapValues { ($0 * 10).rounded() / 10 }
+        self.phases = phases.isEmpty ? nil : phases
+        let stages = LaunchStages.spans(marks).mapValues { ($0 * 10).rounded() / 10 }
+        self.stages = stages.isEmpty ? nil : stages
+        self.workspaces = workspaces
         self.prewarmed = prewarmed
         firstLaunchOfBuild = true
     }
 
     /// The marks the record waits for before it is written: the first window frame and Home's reveal.
     public static let awaitedMarks = ["first_window_frame_committed", "reveal.home"]
+
+    /// The launch marks a row keeps under ``phases``, in launch order (`cmux app launch-times --phases`).
+    /// Every launch mark a stage splits into is here, so a stage's regression names its step from the file alone,
+    /// outside a harness's marks pipe too (startup-tti, 2026-11-21).
+    public static let phaseMarks = [
+        "main.warmup_started", "main.nsapp", "main.run", "app.did_finish_launching_entry", "app.launch_snapshot_awaited",
+        "cloud_env.start", "cloud_env.cli_exited", "cloud_env.awaited",
+        "did_finish_launching_start", "dfl.settings_read", "dfl.theme", "dfl.services", "dfl.bind", "dfl.settings", "dfl.menu",
+        "daemon.prepare_start", "daemon.binary_resolved", "daemon.prepare_end", "daemon.socket_connected", "daemon_connected",
+        "dfl.daemon_cloud_updater", "dfl.first_window_hooks", "dfl.home_history",
+        "launch_snapshot_applied", "launch_snapshot_shown", "window.make_start", "window.init_done", "window.ordered_front",
+        "dfl.windows", "did_finish_launching_end", "window.restore_wait_start", "window.restore_wait_end",
+        "frame.commit_start", "daemon_snapshot_loaded", "connecting_view_shown", "connecting_view_left", "workspace_content_shown",
+        "sidebar_rows_shown", "first_window_flushed", "agent_pane.launch_image_shown",
+        "first_terminal_surface_created", "first_terminal_content", "first_terminal_content_applied", "first_terminal_frame",
+        "cef.initialize_start", "chromium_page.make_start", "chromium_page.browser_created", "home.page_host_made",
+        "cef.ready", "agent_pane.view_created", "agent_pane.transport_open",
+        "first_key_down", "terminal_input_accepted", "terminal_echo", "reveal.sidebar", "reveal.home",
+    ]
+}
+
+/// The stages of a launch (startup-tti), each the time from process start (`sysctl` `p_starttime`, the launch
+/// marks' clock) to the earliest of its marks this launch reached. Leo, 2026-11-21: "you can build instrumentation if
+/// you havent already to properly measure each part of startup times." The launch harnesses compute the same stages
+/// from the same marks (scripts/ci/launch_stages.py, scripts/measure/launch-ready.swift); a test keeps the three
+/// tables equal.
+public nonisolated struct LaunchStages {
+    public nonisolated init() {}
+    /// (stage, its marks), in launch order. A stage is the earliest of its marks that came.
+    public static let table: [(stage: String, marks: [String])] = [
+        ("premain", ["main_start"]), // exec, dyld, static initializers
+        ("did_finish_launching", ["did_finish_launching_start"]), // main to the app delegate
+        ("daemon_connected", ["daemon_connected"]),
+        ("first_window_shown", ["launch_snapshot_shown", "first_window_flushed", "dfl.windows"]),
+        ("first_frame", ["first_window_frame_committed"]),
+        ("webview_ready", ["cef.ready"]),
+        ("first_chat_paint", ["agent_pane.painted", "agent_pane.newtab_painted", "home.saved_page_shown", "home.first_page"]),
+        // A terminal echoed a typed key, a chat composer drew one, or Home's composer has the keyboard in the key window.
+        ("first_interaction", ["terminal_echo", "agent_pane.input_echoed", "window_usable"]),
+    ]
+
+    /// Stage name to ms from process start, for each stage one of whose marks is in `marks`.
+    public static func spans(_ marks: [String: Double]) -> [String: Double] {
+        var out: [String: Double] = [:]
+        for (stage, names) in table {
+            let reached = marks.filter { names.contains($0.key) && $0.value.isFinite && $0.value >= 0 }.values
+            if let first = reached.min() { out[stage] = first }
+        }
+        return out
+    }
 }
 
 /// `~/Library/Application Support/<bundle id>/launch-times.jsonl`: one ``LaunchTimesRecord`` per
@@ -152,14 +316,23 @@ public nonisolated struct LaunchTimesFile: Sendable {
     }
 
     /// Appends `record`, keeping the last ``capacity`` lines. Sets its ``LaunchTimesRecord/firstLaunchOfBuild``
-    /// from the launch before. Returns the line written.
+    /// from the launch before. With `rewritingLast`, a last line of the same launch (start and build) is replaced
+    /// instead, keeping the prior chat's columns it has and `record` lacks. Returns the line written.
     @discardableResult
-    public func append(_ record: LaunchTimesRecord) throws -> String {
+    public func append(_ record: LaunchTimesRecord, rewritingLast: Bool = false) throws -> String {
         var record = record
-        let earlier = lines()
+        var earlier = lines()
+        if rewritingLast, let last = earlier.last.flatMap({ try? JSONDecoder().decode(LaunchTimesRecord.self, from: Data($0.utf8)) }),
+           last.startedAt == record.startedAt, last.build == record.build, last.commit == record.commit {
+            earlier.removeLast()
+            record.priorChatPaintedMs = record.priorChatPaintedMs ?? last.priorChatPaintedMs
+            record.priorChatLiveMs = record.priorChatLiveMs ?? last.priorChatLiveMs
+            record.workspaces = record.workspaces ?? last.workspaces
+        }
         if let last = earlier.last.flatMap({ try? JSONDecoder().decode(LaunchTimesRecord.self, from: Data($0.utf8)) }) {
             record.firstLaunchOfBuild = last.version != record.version || last.build != record.build || last.commit != record.commit
         }
+        record.launchKind = record.firstLaunchOfBuild && !record.prewarmed ? "cold" : "warm"
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let line = String(decoding: try encoder.encode(record), as: UTF8.self)

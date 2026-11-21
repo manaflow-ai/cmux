@@ -55,6 +55,7 @@ pub(crate) struct MoveArgs {
     pub host: String,
     pub all_idle: bool,
     pub interrupt: bool,
+    /// `--after-turn`: a running turn ends on its own first; the chat moves at its end.
     pub after_turn: bool,
     pub leave_dirty: bool,
     /// `--carry-changes`: the checkout's uncommitted work goes with the chat
@@ -315,16 +316,8 @@ async fn move_steps(
 ) -> Result<()> {
     let id = resolve_id(src, key).await?;
     o.session = id.clone();
-    let mut info = src.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await?;
     o.preflight.running = plan::running(&info);
-    if args.after_turn && !args.dry_run && o.preflight.running {
-        // A move already in progress or committed never becomes a deferred move.
-        if let Some(why) = plan::refusal(&info, true) {
-            bail!("{why}");
-        }
-        info = preflight::after_turn(src, &id, &info).await?;
-        o.preflight.running = plan::running(&info);
-    }
     o.name = info.get("name").and_then(Value::as_str).unwrap_or(&id).to_owned();
     if info.get("peer").is_some_and(|p| !p.is_null()) {
         bail!(
@@ -350,8 +343,11 @@ async fn move_steps(
     };
     let checkout = checkout_unless_named(&cwd, args, source).await?;
     o.preflight.dirty = Some(checkout.as_ref().is_some_and(|c| c.dirty));
-    if let Some(why) = plan::refusal(&info, args.interrupt) {
-        o.error_code = preflight::session_refusal_code(&info, args.interrupt);
+    // --after-turn defers the move to the turn's end (`transfer_begin`), so a running turn is
+    // no refusal with it either.
+    let proceed = args.interrupt || args.after_turn;
+    if let Some(why) = plan::refusal(&info, proceed) {
+        o.error_code = preflight::session_refusal_code(&info, proceed);
         bail!("{why}");
     }
     let home = match source {
@@ -420,7 +416,8 @@ async fn move_steps(
         }
         Source::Peer { .. } => None,
     };
-    let begun = super::transfer::begin_move(src, &id, watch, args.interrupt).await?;
+    let begun =
+        super::transfer::begin_move(src, &id, watch, (args.interrupt, args.after_turn)).await?;
     let prepared = prepare(&cwd, &home, &target, &remote, args, source, o).await;
     let (record, forward, dst, dst_init) = match prepared {
         Ok(p) => p,

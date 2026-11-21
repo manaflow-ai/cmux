@@ -30,15 +30,25 @@ public struct AgentTask: Hashable, Sendable {
     public var launch: TaskLaunch
     /// The agent's family (`claude`, `codex`): its CLI, for a terminal launch.
     public var family: String?
+    /// The effort level, or nil for the model's default.
+    public var effort: String?
+    /// The mode the chat starts in, or nil for the Mac's start mode.
+    public var mode: String?
+    /// The agent's other options, by option id.
+    public var options: [String: String]
 
     public init(prompt: String, images: [TaskImage] = [], files: [TaskFile] = [], model: String? = nil,
-                launch: TaskLaunch = .chat, family: String? = nil) {
+                launch: TaskLaunch = .chat, family: String? = nil, effort: String? = nil, mode: String? = nil,
+                options: [String: String] = [:]) {
         self.prompt = prompt
         self.images = images
         self.files = files
         self.model = model
         self.launch = launch
         self.family = family
+        self.effort = effort
+        self.mode = mode
+        self.options = options
     }
 
     /// The command a terminal launch types into the new workspace's shell (zsh or bash, the
@@ -55,10 +65,18 @@ public struct AgentTask: Hashable, Sendable {
         }
         let quoted = Self.ansiQuoted(text)
         let model = model.flatMap { $0.isEmpty || $0 == "default" ? nil : $0 }.map(Self.ansiQuoted)
+        let modelFlag = model.map { " --model=\($0)" } ?? ""
         let command: String
         switch family {
-        case "claude": command = "claude" + (model.map { " --model=\($0)" } ?? "") + " -- " + quoted
-        case "codex": command = "codex" + (model.map { " --model=\($0)" } ?? "") + " -- " + quoted
+        case "claude":
+            // The mode and effort as Claude Code's own flags.
+            let modeFlag = mode.map { " --permission-mode=\(Self.ansiQuoted($0))" } ?? ""
+            let effortFlag = effort.map { " --effort=\(Self.ansiQuoted($0))" } ?? ""
+            command = "claude" + modelFlag + effortFlag + modeFlag + " -- " + quoted
+        case "codex":
+            // The effort as Codex's config override (`-c key=value`).
+            let effortFlag = effort.map { " -c " + Self.ansiQuoted("model_reasoning_effort=\($0)") } ?? ""
+            command = "codex" + modelFlag + effortFlag + " -- " + quoted
         default: return nil
         }
         guard let folder else { return command + "\n" }
@@ -139,13 +157,23 @@ public struct TaskAgentPick: Hashable, Sendable, Identifiable, Codable {
     public var name: String?
     /// The agent's family (`claude`, `codex`): its CLI when the task opens in a terminal.
     public var family: String?
+    /// The effort level, or nil for the model's own default (as the Mac lists them).
+    public var effort: String?
+    /// The mode the chat starts in (one the Mac lets a phone start), or nil for the first.
+    public var mode: String?
+    /// The agent's other options (`fast-mode: on`), by option id; nil or empty: its defaults.
+    public var options: [String: String]?
     public var id: String { harness }
 
-    public init(harness: String, model: String? = nil, name: String? = nil, family: String? = nil) {
+    public init(harness: String, model: String? = nil, name: String? = nil, family: String? = nil, effort: String? = nil,
+                mode: String? = nil, options: [String: String]? = nil) {
         self.harness = harness
         self.model = model
         self.name = name
         self.family = family
+        self.effort = effort
+        self.mode = mode
+        self.options = options
     }
 }
 
@@ -341,7 +369,8 @@ extension WorkspaceCreator {
             let start: NewWorkspaceStart = draft.launch == .terminal ? .terminal : .agent(pick.harness)
             let request = NewWorkspaceRequest(macID: mac.id, directory: folder, start: start,
                                               task: AgentTask(prompt: draft.trimmedPrompt, images: draft.images, files: draft.files,
-                                                              model: pick.model, launch: draft.launch, family: pick.family))
+                                                              model: pick.model, launch: draft.launch, family: pick.family,
+                                                              effort: pick.effort, mode: pick.mode, options: pick.options ?? [:]))
             // The agent first: a long task title truncates, and rows of one task differ only by agent.
             let base = picks.count > 1 ? "\(pick.name ?? Self.agentTitle(pick.harness)) · \(draft.title)" : draft.title
             let placeholder = Self.taskPlaceholder(for: request, title: Self.uniqueTitle(base, existing: titles), task: draft.title)
@@ -357,8 +386,9 @@ extension WorkspaceCreator {
         // an app kill, a kept copy could not tell which agents already have the task, and one
         // Start would run it twice (review 2026-11-14). A refusal saves it again at once.
         taskDrafts.delete([draft.id])
-        rememberTaskLaunch(draft.launch)
-        taskDraft = TaskDraft(picks: draft.picks, macID: draft.macID, directory: draft.directory, launch: draft.launch)
+        rememberAgentSettings(picks)
+        taskDraft = TaskDraft(picks: draft.picks, macID: mac.id, directory: folder, launch: draft.launch)
+        rememberTaskSetup()
         taskRefusal = nil
         restoredTask = nil
         return made
@@ -461,8 +491,8 @@ extension WorkspaceCreator {
     /// The composer's next task starts empty, with the same agents and place.
     public func leaveTaskComposer(keep: Bool) {
         if keep { saveTaskDraft() } else { taskDrafts.delete([taskDraft.id]) }
-        rememberTaskLaunch(taskDraft.launch)
         taskDraft = TaskDraft(picks: taskDraft.picks, macID: taskDraft.macID, directory: taskDraft.directory, launch: taskDraft.launch)
+        rememberTaskSetup()
         taskRefusal = nil
         restoredTask = nil
     }
@@ -486,10 +516,88 @@ extension WorkspaceCreator {
     }
 
     static let taskLaunchKey = "cmuxMobile.newTask.launch"
+    static let taskSetupKey = "cmuxMobile.newTask.setup"
+
+    /// The composer's setup as it is now: its agents, Mac, folder and Chat or Terminal (each
+    /// agent's model, effort, mode and options are kept per agent, `rememberAgentSettings`).
+    struct TaskSetup: Codable {
+        var picks: [TaskAgentPick]
+        var macID: String?
+        var directory: String?
+    }
+
+    /// Keeps the composer's setup for the next task, also after the app quits: the next task
+    /// starts with the same agents, Mac, folder and Chat or Terminal.
+    func rememberTaskSetup() {
+        rememberTaskLaunch(taskDraft.launch)
+        let setup = TaskSetup(picks: taskDraft.picks.map { TaskAgentPick(harness: $0.harness, name: $0.name, family: $0.family) },
+                              macID: taskDraft.macID, directory: taskDraft.directory)
+        defaults.set(try? JSONEncoder().encode(setup), forKey: Self.taskSetupKey)
+    }
+
+    /// The last setup (`rememberTaskSetup`), into an empty composer at launch.
+    func restoreTaskSetup() {
+        if let raw = defaults.string(forKey: Self.taskLaunchKey), let launch = TaskLaunch(rawValue: raw) { taskDraft.launch = launch }
+        guard let data = defaults.data(forKey: Self.taskSetupKey),
+              let setup = try? JSONDecoder().decode(TaskSetup.self, from: data) else { return }
+        taskDraft.picks = setup.picks
+        taskDraft.macID = setup.macID
+        taskDraft.directory = setup.directory
+    }
 
     /// Keeps where New Task opens for the next launch of the app.
     func rememberTaskLaunch(_ launch: TaskLaunch) {
         defaults.set(launch.rawValue, forKey: Self.taskLaunchKey)
+    }
+
+    static let agentSettingsKey = "cmuxMobile.newTask.agentSettings"
+
+    /// Keeps each started agent's model, effort, mode and options: the next task's pickers start
+    /// on them (the person's last picks), by agent.
+    func rememberAgentSettings(_ picks: [TaskAgentPick]) {
+        var kept = (defaults.dictionary(forKey: Self.agentSettingsKey) as? [String: Data]) ?? [:]
+        for pick in picks where !pick.harness.isEmpty {
+            let settings = TaskAgentPick(harness: pick.harness, model: pick.model, effort: pick.effort, mode: pick.mode,
+                                         options: pick.options)
+            kept[pick.harness] = try? JSONEncoder().encode(settings)
+        }
+        defaults.set(kept, forKey: Self.agentSettingsKey)
+    }
+
+    /// `harness`'s last started model, effort, mode and options on this phone, or nil.
+    public func lastAgentSettings(_ harness: String) -> TaskAgentPick? {
+        guard let data = (defaults.dictionary(forKey: Self.agentSettingsKey) as? [String: Data])?[harness] else { return nil }
+        return try? JSONDecoder().decode(TaskAgentPick.self, from: data)
+    }
+
+    /// `pick` with every setting it leaves open filled in: the person's last pick for its agent
+    /// when the Mac still offers it, else the Mac's own default. What the pickers show, and what
+    /// Start sends, so the Mac runs what the phone showed.
+    public func settled(_ pick: TaskAgentPick, harness: AgentHarnessChoice, catalog: AgentCatalog) -> TaskAgentPick {
+        var pick = pick
+        let last = lastAgentSettings(harness.id)
+        if pick.model == nil {
+            let remembered = last?.model.flatMap { id in harness.model(id).flatMap { $0.unavailableReason == nil ? $0.id : nil } }
+            let start = catalog.resolve(AgentChatStart(harness: harness.id))?.model
+            // A release by its id: an alias the Mac picked last (`opus`) names its release.
+            pick.model = remembered ?? harness.model(start)?.id ?? start ?? harness.offeredDefaultModel
+        } else if let release = harness.model(pick.model)?.id {
+            pick.model = release
+        }
+        let efforts = harness.efforts(model: pick.model)
+        if pick.effort.map({ id in !efforts.contains { $0.id == id } }) ?? true {
+            pick.effort = last?.effort.flatMap { id in efforts.contains { $0.id == id } ? id : nil } ?? harness.defaultEffort(model: pick.model)
+        }
+        if pick.mode.map({ !harness.askingModes.contains($0) }) ?? true {
+            pick.mode = last?.mode.flatMap { harness.askingModes.contains($0) ? $0 : nil } ?? harness.askingModes.first
+        }
+        var options: [String: String] = [:]
+        for option in harness.configOptions {
+            let offered = { (value: String?) in value.flatMap { v in option.choices.contains { $0.id == v } ? v : nil } }
+            if let value = offered(pick.options?[option.id]) ?? offered(last?.options?[option.id]) { options[option.id] = value }
+        }
+        pick.options = options.isEmpty ? nil : options
+        return pick
     }
 
     /// The drafts list's rows: the saved drafts but the one the composer holds.

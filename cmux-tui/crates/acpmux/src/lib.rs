@@ -23,6 +23,7 @@ pub mod adopt_live;
 pub mod adopt_replay;
 pub mod adopt_tools;
 pub mod agent;
+pub mod agent_credentials;
 pub mod agent_displays;
 pub mod agent_guidance;
 pub mod agent_host;
@@ -39,13 +40,16 @@ pub mod bg_hook;
 pub mod bg_run;
 #[path = "cli/bounded_child.rs"]
 pub(crate) mod bounded_child;
+pub mod build_info;
 pub mod byo_endpoint;
 pub mod capabilities;
 pub mod catalog;
 pub mod chat_fork;
+pub mod chatgpt;
 pub mod chats;
 pub mod claude_auth;
 mod claude_cloud_auth;
+pub mod claude_inbox_relay;
 pub mod claude_peers;
 pub mod claude_stdio;
 pub mod cli;
@@ -54,6 +58,7 @@ pub mod client;
 pub mod clock;
 pub(crate) mod clock_text;
 pub mod cloud_host;
+pub mod cloud_model_plane;
 pub mod cloud_repo_mcp;
 pub mod cloud_rewind;
 /// The cmux-tui remote daemon this machine serves to its other machines (`cmux_tui_service.rs`).
@@ -63,23 +68,25 @@ pub mod codex_app_server;
 #[cfg(unix)]
 mod codex_auth_file;
 mod codex_cloud_auth;
+pub mod codex_cmux_entry;
 pub mod codex_desktop;
 pub mod complete;
+pub mod computer_use;
 pub mod config;
 pub mod conn_origin;
 pub mod context_inventory;
 pub mod cpu_class;
-pub mod cua_socket;
-pub mod cua_v2;
 pub mod cwd_pin;
 pub mod daemon;
 pub(crate) mod daemon_parts;
+pub mod daemon_skew;
 mod dead_temps;
 mod default_harness;
 pub mod deliver;
 pub mod deps;
 pub mod desktop_bridge;
 pub mod desktop_link;
+pub mod directory_input;
 pub mod folder_instructions;
 #[cfg(all(test, unix))]
 mod fork_tests;
@@ -133,10 +140,13 @@ pub mod hub;
 #[cfg(feature = "hub-carrier")]
 pub mod hub_carrier;
 pub mod hunk_summary;
+pub mod idempotency;
 #[cfg(windows)]
 mod job;
+mod joined_model_plane;
 pub mod launch_credential;
 pub mod launch_policy;
+pub mod left_on_mac;
 pub mod link_v2;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux_sandbox;
@@ -144,6 +154,7 @@ pub mod list_bytes;
 pub mod listener_record;
 pub mod live_models;
 pub mod local_stream;
+pub mod log_keep;
 pub mod log_sink;
 pub mod login_env;
 pub mod lossy_lines;
@@ -160,6 +171,9 @@ pub mod machine_tunnel;
 pub mod machine_wake;
 pub mod mailbox;
 pub mod managed_codex;
+pub mod mcp_args;
+/// Each chat's `cmux` MCP server over loopback HTTP, started on use and stopped when idle.
+pub mod mcp_gateway;
 pub mod mcp_hint;
 pub mod mesh;
 pub mod mesh_control;
@@ -191,15 +205,19 @@ pub mod peer_last_good;
 pub mod peer_link;
 // The dialing side of a peer's list stream: the mirror into the index (row 8, part two).
 pub mod peer_mirror;
+pub mod peer_path_stats;
 pub mod peer_paths;
 pub mod peer_states;
 pub mod person_proof;
+pub mod person_tokens;
 pub mod placement;
+pub mod plan_build_records;
 #[cfg(not(unix))]
 mod platform;
 pub mod pricing;
 pub mod probe_cleanup;
 pub mod probe_prompt;
+mod proc_start;
 pub mod prompt_cache_env;
 pub mod prompt_class;
 pub mod prompt_context;
@@ -211,10 +229,13 @@ pub mod provenance_keys;
 mod provider_cloud_auth;
 pub mod qos;
 pub mod question_answer;
+pub(crate) mod questions;
 #[cfg(target_os = "linux")]
 mod quiet_dirs;
+pub mod race_records;
 pub mod recovery;
 pub mod registry;
+pub(crate) mod remote_chain_profile;
 pub mod request_cancel;
 pub mod resume;
 pub mod review_box;
@@ -231,12 +252,14 @@ pub mod schema;
 pub mod secret_mcp;
 pub mod secret_scan;
 pub mod self_command;
+pub mod send_fanout;
 pub(crate) mod sender_env;
 pub mod sender_harness;
 pub mod sender_program;
 pub mod sender_token;
 pub mod server;
 pub mod session_env;
+mod session_handle;
 pub mod session_identity;
 pub mod session_liveness;
 pub mod session_name;
@@ -248,11 +271,17 @@ pub mod session_search;
 pub mod session_service;
 pub mod session_status;
 pub mod sha256;
+/// The approval behind Share This Mac confirmed on the owner's other device (`share_approval.rs`).
+pub mod share_approval;
+/// The share host: a joined Mac's daemon serves screen shares with no app running (`share_host/`).
+pub mod share_host;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
 pub mod memory_inbox;
 pub mod prompt_coach;
 pub mod shadow_admission;
+pub(crate) mod shell_readonly;
 pub mod shell_words;
+pub mod sidecar_census;
 #[cfg(feature = "sim")]
 pub mod sim_agent;
 pub(crate) mod slow_notice;
@@ -273,10 +302,12 @@ pub mod subagent_notice;
 pub mod subagents;
 pub mod subrouter_session;
 pub mod subsession_mcp;
+pub mod subsession_settings;
 pub mod subsession_worktree;
 pub mod suggestion_gate;
 pub(crate) mod supervise;
 pub mod tailnet;
+pub mod task_list;
 #[cfg(unix)]
 #[path = "daemon/term_sender.rs"]
 pub(crate) mod term_sender;
@@ -289,13 +320,20 @@ mod test_stack;
 /// Another crate's tests' daemon (`test-support`; row 7c's `cmux-tui-core` gates). Never shipped.
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub mod test_support;
+pub(crate) mod time_breakdown;
+pub(crate) mod tool_env;
 pub mod tools_mcp;
 pub mod touched_files;
 pub mod transcript;
 pub mod trust;
 pub mod trust_auto;
+/// The ratatui terminal UI (feature `tui`, off by default: acpmux is headless; the `cmux` multicall
+/// binary turns it on). Its entry for the CLI is `tui_entry`.
+#[cfg(feature = "tui")]
 pub mod tui;
+pub mod tui_entry;
 pub mod turn_attestation;
+pub(crate) mod turn_errors;
 pub(crate) mod uniichat_endpoint;
 pub mod usage_stats;
 pub mod user_settings;

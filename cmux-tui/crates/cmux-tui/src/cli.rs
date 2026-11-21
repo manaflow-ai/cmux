@@ -6,6 +6,8 @@
 
 #[cfg(unix)]
 mod action_hint;
+#[cfg(unix)]
+mod agent_config;
 mod agent_input_hint;
 mod agent_message;
 #[cfg(unix)]
@@ -49,6 +51,9 @@ mod billing;
 #[cfg(unix)]
 mod caller_browser;
 mod capability_cache;
+// `cmux settings change-background [VALUE]`: a YouTube address, file or id as the picker sets it.
+#[cfg(unix)]
+mod change_background;
 #[cfg(unix)]
 mod chat_cd;
 #[cfg(unix)]
@@ -65,12 +70,14 @@ mod cloud_automation_relay;
 #[cfg(unix)]
 mod cloud_client_session;
 #[cfg(unix)]
-mod cloud_codex_holder;
+mod cloud_connect;
 #[cfg(unix)]
 mod cloud_environment;
 #[cfg(unix)]
 mod cloud_hands;
 mod cloud_help;
+#[cfg(unix)]
+mod cloud_machine_auth;
 #[cfg(unix)]
 mod cloud_machine_io;
 #[cfg(unix)]
@@ -80,11 +87,15 @@ mod cloud_repo;
 #[cfg(unix)]
 mod cloud_retention;
 #[cfg(unix)]
+mod cloud_route;
+#[cfg(unix)]
 mod cloud_run_account;
 #[cfg(unix)]
 mod cloud_secret;
 #[cfg(unix)]
 mod cloud_start_chat;
+#[cfg(unix)]
+mod cloud_team_keys;
 #[cfg(unix)]
 mod cloud_workspaces;
 mod code_mode;
@@ -98,6 +109,8 @@ mod key_broker;
 #[cfg(unix)]
 mod notification_banners;
 pub(crate) use completion::refuse_in_help_reader;
+#[cfg(unix)]
+mod community;
 #[cfg(unix)]
 mod customize;
 #[cfg(unix)]
@@ -115,6 +128,10 @@ mod frontend_browser;
 mod host_mount;
 #[cfg(unix)]
 mod inference_gateway;
+#[cfg(unix)]
+mod inference_gateway_admin;
+#[cfg(unix)]
+mod inference_gateway_mac;
 #[cfg(unix)]
 mod inference_setup;
 mod internal;
@@ -151,6 +168,8 @@ pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
 pub(crate) use cloud_client_session::secure_origin as secure_cloud_origin;
 #[cfg(unix)]
 pub(crate) use host_mount::early_unix_scope;
+#[cfg(unix)]
+pub(crate) use remote_host::confirm_allow_agents;
 
 /// `cmux host enable|disable|status|serve|allow|deny|list|dial` (remote
 /// hosting, every platform), on the `cmux` surface only, like the other
@@ -172,9 +191,12 @@ pub(crate) use machine_join::{
     rows_for_devices as joined_machine_rows,
 };
 mod machine_server;
+mod server_remote;
 #[cfg(test)]
 use machine_server::ServerRoute;
 pub(crate) use machine_server::is_lifecycle_scope;
+#[cfg(unix)]
+mod computer_use;
 #[cfg(unix)]
 mod mcp;
 mod older_daemon;
@@ -184,6 +206,8 @@ mod pane_identify;
 mod raw;
 #[cfg(unix)]
 mod remote_host;
+#[cfg(unix)]
+mod remote_host_grants;
 mod resolve;
 mod root_help;
 mod scope_help;
@@ -197,6 +221,10 @@ mod share_cli;
 mod shorthand;
 #[cfg(unix)]
 mod skew;
+#[cfg(unix)]
+mod stale_app;
+#[cfg(unix)]
+pub(crate) use stale_app::InstalledApp;
 mod skill;
 #[cfg(unix)]
 mod status;
@@ -212,6 +240,9 @@ mod terminal_talk;
 mod theme_file;
 #[cfg(unix)]
 mod theme_scheme;
+// `cmux tmux attach`: one tmux pane in this terminal through control mode (experiment).
+#[cfg(unix)]
+mod tmux_attach;
 // `cmux wallpaper`: the window picture and how it switches by itself.
 mod topology_help;
 #[cfg(unix)]
@@ -505,6 +536,7 @@ pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
 pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "agents",
     "chats",
+    "board",
     "harness",
     "remote",
     "script",
@@ -516,9 +548,11 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "device",
     "workflow",
     "remote-host",
+    "computer-use",
     "chat",
     "vm",
     "customize",
+    "agent-config",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -602,7 +636,7 @@ pub(crate) fn early_usage_error(args: &[String], message: &str) -> i32 {
 /// Scopes `main` routes by their first word, before the cmux global options
 /// are read, whose own parser takes `--json` right after the scope word:
 /// acpmux's (`--json` is a global clap option there).
-const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats"];
+const JSON_AFTER_SCOPE: &[&str] = &["acp", "agent", "harness", "chats", "board"];
 
 /// `cmux --json <scope> …` for a scope `main` routes by its first word: the
 /// leading `--json` moves to just after the scope word (to the end for `host`
@@ -634,7 +668,9 @@ pub(crate) fn hoist_leading_json(args: &mut Vec<String>) {
         args.drain(..lead);
         let end = args.iter().position(|w| w == "--").unwrap_or(args.len());
         args.insert(end, "--json".to_owned());
-    } else if only_json && JSON_AFTER_SCOPE.contains(&scope.as_str()) {
+    } else if only_json
+        && (JSON_AFTER_SCOPE.contains(&scope.as_str()) || agent_engine_requested(rest))
+    {
         // acpmux's global `--json`, right after the scope word: never after a verb whose
         // trailing words are another program's (`acp gh pr list`).
         args.drain(..lead);
@@ -649,12 +685,75 @@ fn harness_tab_run(words: &[String]) -> bool {
         && words.iter().take_while(|w| *w != "--").any(|w| w == "--tab")
 }
 
-/// The acpmux argv of `cmux acp …` (the words after `acp`) and of its
+/// Existing terminal agent commands and app actions keep their own dispatch.
+/// Other session commands, including aliases, come from the engine's grammar.
+pub(crate) fn agent_engine_requested(args: &[String]) -> bool {
+    let [scope, rest @ ..] = args else { return false };
+    if scope != "agent" {
+        return false;
+    }
+    let Some(verb) =
+        rest.iter().find(|word| !matches!(word.as_str(), "--json" | "--suppress-reads"))
+    else {
+        return false;
+    };
+    !matches!(
+        verb.as_str(),
+        "list"
+            | "message"
+            | "inbox"
+            | "start"
+            | "resume"
+            | "report"
+            | "hook"
+            | "plugin"
+            | "open"
+            | "open-tab"
+            | "help"
+    ) && acpmux::cli::entry::is_command(verb)
+}
+
+/// The acpmux argv of `cmux agent …` and `cmux acp …` (the words after the scope) and of its
 /// `harness`/`chats` aliases (the whole command line, alias first).
 #[cfg_attr(not(unix), allow(dead_code))]
 pub(crate) fn acp_scope_args(raw_args: &[String]) -> Vec<std::ffi::OsString> {
-    let skip = usize::from(raw_args.first().is_some_and(|head| head == "acp"));
+    let skip =
+        usize::from(raw_args.first().is_some_and(|head| matches!(head.as_str(), "acp" | "agent")));
     raw_args.iter().skip(skip).map(std::ffi::OsString::from).collect()
+}
+
+/// The acpmux-owned aliases under `cmux agent`. Existing app actions keep their
+/// current parser and semantics, while these verbs share the acpmux implementation
+/// without duplicating its command logic in the app CLI.
+#[cfg(unix)]
+pub(crate) fn agent_acp_scope_args(raw_args: &[String]) -> Option<Vec<std::ffi::OsString>> {
+    let [head, rest @ ..] = raw_args else { return None };
+    if head != "agent" {
+        return None;
+    }
+    let globals = rest
+        .iter()
+        .take_while(|word| matches!(word.as_str(), "--json" | "--suppress-reads"))
+        .count();
+    let verb = rest.get(globals)?;
+    if matches!(
+        verb.as_str(),
+        "list"
+            | "start"
+            | "resume"
+            | "open"
+            | "open-tab"
+            | "message"
+            | "inbox"
+            | "hook"
+            | "plugin"
+            | "view"
+            | "report"
+    ) || !acpmux::cli::command::owns_word(verb)
+    {
+        return None;
+    }
+    Some(raw_args.iter().skip(1).map(std::ffi::OsString::from).collect())
 }
 
 /// The agent-caller refusal of a plan that writes a Chief by the raw or
@@ -817,6 +916,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     #[cfg(unix)]
     if let Some(code) = agent_move::run_if_requested(args)
         .or_else(|| agent_start::run_if_requested(args))
+        .or_else(|| agent_config::run_if_requested(args))
         .or_else(|| chat_start::run_if_requested(args))
         .or_else(|| mcp::run_if_requested(args))
         .or_else(|| workflow::run_if_requested(args))
@@ -826,6 +926,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| coderouter::run_if_requested(args))
         .or_else(|| inference_gateway::run_if_requested(args))
         .or_else(|| inference_setup::run_if_requested(args))
+        .or_else(|| inference_gateway_admin::run_route_if_requested(args))
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
         .or_else(|| auth_token::run_if_requested(args))
@@ -836,14 +937,16 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| cloud_connect::run_if_requested(args))
+        .or_else(|| cloud_team_keys::run_if_requested(args))
         .or_else(|| key_broker::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
         .or_else(|| cloud_run_account::run_if_requested(args))
         .or_else(|| cloud_retention::run_if_requested(args))
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
+        .or_else(|| cloud_machine_auth::run_if_requested(args))
         .or_else(|| cloud_machine_io::run_if_requested(args))
-        .or_else(|| cloud_codex_holder::run_if_requested(args))
         .or_else(|| cloud_api::run_if_requested(args))
         .or_else(|| cloud_hands::run_if_requested(args))
         .or_else(|| cloud_automation_relay::run_if_requested(args))
@@ -856,13 +959,17 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| ext::run_if_requested(args))
         .or_else(|| ext::run_reload_config_if_requested(args))
+        .or_else(|| community::run_if_requested(args))
         .or_else(|| theme_scheme::run_if_requested(args))
         .or_else(|| wallpaper::run_if_requested(args))
+        .or_else(|| change_background::run_if_requested(args))
         .or_else(|| customize::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
         .or_else(|| remote_host::run_if_requested(args))
+        .or_else(|| computer_use::run_if_requested(args))
         .or_else(|| attention::run_if_requested(args))
+        .or_else(|| tmux_attach::run_if_requested(args))
         .or_else(|| notification_banners::run_if_requested(args))
         .or_else(|| status::run_args(args))
     {
@@ -1656,7 +1763,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   browser       Navigate and attach to browsers
   notification  List and create notifications
   attention     Mark tabs where the person must act; find the next one
-  agent         List and report agent state
+  agent         Manage agent sessions and terminal agents
   room          Organize workspaces into rooms
   space         List and organize spaces
   closed        List and reopen closed tabs, screens, workspaces
@@ -1744,10 +1851,27 @@ USAGE
 
 const AGENT_HELP: &str = "\
 USAGE
+  cmux agent ls [PATTERN...] [--machine HOST] [--all] [--json]
+  cmux agent send SESSION [OPTIONS] [--] TEXT...
+  cmux agent history SESSION [-n N]
+  cmux agent search QUERY... [--role user|assistant|tool] [--since DURATION] [-n N]
+  cmux agent resolve QUERY
+  cmux agent register NAME [--code CODE]
+  cmux agent bg start 'COMMAND' [--cwd DIR] [--description TEXT] [--session SESSION] [--no-notify]
+  cmux agent bg list [--session SESSION] [--all]
+  cmux agent notices [SESSION] [-n N]
   cmux agent start NAME [--cmd <launcher>] [--harness H] [--pane <selector>]
                   [--split right|down|left|up] [--cwd DIR] [--no-focus]
                   [--timeout 90s] [--no-wait] [-- ARGS...]
   cmux agent resume NAME [the same options]
+  cmux agent ls [--json]
+  cmux agent send SESSION [TEXT...]
+  cmux agent history SESSION
+  cmux agent search QUERY...
+  cmux agent resolve SESSION
+  cmux agent register NAME
+  cmux agent bg start|list [ARGS...]
+  cmux agent notices [ARGS...]
   cmux agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--placement top] [--focus]
   cmux agent open-tab <session id> [--target PANE_OR_TAB] [--host HOST] [--focus]
   cmux agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->

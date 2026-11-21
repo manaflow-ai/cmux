@@ -22,6 +22,28 @@ namespace cmux_shim {
 inline constexpr char kCmuxPageScheme[] = "cmux-page";
 inline constexpr char kCmuxPageDefaultCSP[] = "default-src 'self'";
 
+// The CefSchemeRegistrar::AddCustomScheme options of cmux-page://, as plain bits so the
+// test compiles with no CEF (page_scheme_registration.h checks each against CEF's
+// cef_scheme_options_t). Standard (the host is the origin), secure, CORS and fetch() within
+// the scheme, and V8's code cache: the fork's CMUX_CEF_SCHEME_OPTION_CODE_CACHE (include/
+// cef_cmux.h, manaflow-ai/cef) puts the scheme in Chromium's
+// ContentClient::Schemes::code_cache_schemes, as chrome:// WebUI scripts are, so pane.js
+// keeps its compiled code in the profile's Code Cache folder across launches. Blink checks
+// that cache against the script's source hash (code cache with hashing), so a changed
+// pane.js, after an app update or a web update, compiles again and never runs an old
+// compile. Chromium allows it only beside the standard bit. A fork without it ignores the bit.
+namespace page_scheme_option {
+inline constexpr int kStandard = 1 << 0;
+inline constexpr int kSecure = 1 << 3;
+inline constexpr int kCorsEnabled = 1 << 4;
+inline constexpr int kFetchEnabled = 1 << 6;
+inline constexpr int kCodeCache = 1 << 7;
+}  // namespace page_scheme_option
+
+inline constexpr int kCmuxPageSchemeOptions = page_scheme_option::kStandard | page_scheme_option::kSecure |
+                                              page_scheme_option::kCorsEnabled | page_scheme_option::kFetchEnabled |
+                                              page_scheme_option::kCodeCache;
+
 // Lowercases `id` into *out when it is a valid page id (the URL host):
 // 1-253 characters of [a-z0-9.-], no empty label, no label that starts or
 // ends with '-'. Leaves *out empty and returns false otherwise.
