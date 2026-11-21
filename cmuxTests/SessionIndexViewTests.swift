@@ -506,6 +506,63 @@ struct SessionIndexViewTests {
         #expect(outcome.entries.map(\.sessionId) == ["codex-transcript-match"])
     }
 
+    /// Codex stores the generated/renamed thread name in `threads.name` while
+    /// `threads.title` holds the first user prompt. Vault rows must follow the
+    /// name so they match the Codex sidebar.
+    @Test
+    func codexSQLPrefersThreadNameOverFirstPrompt() async throws {
+        let fixture = try makeCodexSQLFixture(
+            sessionId: "codex-named-thread",
+            title: "cmux终端的保险库，它显示的这个为什么不是短标题，而是长标题",
+            threadName: "检查 cmux 保险库标题更新",
+            includeThreadNameColumn: true
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        let outcome = await SessionIndexStore.loadCodexEntriesForTesting(
+            stateDBPath: fixture.stateDB.path,
+            needle: "",
+            offset: 0,
+            limit: 10,
+            sessionsRoot: fixture.sessionsRoot.path
+        )
+
+        #expect(outcome.errors == [])
+        #expect(outcome.entries.first?.title == "检查 cmux 保险库标题更新")
+
+        let byName = await SessionIndexStore.loadCodexEntriesForTesting(
+            stateDBPath: fixture.stateDB.path,
+            needle: "保险库标题",
+            offset: 0,
+            limit: 10,
+            sessionsRoot: fixture.sessionsRoot.path
+        )
+        #expect(byName.entries.map(\.sessionId) == ["codex-named-thread"])
+    }
+
+    /// Older Codex databases predate `threads.name`; the loader must still
+    /// query them and fall back to `threads.title`.
+    @Test
+    func codexSQLFallsBackToTitleWhenNameColumnIsAbsent() async throws {
+        let fixture = try makeCodexSQLFixture(
+            sessionId: "codex-legacy-thread",
+            title: "legacy first prompt",
+            includeThreadNameColumn: false
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        let outcome = await SessionIndexStore.loadCodexEntriesForTesting(
+            stateDBPath: fixture.stateDB.path,
+            needle: "",
+            offset: 0,
+            limit: 10,
+            sessionsRoot: fixture.sessionsRoot.path
+        )
+
+        #expect(outcome.errors == [])
+        #expect(outcome.entries.first?.title == "legacy first prompt")
+    }
+
     // Regression for https://github.com/manaflow-ai/cmux/issues/6302.
     // The always-visible sidebar list is built from `scanAll()`, which loads
     // only each agent's 30 most-recent sessions across ALL folders and then
@@ -694,10 +751,44 @@ struct SessionIndexViewTests {
         body()
     }
 
+    private func makeCodexSQLFixture(
+        sessionId: String,
+        title: String,
+        threadName: String? = nil,
+        includeThreadNameColumn: Bool = true
+    ) throws -> (directory: URL, stateDB: URL, sessionsRoot: URL) {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        let sessionsRoot = tempDir.appendingPathComponent("sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionsRoot, withIntermediateDirectories: true)
+
+        let rolloutURL = sessionsRoot.appendingPathComponent("rollout-\(sessionId).jsonl")
+        let transcript = """
+        {"timestamp":"2026-05-01T09:00:00.000Z","type":"session_meta","payload":{"id":"\(sessionId)","cwd":"/tmp/project"}}
+        """
+        try transcript.write(to: rolloutURL, atomically: true, encoding: .utf8)
+
+        let stateDB = tempDir.appendingPathComponent("state_5.sqlite")
+        try makeCodexStateDatabase(
+            at: stateDB,
+            rolloutURL: rolloutURL,
+            sessionId: sessionId,
+            title: title,
+            threadName: threadName,
+            includeThreadNameColumn: includeThreadNameColumn
+        )
+        return (tempDir, stateDB, sessionsRoot)
+    }
+
     private func makeCodexStateDatabase(
         at url: URL,
         rolloutURL: URL,
-        sessionId: String
+        sessionId: String,
+        title: String = "unrelated title",
+        threadName: String? = nil,
+        includeThreadNameColumn: Bool = true
     ) throws {
         var db: OpaquePointer?
         guard sqlite3_open(url.path, &db) == SQLITE_OK, let db else {
@@ -705,6 +796,7 @@ struct SessionIndexViewTests {
         }
         defer { sqlite3_close(db) }
 
+        let nameColumn = includeThreadNameColumn ? ",\n                name TEXT" : ""
         try executeSQL(
             """
             CREATE TABLE threads (
@@ -719,18 +811,20 @@ struct SessionIndexViewTests {
                 reasoning_effort TEXT,
                 first_user_message TEXT NOT NULL,
                 updated_at_ms INTEGER,
-                archived INTEGER NOT NULL DEFAULT 0
+                archived INTEGER NOT NULL DEFAULT 0\(nameColumn)
             );
             """,
             db: db
         )
 
+        let nameInsert = includeThreadNameColumn ? ", name" : ""
+        let nameValue = includeThreadNameColumn ? ", ?" : ""
         let sql = """
             INSERT INTO threads (
                 id, rollout_path, cwd, title, model, git_branch,
                 approval_mode, sandbox_policy, reasoning_effort,
-                first_user_message, updated_at_ms, archived
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0);
+                first_user_message, updated_at_ms, archived\(nameInsert)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0\(nameValue));
             """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
@@ -742,7 +836,7 @@ struct SessionIndexViewTests {
         sqlite3_bind_text(stmt, 1, sessionId, -1, transient)
         sqlite3_bind_text(stmt, 2, rolloutURL.path, -1, transient)
         sqlite3_bind_text(stmt, 3, "/tmp/project", -1, transient)
-        sqlite3_bind_text(stmt, 4, "unrelated title", -1, transient)
+        sqlite3_bind_text(stmt, 4, title, -1, transient)
         sqlite3_bind_text(stmt, 5, "gpt-5.5", -1, transient)
         sqlite3_bind_text(stmt, 6, "main", -1, transient)
         sqlite3_bind_text(stmt, 7, "never", -1, transient)
@@ -750,6 +844,9 @@ struct SessionIndexViewTests {
         sqlite3_bind_text(stmt, 9, "medium", -1, transient)
         sqlite3_bind_text(stmt, 10, "metadata does not contain the query", -1, transient)
         sqlite3_bind_int64(stmt, 11, 1_777_624_800_000)
+        if includeThreadNameColumn, let threadName {
+            sqlite3_bind_text(stmt, 12, threadName, -1, transient)
+        }
 
         guard sqlite3_step(stmt) == SQLITE_DONE else {
             throw SQLiteTestError(message: sqliteMessage(db) ?? "insert failed")
