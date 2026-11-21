@@ -113,9 +113,15 @@ DAILY_PICK = ("needs.dev-daily-place.outputs.runs_on != '' && fromJSON(needs.dev
               "needs.dev-daily-place.outputs.runner_label != '' && needs.dev-daily-place.outputs.runner_label")
 
 
+# A scheduler grant (scripts/ci/mac_grants.py, #49175) is a label array in runs-on; the env copy names its first label
+# (the same pair as tests/test_ci_side_lane_placement.py GRANT_PICK).
+GRANT_PICK = ("fromJSON(needs.macos-placement.outputs.grant_runner)",
+              "fromJSON(needs.macos-placement.outputs.grant_runner)[0]")
+
+
 def label_copy(runs_on: str) -> str:
     """runs-on as the job's own CMUX_NEXT_RUNNER copy states it."""
-    return runs_on.replace(*DAILY_PICK)
+    return runs_on.replace(*DAILY_PICK).replace(*GRANT_PICK)
 
 class ChecksJobStructure(unittest.TestCase):
     def split(self) -> tuple[list[dict], list[dict], dict]:
@@ -898,9 +904,14 @@ class PathRoutingStructure(unittest.TestCase):
         # The two heavy app compiles and swift-test are behind full-ci on every PR
         # (HeavyMacCompilesBehindFullCi; swift-test since 2026-11-05: on every PR push it was
         # cancelled or skipped and never passed, and the tip suite dispatch gives the base verdict).
-        for job_id in HEAVY_COMPILES + ("swift-test",):
+        for job_id in HEAVY_COMPILES:
             self.assertIn("github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')",
                           jobs[job_id]["if"], job_id)
+        # swift-test is behind full-ci on a pull request into feat-cmux-next (whose push runs the suite, #49046's
+        # PR_SKIP_IF); a pull request into any other base runs it.
+        self.assertIn("github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || "
+                      "contains(github.event.pull_request.labels.*.name, 'full-ci')", jobs["swift-test"]["if"])
+        for job_id in HEAVY_COMPILES + ("swift-test",):
             self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository || ", jobs[job_id]["if"], job_id)
         # macos-placement places owned runners: same-repository pull requests only.
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", jobs["macos-placement"]["if"])
@@ -1976,14 +1987,19 @@ class MacFastTierFollowsTheRoute(unittest.TestCase):
         """A cmux-tui Rust change keeps its daemon tier, but the Mac fast tier builds only the CmuxNext
         package and runs its Swift suites, none of which read cmux-tui: its result is the base's. In the
         12:43Z queue on 2026-10-30, 13 such pull requests each waited on a Mac fast tier."""
-        for changed in (["cmux-tui/crates/acpmux/src/cli/help_examples/session.rs"],
-                        ["Native/OptChat/optchat-chief/tests/harness.rs"]):
+        for changed in (["cmux-tui/crates/acpmux/src/cli/help_examples/session.rs"],):
             with self.subTest(changed=changed):
                 out = self.route_outputs(changed)
                 self.assertEqual(out["macos"], "true")
                 self.assertEqual(out["fast_tier"], "false")
                 self.assertFalse(self.runs("fast-tier", "pull_request", out["macos"], out["fast_tier"]))
                 self.assertTrue(self.runs("fast-tier-cargo", "pull_request", out["macos"], out["fast_tier"]))
+        # Native/OptChat is no cmux-tui crate and, since #45464 (daemon tier from the crate graph) and #48937
+        # (no Swift compile reads Native/), reaches no Mac tier at all: no Mac fast tier, no placement.
+        out = self.route_outputs(["Native/OptChat/optchat-chief/tests/harness.rs"])
+        self.assertEqual((out["macos"], out["fast_tier"], out["daemon"]), ("false", "false", "false"))
+        self.assertFalse(self.runs("fast-tier", "pull_request", out["macos"], out["fast_tier"]))
+        self.assertFalse(self.runs("macos-placement", "pull_request", out["macos"]))
         placement = self.jobs["macos-placement"]["steps"]
         cascade = next(step["env"]["CASCADE_RUNS"] for step in placement if "CASCADE_RUNS" in step.get("env", {}))
         self.assertIn("needs.path_route.outputs.fast_tier != 'false'", cascade)
@@ -2663,7 +2679,10 @@ class NightlyControlPushAdmission(unittest.TestCase):
                 self.assertTrue(self.release_compile_requested(changed_path), changed_path)
 
     def test_unrelated_ci_changes_do_not_request_a_release_compile(self):
-        self.assertFalse(self.release_compile_requested("scripts/ci/ci-health-report.py"))
+        # The push net now also starts for every checks-tier path (scripts/ci/**, tests/**: the checks a pull request
+        # into feat-cmux-next skips run on its push, #49046), and a push routes every tier. A path outside the net
+        # still requests none.
+        self.assertFalse(self.release_compile_requested("docs/ci/ci-cut-ledger.md"))
 
 
 FAST_TIER_FORK_CLAUSE = (
@@ -2822,7 +2841,7 @@ class GeneratedFilesRunner(unittest.TestCase):
         self.assertEqual(evaluate(one_runs_on(job), context), "blacksmith-6vcpu-macos-26")
         context["github.repository_owner"] = "outside"
         self.assertEqual(evaluate(one_runs_on(job), context), "macos-26")
-        self.assertEqual(job_env(job)["CMUX_NEXT_RUNNER"], one_runs_on(job))
+        self.assertEqual(job_env(job)["CMUX_NEXT_RUNNER"], label_copy(one_runs_on(job)))
 
 
 class _UnsetIsEmpty(dict):
@@ -3313,6 +3332,7 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
         if event == "pull_request":
             context.update({"github.event.pull_request.number": "42",
                             "github.event.pull_request.head.repo.full_name": head_repo,
+                            "github.event.pull_request.base.ref": "feat-cmux-next",
                             "github.event.pull_request.labels.*.name": list(labels),
                             "github.event.pull_request.author_association": "CONTRIBUTOR"})
         context.update({f"inputs.{key}": value for key, value in inputs.items()})
@@ -3323,16 +3343,17 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
         return {name for name in self.TIER_JOBS + ("macos-placement", "checks") if evaluate(jobs[name]["if"], context)}
 
     def test_a_same_repository_pr_runs_every_routed_tier_without_a_label(self):
-        # Except the two heavy app compiles and swift-test, which need full-ci (HeavyMacCompilesBehindFullCi).
+        # Except the two heavy app compiles, swift-test and checks, which need full-ci on a pull request into
+        # feat-cmux-next (HeavyMacCompilesBehindFullCi; #49046: its push runs them).
         self.assertEqual(self.running(self.context()),
-                         set(self.TIER_JOBS) - set(HEAVY_COMPILES) - {"swift-test"} | {"macos-placement", "checks"})
+                         set(self.TIER_JOBS) - set(HEAVY_COMPILES) - {"swift-test"} | {"macos-placement"})
         self.assertEqual(self.running(self.context(labels=("full-ci",))),
                          set(self.TIER_JOBS) | {"macos-placement", "checks"})
 
     def test_a_fork_pr_still_needs_full_ci_and_never_places_an_owned_runner(self):
         fork = self.context(head_repo="someone/cmux")
         fork["needs.path_route.outputs.cmuxnext_swift"] = "false"
-        self.assertEqual(self.running(fork), {"checks"})
+        self.assertEqual(self.running(fork), set())
         labeled = self.context(head_repo="someone/cmux", labels=("full-ci",))
         self.assertEqual(self.running(labeled), set(self.TIER_JOBS) | {"checks"})
 
