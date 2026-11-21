@@ -1,0 +1,234 @@
+/* KIT: the public pieces customization pages, plugins and web pages compose (kit/index.ts). A
+   token-only sheet (scripts/check-design-tokens.ts TOKEN_ONLY_FILES): every size, radius, colour
+   and motion is a design-scale variable (pages/shared/desktop.css), so a theme or density change
+   reaches every page built from these. Rules every piece keeps:
+   - A hover or press fill covers its own row or control, never its neighbours.
+   - Press and selection change the fill only, never weight, size or icon (design/pressed-state.md).
+   - Fills ease on the quick step; Reduce Motion makes every change instant. Nothing here loops. */
+@import "../ui/ui.css";
+
+:where(.kit-list, .kit-row, .kit-pill, .kit-avatar, .kit-field) {
+  font-family: var(--font-ui);
+  color: var(--ds-color-fg);
+}
+
+/* LIST */
+.kit-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+}
+.kit-list-title {
+  display: flex;
+  align-items: center;
+  min-height: var(--ds-control-compact);
+  margin: 0;
+  padding-inline: var(--ds-space-2);
+  color: var(--ds-color-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+  font-weight: var(--weight-regular);
+}
+.kit-list-rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.kit-list-empty {
+  margin: 0;
+  padding: var(--ds-space-2);
+  color: var(--ds-color-faint);
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+}
+
+/* ROW */
+.kit-row-item {
+  display: block;
+}
+.kit-row {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  width: 100%;
+  min-height: var(--ds-control-row);
+  margin: 0;
+  padding-block: 0;
+  padding-inline: var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-md);
+  background: transparent;
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  letter-spacing: var(--text-control--letter-spacing);
+  font-weight: var(--weight-regular);
+  text-align: start;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: background-color var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.kit-row[data-density="comfortable"] {
+  min-height: var(--ds-control-primary);
+}
+button.kit-row:hover {
+  background: var(--ds-color-hover);
+}
+button.kit-row:active {
+  background: var(--ds-color-pressed);
+}
+.kit-row[data-selected],
+button.kit-row[data-selected]:hover {
+  background: var(--ds-color-selection);
+}
+/* A static row's visible text when its label is read instead (Row.tsx). */
+.kit-row-body {
+  display: contents;
+}
+button.kit-row:focus {
+  outline: none;
+}
+button.kit-row:focus-visible {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ui-ring, var(--ds-color-focus));
+  outline-offset: -1px;
+}
+.kit-row-lead {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--ds-icon-16);
+  color: var(--ds-color-muted);
+}
+.kit-row-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.kit-row-title,
+.kit-row-subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kit-row-subtitle {
+  color: var(--ds-color-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.kit-row-trail {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-1);
+  margin-inline-start: auto;
+  color: var(--ds-color-muted);
+}
+
+/* PILL */
+.kit-pill {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-1);
+  height: var(--ds-control-compact);
+  padding-inline: var(--ds-space-2);
+  /* A radius of the full height is a capsule at any text size. */
+  border-radius: var(--ds-control-compact);
+  background: var(--ds-color-hover);
+  color: var(--ds-color-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.kit-pill[data-size="sm"] {
+  height: var(--ds-control-icon);
+  padding-inline: var(--ds-space-1);
+  border-radius: var(--ds-control-icon);
+}
+.kit-pill[data-tone="accent"] {
+  background: var(--ds-color-accent);
+  color: var(--ds-color-on-accent);
+}
+.kit-pill[data-tone="success"] {
+  background: color-mix(in srgb, var(--ds-color-success) 16%, transparent);
+  color: var(--ds-color-success);
+}
+.kit-pill[data-tone="attention"] {
+  background: color-mix(in srgb, var(--ds-color-attention) 16%, transparent);
+  color: var(--ds-color-attention);
+}
+.kit-pill[data-tone="danger"] {
+  background: color-mix(in srgb, var(--ds-color-danger) 16%, transparent);
+  color: var(--ds-color-danger);
+}
+
+/* AVATAR */
+.kit-avatar {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: var(--ds-icon-20);
+  height: var(--ds-icon-20);
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--ds-color-selection);
+  color: var(--ds-color-fg);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: var(--weight-emphasis);
+  -webkit-user-select: none;
+  user-select: none;
+}
+.kit-avatar[data-size="sm"] {
+  width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
+}
+.kit-avatar[data-size="lg"] {
+  width: var(--ds-control-primary);
+  height: var(--ds-control-primary);
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+}
+.kit-avatar[data-shape="agent"] {
+  border-radius: var(--ds-radius-md);
+}
+.kit-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* FIELD */
+.kit-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+}
+.kit-field-label {
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  letter-spacing: var(--text-control--letter-spacing);
+}
+.kit-field-note {
+  color: var(--ds-color-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.kit-field-note[data-error] {
+  color: var(--ds-color-danger);
+}
+
+/* GLASS: a region on the page's glass at a level (Glass.tsx; ui/glass/glass.css "PUBLIC GLASS
+   LEVELS"). The card radius unless the caller gives one; paint only, so no padding of its own. */
+.kit-glass {
+  border-radius: var(--ds-radius-lg);
+}

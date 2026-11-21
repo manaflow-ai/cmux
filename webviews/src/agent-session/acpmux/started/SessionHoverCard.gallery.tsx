@@ -3,7 +3,8 @@ import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { sessionEntry } from "../sessionList";
 import { type SessionHoverInfo, SessionHoverStore, hoverInfo } from "./sessionHover";
-import { SessionHoverContent, SessionHoverContext } from "./SessionHoverCard";
+import { SessionHoverContent } from "./SessionHoverCard";
+import { SessionHoverContext } from "./sessionHoverCardModel";
 import { StartedSessionChip } from "./StartedSessionCard";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 import { IncomingMessageLine } from "../conversation/IncomingMessageCard";
@@ -193,7 +194,6 @@ export default componentEntry<Props>({
   anchors: [{ selector: "[data-hover-fixture]" }],
   covers: [
     "agent-session/acpmux/started/SessionHoverCard.tsx#SessionHoverContent",
-    "agent-session/acpmux/started/SessionHoverCard.tsx#SessionHoverContext",
     "agent-session/acpmux/conversation/AgentTag.tsx",
   ],
   styles: () => import("../styles.css"),

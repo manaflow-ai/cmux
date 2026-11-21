@@ -12,6 +12,8 @@ import {
   type DroppedKind,
   type LinkItem,
 } from "../attachments";
+import { isVideoName } from "./videoAttachments";
+import { videoShapeOf } from "./videoShape";
 import type { UploadCancelled, UploadProgressReport, UploadResult } from "../cloudUploads";
 
 export type IntakeOptions = {
@@ -25,7 +27,7 @@ export type IntakeOptions = {
 };
 
 /// `final`: the host refused the upload outright, so it is not tried again on its own.
-export type IntakeError = AttachmentError | { text: string; final?: boolean; code?: string };
+export type IntakeError = AttachmentError | { text: string; final?: boolean };
 
 /// What happens to each file of a batch, by its index, the moment it happens: a chip never waits
 /// on the rest of its batch (Leo, 2026-10-24: "the attachments, they freeze").
@@ -91,7 +93,10 @@ export async function intakeFiles(
   };
   // Each image's preview, made beside the batch's transport: no file's upload waits for a sibling
   // image to be decoded, and a send waits only for the image itself.
+  // A video's tile shape, from its header (a few small reads, at most VIDEO_HEADER_WAIT_MS): its chip
+  // keeps the box its loading tile showed, square when the header gave none.
   const prepared = files.map(async (file, index) => {
+    const videoShape = isVideoName(file.name) ? ((await videoShapeOf(file)) ?? 1) : undefined;
     const result = isImageFile(file)
       ? await readAttachment(file, options.allowImages).catch(() => undefined)
       : undefined;
@@ -105,7 +110,7 @@ export async function intakeFiles(
       images[index] = image;
       events.ready?.(index, image);
     }
-    return { result, image };
+    return { result, image, ...(videoShape ? { videoShape } : {}) };
   });
   /// What each file becomes once its own preview is made (a link, or its failure): never awaited
   /// before the batch's upload starts.
@@ -116,12 +121,13 @@ export async function intakeFiles(
     files.map(async (file, index) => {
       const path = (await known)?.[index];
       if (path) {
-        once(index, ({ image }) => {
+        once(index, ({ image, videoShape }) => {
           if (!image)
             link(index, {
               ...linkAttachment(path.path, path.folder),
               mimeType: file.type || "application/octet-stream",
               size: file.size,
+              ...(videoShape ? { videoShape } : {}),
             });
         });
       } else if (options.upload) {
@@ -178,7 +184,7 @@ export async function intakeFiles(
     // Each file is its chip (or its image's original) on its own, never after a sibling's preview.
     await Promise.all(
       waiting.map(async ({ index, file }, at) => {
-        const { image } = await prepared[index]!;
+        const { image, videoShape } = await prepared[index]!;
         // A later file may fail after earlier files finished. Keep every returned path, even when
         // the batch also carries an error, so completed uploads remain attachable and only the
         // failed/unattempted chips offer Retry.
@@ -192,11 +198,12 @@ export async function intakeFiles(
             ...savedAttachment(path, file.name),
             mimeType: file.type || "application/octet-stream",
             size: file.size,
+            ...(videoShape ? { videoShape } : {}),
           });
         else if (!options.cancelled?.(index)) {
           const reason: IntakeError =
             sent && "error" in sent
-              ? { text: sent.error, final: sent.final, code: sent.code }
+              ? { text: sent.error, final: sent.final }
               : { name: file.name, reason: "unsupported" };
           if (image) events.originalFailed?.(index, reason);
           else fail(index, reason);

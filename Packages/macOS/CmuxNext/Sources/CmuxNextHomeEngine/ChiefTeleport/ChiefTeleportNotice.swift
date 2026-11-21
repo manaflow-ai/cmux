@@ -2,28 +2,29 @@ public import Foundation
 
 /// The Chief conversation's row about where the Chief runs (Home's notice row, under the newest
 /// message): a move that runs ("Chief is moving to cmux Cloud…"), one that failed with the
-/// engine's reason, the place it went and when ("Chief moved to cmux Cloud · 4:02 PM"), a
-/// rollback ("Chief moved back to this Mac"), or its fork ("Chief forked to cmux Cloud as
-/// “Chief fork” · 4:02 PM"). Pure: the marks and the phase in, the text out.
+/// engine's reason, or, once, an event the app saw happen (``ChiefTeleportAnnouncement``): the
+/// place it went and when ("Chief moved to cmux Cloud · 4:02 PM"), a rollback ("Chief moved back
+/// to this Mac"), or a fork ("Chief forked to cmux Cloud as “Chief fork” · 4:02 PM"). Pure: the
+/// phase and the event in, the text out.
 ///
 /// ```swift
-/// ChiefTeleportNotice(marks: model.marks, phase: model.shownPhase, placeName: { "\($0)" }).text(timeZone: .current)
+/// ChiefTeleportNotice(phase: model.shownPhase, announcement: model.announcement, placeName: { "\($0)" }).text(timeZone: .current)
 /// ```
 public nonisolated struct ChiefTeleportNotice: Sendable {
-    /// What the home's `state` folder says.
-    public var marks: ChiefHomeMarks
     /// The move to show (``ChiefTeleportModel/shownPhase``).
     public var phase: ChiefTeleportPhase
+    /// The event to announce once (``ChiefTeleportModel/announcement``).
+    public var announcement: ChiefTeleportAnnouncement?
     /// A place's name as the menu says it.
     public var placeName: @Sendable (ChiefLocation) -> String
 
-    public init(marks: ChiefHomeMarks, phase: ChiefTeleportPhase, placeName: @escaping @Sendable (ChiefLocation) -> String) {
-        self.marks = marks
+    public init(phase: ChiefTeleportPhase, announcement: ChiefTeleportAnnouncement?, placeName: @escaping @Sendable (ChiefLocation) -> String) {
         self.phase = phase
+        self.announcement = announcement
         self.placeName = placeName
     }
 
-    /// The row's text; nil when the Chief runs here with no move, failure or fork to tell.
+    /// The row's text: a running or failed move, else the event; nil when there is none.
     ///
     /// - Parameter timeZone: The zone the times read in (the person's).
     public func text(timeZone: TimeZone) -> String? {
@@ -34,19 +35,19 @@ public nonisolated struct ChiefTeleportNotice: Sendable {
             return ChiefTeleportStrings.noticeMovingBack
         case .failed(let name, let reason):
             return ChiefTeleportStrings.noticeFailed(name, reason: Self.firstLine(reason))
-        case .rolledBack:
-            if marks.whereabouts.location == .thisMac { return ChiefTeleportStrings.noticeMovedBack }
-        case .idle, .done:
+        case .idle, .done, .rolledBack:
             break
         }
-        let location = marks.whereabouts.location
-        if location != .thisMac {
-            return ChiefTeleportStrings.noticeMoved(placeName(location), at: marks.movedAt.map { Self.time($0, timeZone) })
+        switch announcement {
+        case .moved(let place, let at):
+            return ChiefTeleportStrings.noticeMoved(placeName(place), at: at.map { Self.time($0, timeZone) })
+        case .movedBack:
+            return ChiefTeleportStrings.noticeMovedBack
+        case .forked(let name, let at):
+            return ChiefTeleportStrings.noticeForked(name, at: at.map { Self.time($0, timeZone) })
+        case nil:
+            return nil
         }
-        if let fork = marks.fork {
-            return ChiefTeleportStrings.noticeForked(fork.name, at: fork.at.map { Self.time($0, timeZone) })
-        }
-        return nil
     }
 
     /// "4:02 PM" today, "Nov 5, 4:02 PM" another day.

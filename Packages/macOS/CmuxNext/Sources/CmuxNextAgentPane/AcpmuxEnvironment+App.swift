@@ -11,7 +11,7 @@ nonisolated extension AcpmuxEnvironment {
     public static func app(build: BuildIdentity?, mock: Bool,
                            environment variables: [String: String] = ProcessInfo.processInfo.environment) -> AcpmuxEnvironment? {
         if mock || variables["CMUX_NEXT_AGENT_PANE_MOCK"] == "1" { return nil }
-        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
+        let bin = Bundle.main.resourceURL?.appending(path: "bin", directoryHint: .isDirectory)
         let own = resolve(build: build, bundledBinDirectory: bin, environment: variables)
         guard let home = attachHome(build: build, environment: variables) else { return own }
         return own?.attached(to: home)

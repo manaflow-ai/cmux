@@ -77,7 +77,7 @@ extension ChiefPetController {
         }
     }
 
-    private func replyPanelOnce() -> ChiefPetReplyPanel {
+    func replyPanelOnce() -> ChiefPetReplyPanel {
         if let replyPanel { return replyPanel }
         let made = ChiefPetReplyPanel()
         made.onSubmit = { [weak self] target, text, command in self?.submit(target, text: text, command: command) }

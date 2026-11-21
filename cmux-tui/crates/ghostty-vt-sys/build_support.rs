@@ -90,8 +90,7 @@ fn zig_target_for_rust_target(target: &str) -> Option<&'static str> {
         "x86_64-pc-windows-gnu" => Some("x86_64-windows-gnu"),
         "x86_64-pc-windows-msvc" => Some("x86_64-windows-msvc"),
         "aarch64-pc-windows-msvc" => Some("aarch64-windows-msvc"),
-        // The iOS app links cmux-terminal-client as a static library inside an
-        // xcframework (.github/workflows/cmux-terminal-client-xcframework.yml).
+        // iOS device and simulator targets.
         "aarch64-apple-ios" => Some("aarch64-ios"),
         "aarch64-apple-ios-sim" => Some("aarch64-ios-simulator"),
         "x86_64-apple-ios" => Some("x86_64-ios-simulator"),
@@ -125,6 +124,157 @@ pub fn zig_program(zig: Option<String>, cmux_zig: Option<String>) -> String {
         .flatten()
         .find(|path| !path.is_empty())
         .unwrap_or_else(|| "zig".to_string())
+}
+
+/// `.minimum_zig_version` from a build.zig.zon (`X.Y.Z`), the Zig the tree
+/// pins (scripts/ghostty-zig-version.sh reads the same field).
+pub fn zon_minimum_zig(path: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    text.lines().find_map(|line| {
+        let rest =
+            line.trim().strip_prefix(".minimum_zig_version")?.trim_start().strip_prefix('=')?;
+        let version = rest.trim().trim_end_matches(',').trim().trim_matches('"');
+        let parts: Vec<&str> = version.split('.').collect();
+        (parts.len() == 3 && parts.iter().all(|part| part.parse::<u32>().is_ok()))
+            .then(|| version.to_string())
+    })
+}
+
+/// Whether zig `actual` builds a tree that needs `required`: the same major and
+/// minor and at least its patch (scripts/ghostty-zig-version.sh's rule).
+pub fn zig_compatible(actual: &str, required: &str) -> bool {
+    let parse = |v: &str| -> Option<(u32, u32, u32)> {
+        let mut parts = v.trim().split('.').map(|part| part.parse::<u32>().ok());
+        let version = (parts.next()??, parts.next()??, parts.next()??);
+        parts.next().is_none().then_some(version)
+    };
+    match (parse(actual), parse(required)) {
+        (Some(a), Some(r)) => a.0 == r.0 && a.1 == r.1 && a.2 >= r.2,
+        _ => false,
+    }
+}
+
+/// Where a host keeps zig `version` beside PATH: the fleet's Linux pool image
+/// installs every Zig it carries as `/opt/zig-<version>`.
+pub fn installed_zig_paths(version: &str) -> Vec<String> {
+    vec![format!("/opt/zig-{version}/zig")]
+}
+
+/// The zig the build runs: the first of `candidates` (``zig_program``'s pick,
+/// then PATH, then ``installed_zig_paths``) whose `zig version` serves
+/// `required`. With no pin, or when none serves it, the first candidate, which
+/// then fails with Ghostty's own version message. The second value says why a
+/// later candidate replaced the first (a cargo warning).
+///
+/// A builder whose recipe still hands over an older zig (the Linux pool ran a
+/// baked recipe with Zig 0.16 for days after ghostty-next moved to 0.17, while
+/// its image already held /opt/zig-0.17.0) builds with the tree's pin instead.
+pub fn select_zig(
+    candidates: &[String],
+    required: Option<&str>,
+    version_of: impl Fn(&str) -> Option<String>,
+) -> (String, Option<String>) {
+    let first = candidates.first().cloned().unwrap_or_else(|| "zig".to_string());
+    let Some(required) = required else { return (first, None) };
+    let mut seen = Vec::new();
+    for candidate in candidates.iter().filter(|c| !c.is_empty()) {
+        if seen.contains(candidate) {
+            continue;
+        }
+        seen.push(candidate.clone());
+        if let Some(actual) = version_of(candidate)
+            && zig_compatible(&actual, required)
+        {
+            let why = (candidate != &first).then(|| {
+                format!(
+                    "{first} does not serve the pinned Zig {required}; building libghostty-vt with {candidate} ({actual})"
+                )
+            });
+            return (candidate.clone(), why);
+        }
+    }
+    (first, None)
+}
+
+/// The lock of our Zig package mirror, from the crate directory
+/// (scripts/ci/zig-packages.lock at the cmux repo root).
+pub const ZIG_PACKAGE_LOCK: &str = "../../../scripts/ci/zig-packages.lock";
+
+/// What Zig's HTTP client is pointed at when the mirror is the only source:
+/// it reads these proxies (std.http.Client.initDefaultProxies) and nothing
+/// listens on port 9, so any fetch Zig itself makes fails at once.
+pub const NO_ROUTE_PROXY: &str = "http://127.0.0.1:9";
+pub const PROXY_VARS: [&str; 6] =
+    ["http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"];
+/// Bypass lists Zig honors; mirror-only removes them so nothing routes around the proxy.
+pub const NO_PROXY_VARS: [&str; 2] = ["NO_PROXY", "no_proxy"];
+
+/// One package of the mirror: its Zig package hash and the copy's URL.
+#[derive(Debug, PartialEq, Eq)]
+pub struct MirroredPackage {
+    pub hash: String,
+    pub url: String,
+}
+
+/// The packages of scripts/ci/zig-packages.lock tagged `tag` (`vt`: what this
+/// crate's zig build fetches), at `<mirror><hash>.tar.gz`. Lines are
+/// `mirror PREFIX` and `HASH SHA256 TAGS UPSTREAM DEPS`; a line that starts
+/// with `#` is a comment.
+pub fn mirrored_packages(lock: &str, tag: &str) -> Vec<MirroredPackage> {
+    let lines: Vec<Vec<&str>> = lock
+        .lines()
+        .map(|line| line.split_whitespace().collect())
+        // A line that starts with # is a comment (a git+ URL's #commit is not).
+        .filter(|parts: &Vec<&str>| parts.first().is_some_and(|first| !first.starts_with('#')))
+        .collect();
+    let Some(mirror) = lines.iter().find_map(|parts| match parts.as_slice() {
+        ["mirror", prefix] => Some(*prefix),
+        _ => None,
+    }) else {
+        return Vec::new();
+    };
+    lines
+        .iter()
+        .filter_map(|parts| match parts.as_slice() {
+            [hash, _sha, tags, _upstream, _deps] if tags.split(',').any(|t| t == tag) => {
+                Some(MirroredPackage {
+                    hash: (*hash).to_string(),
+                    url: format!("{mirror}{hash}.tar.gz"),
+                })
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Whether Zig may fetch only from our mirror: `CMUX_ZIG_MIRROR_ONLY` (1 or 0),
+/// else on in CI (`CI=true`), off elsewhere.
+pub fn mirror_only(setting: Option<&str>, ci: Option<&str>) -> bool {
+    match setting.map(str::trim) {
+        Some("1") | Some("true") => true,
+        Some("0") | Some("false") => false,
+        _ => ci.is_some_and(|ci| ci.trim().eq_ignore_ascii_case("true")),
+    }
+}
+
+/// Zig's global cache directory from `zig env` (ZON: `.global_cache_dir = "..."`,
+/// or the JSON older Zigs print).
+pub fn zig_env_global_cache(output: &str) -> Option<PathBuf> {
+    let start = output.find("global_cache_dir")? + "global_cache_dir".len();
+    let rest = &output[start..];
+    // Past the key's own closing quote (JSON), the `=` or `:`, then the value's quote.
+    let sep = rest.find(['=', ':'])?;
+    let open = sep + rest[sep..].find('"')?;
+    let mut value = String::new();
+    let mut chars = rest[open + 1..].chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => value.push(chars.next()?),
+            '"' => return (!value.is_empty()).then(|| PathBuf::from(value)),
+            _ => value.push(c),
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -302,5 +452,133 @@ pub fn osVersionMin(tag: std.Target.Os.Tag) ?std.Target.Query.OsVersion {
         assert_eq!(zig_program(Some(String::new()), Some(pinned.clone())), pinned);
         assert_eq!(zig_program(None, Some(String::new())), "zig");
         assert_eq!(zig_program(None, None), "zig");
+    }
+
+    #[test]
+    fn the_minimum_zig_comes_from_the_manifest() {
+        let root = scratch_tree("zon-minimum", &[]);
+        let zon = root.join("build.zig.zon");
+        std::fs::write(
+            &zon,
+            ".{\n    .version = \"1.3.0-dev\",\n    .minimum_zig_version = \"0.17.0\",\n}\n",
+        )
+        .unwrap();
+        assert_eq!(zon_minimum_zig(&zon).as_deref(), Some("0.17.0"));
+        std::fs::write(&zon, ".{ .version = \"1.3.0\" }\n").unwrap();
+        assert_eq!(zon_minimum_zig(&zon), None);
+    }
+
+    #[test]
+    fn a_zig_serves_its_own_series_only() {
+        assert!(zig_compatible("0.17.0", "0.17.0"));
+        assert!(zig_compatible("0.17.2", "0.17.0"));
+        assert!(!zig_compatible("0.16.0", "0.17.0"));
+        assert!(!zig_compatible("0.18.0", "0.17.0"));
+        assert!(!zig_compatible("0.17.0-dev.1+abc", "0.17.0"));
+    }
+
+    /// The Linux pool's baked recipe put /opt/zig-0.16.0 first on PATH after
+    /// ghostty-next moved to Zig 0.17 (hq#8178); its image held /opt/zig-0.17.0.
+    #[test]
+    fn the_trees_pin_wins_over_a_recipe_that_hands_over_an_older_zig() {
+        let versions = |path: &str| match path {
+            "zig" | "/opt/zig-0.16.0/zig" => Some("0.16.0".to_string()),
+            "/opt/zig-0.17.0/zig" => Some("0.17.0".to_string()),
+            _ => None,
+        };
+        let mut candidates = vec!["zig".to_string()];
+        candidates.extend(installed_zig_paths("0.17.0"));
+        let (zig, why) = select_zig(&candidates, Some("0.17.0"), versions);
+        assert_eq!(zig, "/opt/zig-0.17.0/zig");
+        assert!(why.unwrap().contains("0.17.0"));
+        // an explicit ZIG of the wrong series loses too; one of the right series wins with no warning
+        let explicit = vec!["/opt/zig-0.16.0/zig".to_string(), "/opt/zig-0.17.0/zig".to_string()];
+        assert_eq!(select_zig(&explicit, Some("0.17.0"), versions).0, "/opt/zig-0.17.0/zig");
+        assert_eq!(
+            select_zig(&explicit[1..], Some("0.17.0"), versions),
+            ("/opt/zig-0.17.0/zig".to_string(), None)
+        );
+        // nothing serves the pin, or there is no pin: the first, as before
+        assert_eq!(
+            select_zig(&candidates[..1], Some("0.17.0"), versions),
+            ("zig".to_string(), None)
+        );
+        assert_eq!(select_zig(&candidates, None, versions), ("zig".to_string(), None));
+    }
+
+    #[test]
+    fn mirrored_packages_reads_the_tagged_lines() {
+        let lock = "# comment\n\
+                    mirror https://github.com/manaflow-ai/ghostty-next/releases/download/zig-packages/\n\
+                    aro-0.0.0-A 0123 ghostty-next,vt git+https://codeberg.org/ziglang/arocc#d0c8 -\n\
+                    gobject-0.3.2-B 4567 ghostty-next https://deps.example/gobject.tar.zst -\n\
+                    translate_c-2.0.0-C 89ab vt https://deps.example/tc.tar.gz aro-0.0.0-A\n\
+                    malformed line\n";
+        let vt = mirrored_packages(lock, "vt");
+        assert_eq!(
+            vt,
+            vec![
+                MirroredPackage {
+                    hash: "aro-0.0.0-A".into(),
+                    url: "https://github.com/manaflow-ai/ghostty-next/releases/download/zig-packages/aro-0.0.0-A.tar.gz".into(),
+                },
+                MirroredPackage {
+                    hash: "translate_c-2.0.0-C".into(),
+                    url: "https://github.com/manaflow-ai/ghostty-next/releases/download/zig-packages/translate_c-2.0.0-C.tar.gz".into(),
+                },
+            ]
+        );
+        assert_eq!(mirrored_packages(lock, "ghostty-next").len(), 2);
+        // a tag is a whole word of the list, and no mirror line means no packages
+        assert!(mirrored_packages(lock, "ghostty").is_empty());
+        assert!(mirrored_packages("aro-0.0.0-A 0123 vt u -\n", "vt").is_empty());
+    }
+
+    #[test]
+    fn the_checked_in_lock_mirrors_on_our_host() {
+        let lock =
+            std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(ZIG_PACKAGE_LOCK))
+                .unwrap();
+        let vt = mirrored_packages(&lock, "vt");
+        assert!(vt.iter().any(|p| p.hash.starts_with("aro-")), "{vt:?}");
+        assert!(vt.iter().all(|p| p.url.starts_with("https://github.com/manaflow-ai/")), "{vt:?}");
+    }
+
+    #[test]
+    fn mirror_only_is_on_in_ci_unless_turned_off() {
+        assert!(mirror_only(None, Some("true")));
+        assert!(!mirror_only(None, None));
+        assert!(!mirror_only(None, Some("")));
+        assert!(!mirror_only(Some("0"), Some("true")));
+        assert!(mirror_only(Some("1"), None));
+        assert!(mirror_only(Some(""), Some("true")));
+    }
+
+    #[test]
+    fn mirror_only_proxy_refuses_every_scheme_in_both_cases() {
+        // Zig's HTTP client reads lower- and upper-case http, https and all proxies.
+        for scheme in ["http_proxy", "https_proxy", "all_proxy"] {
+            assert!(PROXY_VARS.contains(&scheme));
+            assert!(PROXY_VARS.contains(&scheme.to_uppercase().as_str()));
+        }
+        assert_eq!(NO_ROUTE_PROXY, "http://127.0.0.1:9");
+        assert_eq!(NO_PROXY_VARS, ["NO_PROXY", "no_proxy"]);
+    }
+
+    #[test]
+    fn zig_env_global_cache_reads_zon_and_json() {
+        let zon = ".{\n    .zig_exe = \"/opt/zig/zig\",\n    .global_cache_dir = \"/home/runner/.cache/zig\",\n}\n";
+        assert_eq!(zig_env_global_cache(zon), Some(PathBuf::from("/home/runner/.cache/zig")));
+        let windows =
+            ".{ .global_cache_dir = \"C:\\\\Users\\\\runner\\\\AppData\\\\Local\\\\zig\" }";
+        assert_eq!(
+            zig_env_global_cache(windows),
+            Some(PathBuf::from("C:\\Users\\runner\\AppData\\Local\\zig"))
+        );
+        let json =
+            "{\n \"global_cache_dir\": \"/Users/me/.cache/zig\",\n \"version\": \"0.14.0\"\n}";
+        assert_eq!(zig_env_global_cache(json), Some(PathBuf::from("/Users/me/.cache/zig")));
+        assert_eq!(zig_env_global_cache(".{ .version = \"0.17.0\" }"), None);
+        assert_eq!(zig_env_global_cache(".{ .global_cache_dir = \"\" }"), None);
     }
 }

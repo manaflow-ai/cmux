@@ -4,6 +4,7 @@
 // it kept only the first block, so words after an attachment were lost).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -12,12 +13,13 @@ const saved = { had: "window" in scope, value: scope.window };
 beforeAll(() => {
   scope.window = dom.window;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   if (saved.had) scope.window = saved.value;
   else delete scope.window;
 });
 
-test("a prompt's words around a placed attachment are all recorded, a pasted block's are not", async () => {
+test("a prompt's words around a placed attachment are all recorded, with a pasted block's marked as acpmux marks it", async () => {
   const { MockAcpmuxSocket } = await import("./mock");
   // Turns run at once: no step waits.
   const socket = new MockAcpmuxSocket(() => Promise.resolve());
@@ -58,6 +60,9 @@ test("a prompt's words around a placed attachment are all recorded, a pasted blo
   const echo = messages.find(
     (message) => message.params?.kind === "user_message" && message.params?.sessionId === sessionId,
   );
-  expect(echo?.params.msg.text).toBe("look at  and fix it");
+  // acpmux's record of a prompt with a paste (hub/session.rs prompt_text_parts): its text blocks one
+  // per line, the paste's range marked.
+  expect(echo?.params.msg.text).toBe("look at \n and fix it\na pasted log");
+  expect(echo?.params.msg.pasted).toEqual([{ start: 21, end: 33 }]);
   expect(echo?.params.msg.images).toHaveLength(1);
 });

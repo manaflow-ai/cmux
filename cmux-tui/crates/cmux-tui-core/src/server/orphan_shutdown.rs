@@ -89,6 +89,7 @@ impl ClientRegistry {
             return false;
         }
         state.daemon_handoff = Some(DaemonHandoffReservation::Pending(ORPHAN_SHUTDOWN_REQUESTER));
+        state.daemon_handoff_restart = None;
         true
     }
 }

@@ -78,6 +78,8 @@ import {
 } from "./markdownHost";
 import { galleryHost, galleryModules } from "./galleryHost";
 import { perfLintOnSave } from "./perfLint";
+import { devEntrySrc } from "./devEntrySrc";
+import { liveRecoveryScript } from "./liveRecovery";
 import { viteCacheDir } from "./viteCacheDir.mjs";
 
 const webviewsRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -92,6 +94,8 @@ export function cmuxDevServer(): Plugin[] {
     appHostServer(),
     devServerShell(),
     perfBudgetsDevEntry(),
+    liveRecoveryDevEntry(),
+    directStylesheets(),
     agentPaneHost(),
     pagesHost(),
     viewerEmptyHost(),
@@ -116,17 +120,55 @@ export function perfBudgetsDevEntry(): Plugin {
     name: "cmux-dev-perf-budgets",
     apply: "serve",
     configResolved(config) {
-      const relative = path.relative(config.root, entry);
-      src =
-        relative.startsWith("..") || path.isAbsolute(relative)
-          ? `/@fs${entry}`
-          : `/${relative.split(path.sep).join("/")}`;
+      src = devEntrySrc(config, entry);
     },
     transformIndexHtml() {
       if (process.env.CMUX_PERF_BUDGETS === "off") return [];
       return [{ tag: "script", attrs: { type: "module", src }, injectTo: "head-prepend" }];
     },
   };
+}
+
+/// cmux Live's guard on every page this server serves (dev-server/liveRecovery.ts): inline first, so
+/// a page whose modules stop loading (a stopped or restarting server) shows a note and loads again
+/// instead of staying blank, then src/devkit/liveNote.dev.ts, its note while the HMR socket is down.
+export function liveRecoveryDevEntry(): Plugin {
+  const entry = path.join(webviewsRoot, "src/devkit/liveNote.dev.ts");
+  let src = "/src/devkit/liveNote.dev.ts";
+  return {
+    name: "cmux-dev-live-recovery",
+    apply: "serve",
+    configResolved(config) {
+      src = devEntrySrc(config, entry);
+    },
+    transformIndexHtml() {
+      return [
+        { tag: "script", children: liveRecoveryScript, injectTo: "head-prepend" },
+        { tag: "script", attrs: { type: "module", src }, injectTo: "head" },
+      ];
+    },
+  };
+}
+
+/// A page's `<link rel="stylesheet">` asks for its sheet with `?direct`. Vite answers a `.css` path as
+/// CSS only when the request accepts `text/css`, else as the JS module an `import` gets; the app
+/// fetches a page's files with no `Accept` of the page's (PageDevServer.request), so in the app the
+/// Settings page's styles.css came back as JavaScript and was refused.
+export function directStylesheets(): Plugin {
+  return {
+    name: "cmux-dev-direct-stylesheets",
+    apply: "serve",
+    transformIndexHtml: {
+      order: "post",
+      handler: (html) => html.replace(/<link\b[^>]*>/gi, directStylesheetLink),
+    },
+  };
+}
+
+/// `tag` with `?direct` on its `.css` href when it is a stylesheet link without a query.
+export function directStylesheetLink(tag: string): string {
+  if (!/\brel=["']?stylesheet\b/i.test(tag)) return tag;
+  return tag.replace(/(\bhref=["'])([^"'?#]+\.css)(["'])/i, "$1$2?direct$3");
 }
 
 /// How this server proves to a cmux app that it is the user's (PageDevServer.token in CmuxNextPages):
@@ -183,6 +225,19 @@ function devServerToken(): Plugin {
         }
         next();
       });
+      // After Vite's own middleware: its SPA fallback rewrote a file it does not have to the root
+      // index.html (the diff viewer) with a 200. cmux, which sends the nonce, takes a 200 and falls
+      // back to the overlay or bundled copy only on a 4xx, so a bundled page's chunk, stylesheet or
+      // JSON became HTML (the page's React content went blank) and a page missing from this checkout
+      // was the diff viewer. cmux gets a 404; a browser keeps the fallback (the guest page's routes).
+      return () => {
+        server.middlewares.use((request, response, next) => {
+          const asked = new URL(request.originalUrl ?? "/", "http://localhost").pathname;
+          const fellBack = request.url === "/index.html" && asked !== "/" && asked !== "/index.html";
+          if (fellBack && request.headers[DEV_NONCE_HEADER]) return send(response, 404, "text/plain", "");
+          next();
+        });
+      };
     },
   };
 }
@@ -234,12 +289,7 @@ function appHostServer(): Plugin {
           fs: config.server?.fs?.allow
             ? undefined
             : {
-                allow: [
-                  webviewsRoot,
-                  path.join(webviewsRoot, "..", "schemas/settings"),
-                  // The UI font's WOFF2 (src/gallery/frame/uiFont.ts).
-                  path.join(webviewsRoot, "..", "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts"),
-                ],
+                allow: [webviewsRoot, path.join(webviewsRoot, "..", "schemas/settings")],
               },
         },
       };
@@ -290,6 +340,7 @@ const indexPage = `<!doctype html>
 <li><a href="/markdown">/markdown</a>: markdown editor, <code>?file=&lt;path&gt;</code>; <a href="/markdown?pick">/markdown?pick</a>: its empty state; <a href="/markdown/viewer">/markdown/viewer</a>: the classic viewer shell</li>
 <li><a href="/editor">/editor</a>: code editor (Monaco), <code>?file=&lt;absolute path&gt;</code>; <a href="/editor?pick">/editor?pick</a>: its empty state</li>
 <li><a href="/history/?mock">/history/?mock</a>: History page against the in-page mock provider</li>
+<li><a href="/stash/?mock">/stash/?mock</a>: Stashed Tabs page against the in-page mock provider</li>
 <li><a href="/apps/?mock">/apps/?mock</a>: App Store page against the in-page mock provider (<code>#/discover?layout=list|split</code>, <code>#/installed</code>)</li>
 <li><a href="/cloud/?mock">/cloud/?mock</a>: Cloud page against the in-page mock provider (<code>&amp;layout=cards</code> for the cards layout)</li>
 <li><a href="/keybindings/?mock">/keybindings/?mock</a>: Keyboard Shortcuts page against the in-page mock provider</li>
@@ -320,6 +371,8 @@ const devEntries = [
   "src/pages/editor/devBridge.ts",
   "src/pages/editor/main.tsx",
   "src/pages/editor/view.ts",
+  // The React pages (pagesHost), which the app opens first after `cmux live start`.
+  "src/pages/*/main.tsx",
   ...galleryOptimizeDeps.entries,
 ];
 
@@ -336,34 +389,42 @@ function devServerShell(): Plugin {
         // One dependency cache per server. A cache shared with another server on the same
         // node_modules (vite.config.acpmux-pane.mjs, another slot) is re-optimized under it, and
         // open pages then fail to load modules and requests mid-load. The webviews test runner
-        // names one of its own (CMUX_VITE_CACHE_DIR), a copy of a warm one, for fresh browsers
-        // only, so its modules skip the no-cache revalidation below.
+        // names one of its own (CMUX_VITE_CACHE_DIR), a copy of a warm one. Long-lived local
+        // workbenches can also use one; those modules need the same revalidation below.
         cacheDir: viteCacheDir ?? `node_modules/${dependencyCacheName(config.server?.port ?? DEV_SERVER_PORT)}`,
         // Every surface's entry, so the first scan finds all dependencies instead of a page
         // discovering one late and triggering an optimizer reload.
         optimizeDeps: { entries: devEntries, exclude: galleryOptimizeDeps.exclude },
+        // A path this server lacks is a 404, never the index page: the app asks it for a page's
+        // bundled file names first (`assets/x-hash.js`) and serves its own copy only on a miss,
+        // so an HTML 200 ran as a script and left the page blank. Only the servers rooted at
+        // webviews/ (the ones the app loads from); a single-page app of its own (the guest page,
+        // Chief web) keeps its client routes.
+        ...(config.root === undefined || path.resolve(config.root) === webviewsRoot ? { appType: "mpa" as const } : {}),
       };
     },
     configureServer(server) {
-      const cacheName = dependencyCacheName(server.config.server.port ?? DEV_SERVER_PORT);
+      revalidateDependencyCache(server);
       server.middlewares.use((request, response, next) => {
         const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
         if (pathname === "/" || pathname === "/index.html") return send(response, 200, "text/html", indexPage);
-        // Vite serves optimized dependencies as `immutable` for a year, keyed by a `?v=` hash
-        // of the lockfile and config only. When the set of optimized dependencies changes (a
-        // source file starts importing one directly), the hash stays and the chunks inside are
-        // renamed, so a long-lived WebView (the cmux browser pane) keeps old modules that import
-        // chunks that no longer exist: "Importing a module script failed", then "Load failed".
-        // Revalidating them by ETag costs a 304 per module and never serves a stale graph.
-        if (isDependencyCacheRequest(pathname, cacheName)) {
-          const setHeader = response.setHeader.bind(response);
-          response.setHeader = (name, value) =>
-            setHeader(name, name.toLowerCase() === "cache-control" ? "no-cache" : value);
-        }
         next();
       });
     },
   };
+}
+
+// Long-lived WebViews must revalidate optimized dependency graphs after Vite rebuilds them.
+function revalidateDependencyCache(server: ViteDevServer): void {
+  server.middlewares.use((request, response, next) => {
+    const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
+    if (isDependencyCacheRequest(pathname, server.config.cacheDir, server.config.root)) {
+      const setHeader = response.setHeader.bind(response);
+      response.setHeader = (name, value) =>
+        setHeader(name, name.toLowerCase() === "cache-control" ? "no-cache" : value);
+    }
+    next();
+  });
 }
 
 /// /agent-pane/<page>.html serves src/agent-session/acpmux/<page>.html (index.html for the
@@ -404,6 +465,7 @@ export function agentPaneHost(): Plugin {
       return paneModule ? [...modules, paneModule] : undefined;
     },
     configureServer(server) {
+      if (server.config.root === paneDir) revalidateDependencyCache(server);
       // The pane's repository reads (dev-host/host.ts): git.status, git.diff, git.checkpoint.diff
       // and file.search, read only and confined to the slot's folder (agentGitHost.ts).
       server.middlewares.use(async (request, response, next) => {

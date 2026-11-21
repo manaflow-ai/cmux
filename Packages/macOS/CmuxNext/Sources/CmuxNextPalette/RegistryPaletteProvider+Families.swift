@@ -3,7 +3,8 @@ import CmuxNextActions
 /// The catalog's palette order (`ActionDescriptor.paletteTier`, `paletteFamilies`;
 /// plans/cmux-next/palette-ranking.md 5.4): no row is dropped. A family's members fold into one
 /// row on the empty query and still match a typed query; daily rows lead their section, niche
-/// rows close it, and rows the focused pane cannot run come last, dimmed with the reason.
+/// rows close it. A bound row that cannot run here is not listed (`RegistryPaletteProvider`); only
+/// an unbound debug row lists disabled, last.
 extension RegistryPaletteProvider {
     /// Ahead of or behind an equal match while typing: less than a match tier, so a better
     /// match of a niche row still wins.
@@ -27,8 +28,13 @@ extension RegistryPaletteProvider {
 
     /// `arranged(_:tiers:)` with `tierList[i]` the tier of `items[i]`. The order is sorted as indices over keys read
     /// once (a row's enabled state and tier), never by moving rows or looking a tier up per comparison.
-    static func arranged(_ items: [PaletteItem], tierList: [PaletteTier]) -> [PaletteItem] {
-        var items = items
+    static func arranged(_ itemsIn: [PaletteItem], tierList: [PaletteTier]) -> [PaletteItem] {
+        // Sized for the family rows inserted below before the first write copies `items`: a copy made at the rows'
+        // own size doubled at the first insert, and the root list (`curatedRootItems`) was then handed the freed
+        // buffer twice its size (CMUX-571).
+        var items: [PaletteItem] = []
+        items.reserveCapacity(itemsIn.count + ActionDescriptor.paletteFamilies.count)
+        items.append(contentsOf: itemsIn)
         var tiers = tierList
         var position: [ActionID: Int] = [:]
         for (index, item) in items.enumerated() {

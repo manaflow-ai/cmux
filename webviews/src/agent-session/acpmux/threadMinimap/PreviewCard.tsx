@@ -23,6 +23,9 @@ import { experimentArm } from "../../../experiments/experiment";
 import { Button } from "../../../ui/Button";
 import { sliceWhole, sliceWholeEnd } from "../../../ui/wholeChars";
 import { type CoveredCandidates, useSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
+import { useSenderIdentity } from "../subagents/subsessions";
+import { SenderIdentityLabel } from "../SenderIdentityLabel";
+import { PromptMarksSession } from "./promptMarks";
 
 const middleEllipsis = (value: string, max = 36) => {
   if (value.length <= max) return value;
@@ -356,7 +359,15 @@ export const PreviewCard = React.forwardRef<
       onBlur={onBlur}
     >
       {prompt !== undefined && from !== undefined && (
-        <div className="acpmux-minimap__from">{t("minimap.from", { name: from })}</div>
+        <div className="acpmux-minimap__from">
+          {/* One sender the turn records reads as its session (senderIdentity.ts); a run of several,
+              or a sender no session list or id names, keeps "From <name>". */}
+          {metadata?.sender && metadata.sender.name === from ? (
+            <PreviewSender sender={metadata.sender} fallback={t("minimap.from", { name: from })} />
+          ) : (
+            t("minimap.from", { name: from })
+          )}
+        </div>
       )}
       {prompt !== undefined && (
         <div className="acpmux-minimap__title">
@@ -445,6 +456,7 @@ export const PreviewCard = React.forwardRef<
       )}
     </div>
   );
+
   if (!layer) return card;
   return (
     <>
@@ -458,3 +470,8 @@ export const PreviewCard = React.forwardRef<
     </>
   );
 });
+
+function PreviewSender({ sender, fallback }: { sender: NonNullable<MinimapTurnMetadata["sender"]>; fallback: string }) {
+  const identity = useSenderIdentity(sender, React.useContext(PromptMarksSession));
+  return identity.known ? <SenderIdentityLabel identity={identity} /> : <>{fallback}</>;
+}

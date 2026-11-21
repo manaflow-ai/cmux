@@ -26,22 +26,23 @@ public struct AccountCloud: Sendable {
 
     let http: ChiefCloudHTTP
 
-    /// `/v1/read {op, params}`: the reply's `value` as JSON bytes.
-    public func read(_ op: String, params: [String: any Sendable] = [:]) async throws -> Data {
-        try await call("/v1/read", ["op": op, "params": params])
+    /// `/v1/read {op, params}`: the reply's `value` as JSON bytes. `team` is the Cloud team id the
+    /// read acts in (``ChiefSources/cloudTeamID(stackTeamID:)``); nil reads the personal team.
+    public func read(_ op: String, params: [String: any Sendable] = [:], team: String? = nil) async throws -> Data {
+        try await call("/v1/read", ["op": op, "params": params], team: team)
     }
 
     /// `/v1/ops {op, params, idempotency_key, origin: user}`: a write the person made; a retry
     /// with the same key applies once.
-    public func mutate(_ op: String, params: [String: any Sendable], key: String) async throws -> Data {
-        try await call("/v1/ops", ["op": op, "params": params, "idempotency_key": key, "origin": "user"])
+    public func mutate(_ op: String, params: [String: any Sendable], key: String, team: String? = nil) async throws -> Data {
+        try await call("/v1/ops", ["op": op, "params": params, "idempotency_key": key, "origin": "user"], team: team)
     }
 
-    private func call(_ path: String, _ object: [String: any Sendable]) async throws -> Data {
+    private func call(_ path: String, _ object: [String: any Sendable], team: String?) async throws -> Data {
         let body: Data
         do { body = try JSONSerialization.data(withJSONObject: object) } catch { throw Failure.badReply }
         let reply: ChiefCloudHTTP.Reply
-        do { reply = try await http.send("POST", path, body: body) } catch {
+        do { reply = try await http.send("POST", path, body: body, team: team) } catch {
             throw Self.cancellation(error) ?? Failure.unreachable
         }
         let value: Any?

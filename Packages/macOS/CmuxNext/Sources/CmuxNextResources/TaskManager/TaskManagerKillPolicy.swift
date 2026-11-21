@@ -28,10 +28,7 @@ public struct TaskManagerKillPolicy {
 
     /// The refusal for `key`, or nil when it may be ended.
     public func refusal(for key: ProcessKey, lineage: any ProcessLineage) -> TaskManagerKillRefusal? {
-        guard key.host == ProcessKey.localHost else { return .remoteHost }
-        guard key.pid > 1 else { return key.pid == 1 ? .notCmuxProcess : .invalid }
-        if key.pid == appPID { return .appProcess }
-        if daemonPIDs.contains(key.pid) { return .daemonProcess }
+        if let refusal = listedRefusal(for: key) { return refusal }
         guard var parent = lineage.parent(of: key.pid) else { return .notRunning }
         if listedPIDs.contains(key.pid) || insideBundle(key.pid, lineage) { return nil }
         let roots = daemonPIDs.union([appPID])
@@ -41,6 +38,17 @@ public struct TaskManagerKillPolicy {
             parent = next
         }
         return .notCmuxProcess
+    }
+
+    /// The refusal of a row the last sample listed, read without the lineage: a remote process, pid 1
+    /// or less, the app or a daemon. Any other listed process may be ended (``refusal(for:lineage:)``
+    /// allows a running listed pid), so the Task Manager page greys out Kill Process from this alone.
+    public func listedRefusal(for key: ProcessKey) -> TaskManagerKillRefusal? {
+        guard key.host == ProcessKey.localHost else { return .remoteHost }
+        guard key.pid > 1 else { return key.pid == 1 ? .notCmuxProcess : .invalid }
+        if key.pid == appPID { return .appProcess }
+        if daemonPIDs.contains(key.pid) { return .daemonProcess }
+        return nil
     }
 
     private func insideBundle(_ pid: Int32, _ lineage: any ProcessLineage) -> Bool {

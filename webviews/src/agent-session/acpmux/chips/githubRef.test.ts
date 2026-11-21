@@ -2,7 +2,7 @@
 // 2026-10-19). LinkChips.tsx names the reference and takes the item's own title, for its hover card,
 // from the page title cmux has for it.
 import { expect, test } from "bun:test";
-import { githubRefLabel, githubRefTitle } from "./LinkChips";
+import { githubRefLabel, githubRefTitle } from "./linkChipsModel";
 
 test("a pull request or issue address names its reference", () => {
   expect(githubRefLabel("https://github.com/manaflow-ai/cmux/pull/21738")).toBe("manaflow-ai/cmux#21738");

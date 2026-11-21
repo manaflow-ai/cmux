@@ -6,15 +6,16 @@
 //
 // - The focused hairline (--acpmux-composer-edge-focus) stays above the resting one, so focus still
 //   reads, and below the 28% step it was.
-// - In a dark theme the card's top edge, the hairline plus the glass material's top-lit line
-//   (glass.css "GLASS MATERIAL"), focused, is quieter than it was (a 28% hairline under the full
-//   material light).
+// - In a dark theme the card's top edge, focused, is quieter than it was (a 28% hairline under the
+//   full material light): since 2026-11-20 the hairline alone, the material's light inside it
+//   (composer-one-edge.test.ts).
 //
 // Real Chromium from Playwright on the composer-rim harness; CI fails the file when it cannot
 // launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { focusByKey } from "./support/focusByKey";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -152,7 +153,7 @@ await requireBrowserLane("composer-focus-rim-quiet.test.ts", async () => {
       const page = await open(theme);
       const { text, page: bg } = THEMES[theme];
       const rest = await layers(page);
-      await page.focus("#composer-field");
+      await focusByKey(page, "#composer-field");
       const focused = await layers(page);
       await page.close();
 
@@ -168,7 +169,8 @@ await requireBrowserLane("composer-focus-rim-quiet.test.ts", async () => {
       const white: RGB = [255, 255, 255];
       const beforeTop = contrast(over(over(bg, [...text, BEFORE_FOCUS]), [...white, FULL_SPECULAR]), bg);
       const focusTop = contrast(topEdge(bg, focused), bg);
-      expect(topLine(focused), "the glass card keeps a top-lit line").toBeDefined();
+      // The material's light stays inside the edge (composer-one-edge.test.ts): no line on the top edge.
+      expect(topLine(focused), "the top edge is the hairline alone").toBeUndefined();
       expect(focusTop, "the focused top edge is quieter than the full glass frame").toBeLessThan(beforeTop * 0.9);
       expect(focusTop, "the focused top edge still reads against the page").toBeGreaterThan(1.05);
     });

@@ -13,8 +13,8 @@ export type UploadCancelled = ((index: number) => boolean) & {
 /// fail the same way; any other error (a link down, a timeout) may pass on the next try.
 export type UploadResult =
   | { paths: string[] }
-  | { paths: string[]; error: string; final?: boolean; code?: string }
-  | { error: string; final?: boolean; code?: string }
+  | { paths: string[]; error: string; final?: boolean }
+  | { error: string; final?: boolean }
   | undefined;
 /// How much of file `index` of an upload reached the host, 0 to 1 (its tile's progress ring).
 export type UploadProgressReport = (index: number, done: number) => void;
@@ -99,10 +99,9 @@ function notTaken(error: unknown): boolean {
 /// The answer for a failed upload: its words, and whether the host refused it outright.
 function uploadError(error: unknown, paths?: string[]): UploadResult {
   const text = error instanceof Error ? error.message : String(error);
-  const code = (error as { code?: string } | null)?.code;
-  const failure = REFUSED.has(code ?? "")
-    ? { error: text, final: true, ...(code ? { code } : {}) }
-    : { error: text, ...(code ? { code } : {}) };
+  const failure = REFUSED.has((error as { code?: string } | null)?.code ?? "")
+    ? { error: text, final: true }
+    : { error: text };
   return paths?.some(Boolean)
     ? { paths: Array.from({ length: paths.length + 1 }, (_, index) => paths[index] ?? ""), ...failure }
     : failure;
@@ -131,6 +130,10 @@ export async function uploadToMachine(
   host: Call,
   cancelled: UploadCancelled = () => false,
   progress?: UploadProgressReport,
+  /// The person's Send these files go with (sendUploads.ts): each begin holds its ticket instead of
+  /// a gesture, with no batch, and an older host's one-frame upload, which needs the gesture, is
+  /// not tried.
+  send?: { sessionId: string; promptId: string; ticket: string },
 ): Promise<UploadResult> {
   const call = callWithin(host);
   if (!files.length || files.some((file) => !file.name)) return undefined;
@@ -147,11 +150,14 @@ export async function uploadToMachine(
       started = await call("chat.upload.begin", {
         name: file.name,
         size: file.size,
-        ...(index === 0 && files.length > 1 ? { batch: manifest } : {}),
+        // A Send's files begin one by one, each under its ticket: the host refuses a held begin
+        // with a batch, whose token would let the later files skip the ticket.
+        ...(index === 0 && files.length > 1 && !send ? { batch: manifest } : {}),
         ...(batchToken ? { batchToken } : {}),
+        ...send,
       });
     } catch (error) {
-      if (!begun && notTaken(error)) {
+      if (!begun && notTaken(error) && !send) {
         // An old host can only accept one complete JSON frame. Refuse oversized files
         // explicitly instead of rebuilding the removed composer cap as a connection reset.
         if (files.some((entry, at) => !cancelled(at) && entry.size > LEGACY_FRAME_SAFE_BYTES))

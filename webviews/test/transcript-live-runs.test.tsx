@@ -2,11 +2,22 @@
 // turn's tool calls pile up as a list. Each run folds into one summary line ("Read 2 files and ran a
 // command") that opens to its calls, the latest run too as its calls finish; the call in flight
 // leaves the run for the turn's live line, which names it and replaces itself as calls go by.
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+
+// This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps each finished
+// run in sight as its folded summary line. The `line` arm (one live line, as chatgpt.com draws a running
+// turn) is covered by live-turn-one-line.test.ts.
+const liveTurnArmsBefore = globalThis.cmuxExperiments;
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...liveTurnArmsBefore, "live-turn-work": "runs" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = liveTurnArmsBefore;
+});
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -30,7 +41,7 @@ const live = [
   row("u", "user"),
   text("plan"),
   run("reads", [call("README.md", "read"), call("retry.py", "read"), call("ls src", "execute")]),
-  // Text long enough to stand between the runs (a short note folds into them: turns.ts mergeShortNotes).
+  // Commentary stands between the runs regardless of its length.
   row("between", "assistant", { text: "between ".repeat(30) }),
   run("commands", [call("git log", "execute"), call("wc -l retry.py", "execute", "in_progress")]),
 ];
@@ -126,4 +137,24 @@ test("a pending harness prompt keeps one thinking line in place", () => {
   expect(readyThinking[0]).toMatchObject({ id: "thinking-live", version: 1 });
   expect(readyThinking[0]?.status).toBeUndefined();
   expect(ready.filter((entry) => entry.status !== undefined)).toHaveLength(0);
+});
+
+// An earlier background call keeps its own row while commentary separates its run from the latest.
+// The live line names only the latest foreground call.
+test("a background call keeps its row across commentary and a newer foreground run", () => {
+  const rows = [
+    row("u2", "user"),
+    run("watch", [call("cargo watch", "execute", "in_progress"), call("git status", "execute")]),
+    row("note", "assistant", { text: "Now the tests." }),
+    run("tests", [call("bun test", "execute"), call("tsc", "execute", "in_progress")]),
+  ];
+  const shaped = turnView(rows, new Set(), { working: true });
+  const ids = shaped
+    .filter((entry) => entry.kind === "activity")
+    .flatMap((entry) => (entry.items ?? []).map((item) => item.tool?.id));
+  expect(ids).toContain("cargo watch");
+  expect(ids).toContain("bun test");
+  expect(shaped.find((entry) => entry.id === "note")?.text).toBe("Now the tests.");
+  // The latest call in flight is the live line's alone.
+  expect(ids).not.toContain("tsc");
 });

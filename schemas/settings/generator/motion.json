@@ -1,0 +1,8 @@
+{
+  "source": "schemas/settings/source/motion.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Motion.generated.swift",
+  "type": "MotionSettingsSchema",
+  "lists": {
+    "motion": ["descriptors", null]
+  }
+}

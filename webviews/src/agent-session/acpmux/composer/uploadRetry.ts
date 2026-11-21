@@ -1,6 +1,8 @@
-// A file whose upload failed retries by itself. The native upload gate keeps a short retry credit
-// for an upload that already had a real gesture, so a timer retry cannot be mistaken for a new
-// agent command or surface the internal "agent connection" refusal to the person.
+// A file whose upload failed tries again on its own before its chip shows Retry (Leo,
+// 2026-11-01, after a pasted mp4 failed until he clicked Retry: "i had to retry to get it to
+// load???"). Each try goes on a timer, 1 s and then 2 s after the failure. The host no longer
+// spends a key press or click on an upload's begin (#45429), so a try no longer waits for the
+// person's next key or click, and a chip shows Retry only once its own tries are spent.
 
 /// How many times a failed upload is tried again on its own before its chip shows Retry.
 export const UPLOAD_AUTO_RETRIES = 2;

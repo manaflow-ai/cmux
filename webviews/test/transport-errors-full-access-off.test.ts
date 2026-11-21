@@ -65,7 +65,7 @@ test("a queued full-access pick that acpmux refuses shows the refusal", async ()
 // The mode picker's warning color follows the same rule acpmux and the app enforce
 // (cmux-tui/spec/full-access-modes.json): Codex's full-auto still asks, so it draws plain.
 test("the picker's warning color follows the shared full-access rule", async () => {
-  const { unrestricted } = await import("../src/agent-session/acpmux/ComposerPickers");
+  const { unrestricted } = await import("../src/agent-session/acpmux/composerPickerModel");
   for (const id of [
     "bypassPermissions",
     "agent-full-access",

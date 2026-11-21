@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -27,7 +28,7 @@ struct VerticalTabsMenuTests {
         var context = AppActionContext(services: services)
         let design = DesignSettings()
         context.design = design
-        let store = WorkspaceVerticalTabs(defaults: try #require(UserDefaults(suiteName: "VerticalTabsMenuTests.\(UUID().uuidString)")))
+        let store = WorkspaceVerticalTabs(defaults: try #require(UserDefaults(testSuiteName: "VerticalTabsMenuTests.\(UUID().uuidString)")))
         VerticalTabsActions(host: context, store: store).bind(into: services.registry)
         return Fixture(services: services, design: design, store: store)
     }

@@ -43,8 +43,8 @@ mkdir -p "$work/ab"
 need_fetch() { [ -z "$2" ] && ! git cat-file -e "$1^{commit}" 2>/dev/null; }
 depth=""
 [ "$(git rev-parse --is-shallow-repository)" = "true" ] && depth="--depth=1"
-need_fetch "$against" "$before_key" && git fetch --quiet $depth origin "$against"
-need_fetch "$after" "$after_key" && git fetch --quiet $depth origin "$after"
+need_fetch "$against" "$before_key" && { git fetch --quiet $depth origin "$against" 2>/dev/null || git fetch --quiet $depth https://github.com/manaflow-ai/cmux.git "$against"; }
+need_fetch "$after" "$after_key" && { git fetch --quiet $depth origin "$after" 2>/dev/null || git fetch --quiet $depth https://github.com/manaflow-ai/cmux.git "$after"; }
 base="${CMUX_TUI_PIN_BASE:-https://files.cmux.com/cmux-tui}"
 fetch() { # label revision [key]
   local key="${3:-}" sum

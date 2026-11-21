@@ -1,5 +1,7 @@
 import AppKit
+import CmuxNextCompat
 @testable import CmuxNextApp
+import CmuxNextAppCore
 import CmuxNextFocusUI
 import Foundation
 import Testing
@@ -171,6 +173,15 @@ import CmuxNextTestSupport
         #expect(harness.b.state.workspaceID == bShown, "window B changed its shown workspace for a click in window A")
     }
 
+    /// cmux#37371: after a sidebar pick's claim the workspace may still be another window's (the claim refused, as
+    /// for an incognito window's workspace). That window, which may be on another macOS Space, does not come forward;
+    /// only a window the claim just opened does. A request from elsewhere still brings its window forward.
+    @Test func aSidebarPickNeverBringsAnotherOpenWindowForward() {
+        #expect(!ShowOrigin.thisWindow.raisesOwner(ownerWasOpen: true), "a click in window A raised window B")
+        #expect(ShowOrigin.thisWindow.raisesOwner(ownerWasOpen: false), "the window the claim opened stayed behind")
+        #expect(ShowOrigin.anywhere.raisesOwner(ownerWasOpen: true))
+    }
+
     /// A request from elsewhere (a notification, the CLI) still shows the workspace where it lives.
     @Test func aRequestFromElsewhereShowsTheWorkspaceWhereItLives() throws {
         let harness = try Self.harness()
@@ -194,9 +205,9 @@ import CmuxNextTestSupport
         let a = make(), b = make(), page = make()
         a.addChildWindow(page, ordered: .above)
         defer { a.removeChildWindow(page); for window in [a, b, page] { window.close() } }
-        #expect(!NewTabInputCoordinator.mayTakeKey(a, keyWindow: b), "window A took the keyboard from window B")
-        #expect(NewTabInputCoordinator.mayTakeKey(a, keyWindow: page), "A takes the keys back from its own page window")
-        #expect(NewTabInputCoordinator.mayTakeKey(a, keyWindow: nil))
+        #expect(!a.mayTakeKey(from: b), "window A took the keyboard from window B")
+        #expect(a.mayTakeKey(from: page), "A takes the keys back from its own page window")
+        #expect(a.mayTakeKey(from: nil))
     }
 
     /// Keys the daemon gives back from a creation in window A wait for a terminal of window A; a

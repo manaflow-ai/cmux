@@ -2,7 +2,8 @@
 // `hub/watch.rs`, Leo 2026-10-18): the pane names the app the session runs in and offers Take Over.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { WatchBanner, watchedApp } from "../src/agent-session/acpmux/WatchBanner";
+import { WatchBanner } from "../src/agent-session/acpmux/WatchBanner";
+import { watchedApp } from "../src/agent-session/acpmux/watchBannerModel";
 
 test("the banner names the app the watched session runs in and offers Take Over", () => {
   const html = renderToStaticMarkup(<WatchBanner family="claude" onTakeOver={() => {}} />);

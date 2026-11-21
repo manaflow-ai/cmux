@@ -8,7 +8,8 @@ import Testing
 /// host answered where the paste's files are. Both took the gesture's one grant, so whichever came
 /// second was refused: the send ("Not sent: it needs your own key press or click.") or, once the
 /// send bound first, the upload, and a PDF or a video (no preview to fall back on) kept the send
-/// waiting for good. A gesture now gives an upload credit of its own beside the grant.
+/// waiting for good. A gesture then gave an upload credit of its own beside the grant; now neither
+/// the send nor the upload needs one (Leo, 2026-11-17: "go remove this").
 @MainActor
 struct AgentPaneUploadSendGestureTests {
     private actor NoHost: AgentPaneHostProviding {
@@ -61,14 +62,15 @@ struct AgentPaneUploadSendGestureTests {
         #expect(begun() == 1)
     }
 
-    /// The upload credit is the gesture's: one batch per key press or click, and none without one.
-    @Test func noGestureNoUploadAndOneBatchPerGesture() async throws {
+    /// An upload needs no key press or click (Leo, 2026-11-17: "go remove this"): a batch begins
+    /// with no gesture, and a second after the gesture's credit is spent.
+    @Test func anUploadBeginsWithNoGestureAndAfterTheCreditIsSpent() async throws {
         let (model, begun) = pane()
-        #expect(!(await begins(model, "script.pdf")))
+        #expect(await begins(model, "script.pdf"))
         try enterBindsSend(model)
         #expect(await begins(model, "first.pdf"))
-        #expect(!(await begins(model, "second.pdf")))
-        #expect(begun() == 1)
+        #expect(await begins(model, "second.pdf"))
+        #expect(begun() == 3)
     }
 
     /// The upload spends only its own credit: the send's grant is still there after it.
@@ -78,63 +80,5 @@ struct AgentPaneUploadSendGestureTests {
         #expect(await begins(model, "spec.pdf"))
         let send = try #require(AgentPaneGestureIntent(gestureParams: ["intent": ["method": "session/prompt", "params": ["promptId": "p-1"]]]))
         #expect(model.transport.gestures.reserve(connection: 0, intent: send) != nil)
-    }
-
-    /// A transient staged-begin failure gives only that same attachment one short-lived retry
-    /// credit. The timer retry therefore does not surface the transport's gesture refusal, while
-    /// a different attachment still needs a real gesture. This also covers a timer retry after
-    /// the native transport has already spent the original upload credit.
-    @Test func aFailedBeginCanRetryWithoutAuthorizingAnotherAttachment() async {
-        let model = AgentPaneModel(host: NoHost())
-        var attempts = 0
-        model.onUploadStage = {
-            { _, _ in
-                attempts += 1
-                if attempts == 1 { return AgentPaneReply.failure(code: "upload_failed", message: "temporary") }
-                return AgentPaneReply.success(["token": "t", "size": 3, "chunkSize": 512 * 1024])
-            }
-        }
-        model.transport.gestures.record()
-        #expect(!(await begins(model, "shot.png")))
-        #expect(await begins(model, "shot.png"), "the retry credit should pay for the same begin")
-        #expect(!(await begins(model, "other.png")), "the retry credit must not authorize another file")
-        #expect(attempts == 2)
-    }
-
-    @Test func aFailedStagedUploadGetsTwoRetriesAndBadChunksCannotMintMore() async {
-        var clock = 100.0
-        let transport = AgentPaneTransport(gestures: AgentPaneUserGestures(now: { clock }))
-        let model = AgentPaneModel(host: NoHost(), transport: transport)
-        var begins = 0
-        model.onUploadStage = {
-            { request, _ in
-                switch request {
-                case .begin:
-                    begins += 1
-                    return AgentPaneReply.success(["token": "t\(begins)", "size": 3, "chunkSize": 512 * 1024])
-                case .chunk:
-                    return AgentPaneReply.failure(code: "upload_failed", message: "bad chunk")
-                case .finish, .cancel:
-                    return AgentPaneReply.success()
-                }
-            }
-        }
-
-        // The initial begin succeeds, then a bad chunk arms the first retry credit.
-        model.transport.gestures.record()
-        #expect(await self.begins(model, "shot.png"))
-        #expect((await model.respond(to: .uploadStage(.chunk(token: "t1", offset: 0, data: Data([1]))))) ["ok"] as? Bool == false)
-
-        // Both automatic retries are paid for the same staged attachment.
-        #expect(await self.begins(model, "shot.png"))
-        #expect((await model.respond(to: .uploadStage(.chunk(token: "t2", offset: 0, data: Data([1]))))) ["ok"] as? Bool == false)
-        #expect(await self.begins(model, "shot.png"))
-        #expect((await model.respond(to: .uploadStage(.chunk(token: "t3", offset: 0, data: Data([1]))))) ["ok"] as? Bool == false)
-
-        // A stale/bad chunk after the retry budget is exhausted cannot re-arm a fresh credit.
-        #expect((await model.respond(to: .uploadStage(.chunk(token: "t3", offset: 0, data: Data([1]))))) ["ok"] as? Bool == false)
-        clock += 1
-        #expect(!(await self.begins(model, "shot.png")))
-        #expect(begins == 3)
     }
 }

@@ -4,7 +4,8 @@
 // options) finds them in the cache: no card mounts empty and fills in a frame later.
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { categoryById, homes, categoryOf } from "./categories";
-import type { AgentsState, ChannelsState, SharesState } from "./ops";
+import { legacyPart } from "./legacyLinks";
+import type { AgentsState, ChannelsState, KeysState, SharesState, TailnetState, LibraryListing } from "./ops";
 import { settingsKeys } from "./queries";
 import type { SettingsStore } from "./store";
 
@@ -13,7 +14,7 @@ import type { SettingsStore } from "./store";
  * it in the background (stale-while-revalidate: the cached value shows at once). */
 export const SECTION_READ_FRESH_MS = 5_000;
 
-type SectionAction = { id: string; title: string; enabled: boolean };
+type SectionAction = { id: string; title: string; enabled: boolean; hint?: string | null };
 
 /** The section's registry buttons (Reload Configuration, Import from Browser, ...). */
 export function sectionActionsQuery(store: SettingsStore, section: string) {
@@ -48,6 +49,19 @@ export function agentsQuery(store: SettingsStore) {
   });
 }
 
+/** This Mac on Your Tailnet's key; each sign-in step writes its answer here. */
+export const TAILNET_KEY = [...settingsKeys.all, "tailnet"] as const;
+
+/** Settings > Server > This Mac on Your Tailnet: the node's snapshot (null: no tailnet here). */
+export function tailnetQuery(store: SettingsStore) {
+  return queryOptions<TailnetState | null>({
+    queryKey: TAILNET_KEY,
+    queryFn: () => store.tailnet("state"),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
 /** The Shared Links list's key; a revoke refreshes it. */
 export const SHARES_KEY = [...settingsKeys.all, "shares"] as const;
 
@@ -61,8 +75,41 @@ export function sharesQuery(store: SettingsStore) {
   });
 }
 
+/** Appearance > Customization Library's key; a change the card makes writes the library it answers here. */
+export const LIBRARY_KEY = [...settingsKeys.all, "customize-library"] as const;
+
+/** Appearance > Customization Library: everything the person applied, top first (null: no CLI). */
+export function libraryQuery(store: SettingsStore) {
+  return queryOptions<LibraryRead>({
+    queryKey: LIBRARY_KEY,
+    queryFn: () => store.customizeLibrary({ verb: "list" }),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
+/** The library as read, and the CLI's refusal of the read in its own words. */
+export type LibraryRead = { library: LibraryListing | null; refusal: string | null };
+
+/** The Keys list's key; an answer, a decline, a revoke and the host's `cmux.settings.keys.changed`
+ * refresh it. */
+export const KEYS_KEY = [...settingsKeys.all, "keys"] as const;
+
+/** Settings > Keys: this Mac's keys and the requests waiting for the person (null: the host has none). */
+export function keysQuery(store: SettingsStore) {
+  return queryOptions<KeysState | null>({
+    queryKey: KEYS_KEY,
+    queryFn: () => store.keys(),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
 /** The section a route shows: the focused key's home, else the path's category or schema section. */
 export function routeSection(section: string | undefined, focus: string | undefined | null): string {
+  // An old Personalization part link opens the page that draws that part now (legacyLinks.ts).
+  const legacy = legacyPart(section, focus);
+  if (legacy) return legacy.section;
   const home = focus ? homes.get(focus) : undefined;
   return home?.category ?? categoryOf(section);
 }
@@ -81,8 +128,13 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
   if (cards.has("themeStudio")) reads.push({ options: { queryKey: settingsKeys.themeColors }, revalidate: false });
   if (cards.has("accounts")) reads.push({ options: { queryKey: settingsKeys.accounts }, revalidate: false });
   if (cards.has("harnesses")) reads.push({ options: { queryKey: settingsKeys.harnesses }, revalidate: false });
+  if (cards.has("models") || cards.has("cloudModels"))
+    reads.push({ options: { queryKey: settingsKeys.models }, revalidate: false });
   if (cards.has("agentHarnesses")) reads.push({ options: agentsQuery(store), revalidate: true });
   if (cards.has("sharedLinks")) reads.push({ options: sharesQuery(store), revalidate: true });
+  if (cards.has("customizeLibrary")) reads.push({ options: libraryQuery(store), revalidate: true });
+  if (cards.has("keys")) reads.push({ options: keysQuery(store), revalidate: true });
+  if (cards.has("tailnet")) reads.push({ options: tailnetQuery(store), revalidate: true });
   if (cards.has("channels")) {
     const ring = store.getSnapshot().rows.get("updates.channel")?.value;
     reads.push({ options: channelsQuery(store, typeof ring === "string" ? ring : undefined), revalidate: true });

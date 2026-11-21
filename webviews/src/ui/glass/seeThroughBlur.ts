@@ -20,6 +20,7 @@
 // its transform) measures once on the next frame, not the loop: the new place is final when written.
 // Closing the surface removes all of it. A window without those observers (a test DOM) gets nothing.
 import { type RefObject, useLayoutEffect } from "react";
+import { REFRACTIONS, type Refraction, refractionNamed, rimMap } from "./rimRefraction";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 /** Unchanged frames before the follow loop stops. */
@@ -48,6 +49,8 @@ export type BlurHole = {
   radius: number;
   /** The Gaussian's standard deviation, CSS px: CSS `blur(r)` is a deviation of r. */
   blur: number;
+  /** How the surface's rim bends what is under it (rimRefraction.ts, `--glass-refract`). */
+  refraction: Refraction;
 };
 
 /** The blur radius in a `backdrop-filter` value ("blur(24px) saturate(1.8)" is 24), else `fallback`. */
@@ -66,7 +69,7 @@ export function overlaps(a: DOMRectReadOnly, b: DOMRectReadOnly): boolean {
 export function holeIn(
   surface: DOMRectReadOnly,
   target: DOMRectReadOnly,
-  style: { radius: number; blur: number },
+  style: { radius: number; blur: number; refraction?: Refraction },
 ): BlurHole {
   return {
     x: surface.left - target.left,
@@ -75,6 +78,7 @@ export function holeIn(
     height: surface.height,
     radius: Math.min(style.radius, surface.width / 2, surface.height / 2),
     blur: style.blur,
+    refraction: style.refraction ?? REFRACTIONS.none,
   };
 }
 
@@ -95,7 +99,10 @@ function primitive(doc: Document, name: string, attributes: Record<string, strin
 }
 
 /** Builds a covered element's filter: the element as it is outside the hole, and inside it its own
- * pixels blurred, cut to the rounded hole. The blur is all or nothing: a surface fading in or out
+ * pixels blurred, cut to the rounded hole. Across the rim's band (rimRefraction.ts) the blur
+ * cross-fades into a copy pulled in from further inside and only lightly blurred: the map's blue is
+ * the rim's weight, so the band is `rim * w + blurred * (1 - w)`; with no rim the map is empty, its
+ * weight 0, and the hole is the plain blur. The blur is all or nothing: a surface fading in or out
  * never draws its pixels part sharp, part blurred (Leo, 2026-10-26: "If we're doing blur, we're
  * doing blur. If we're not doing blur, we're not doing blur. We shouldn't have in-between states
  * ever. That cause flicker"). */
@@ -109,7 +116,34 @@ export function createHoleFilter(doc: Document, id: string): SVGFilterElement {
   filter.append(
     primitive(doc, "feGaussianBlur", { in: "SourceGraphic", result: "blurred" }),
     primitive(doc, "feImage", { preserveAspectRatio: "none", result: "hole" }),
-    primitive(doc, "feComposite", { in: "blurred", in2: "hole", operator: "in", result: "inside" }),
+    primitive(doc, "feImage", { preserveAspectRatio: "none", result: "map" }),
+    primitive(doc, "feDisplacementMap", {
+      in: "SourceGraphic",
+      in2: "map",
+      scale: "0",
+      xChannelSelector: "R",
+      yChannelSelector: "G",
+      result: "bent",
+    }),
+    primitive(doc, "feGaussianBlur", { in: "bent", stdDeviation: "0", result: "bentSoft" }),
+    // The rim's weight as alpha: the map's blue.
+    primitive(doc, "feColorMatrix", {
+      in: "map",
+      type: "matrix",
+      values: "0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 1 0 0",
+      result: "weight",
+    }),
+    primitive(doc, "feComposite", { in: "bentSoft", in2: "weight", operator: "in", result: "rim" }),
+    primitive(doc, "feComposite", { in: "blurred", in2: "weight", operator: "out", result: "middle" }),
+    primitive(doc, "feComposite", {
+      in: "rim",
+      in2: "middle",
+      operator: "arithmetic",
+      k2: "1",
+      k3: "1",
+      result: "glass",
+    }),
+    primitive(doc, "feComposite", { in: "glass", in2: "hole", operator: "in", result: "inside" }),
     primitive(doc, "feComposite", { in: "SourceGraphic", in2: "hole", operator: "out", result: "outside" }),
   );
   const merge = primitive(doc, "feMerge", {});
@@ -129,10 +163,19 @@ export function writeHoleFilter(
     for (const [key, value] of Object.entries(attributes)) element?.setAttribute(key, String(value));
   };
   const region = { x: hole.x, y: hole.y, width: hole.width, height: hole.height };
-  const [blur, image] = [...filter.children];
+  const [blur, image, map, bend, bentBlur] = [...filter.children];
+  const { refraction } = hole;
+  const href = rimMap(filter.ownerDocument, hole.width, hole.height, hole.radius, refraction);
   set(filter, { x: 0, y: 0, width: Math.max(1, box.width), height: Math.max(1, box.height) });
   set(blur, { ...region, stdDeviation: hole.blur });
   set(image, { ...region, href: holeMask(hole.width, hole.height, hole.radius) });
+  // feDisplacementMap moves a pixel by scale (C - 0.5): the most, at the edge, is scale / 2.
+  // An empty href would load the page itself as the map: no map is no href (an empty image).
+  set(map, region);
+  if (href) map?.setAttribute("href", href);
+  else map?.removeAttribute("href");
+  set(bend, { ...region, scale: href ? refraction.shift * 2 : 0 });
+  set(bentBlur, { ...region, stdDeviation: href ? refraction.blur : 0 });
 }
 
 /** Whether this engine draws a backdrop over the page's pixels (Chromium) rather than in their
@@ -250,6 +293,7 @@ export function attachSeeThroughBlur(
     const look = {
       radius: Number.parseFloat(style.borderTopLeftRadius) || 0,
       blur: backdropBlurRadius(style.backdropFilter),
+      refraction: refractionNamed(style.getPropertyValue("--glass-refract")),
       opacity: Number.parseFloat(style.opacity),
     };
     if (!Number.isFinite(look.opacity)) look.opacity = 1;

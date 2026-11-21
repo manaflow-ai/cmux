@@ -11,21 +11,6 @@
   color: var(--cmux-text-tertiary);
   font-size: var(--text-caption);
 }
-.hm-gallery-split {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  height: 100%;
-}
-.hm-gallery-peek {
-  display: flex;
-  width: 360px;
-  aspect-ratio: 18 / 13;
-}
-.hm-gallery-peek > .hm-agent-chat {
-  border: 1px solid var(--cmux-separator);
-  border-radius: 12px;
-  background: var(--cmux-elevated-background);
-}
 .hm-gallery-message {
   margin: 0 0 16px;
   line-height: var(--text-body--line-height);
@@ -53,4 +38,41 @@
 }
 .hm-gallery-header__name {
   font-weight: 600;
+}
+/* SetupCard.gallery.tsx: Home's chat column, Chief's welcome over the card and the composer under it. */
+.hm-gallery-setup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  height: 100%;
+  padding: 16px 24px;
+  box-sizing: border-box;
+}
+.hm-gallery-setup__chat {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  width: 100%;
+  max-width: 560px;
+}
+.hm-gallery-setup__bubble {
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--cmux-elevated-background);
+  color: var(--cmux-text);
+  font-size: var(--text-body);
+}
+.hm-gallery-setup__composer {
+  width: 100%;
+  max-width: 560px;
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid var(--cmux-separator);
+  border-radius: 8px;
+  color: var(--cmux-text-tertiary);
+  font-size: var(--text-body);
+}
+.hm-gallery-setup-window {
+  height: 100%;
 }

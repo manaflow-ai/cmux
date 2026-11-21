@@ -91,7 +91,10 @@ class PeersAreDerived(unittest.TestCase):
             for job in between:
                 condition = str(JOBS[job].get("if", ""))
                 for other in derived_peers():
-                    self.assertNotIn(f"needs.{other}.result", condition, f"{job} tolerates {other} failing")
+                    # Requiring a peer's success (`== 'success'`) tolerates nothing; any other test of its
+                    # result (`!= 'success'`, `== 'failure'`, ...) would let the job run after it failed.
+                    rest = condition.replace(f"needs.{other}.result == 'success'", "")
+                    self.assertNotIn(f"needs.{other}.result", rest, f"{job} tolerates {other} failing")
                 if "always()" in condition or "!cancelled()" in condition:
                     # Such a job may still run only on its own needs' success.
                     self.assertTrue(all(f"needs.{n}.result == 'success'" in condition or n not in between | derived_peers()

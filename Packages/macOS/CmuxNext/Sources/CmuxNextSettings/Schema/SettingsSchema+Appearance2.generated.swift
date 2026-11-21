@@ -4,6 +4,128 @@
 public import CmuxNextDesign
 
 extension AppearanceSettingsSchema {
+    static var appTheme: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.appTheme", "App Theme")
+        return [
+            SettingDescriptor(
+                AppThemeSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.theme", "Theme"),
+                help: SettingsText.keyed("settings.appearance.theme.help", "Colors for terminals. A space, workspace or terminal theme overrides it."),
+                summary: SettingsText.keyed("settings.appearance.theme.summary", "Colors for terminals, and cmux unless App Theme is set"),
+                kind: .theme,
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.source.ghostty", "Ghostty"),
+                keywords: ["theme", "color", "colors", "color scheme", "dark", "light", "ghostty", "palette"]
+            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
+            SettingDescriptor(
+                ChromeThemeSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.appTheme", "App Theme"),
+                help: SettingsText.keyed("settings.appearance.appTheme.help", "Colors for the window, sidebar, tabs and pages. Terminals use Terminal Theme."),
+                summary: SettingsText.keyed("settings.appearance.appTheme.summary", "Colors for the window, sidebar, tabs and pages"),
+                kind: .theme,
+                default: .string(ChromeThemeSetting.fallback),
+                defaultLabel: SettingsText.keyed("settings.default.followTerminal", "Match Terminal Theme"),
+                keywords: ["app theme", "accent", "chrome", "interface", "colors", "contrast", "wcag"]
+            ),
+            SettingDescriptor(
+                ThemeEditsSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.themeEdits", "Theme Edits"),
+                help: SettingsText.keyed("settings.appearance.themeEdits.help", "Your color changes to a theme, such as \"Rose Pine/background\": \"#1f1d2e\"."),
+                kind: .stringMap,
+                default: ThemeEditsSetting.fallback,
+                keywords: ["theme", "custom", "edit", "color", "colour", "palette", "background", "foreground", "cursor", "selection"]
+            ),
+            SettingDescriptor(
+                ThemeFavoritesSetting.favoritesPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.favoriteThemes", "Starred Themes"),
+                help: SettingsText.keyed("settings.appearance.favoriteThemes.help", "Themes starred in a theme picker. The picker lists them first."),
+                kind: .stringList,
+                default: .array(ThemeFavoritesSetting.favoritesDefault.map { .string($0) }),
+                keywords: ["theme", "star", "starred", "favorite", "favourite", "pin"]
+            ).hiddenFromPalette("a theme picker's stars edit it: a list of theme names"),
+            SettingDescriptor(
+                ThemeFavoritesSetting.rotationPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.rotateFavoriteThemes", "Rotate Starred Themes"),
+                help: SettingsText.keyed("settings.appearance.rotateFavoriteThemes.help", "Switches the terminal theme to the next starred one. Needs two starred themes."),
+                summary: SettingsText.keyed("settings.appearance.rotateFavoriteThemes.summary", "Change to the next starred theme"),
+                kind: .choice([
+                    SettingChoice(ThemeRotation.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
+                    SettingChoice(ThemeRotation.launch.rawValue, SettingsText.keyed("settings.choice.eachLaunch", "Each Launch")),
+                    SettingChoice(ThemeRotation.daily.rawValue, SettingsText.keyed("settings.choice.everyDay", "Every Day")),
+                ]),
+                default: .string(ThemeFavoritesSetting.rotationDefault.rawValue),
+                keywords: ["theme", "rotate", "rotation", "shuffle", "starred", "favorite", "daily", "launch"]
+            ),
+            SettingDescriptor(
+                AccentSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.accent", "Accent"),
+                help: SettingsText.keyed("settings.appearance.accent.help", "The color of selection, focus and the Send button."),
+                summary: SettingsText.keyed("settings.appearance.accent.summary", "Color of selection and focus"),
+                kind: .choice([
+                    SettingChoice(ThemeAccent.neutral.rawValue, SettingsText.keyed("settings.choice.accent.neutral", "Neutral")),
+                    SettingChoice(ThemeAccent.theme.rawValue, SettingsText.keyed("settings.choice.accent.theme", "Theme Color")),
+                    SettingChoice("art", SettingsText.keyed("settings.choice.accent.art", "Art Color")),
+                    SettingChoice(ThemeAccent.red.rawValue, SettingsText.keyed("settings.choice.accent.red", "Red")),
+                    SettingChoice(ThemeAccent.green.rawValue, SettingsText.keyed("settings.choice.accent.green", "Green")),
+                    SettingChoice(ThemeAccent.yellow.rawValue, SettingsText.keyed("settings.choice.accent.yellow", "Yellow")),
+                    SettingChoice(ThemeAccent.blue.rawValue, SettingsText.keyed("settings.choice.accent.blue", "Blue")),
+                    SettingChoice(ThemeAccent.magenta.rawValue, SettingsText.keyed("settings.choice.accent.magenta", "Magenta")),
+                    SettingChoice(ThemeAccent.cyan.rawValue, SettingsText.keyed("settings.choice.accent.cyan", "Cyan")),
+                ]),
+                default: .string(AccentSetting.fallback.rawValue),
+                keywords: ["accent", "color", "colour", "highlight", "selection", "personality", "rose pine", "ansi"]
+            ),
+            SettingDescriptor(
+                ThemeFileSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.themeFile", "Theme File"),
+                help: SettingsText.keyed("settings.appearance.themeFile.help", "A theme file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json."),
+                summary: SettingsText.keyed("settings.appearance.themeFile.summary", "A look from ~/.config/cmux/themes"),
+                kind: .text,
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.choice.none", "None"),
+                keywords: ["theme file", "rice", "ricing", "dotfile", "dotfiles", "look", "config", "themes folder", "json"]
+            ),
+            SettingDescriptor(
+                ThemeFileExceptionsSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.themeFileExceptions", "Changed Over Theme File"),
+                help: SettingsText.keyed("settings.appearance.themeFileExceptions.help", "Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list."),
+                kind: .stringList,
+                default: .array(ThemeFileExceptionsSetting.fallback.map { .string($0) }),
+                keywords: ["theme file", "override", "exception"]
+            ).hiddenFromSettingsPage("bookkeeping of the rows changed over the theme file; each row's note says so").hiddenFromPalette("a Settings change to a row the theme file sets edits it: a list of setting keys"),
+            SettingDescriptor(
+                HighlightColorSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.highlightColor", "Highlight Color"),
+                help: SettingsText.keyed("settings.appearance.highlightColor.help", "The color of selected text everywhere. Unset uses the terminal theme's."),
+                summary: SettingsText.keyed("settings.appearance.highlightColor.summary", "Color of selected text"),
+                kind: .color,
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.terminalTheme", "Terminal Theme"),
+                keywords: ["highlight", "selection", "selected text", "selection-background", "color", "colour", "theme"]
+            ),
+        ]
+    }
+}
+
+extension AppearanceSettingsSchema {
     static var windowBackground: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.windowBackground", "Window Background")
         return [
@@ -12,7 +134,7 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.backdropArt", "Backdrop Art"),
-                help: SettingsText.keyed("settings.appearance.backdropArt.help", "A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above."),
+                help: SettingsText.keyed("settings.appearance.backdropArt.help", "A painting behind the window. Lower Opacity to see it."),
                 summary: SettingsText.keyed("settings.appearance.backdropArt.summary", "Painting behind the window"),
                 kind: .choice([
                     SettingChoice("none", SettingsText.keyed("settings.choice.none", "None")),
@@ -25,11 +147,13 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.background", "Background"),
-                help: SettingsText.keyed("settings.appearance.background.help", "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."),
+                help: SettingsText.keyed("settings.appearance.background.help", "A painting, your wallpaper or a macOS wallpaper behind the window."),
                 summary: SettingsText.keyed("settings.appearance.background.summary", "Image behind your terminals"),
                 kind: .choice([
                     SettingChoice("none", SettingsText.keyed("settings.choice.none", "None")),
                     SettingChoice("daily", SettingsText.keyed("settings.choice.shufflePaintings", "Shuffle Paintings")),
+                    SettingChoice("appearance", SettingsText.keyed("settings.choice.backgroundFollowAppearance", "Light and Dark")),
+                    SettingChoice("schedule", SettingsText.keyed("settings.choice.backgroundTimeOfDay", "Time of Day")),
                 ] + BackdropSelectionSetting.catalogChoices),
                 default: .string(BackdropSelectionSetting.fallback),
                 keywords: ["painting", "art", "wallpaper", "backdrop", "desktop", "attribution", "museum", "dark", "doré", "shuffle", "folder"]
@@ -39,22 +163,90 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.backgroundRotation", "Change Picture"),
-                help: SettingsText.keyed("settings.appearance.backgroundRotation.help", "How often a shuffled background turns to its next picture."),
+                help: SettingsText.keyed("settings.appearance.backgroundRotation.help", "How often a shuffled background changes."),
                 summary: SettingsText.keyed("settings.appearance.backgroundRotation.summary", "How often Shuffle changes the picture"),
-                kind: .choice([
+                kind: .choiceOrNumber([
                     SettingChoice(BackdropRotation.quarterHour.rawValue, SettingsText.keyed("settings.choice.every15Minutes", "Every 15 Minutes")),
                     SettingChoice(BackdropRotation.hourly.rawValue, SettingsText.keyed("settings.choice.everyHour", "Every Hour")),
                     SettingChoice(BackdropRotation.daily.rawValue, SettingsText.keyed("settings.choice.everyDay", "Every Day")),
-                ]),
+                ], SettingNumber(BackdropSelectionSetting.rotationRange, step: 1, unit: .minutes, placeholder: BackdropSelectionSetting.rotationPlaceholder)),
                 default: .string(BackdropSelectionSetting.rotationDefault.rawValue),
-                keywords: ["shuffle", "rotate", "rotating", "wallpaper", "interval", "change picture", "background"]
+                keywords: ["shuffle", "rotate", "rotating", "wallpaper", "interval", "change picture", "background", "minutes"]
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting.lightPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundLight", "Light Picture"),
+                help: SettingsText.keyed("settings.appearance.backgroundLight.help", "Unset, it shows the dark picture."),
+                kind: .choice(BackdropSelectionSetting.catalogChoices),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.sameAsDark", "Same as Dark"),
+                keywords: ["wallpaper", "background", "light", "appearance", "day", "auto switch"]
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting.darkPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundDark", "Dark Picture"),
+                help: SettingsText.keyed("settings.appearance.backgroundDark.help", "Unset, it shows the light picture."),
+                kind: .choice(BackdropSelectionSetting.catalogChoices),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.sameAsLight", "Same as Light"),
+                keywords: ["wallpaper", "background", "dark", "appearance", "night", "auto switch"]
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting.schedulePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundSchedule", "Time of Day Pictures"),
+                help: SettingsText.keyed("settings.appearance.backgroundSchedule.help", "A time (07:00) or sun event (sunset-30m) for each picture."),
+                kind: .stringMap,
+                default: nil,
+                keywords: ["wallpaper", "background", "schedule", "time of day", "sunrise", "sunset", "night", "auto switch"]
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting.dynamicPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundDynamic", "Dynamic Wallpaper"),
+                help: SettingsText.keyed("settings.appearance.backgroundDynamic.help", "Follow light and dark, or change with the sun through the day."),
+                summary: SettingsText.keyed("settings.appearance.backgroundDynamic.summary", "Follow light and dark, or the sun"),
+                kind: .choice([
+                    SettingChoice(BackdropDynamicMode.appearance.rawValue, SettingsText.keyed("settings.choice.backgroundFollowAppearance", "Light and Dark")),
+                    SettingChoice(BackdropDynamicMode.time.rawValue, SettingsText.keyed("settings.choice.backgroundTimeOfDay", "Time of Day")),
+                ]),
+                default: .string(BackdropSelectionSetting.dynamicDefault.rawValue),
+                keywords: ["dynamic", "wallpaper", "sun", "solar", "time of day", "macos"]
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting.locationPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundLocation", "Sun Location"),
+                help: SettingsText.keyed("settings.appearance.backgroundLocation.help", "Latitude,longitude for sunrise and sunset, such as 37.77,-122.42. Unset: your time zone."),
+                kind: .text,
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.fromTimeZone", "From Time Zone"),
+                keywords: ["location", "latitude", "longitude", "sunrise", "sunset", "sun"],
+                placeholder: SettingText(key: nil, text: "37.77,-122.42")
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting.memoryPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundMemory", "Background Mode Memory"),
+                help: SettingsText.keyed("settings.appearance.backgroundMemory.help", "The folder and picture each background mode last showed, so switching back restores them."),
+                kind: .stringMap,
+                default: nil,
+                keywords: ["wallpaper", "background", "folder", "rotate", "restore"]
             ),
             SettingDescriptor(
                 BackdropSelectionSetting.displayBackgroundsPath,
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.displayBackgrounds", "Per-display Backgrounds"),
-                help: SettingsText.keyed("settings.appearance.displayBackgrounds.help", "Map stable display identifiers to daily, folder:<absolute path>, desktop, a fixed background, or none."),
+                help: SettingsText.keyed("settings.appearance.displayBackgrounds.help", "Display ID to daily, folder:<path>, desktop, a background or none."),
                 kind: .stringMap,
                 default: nil,
                 keywords: ["display", "screen", "wallpaper", "background", "folder", "none"]
@@ -64,7 +256,7 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.displayBackgroundRotations", "Per-display Background Rotation"),
-                help: SettingsText.keyed("settings.appearance.displayBackgroundRotations.help", "Map stable display identifiers to 15m, hourly, or daily. Unset displays use the global rotation."),
+                help: SettingsText.keyed("settings.appearance.displayBackgroundRotations.help", "Display ID to 15m, hourly or daily. Others use the global rotation."),
                 kind: .stringMap,
                 default: nil,
                 keywords: ["display", "screen", "wallpaper", "rotation", "cadence", "hourly"]
@@ -74,7 +266,7 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.paneBackgrounds", "Pane Backgrounds"),
-                help: SettingsText.keyed("settings.appearance.paneBackgrounds.help", "One background behind the whole window, or a copy in each pane. A pane's own background (right-click a pane) shows either way."),
+                help: SettingsText.keyed("settings.appearance.paneBackgrounds.help", "One background behind the window, or a copy in each pane."),
                 summary: SettingsText.keyed("settings.appearance.paneBackgrounds.summary", "One background or one per pane"),
                 kind: .choice([
                     SettingChoice(PaneBackgroundMode.shared.rawValue, SettingsText.keyed("settings.choice.paneBackgrounds.shared", "One for the Window")),
@@ -88,10 +280,30 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.ui.reducedBackgrounds", "Plain Backgrounds"),
-                help: SettingsText.keyed("settings.ui.reducedBackgrounds.help", "Draws windows in the plain theme color, without paintings, wallpapers or glass. Your background choices stay as they are and come back when you turn it off."),
+                help: SettingsText.keyed("settings.ui.reducedBackgrounds.help", "The plain theme color, without paintings, wallpapers or glass."),
                 kind: .toggle,
                 default: .bool(ReducedBackgroundsSetting.fallback),
                 keywords: ["background", "plain", "reduce", "reduced", "painting", "wallpaper", "glass", "transparency", "backdrop", "art", "simple", "performance"]
+            ),
+            SettingDescriptor(
+                AgentGlowSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.agentGlow", "React to Agents"),
+                help: SettingsText.keyed("settings.appearance.agentGlow.help", "Calm while agents are idle; a soft glow in the machine's color when an agent needs you."),
+                kind: .toggle,
+                default: .bool(AgentGlowSetting.fallback),
+                keywords: ["agent", "agents", "glow", "react", "reactive", "background", "attention", "needs you", "idle", "calm", "machine color"]
+            ),
+            SettingDescriptor(
+                PreviousGlassSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.previousGlass", "Previous Glass Look"),
+                help: SettingsText.keyed("settings.appearance.previousGlass.help", "Draws menus, popovers, the composer and cards with the glass from before November 2026."),
+                kind: .toggle,
+                default: .bool(PreviousGlassSetting.fallback),
+                keywords: ["glass", "liquid glass", "previous", "old", "classic look", "blur", "frost", "translucent", "transparency", "menu", "popover"]
             ),
             SettingDescriptor(
                 ExperimentalAppearanceSetting.configPath,
@@ -137,7 +349,7 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.inactiveWindowDim", "Dim Inactive Windows"),
-                help: SettingsText.keyed("settings.appearance.inactiveWindowDim.help", "How much more theme color covers a window while another one is in front. 0 keeps the same look."),
+                help: SettingsText.keyed("settings.appearance.inactiveWindowDim.help", "How much windows behind the front one are tinted. 0 keeps them the same."),
                 kind: .number(SettingNumber(WindowBackgroundSetting.inactiveDimRange, step: 0.05, unit: .fraction)),
                 default: .number(WindowBackgroundSetting.inactiveDimDefault),
                 keywords: ["inactive", "unfocused", "focus", "dim", "opacity", "transparency", "background"]
@@ -147,230 +359,11 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.wallpaperTint", "Tint with Desktop Wallpaper"),
-                help: SettingsText.keyed("settings.appearance.wallpaperTint.help", "The glass takes the colors of your desktop picture and follows it when the picture or Space changes."),
+                help: SettingsText.keyed("settings.appearance.wallpaperTint.help", "The glass takes the colors of your desktop picture."),
                 kind: .toggle,
                 default: .bool(WallpaperTintSetting.fallback),
                 keywords: ["wallpaper", "desktop", "tint", "tinting", "glass", "color", "colour", "space", "background"]
             ),
-        ]
-    }
-}
-
-extension AppearanceSettingsSchema {
-    static var tuning: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.appearanceTuning", "Appearance Tuning")
-        return [
-            SettingDescriptor(
-                AppearanceTuningSetting.glassTransparencyPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.glassTransparency", "Glass Transparency"),
-                help: SettingsText.keyed("settings.appearance.glassTransparency.help", "How much of the desktop or wallpaper shows through the glass."),
-                kind: .number(SettingNumber(AppearanceTuningSetting.glassTransparencyRange, step: 0.05, unit: .fraction)),
-                default: .number(AppearanceTuningSetting.glassTransparencyDefault),
-                keywords: ["glass", "transparency", "alpha", "clear"]
-            ).hiddenFromSettingsPage("duplicates appearance.backgroundOpacity; the key still loads"),
-            SettingDescriptor(
-                AppearanceTuningSetting.huePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.hue", "Hue"),
-                help: SettingsText.keyed("settings.appearance.hue.help", "Shift the tint color around the hue wheel."),
-                kind: .number(SettingNumber(AppearanceTuningSetting.hueRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.huePlaceholder)),
-                default: .number(AppearanceTuningSetting.hueDefault),
-                keywords: ["tint", "color", "colour"]
-            ),
-            SettingDescriptor(
-                AppearanceTuningSetting.saturationPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.saturation", "Saturation"),
-                help: SettingsText.keyed("settings.appearance.saturation.help", "Increase or reduce the tint color intensity."),
-                kind: .number(SettingNumber(AppearanceTuningSetting.saturationRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.saturationPlaceholder)),
-                default: .number(AppearanceTuningSetting.saturationDefault),
-                keywords: ["tint", "color", "colour", "intensity"]
-            ),
-        ]
-    }
-}
-
-extension AppearanceSettingsSchema {
-    static var look: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.densityMotion", "Density and Motion")
-        return [
-            SettingDescriptor(
-                DensitySetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.density", "Density"),
-                help: SettingsText.keyed("settings.appearance.density.help", "Row height, padding, corners, icons and text size together. Compact is the default."),
-                kind: .choice([
-                    SettingChoice(DensityPreset.ultraCompact.rawValue, SettingsText.keyed("settings.choice.ultraCompact", "Ultra-compact")),
-                    SettingChoice(DensityPreset.compact.rawValue, SettingsText.keyed("settings.choice.compact", "Compact")),
-                    SettingChoice(DensityPreset.cozy.rawValue, SettingsText.keyed("settings.choice.cozy", "Cozy")),
-                    SettingChoice(DensityPreset.comfortable.rawValue, SettingsText.keyed("settings.choice.comfortable", "Comfortable")),
-                    SettingChoice(DensityPreset.spacious.rawValue, SettingsText.keyed("settings.choice.spacious", "Spacious")),
-                ]),
-                default: .string(DensitySetting.fallback.rawValue),
-                keywords: ["size", "spacing", "compact", "comfortable", "cozy", "spacious", "dense", "font"]
-            ),
-            SettingDescriptor(
-                CustomDensitySelectionSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.customDensity", "Custom Density"),
-                kind: .text,
-                default: nil,
-                keywords: ["density", "custom"]
-            ).hiddenFromPalette("the Density card and the palette's density rows pick it"),
-            SettingDescriptor(
-                CustomDensitiesSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.customDensities", "Custom Densities"),
-                kind: .text,
-                default: .array(CustomDensitiesSetting.fallback.map { .string($0) }),
-                keywords: ["density", "custom"]
-            ).hiddenFromPalette("the Density card edits them: a list of density objects"),
-            SettingDescriptor(
-                UIScaleSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.uiScale", "Interface Scale"),
-                kind: .number(SettingNumber(UIScaleSetting.range, step: 0.05, unit: .fraction, placeholder: UIScaleSetting.placeholder)),
-                default: .number(UIScaleSetting.fallback),
-                keywords: ["scale", "zoom", "size", "chrome", "web", "bigger", "smaller"]
-            ),
-            SettingDescriptor(
-                InterfaceSizeSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.interfaceSize", "Interface Size"),
-                help: SettingsText.keyed("settings.appearance.interfaceSize.help", "Text size of tabs, the sidebar and other controls. Terminal text has its own size."),
-                kind: .number(SettingNumber(InterfaceSizeSetting.range, step: 1, unit: .points, placeholder: InterfaceSizeSetting.placeholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["font", "text", "size", "chromeFontSize"]
-            ),
-            SettingDescriptor(
-                InterfaceScaleSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.interfaceSize", "Interface Size"),
-                help: SettingsText.keyed("settings.appearance.interfaceSize.help", "Text size of tabs, the sidebar and other controls. Terminal text has its own size."),
-                summary: SettingsText.keyed("settings.appearance.interfaceSize.summary", "Text size of tabs, sidebar and controls"),
-                kind: .number(SettingNumber(InterfaceScaleSetting.range, step: 0.05, unit: .fraction, placeholder: InterfaceScaleSetting.placeholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["font", "text", "size", "zoom", "scale", "bigger", "smaller", "interfaceScale"]
-            ).hiddenFromSettingsPage("opt-in: the Debug Settings toggle chrome.interfaceSize turns it on, until it is promoted"),
-            SettingDescriptor(
-                LayoutMetricSetting.sidebarWidthPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.sidebarWidth", "Sidebar Width"),
-                kind: .number(SettingNumber(LayoutMetricSetting.sidebarWidthRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.sidebarWidthPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["sidebar", "width", "size", "sidebarWidth"]
-            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
-            SettingDescriptor(
-                LayoutMetricSetting.columnGapPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.columnGap", "Column Gap"),
-                kind: .number(SettingNumber(LayoutMetricSetting.columnGapRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.columnGapPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["column", "gap", "spacing", "columnGap"]
-            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
-            SettingDescriptor(
-                LayoutMetricSetting.dividerThicknessPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.dividerThickness", "Divider Thickness"),
-                kind: .number(SettingNumber(LayoutMetricSetting.dividerThicknessRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.dividerThicknessPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["divider", "split", "pane", "line", "thickness", "dividerThickness"]
-            ),
-            SettingDescriptor(
-                LayoutMetricSetting.dividerHitWidthPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.dividerHitWidth", "Divider Drag Width"),
-                kind: .number(SettingNumber(LayoutMetricSetting.dividerHitWidthRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.dividerHitWidthPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["divider", "split", "pane", "drag", "hit", "width", "dividerHitWidth"]
-            ),
-            SettingDescriptor(
-                LayoutMetricSetting.titlebarHeightPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.titlebarHeight", "Titlebar Height"),
-                kind: .number(SettingNumber(LayoutMetricSetting.titlebarHeightRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.titlebarHeightPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["titlebar", "title bar", "header", "height", "titlebarHeight"]
-            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
-            SettingDescriptor(
-                BordersSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.borders", "Borders"),
-                help: SettingsText.keyed("settings.appearance.borders.help", "None removes every border, hairline and separator in the app."),
-                kind: .choice([
-                    SettingChoice(BorderMode.default.rawValue, SettingsText.keyed("settings.choice.default", "Default")),
-                    SettingChoice(BorderMode.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
-                ]),
-                default: .string(BordersSetting.fallback.rawValue),
-                keywords: ["border", "hairline", "separator", "outline", "line"]
-            ),
-            SettingDescriptor(
-                PaneFocusSettings.focusIndicatorPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.focusIndicator", "Focused Pane"),
-                help: SettingsText.keyed("settings.appearance.focusIndicator.help", "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither."),
-                summary: SettingsText.keyed("settings.appearance.focusIndicator.summary", "How the focused pane stands out"),
-                kind: .choice([
-                    SettingChoice(FocusIndicator.border.rawValue, SettingsText.keyed("settings.choice.border", "Border")),
-                    SettingChoice(FocusIndicator.tabs.rawValue, SettingsText.keyed("settings.choice.tabs", "Tabs")),
-                    SettingChoice(FocusIndicator.both.rawValue, SettingsText.keyed("settings.choice.both", "Both")),
-                    SettingChoice(FocusIndicator.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
-                ]),
-                default: .string(PaneFocusSettings.focusIndicatorDefault.rawValue),
-                keywords: ["focus", "active", "pane", "tab", "ring"]
-            ),
-            SettingDescriptor(
-                PaneFocusSettings.inactiveTabStylePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.focus.inactiveTabStyle", "Unfocused Pane Tabs"),
-                help: SettingsText.keyed("settings.focus.inactiveTabStyle.help", "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill."),
-                summary: SettingsText.keyed("settings.focus.inactiveTabStyle.summary", "How tabs in other panes tone down"),
-                kind: .choice([
-                    SettingChoice(InactiveTabStyle.fade.rawValue, SettingsText.keyed("settings.choice.fade", "Fade")),
-                    SettingChoice(InactiveTabStyle.tonal.rawValue, SettingsText.keyed("settings.choice.tonal", "Tonal")),
-                    SettingChoice(InactiveTabStyle.quiet.rawValue, SettingsText.keyed("settings.choice.quiet", "Quiet")),
-                ]),
-                default: .string(PaneFocusSettings.inactiveTabStyleDefault.rawValue),
-                keywords: ["focus", "inactive", "unfocused", "pane", "tab", "fade", "dim"]
-            ),
-            SettingDescriptor(
-                AnimationSpeedSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.ui.animationSpeed", "Animations"),
-                kind: .choice([
-                    SettingChoice(MotionSpeed.fast.rawValue, SettingsText.keyed("settings.choice.fast", "Fast")),
-                    SettingChoice(MotionSpeed.normal.rawValue, SettingsText.keyed("settings.choice.normal", "Normal")),
-                    SettingChoice(MotionSpeed.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
-                ]),
-                default: .string(AnimationSpeedSetting.fallback.rawValue),
-                keywords: ["motion", "speed"]
-            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
         ]
     }
 }

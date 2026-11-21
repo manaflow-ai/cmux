@@ -342,6 +342,15 @@ impl App {
                 .into_iter()
                 .map(|action| WorkspaceRailTarget::Action(action.target)),
         );
+        // The agents section sits below the action rows.
+        if self.config.sidebar.agents {
+            targets.extend(
+                self.sidebar_status
+                    .agents()
+                    .iter()
+                    .map(|row| WorkspaceRailTarget::Agent(row.surface)),
+            );
+        }
         targets
     }
 
@@ -362,6 +371,12 @@ impl App {
                 })
                 .map(|workspace| WorkspaceRailTarget::Recoverable(workspace.id.clone())),
             WorkspaceRailSelection::Action(action) => Some(WorkspaceRailTarget::Action(action)),
+            WorkspaceRailSelection::Agent(surface) => self
+                .sidebar_status
+                .agents()
+                .iter()
+                .any(|row| row.surface == surface)
+                .then_some(WorkspaceRailTarget::Agent(surface)),
         }
     }
 
@@ -389,6 +404,9 @@ impl App {
             }
             WorkspaceRailTarget::Action(action) => {
                 self.workspace_rail_selection = WorkspaceRailSelection::Action(action);
+            }
+            WorkspaceRailTarget::Agent(surface) => {
+                self.workspace_rail_selection = WorkspaceRailSelection::Agent(surface);
             }
         }
     }

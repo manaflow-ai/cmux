@@ -14,7 +14,7 @@
 
 use super::Peer;
 use crate::peer_link::{Backoff, SleepWatch};
-use std::sync::Mutex as StdMutex;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 use tokio::sync::Notify;
 use tokio::time::Instant;
@@ -32,6 +32,14 @@ pub(super) const WAKE_FOR: Duration = Duration::from_secs(180);
 
 /// Set on the ssh of each connect attempt while the peer is marked to wake (`Peer::wake`).
 pub const WAKE_ENV: &str = "ACPMUX_PEER_WAKE";
+
+/// The daemon's `peerWake` argv (config `peerWake`), or none: the machine layer's resume for
+/// a peer's machine, whatever its provider. `Peer::wake` runs it with the peer's name appended.
+pub type WakeHook = Arc<StdMutex<Option<Vec<String>>>>;
+
+/// The longest one `peerWake` run may take before it is killed: a resume that has not come
+/// back within the wake window is no longer what the message waits on.
+pub(super) const WAKE_HOOK_FOR: Duration = WAKE_FOR;
 
 /// A link that ends sooner after its handshake is crash-looping: it keeps its backoff.
 pub(super) const READY_FOR: Duration = Duration::from_secs(10);
@@ -54,6 +62,11 @@ pub(super) struct Wanted {
     /// Until when a connect attempt asks its route to wake a paused machine (`Peer::wake`).
     wake_until: StdMutex<Option<Instant>>,
     asked: Notify,
+    /// When an ask last cut a backoff wait short (`Peer::wait_backoff`).
+    cut_at: StdMutex<Option<Instant>>,
+    /// When the last ask came, so one made before a waiter listens still counts
+    /// (`Peer::next_ask_after`); `asked` wakes only the waiters there are.
+    asked_at: StdMutex<Option<Instant>>,
 }
 
 impl Peer {
@@ -66,13 +79,62 @@ impl Peer {
     /// A message waits for this peer: for `WAKE_FOR` each connect attempt asks its route to
     /// wake a paused machine ([`WAKE_ENV`]), and the peer is wanted, so the attempts come within
     /// `Backoff::WANTED_CAP` while it wakes.
+    ///
+    /// The first message of a window (none marked it within `WAKE_FOR`) also runs the daemon's
+    /// `peerWake` command once ([`WakeHook`]), whatever route the peer has: an ssh route with no
+    /// ProxyCommand that wakes (a VM its idle guard powered off) is resumed by it too.
     pub(crate) fn wake(&self) {
         let now = Instant::now();
         let until = now.checked_add(WAKE_FOR).unwrap_or(now);
         let mut held = self.wanted.wake_until.lock().unwrap_or_else(|e| e.into_inner());
+        let opens = held.is_none_or(|was| was <= now);
         *held = Some(held.map_or(until, |was| was.max(until)));
         drop(held);
         self.want_for(WAKE_FOR);
+        if opens {
+            self.run_wake_hook();
+        }
+    }
+
+    /// Hands the peer the daemon's `peerWake` command (`hub/peers.rs`).
+    pub(crate) fn set_wake_hook(&self, hook: WakeHook) {
+        let _ = self.wake_hook.set(hook);
+    }
+
+    /// The `peerWake` argv for this peer (the peer's name appended), when one is configured.
+    pub(super) fn wake_argv(&self) -> Option<Vec<String>> {
+        let hook = self.wake_hook.get()?;
+        let mut argv = hook.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
+        if argv.first().is_none_or(|program| program.is_empty()) {
+            return None;
+        }
+        argv.push(self.name.clone());
+        Some(argv)
+    }
+
+    /// Runs `peerWake` once, as one of the peer's own tasks, detached from the request that
+    /// asked: bounded by `WAKE_HOOK_FOR` (a run past it is ended), its exit logged. The
+    /// command keeps its own log. The message itself waits in the sender's outbox and goes once
+    /// the link is back, as with a route that wakes.
+    fn run_wake_hook(&self) {
+        let Some(argv) = self.wake_argv() else { return };
+        if tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
+        let peer = self.name.clone();
+        self.scope.spawn_named("peer-wake", async move {
+            let started = std::time::Instant::now();
+            let outcome = tokio::task::spawn_blocking(move || {
+                crate::machine_wake::run_peer_wake(&argv, WAKE_HOOK_FOR)
+            })
+            .await
+            .unwrap_or_else(|e| Err(format!("its task ended: {e}")));
+            let ms = started.elapsed().as_millis() as u64;
+            match outcome {
+                Ok(()) => tracing::info!(peer = %peer, ms, "peerWake: resumed for a message"),
+                Err(why) => tracing::warn!(peer = %peer, ms, "peerWake failed: {why}"),
+            }
+        });
     }
 
     /// Whether a connect attempt now asks its route to wake a paused machine.
@@ -96,12 +158,32 @@ impl Peer {
         ssh
     }
 
+    /// The first ask that comes at or after `after` (`Peer::connect_once`), also one that came
+    /// before this was first polled; asks before `after`, such as the one that started this
+    /// attempt, are not counted.
+    pub(super) async fn next_ask_after(&self, after: Instant) {
+        loop {
+            let asked = self.wanted.asked.notified();
+            tokio::pin!(asked);
+            asked.as_mut().enable();
+            let last = *self.wanted.asked_at.lock().unwrap_or_else(|e| e.into_inner());
+            if last.is_some_and(|at| at >= after) {
+                return;
+            }
+            asked.await;
+            if Instant::now() >= after {
+                return;
+            }
+        }
+    }
+
     fn want_for(&self, window: Duration) {
         let now = Instant::now();
         let until = now.checked_add(window).unwrap_or(now);
         let mut held = self.wanted.until.lock().unwrap_or_else(|e| e.into_inner());
         *held = Some(held.map_or(until, |was| was.max(until)));
         drop(held);
+        *self.wanted.asked_at.lock().unwrap_or_else(|e| e.into_inner()) = Some(now);
         self.wanted.asked.notify_waiters();
     }
 
@@ -131,13 +213,16 @@ impl Peer {
     pub(super) async fn wait_backoff(&self, delay: Duration) -> BackoffWait {
         let started = Instant::now();
         let wanted = Backoff::wanted(delay, crate::peer_link::jitter());
+        // After a refused ssh login no ask shortens the wait: a chat that keeps asking would
+        // otherwise send the remote one refused login a second (`Backoff::login_refused`).
+        let heed_asks = !self.login_refused.load(std::sync::atomic::Ordering::SeqCst);
         let mut watch = SleepWatch::now();
         loop {
             // Listening before the read: an ask between the two still wakes this wait.
             let asked = self.wanted.asked.notified();
             tokio::pin!(asked);
             asked.as_mut().enable();
-            let deadline = started + if self.is_wanted() { wanted } else { delay };
+            let deadline = started + if heed_asks && self.is_wanted() { wanted } else { delay };
             if Instant::now() >= deadline {
                 return BackoffWait::Done;
             }
@@ -149,7 +234,24 @@ impl Peer {
                         return BackoffWait::Woke;
                     }
                 }
-                () = &mut asked => {}
+                () = &mut asked, if heed_asks => {
+                    // A client asks now: the next attempt goes at once, at most once per
+                    // `WANTED_CAP`, so asks that keep coming (a person typing) get one attempt
+                    // per cap, not one per ask.
+                    let now = Instant::now();
+                    let mut cut = self.wanted.cut_at.lock().unwrap_or_else(|e| e.into_inner());
+                    if cut.is_none_or(|at| now.saturating_duration_since(at) >= Backoff::WANTED_CAP) {
+                        *cut = Some(now);
+                        return BackoffWait::Done;
+                    }
+                }
+                // The network changed (`peer_network.rs`), often the one this peer failed on coming
+                // back: one attempt now. The backoff is not started over, so a network that keeps
+                // changing while the peer is down costs one attempt per change, not quick retries.
+                () = self.network_changed() => {
+                    tracing::info!(peer = %self.name, "this computer's network changed; reconnecting now");
+                    return BackoffWait::Done;
+                }
                 _ = self.stop_signal.notified() => return BackoffWait::Stopped,
             }
         }
@@ -180,6 +282,45 @@ mod tests {
         assert!(started.elapsed() <= Backoff::WANTED_CAP, "{:?}", started.elapsed());
     }
 
+    /// A client that asks while the link is down gets the next attempt at once, not after
+    /// the wanted bound; asks that keep coming get one cut per `WANTED_CAP`.
+    #[tokio::test(start_paused = true)]
+    async fn an_ask_starts_the_next_attempt_at_once_once_per_cap() {
+        let peer = peer();
+        let waiting = peer.clone();
+        let started = Instant::now();
+        let wait = tokio::spawn(async move { waiting.wait_backoff(Backoff::CAP).await });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        peer.want();
+        assert_eq!(wait.await.unwrap(), BackoffWait::Done);
+        assert!(started.elapsed() < Duration::from_millis(150), "{:?}", started.elapsed());
+
+        let waiting = peer.clone();
+        let again = Instant::now();
+        let wait = tokio::spawn(async move { waiting.wait_backoff(Backoff::CAP).await });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        peer.want();
+        assert_eq!(wait.await.unwrap(), BackoffWait::Done);
+        assert!(again.elapsed() >= Backoff::WANTED_CAP / 2, "{:?}", again.elapsed());
+    }
+
+    /// Review of #38015 (F1): an ask made while the attempt was still opening its tunnel, before
+    /// anything listened for it, restarts the attempt all the same; one before the mark does not.
+    #[tokio::test(start_paused = true)]
+    async fn an_ask_before_the_listener_still_counts_when_it_came_after_the_mark() {
+        let peer = peer();
+        let after = Instant::now() + Duration::from_millis(100);
+        tokio::time::advance(Duration::from_millis(200)).await;
+        peer.want();
+        tokio::time::timeout(Duration::from_millis(10), peer.next_ask_after(after))
+            .await
+            .expect("an ask after the mark counts, though nothing listened yet");
+        let later = Instant::now() + Duration::from_millis(100);
+        peer.want();
+        let early = tokio::time::timeout(Duration::from_millis(50), peer.next_ask_after(later));
+        assert!(early.await.is_err(), "an ask before the mark is not counted");
+    }
+
     #[tokio::test(start_paused = true)]
     async fn an_unwanted_peer_waits_its_whole_delay_and_a_stop_ends_any_wait() {
         let peer = peer();
@@ -195,6 +336,35 @@ mod tests {
         let wait =
             tokio::spawn(async move { waiting.wait_backoff(Duration::from_secs(3_600)).await });
         tokio::time::sleep(Duration::from_millis(100)).await;
+        peer.stop();
+        assert_eq!(wait.await.unwrap(), BackoffWait::Stopped);
+    }
+
+    /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up and load
+    /// faster". A peer that failed while the network was down waited out its backoff (up to
+    /// `Backoff::CAP`) after the network came back; a change of this computer's network now ends
+    /// the wait at once, one change one attempt.
+    #[tokio::test(start_paused = true)]
+    async fn a_network_change_ends_a_backoff_wait_at_once() {
+        use crate::no_panic::LockExt as _;
+        let peer = peer();
+        let (changes, seen) = tokio::sync::watch::channel(0);
+        *peer.network.lock_or_recover() = seen;
+        for _ in 0..2 {
+            let waiting = peer.clone();
+            let wait = tokio::spawn(async move { waiting.wait_backoff(Backoff::CAP).await });
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            assert!(!wait.is_finished());
+            let changed = Instant::now();
+            changes.send_modify(|n| *n += 1);
+            assert_eq!(wait.await.unwrap(), BackoffWait::Done);
+            assert!(changed.elapsed() < Duration::from_millis(10), "{:?}", changed.elapsed());
+        }
+        // A change already acted on does not end the next wait.
+        let waiting = peer.clone();
+        let wait = tokio::spawn(async move { waiting.wait_backoff(Duration::from_secs(20)).await });
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert!(!wait.is_finished(), "one change, one attempt");
         peer.stop();
         assert_eq!(wait.await.unwrap(), BackoffWait::Stopped);
     }
@@ -222,6 +392,41 @@ mod tests {
         tokio::time::advance(WAKE_FOR).await;
         assert!(!peer.waking() && !peer.is_wanted(), "the mark lapses by itself");
         assert_eq!(wake_env(&peer), None);
+    }
+
+    #[tokio::test]
+    async fn a_message_runs_peer_wake_once_per_window_with_the_peer_name() {
+        let peer = peer();
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("woken");
+        let script = format!("printf '%s %s\\n' \"$ACPMUX_PEER_WAKE\" \"$1\" >> {}", log.display());
+        assert_eq!(peer.wake_argv(), None, "no hook handed over: nothing runs");
+        let hook: WakeHook = Arc::new(StdMutex::new(None));
+        peer.set_wake_hook(hook.clone());
+        assert_eq!(peer.wake_argv(), None, "no peerWake configured: nothing runs");
+        *hook.lock().unwrap() = Some(vec!["sh".into(), "-c".into(), script, "wake".into()]);
+        assert_eq!(peer.wake_argv().unwrap().last().map(String::as_str), Some("huge-blue"));
+        peer.wake();
+        peer.wake(); // the same window: no second run
+        let read = || std::fs::read_to_string(&log).unwrap_or_default();
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while read().is_empty() {
+            assert!(std::time::Instant::now() < deadline, "peerWake never ran");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(read(), "1 huge-blue\n");
+        // A window that lapsed opens again on the next message.
+        *peer.wanted.wake_until.lock().unwrap() = Some(Instant::now());
+        peer.wake();
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while read().lines().count() < 2 {
+            assert!(std::time::Instant::now() < deadline, "the next window ran no peerWake");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        // A reload that removes the key stops it at once (`catalog_reload.rs`).
+        *hook.lock().unwrap() = None;
+        assert_eq!(peer.wake_argv(), None);
     }
 
     #[tokio::test(start_paused = true)]

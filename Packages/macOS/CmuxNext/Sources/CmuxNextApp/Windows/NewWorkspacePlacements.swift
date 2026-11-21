@@ -13,7 +13,7 @@ enum NewWorkspacePlacements {
     /// recent open one), with the workspace that window shows now: none under a top page such as Home, which parks the
     /// last one and keeps `workspaceID` (#32731). Read it before the claim selects the new workspace.
     static func rule(for windowID: String?, in windows: WindowManager) -> NewWorkspaceDefaultSlot {
-        let placement = windows.services.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback
+        let placement = windows.services.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementDefault
         let window = windowID ?? windows.registry.value.mostRecentOpen()
         let current = window.flatMap { windows.states[$0] }.flatMap { $0.page == nil ? $0.workspaceID : nil }
         let model = window.flatMap { windows.controller(for: $0)?.sidebar.model }
@@ -38,7 +38,7 @@ enum NewWorkspacePlacements {
     /// Whether window `windowID` lists workspace `id` once its rows catch up: no other window owns it and the
     /// window's space shows it. A cold Cmd-N waits only for such a row.
     static func lists(_ id: String, in windowID: String, windows: WindowManager) -> Bool {
-        if let owner = windows.registry.value.owner(of: id), owner != windowID { return false }
+        if let owner = windows.registry.value.owner(of: id), owner != windowID, !windows.registry.value.isGuest(id, in: windowID) { return false }
         guard let profile = windows.controller(for: windowID)?.state.profileID else { return true }
         let machines = windows.services.machines
         return WindowProfiles.shows(id, profile: profile, machines: machines, membership: WindowProfiles.membership(machines))
@@ -75,7 +75,7 @@ enum NewWorkspacePlacements {
     /// New Group): last (`Int.max`) only under `workspaces.newPlacement` `bottom`, else first: under
     /// `afterCurrent` (the default) a new workspace never goes to the sidebar's end (Leo 2026-11-06).
     static func newGroupIndex(_ services: AppServices) -> Int {
-        newGroupIndex(for: services.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback)
+        newGroupIndex(for: services.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementDefault)
     }
 
     static func newGroupIndex(for placement: NewWorkspacePlacement) -> Int { placement == .bottom ? .max : 0 }

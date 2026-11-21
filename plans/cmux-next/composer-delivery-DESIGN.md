@@ -20,7 +20,7 @@ never turns into a spinner and is never disabled because a prompt is in flight.
 
 | State | Entered when | Row shows |
 | --- | --- | --- |
-| `sending` | the pane wrote `session/prompt` | a small clock beside the bubble, after 1 s only (a fast send shows nothing) |
+| `sending` | the pane wrote `session/prompt` | after 1 s only (a fast send shows nothing), the footer's time slot says "Sending" with a clock (a steer behind the running turn: "Queued, sends when the current turn ends"; held for a reconnect: "Sending when ready"), in place of the age, never beside it |
 | `delivered` | acpmux recorded it: `_acpmux/prompt_accepted`, a `queued` or `user_message` record, or the `session/prompt` answer | the bubble's check, unread |
 | `read` | the agent started on it: its `user_message` record (a queued prompt dequeued) or a steer's `steered` | the bubble's check, read (UserBubble.tsx, owned by the message-actions lane) |
 | `failed` | a refusal, or the timeout below | the reason, and Retry, Edit, Remove, Details |
@@ -44,7 +44,14 @@ the timestamps, the session id, the prompt id and the connection (local or the p
 
 ## Timeout
 
-- A send with no acceptance after 10 s stays `sending`, and its row says "Still sending".
+- A send with no acceptance after 10 s stays `sending` and the pane checks whether it missed the
+  chat's events (stallLog.ts). The row's words do not change: one pending state, never a second
+  "Still sending" label beside a footer that already reads as sent (Leo, 2026-11-11: "it already,
+  like, shows that it's sent. So this is incongruous.").
+- A prompt whose connection went before the pane heard acpmux take it stays one row on the next
+  connection, on its way, until acpmux's record lands on it; only one that never shows fails, on that
+  row, with Retry under the same prompt id. It never goes back to the composer with a free
+  "Not sent yet" line while the chat shows it sent (lostPrompt.ts `keepLostPrompt`).
 - After 60 s with no acceptance, or when the connection closes, it becomes `failed` ("No answer
   from acpmux"). Retry is safe (below).
 
@@ -81,7 +88,8 @@ with the first run's outcome, marked `_meta.acpmux.duplicate` (`hub/turns.rs pro
 
 - Return twice while the first send has no answer: both prompts show as rows, in order, and the
   composer is empty.
-- No acceptance: the row says "Still sending" after 10 s and fails after 60 s (an injected clock).
+- No acceptance: the row keeps its one pending state and fails after 60 s (an injected clock); no
+  state draws the age and the pending state together (sendStateCoherence.test.tsx).
 - Reconnect with a `sending` prompt: it is sent again with the same id and `resend`; a `duplicate`
   answer makes it `delivered` and starts no second turn.
 - Retry, Edit, Remove and Trust on a failed row, and Details' hop for each refusal kind.

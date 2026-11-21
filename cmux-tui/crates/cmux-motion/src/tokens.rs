@@ -1,11 +1,11 @@
-//! Tokens: speed, springs, fades, loops, the bounce setting and the
-//! per-kind switches. The numbers come from the spec's design-tokens.json
+//! Tokens: speed, springs, fades, loops and the per-kind switches. The
+//! numbers come from the spec's design-tokens.json
 //! (`motion`), compiled in by build.rs; no timing constant lives here.
 
 use crate::{SpringParameters, TabStripGeometry, TweenCurve, TweenParameters, ease_out};
 
-// SPEED_NORMAL, SPRINGS, STRUCTURAL, SUBTLE_BOUNCE, DEFAULT_BOUNCE,
-// DEFAULT_KINDS, SETTLE_*, FADES, TWEENS, TAB_STRIP_*, LOOPS.
+// SPEED_NORMAL, SPRINGS, DEFAULT_KINDS, SETTLE_*, FADES, TWEENS,
+// TAB_STRIP_*, LOOPS.
 
 include!(concat!(env!("OUT_DIR"), "/tokens.rs"));
 
@@ -53,7 +53,9 @@ impl MotionSpeed {
     }
 }
 
-/// Spring tokens (values at speed `fast`).
+/// Spring tokens (values at speed `fast`). Every token is critically damped
+/// (damping fraction 1): no spring passes its target (Lawrence 2026-11-10,
+/// no bounce in any motion). build.rs refuses a damping fraction under 1.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum MotionSpring {
@@ -65,13 +67,10 @@ pub enum MotionSpring {
     Appear,
     /// Something disappears or collapses. Faster than `Appear`.
     Disappear,
-    /// Release after direct manipulation; carries pointer velocity and
-    /// overshoots slightly (0.8 pt on 200 pt).
+    /// Release after direct manipulation; carries pointer velocity.
     Settle,
     /// Programmatic scroll: tab strip reveal, column reveal, wheel, fling.
     Scroll,
-    /// Screen switch slide.
-    Screen,
     /// An overlay tracking the pointer between targets: drop zones, ghost.
     Track,
     /// Selection indicator glide (sidebar pill).
@@ -80,8 +79,8 @@ pub enum MotionSpring {
     Panel,
     /// Home list pin drag: the tiles making room, the rows below the grid
     /// and a dropped tile landing (MessagesLab `SidebarPinDragging.spring`:
-    /// `CASpringAnimation` mass 1, stiffness 320, damping 30). Overshoots
-    /// about 1.6 pt on 200 pt.
+    /// `CASpringAnimation` mass 1, stiffness 320, damping 30, without its
+    /// give: critically damped).
     PinDrag,
     /// A pane zooming to fill its screen: it owns the motion, its content
     /// takes the full size once and the spring rect reveals it (Leo
@@ -92,18 +91,17 @@ pub enum MotionSpring {
     /// panes nearer the zoomed one, so the farthest is gone first).
     Exit,
     /// A new tab growing in at its final slot while the tabs right of it
-    /// make room, on one spring (`ui.animations.newTab`). Structural.
+    /// make room, on one spring (`ui.animations.newTab`).
     TabOpen,
 }
 
 impl MotionSpring {
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 12] = [
         Self::Move,
         Self::Appear,
         Self::Disappear,
         Self::Settle,
         Self::Scroll,
-        Self::Screen,
         Self::Track,
         Self::Selection,
         Self::Panel,
@@ -114,18 +112,9 @@ impl MotionSpring {
     ];
 
     /// The token's tuning at speed `fast` (design-tokens.json
-    /// `motion.springs`). Structural tokens are resolved further by
-    /// `MotionPolicy::spring` (the bounce setting).
+    /// `motion.springs`).
     pub const fn base(self) -> SpringParameters {
         SPRINGS[self as usize]
-    }
-
-    /// Structure: things that take or give up room (`move`, `appear`,
-    /// `disappear`; design-tokens.json `motion.structural`). These follow
-    /// the bounce setting (`MotionBounce`); release, scroll and overlay
-    /// springs keep their own damping.
-    pub const fn is_structural(self) -> bool {
-        STRUCTURAL[self as usize]
     }
 }
 
@@ -278,43 +267,6 @@ impl MotionLoop {
     }
 }
 
-/// `ui.animations.bounce`: how springy structural motion is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
-#[repr(u8)]
-pub enum MotionBounce {
-    /// Critically damped: a tab, row or pane never passes its target. The
-    /// default (design-tokens.json `motion.bounce.default`).
-    #[default]
-    None,
-    /// SwiftUI bounce `motion.bounce.subtle` (0.15): about 1% overshoot.
-    Subtle,
-}
-
-impl MotionBounce {
-    pub fn parse(s: &str) -> Option<Self> {
-        match s.trim().to_ascii_lowercase().as_str() {
-            "none" => Some(Self::None),
-            "subtle" => Some(Self::Subtle),
-            _ => None,
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::None => "none",
-            Self::Subtle => "subtle",
-        }
-    }
-
-    /// SwiftUI bounce of a structural spring under this setting.
-    pub const fn amount(self) -> f64 {
-        match self {
-            Self::None => 0.,
-            Self::Subtle => SUBTLE_BOUNCE,
-        }
-    }
-}
-
 /// The structural changes a user turns animation on for one by one, under
 /// `ui.animationSpeed`, one per cmux.json key (`MotionKind::config_path`):
 /// `ui.paneAnimations`, `ui.animations.newTab`, `ui.animations.newWorkspace`.
@@ -359,8 +311,7 @@ impl MotionKind {
 }
 
 /// The motion settings: one switch per `MotionKind` (`ui.paneAnimations`,
-/// `ui.animations.newTab`, `ui.animations.newWorkspace`) and the bounce
-/// (`ui.animations.bounce`).
+/// `ui.animations.newTab`, `ui.animations.newWorkspace`).
 /// The host reads its settings file and passes these in
 /// (`set_animation_switches`, or `MotionPolicy::with_animations`); this
 /// crate never reads a settings file.
@@ -370,16 +321,14 @@ pub struct AnimationSwitches {
     pub pane_animations: bool,
     pub new_tab: bool,
     pub new_workspace: bool,
-    pub bounce: MotionBounce,
 }
 
 impl AnimationSwitches {
-    /// The spec defaults (design-tokens.json `motion.kinds`, `motion.bounce`).
+    /// The spec defaults (design-tokens.json `motion.kinds`).
     pub const DEFAULT: Self = Self {
         pane_animations: DEFAULT_KINDS[0],
         new_tab: DEFAULT_KINDS[1],
         new_workspace: DEFAULT_KINDS[2],
-        bounce: DEFAULT_BOUNCE,
     };
 
     /// `kind`'s switch is on.

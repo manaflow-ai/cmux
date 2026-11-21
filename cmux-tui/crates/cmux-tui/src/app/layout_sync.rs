@@ -190,6 +190,7 @@ impl App {
             let _ = self.sync_sidebar_plugin(false);
         }
         self.replace_tree(self.session.tree());
+        self.refresh_sidebar_status();
         self.claim_active_terminal_geometry(false);
         if self.surface_only.is_none() {
             self.sidebar_workspace_selection = self

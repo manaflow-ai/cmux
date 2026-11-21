@@ -95,11 +95,13 @@ the workflow changes):
 CMUX_GALLERY_IN_VM=1 bun health.ts --manifest manifest.json --gallery-dir ../../webviews/dist/gallery
 ```
 
-Each state also has a ready-time budget: navigation start to the stage's first ready report
-(mount, play and settle, less the time the play waited for its step stills; the runner records it
-as `readyMs`). A state whose budget limit is past the runner's 20 s ready wait can only fail as
-never ready. `ready-budgets.json` holds a default
-and a row for each state slower than it. A state past its budget by half again plus 500 ms is
+Each state also has a ready-time budget: the CPU time the stage's renderer main thread spent from
+navigation start to the stage's first ready report (mount, play and settle; the runner records it
+as `readyCpuMs` in Chromium, and the wall time as `readyMs`, which an engine with no CPU reading is
+held to instead). CPU time, not wall time: a play's own waits (a scripted turn's quiet windows) and
+a runner busy with other shards stretch wall time without the state doing more work. A stage that
+never reports ready within the runner's 20 s wait fails as never ready. `ready-budgets.json` holds a default
+and a row for each state slower than it, or for a fast state held tighter than it. A state past its budget by half again plus 500 ms is
 rendered again, and fails only when its fastest run is still past it. A state that beats its row by
 a fifth is printed with the lower value. Rows only go down: download a run's `gallery-health-*`
 artifacts and run `bun ready-budgets.ts --from <dir>` to lower every row the run beat. It never

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 // The titlebar row's accessory (an incognito window's badge) between the
 // leading reserve and the + (cmux #37351).
@@ -24,5 +25,15 @@ extension SidebarView {
         }
         guard room >= button else { return .zero }
         return NSRect(x: x, y: buttonY, width: button, height: button)
+    }
+}
+
+extension SidebarViewComponents {
+    /// The titlebar row's middle in window coordinates: the top row's shared line (`TopRowLine`), else the
+    /// traffic lights' center, else nil (no lights: the row's own middle).
+    static func titlebarRowMidY(in window: NSWindow) -> CGFloat? {
+        guard let lights = WindowTitlebar.trafficLightsFrame(in: window) else { return nil }
+        guard let line = WindowTitlebar.topRowLine(in: window), let content = window.contentView else { return lights.midY }
+        return content.convert(CGPoint(x: 0, y: content.bounds.maxY - line.centerY), to: nil).y
     }
 }

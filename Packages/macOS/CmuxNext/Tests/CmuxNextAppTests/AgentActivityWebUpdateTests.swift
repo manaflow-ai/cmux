@@ -22,6 +22,20 @@ import Testing
         let tree = URL(fileURLWithPath: "/Support/web-updates/trees/abc", isDirectory: true)
         overlay.activate(tree)
         let served = await overlay.root(for: root)
-        #expect(served.standardizedFileURL.path == tree.appending(path: WebUpdateTree.outputs[2]).standardizedFileURL.path)
+        #expect(served.standardizedFileURL.path == tree.appending(path: WebUpdateTree.agentActivityOutput).standardizedFileURL.path)
+    }
+
+    /// The viewers (diff, Markdown, editor) read the update's `webviews-app` folder, not another
+    /// output's: the registration names its output, so dropping an output from the list (#37259
+    /// removed the palette ranker's) cannot move it.
+    @Test func theViewersReadTheirFolderInsideTheActiveUpdate() async throws {
+        let resources = URL(fileURLWithPath: "/Applications/cmux.app/Contents/Resources", isDirectory: true)
+        let overlay = WebBundleOverlay(bases: [])
+        WebUpdates.registerBundledFolders(overlay, appResources: resources)
+        let root = PageDescriptor.diffRoot(inAppResources: resources)
+        let tree = URL(fileURLWithPath: "/Support/web-updates/trees/abc", isDirectory: true)
+        overlay.activate(tree)
+        let served = await overlay.root(for: root)
+        #expect(served.standardizedFileURL.path == tree.appending(path: WebUpdateTree.webviewsAppOutput).standardizedFileURL.path)
     }
 }

@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextHibernation
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -47,7 +48,7 @@ import Testing
     static func make(_ ids: [String], suite: String = UUID().uuidString) -> (WorkspaceHibernation, Host, Clock, UserDefaults) {
         let host = Host(ids)
         let clock = Clock()
-        let defaults = UserDefaults(suiteName: "WorkspaceHibernationTests.\(suite)")!
+        let defaults = UserDefaults(testSuiteName: "WorkspaceHibernationTests.\(suite)")!
         let hibernation = WorkspaceHibernation(host: host, keepAwake: WorkspaceKeepAwakeStore(defaults: defaults), deadline: Deadline(),
                                                now: { clock.now })
         return (hibernation, host, clock, defaults)
@@ -114,6 +115,9 @@ import Testing
         let (hibernation, host, _, _) = Self.make(["shown", "fresh"])
         host.shown = ["shown"]
         hibernation.noteShown(["shown"])
+        // What Hibernate Workspace's row reads: off for the shown workspace, on for any other.
+        #expect(hibernation.isShown("shown"))
+        #expect(!hibernation.isShown("fresh"))
         #expect(throws: WorkspaceHibernationRefusal.shown) { try hibernation.hibernateNow("shown") }
         #expect(throws: Never.self) { try hibernation.hibernateNow("fresh") }
         #expect(host.hibernatedCalls == ["fresh"])
@@ -139,7 +143,7 @@ import Testing
         let clock = Clock()
         let source = ManualMemoryPressureSource()
         let events = MemoryPressureEvents(source: source)
-        let hibernation = WorkspaceHibernation(host: host, keepAwake: WorkspaceKeepAwakeStore(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+        let hibernation = WorkspaceHibernation(host: host, keepAwake: WorkspaceKeepAwakeStore(defaults: UserDefaults(testSuiteName: UUID().uuidString)!),
                                                deadline: Deadline(), memoryPressure: events, now: { clock.now })
         let reads = Reads()
         // What the App's subscriber does: each level reaches the workspace hibernation.

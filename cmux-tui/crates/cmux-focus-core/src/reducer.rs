@@ -341,7 +341,11 @@ pub fn successor(
     policy: crate::state::CloseFocusPolicy,
 ) -> Option<String> {
     let columns = old.columns_containing(pane).unwrap_or_else(|| {
-        vec![Column { id: String::new(), panes: old.panes.iter().map(|p| p.id.clone()).collect() }]
+        vec![Column {
+            id: String::new(),
+            panes: old.panes.iter().map(|p| p.id.clone()).collect(),
+            ..Column::default()
+        }]
     });
     let before: Vec<Vec<String>> = columns.iter().map(|c| c.panes.clone()).collect();
     // Aligned by column id: a pane that moved to another column is not in
@@ -363,8 +367,15 @@ pub fn successor(
     let shown_history: Vec<String> =
         history.iter().filter(|p| on_screen.contains(p)).cloned().collect();
     let focused = pane.to_owned();
-    if let Some(pick) = close_focus::pane(Some(&focused), &before, &after, &shown_history, policy)
-        && new.contains_pane(&pick)
+    let sibling = columns.iter().find_map(|column| column.siblings.get(pane));
+    if let Some(pick) = close_focus::pane_or_sibling(
+        Some(&focused),
+        &before,
+        &after,
+        &shown_history,
+        sibling,
+        policy,
+    ) && new.contains_pane(&pick)
     {
         return Some(pick);
     }

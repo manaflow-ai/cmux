@@ -6,15 +6,23 @@ import { useId, useMemo, type ReactNode } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { ChevronRight, Globe, Magnifier, MultiTool, Pencil, TerminalSquare, ToolGroup } from "./icons";
-import { countsFailed } from "./toolGroups";
+import { countsFailed, isRunning } from "./toolGroups";
 import { isMixedToolRun, mainToolRunCategory, toolRunSummary, type ToolRunCategory } from "./toolRunSummary";
 import { useToolRunLook } from "../toolRunLook";
-import { useTranscriptDisclosure, useTranscriptViewContext } from "./transcriptDisclosure";
+import {
+  callDisclosureKeys,
+  FoldPin,
+  useFoldPin,
+  useTranscriptDisclosure,
+  useTranscriptViewContext,
+} from "./transcriptDisclosureModel";
 import { isThought } from "./thoughts";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
-import { EditCounts, useEditTotals } from "./EditCounts";
+import { EditCounts } from "./EditCounts";
+import { useEditTotals } from "./editCountsModel";
 import { FailedCount } from "./FailedCount";
 import { ToolLabel } from "./ToolVerb";
+import { RunScroll } from "./RunScroll";
 
 /// The summary's glyph: its one kind of work's, with searches and reads both as the magnifier, or the
 /// several-tools mark when it did more than one kind.
@@ -40,10 +48,25 @@ export function ToolRun({
   items,
   children,
   disclosureKey,
+  inherits,
+  passesDown,
+  closedBy,
+  thoughts,
+  defaultOpen = false,
 }: {
   items: readonly AcpmuxActivity[];
   children: ReactNode;
   disclosureKey: string;
+  /// The keys of the group lines this run's line took the place of: one the reader opened opens it.
+  inherits?: readonly string[];
+  /// The group lines this run's line splits back into, which take the reader's choice on it.
+  passesDown?: readonly string[];
+  /// The group lines that drew open while the turn ran: the reader closing every one closes this.
+  closedBy?: readonly string[];
+  /// The ids of the thoughts among its calls (TurnRows.tsx): closing the run forgets their open choices.
+  thoughts?: readonly string[];
+  /// Open until the reader closes it: a run inside a steered turn's opened Worked for (turns.ts).
+  defaultOpen?: boolean;
 }) {
   const t = useT();
   const look = useToolRunLook();
@@ -51,7 +74,17 @@ export function ToolRun({
   // thought, so the thought it opens is on screen.
   const thinking = useTranscriptViewContext() === "thinking";
   const holdsThought = useMemo(() => thinking && items.some(isThought), [thinking, items]);
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, holdsThought, true);
+  // A call in the run the reader opened keeps the run open when it folds (`members`); a choice inside
+  // the run pins it (`pin`).
+  const members = useMemo(() => callDisclosureKeys(items), [items]);
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, defaultOpen || holdsThought, true, {
+    inherits,
+    passesDown,
+    members,
+    closedBy,
+    thoughts,
+  });
+  const pin = useFoldPin(disclosureKey);
   useFindReveal(items, () => setOpen(true));
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const list = useId();
@@ -69,6 +102,8 @@ export function ToolRun({
   // The lines the run's edits added and removed, on its summary line as Claude Code desktop puts
   // them (Leo 2026-10-30: "i like claude code they put the number overarching too").
   const totals = useEditTotals(items);
+  // A call still running keeps a long run's scroll box at its end as lines arrive (RunScroll.tsx).
+  const running = items.some((item) => item.tool !== undefined && isRunning(item.tool));
   const pencil = look === "pencil" || look === "quiet-pencil";
   const quiet = look === "quiet" || look === "quiet-pencil";
   return (
@@ -76,6 +111,7 @@ export function ToolRun({
       <button
         type="button"
         className={quiet ? "cv-tool is-toggle is-run" : "cv-tool is-toggle is-run is-strong"}
+        data-tool-run={disclosureKey}
         aria-expanded={open}
         aria-controls={open ? list : undefined}
         ref={fold.headerRef}
@@ -92,11 +128,15 @@ export function ToolRun({
         <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {fold.present && (
-        <div {...fold.bodyProps}>
-          <div className="cv-tool-run" id={list}>
-            {children}
+        <FoldPin.Provider value={pin}>
+          <div {...fold.bodyProps}>
+            <RunScroll running={running}>
+              <div className="cv-tool-run" id={list}>
+                {children}
+              </div>
+            </RunScroll>
           </div>
-        </div>
+        </FoldPin.Provider>
       )}
     </>
   );

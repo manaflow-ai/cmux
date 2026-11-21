@@ -378,7 +378,11 @@ async fn fake_peer(answer: Answer) -> (u16, mpsc::UnboundedReceiver<Value>) {
             let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
             let cancels = cancels.clone();
             tokio::spawn(async move {
-                while let Some(Ok(Ws::Text(text))) = ws.next().await {
+                // The link pings every 2 s and drops after 6 s with no byte back (#38015); the
+                // silent case waits out the 10 s Stop answer, so this peer keeps reading pings
+                // (tungstenite answers them as it reads) and ends only when the link closes.
+                while let Some(Ok(frame)) = ws.next().await {
+                    let Ws::Text(text) = frame else { continue };
                     let (request_id, m, params) = match Message::parse(&text) {
                         Ok(Message::Request { id, method, params }) => (Some(id), method, params),
                         Ok(Message::Notification { method, params }) => (None, method, params),

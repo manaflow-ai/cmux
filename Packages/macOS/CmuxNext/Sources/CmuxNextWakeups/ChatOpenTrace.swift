@@ -92,6 +92,15 @@ public final class ChatOpenTrace {
 
         /// Nothing of the chat and nothing kept: what reads as a black or empty pane.
         public var isEmpty: Bool { self == .cover || self == .pageEmpty }
+
+        /// A shown page's surface: content once its paint probe reported the first frame
+        /// (`probed`), or once the page's own after-render report revealed it (`pageReported`)
+        /// and Blink reported a contentful paint (`contentfulPaint`). A chat's copy drawn before
+        /// its bundle (webviews chatSnapshot/) is on screen then, while the probe's report can
+        /// reach a busy main thread at launch half a second later.
+        public static func shownPage(probed: Bool, pageReported: Bool, contentfulPaint: Bool) -> Surface {
+            probed || (pageReported && contentfulPaint) ? .page : .pageEmpty
+        }
     }
 
     /// One trace.

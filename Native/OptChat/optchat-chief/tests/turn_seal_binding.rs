@@ -48,6 +48,7 @@ fn serve_recording(home: &Path, chief: Arc<ChiefTools>, asked: Asked) -> PathBuf
             }),
             peers: None,
             fork: None,
+            mcp: None,
         },
     )
     .unwrap();

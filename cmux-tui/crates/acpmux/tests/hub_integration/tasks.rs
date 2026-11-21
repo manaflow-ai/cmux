@@ -130,7 +130,8 @@ async fn a_task_brings_its_typed_result_back_to_the_chat_that_gave_it_once() {
     assert!(text.starts_with(&format!("Task {id} from {giver}: Land #24961")), "{text}");
     assert!(text.contains(&format!("acpmux task done {id} --summary")), "{text}");
     let sent = json!({"kind": "session_message", "from": coordinator, "fromName": giver,
-                      "to": lane, "fromSessionId": coordinator, "fromHarness": "codex"});
+                      "to": lane, "fromSessionId": coordinator, "fromHarness": "codex",
+                      "verified": true});
     assert_eq!(brief.pointer("/_meta/provenance"), Some(&sent), "{brief}");
 
     // Only the task's own session, or the chat that gave it, ends it; a result is checked.
@@ -329,23 +330,29 @@ async fn a_lane_that_closes_or_is_deleted_with_its_task_open_orphans_it_and_the_
     person.call("session/close", json!({"sessionId": closing})).await;
     person.call("session/delete", json!({"sessionId": deleted})).await;
     person.call("session/close", json!({"sessionId": finished})).await;
+    // Both cards come to the idle coordinator close together, so they go in as one turn
+    // (`digest.rs` `AGENT_GATHER_MS`): the first card's turn carries the second.
+    let closed_card = format!(
+        "Task {t_closed} \"Land the fix\" orphaned: {closing_name} closed with it still open"
+    );
+    let deleted_card = format!(
+        "Task {t_deleted} \"Write the doc\" orphaned: {deleted_name} is gone with it still open"
+    );
     let card = person.prompts(&coordinator, &format!("task-result-{t_closed}"), 1).await.remove(0);
-    assert_eq!(
-        card["text"],
-        format!(
-            "Task {t_closed} \"Land the fix\" orphaned: {closing_name} closed with it still open"
-        )
-    );
-    let provenance = card.pointer("/_meta/provenance").unwrap();
-    assert_eq!(provenance["state"], "orphaned", "{card}");
-    assert_eq!(provenance["from"], closing.as_str(), "{card}");
-    let card = person.prompts(&coordinator, &format!("task-result-{t_deleted}"), 1).await.remove(0);
-    assert_eq!(
-        card["text"],
-        format!(
-            "Task {t_deleted} \"Write the doc\" orphaned: {deleted_name} is gone with it still open"
-        )
-    );
+    let text = card["text"].as_str().unwrap_or_default();
+    if text == closed_card {
+        // Not joined: each card is its own turn, from its lane.
+        let provenance = card.pointer("/_meta/provenance").unwrap();
+        assert_eq!(provenance["state"], "orphaned", "{card}");
+        assert_eq!(provenance["from"], closing.as_str(), "{card}");
+        let card =
+            person.prompts(&coordinator, &format!("task-result-{t_deleted}"), 1).await.remove(0);
+        assert_eq!(card["text"], deleted_card, "{card}");
+    } else {
+        assert!(text.contains(&closed_card), "{card}");
+        assert!(text.contains(&deleted_card), "{card}");
+        assert!(text.find(&closed_card) < text.find(&deleted_card), "oldest first: {card}");
+    }
 
     // Each card was sent once and accepted: no mark is left owed or claimed.
     for _ in 0..300 {

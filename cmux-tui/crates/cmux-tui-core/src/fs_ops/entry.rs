@@ -114,6 +114,10 @@ pub struct StatResult {
     pub mode_display: String,
     pub owner_display: String,
     pub revision: String,
+    /// For a folder: the bytes an unprivileged writer may still use on its
+    /// file system, so a copy can be refused before it starts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub available_bytes: Option<u64>,
 }
 
 /// Permission bits as `ls` shows them (`rwxr-xr-x`).

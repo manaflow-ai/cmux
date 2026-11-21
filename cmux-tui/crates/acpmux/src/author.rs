@@ -1,6 +1,6 @@
 //! Who sent a request, when a person other than the owner sent it: chat multiplayer (hq#4389).
 //! The daemon that admitted the person (`cmux host serve`, by its tailnet WhoIs login) stamps
-//! `_meta.acpmux.author {id, name, login?, node?}` on `session/prompt` (a steer too),
+//! `_meta.acpmux.author {id, name, login?, node?, avatar?}` on `session/prompt` (a steer too),
 //! `_acpmux/permission_respond`, `_acpmux/queue_edit`, `_acpmux/queue_remove`, `_acpmux/view`
 //! and `_acpmux/typing`; a client never names itself. `id` is `tailnet:<login>` until accounts
 //! are mapped, then `user_…`; a link guest on no tailnet and with no account is `guest:<opaque>`.
@@ -16,8 +16,9 @@
 //! An author is an audit label plus a restriction: it never stands in for the person's proof
 //! (`hub/person.rs`) and never allows anything. It only narrows who changes a queued prompt
 //! (`queue.not_author`, `hub/queue_edit.rs`). The hub records it as:
-//! - `_meta.provenance {kind: "person_message", from: id, fromName: name, login?, node?}` on the
-//!   prompt's `user_message`, `queued` and steer records, kept by the same author's edit;
+//! - `_meta.provenance {kind: "person_message", from: id, fromName: name, fromAvatar?, login?,
+//!   node?}` on the prompt's `user_message`, `queued` and steer records, kept by the same
+//!   author's edit (`fromAvatar`: the person's profile picture, an `https://` URL);
 //! - `answeredBy {id, name}` on `permission_decision`, beside a paired device's `{device,
 //!   feedItem}` when the answer names both.
 //!
@@ -36,6 +37,8 @@ pub const PERSON_MESSAGE: &str = "person_message";
 pub const MAX_FIELD_BYTES: usize = 256;
 /// Longest name, in characters.
 pub const MAX_NAME_CHARS: usize = 64;
+/// Longest avatar URL, in bytes.
+pub const MAX_AVATAR_BYTES: usize = 1024;
 /// The one `approval` value: the owner approves each of the person's prompts.
 pub const APPROVAL_OWNER: &str = "owner";
 /// A link guest's id: on no tailnet and with no account (`cmux-tui-core`
@@ -58,6 +61,9 @@ pub struct Author {
     pub login: Option<String>,
     /// The machine the person sent it from.
     pub node: Option<String>,
+    /// The person's profile picture: an `https://` URL of printable ASCII, at most
+    /// [`MAX_AVATAR_BYTES`] (a signed-in link guest's, `cmux-tui-core` `agent_session_shares.rs`).
+    pub avatar: Option<String>,
     /// `approval: "owner"`: each prompt waits for the owner's approval (`hub/queue_approve.rs`).
     pub awaits_owner: bool,
 }
@@ -66,6 +72,9 @@ impl Author {
     /// The provenance of this person's prompt.
     pub fn provenance(&self) -> Value {
         let mut p = json!({"kind": PERSON_MESSAGE, "from": self.id, "fromName": self.name});
+        if let Some(avatar) = &self.avatar {
+            p.set("fromAvatar", json!(avatar));
+        }
         if let Some(login) = &self.login {
             p.set("login", json!(login));
         }
@@ -167,6 +176,7 @@ pub fn author(params: &Value) -> Result<Option<Author>, RpcError> {
         name: required("name")?,
         login: field("login")?,
         node: field("node")?,
+        avatar: field("avatar")?,
         awaits_owner,
     }))
 }
@@ -188,12 +198,19 @@ fn value_refused(key: &str) -> RpcError {
         "name" => format!("1 to {MAX_NAME_CHARS} characters"),
         "id" => format!("tailnet:<login>, user_<id> or guest:<id>, 1 to {MAX_FIELD_BYTES} bytes"),
         "approval" => format!("\"{APPROVAL_OWNER}\""),
+        "avatar" => format!("an https:// URL, 9 to {MAX_AVATAR_BYTES} bytes"),
         _ => format!("1 to {MAX_FIELD_BYTES} bytes"),
     };
     refusal("author.value_refused", format!("author {key} must be one line of {need}"))
 }
 
 fn valid(key: &str, value: &str) -> bool {
+    if key == "avatar" {
+        return value.len() <= MAX_AVATAR_BYTES
+            && value.len() > "https://".len()
+            && value.starts_with("https://")
+            && value.bytes().all(|b| b.is_ascii_graphic());
+    }
     let fits = match key {
         "name" => value.chars().count() <= MAX_NAME_CHARS,
         _ => value.len() <= MAX_FIELD_BYTES,
@@ -207,7 +224,7 @@ fn valid(key: &str, value: &str) -> bool {
 
 /// A character that breaks the one line or changes how it reads: a control, a line or
 /// paragraph separator, or a bidi or zero-width format mark (as `prompt_provenance.rs`).
-fn unshown(c: char) -> bool {
+pub(crate) fn unshown(c: char) -> bool {
     c.is_control()
         || (c.is_whitespace() && c != ' ')
         || matches!(
@@ -235,7 +252,27 @@ pub fn listed(provenance: Option<&Value>) -> Option<crate::protocol::session::Qu
         .and_then(Value::as_str)
         .filter(|name| !name.trim().is_empty())
         .unwrap_or(id);
-    Some(crate::protocol::session::QueuedAuthor { id: id.to_owned(), name: name.to_owned() })
+    let avatar = provenance
+        .and_then(|p| p.get("fromAvatar"))
+        .and_then(Value::as_str)
+        .filter(|avatar| valid("avatar", avatar))
+        .map(str::to_owned);
+    Some(crate::protocol::session::QueuedAuthor {
+        id: id.to_owned(),
+        name: name.to_owned(),
+        avatar,
+    })
+}
+
+/// What the agent reads before a person's prompt (not the owner's, nor an agent's message): who
+/// sent it, so the agent knows which participant of a shared chat is asking. The agent's copy
+/// only: the transcript's `user_message` keeps the person's own words.
+pub fn agent_label(provenance: Option<&Value>) -> Option<Value> {
+    let id = of_provenance(provenance)?;
+    let name = listed(provenance).map_or_else(|| id.to_owned(), |a| a.name);
+    let who = if is_guest(id) { "a guest" } else { "a participant" };
+    Some(json!({"type": "text",
+        "text": format!("[Message from {name}, {who} in this shared chat]")}))
 }
 
 /// Who changes a queued prompt or an unread steer (`hub/queue_edit.rs`, `_acpmux/queue_remove`):
@@ -364,10 +401,61 @@ mod tests {
             json!({"id": "guest:a b", "name": "Cy"}),
             json!({"id": "user_1", "name": "Ana", "approval": "anyone"}),
             json!({"id": "user_1", "name": "Ana", "approval": true}),
+            json!({"id": "user_1", "name": "Ana", "avatar": "http://example.com/a.png"}),
+            json!({"id": "user_1", "name": "Ana", "avatar": "https://"}),
+            json!({"id": "user_1", "name": "Ana", "avatar": "https://x/a b.png"}),
+            json!({"id": "user_1", "name": "Ana", "avatar": "https://x/\u{200B}.png"}),
+            json!({"id": "user_1", "name": "Ana",
+                   "avatar": format!("https://x/{}", "a".repeat(MAX_AVATAR_BYTES))}),
         ] {
             let e = author(&with(bad.clone())).expect_err(&bad.to_string());
             assert_eq!(e.data.unwrap()["reason"], "author.value_refused", "{bad}");
         }
+    }
+
+    /// A signed-in guest's picture rides its author into the provenance (`fromAvatar`) and the
+    /// queue listing (`avatar`); the agent reads who sent a person's prompt, never the owner's.
+    #[test]
+    fn a_persons_avatar_reaches_the_provenance_and_the_agent_reads_their_name() {
+        let url = "https://lh3.example.com/a/photo.png?sz=96";
+        let guest = author(&with(json!({"id": "guest:s1.g1", "name": "Cy", "approval": "owner",
+            "role": "talk", "avatar": url})))
+        .unwrap()
+        .unwrap();
+        assert_eq!(guest.avatar.as_deref(), Some(url));
+        let theirs = guest.provenance();
+        assert_eq!(
+            theirs,
+            json!({"kind": "person_message", "from": "guest:s1.g1", "fromName": "Cy",
+                   "fromAvatar": url, "approval": "owner"})
+        );
+        assert!(awaits_owner(Some(&theirs)), "a guest's prompt with a picture is still held");
+        let shown = listed(Some(&theirs)).unwrap();
+        assert_eq!((shown.name.as_str(), shown.avatar.as_deref()), ("Cy", Some(url)));
+        let json = serde_json::to_value(&shown).unwrap();
+        assert_eq!(json, json!({"id": "guest:s1.g1", "name": "Cy", "avatar": url}));
+        // None: the field is left out, as an older daemon's listing has none.
+        let plain = listed(Some(&json!({"kind": "person_message", "from": "user_1"}))).unwrap();
+        assert_eq!(
+            serde_json::to_value(&plain).unwrap(),
+            json!({"id": "user_1", "name": "user_1"})
+        );
+        // A record with a bad picture lists none rather than passing it on.
+        let bad = json!({"kind": "person_message", "from": "user_1", "fromAvatar": "javascript:x"});
+        assert_eq!(listed(Some(&bad)).unwrap().avatar, None);
+        assert_eq!(
+            agent_label(Some(&theirs)),
+            Some(json!({"type": "text",
+                "text": "[Message from Cy, a guest in this shared chat]"}))
+        );
+        let bo =
+            json!({"kind": "person_message", "from": "tailnet:bo@example.com", "fromName": "Bo"});
+        assert_eq!(
+            agent_label(Some(&bo)).unwrap()["text"],
+            "[Message from Bo, a participant in this shared chat]"
+        );
+        assert_eq!(agent_label(None), None, "the owner's own prompt");
+        assert_eq!(agent_label(Some(&json!({"kind": "agent_message", "from": "acp:x"}))), None);
     }
 
     #[test]
@@ -403,6 +491,7 @@ mod tests {
             name: "Ana".into(),
             login: None,
             node: None,
+            avatar: None,
             awaits_owner: false,
         };
         let device = json!({"device": "phone-1", "feedItem": "f-1"});

@@ -22,13 +22,13 @@ struct CmuxToastQuietTests {
         defer { window.closeAfterTest() }
         let notice = CmuxToast(id: "refusal", message: "The agent chat column holds only agent chats.")
         center.show(notice, in: window)
-        host.shown.last?.onClose?()
+        host.closeNewest()
         #expect(center.toasts(in: window).isEmpty)
 
         let again = center.show(notice, in: window)
         #expect(again.isDismissed)
         #expect(center.toasts(in: window).isEmpty)
-        #expect(host.shown.count == 1, "the quiet notice made a second view")
+        #expect(host.serialsShown.count == 1, "the quiet notice showed a second toast")
         #expect(center.isQuieted(notice))
     }
 
@@ -39,7 +39,7 @@ struct CmuxToastQuietTests {
         let window = Self.window()
         defer { window.closeAfterTest() }
         center.show(CmuxToast(id: "refusal", message: "Not enough room to split this column"), in: window)
-        host.shown.last?.onClose?()
+        host.closeNewest()
 
         let other = center.show(CmuxToast(id: "refusal", message: "Can’t close the last tab"), in: window)
         #expect(!other.isDismissed)
@@ -56,7 +56,7 @@ struct CmuxToastQuietTests {
         defer { window.closeAfterTest() }
         let first = CmuxToast(id: "home.stopAllAgents", message: "1 could not be stopped", detail: "a2: refused")
         center.show(first, in: window)
-        host.shown.last?.onClose?()
+        host.closeNewest()
         #expect(center.isQuieted(first))
 
         let other = center.show(CmuxToast(id: "home.stopAllAgents", message: "1 could not be stopped", detail: "a4: refused"), in: window)
@@ -72,7 +72,7 @@ struct CmuxToastQuietTests {
         defer { window.closeAfterTest() }
         let undo = CmuxToast(id: "tab-closed", message: "Closed “zsh”", action: .undo())
         center.show(undo, in: window)
-        host.shown.last?.onClose?()
+        host.closeNewest()
 
         let again = center.show(undo, in: window)
         #expect(!again.isDismissed)
@@ -103,7 +103,7 @@ struct CmuxToastQuietTests {
         defer { window.closeAfterTest() }
         let notice = CmuxToast(id: "refusal", message: "No pane to the left")
         center.show(notice, in: window)
-        host.shown.last?.onClose?()
+        host.closeNewest()
         #expect(center.isQuieted(notice))
 
         for _ in 0..<60 where center.isQuieted(notice) { try await Task.sleep(for: .milliseconds(50)) }
@@ -122,19 +122,27 @@ struct CmuxToastQuietTests {
         defer { window.closeAfterTest() }
         let notice = CmuxToast(id: "refusal", message: "No pane to the left")
         center.show(notice, in: window)
-        host.shown.last?.onClose?()
+        host.closeNewest()
         #expect(!center.isQuieted(notice))
         #expect(!center.show(notice, in: window).isDismissed)
     }
 }
 
-/// Records the views the center shows, so a test can press a toast's close button.
+/// Records what the center shows, so a test can press a toast's close button as the web host
+/// reports it (`personClosed(serial:)`).
 @MainActor
 private final class RecordingToastHost: CmuxToastHosting {
-    private(set) var shown: [CmuxToastView] = []
-    func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, appearing: Bool, windowGone: @escaping () -> Void) {
-        shown.append(toast)
+    private(set) var renders: [[CmuxToastShown]] = []
+    private weak var center: CmuxToastCenter?
+    func show(_ toasts: [CmuxToastShown], in window: NSWindow, center: CmuxToastCenter) {
+        renders.append(toasts)
+        self.center = center
     }
-    func move(_ toast: CmuxToastView, to slot: Int) {}
-    func hide(_ toast: CmuxToastView, animated: Bool) {}
+    /// Every toast the host was given to draw, by serial.
+    var serialsShown: Set<Int> { Set(renders.flatMap { $0.map(\.serial) }) }
+    /// The person clicks the close button on the newest toast shown now.
+    func closeNewest() {
+        guard let serial = renders.last?.last?.serial else { return }
+        center?.personClosed(serial: serial)
+    }
 }

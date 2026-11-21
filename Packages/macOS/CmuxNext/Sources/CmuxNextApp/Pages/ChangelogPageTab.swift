@@ -50,30 +50,18 @@ final class ChangelogPageTab: InternalPageProvider {
 
     /// Opens (or selects) the changelog tab in the active window. With `to` (an update's new
     /// version, and `from` its previous one) the page highlights the releases after `from` up to
-    /// `to`, and says "Updated to <to>" when that span has no notes (`#/?from=<v>&to=<v>`).
+    /// `to`, and says "Updated to <to>" when that span has no notes; with `target` it scrolls to
+    /// that change (``WhatsNewDesign/changelogRoute(from:to:focus:)``).
     @discardableResult
-    static func open(_ services: AppServices, focus: Bool = true, from: String? = nil, to: String? = nil) -> Bool {
+    static func open(_ services: AppServices, focus: Bool = true, from: String? = nil, to: String? = nil, at target: ChangelogFocus? = nil) -> Bool {
         let provider = register(services)
-        let route = Self.route(from: from, to: to, design: WhatsNewTunables.design.value)
+        let route = WhatsNewTunables.design.value.changelogRoute(from: from, to: to, focus: target)
         provider.pendingRoute = route
         let view = services.pages.show(.changelog, in: services.windows.active, focus: focus)
         provider.pendingRoute = nil
-        // An open tab moves to the new span (a design change alone applies the next time the page opens).
-        if let route, to?.isEmpty == false, let page = view?.content as? PageWebView, page.route != route { page.open(route: route) }
+        // An open tab moves to the new span or change (a design change alone applies the next time the page opens).
+        if let route, to?.isEmpty == false || target != nil, let page = view?.content as? PageWebView, page.route != route { page.open(route: route) }
         return view != nil
-    }
-
-    /// `#/?design=<d>&from=<from>&to=<to>`: `design` only off the default sheet, the span only
-    /// with `to`; nil when neither applies.
-    static func route(from: String?, to: String?, design: WhatsNewDesign = .sheet) -> String? {
-        let span = to.flatMap { $0.isEmpty ? nil : $0 }
-        guard span != nil || design != .sheet else { return nil }
-        var query = URLComponents()
-        query.queryItems = [design == .sheet ? nil : URLQueryItem(name: "design", value: design.rawValue),
-                            span.flatMap { _ in from.flatMap { $0.isEmpty ? nil : URLQueryItem(name: "from", value: $0) } },
-                            span.map { URLQueryItem(name: "to", value: $0) }].compactMap { $0 }
-        // URLSearchParams reads `+` as a space; a version may carry build metadata (`1.2.3+abc`).
-        return "#/?" + (query.percentEncodedQuery ?? "").replacingOccurrences(of: "+", with: "%2B")
     }
 }
 

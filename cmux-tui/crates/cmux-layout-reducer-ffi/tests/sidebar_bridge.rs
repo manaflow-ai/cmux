@@ -83,6 +83,10 @@ fn each_rule_answers_over_the_c_abi() {
         json!("down")
     );
     assert_eq!(
+        ask(json!({"rule": "row_link", "connected": false, "server_state": "paused"})),
+        json!("paused")
+    );
+    assert_eq!(
         ask(json!({"rule": "notice_action", "card": "tip:t", "action": "try"})),
         json!({"kind": "tip", "tip": "t"})
     );
@@ -100,4 +104,21 @@ fn each_rule_answers_over_the_c_abi() {
 fn an_unknown_rule_or_a_bad_value_is_invalid() {
     assert_eq!(call(br#"{"rule":"nope"}"#).0, ERR_INVALID);
     assert_eq!(call(br#"{"rule":"ssh_status","link":"sideways"}"#).0, ERR_INVALID);
+}
+
+/// acpmux's whole link state reaches the dot through the same op the app calls.
+#[test]
+fn a_link_rule_answers_over_the_op() {
+    assert_eq!(
+        ask(json!({"rule": "peer_link", "link": "restarting"})),
+        json!({"link": "connecting", "reconnects_on_use": false})
+    );
+    assert_eq!(
+        ask(json!({"rule": "joined_link", "hub": "online", "peer": "offline"})),
+        json!({"link": "offline", "reconnects_on_use": true})
+    );
+    assert_eq!(
+        ask(json!({"rule": "status_links"}))["disconnected"],
+        json!({"link": "attention", "reconnects_on_use": true})
+    );
 }

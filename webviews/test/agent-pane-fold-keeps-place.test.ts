@@ -45,10 +45,13 @@ await requireBrowserLane("agent-pane-fold-keeps-place.test.ts", async () => {
     await vite?.close();
   });
 
-  /// The fanout-infra line's toggle: the long report, with a table.
-  const toggleOf = (page: Page) =>
-    page.locator(".cv-received", { hasText: "fanout-infra" }).first().locator(".cv-disclosure__toggle");
-  const topOf = (page: Page) => toggleOf(page).evaluate((node) => node.getBoundingClientRect().top);
+  /// The fanout-infra line (the long report, with a table): the whole line toggles on a click
+  /// (AgentMessageRow.tsx); its chevron is the pointer's target, since an opened line's toggle
+  /// button holds no words and has no box of its own.
+  const lineOf = (page: Page) =>
+    page.locator(".cv-received", { hasText: "fanout-infra" }).first().locator(":scope > .cv-agentmsg__line");
+  const toggleOf = (page: Page) => lineOf(page).locator(".cv-agentmsg__chevron");
+  const topOf = (page: Page) => lineOf(page).evaluate((node) => node.getBoundingClientRect().top);
   /// Every finite animation over (the fold), then the view at rest: the scroller's offset and
   /// height the same over STILL painted frames in a row, which outlasts the hold's last passes.
   const settled = (page: Page) =>

@@ -77,6 +77,69 @@ describe("dom-breadth", () => {
   });
 });
 
+describe("still-surface", () => {
+  /// A composer marked still, found by the budgets as it is added, on a page clock the test moves.
+  async function still() {
+    const opened = await page();
+    const clock = { ms: 100_000 };
+    Object.defineProperty(opened.win.performance, "now", { configurable: true, value: () => clock.ms });
+    const form = opened.doc.createElement("form");
+    form.className = "acpmux-composer";
+    form.setAttribute("data-perf-still", "composer");
+    const input = opened.doc.createElement("input");
+    const time = opened.doc.createElement("span");
+    time.textContent = "0s";
+    form.append(input, time);
+    opened.doc.getElementById("root")!.append(form);
+    opened.budgets.flush();
+    /// One commit that rewrites the input (React sets an input's name and type on every update).
+    const redraw = () => {
+      input.setAttribute("name", "prompt");
+      input.setAttribute("type", "file");
+      opened.budgets.flush();
+    };
+    return { ...opened, clock, input, time, redraw };
+  }
+
+  test("a still surface redrawn every second fires once, naming it", async () => {
+    const { clock, redraw, budgets, close } = await still();
+    for (let second = 0; second < 12; second++) {
+      redraw();
+      clock.ms += 1000;
+    }
+    expect(budgets.violations).toMatchObject([
+      { kind: "still-surface", site: "form.acpmux-composer", measured: 7, budget: 6 },
+    ]);
+    expect(budgets.violations[0]!.fix).toContain("Elapsed.tsx");
+    close();
+  });
+
+  test("its own bursts, a time ticking in its own text node, and changes under input stay silent", async () => {
+    const { win, doc, clock, input, time, redraw, budgets, close } = await still();
+    // A chat opening draws it four times in a second, a turn starting and ending once each later.
+    for (let commit = 0; commit < 4; commit++) redraw();
+    for (const at of [2_000, 3_000, 9_000]) {
+      clock.ms = 100_000 + at;
+      redraw();
+    }
+    // Its time ticks every second in its own text node.
+    for (let second = 1; second <= 30; second++) {
+      clock.ms += 1000;
+      time.firstChild!.nodeValue = `${second}s`;
+      budgets.flush();
+    }
+    // Typing: the field's own changes follow the keys, every second.
+    for (let second = 0; second < 12; second++) {
+      clock.ms += 1000;
+      doc.dispatchEvent(new (win as unknown as typeof globalThis).KeyboardEvent("keydown", { key: "a" }));
+      input.setAttribute("value", `a${second}`);
+      budgets.flush();
+    }
+    expect(budgets.violations).toEqual([]);
+    close();
+  });
+});
+
 describe("react-commit", () => {
   const root = (doc: Document, actualDuration = 1) => ({
     current: { actualDuration },
@@ -177,7 +240,10 @@ describe("dev server plugin", () => {
   test("serve only, the page's first script", () => {
     const plugin = perfBudgetsDevEntry();
     expect(plugin.apply).toBe("serve");
-    (plugin.configResolved as (config: { root: string }) => void)({ root: `${import.meta.dir}/..` });
+    (plugin.configResolved as (config: { root: string; base: string }) => void)({
+      root: `${import.meta.dir}/..`,
+      base: "/",
+    });
     const tags = (plugin.transformIndexHtml as unknown as () => unknown[])();
     expect(tags).toEqual([
       { tag: "script", attrs: { type: "module", src: "/src/devkit/perfBudgets.dev.ts" }, injectTo: "head-prepend" },
@@ -186,8 +252,9 @@ describe("dev server plugin", () => {
 
   test("a server whose root is elsewhere (the standalone pane's) gets an /@fs path; CMUX_PERF_BUDGETS=off injects nothing", () => {
     const plugin = perfBudgetsDevEntry();
-    (plugin.configResolved as (config: { root: string }) => void)({
+    (plugin.configResolved as (config: { root: string; base: string }) => void)({
       root: `${import.meta.dir}/../src/agent-session/acpmux`,
+      base: "/",
     });
     const [tag] = (plugin.transformIndexHtml as unknown as () => { attrs: { src: string } }[])();
     expect(tag!.attrs.src).toMatch(/^\/@fs\/.*\/webviews\/src\/devkit\/perfBudgets\.dev\.ts$/);

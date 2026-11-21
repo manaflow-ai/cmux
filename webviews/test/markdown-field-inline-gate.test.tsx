@@ -8,6 +8,7 @@ import type { Root } from "react-dom/client";
 import { inlineToken, linkAttachment } from "../src/agent-session/acpmux/attachments";
 import type { MarkdownFieldHandle, MarkdownFieldProps } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -65,12 +66,8 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const DRAFT = "see \uFFFCword\uFFFC here";
@@ -361,7 +358,7 @@ test("an attachment inserts at the caret and Backspace deletes it in one press",
 // Review (Sol, #26545): the field's plain offsets must count a placed attachment as one place, as
 // markdownOffset (MentionMenu.tsx) does, so a caret after it maps to the right markdown index.
 test("a placed attachment counts as one place in the field's plain text and its caret", async () => {
-  const { markdownOffset } = await import("../src/agent-session/acpmux/MentionMenu");
+  const { markdownOffset } = await import("../src/agent-session/acpmux/mentionMenuModel");
   await render(() => {});
   const { value, selectionStart } = handle.current!.text();
   expect(value.length).toBe("see ".length + 1 + " here".length);

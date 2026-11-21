@@ -1,8 +1,8 @@
 import { useId, type CSSProperties } from "react";
 import { MISSING_ICON, resolveIcon } from "./iconPack";
-import { iconLayers } from "./iconLayers";
+import { iconLayers, type IconLayerPaint } from "./iconLayers";
 import { ICON_FLOOR, ICON_STROKE, ROW_VIEWBOX } from "./iconSize";
-import { useIcons } from "./IconsContext";
+import { useIcons } from "./iconsContextModel";
 import { opticalRowFit } from "./opticalFit";
 import type { IconLayer } from "./types";
 
@@ -26,6 +26,7 @@ export function Icon({
   className,
   color,
   style: cssStyle,
+  layerPaint,
 }: {
   name: string;
   selected?: boolean;
@@ -36,6 +37,8 @@ export function Icon({
   className?: string;
   color?: string;
   style?: CSSProperties;
+  /** Recolors the drawing layers one by one (app scene symbol rendering modes). */
+  layerPaint?: IconLayerPaint;
 }) {
   const { pack, accent } = useIcons();
   const id = useId().replace(/[^\w-]/g, "");
@@ -70,7 +73,7 @@ export function Icon({
       focusable="false"
     >
       {title && <title>{title}</title>}
-      {iconLayers(fitted?.layers ?? layers, `cmux-icon-${id}`, strokeWidth)}
+      {iconLayers(fitted?.layers ?? layers, `cmux-icon-${id}`, strokeWidth, layerPaint)}
     </svg>
   );
 }

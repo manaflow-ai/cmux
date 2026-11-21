@@ -588,7 +588,7 @@ impl App {
                         if self.editor_mut().enter_means_newline() {
                             self.editor_mut().replace_trailing_backslash_with_newline();
                         } else {
-                            self.send_prompt(false);
+                            self.send_prompt(self.enter_steers());
                         }
                     }
                     _ => {

@@ -11,11 +11,13 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
 import { chatProject, internalFolder } from "../src/agent-session/acpmux/session-info/chatFolders";
-import { EnvironmentSection, environmentToSave } from "../src/agent-session/acpmux/session-info/EnvironmentSection";
+import { EnvironmentSection } from "../src/agent-session/acpmux/session-info/EnvironmentSection";
+import { environmentToSave } from "../src/agent-session/acpmux/session-info/environmentSectionModel";
 import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { setNativeHost } from "../src/agent-session/acpmux/native";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { activity, chat, tool } from "../src/gallery/fixtures/acpmux";
+import { settleReact } from "./support/domTeardown";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 
@@ -52,6 +54,7 @@ beforeEach(() => resetSessionInfoState());
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -172,7 +175,7 @@ test("a repository's chat lists its project by name, its path only in the toolti
     },
   });
   // One project row: no folder the tool calls touched, and no path text.
-  const buttons = [...environment.querySelectorAll<HTMLButtonElement>("button.acpmux-session-info-row")];
+  const buttons = [...environment.querySelectorAll<HTMLButtonElement>("button.acpmux-session-info-row[title]")];
   expect(buttons.map((button) => button.textContent)).toEqual(["cmux"]);
   expect(environment.textContent).not.toContain("~/Projects");
   for (const touched of ["cmux-app-screenshots", "leo-workspace", "glaeda", "scratch"])
@@ -208,8 +211,11 @@ test("a scratchpad chat lists only its machine: no folder row and no Save", asyn
     onOpenFolder: () => undefined,
     onSaveEnvironment: () => undefined,
   });
-  expect(environment.textContent).toBe(`studio-mac${translate("composer.envLocal")}`);
-  expect(environment.querySelector("button")).toBeNull();
+  expect(environment.querySelector("[data-machine]")?.textContent).toBe(`studio-mac${translate("composer.envLocal")}`);
+  expect(environment.querySelector(".acpmux-session-info-row[title]")).toBeNull();
+  expect([...environment.querySelectorAll("button")].map((button) => button.textContent)).toEqual([
+    translate("sessionInfo.environment.shareScreen"),
+  ]);
 });
 
 // Leo, 2026-10-31: "WHY IS THERE NOTHING THAT TELLS ME IF IT'S LOCAL OR IF". The
@@ -363,14 +369,16 @@ test("an attached repository matching the folder repository is the project row, 
   expect(container.textContent).toContain("other/tools");
 });
 
-test("without the App's actions the rows are plain text, and no Remote Control row is drawn", async () => {
+test("without folder actions the project is plain text; sharing still has its session-bound action", async () => {
   const base = chat(projectsRows);
   const environment = await renderSessionInfo({
     summary: { ...base.summary!, cwd: `${HOME}/Projects`, branch: undefined },
     machineName: "studio-mac",
     rows: projectsRows,
   });
-  expect(environment.querySelector("button")).toBeNull();
+  expect([...environment.querySelectorAll("button")].map((button) => button.textContent)).toEqual([
+    translate("sessionInfo.environment.shareScreen"),
+  ]);
   expect(environment.querySelector("a")).toBeNull();
   expect(environment.querySelector("li[title]")?.getAttribute("title")).toBe(`${HOME}/Projects`);
   expect(environment.textContent).not.toContain("glaeda");
