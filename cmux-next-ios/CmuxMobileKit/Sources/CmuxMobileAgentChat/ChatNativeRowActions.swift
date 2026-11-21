@@ -176,5 +176,121 @@ enum ChatSelectText {
     static func present(_ text: String) {
         SelectableTextView(text).present()
     }
+
+    /// An answer's Markdown as the transcript reads it, for selecting: link and image
+    /// targets, emphasis marks, inline-code ticks, heading and quote marks, code fences,
+    /// rules and table rules go; lines, list items, code (verbatim) and table cells
+    /// (tab-separated) stay.
+    nonisolated static func readable(_ markdown: String) -> String {
+        var out: [String] = []
+        // An open code fence: its mark and length (CommonMark: a backtick fence's info string
+        // holds no backtick, and only a run as long or longer, alone on its line, closes it).
+        var fence: (mark: Character, count: Int)?
+        var inTable = false
+        let lines = markdown.components(separatedBy: "\n")
+        for (index, raw) in lines.enumerated() {
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            if let mark = trimmed.first, mark == "`" || mark == "~" {
+                let run = trimmed.prefix { $0 == mark }.count
+                let rest = trimmed.dropFirst(run)
+                if let open = fence {
+                    if mark == open.mark, run >= open.count, rest.allSatisfy(\.isWhitespace) {
+                        fence = nil
+                        continue
+                    }
+                } else if run >= 3, !(mark == "`" && rest.contains("`")) {
+                    fence = (mark, run)
+                    continue
+                }
+            }
+            if fence != nil {
+                out.append(raw)
+                continue
+            }
+            // A table: a header row followed by its delimiter row, then rows until a line
+            // without a cell bar.
+            if !inTable, trimmed.contains("|"), index + 1 < lines.count, Self.isTableRule(lines[index + 1]) { inTable = true }
+            if inTable, !trimmed.contains("|") { inTable = false }
+            if inTable {
+                // The delimiter row (|---|:--:|) is the table's drawing, not its text.
+                if Self.isTableRule(raw) { continue }
+                out.append(Self.tableCells(trimmed).map(inline).joined(separator: "\t"))
+                continue
+            }
+            // A thematic break (---, ***, * * *) is drawing too.
+            let compact = trimmed.filter { $0 != " " }
+            if compact.count >= 3, let mark = compact.first, "-*_".contains(mark), compact.allSatisfy({ $0 == mark }) { continue }
+            out.append(inline(Self.blockMarks.apply(raw)))
+        }
+        return out.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    nonisolated private static func tableCells(_ row: String) -> [String] {
+        var cells = row.split(separator: "|", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
+        if cells.first == "" { cells.removeFirst() }
+        if cells.last == "" { cells.removeLast() }
+        return cells
+    }
+
+    /// A table's delimiter row: cells of dashes with optional alignment colons, at least one bar.
+    nonisolated private static func isTableRule(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.contains("|") else { return false }
+        let cells = tableCells(trimmed)
+        return !cells.isEmpty && cells.allSatisfy { cell in
+            cell.contains("-") && cell.allSatisfy { "-: ".contains($0) }
+        }
+    }
+
+    /// Inline Markdown as read. Code spans keep their characters as written (`__init__`,
+    /// `*.swift`); outside them `[text](url)` and `![alt](src)` keep their text and bold,
+    /// strike and emphasis lose their marks (underscores only at word edges).
+    nonisolated private static func inline(_ text: String) -> String {
+        var result = ""
+        var rest = Substring(text)
+        while let open = rest.firstIndex(of: "`") {
+            let ticks = rest[open...].prefix { $0 == "`" }
+            let after = rest[ticks.endIndex...]
+            guard let close = after.range(of: String(ticks)) else { break }
+            result += inlineMarks.apply(String(rest[..<open]))
+            result += after[..<close.lowerBound].trimmingCharacters(in: .whitespaces)
+            rest = after[close.upperBound...]
+        }
+        return result + inlineMarks.apply(String(rest))
+    }
+
+    nonisolated private static let blockMarks = MarkdownRewrite([
+        (#"^(\s*)#{1,6}\s+"#, "$1"),
+        (#"^(\s*)>+\s?"#, "$1"),
+        (#"^(\s*)[-*+]\s+\[[ xX]\]\s+"#, "$1• "),
+        (#"^(\s*)[-*+]\s+"#, "$1• "),
+    ])
+
+    nonisolated private static let inlineMarks = MarkdownRewrite([
+        (#"!\[([^\]]*)\]\([^)]*\)"#, "$1"),
+        (#"\[([^\]]*)\]\([^)]*\)"#, "$1"),
+        (#"(\*\*|~~)(.+?)\1"#, "$2"),
+        (#"(?<![\w])__(.+?)__(?![\w])"#, "$1"),
+        (#"(^|[\s(])\*([^*\s][^*]*)\*"#, "$1$2"),
+        (#"(?<![\w])_([^_\s][^_]*)_(?![\w])"#, "$1"),
+    ])
+}
+
+/// Regular-expression rewrites compiled once, applied in order. Shared read-only:
+/// NSRegularExpression is immutable and documented safe to use from any thread.
+struct MarkdownRewrite: @unchecked Sendable {
+    private let rules: [(NSRegularExpression, String)]
+
+    init(_ rules: [(String, String)]) {
+        self.rules = rules.compactMap { pattern, template in
+            (try? NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines])).map { ($0, template) }
+        }
+    }
+
+    func apply(_ text: String) -> String {
+        rules.reduce(text) { text, rule in
+            rule.0.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: rule.1)
+        }
+    }
 }
 #endif
