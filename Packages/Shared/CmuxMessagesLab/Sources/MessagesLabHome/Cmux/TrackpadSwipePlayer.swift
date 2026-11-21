@@ -77,13 +77,13 @@ import AppKit
         let f = CGFloat(min(1, t / duration))
         let want = (x: CrashGuard.int(dx * f), y: CrashGuard.int(dy * f))
         if want != sent || !began {
-            post(dx: want.x - sent.x, dy: want.y - sent.y, phase: began ? 2 : 1, at: t)
-            began = true
-            sent = want
+            let (step, phase) = ((x: want.x - sent.x, y: want.y - sent.y), Int64(began ? 2 : 1))
+            (began, sent) = (true, want)
+            post(dx: step.x, dy: step.y, phase: phase, at: t)
         }
         guard t >= duration + hold else { return false }
-        post(phase: 4, at: t)
         lifted = true
+        post(phase: 4, at: t)
         return true
     }
 
