@@ -11,6 +11,7 @@ import { MachineDetailView } from "./MachineDetail";
 import { MachineList } from "./MachineList";
 import { MigrationBanner, PlanNotice, SpendCapBanner } from "./Notices";
 import type { CloudStore } from "./store";
+import { SurgeSheet } from "./SurgeSheet";
 import { Storefront } from "./Storefront";
 import { errorText, L } from "./strings";
 
@@ -185,7 +186,14 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
     <div className="cloud-page">
       <header className="cloud-header">
         <h1 className="cloud-title">{t(L.title)}</h1>
-        {viewSwitch}
+        <div className="cloud-header-actions">
+          {signedIn && (
+            <button type="button" className="cloud-button cloud-surge-button" onClick={() => store.openSurge()}>
+              {t(L.surge)}
+            </button>
+          )}
+          {viewSwitch}
+        </div>
       </header>
       {snap.error && snap.connection !== "disconnected" && (snap.connection !== "failed" || known) && (
         <div className="cloud-error" role="alert">
@@ -199,6 +207,7 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
         </div>
       )}
       {body()}
+      {snap.surge && !snap.surge.hidden && <SurgeSheet store={store} draft={snap.surge} strings={strings} />}
       {snap.create && <CreateSheet store={store} state={snap} draft={snap.create} strings={strings} />}
     </div>
   );

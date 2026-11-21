@@ -31,6 +31,15 @@ final class CloudPageProvider: PageProvider {
     static let authStream = "cmux.cloud.auth.watch"
 
     private let op: CloudAppOp
+    struct SurgeScope: Equatable {
+        let user: String
+        let team: String
+    }
+
+    typealias SurgeCreate = @MainActor (SurgeScope, CmuxNextDaemon.JSONValue, String) async throws -> CmuxNextDaemon.JSONValue
+    private let surgeScope: (@MainActor () -> SurgeScope?)?
+    private let surgeCreate: SurgeCreate?
+    private var surgePreview: (scope: SurgeScope, args: CmuxNextSettings.JSONValue)?
     private let signIn: @MainActor () async -> Bool
     private let signOut: @MainActor () async -> Void
     private var watchers: [UUID: @MainActor (CmuxNextSettings.JSONValue) -> Void] = [:]
@@ -50,11 +59,15 @@ final class CloudPageProvider: PageProvider {
     ///     nil: the auth stream is not served.
     init(op: @escaping CloudAppOp, signIn: @escaping @MainActor () async -> Bool = CloudPageProvider.noSignIn,
          signOut: @escaping @MainActor () async -> Void = CloudPageProvider.noSignOut,
-         account: Account? = nil) {
+         account: Account? = nil,
+         surgeScope: (@MainActor () -> SurgeScope?)? = nil,
+         surgeCreate: SurgeCreate? = nil) {
         self.op = op
         self.signIn = signIn
         self.signOut = signOut
         self.account = account
+        self.surgeScope = surgeScope
+        self.surgeCreate = surgeCreate
     }
 
     /// The account value the auth stream sends: whether it is signed in, the user and the team. The
@@ -88,7 +101,31 @@ final class CloudPageProvider: PageProvider {
         let server = String(name.dropFirst("cmux.".count))
         var members = params.objectValue ?? [:]
         let key = members.removeValue(forKey: "idempotency_key")?.stringValue
-        let answer = try await run(server, args: .object(members), key: key, context: context)
+        let args = CmuxNextSettings.JSONValue.object(members)
+        if server == "cloud.surge.create" {
+            guard context.isConfirmedUser else { throw PageError(code: PageNativeOp.userOnlyCode, message: name) }
+            guard let surgeCreate, let key, !key.isEmpty, let preview = surgePreview,
+                  preview.scope == surgeScope?(), preview.args == args else {
+                throw PageError(code: "cmux.cloud.surge_stale_preview", message: "Review the Cloud Surge estimate again.")
+            }
+            do {
+                return pageJSON(try await surgeCreate(preview.scope, daemonJSON(args), key))
+            } catch let failure as CloudAppOpFailure {
+                throw PageError(code: failure.code, message: failure.message, details: failure.details.map(pageJSON))
+            }
+        }
+        let scope = server == "cloud.surge.preview" ? surgeScope?() : nil
+        let answer = try await run(server, args: args, key: key, context: context)
+        if server == "cloud.surge.preview" {
+            surgePreview = nil
+            guard let scope, scope == surgeScope?() else {
+                throw PageError(code: "cmux.cloud.surge_stale_preview", message: "Review the Cloud Surge estimate again.")
+            }
+            if answer["available"]?.boolValue == true, case .number(let cost)? = answer["estimated_cost_usd"],
+               cost.isFinite, cost >= 0 {
+                surgePreview = (scope, args)
+            }
+        }
         await announce(server, args: members, answer: answer, context: context)
         return answer
     }
@@ -128,7 +165,10 @@ final class CloudPageProvider: PageProvider {
         }
         let changed = lastAccount.map { $0 != value } ?? false
         lastAccount = value
-        if changed { for watcher in accountWatchers.values { watcher(value) } }
+        if changed {
+            surgePreview = nil
+            for watcher in accountWatchers.values { watcher(value) }
+        }
     }
 
     private func unwatch(_ id: UUID) {

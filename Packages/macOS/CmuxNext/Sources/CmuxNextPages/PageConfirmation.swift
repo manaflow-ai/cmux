@@ -136,6 +136,7 @@ public extension PageConfirmation {
         switch op {
         case "cmux.cloud.publication.create": return PageConfirmation(kind: .custom, name: String(format: PageStrings.cloudPublish, name))
         case "cmux.cloud.firewall.create": return PageConfirmation(kind: .custom, name: String(format: PageStrings.cloudFirewall, name))
+        case "cmux.cloud.surge.create": return PageConfirmation(kind: .custom, name: PageStrings.cloudSurge, detail: PageStrings.cloudSurgeDetail)
         case "cmux.cloud.billing.open": return PageConfirmation(kind: .custom, name: PageStrings.cloudBilling)
         case "cmux.cloud.auth.sign_in": return PageConfirmation(kind: .custom, name: PageStrings.cloudSignIn)
         case "cmux.cloud.auth.sign_out": return PageConfirmation(kind: .custom, name: PageStrings.cloudSignOut)

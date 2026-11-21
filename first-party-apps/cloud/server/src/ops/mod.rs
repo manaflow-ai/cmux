@@ -13,6 +13,7 @@ mod pause_all;
 mod plan;
 mod snapshot;
 pub(crate) mod start_retry;
+mod surge;
 
 pub use declared::{backend_ops, declared_errors};
 pub use machine_projection::{Projection, WatchEvent};
@@ -73,6 +74,7 @@ const OPS: &[(&str, Kind)] = &[
     ("cloud.environment.boot", Kind::UserOnly),
     ("cloud.environment.delete", Kind::UserOnly),
     ("cloud.plan.get", Kind::Read),
+    ("cloud.surge.preview", Kind::Read),
     ("cloud.billing.checkout", Kind::UserOnly),
     // Classic migration (contract 4): one way per user, then per machine.
     ("cloud.migration.status", Kind::Read),
@@ -550,6 +552,7 @@ impl<C: ControlPlane> Server<C> {
             "machine" => machine::run(&mut ctx, &mut self.lifecycle, name, args),
             "snapshot" => snapshot::run(&mut ctx, name, args),
             "environment" => environment::run(&mut ctx, name, args),
+            "surge" => surge::preview(&mut ctx, name, args),
             "plan" | "billing" | "retention" => plan::run(&mut ctx, name, args),
             "migration" => migration::run(&mut ctx, name, args),
             _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
