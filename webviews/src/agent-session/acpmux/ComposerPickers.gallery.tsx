@@ -6,6 +6,7 @@ import type { AcpmuxSnapshot } from "./model";
 import { ComposerPickers } from "./ComposerPickers";
 import { BUNDLED_MODEL_CATALOG, buildPickerCatalog } from "./modelCatalogData";
 import { ChatAccountsContext, readChatAccounts, type ChatAccounts } from "./chatAccounts";
+import { HarnessUpdatesContext } from "./harnessUpdateList";
 import { rememberFullAccess, rememberStartMode } from "./startMode";
 
 /// The chat's accounts: its CLI login alone, as Leo's chat had (the Account row names it).
@@ -22,6 +23,7 @@ type Props = {
   accounts?: boolean;
   managed?: boolean;
   unlisted?: boolean;
+  codexRelease?: "available" | "updating" | "installed";
   /// A new chat before its first send, whose acpmux on this Mac answers `start` for its start mode;
   /// `cloud`: Cloud is picked as where it runs, so its first send starts it on a Cloud machine.
   newChat?: { start: { modeId: string; name: string }; cloud?: boolean };
@@ -261,12 +263,13 @@ function GalleryNewChatPickers({ start, cloud }: NonNullable<Props["newChat"]>) 
   );
 }
 
-function GalleryStartedPickers({ claude, accounts, managed, unlisted }: Props) {
+function GalleryStartedPickers({ claude, accounts, managed, unlisted, codexRelease }: Props) {
   // As an acpmux answer would set it; cleared again when the variant goes.
   useEffect(() => {
     rememberFullAccess(managed ? "managed" : undefined);
     return () => rememberFullAccess(undefined);
   }, [managed]);
+  const [release, setRelease] = useState(codexRelease);
   const initialSnapshot = claude ? claudeSnapshot : codexSnapshot;
   const [model, setModel] = useState(initialSnapshot.summary!.model!);
   const [mode, setMode] = useState(initialSnapshot.summary!.modes!.currentModeId!);
@@ -275,6 +278,32 @@ function GalleryStartedPickers({ claude, accounts, managed, unlisted }: Props) {
   const snapshot = useMemo<AcpmuxSnapshot>(
     () => ({
       ...initialSnapshot,
+      ...(release
+        ? {
+            catalog: initialSnapshot.catalog.map((h) =>
+              h.id !== "codex"
+                ? h
+                : {
+                    ...h,
+                    topModels: ["gpt-6.2-astra", ...h.models.map((m) => m.id)],
+                    models: [
+                      {
+                        id: "gpt-6.2-astra",
+                        name: "GPT-6.2 Astra",
+                        ...(release === "installed"
+                          ? {}
+                          : {
+                              codexUpdateVersion: "0.171.0",
+                              unavailable:
+                                "Included in Codex 0.171.0. Update Codex to check availability for this account.",
+                            }),
+                      },
+                      ...h.models,
+                    ],
+                  },
+            ),
+          }
+        : {}),
       summary: {
         ...initialSnapshot.summary!,
         model,
@@ -285,24 +314,24 @@ function GalleryStartedPickers({ claude, accounts, managed, unlisted }: Props) {
         })),
       },
     }),
-    [initialSnapshot, effort, fast, mode, model],
+    [initialSnapshot, effort, fast, mode, model, release],
   );
   // The model catalog's join, as the agent pane builds it, so Claude Code's aliases fold.
   const pickerCatalog = useMemo(
     () =>
-      claude || unlisted
+      claude || unlisted || release
         ? buildPickerCatalog({
             catalog: BUNDLED_MODEL_CATALOG,
             acpmux: unlisted ? [] : snapshot.catalog,
             provisional: unlisted,
             session: {
-              harness: "claude-sr2",
+              harness: snapshot.summary?.harness,
               model: snapshot.summary?.model,
               configOptions: snapshot.summary?.configOptions,
             },
           })
         : undefined,
-    [claude, snapshot, unlisted],
+    [claude, snapshot, unlisted, release],
   );
   const pickers = (
     <ComposerPickers
@@ -322,7 +351,27 @@ function GalleryStartedPickers({ claude, accounts, managed, unlisted }: Props) {
           <strong>Composer controls</strong>
           <span>One model button (model and effort), permission, and Plan controls share one quiet footer rail.</span>
         </div>
-        {pickers}
+        <HarnessUpdatesContext.Provider
+          value={
+            release && release !== "installed"
+              ? {
+                  rows: [
+                    {
+                      harness: "codex",
+                      agent: "Codex",
+                      version: "0.164.0",
+                      latest: "0.171.0",
+                      phase: release === "updating" ? "updating" : undefined,
+                      update: () => setRelease("installed"),
+                    },
+                  ],
+                  updateAll: () => setRelease("installed"),
+                }
+              : undefined
+          }
+        >
+          {pickers}
+        </HarnessUpdatesContext.Provider>
       </div>
     </ChatAccountsContext.Provider>
   );
@@ -595,6 +644,9 @@ export default componentEntry<Props>({
       props: {},
       play: openModel,
     },
+    "codex-release-available": { props: { codexRelease: "available" }, play: morePicker },
+    "codex-release-updating": { props: { codexRelease: "updating" }, play: morePicker },
+    "codex-release-installed": { props: { codexRelease: "installed" }, play: morePicker },
     "model-more": {
       note: "More models opens the full picker with its search, the only way to it from the button.",
       props: {},

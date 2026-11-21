@@ -17,6 +17,7 @@ export type HarnessChoice = {
     shortName?: string;
     family?: string;
     unavailable?: string;
+    codexUpdateVersion?: string;
     efforts?: string[];
     effortsDeclared?: boolean;
     defaultEffort?: string;

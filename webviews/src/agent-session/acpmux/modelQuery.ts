@@ -113,7 +113,19 @@ export function fitsQuery(model: QueryModel, harnessName: string, query: ParsedQ
   const text = `${model.name} ${model.id} ${harnessName}`.toLowerCase();
   // A word matches as typed, or with spaces, dots and dashes ignored on both sides ("opus55", "gpt5.5", "4-5").
   const flat = `${compact(model.name)} ${compact(model.id)} ${compact(harnessName)}`;
-  if (!query.words.every((word) => text.includes(word) || (compact(word) !== "" && flat.includes(compact(word)))))
+  if (
+    !query.words.every((word) => {
+      const normalized = compact(word);
+      if (!normalized) return false;
+      if (text.includes(word) || flat.includes(normalized)) return true;
+      // A family followed by a version ("astra-6.2") also names "gpt-6.2-astra".
+      const reversed = /^([a-z]+)-(\d+(?:\.\d+)*)$/.exec(word);
+      return (
+        !!reversed &&
+        model.id.toLowerCase().split("/").at(-1)?.split("-").slice(-2).join("-") === `${reversed[2]}-${reversed[1]}`
+      );
+    })
+  )
     return false;
   if (query.effort && model.efforts && !model.efforts.some((effort) => effort.toLowerCase() === query.effort))
     return false;

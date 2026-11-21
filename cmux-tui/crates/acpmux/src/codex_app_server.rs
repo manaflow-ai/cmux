@@ -21,6 +21,7 @@ use crate::codex_auth_file::{self, AccessFile};
 use cmux_json::JsonSet as _;
 
 mod background;
+mod catalog;
 mod message_phases;
 mod provider;
 pub use background::TERMINATE;
@@ -34,6 +35,7 @@ pub use usage_limits::{is_plan_snapshot, read_usage_limits, usage_limits};
 pub struct Translator {
     inner: cmux_codex_acp::Translator,
     background: Mutex<background::Background>,
+    catalog: Mutex<catalog::Catalog>,
     message_phases: Mutex<message_phases::MessagePhases>,
     provider: Mutex<provider::ProviderPin>,
     #[cfg(unix)]
@@ -280,7 +282,7 @@ impl Translator {
                             return Vec::new();
                         }
                         if changed {
-                            auth.held.extend(self.inner.from_client(msg));
+                            auth.held.extend(self.forward_client(msg));
                             return vec![auth.login_request(file)];
                         }
                     }
@@ -299,6 +301,15 @@ impl Translator {
         }
         if let Some(out) = self.background().request(msg) {
             return out;
+        }
+        self.forward_client(msg)
+    }
+
+    /// Hands a hub message to the Codex translator, unless the model catalog holds it (a pick before the list).
+    fn forward_client(&self, msg: &Value) -> Vec<Out> {
+        let mut catalog = self.catalog.lock().unwrap_or_else(|e| e.into_inner());
+        if catalog.hold_pick(msg) {
+            return Vec::new();
         }
         self.inner.from_client(msg)
     }
@@ -363,7 +374,7 @@ impl Translator {
                         if let Some(out) = self.background().request(&msg) {
                             released.extend(out);
                         } else {
-                            released.extend(self.inner.from_client(&msg));
+                            released.extend(self.forward_client(&msg));
                         }
                     }
                     return released;
@@ -426,7 +437,23 @@ impl Translator {
     }
 
     fn translate_server(&self, raw: &Value) -> Vec<Out> {
-        let mut out = self.inner.from_server(raw);
+        let mut catalog = self.catalog.lock().unwrap_or_else(|e| e.into_inner());
+        let complete;
+        let mut picks = Vec::new();
+        let msg = match catalog.receive(raw) {
+            Some(Err(next)) => return vec![next],
+            Some(Ok(reply)) => {
+                picks = catalog.take_picks();
+                complete = reply;
+                &complete
+            }
+            None => raw,
+        };
+        let mut out = self.inner.from_server(msg);
+        catalog.start(&mut out);
+        for pick in picks {
+            out.extend(self.inner.from_client(&pick));
+        }
         self.message_phases.lock().unwrap_or_else(|e| e.into_inner()).enrich(raw, &mut out);
         out
     }
@@ -442,7 +469,14 @@ impl Translator {
     }
 
     fn settle_pending(&self, why: &str) -> Vec<Out> {
+        let picks = self.catalog.lock().unwrap_or_else(|e| e.into_inner()).take_picks();
         let mut out = self.inner.server_closed(why);
+        for pick in picks {
+            if let Some(id) = pick.get("id") {
+                out.push(Out::Client(serde_json::json!({"jsonrpc":"2.0", "id":id, "error":{"code":-32603,"message":why}})));
+            }
+        }
+
         out.extend(self.background().closed(why));
         out
     }
@@ -507,6 +541,7 @@ fn translator_with(prompt_suggestions: bool) -> Arc<Translator> {
             ..Options::default()
         }),
         background: Mutex::default(),
+        catalog: Mutex::default(),
         message_phases: Mutex::default(),
         provider: Mutex::default(),
         #[cfg(unix)]
@@ -744,6 +779,56 @@ mod tests {
             opened.hub.iter().any(|m| m.to_value().get("result").is_some()),
             "no resume result"
         );
+    }
+
+    #[test]
+    fn a_fast_pick_during_pagination_settles_after_the_last_page_or_close() {
+        for close in [false, true] {
+            let tr = translator_with(false);
+            #[cfg(unix)]
+            {
+                *tr.auth.lock().unwrap() = AuthGate::from_read(Ok(None));
+            }
+            let init = split(tr.start()).server[0]["id"].clone();
+            let out = split(tr.from_server(&json!({"id":init,"result":{}})));
+            let list =
+                out.server.iter().find(|m| m["method"] == "model/list").unwrap()["id"].clone();
+            let out =
+                split(tr.from_server(&json!({"id":list,"result":{"data":[],"nextCursor":"two"}})));
+            let page = out.server[0]["id"].clone();
+            let out = split(tr.from_client(
+                &json!({"id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}),
+            ));
+            let start =
+                out.server.iter().find(|m| m["method"] == "thread/start").unwrap()["id"].clone();
+            tr.from_server(
+                &json!({"id":start,"result":{"thread":{"id":"t"},"model":"live-model"}}),
+            );
+            let pick = json!({"id":"pick","method":"session/set_config_option","params":{"sessionId":"t","configId":"fast-mode","value":"priority"}});
+            assert!(tr.from_client(&pick).is_empty());
+            let out = if close {
+                tr.server_closed("catalog connection closed")
+            } else {
+                tr.from_server(&json!({"id":page,"result":{"data":[{"model":"live-model","serviceTiers":["priority"]}]}}))
+            };
+            let reply = split(out)
+                .hub
+                .into_iter()
+                .map(|m| m.into_value())
+                .find(|m| m["id"] == "pick")
+                .unwrap();
+            if close {
+                assert_eq!(reply["error"]["message"], "catalog connection closed");
+            } else {
+                assert!(
+                    reply["result"]["configOptions"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|v| v["id"] == "fast-mode" && v["currentValue"] == "priority")
+                );
+            }
+        }
     }
 
     #[test]
