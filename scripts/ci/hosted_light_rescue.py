@@ -66,6 +66,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from app_spend_mark import MIN_FLOOR  # noqa: E402  (the cmux-bot hour's last calls are HQ's)
+
 UTC = dt.timezone.utc
 HOSTED_LABEL = re.compile(r"^ubuntu-[0-9][\w.-]*$")
 # The stall-aware failover's bound: a hosted light job is 2-50 s of work, and on 2026-11-02 27 of them sampled
@@ -83,6 +86,10 @@ LIST_PAGE = 100
 # from 07:06Z); the NEXT nightly tick and its notarization
 # preflight then failed with "API rate limit exceeded for installation" (runs 41791114042, 41790985234).
 POOL_RESERVE = 500
+# The cmux-bot App pool (the read token when the workflow token is the fallback) stops at HQ's default floor: no
+# read here spends it below that, so next-autoland and NOW keep the hour's last calls; reads move to the fallback
+# instead (app_spend_mark.MIN_FLOOR).
+APP_POOL_RESERVE = max(POOL_RESERVE, MIN_FLOOR)
 JOURNAL_RETRY = dt.timedelta(minutes=15)
 SETTLE_BUDGET_S = 90.0
 SETTLE_INTERVAL_S = 5.0
@@ -265,12 +272,13 @@ APP_TOKEN_SECONDS = 50 * 60  # an installation token lasts an hour; mint the nex
 class Pool:
     """One token's rate-limit pool as its last response reported it: None until a response carries it."""
 
-    def __init__(self) -> None:
+    def __init__(self, reserve: int = POOL_RESERVE) -> None:
         self.remaining: int | None = None
         self.reset: float = 0.0
+        self.reserve = reserve
 
     def spare(self, now: float) -> bool:
-        return self.remaining is None or self.remaining > POOL_RESERVE or now >= self.reset
+        return self.remaining is None or self.remaining > self.reserve or now >= self.reset
 
 
 class GitHub:
@@ -285,7 +293,9 @@ class GitHub:
         self.write_token = write_token or self.fallback or token
         self.mint, self.clock = mint, clock
         self.minted_at = clock()
-        self.pools: dict[str, Pool] = {"primary": Pool(), "fallback": Pool()}
+        # With a fallback, `token` is the cmux-bot App's: its pool stops at HQ's default floor (APP_POOL_RESERVE).
+        self.pools: dict[str, Pool] = {"primary": Pool(APP_POOL_RESERVE if self.fallback else POOL_RESERVE),
+                                       "fallback": Pool()}
         self.primary_refused_until = 0.0
 
         self.etags: dict[str, tuple[str, Any]] = {}
@@ -297,6 +307,11 @@ class GitHub:
     def remaining(self) -> int | None:
         """The pool reads use now (for the pass's log line)."""
         return self.pools[self.read_pool()].remaining
+
+    @property
+    def reserve(self) -> int:
+        """The reserve of the pool reads use now."""
+        return self.pools[self.read_pool()].reserve
 
     @property
     def reset(self) -> float:
@@ -684,7 +699,7 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
         rescued += int(reran)
         lines.append(f"run {run_id}: {outcome}")
     if pool_low(client, now):
-        lines.append(f"the read token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); "
+        lines.append(f"the read token's pool is down to {client.remaining} (reserve {getattr(client, 'reserve', POOL_RESERVE)}); "
                      f"no listing or job read until its reset at {iso(dt.datetime.fromtimestamp(client.reset, UTC))}")
         return lines
     # Round the server query lower bound so the same URL remains cacheable for a short interval. The exact upper
@@ -769,7 +784,7 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
         lines.append(f"{candidate_count} candidate runs; read a rotating slice of {MAX_RUNS}")
     for read, run in enumerate(runs):
         if pool_low(client, now):
-            lines.append(f"the read token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); "
+            lines.append(f"the read token's pool is down to {client.remaining} (reserve {getattr(client, 'reserve', POOL_RESERVE)}); "
                          f"{len(runs) - read} job reads left to a later pass")
             break
         created = parse_time(run.get("created_at"))
@@ -918,6 +933,21 @@ BACKLOG_READS = 150
 BACKLOG_IN_PROGRESS_READS = 20
 BACKLOG_SLICE = dt.timedelta(hours=3)
 BACKLOG_WORKFLOW = "ci-hosted-backlog-rescue.yml"
+# A run the backlog pass looks at. `pending` is a run GitHub holds behind its concurrency group (a newer push's run
+# cancelled the older one, cancel-in-progress) while its job is already queued and bound to a label: on 2026-11-19 the
+# required React Doctor check of cmux#47559 (run 44604684959, created 20:03Z while RUNNER_POOLS.linux_4 read
+# `ubuntu-24.04`) sat `pending` with its one job queued on hosted Ubuntu for 8 h, and no pass ever listed it, since
+# the pass listed `queued` and `in_progress` runs only. A run `waiting` on an environment approval is never one.
+BACKLOG_STATUSES = ("queued", "pending", "in_progress")
+BACKLOG_WAITING = ("queued", "pending")
+# Waiting runs are read oldest first, but a pass reads about 110 of them (one call each) and the same oldest ones stay
+# queued on Blacksmith for hours: on 2026-11-20 each pass listed 489 candidates, read the same 116 oldest, found 0
+# stalled, and never reached the hosted-bound runs created after them. The oldest BACKLOG_OLDEST_FIRST keep their place;
+# the rest rotate by BACKLOG_ROTATE_STEP a pass (passes are ten minutes apart), so each waiting run is read within a few
+# passes however deep the queue is.
+BACKLOG_OLDEST_FIRST = 40
+BACKLOG_ROTATE_STEP = 70
+BACKLOG_PASS_SECONDS = 600
 # Journalled cancels: at most BACKLOG_PENDING_MAX wait at once, and each costs at most BACKLOG_RECOVER_CALLS to re-run
 # (the run, its pull request, its head's runs, the re-run), so BACKLOG_RECOVER_SHARE covers the rate-limit read, the
 # usual journal read (3 calls) and all of them in one pass (84 calls); a long journal walk leaves fewer for that pass,
@@ -1047,17 +1077,19 @@ def backlog_listing(client: Any, status: str, event: str, start: dt.datetime, en
 
 
 def backlog_oldest(client: Any, status: str, event: str, start: dt.datetime, end: dt.datetime,
-                   want: int) -> list[dict[str, Any]]:
+                   want: int, turn: int = 0) -> list[dict[str, Any]]:
     """The oldest `status` runs of `event` in [start, end], about `want` of them.
 
     A quiet repository costs one read. A listing over one page reads its last (oldest) page instead, and one over
     the 1,000 runs GitHub serves is walked in BACKLOG_SLICE slices from the oldest, so the runs that waited longest
-    are found first however deep the queue is."""
+    are found first however deep the queue is. Under 1,000 runs the first page (the newest, read anyway for the
+    count) is kept too, and one of the pages between is read by `turn` (the pass), so a run created after the
+    oldest `want` is still listed within a few passes."""
     total, rows = backlog_listing(client, status, event, start, end)
     if total <= LIST_PAGE:
         return rows
     if total <= 10 * LIST_PAGE:
-        return oldest_pages(client, status, event, start, end, total, want)
+        return oldest_pages(client, status, event, start, end, total, want, turn=turn) + rows
     found: list[dict[str, Any]] = []
     cut = start
     while cut < end and len(found) < want and reads_left(client) > BACKLOG_READS // 2:
@@ -1071,13 +1103,16 @@ def backlog_oldest(client: Any, status: str, event: str, start: dt.datetime, end
 
 
 def oldest_pages(client: Any, status: str, event: str, start: dt.datetime, end: dt.datetime, total: int,
-                 want: int) -> list[dict[str, Any]]:
-    """The last pages of a listing of `total` runs (the oldest), back to at least `want` runs."""
+                 want: int, turn: int = 0) -> list[dict[str, Any]]:
+    """The last pages of a listing of `total` runs (the oldest), back to at least `want` runs; with `turn`, also one
+    of the unread pages after page 1, chosen by it."""
     found: list[dict[str, Any]] = []
     page = -(-total // LIST_PAGE)
     while page >= 1 and len(found) < want and reads_left(client) > BACKLOG_READS // 2:
         found.extend(backlog_listing(client, status, event, start, end, page=page)[1])
         page -= 1
+    if turn and page >= 2 and reads_left(client) > BACKLOG_READS // 2:
+        found.extend(backlog_listing(client, status, event, start, end, page=2 + turn % (page - 1))[1])
     return found
 
 
@@ -1345,7 +1380,7 @@ def backlog_sweep(client: Any, *, now: dt.datetime, dry_run: bool, declared: Seq
     client = BacklogReads(client, BACKLOG_READS)
     if budget_short(client, lines) or pool_low(client, now):
         if not lines:
-            lines.append(f"the read token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); nothing read")
+            lines.append(f"the read token's pool is down to {client.remaining} (reserve {getattr(client, 'reserve', POOL_RESERVE)}); nothing read")
         counts["requests"] = client.spent
         return lines, counts
     read = read_journal(client, now=now, since=since, lines=lines)
@@ -1372,6 +1407,15 @@ def backlog_sweep(client: Any, *, now: dt.datetime, dry_run: bool, declared: Seq
     return lines, counts
 
 
+def backlog_rotate(waiting: Sequence[Mapping[str, Any]], now: dt.datetime) -> list[Mapping[str, Any]]:
+    """`waiting` (oldest first) with its oldest BACKLOG_OLDEST_FIRST in place and the rest rotated by this pass."""
+    head, tail = list(waiting[:BACKLOG_OLDEST_FIRST]), list(waiting[BACKLOG_OLDEST_FIRST:])
+    if not tail:
+        return head
+    offset = (int(now.timestamp()) // BACKLOG_PASS_SECONDS * BACKLOG_ROTATE_STEP) % len(tail)
+    return head + tail[offset:] + tail[:offset]
+
+
 def backlog_scan(client: Any, journal: dict[int, Journalled] | None, *, now: dt.datetime, dry_run: bool,
                  declared: Sequence[str] | None, actions: int, lines: list[str], counts: dict[str, int],
                  hold: str = "", run_ids: Sequence[int] = ()) -> None:
@@ -1396,8 +1440,8 @@ def backlog_scan(client: Any, journal: dict[int, Journalled] | None, *, now: dt.
             return "a fork's run"
         if run.get("run_attempt") != 1:
             return f"attempt {run.get('run_attempt')}, not 1"
-        if run.get("status") not in IN_FLIGHT:
-            return f"{run.get('status')}, not queued or in progress"
+        if run.get("status") not in BACKLOG_STATUSES:
+            return f"{run.get('status')}, not queued, pending or in progress"
         if not (start <= created <= end):
             return f"created {run.get('created_at')}, outside {int(BACKLOG_STALL.total_seconds() // 60)} min to 24 h ago"
         # The minute pass owns a declared workflow's run under WINDOW old; unread declarations leave every run under
@@ -1418,18 +1462,21 @@ def backlog_scan(client: Any, journal: dict[int, Journalled] | None, *, now: dt.
                 lines.append(f"run {run_id}: {why}; left alone")
                 continue
             listed[run["id"]] = {**run, "_workflow": workflow_file(run)}
-    for status in () if run_ids else ("queued", "in_progress"):
+    for status in () if run_ids else BACKLOG_STATUSES:
         for event in BACKLOG_EVENTS:
             try:
-                rows = backlog_oldest(client, status, event, start, end, BACKLOG_READS)
+                rows = backlog_oldest(client, status, event, start, end, BACKLOG_READS,
+                                      turn=int(now.timestamp()) // BACKLOG_PASS_SECONDS)
             except Exception as error:  # noqa: BLE001 - an unread listing only narrows this pass
                 lines.append(f"could not list {status} {event} runs ({error})")
                 continue
             for run in rows:
                 if not eligible(run):
                     listed[run["id"]] = {**run, "_workflow": workflow_file(run)}
-    # Queued runs first (nothing of theirs started), then the rest; oldest first within each.
-    order = sorted(listed.values(), key=lambda run: (run.get("status") != "queued",) + run_key(run))
+    # Waiting runs first (nothing of theirs started), then the rest; oldest first within each, the waiting tail rotated.
+    order = sorted(listed.values(), key=lambda run: (run.get("status") not in BACKLOG_WAITING,) + run_key(run))
+    waiting = [run for run in order if run.get("status") in BACKLOG_WAITING]
+    order = backlog_rotate(waiting, now) + order[len(waiting):]
     counts["candidates"] = len(order)
     in_progress_reads = 0
     held = False
@@ -1439,13 +1486,13 @@ def backlog_scan(client: Any, journal: dict[int, Journalled] | None, *, now: dt.
         if reads_left(client) < BACKLOG_RUN_READS:
             lines.append(f"stopped: the pass's {BACKLOG_READS} API calls are spent")
             break
-        if run.get("status") != "queued":
+        if run.get("status") not in BACKLOG_WAITING:
             # A run that started something is usually still working: read a few a pass, not every old one.
             if in_progress_reads >= BACKLOG_IN_PROGRESS_READS:
                 break
             in_progress_reads += 1
         if pool_low(client, now):
-            lines.append(f"the read token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); stopped")
+            lines.append(f"the read token's pool is down to {client.remaining} (reserve {getattr(client, 'reserve', POOL_RESERVE)}); stopped")
             break
         where = f"run {run['id']} ({run['_workflow']}, {run.get('event')}, {run.get('head_branch')})"
         try:
@@ -1485,7 +1532,7 @@ def backlog_scan(client: Any, journal: dict[int, Journalled] | None, *, now: dt.
         except Exception as error:  # noqa: BLE001
             lines.append(f"{where}: could not re-read before the cancel ({error}); left alone")
             continue
-        if fresh.get("run_attempt") != 1 or fresh.get("status") not in IN_FLIGHT or not again:
+        if fresh.get("run_attempt") != 1 or fresh.get("status") not in BACKLOG_STATUSES or not again:
             lines.append(f"{where}: a job started, or the run moved on, since the read; left alone")
             continue
         try:

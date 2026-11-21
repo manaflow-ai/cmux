@@ -22,7 +22,9 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
   - the overflow probe's per-label health, CI_CLOUD_LABEL_HEALTH (`labels`: label -> "started"
     or "stalled"; the switch probes every x64 Linux size a pool can point at, cloud_overflow_switch.HEALTH_LABELS),
     read live through the API so it is this run's and not the job's start value;
-    used while its `checked` is at most HEALTH_MAX_AGE old;
+    used while its `checked` is at most HEALTH_MAX_AGE old. A "stalled" counts only beside a fresh, complete
+    janitor snapshot (below), which tells a dead size from one the vCPU cap keeps full; without one a stall
+    adds no mark (2026-11-18 11:37Z: a 403 snapshot read and four sizes falsely marked dead);
   - the queue janitor's snapshot (macos-pool-load), only while its `generated_at` is at most
     SNAPSHOT_MAX_AGE old: a Blacksmith label in `pools` whose oldest
     queued job has waited BLACKSMITH_STALL_MINUTES (simple_pool_picker.blacksmith_stalled()) while
@@ -34,7 +36,8 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
     pool members, so they are not read;
   - a label whose `label_started` is within RECENT_START is serving and never dead, whatever the
     probe saw (recently_started()): under Blacksmith's org vCPU cap a probe can wait out its
-    minutes on a size that keeps starting jobs;
+    minutes on a size that keeps starting jobs. This holds for a truncated snapshot too (the queue
+    outgrew one sweep): its queue counts are partial and decide nothing, but its starts are starts;
 - marks dead labels in RUNNER_POOLS' `_dead` (label -> when last seen dead). A mark expires after
   DEAD_TTL unless seen again; evidence that the label started a job clears it at once. A mark expires
   only on a pass whose evidence covers its label (evidence_covers()): the probe's health for the sizes
@@ -67,9 +70,12 @@ that starts no job at all, so on 2026-11-18 runs queued on dead 4, 8 and 16 vCPU
 The watch's next step, `cloud_overflow_switch.py --rescue-dead`, force-cancels and re-runs those
 runs once (dead_labels() there), and they then read the pool's new member.
 
-RUNNER_POOLS never names a reused machine: every member is an ephemeral Blacksmith label, so a
-job reading it can never land on an owned Mac, whoever started it (a fork's pull request
-included). Owned Macs come first through a picker's output (the routing order: owned Macs, then
+RUNNER_POOLS never names a reused machine: every member is an ephemeral Blacksmith label or, as a
+pool's first member only, one of the owned Mac fleet's Linux VM labels (OWNED_EPHEMERAL_LINUX: one job per fresh
+VM clone, so it is ephemeral too), so a job reading it can never land on an owned Mac, whoever started it (a fork's
+pull request included; a job reading such a pool sends a fork's pull request to a Blacksmith label before it).
+An owned Linux member is a small fleet: once its oldest queued job has waited BLACKSMITH_STALL_MINUTES, running or
+not, it is marked dead (label_evidence()) and the pool takes its Blacksmith members until that queue drains. Owned Macs come first through a picker's output (the routing order: owned Macs, then
 Blacksmith macOS), never through a pool, and signing jobs move through the signing picker. A pool
 that must run GitHub-hosted (npm and PyPI provenance accept only GitHub's OIDC) says
 `"hosted": true` with its reason; no other pool may name a GitHub-hosted label.
@@ -158,6 +164,20 @@ SNAPSHOT_MAX_AGE = dt.timedelta(minutes=pr_runner_pool.MAX_SNAPSHOT_MINUTES)
 UTC = dt.timezone.utc
 EPHEMERAL = re.compile(r"^blacksmith-\d+vcpu-[a-z0-9.-]+$")
 HOSTED = re.compile(r"^(?:ubuntu|macos|windows)(?:-[\w.-]+)?$")
+# The owned Mac fleet's Linux VM labels a pool may lead with (pr_runner_pool.OWNED_EPHEMERAL_LINUX): each runner
+# there is a just-in-time runner on a fresh VM clone that takes one job and is discarded, so the ephemeral property
+# every pool member needs holds. Named one by one, never a pattern, and only as a pool's first member with a
+# Blacksmith member after it (spec_problems()): the fleet is small (one clone per mini at first), so its pool
+# overflows to Blacksmith once its queue waits (label_evidence()). Leo, 2026-11-19: "dont we have linux vms set up
+# on everybody yet? we shuold" ... "on the fleet".
+OWNED_EPHEMERAL_LINUX = frozenset(pr_runner_pool.OWNED_EPHEMERAL_LINUX)
+
+
+def owned_ephemeral(label: object) -> bool:
+    """One of the owned Mac fleet's Linux VM labels (OWNED_EPHEMERAL_LINUX)."""
+    return isinstance(label, str) and label in OWNED_EPHEMERAL_LINUX
+
+
 KEY = re.compile(r"^[a-z][a-z0-9_]*$")
 # The outage override (Leo, 2026-11-17, asked "Allow GitHub-hosted ubuntu-24.04 for cmux Linux CI until Blacksmith
 # recovers?": "Allow until it recovers"). Blacksmith Linux started almost no jobs across the org (cmux: 2,500 queued,
@@ -206,7 +226,7 @@ def load_pools(path: Path = RUNNERS, env: Mapping[str, str] | None = None) -> di
         if HOSTED_OVERRIDE_POOL.match(name) and isinstance(listed, list) and listed \
                 and all(isinstance(m, str) and X64_UBUNTU.match(m) for m in listed):
             declared[name] = {**spec, "members": [label, *listed], "hosted": True,
-                              "hosted_why": f"{HOSTED_OVERRIDE} is set: Blacksmith Linux outage override"}
+                              "hosted_why": f"{HOSTED_OVERRIDE} is set: Blacksmith Linux pause override"}
     return declared
 
 
@@ -244,7 +264,8 @@ def valve_labels(spec: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
     about 23:12Z (488 jobs queued, none running, at 01:01Z), so the pool sat on a dead label with required checks
     (clippy, acpmux tests) queued behind it, while 8 vCPU kept starting jobs. A value outside the members was reset
     by the next pass, so it could not be set by hand either."""
-    sizes = [X64_SIZE.match(label) for label in members(spec)]
+    # An owned Linux member (OWNED_EPHEMERAL_LINUX) has no size: the valve is judged on the Blacksmith members.
+    sizes = [X64_SIZE.match(label) for label in members(spec) if not owned_ephemeral(label)]
     if not sizes or not all(sizes):
         return []
     images = {match.group(2) for match in sizes}
@@ -282,6 +303,10 @@ def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
             if HOSTED.match(member):
                 if not spec.get("hosted"):
                     found.append(f"{where}: {member} is GitHub-hosted, which is not in the runner set")
+            elif owned_ephemeral(member):
+                if member != listed[0] or not any(EPHEMERAL.match(other) for other in listed[1:]):
+                    found.append(f"{where}: {member} is an owned Linux VM label; it may only lead a pool, with a "
+                                 "Blacksmith member after it to overflow to (OWNED_EPHEMERAL_LINUX)")
             elif not EPHEMERAL.match(member):
                 found.append(f"{where}: {member} is not an ephemeral Blacksmith label; owned Macs come only "
                              "through a picker, never a pool")
@@ -298,7 +323,7 @@ def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
                 found.append(f"{where}: {member} is below its min_vcpu ({least}); the pool's jobs do not fit there")
         if spec.get("hosted") and not str(spec.get("hosted_why", "")).strip():
             found.append(f"{where}: a hosted pool names why it cannot run on the set (hosted_why)")
-        grows = grows_before_shrinking(listed)
+        grows = grows_before_shrinking([member for member in listed if not owned_ephemeral(member)])
         if grows:
             found.append(f"{where}: lists {grows} after a larger failover or out of size order; Blacksmith caps the org on vCPUs at "
                          "once, so a stalled size moves down first (list smaller sizes, largest first, before larger)")
@@ -590,9 +615,18 @@ def started_nothing_while_queued(snapshot: Mapping[str, Any], label: str, load: 
 
 def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any] | None, *,
                    now: dt.datetime) -> tuple[set[str], set[str], list[str]]:
-    """(dead, started, notes): the labels seen starting nothing, the labels seen starting a job."""
+    """(dead, started, notes): the labels seen starting nothing, the labels seen starting a job.
+
+    A probe's stall counts only beside a fresh, complete janitor snapshot, whose `label_started` tells a dead size
+    from one the org's vCPU cap keeps full (recently_started()). Without one a stall decides nothing and the marks
+    keep their state: in run 44296348389 (2026-11-18 11:37Z) the snapshot read returned 403 with the cmux-bot App's
+    budget spent, the 4, 8, 16 and 32 vCPU probes waited behind the cap while 2,618 jobs were queued, and all four
+    were marked dead, which squeezed every Linux pool onto 2 vCPU. A probe's start always counts."""
     dead: set[str] = set()
     started: set[str] = set()
+    # Owned Linux VM labels whose queue waited the stall cutoff: full, whatever they started (below).
+    full: set[str] = set()
+    stalls: set[str] = set()
     notes: list[str] = []
     if isinstance(health, Mapping):
         checked = parse_time(health.get("checked"))
@@ -604,7 +638,7 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
         else:
             for label, state in labels.items():
                 if state == "stalled":
-                    dead.add(str(label))
+                    stalls.add(str(label))
                 elif state == "started":
                     started.add(str(label))
     generated = parse_time(snapshot.get("generated_at")) if isinstance(snapshot, Mapping) else None
@@ -614,12 +648,18 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
         notes.append(f"the janitor snapshot is from {iso(generated)}, outside the last {SNAPSHOT_MAX_AGE}; "
                      "no snapshot evidence")
     elif generated is not None and pr_runner_pool.snapshot_truncated(snapshot):
-        notes.append(f"{pr_runner_pool.snapshot_truncated(snapshot)}; no snapshot evidence")
+        # Its queue counts are partial, so they decide nothing; its starts are still starts. On 2026-11-18 at 14:14Z
+        # dropping them sent every Linux pool to the 2 vCPU release valve while 4 and 8 vCPU kept starting jobs.
+        started |= recently_started(snapshot, now=now)
+        notes.append(f"{pr_runner_pool.snapshot_truncated(snapshot)}; only its recent starts count")
     elif generated is not None:
+        dead |= stalls
+        stalls = set()
         age = max(0.0, (now - generated).total_seconds() / 60)
         started |= recently_started(snapshot, now=now)
         for label, load in (snapshot.get("pools") or {}).items():
-            if not (isinstance(label, str) and EPHEMERAL.match(label) and isinstance(load, Mapping)):
+            if not (isinstance(label, str) and (EPHEMERAL.match(label) or owned_ephemeral(label))
+                    and isinstance(load, Mapping)):
                 continue
             try:
                 queued = int(load.get("queued") or 0)
@@ -627,6 +667,11 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
             except (TypeError, ValueError):
                 continue
             if not simple_pool_picker.blacksmith_stalled(queued, oldest + age):
+                continue
+            if owned_ephemeral(label):
+                # A handful of VMs, not a cloud: a job that waited the cutoff there means every VM is taken, so the
+                # pool overflows to its Blacksmith members until the queue drains, even while the VMs start jobs.
+                full.add(label)
                 continue
             if started_nothing_while_queued(snapshot, label, load, oldest, generated):
                 dead.add(label)
@@ -640,8 +685,12 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
                 live = entry.get("live")
                 if isinstance(live, list):
                     started |= {str(label) for label in live if isinstance(label, str)}
-    # A label both started and stalled in one pass (two probes, or a probe and a stale queue) started.
-    return dead - started, started, notes
+    if stalls - started:
+        notes.append(f"probe stalled on {', '.join(sorted(stalls - started))} with no fresh janitor snapshot to tell a "
+                     "dead size from a full vCPU cap; no new dead mark")
+    # A label both started and stalled in one pass (two probes, or a probe and a stale queue) started. A full owned
+    # Linux label is dead though it starts jobs: its starts clear the mark only once its queue no longer waits.
+    return (dead - started) | full, started - full, notes
 
 
 def evidence_covers(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any] | None,
@@ -659,10 +708,12 @@ def evidence_covers(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any
                 dt.timedelta(minutes=-1) <= now - checked <= HEALTH_MAX_AGE:
             covered |= {str(label) for label in labels}
     generated = parse_time(snapshot.get("generated_at")) if isinstance(snapshot, Mapping) else None
-    if generated is not None and dt.timedelta(minutes=-1) <= now - generated <= SNAPSHOT_MAX_AGE \
-            and not pr_runner_pool.snapshot_truncated(snapshot):
+    fresh = generated is not None and dt.timedelta(minutes=-1) <= now - generated <= SNAPSHOT_MAX_AGE
+    if fresh and not pr_runner_pool.snapshot_truncated(snapshot):
         covered |= {label for spec in pools.values() for label in members(spec)} - probed
-        # A probed size the janitor saw start a job recently is covered too: label_evidence() calls it started.
+    if fresh:
+        # A size the janitor saw start a job recently is covered too, truncated or not: label_evidence() calls it
+        # started.
         covered |= recently_started(snapshot, now=now)
     return covered
 
@@ -678,7 +729,7 @@ def recently_started(snapshot: Mapping[str, Any], *, now: dt.datetime) -> set[st
     found = set()
     for label, when in starts.items():
         moment = parse_time(when)
-        if isinstance(label, str) and EPHEMERAL.match(label) and moment is not None \
+        if isinstance(label, str) and (EPHEMERAL.match(label) or owned_ephemeral(label)) and moment is not None \
                 and dt.timedelta(minutes=-1) <= now - moment <= RECENT_START:
             found.add(label)
     return found
@@ -766,7 +817,7 @@ class Variables:
         try:
             return str(self.client.request("GET", f"/actions/variables/{name}").get("value"))
         except RuntimeError as error:
-            if "(404)" in str(error):
+            if getattr(error, "status", None) == 404:
                 return None
             raise
 
@@ -786,7 +837,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     pools = load_pools(env=env)
     if hosted_override(env):
         print(f"::notice title=Runner pools::{HOSTED_OVERRIDE}={hosted_override(env)}: the x64 Linux pools lead with it "
-              f"(Blacksmith outage override); delete the variable to return them to Blacksmith")
+              f"(Blacksmith pause override); delete the variable to welcome them back to Blacksmith")
     elif (env.get(HOSTED_OVERRIDE) or "").strip():
         print(f"::warning title=Runner pools::{HOSTED_OVERRIDE}={env.get(HOSTED_OVERRIDE)!r} is not a hosted Ubuntu "
               "label (ubuntu-NN.NN); ignored")
@@ -826,7 +877,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                 # The cmux-bot read budget is org-wide and runs out: on 2026-11-18 from 11:18Z every read was
                 # refused (403), every probe but 2 vCPU waited out its minutes under the vCPU cap, and with no
                 # snapshot every Linux pool went to the 2 vCPU release valve. Ask once more with the workflow
-                # token, as cloud_overflow_switch.GitHub does for a refused read.
+                # token (a run read, which that token can do; it can never read a variable).
                 try:
                     snapshot = fallback.snapshot(now=now)
                     if snapshot is None:
