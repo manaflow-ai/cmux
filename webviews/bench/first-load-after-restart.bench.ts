@@ -88,7 +88,14 @@ const REFUSED_MODES = ["refused", "refused-no-copy"] as const;
 type Mode = (typeof MODES_ALL)[number] | (typeof REOPEN_MODES)[number] | (typeof REFUSED_MODES)[number];
 const MODE = process.env.MODE ?? "all";
 const NIGHTLY_MODES: readonly Mode[] = ["down", ...REFUSED_MODES];
-const NAMED: readonly string[] = [...MODES_ALL, ...REOPEN_MODES, ...REFUSED_MODES, "reopen-both", "reopen-all", "nightly"];
+const NAMED: readonly string[] = [
+  ...MODES_ALL,
+  ...REOPEN_MODES,
+  ...REFUSED_MODES,
+  "reopen-both",
+  "reopen-all",
+  "nightly",
+];
 if (MODE !== "all" && !NAMED.includes(MODE)) throw new Error(`MODE must be all, ${NAMED.join(" or ")}`);
 const MODES: readonly Mode[] =
   MODE === "all"
@@ -977,6 +984,8 @@ try {
     const page = await warmContext.newPage();
     servingSpare = true;
     try {
+      if (CPU > 1) await (await warmContext.newCDPSession(page)).send("Emulation.setCPUThrottlingRate", { rate: CPU });
+      await page.setViewportSize(RELAUNCH_VIEWPORT);
       await prepare(page, null, 600_000);
       // PARK=visible: the spare parks its chat view drawn but invisible (App SPARE_PARK_VISIBLE).
       if (process.env.PARK)
