@@ -5,7 +5,7 @@ import Testing
 
 /// `cmux accounts list` reads the rows through `controlList`: on a Mac where
 /// Settings > Accounts never opened, nothing else starts detection, and the
-/// list reported every provider Checking… forever (air-blue NIGHTLY,
+/// list reported every provider Checking… forever (a NIGHTLY,
 /// 2026-11-21, 2.5 h after launch).
 @MainActor
 @Suite struct AccountsListDetectsTests {

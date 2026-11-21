@@ -7,7 +7,7 @@ public import CmuxNextSettings
 extension AccountsModel {
     /// The rows once detection has run. Only Settings > Accounts and a
     /// refresh started detection, so a list read before either reported
-    /// every row Checking… forever (air-blue NIGHTLY, 2026-11-21).
+    /// every row Checking… forever (a NIGHTLY, 2026-11-21).
     public func controlList(activeTeam: JSONValue, handlesStable: Bool) async -> JSONValue {
         await settle()
         return .object([
