@@ -321,3 +321,52 @@ for (const presentation of ["messages", "transcript"] as const)
     expect(container.querySelector(".cv-message-retry")).toBeNull();
     expect(container.querySelector('[aria-haspopup="menu"]')).toBeNull();
   });
+
+// The < n/m > between a prompt's versions (VersionSwitcher.tsx): one control in two slots, the look
+// (conversation.css `data-fork-switcher-look`) shows one; a step opens the neighbouring chat.
+test("a prompt with versions steps to the neighbouring chat from its switcher", async () => {
+  const row: AcpmuxRow = { ...baseRow(), text: "Now cover it with two tests", images: undefined };
+  const opened: string[] = [];
+  const container = await render(row, {
+    branches: {
+      of: new Map([[row.id, { index: 1, sessions: ["parent", "fork-1", "fork-2"] }]]),
+      running: new Set(["fork-1"]),
+      open: (sessionId) => void opened.push(sessionId),
+    },
+  });
+  const slots = [...container.querySelectorAll<HTMLElement>(".cv-user__versions")].map((el) => el.dataset.versionSlot);
+  expect(slots).toEqual(["head", "footer"]);
+  const footer = container.querySelector<HTMLElement>('.cv-user__versions[data-version-slot="footer"]')!;
+  expect(footer.querySelector(".cv-user__version-count")?.textContent).toBe("2/3");
+  // The open chat is the working one: its count carries the spinner.
+  expect(footer.querySelector(".cv-user__version-count svg")).not.toBeNull();
+  const [previous, next] = footer.querySelectorAll<HTMLButtonElement>("button");
+  await act(async () => previous!.click());
+  await act(async () => next!.click());
+  expect(opened).toEqual(["parent", "fork-2"]);
+});
+
+const arrowsAt = async (index: number) => {
+  const row: AcpmuxRow = { ...baseRow(), text: "Now cover it with two tests", images: undefined };
+  const container = await render(row, {
+    branches: { of: new Map([[row.id, { index, sessions: ["a", "b", "c"] }]]), open: () => {} },
+  });
+  const [previous, next] = container.querySelectorAll<HTMLButtonElement>(
+    '.cv-user__versions[data-version-slot="footer"] button',
+  );
+  return [previous!.disabled, next!.disabled];
+};
+
+test("the first version turns off the arrow that goes before it", async () => {
+  expect(await arrowsAt(0)).toEqual([true, false]);
+});
+
+test("the last version turns off the arrow that goes past it", async () => {
+  expect(await arrowsAt(2)).toEqual([false, true]);
+});
+
+test("a prompt with one version has no switcher", async () => {
+  const row: AcpmuxRow = { ...baseRow(), text: "Now cover it with two tests", images: undefined };
+  const container = await render(row, {});
+  expect(container.querySelector(".cv-user__versions")).toBeNull();
+});
