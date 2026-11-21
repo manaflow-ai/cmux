@@ -10,6 +10,21 @@ or installed. Read [cmux-next-ios/SECURITY.md](../../cmux-next-ios/SECURITY.md),
 parity rule in the root `CLAUDE.md` and the HIG rule in [Packages/iOS/AGENTS.md](../../Packages/iOS/AGENTS.md).
 iOS is Aziz's area (`azooz2003-bit`).
 
+## See your change first
+
+Pick the fastest route that covers your change. The table and its numbers are in
+[cmux-next-ios/CLAUDE.md](../../cmux-next-ios/CLAUDE.md), "See your change".
+
+| Change | Route | Edit to visible |
+|---|---|---|
+| Swift values, strings, colors or logic in a running DEBUG app | Swift live code, `scripts/live-code/ios-sim.sh patch OUT FILE.swift` ([#45397](https://github.com/manaflow-ai/cmux/pull/45397)) | about 2 s |
+| Any change, sent from your checkout to an always-on simulator on another Mac | `scripts/ios-live/ios-live swift` or `swap` ([#45435](https://github.com/manaflow-ai/cmux/pull/45435)) | about 5 s live, about 16 s rebuild |
+| PR evidence: tests, UI tests, benches, video | the fleet simulator step below | about 15 min |
+
+Both live routes are open PRs and aren't on `feat-cmux-next` yet, so until they land the fleet
+step is the only route that works from a branch. Once they land, use them for every edit and keep
+the fleet step for the evidence a PR cites.
+
 ## Build and test on the fleet
 
 - Nothing builds or boots a simulator on the person's Mac. The fleet's `cmux-ci build ios` builds the classic app, not this one.

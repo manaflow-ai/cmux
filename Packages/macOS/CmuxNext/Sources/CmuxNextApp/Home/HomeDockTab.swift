@@ -66,6 +66,11 @@ final class HomeDockTab: InternalPageProvider {
         return provider.views[key]
     }
 
+    /// Store tab `tabID`'s docked Home view, once it is made (nil before its tab first shows).
+    func view(forTab tabID: String, services: AppServices) -> HomeDockView? {
+        views[services.pages.storeKey(of: tabID) ?? tabID]
+    }
+
     /// The page command that moves the Channels list (`home.moveConversation`, hostMove.ts).
     static let moveCommand = "home.moveConversation"
 

@@ -238,7 +238,7 @@ struct AgentPaneGitPullRequestTests {
         let request = try #require(AgentPaneGitPullRequest(params: ["cwd": nested]))
         let reply = await AgentPaneGitPullRequest.reply(to: request, in: model, gh: rig.gh)
         #expect(reply["ok"] as? Bool == false)
-        #expect((reply["error"] as? [String: Any])?["message"] as? String == AgentPaneGitPullRequest.sessionRepositoryMessage)
+        #expect((reply["error"] as? [String: Any])?["userMessage"] as? String == AgentPaneGitPullRequest.sessionRepositoryMessage)
         #expect(writes.values.isEmpty)
         #expect(rig.calls.isEmpty)
     }

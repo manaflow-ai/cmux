@@ -39,6 +39,8 @@ nonisolated struct CEFKeychainItem: Equatable, Sendable {
 
 /// The calls ``CEFKeychainMigration`` makes. None of them ever shows a keychain prompt.
 nonisolated protocol CEFKeychainAccess: Sendable {
+    /// Whether this user has no default keychain at all (``LoginKeychain/defaultKeychainMissing()``).
+    func defaultKeychainMissing() -> Bool
     /// Whether the item exists: its attributes only, never its secret, so it never asks.
     func exists(service: String, account: String) -> Bool
     /// The item's secret, or nil when it is missing or this app is not trusted to read it without asking (the
@@ -57,6 +59,9 @@ nonisolated protocol CEFKeychainAccess: Sendable {
 /// a site that sets them again replaces them). A fresh profile never touches the shared item at all.
 nonisolated enum CEFKeychainMigration {
     enum Outcome: Equatable, Sendable {
+        /// This user has no keychain (a fresh `HOME` a test or fleet job made): Chromium runs on the mock keychain,
+        /// because its first `SecItemAdd` would show "Keychain Not Found" and wait for a person.
+        case noKeychain
         /// The own item exists: nothing to do (every launch after the first).
         case ownItemExists
         /// No Chromium profile yet: Chromium makes the own item; the shared item is never looked at.
@@ -76,6 +81,7 @@ nonisolated enum CEFKeychainMigration {
 
     static func prepare(item: CEFKeychainItem, profileRoot: URL, keychain: any CEFKeychainAccess,
                         fileManager: FileManager = .default) -> Outcome {
+        if keychain.defaultKeychainMissing() { return .noKeychain }
         if keychain.exists(service: item.service, account: item.account) { return .ownItemExists }
         guard hasProfile(root: profileRoot, fileManager: fileManager) else { return .freshProfile }
         guard var secret = keychain.readWithoutUI(service: CEFKeychainItem.sharedService, account: CEFKeychainItem.sharedAccount),
@@ -91,6 +97,8 @@ nonisolated enum CEFKeychainMigration {
 /// The login keychain, through the app's one ``LoginKeychain`` (its user-interaction switch is process-wide).
 nonisolated struct CEFLoginKeychainAccess: CEFKeychainAccess {
     let loginKeychain: LoginKeychain
+
+    func defaultKeychainMissing() -> Bool { loginKeychain.defaultKeychainMissing() }
 
     func exists(service: String, account: String) -> Bool {
         let query: [String: Any] = [
