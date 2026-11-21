@@ -74,7 +74,9 @@ internal import os
 ///   which then fires into a finished state and does nothing.
 /// - Observed values must change on the main actor. A will-set from another
 ///   thread can reach the main-actor re-evaluation before the new value is
-///   stored; the value then comes one change late.
+///   stored; the value then comes one change late. One tracking counts one
+///   change (``OneObservationCall``): no second evaluation comes to correct
+///   such a will-set, or a will-set callback that runs a nested run loop.
 /// - One iterator serves one consumer. Calling `next()` from two tasks at
 ///   once on copies of one iterator is a programming error (the system type
 ///   traps); here the second waiter replaces the first.
@@ -318,19 +320,17 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
         /// Evaluates `emit` with fresh tracking, as one scheduled task of the stream's site
         /// (``ObservationSite/evaluate(_:)``: the tracking's own cost is in the task's time). The `await`
         /// at the call site is the hop to the main actor (no hop when the iterator already runs there, as
-        /// with the system type).
+        /// with the system type). One evaluation's tracking counts one change: the system can call its callback a
+        /// second time inside one change (``OneObservationCall``), and that call would make one more evaluation.
         @MainActor
         static func track(_ emit: @MainActor @Sendable () -> Element, state: ChangeState) -> Element {
-            state.site.evaluate {
-                state.site.tracking {
-                    withObservationTracking {
-                        emit()
-                    } onChange: { [state] in
-                        state.site.woke()
-                        ObservationWakes.record(site: state.site, instance: ObjectIdentifier(state))
-                        state.changed()
-                    }
-                }
+            let changed = OneObservationCall.once { [state] in
+                state.site.woke()
+                ObservationWakes.record(site: state.site, instance: ObjectIdentifier(state))
+                state.changed()
+            }
+            return state.site.evaluate {
+                state.site.tracking { withObservationTracking({ emit() }, onChange: changed) }
             }
         }
     }

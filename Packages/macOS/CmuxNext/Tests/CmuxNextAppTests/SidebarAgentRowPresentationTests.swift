@@ -256,8 +256,8 @@ struct SidebarAgentRowPresentationTests {
         // The face rules name the second chat the row's agent tab.
         let batch = SidebarFaceBatch()
         batch.reset(showsUnread: true, newTabTitled: false)
-        batch.append(workspace, local: true, status: nil, selectedTab: { _ in nil }, newTabPages: [], listTitle: \.displayTitle,
-                     branded: { $0.agentBrand != nil })
+        batch.append(workspace, local: true, status: nil, selectedTab: { _ in nil },
+                     facts: { SidebarFaceBatch.facts($0, newTabPage: false, listTitle: $0.displayTitle, branded: $0.agentBrand != nil) })
         #expect(try #require(batch.run()).face(0, tabCount: tabs.count).agent == 1)
         #expect(row(workspace, machine: .local, selectedTab: { _ in tabs[0].id },
                                          autoNamesWorkspaces: true).title == "Review the release")

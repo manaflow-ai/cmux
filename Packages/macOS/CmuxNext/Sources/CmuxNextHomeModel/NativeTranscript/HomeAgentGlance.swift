@@ -51,6 +51,21 @@ public nonisolated struct HomeAgentGlance: Sendable, Equatable {
     }
 }
 
+/// What the glance of an agent chat's tab takes from outside its tab. The host reads these at each map of the
+/// tab's workspace and makes the tab's glance again when one of them is another value: the page rule reads a
+/// store that is not observable, and the workspace's name is one read for the workspace, not one for each chat.
+public nonisolated struct HomeAgentChatFacts: Sendable, Equatable {
+    /// The chat's tab still shows the New Tab page: it is not an agent yet.
+    public var onNewTabPage: Bool
+    /// The name of the chat's workspace for a chat with no title; nil in a window's Home.
+    public var workspaceName: String?
+
+    public init(onNewTabPage: Bool, workspaceName: String?) {
+        self.onNewTabPage = onNewTabPage
+        self.workspaceName = workspaceName
+    }
+}
+
 extension HomeAgentGlance.Status {
     /// The status in the shared indicator when the host gives none.
     nonisolated var indicator: StatusIndicatorState {

@@ -47,8 +47,10 @@ struct NewTabPlacesKeptCostTests {
         let first = kept.rows?.count ?? -1
         try #require(first == size.workspaces, "setup: the holder kept the rows of \(first) workspaces after the drain, want \(size.workspaces)")
 
-        /// Every workspace's rows, made now: what the kept rows must be.
-        func walk() -> [NewTabPlaces.Rows] { store.workspaces.map { kept.mapped($0, machine: nil) } }
+        let places = NewTabPlaces(home: "/Users/you")
+        /// Every workspace's rows, made now with no kept part (the holder's own map gives its kept tab parts): what
+        /// the kept rows must be.
+        func walk() -> [NewTabPlaces.Rows] { store.workspaces.map { places.rows(NewTabPlaces.Source($0), machine: nil) } }
         /// Makes one change, lets the main actor run, and gives what the holder's work visited for it, by step, and
         /// how many times its `changed` ran.
         func step(_ change: () -> Void) async -> (visits: [String: Int], events: Int) {

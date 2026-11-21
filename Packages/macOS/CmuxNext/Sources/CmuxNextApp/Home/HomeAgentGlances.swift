@@ -15,21 +15,25 @@ struct HomeAgentGlances {
     /// One workspace's agents for the empty Chief conversation's glance (`HomeFirstRunView`): agent chat tabs, and
     /// terminals whose agent reported through a hook while the terminal lives. A chat still on its New Tab page is not
     /// an agent yet. Title and status come from `TabItemMapping`, the strip's own mapping, so Home says what it shows.
-    func glances(in workspace: WorkspaceModel) -> [HomeAgentGlance] {
-        workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab -> HomeAgentGlance? in
-            let isChat = tab.agentSession != nil
-            guard isChat ? !RestoredNewTabPages.shows(tab, in: services.agentTabs) : tab.agent != nil && !tab.dead else { return nil }
-            let glance = TabItemMapping.shared.glance(tab, fallbackTitle: isChat ? AgentChatTabTitle.untitled(tab.agentSession, workspaceName: AgentChatTabTitle.workspaceName(workspace)) : Strings.untitledTerminal)
-            let status = glanceStatus(glance.status, working: StatusMapping.shared.isWorking(tabs: [tab]))
-            return HomeAgentGlance(id: tab.id, title: glance.title, icon: isChat ? .agentChat : .terminal, status: status, indicator: glance.indicator, indicatorStyle: glance.style)
+    func glances(in workspace: WorkspaceModel, kept: KeptParts<WorkspaceModel, TabModel, HomeAgentGlance?>? = nil) -> [HomeAgentGlance] {
+        // The input of a chat's part. The workspace's name is one read for one map (the capture), not one for each chat.
+        let facts = { [name = AgentChatTabTitle.workspaceName(workspace)] (tab: TabModel) -> HomeAgentChatFacts? in
+            tab.agentSession == nil ? nil : HomeAgentChatFacts(onNewTabPage: RestoredNewTabPages.shows(tab, in: services.agentTabs), workspaceName: name)
         }
+        return KeptParts.parts(of: workspace, workspace.screens.flatMap(\.panes).flatMap(\.tabs), kept: kept, input: facts) { tab, chat -> HomeAgentGlance? in
+            guard chat.map({ !$0.onNewTabPage }) ?? (tab.agent != nil && !tab.dead) else { return nil }
+            let glance = TabItemMapping.shared.glance(tab, fallbackTitle: chat.map { AgentChatTabTitle.untitled(tab.agentSession, workspaceName: $0.workspaceName) } ?? Strings.untitledTerminal)
+            let status = glanceStatus(glance.status, working: StatusMapping.shared.isWorking(tabs: [tab]))
+            return HomeAgentGlance(id: tab.id, title: glance.title, icon: chat == nil ? .terminal : .agentChat, status: status, indicator: glance.indicator, indicatorStyle: glance.style)
+        }.compactMap { $0 }
     }
 
-    /// Each workspace's agents while `shows`, machine by machine in each store's workspace order (nil while not: then no
-    /// tab is read). One observation for each workspace: a tab that comes, goes or changes reads its own workspace again.
+    /// Each workspace's agents while `shows` (else nil: no tab is read), by machine and in each store's workspace order.
+    /// One observation for a workspace, in `kept` one for each tab: a tab that comes, goes or changes makes only its own.
     func feed(while shows: @escaping @MainActor @Sendable () -> Bool) -> ObservedItemsFeed<WorkspaceModel, [HomeAgentGlance]> {
-        ObservedItemsFeed(list: { [services] in shows() ? services.machines.allWorkspaces.map { $0.0 } : nil },
-                          id: { "\(ObjectIdentifier($0))" }, item: { [services] in HomeAgentGlances(services: services).glances(in: $0) })
+        let kept = KeptParts<WorkspaceModel, TabModel, HomeAgentGlance?>(step: "HomeAgentGlances.tabParts")
+        return ObservedItemsFeed(list: { [services] in shows() ? services.machines.allWorkspaces.map { $0.0 } : nil }, id: { "\(ObjectIdentifier($0))" },
+                                 item: { [services] in HomeAgentGlances(services: services).glances(in: $0, kept: kept) })
     }
 
     /// The strip's status of an agent's tab as the glance's word: waiting

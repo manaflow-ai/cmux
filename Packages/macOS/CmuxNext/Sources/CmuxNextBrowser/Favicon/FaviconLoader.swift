@@ -8,11 +8,16 @@ public protocol BrowserFaviconLoading: AnyObject {
     func favicon(at url: URL, profile: BrowserProfileID) async -> NSImage?
     /// The icon at `url` for `profile` when it is already loaded (by any fetch, a tab's own included); never fetches.
     func cachedFavicon(at url: URL, profile: BrowserProfileID) -> NSImage?
+    /// Counts each change of the loaded icons (one kept, or a profile's dropped). The loaded icons are not
+    /// observable: a caller that keeps something it made from `cachedFavicon` compares this count.
+    var cachedFaviconChanges: Int { get }
 }
 
 extension BrowserFaviconLoading {
     /// A loader without a cache has none loaded.
     public func cachedFavicon(at url: URL, profile: BrowserProfileID) -> NSImage? { nil }
+    /// A loader without a cache has no change of it.
+    public var cachedFaviconChanges: Int { 0 }
 }
 
 /// Fetches favicons and keeps a small in-memory LRU per profile.
@@ -42,6 +47,9 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
 
     private let fetcher: GuardedRemoteFetch
     private var caches: [BrowserProfileID: LRUCache<URL, NSImage>] = [:]
+    /// Raised each time an icon is kept (a full cache drops its oldest icon only then) and each time a profile's
+    /// icons are dropped: between two reads of the same count, `cachedFavicon` gives the same icon for an address.
+    public private(set) var cachedFaviconChanges = 0
     private var inFlight: [Key: Task<NSImage?, Never>] = [:]
 
     public init() {
@@ -80,8 +88,13 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
         inFlight[key] = task
         let image = await task.value
         inFlight[key] = nil
-        if let image { caches[profile, default: LRUCache(capacity: Self.entriesPerProfile)].set(image, for: url) }
+        if let image { keep(image, at: url, profile: profile) }
         return image
+    }
+
+    private func keep(_ image: NSImage, at url: URL, profile: BrowserProfileID) {
+        caches[profile, default: LRUCache(capacity: Self.entriesPerProfile)].set(image, for: url)
+        cachedFaviconChanges += 1
     }
 
     /// Keeps an icon a tab's engine fetched itself (a Chromium tab's own request context,
@@ -89,7 +102,7 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
     /// `profile` gets it without a second, cookieless fetch. Nil when it does not decode.
     public func store(_ data: Data, at url: URL, profile: BrowserProfileID) -> NSImage? {
         guard let image = Self.decode(data) else { return nil }
-        caches[profile, default: LRUCache(capacity: Self.entriesPerProfile)].set(image, for: url)
+        keep(image, at: url, profile: profile)
         return image
     }
 
@@ -97,6 +110,7 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
     /// incognito session ended).
     public func forget(profile: BrowserProfileID) {
         caches[profile] = nil
+        cachedFaviconChanges += 1
     }
 
     /// Decodes an icon file (PNG, ICO, SVG, ...) and redraws its best

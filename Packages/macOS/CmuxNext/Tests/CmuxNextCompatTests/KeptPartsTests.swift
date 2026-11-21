@@ -1,0 +1,496 @@
+@testable import CmuxNextCompat
+import Observation
+import Testing
+
+/// `KeptParts` keeps one part for each model of an owner, each under its own observation: a model that changes
+/// makes its own part again and no other model's, a caller that runs under an observation hears the change of a
+/// kept part, and a model that left the list has no part and no observation.
+@MainActor
+@Suite struct KeptPartsTests {
+    @MainActor @Observable final class Tab {
+        var title: String
+        /// Read only by a part that has a tag (``tagged(_:_:_:_:)``).
+        var badge = ""
+        init(_ title: String) { self.title = title }
+    }
+
+    /// A tag for each tab in a store that is not observable: a change of one wakes no observation.
+    @MainActor final class Tags {
+        private var tags: [ObjectIdentifier: String] = [:]
+        func tag(of tab: Tab) -> String { tags[ObjectIdentifier(tab)] ?? "" }
+        func set(_ tag: String, of tab: Tab) { tags[ObjectIdentifier(tab)] = tag }
+    }
+
+    @MainActor @Observable final class Workspace {
+        var tabs: [Tab]
+        init(_ tabs: [Tab]) { self.tabs = tabs }
+    }
+
+    /// The titles that `make` read, in the order of its calls.
+    @MainActor final class Made {
+        var titles: [String] = []
+    }
+
+    /// Set by a change callback, which is not isolated.
+    nonisolated final class Heard: Sendable {
+        private let heard = Atomic<Bool>(false)
+        var value: Bool { heard.load(ordering: .acquiring) }
+        func hear() { heard.store(true, ordering: .releasing) }
+    }
+
+    /// The calls of a change callback, which is not isolated.
+    nonisolated final class Calls: Sendable {
+        private let calls = Atomic<Int>(0)
+        var count: Int { calls.load(ordering: .acquiring) }
+        func add() { calls.add(1, ordering: .acquiringAndReleasing) }
+    }
+
+    /// The rounds of a test of one change's callbacks. The order in which the system calls the callbacks of one
+    /// change is not fixed: runs of these tests gave each order, and one run gave both in the rounds of one test.
+    static let rounds = 40
+
+    /// A part that a test can see go: only its holder keeps it.
+    @MainActor final class Token {}
+
+    /// One change of `tab`'s title to `title`. The first wake of the change moves `cell`, inside the change callback
+    /// that counted the wake. The count of the wakes inside the change.
+    private func wakesOfAChange(of tab: Tab, to title: String, moving cell: Tab) -> Int {
+        let counted = Calls()
+        let wakes = ObservationWakes(atWake: {
+            counted.add()
+            if counted.count == 1 { MainActor.assumeIsolated { cell.title = "moved with \(title)" } }
+        })
+        ObservationWakes.$current.withValue(wakes) { tab.title = title }
+        return wakes.count
+    }
+
+    /// The values that a stream's consumer got.
+    @MainActor final class Seen {
+        var values: [String] = []
+    }
+
+    /// Gives the main actor's other tasks their turns until `done`, and then some more, so a task that has one
+    /// more step to do has done it.
+    private func settle(_ done: () -> Bool) async {
+        var turns = 0
+        while !done(), turns < 2_000 {
+            await Task.yield()
+            turns += 1
+        }
+        for _ in 0 ..< 40 { await Task.yield() }
+    }
+
+    /// `workspace`'s parts from `kept`, with each call of `make` written to `made`.
+    private func titles(_ kept: KeptParts<Workspace, Tab, String>, _ workspace: Workspace, _ made: Made) -> [String] {
+        kept.parts(of: workspace, workspace.tabs) { tab in
+            made.titles.append(tab.title)
+            return tab.title
+        }
+    }
+
+    /// `workspace`'s parts from `kept`, each with its tab's tag as its input: a tab with no tag reads as its title,
+    /// and a tab with a tag as its title, its badge and the tag. Each call of `make` is written to `made`.
+    private func tagged(_ kept: KeptParts<Workspace, Tab, String>, _ workspace: Workspace, _ tags: Tags, _ made: Made) -> [String] {
+        kept.parts(of: workspace, workspace.tabs, input: { tags.tag(of: $0) }, make: { tab, tag in
+            let part = tag.isEmpty ? tab.title : tab.title + tab.badge + tag
+            made.titles.append(part)
+            return part
+        })
+    }
+
+    @Test func aPartIsKeptForItsInputAndAnotherInputMakesOnlyThatModelsPartAgain() {
+        let workspace = Workspace([Tab("a"), Tab("b"), Tab("c")])
+        let kept = KeptParts<Workspace, Tab, String>(step: "KeptPartsTests.parts")
+        let (tags, made, work) = (Tags(), Made(), ObservationWork())
+        #expect(tagged(kept, workspace, tags, made) == ["a", "b", "c"])
+        #expect(tagged(kept, workspace, tags, made) == ["a", "b", "c"])
+        #expect(made.titles == ["a", "b", "c"], "a call with each input as before made a part")
+
+        // No observation hears this change: the part follows it by its input at the next call.
+        tags.set("!", of: workspace.tabs[1])
+        let parts = ObservationWork.$current.withValue(work) { tagged(kept, workspace, tags, made) }
+        #expect(parts == ["a", "b!", "c"], "a kept part does not follow its input")
+        #expect(made.titles == ["a", "b", "c", "b!"], "one model's input changed: only its own part is made again")
+        #expect(work.byStep["KeptPartsTests.parts"] == 1, "a part made again for another input is counted")
+        #expect(tagged(kept, workspace, tags, made) == ["a", "b!", "c"])
+        #expect(made.titles == ["a", "b", "c", "b!"], "the part made for the new input is kept")
+    }
+
+    /// A part made again for another input reads other values than the part before it. Its observation is of what
+    /// it read itself: a value that only the new part read makes it again and wakes a caller.
+    @Test func aPartMadeForAnotherInputIsUnderItsOwnObservation() {
+        let workspace = Workspace([Tab("a"), Tab("b")])
+        let kept = KeptParts<Workspace, Tab, String>(step: "KeptPartsTests.parts")
+        let (tags, made) = (Tags(), Made())
+        _ = tagged(kept, workspace, tags, made)
+        tags.set("!", of: workspace.tabs[0])
+        #expect(tagged(kept, workspace, tags, made) == ["a!", "b"])
+        #expect(made.titles == ["a", "b", "a!"], "setup: the tab's part is not made again for its tag")
+
+        // This call makes no part, so the caller's observation reads no model's badge itself.
+        let heard = Heard()
+        let caller = SingleArmedTracking()
+        _ = caller.track(shape: [], { tagged(kept, workspace, tags, made) }, onChange: { heard.hear() })
+        #expect(made.titles == ["a", "b", "a!"], "setup: the call under the observation made a part")
+
+        workspace.tabs[0].badge = "+"
+        #expect(heard.value, "the caller did not hear a value that only the part of the new input read")
+        #expect(tagged(kept, workspace, tags, made) == ["a+!", "b"], "the part of the new input does not follow what it read")
+        #expect(made.titles == ["a", "b", "a!", "a+!"])
+
+        // The part of the input before read no badge: with no tag the tab's badge makes no part.
+        workspace.tabs[1].badge = "+"
+        #expect(tagged(kept, workspace, tags, made) == ["a+!", "b"])
+        #expect(made.titles == ["a", "b", "a!", "a+!"], "a value that a part did not read made it again")
+    }
+
+    /// The observation of a part ends when the part is made again for another input: a value that only the part
+    /// of the input before read wakes no caller and makes no part.
+    @Test func theObservationOfAPartEndsWhenAnotherInputMakesThePartAgain() {
+        let workspace = Workspace([Tab("a"), Tab("b")])
+        let kept = KeptParts<Workspace, Tab, String>(step: "KeptPartsTests.parts")
+        let (tags, made) = (Tags(), Made())
+        tags.set("!", of: workspace.tabs[0])
+        #expect(tagged(kept, workspace, tags, made) == ["a!", "b"])
+        tags.set("", of: workspace.tabs[0])
+        #expect(tagged(kept, workspace, tags, made) == ["a", "b"])
+        #expect(made.titles == ["a!", "b", "a"], "setup: the tab's part is not made again for its tag")
+
+        // This call makes no part: the caller's observation reads the owner's cell and no model's badge.
+        let heard = Heard()
+        let caller = SingleArmedTracking()
+        _ = caller.track(shape: [], { tagged(kept, workspace, tags, made) }, onChange: { heard.hear() })
+        #expect(made.titles == ["a!", "b", "a"], "setup: the call under the observation made a part")
+
+        // Only the part of the tag read the badge, and that part is gone.
+        workspace.tabs[0].badge = "+"
+        #expect(!heard.value, "the observation of a part that is gone woke the caller")
+        #expect(tagged(kept, workspace, tags, made) == ["a", "b"])
+        #expect(made.titles == ["a!", "b", "a"], "a value that only a part that is gone read made a part")
+    }
+
+    /// The parts of an owner that is gone stay until the holder has 64 owners, and go when the next owner comes.
+    @Test func thePartsOfAnOwnerThatIsGoneGoWhenTheOwnersReachTheLimit() {
+        let kept = KeptParts<Workspace, Tab, Token>(step: "KeptPartsTests.tokens")
+        // Each live owner is made before the owner that goes: none of them has its address.
+        let live = (0 ..< 64).map { Workspace([Tab("live \($0)")]) }
+        weak var part: Token?
+        weak var goneOwner: Workspace?
+        do {
+            let gone = Workspace([Tab("gone")])
+            goneOwner = gone
+            part = kept.parts(of: gone, gone.tabs) { _ in Token() }.first
+        }
+        let (ownerIsGone, keptAtFirst) = (goneOwner == nil, part != nil)
+        #expect(ownerIsGone, "setup: the owner is not gone")
+        #expect(keptAtFirst, "setup: the holder does not keep the part")
+
+        // With these the holder has 64 owners: the one that is gone and 63 live ones.
+        for owner in live.dropLast() { _ = kept.parts(of: owner, owner.tabs) { _ in Token() } }
+        let keptBelowTheLimit = part != nil
+        #expect(keptBelowTheLimit, "the parts of an owner that is gone went before the holder had 64 owners")
+
+        _ = kept.parts(of: live[63], live[63].tabs) { _ in Token() }
+        let wentAtTheLimit = part == nil
+        #expect(wentAtTheLimit, "the parts of an owner that is gone stayed when owner 65 came")
+    }
+
+    /// The limit after a sweep is 2 times the owners that the sweep left, and 64 at least: the parts of an owner that
+    /// went after the sweep at 64 owners stay until the holder has 128, and go when the next owner comes.
+    @Test func afterASweepThePartsOfAnOwnerThatIsGoneStayUntilTheOwnersDoubled() {
+        let kept = KeptParts<Workspace, Tab, Token>(step: "KeptPartsTests.tokens")
+        // Each live owner is made before the owner that goes: none of them has its address.
+        let live = (0 ..< 128).map { Workspace([Tab("live \($0)")]) }
+        func take(_ owners: ArraySlice<Workspace>) {
+            for owner in owners { _ = kept.parts(of: owner, owner.tabs) { _ in Token() } }
+        }
+        // Owner 65 comes at 64 owners: the sweep finds none that is gone, and the next limit is 128.
+        take(live[..<65])
+        weak var part: Token?
+        weak var goneOwner: Workspace?
+        do {
+            let gone = Workspace([Tab("gone")])
+            goneOwner = gone
+            part = kept.parts(of: gone, gone.tabs) { _ in Token() }.first
+        }
+        let (ownerIsGone, keptAtFirst) = (goneOwner == nil, part != nil)
+        #expect(ownerIsGone, "setup: the owner is not gone")
+        #expect(keptAtFirst, "setup: the holder does not keep the part")
+
+        // The holder has 66 owners. A limit that stayed at 64 sweeps when the next owner comes.
+        take(live[65 ..< 66])
+        let keptAfterTheFirstLimit = part != nil
+        #expect(keptAfterTheFirstLimit, "the parts of an owner that is gone went at owner 67: the limit after a sweep at 64 owners is not 128")
+
+        // With these the holder has 128 owners: the one that is gone and 127 live ones.
+        take(live[66 ..< 127])
+        let keptBelowTheLimit = part != nil
+        #expect(keptBelowTheLimit, "the parts of an owner that is gone went before the holder had 128 owners")
+
+        take(live[127...])
+        let wentAtTheLimit = part == nil
+        #expect(wentAtTheLimit, "the parts of an owner that is gone stayed when owner 129 came")
+    }
+
+    /// What stays of a kept part when its holder ends (a window or a feed closes). Each removal of a part ends its
+    /// observation, and the end of a holder removes no part. The part's mark is read through a weak reference at 2
+    /// times: when the holder is gone and the model lives, and when the model is gone too.
+    @Test func theMarkOfAKeptPartGoesWhenItsHolderIsGone() {
+        let workspace = Workspace([Tab("a")])
+        weak var mark: KeptPartMark?
+        weak var holder: KeptParts<Workspace, Tab, String>?
+        var hadAMark = false
+        do {
+            let kept = KeptParts<Workspace, Tab, String>(step: "KeptPartsTests.parts")
+            _ = kept.parts(of: workspace, workspace.tabs) { $0.title }
+            mark = kept.marks(of: workspace).first
+            hadAMark = mark != nil
+            holder = kept
+        }
+        let (holderIsGone, staysWithTheModel) = (holder == nil, mark != nil)
+        weak var model: Tab?
+        model = workspace.tabs.first
+        workspace.tabs = []
+        let (modelIsGone, staysWithNoModel) = (model == nil, mark != nil)
+        #expect(hadAMark, "setup: the holder has no mark for its part")
+        #expect(holderIsGone, "setup: the holder is not gone")
+        #expect(modelIsGone, "setup: the model is not gone")
+        #expect(!staysWithTheModel, "the mark of a kept part stays when its holder is gone and its model lives")
+        #expect(!staysWithNoModel, "the mark of a kept part stays when its holder and its model are gone")
+    }
+
+    @Test func withNoHolderEachPartIsMadeFromItsInput() {
+        let workspace = Workspace([Tab("a"), Tab("bb")])
+        let parts = KeptParts<Workspace, Tab, String>.parts(of: workspace, workspace.tabs, kept: nil, input: { $0.title.count }, make: { "\($0.title)\($1)" })
+        #expect(parts == ["a1", "bb2"])
+    }
+
+    @Test func aPartIsMadeOnceAndAModelThatChangesMakesOnlyItsOwnPartAgain() {
+        let workspace = Workspace([Tab("a"), Tab("b"), Tab("c")])
+        let kept = KeptParts<Workspace, Tab, String>(step: "KeptPartsTests.parts")
+        let made = Made()
+        #expect(titles(kept, workspace, made) == ["a", "b", "c"])
+        #expect(made.titles == ["a", "b", "c"], "the first call makes each model's part")
+        #expect(titles(kept, workspace, made) == ["a", "b", "c"])
+        #expect(made.titles == ["a", "b", "c"], "a call after no change makes no part")
+
+        workspace.tabs[1].title = "B"
+        #expect(titles(kept, workspace, made) == ["a", "B", "c"])
+        #expect(made.titles == ["a", "b", "c", "B"], "one model changed: only its own part is made again")
+        #expect(titles(kept, workspace, made) == ["a", "B", "c"])
+        #expect(made.titles == ["a", "b", "c", "B"], "the part made again is kept")
+    }
+
+    @Test func aModelThatComesMakesItsOwnPartAndAModelThatGoesMakesNone() {
+        let workspace = Workspace([Tab("a"), Tab("b"), Tab("c")])
+        let kept = KeptParts<Workspace, Tab, String>(step: "KeptPartsTests.parts")
+        let made = Made()
+        _ = titles(kept, workspace, made)
+        made.titles.removeAll()
+
+        workspace.tabs.insert(Tab("n"), at: 1)
+        #expect(titles(kept, workspace, made) == ["a", "n", "b", "c"], "the parts are in the list's order")
+        #expect(made.titles == ["n"], "a model that comes makes its own part and no other")
+
+        let gone = workspace.tabs.remove(at: 2)
+        #expect(titles(kept, workspace, made) == ["a", "n", "c"])
+        #expect(made.titles == ["n"], "a model that goes makes no part")
+
+        // The model that left comes back changed: its part is not the one kept before it left.
+        gone.title = "back"
+        workspace.tabs.append(gone)
+        #expect(titles(kept, workspace, made) == ["a", "n", "c", "back"])
+        #expect(made.titles == ["n", "back"])
+    }
+
+    @Test func aCallerUnderAnObservationHearsTheChangeOfAKeptPart() {
+        // Each change below writes the title through this local: no change touches the owner's list.
+        let tab = Tab("a")
+        let workspace = Workspace([tab, Tab("b")])
+        let kept = KeptParts<Workspace, Tab, String>(step: "KeptPartsTests.parts")
+        let made = Made()
+        _ = titles(kept, workspace, made)
+        // This call makes no part, so the caller's observation reads no model's title itself.
+        let heard = Heard()
+        let caller = SingleArmedTracking()
+        let first = caller.track(shape: [], { titles(kept, workspace, made) }, onChange: { heard.hear() })
+        #expect(first == ["a", "b"])
+        #expect(made.titles == ["a", "b"], "setup: the call under the observation made a part")
+        #expect(!heard.value)
+
+        tab.title = "A"
+        #expect(heard.value, "the caller did not hear the change of a kept part")
+
+        // The part is made again under the caller, with the mark and the observation that it had. A second caller
+        // makes no part, so it reads the owner's cell and the owner's list, and no title: it hears the next change
+        // by the part's second wake.
+        let madeAgain = caller.track(shape: [], { titles(kept, workspace, made) }, onChange: {})
+        let (again, second) = (Heard(), SingleArmedTracking())
+        let keptParts = second.track(shape: [], { titles(kept, workspace, made) }, onChange: { again.hear() })
+        #expect(madeAgain == ["A", "b"] && keptParts == ["A", "b"])
+        #expect(made.titles == ["a", "b", "A"], "setup: the second caller's call made a part")
+        tab.title = "AA"
+        #expect(again.value, "a caller did not hear the second change of a part that was made again")
+        #expect(titles(kept, workspace, made) == ["AA", "b"])
+    }
+
+    @Test func aModelThatLeftTheListWakesNoCaller() {
+        let workspace = Workspace([Tab("a"), Tab("b")])
+        let kept = KeptParts<Workspace, Tab, String>(step: "KeptPartsTests.parts")
+        let made = Made()
+        _ = titles(kept, workspace, made)
+        let gone = workspace.tabs.removeLast()
+        _ = titles(kept, workspace, made)
+
+        let heard = Heard()
+        let caller = SingleArmedTracking()
+        _ = caller.track(shape: [], { kept.parts(of: workspace, workspace.tabs) { $0.title } }, onChange: { heard.hear() })
+        gone.title = "changed after it left"
+        #expect(!heard.value, "a model that left the list woke the caller")
+        #expect(titles(kept, workspace, made) == ["a"])
+        #expect(made.titles == ["a", "b"], "a change of a model that left made a part")
+    }
+
+    @Test func eachOwnerHasItsOwnParts() {
+        let shared = Tab("s")
+        let (one, two) = (Workspace([shared, Tab("a")]), Workspace([shared]))
+        let kept = KeptParts<Workspace, Tab, String>(step: "KeptPartsTests.parts")
+        let made = Made()
+        #expect(titles(kept, one, made) == ["s", "a"])
+        #expect(titles(kept, two, made) == ["s"])
+        #expect(made.titles == ["s", "a", "s"], "an owner's part is not another owner's")
+
+        one.tabs.removeAll()
+        #expect(titles(kept, one, made).isEmpty)
+        #expect(titles(kept, two, made) == ["s"])
+        #expect(made.titles == ["s", "a", "s"], "an owner whose models left removed the part of another owner")
+    }
+
+    @Test func thePartsMadeAreCountedForATest() {
+        let workspace = Workspace([Tab("a"), Tab("b"), Tab("c")])
+        let kept = KeptParts<Workspace, Tab, String>(step: "KeptPartsTests.parts")
+        let made = Made()
+        let work = ObservationWork()
+        ObservationWork.$current.withValue(work) { _ = titles(kept, workspace, made) }
+        #expect(work.byStep["KeptPartsTests.parts"] == 3)
+        work.reset()
+        workspace.tabs[2].title = "C"
+        ObservationWork.$current.withValue(work) { _ = titles(kept, workspace, made) }
+        #expect(work.byStep["KeptPartsTests.parts"] == 1)
+    }
+
+    /// A caller that made a part in its own call read 2 things for that part's model: the model's title (a part's
+    /// `make` runs inside the caller's observation too) and the owner's cell. The part's callback moves the cell
+    /// inside the title's change. The caller hears that one change one time.
+    @Test func aCallerHearsOneChangeOfAPartThatItMadeOneTime() {
+        let workspace = Workspace([Tab("a"), Tab("b")])
+        let kept = KeptParts<Workspace, Tab, String>(step: "KeptPartsTests.parts")
+        let made = Made()
+        let calls = Calls()
+        let caller = SingleArmedTracking()
+        for round in 0 ..< Self.rounds {
+            // This call makes the part of the tab that changed in the round before (each part in the first round).
+            _ = caller.track(shape: [], { titles(kept, workspace, made) }, onChange: { calls.add() })
+            workspace.tabs[0].title = "round \(round)"
+        }
+        #expect(made.titles.count == 2 + Self.rounds - 1, "setup: the caller's calls did not make the changed tab's part each round")
+        #expect(calls.count == Self.rounds, "the caller's callback ran \(calls.count) times for \(Self.rounds) changes of one tab, one change in each round")
+    }
+
+    /// The same rule with no order of the system in it: the caller's own callback moves, at its first call only, a
+    /// second value that its registration read. The system removes a registration after its callback returns, so
+    /// the registration is still on the second value and its callback is called again inside the first call. The
+    /// caller hears one change.
+    @Test func aCallerThatMovesASecondValueOfItsOwnRegistrationHearsOneChange() {
+        let (tab, cell) = (Tab("a"), Tab("cell"))
+        let calls = Calls()
+        let caller = SingleArmedTracking()
+        for round in 0 ..< Self.rounds {
+            let before = calls.count
+            _ = caller.track(shape: [], { tab.title + cell.title }, onChange: {
+                calls.add()
+                if calls.count == before + 1 { MainActor.assumeIsolated { cell.title = "moved in round \(round)" } }
+            })
+            tab.title = "round \(round)"
+        }
+        #expect(caller.armings == Self.rounds, "setup: the caller armed \(caller.armings) registrations in \(Self.rounds) rounds")
+        #expect(calls.count == Self.rounds, "the caller's callback ran \(calls.count) times for \(Self.rounds) changes, one change in each round")
+    }
+
+    /// The feed's form: a stream whose value is joined from the kept parts evaluates one time for one change, while
+    /// its consumer waits for the next value. This row alone does not hold the stream's rule of one registration,
+    /// one change: it was green in runs with that rule gone. The next row holds it.
+    @Test func aStreamOverKeptPartsEvaluatesOneTimeForOneChange() async {
+        let workspace = Workspace([Tab("a"), Tab("b")])
+        let kept = KeptParts<Workspace, Tab, String>(step: "KeptPartsTests.parts")
+        let evaluations = Calls()
+        let (first, later) = ObservationStream.current({
+            evaluations.add()
+            return kept.parts(of: workspace, workspace.tabs) { $0.title }
+        })
+        #expect(first == ["a", "b"])
+        var values = later.makeAsyncIterator()
+        for round in 0 ..< Self.rounds {
+            // The change comes while this test waits in `next()`.
+            Task { @MainActor in workspace.tabs[0].title = "round \(round)" }
+            let next = await values.next()
+            #expect(next == ["round \(round)", "b"])
+        }
+        #expect(evaluations.count == 1 + Self.rounds, "the stream evaluated \(evaluations.count) times for its first value and \(Self.rounds) changes of one tab")
+    }
+
+    /// The stream's rule of one registration, one change, with no order of the system in it (the form of
+    /// ``aCallerThatMovesASecondValueOfItsOwnRegistrationHearsOneChange()``). The stream's registration read the
+    /// tab's title and the cell. Inside the stream's callback for the title, the first wake of the round moves the
+    /// cell: the registration is still on the cell, so the system calls the stream's callback again inside the first
+    /// call. The stream counts one wake at that change and evaluates one time after it.
+    @Test func aStreamWhoseCallbackMovesASecondValueOfItsRegistrationCountsOneChange() async {
+        let (tab, cell) = (Tab("a"), Tab("cell"))
+        let evaluations = Calls()
+        let (first, later) = ObservationStream.current({
+            evaluations.add()
+            return tab.title + cell.title
+        })
+        #expect(first == "acell")
+        let seen = Seen()
+        let consumer = Task { @MainActor in
+            var values = later.makeAsyncIterator()
+            while let value = await values.next() { seen.values.append(value) }
+        }
+        defer { consumer.cancel() }
+
+        var wakes: [Int] = []
+        for round in 0 ..< Self.rounds {
+            // The consumer has the value of the round before and waits in `next()`.
+            await settle { seen.values.count == round }
+            wakes.append(wakesOfAChange(of: tab, to: "round \(round)", moving: cell))
+        }
+        await settle { seen.values.count == Self.rounds }
+
+        #expect(seen.values == (0 ..< Self.rounds).map { "round \($0)moved with round \($0)" }, "setup: the first wake of a round did not move the cell")
+        #expect(wakes == Array(repeating: 1, count: Self.rounds), "the stream's wakes for one change in each round: \(wakes)")
+        #expect(evaluations.count == 1 + Self.rounds, "the stream evaluated \(evaluations.count) times for its first value and \(Self.rounds) changes")
+    }
+
+    /// A report of the system's own rule, with no condition on its count: a registration that read 2 values has
+    /// its callback called 2 times in one change of the first value when a callback before it moves the second
+    /// value. `SingleArmedTracking` and `ObservationStream` count such a registration one time.
+    @Test func theSystemCanCallOneRegistrationsCallbackTwoTimesInOneChange() {
+        let (tab, cell) = (Tab("a"), Tab("cell"))
+        let calls = Calls()
+        var twice = 0
+        for round in 0 ..< Self.rounds {
+            let before = calls.count
+            // The outer registration reads what the inner one read (the title) and the cell.
+            withObservationTracking {
+                withObservationTracking { _ = tab.title } onChange: { MainActor.assumeIsolated { cell.title = "moved in round \(round)" } }
+                _ = cell.title
+            } onChange: { calls.add() }
+            tab.title = "round \(round)"
+            let ran = calls.count - before
+            #expect(ran == 1 || ran == 2, "the outer registration's callback ran \(ran) times for one change in round \(round)")
+            if ran == 2 { twice += 1 }
+        }
+        print("TAB-PARTS the system's callbacks: in \(twice) of \(Self.rounds) rounds the outer registration's callback ran 2 times for one change")
+    }
+}

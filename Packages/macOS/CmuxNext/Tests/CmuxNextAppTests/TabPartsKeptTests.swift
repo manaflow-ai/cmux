@@ -1,0 +1,558 @@
+import AppKit
+import CmuxNextAgentPane
+@testable import CmuxNextApp
+import CmuxNextBridge
+import CmuxNextCompat
+@testable import CmuxNextDaemon
+import CmuxNextHomeModel
+@testable import CmuxNextSidebar
+import Foundation
+import Observation
+import Testing
+
+/// ONE TAB THAT CHANGES MAKES ONLY ITS OWN PART AGAIN.
+///
+/// Three maps of the app make one item for each workspace and keep it by workspace: the sidebar's row
+/// (`SidebarRowFeed`), the New Tab bar's kept rows (`NewTabPlacesKept`) and the home view's agents
+/// (`HomeAgentGlances.feed(while:)`). A change in one workspace maps that workspace only (`SidebarRowFanOutTests`,
+/// `NewTabPlacesKeptCostTests`). But the map of that one workspace makes a part for EACH of its tabs: a tab closed or
+/// made in a workspace of 84 tabs makes 83 or 85 parts, where only one tab changed. A key that is held makes tab
+/// after tab in one workspace, so each key pays for each tab that the hold made.
+///
+/// The rows are counts in one turn, with no time. Each row makes ONE tab and then closes ONE tab in a workspace of
+/// 6 tabs and in a workspace of 84 tabs (a terminal, then a page, in turn; the tab that comes and goes is a
+/// terminal), and wants the same count of parts at both sizes: the new tab's own part, and no part for a tab that
+/// closed.
+///
+/// - The sidebar's row: the count is of the calls of the two functions that the row asks for each tab, which the
+///   test gives (`tabTitle`: the tab list's title of a tab; `pageFace`: a page's face), and of the tab list's items
+///   that the row's map made (the mapping's own count, ``ObservationWork``). `rows_made` is the sidebar's own counter.
+/// - The New Tab bar's rows and the home view's agents: the count is the module's own work counter
+///   (``ObservationWork``), set around the start of each feed.
+///
+/// After each change the kept rows and the kept agents are those of a walk over every workspace, made then.
+///
+/// The last row: a kept agent follows a value that its map reads and that is not observable (what the page rule of
+/// a blank chat reads from the app's agent tabs), at the next map of its workspace.
+///
+/// Limits: no window and no view; the sidebar's row is mapped by the app's own mapping with the test's two
+/// functions, not with the app's page face.
+@MainActor @Suite(.serialized, .timeLimit(.minutes(5)))
+struct TabPartsKeptTests {
+    /// The workspace whose tabs change.
+    nonisolated static let storm = "k000"
+    /// The two sizes of that workspace.
+    nonisolated static let sizes = [6, 84]
+    /// The host of each chat of the fixture: this Mac's, as the app's agent tabs know it in the page rule's row.
+    nonisolated static let host = "install:tab-parts"
+
+    static func keys(_ count: Int) -> [String] { (0..<count).map { String(format: "k%03d", $0) } }
+
+    /// Workspace `key` with `count` tabs in one pane: a terminal, then a page, in turn. With `chats`, each third
+    /// tab is an agent chat; with `blank`, the first of them has no session yet (a New Tab page that the store
+    /// restored: `RestoredNewTabPages`). `first`: the first tab that the pane has (1: its first tab is closed).
+    static func workspace(_ key: String, index: Int, tabs count: Int, chats: Bool, blank: Bool = false, from first: Int = 0) -> WorkspaceSnapshot {
+        let base = UInt64(index + 1) * 1000
+        let tabs = (first..<count).map { at -> TabSnapshot in
+            let surface = SurfaceID(rawValue: base + 1 + UInt64(at))
+            if chats, at % 3 == 2 {
+                var chat = TabSnapshot(surface: surface, kind: .conversation, cwd: nil)
+                chat.title = "chat \(key).\(at)"
+                chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: host, session: blank && at == 2 ? nil : "s-\(key)-\(at)", harness: nil))
+                return chat
+            }
+            guard at % 2 == 1 else { return TabSnapshot(surface: surface, kind: .pty, cwd: "/tmp/\(key)") }
+            var page = TabSnapshot(surface: surface, kind: .browser, cwd: nil)
+            page.url = "https://example.com/\(key)/\(at)"
+            page.title = "Page \(key).\(at)"
+            return page
+        }
+        let pane = PaneSnapshot(id: PaneID(rawValue: base), tabs: tabs)
+        let screen = ScreenSnapshot(id: ScreenID(rawValue: base), layout: .leaf(PaneID(rawValue: base)), panes: [pane])
+        return WorkspaceSnapshot(id: WorkspaceHandle(rawValue: UInt64(index + 1)), key: WorkspaceKey(rawValue: key), name: key, screens: [screen])
+    }
+
+    /// The session's tree: `keys` in order, each with 2 tabs, the storm workspace with `tabs`. `registry`: the home
+    /// session's id, with each workspace in its personal order (an app's store); nil for a store with no app.
+    static func tree(_ keys: [String], storm tabs: Int, chats: Bool = false, blank: Bool = false, from first: Int = 0,
+                     registry: String? = "s-local") -> DaemonTree {
+        var tree = DaemonTree(registryID: registry, workspaces: keys.enumerated().map { index, key in
+            workspace(key, index: index, tabs: key == storm ? tabs : 2, chats: key == storm && chats, blank: blank, from: key == storm ? first : 0)
+        })
+        guard let registry else { return tree }
+        tree.personal = PersonalState(groups: [], workspaces: keys.enumerated().map { index, key in
+            PersonalWorkspace(sessionID: registry, workspaceKey: WorkspaceKey(rawValue: key), index: index, group: nil)
+        })
+        return tree
+    }
+
+    /// An app with the session in its local store, connected.
+    static func app(_ keys: [String], storm tabs: Int, chats: Bool = false, blank: Bool = false) throws -> AppServices {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let store = services.machines.local.store
+        let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1"}"#.utf8))
+        store.noteHandshake(identity)
+        store.connectionState = .connected(identity)
+        store.apply(snapshot: tree(keys, storm: tabs, chats: chats, blank: blank))
+        return services
+    }
+
+    /// What one change cost the sidebar's row.
+    struct RowCost {
+        /// Calls of `tabTitle`: the tabs whose title in the tab list the row made.
+        var titles = 0
+        /// Calls of `pageFace` for the workspace's first tab (the tab that names the row).
+        var faceCalls = 0
+        /// Calls of `pageFace` for each other tab.
+        var otherFaces = 0
+        /// `rows_made`: the rows mapped from their stores.
+        var rowsMade = 0
+        /// The tab list's items that the row's map made (the mapping's own count, ``ObservationWork``).
+        var items = 0
+    }
+
+    /// One window's rows over the session through a row feed whose frames run only in `frame()`, as
+    /// `SidebarRowFanOutTests` has them, with the two functions that the row asks for each tab counted.
+    @MainActor final class Rows {
+        let services: AppServices
+        let state: WindowState
+        let feed: SidebarRowFeed
+        let keys: [String]
+        final class Frames { var work: [@MainActor @Sendable () -> Void] = [] }
+        let frames = Frames()
+        final class Calls {
+            var titles: [String] = []
+            var faces: [String] = []
+        }
+        let calls = Calls()
+        /// What the window's sidebar keeps of its rows' tabs from pass to pass, with the counted page function.
+        private(set) lazy var parts = SidebarTabParts(page: { [calls = self.calls] _, tab in
+            calls.faces.append(tab.id)
+            return nil
+        })
+        /// The rows that the last pass got from the feed, in order.
+        private(set) var rows: [SidebarWorkspace] = []
+        /// The rows the last pass listed.
+        var listed: Int { rows.count }
+
+        init(session: Int, tabs: Int) throws {
+            let keys = TabPartsKeptTests.keys(session)
+            let services = try TabPartsKeptTests.app(keys, storm: tabs)
+            (self.keys, self.services) = (keys, services)
+            let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"tab-parts","workspace_key":"tab-parts-home"}"#.utf8))
+            state = WindowState(record: record)
+            services.windows.registry.provisional[state.id] = keys
+            feed = SidebarRowFeed(schedule: { [frames] work in frames.work.append(work) })
+            pass()
+            frame()
+        }
+
+        /// The structural pass, as the window's sidebar runs it: every listed row named, new rows mapped and observed.
+        func pass() {
+            feed.beginPass(inputs: 0)
+            let sections = SidebarBridge.sections(services.machines, doc: services.sidebarDoc, members: keys, profile: state.profileID,
+                                                  pageFace: { [calls] _, tab, _ in
+                                                      calls.faces.append(tab.id)
+                                                      return nil
+                                                  },
+                                                  tabTitle: { [calls] _, tab in
+                                                      calls.titles.append(tab.id)
+                                                      return tab.displayTitle
+                                                  },
+                                                  rows: feed.rowSource, tabs: parts)
+            rows = feed.fill(sections).flatMap(\.workspaces)
+        }
+
+        /// The window's rows now, as the feed has them (one pass more: a row that a frame mapped again is the feed's
+        /// row after that frame), and whether they are a walk's rows: the same rows made now with no feed and no
+        /// kept part. The pass maps no row and counts in no cost.
+        func shown() -> (rows: [SidebarWorkspace], isTheWalk: Bool) {
+            pass()
+            let walk = SidebarBridge.sections(services.machines, doc: services.sidebarDoc, members: keys, profile: state.profileID,
+                                              pageFace: { _, _, _ in nil }, tabTitle: { _, tab in tab.displayTitle }).flatMap(\.workspaces)
+            return (rows, rows == walk)
+        }
+
+        /// The ids of the tabs that the storm workspace's row shows (the only row with more than 2 tabs), in order.
+        static func stormTabs(_ rows: [SidebarWorkspace]) -> [String] {
+            rows.first { $0.tabs.count > 2 }?.tabs.map(\.id.rawValue) ?? []
+        }
+
+        /// One display frame: the row feed's flush maps its dirty rows again and arms them.
+        func frame() {
+            let work = frames.work
+            frames.work.removeAll()
+            work.forEach { $0() }
+        }
+
+        /// What the row's map cost after the storm workspace got `tabs` tabs: the change, then the pass and the frame
+        /// that follow it. `first`: the id of that workspace's first tab.
+        func cost(storm tabs: Int, first: String) -> RowCost {
+            cost(first: first, tree: TabPartsKeptTests.tree(keys, storm: tabs))
+        }
+
+        /// What the row's map cost after the store got `tree`: the change, then the pass and the frame that follow it.
+        func cost(first: String, tree: DaemonTree) -> RowCost {
+            _ = SidebarPerfCounters.report(reset: true)
+            calls.titles.removeAll()
+            calls.faces.removeAll()
+            let work = ObservationWork()
+            ObservationWork.$current.withValue(work) {
+                services.machines.local.store.apply(snapshot: tree)
+                pass()
+                frame()
+            }
+            let report = SidebarPerfCounters.report(reset: true)
+            return RowCost(titles: calls.titles.count, faceCalls: calls.faces.filter { $0 == first }.count,
+                           otherFaces: calls.faces.filter { $0 != first }.count, rowsMade: report["rows_made"] ?? 0,
+                           items: work.byStep["SidebarMapping.tabItems"] ?? 0)
+        }
+    }
+
+    /// The id of the first tab of the storm workspace (the only workspace with more than 2 tabs).
+    static func firstStormTab(_ store: DaemonStore) -> String? {
+        store.workspaces.first(where: { $0.screens.flatMap(\.panes).flatMap(\.tabs).count > 2 })?.screens.first?.panes.first?.tabs.first?.id
+    }
+
+    /// The sidebar's row, in a session of 40 workspaces and of 200.
+    @Test(arguments: [40, 200])
+    func aTabMadeOrClosedMakesNoOtherTabsPartOfItsSidebarRow(session: Int) throws {
+        let fixture = try Rows(session: session, tabs: Self.sizes[0])
+        defer { fixture.feed.reset() }
+        try #require(fixture.listed == session, "setup: the fixture lists \(fixture.listed) of \(session) workspaces")
+        let first = try #require(Self.firstStormTab(fixture.services.machines.local.store), "setup: the storm workspace has no tab")
+        try #require(fixture.shown().isTheWalk, "setup: the sidebar's rows are not the walk's rows before a change")
+        var costs: [(made: RowCost, closed: RowCost)] = []
+        for tabs in Self.sizes {
+            // The workspace at this size; its cost is no row.
+            _ = fixture.cost(storm: tabs, first: first)
+            let sized = fixture.shown()
+            let made = fixture.cost(storm: tabs + 1, first: first)
+            let more = fixture.shown()
+            let closed = fixture.cost(storm: tabs, first: first)
+            let fewer = fixture.shown()
+            // The row shows the tabs that a walk shows after each change: a count with a wrong tab in the row is red.
+            #expect(sized.isTheWalk && more.isTheWalk && fewer.isTheWalk,
+                    "the sidebar's rows are not the walk's rows at \(tabs) tabs (sized \(sized.isTheWalk), one tab made \(more.isTheWalk), one tab closed \(fewer.isTheWalk))")
+            let counts = [Rows.stormTabs(sized.rows).count, Rows.stormTabs(more.rows).count, Rows.stormTabs(fewer.rows).count]
+            #expect(counts == [tabs, tabs + 1, tabs], "the storm workspace's row shows \(counts) tabs (sized, one tab made, one tab closed), want \([tabs, tabs + 1, tabs])")
+            costs.append((made, closed))
+        }
+        let (small, large) = (costs[0], costs[1])
+        print("TAB-PARTS sidebar row, session of \(session) workspaces: a workspace of \(Self.sizes[0]) tabs: one tab made = \(small.made), "
+            + "one tab closed = \(small.closed); a workspace of \(Self.sizes[1]) tabs: one tab made = \(large.made), one tab closed = \(large.closed)")
+        for (name, cost) in [("made", small.made), ("closed", small.closed), ("made", large.made), ("closed", large.closed)] {
+            try #require(cost.faceCalls >= 1, "setup: the row's map after one tab \(name) asked no page face for the workspace's first tab (it is not the tab that names the row)")
+            #expect(cost.rowsMade == 1, "one tab \(name) in one workspace mapped \(cost.rowsMade) rows of \(session), want 1")
+        }
+        #expect(small.made.titles == large.made.titles,
+                "one tab made: the row made the tab list's title of \(small.made.titles) tabs in a workspace of \(Self.sizes[0]) tabs and of \(large.made.titles) in one of \(Self.sizes[1]), want the same count")
+        #expect(small.closed.titles == large.closed.titles,
+                "one tab closed: the row made the tab list's title of \(small.closed.titles) tabs in a workspace of \(Self.sizes[0]) tabs and of \(large.closed.titles) in one of \(Self.sizes[1]), want the same count")
+        #expect(large.made.titles == 1 && large.closed.titles == 0,
+                "the row made the tab list's title of \(large.made.titles) tabs for one tab made and of \(large.closed.titles) for one tab closed, want the new tab's own and none")
+        #expect(small.made.items == large.made.items && small.closed.items == large.closed.items,
+                "the row made \(small.made.items) and \(small.closed.items) items of the tab list for one tab made and closed in a workspace of \(Self.sizes[0]) tabs, and \(large.made.items) and \(large.closed.items) in one of \(Self.sizes[1]), want the same counts")
+        #expect(large.made.items == 1 && large.closed.items == 0,
+                "the row made \(large.made.items) items of the tab list for one tab made and \(large.closed.items) for one tab closed, want the new tab's own and none")
+        let others = [small.made.otherFaces, small.closed.otherFaces, large.made.otherFaces, large.closed.otherFaces]
+        #expect(others == [0, 0, 0, 0],
+                "the row asked a page face for \(others) tabs that are not its first tab (one tab made and closed at \(Self.sizes[0]) tabs, then at \(Self.sizes[1])), want 0: no page changed")
+    }
+
+    /// A tab in the middle of its pane closes, then a tab moves to another place of the pane (an order change): after
+    /// each, the sidebar's row shows the walk's tabs in the walk's order, and its map makes no part: each tab that
+    /// stays has its kept part at its new place.
+    @Test func aTabClosedInTheMiddleOrMovedShowsTheWalksRowAndMakesNoPart() throws {
+        let fixture = try Rows(session: 40, tabs: Self.sizes[0])
+        defer { fixture.feed.reset() }
+        let store = fixture.services.machines.local.store
+        let first = try #require(Self.firstStormTab(store), "setup: the storm workspace has no tab")
+        /// The ids of the storm workspace's tabs in the store, in order.
+        func stored() -> [String] { store.workspace(key: WorkspaceKey(rawValue: Self.storm))?.screens.flatMap(\.panes).flatMap(\.tabs).map(\.id) ?? [] }
+        var tree = Self.tree(fixture.keys, storm: Self.sizes[0])
+        let at = try #require(tree.workspaces.firstIndex { $0.key?.rawValue == Self.storm }, "setup: the tree has no storm workspace")
+        var want = stored()
+        let before = fixture.shown()
+        try #require(want.count == Self.sizes[0] && Rows.stormTabs(before.rows) == want && before.isTheWalk,
+                     "setup: the row does not show the storm workspace's \(Self.sizes[0]) tabs as a walk does before a change")
+
+        // The third tab of 6 closes.
+        tree.workspaces[at].screens[0].panes[0].tabs.remove(at: 2)
+        want.remove(at: 2)
+        let closed = fixture.cost(first: first, tree: tree)
+        try #require(stored() == want, "setup: the store does not have the workspace without its third tab")
+        let fewer = fixture.shown()
+        #expect(Rows.stormTabs(fewer.rows) == want, "a tab in the middle closed: the row shows the tabs \(Rows.stormTabs(fewer.rows)), want \(want)")
+        #expect(fewer.isTheWalk, "the sidebar's rows are not the walk's rows after a tab in the middle closed")
+
+        // The last tab moves to the second place.
+        let moved = tree.workspaces[at].screens[0].panes[0].tabs.removeLast()
+        tree.workspaces[at].screens[0].panes[0].tabs.insert(moved, at: 1)
+        let last = want.removeLast()
+        want.insert(last, at: 1)
+        let reordered = fixture.cost(first: first, tree: tree)
+        try #require(stored() == want, "setup: the store does not have the workspace's tabs in the new order")
+        let ordered = fixture.shown()
+        #expect(Rows.stormTabs(ordered.rows) == want, "a tab moved in its pane: the row shows the tabs \(Rows.stormTabs(ordered.rows)), want \(want)")
+        #expect(ordered.isTheWalk, "the sidebar's rows are not the walk's rows after a tab moved in its pane")
+
+        print("TAB-PARTS sidebar row, a workspace of \(Self.sizes[0]) tabs: a tab in the middle closed = \(closed), a tab moved in its pane = \(reordered)")
+        #expect(closed.rowsMade == 1 && reordered.rowsMade == 1, "the 2 changes mapped \(closed.rowsMade) and \(reordered.rowsMade) rows, want 1 each: the workspace's own row")
+        #expect(closed.items == 0 && reordered.items == 0,
+                "the row made \(closed.items) items of the tab list for a tab closed in the middle and \(reordered.items) for a tab moved, want 0: no tab is new")
+    }
+
+    @MainActor final class Events {
+        var count = 0
+    }
+
+    /// The New Tab bar's kept rows, with a store only.
+    @Test func aTabMadeOrClosedMakesNoOtherTabsPartOfItsNewTabRows() async throws {
+        let keys = Self.keys(40)
+        let store = DaemonStore()
+        _ = store.apply(.connected(DaemonIdentity(generation: "tab-parts"), generationChanged: true))
+        store.apply(snapshot: Self.tree(keys, storm: Self.sizes[0], registry: nil))
+        let kept = NewTabPlacesKept(home: "/Users/you")
+        let events = Events()
+        let work = ObservationWork()
+        ObservationWork.$current.withValue(work) {
+            kept.follow(list: { [store] in store.workspaces },
+                        rows: { [weak kept] workspace in kept?.mapped(workspace, machine: nil) },
+                        changed: { events.count += 1 })
+        }
+        await LargeSessionFixture.drainMain()
+        await LargeSessionFixture.drainMain()
+        let first = kept.rows?.count ?? -1
+        try #require(first == keys.count, "setup: the holder kept the rows of \(first) workspaces after the drain, want \(keys.count)")
+
+        let places = NewTabPlaces(home: "/Users/you")
+        /// Every workspace's rows, made now with no kept part: what the kept rows must be.
+        func walk() -> [NewTabPlaces.Rows] { store.workspaces.map { places.rows(NewTabPlaces.Source($0), machine: nil) } }
+        /// Gives the storm workspace `tabs` tabs, lets the main actor run, and gives the tab parts that the holder's
+        /// work made for it and whether the kept rows are the walk's.
+        func step(_ tabs: Int) async -> (parts: Int, same: Bool) {
+            work.reset()
+            let before = events.count
+            store.apply(snapshot: Self.tree(keys, storm: tabs, registry: nil))
+            await LargeSessionFixture.drainMain()
+            await LargeSessionFixture.drainMain()
+            #expect(events.count > before || tabs == Self.sizes[0], "setup: the holder's `changed` did not run after the workspace got \(tabs) tabs")
+            return (work.byStep["NewTabPlaces.tabParts"] ?? 0, kept.rows == walk())
+        }
+
+        var costs: [(made: Int, closed: Int)] = []
+        for tabs in Self.sizes {
+            // The workspace at this size; its cost is no row.
+            let sized = await step(tabs)
+            let made = await step(tabs + 1)
+            let closed = await step(tabs)
+            #expect(sized.same && made.same && closed.same, "the kept rows are not the walk's rows at \(tabs) tabs (sized \(sized.same), made \(made.same), closed \(closed.same))")
+            costs.append((made.parts, closed.parts))
+        }
+        let (small, large) = (costs[0], costs[1])
+        print("TAB-PARTS new tab rows: a workspace of \(Self.sizes[0]) tabs: one tab made = \(small.made) parts, one tab closed = \(small.closed) parts; "
+            + "a workspace of \(Self.sizes[1]) tabs: one tab made = \(large.made) parts, one tab closed = \(large.closed) parts")
+        #expect(small.made == large.made, "one tab made: \(small.made) tab parts in a workspace of \(Self.sizes[0]) tabs and \(large.made) in one of \(Self.sizes[1]), want the same count")
+        #expect(small.closed == large.closed, "one tab closed: \(small.closed) tab parts in a workspace of \(Self.sizes[0]) tabs and \(large.closed) in one of \(Self.sizes[1]), want the same count")
+        #expect(large.made == 1 && large.closed == 0, "\(large.made) tab parts for one tab made and \(large.closed) for one tab closed, want the new tab's own and none")
+    }
+
+    /// The home view's agents, with the app's own feed. The tab that comes and goes is a terminal with no agent, so
+    /// the feed's list does not change with it; then a chat comes and goes, and the feed has one agent more and
+    /// one fewer, with one part made for the chat and none for its close.
+    @Test func aTabMadeOrClosedMakesNoOtherTabsPartOfItsAgentGlances() async throws {
+        let keys = Self.keys(40)
+        let services = try Self.app(keys, storm: Self.sizes[0], chats: true)
+        let store = services.machines.local.store
+        let glances = HomeAgentGlances(services: services)
+        let feed = glances.feed(while: { true })
+        let work = ObservationWork()
+        ObservationWork.$current.withValue(work) { feed.start() }
+        defer { feed.stop() }
+        await LargeSessionFixture.drainMain()
+        await LargeSessionFixture.drainMain()
+        let first = feed.observedItems?.count ?? -1
+        try #require(first == keys.count, "setup: the feed has the agents of \(first) workspaces after the drain, want \(keys.count)")
+
+        /// Every workspace's agents, made now with no kept part: what the feed's items must be.
+        func walk() -> [[HomeAgentGlance]] { services.machines.allWorkspaces.map { glances.glances(in: $0.0) } }
+        /// Gives the storm workspace `tabs` tabs, lets the main actor run, and gives the tab parts that the feed's
+        /// work made for it and whether the feed's items are the walk's.
+        func step(_ tabs: Int) async -> (parts: Int, same: Bool) {
+            work.reset()
+            store.apply(snapshot: Self.tree(keys, storm: tabs, chats: true))
+            await LargeSessionFixture.drainMain()
+            await LargeSessionFixture.drainMain()
+            return (work.byStep["HomeAgentGlances.tabParts"] ?? 0, feed.observedItems == walk())
+        }
+        /// The agents that the feed has now, over each workspace.
+        func shown() -> Int { feed.observedItems?.map(\.count).reduce(0, +) ?? -1 }
+
+        var costs: [(made: Int, closed: Int)] = []
+        var chats: [(made: Int, closed: Int)] = []
+        for tabs in Self.sizes {
+            // The workspace at this size; its cost is no row.
+            let sized = await step(tabs)
+            let made = await step(tabs + 1)
+            let closed = await step(tabs)
+            #expect(sized.same && made.same && closed.same, "the feed's agents are not the walk's agents at \(tabs) tabs (sized \(sized.same), made \(made.same), closed \(closed.same))")
+            costs.append((made.parts, closed.parts))
+
+            // The tab above is a terminal: no agent, so the feed's list is the same list before and after it. A chat
+            // made and closed changes the list: a feed that does not map the workspace again shows the old count.
+            let under = await step(tabs + 2)
+            let before = shown()
+            let chatMade = await step(tabs + 3)
+            let more = shown()
+            let chatClosed = await step(tabs + 2)
+            let fewer = shown()
+            #expect(under.same && chatMade.same && chatClosed.same, "the feed's agents are not the walk's agents at \(tabs + 2) tabs (sized \(under.same), one chat made \(chatMade.same), one chat closed \(chatClosed.same))")
+            #expect(more == before + 1 && fewer == before, "the feed has \(before), \(more) and \(fewer) agents (before, one chat made, one chat closed) at \(tabs + 2) tabs, want \(before), \(before + 1) and \(before)")
+            chats.append((chatMade.parts, chatClosed.parts))
+        }
+        let (chatsMade, chatsClosed) = (chats.map { $0.made }, chats.map { $0.closed })
+        #expect(chatsMade == [1, 1] && chatsClosed == [0, 0],
+                "one chat made = \(chatsMade) tab parts and one chat closed = \(chatsClosed) (a workspace of \(Self.sizes[0] + 2) tabs, then of \(Self.sizes[1] + 2)), want the new chat's own and none")
+        let (small, large) = (costs[0], costs[1])
+        let agents = feed.observedItems?.map(\.count).reduce(0, +) ?? -1
+        print("TAB-PARTS agent glances (\(agents) agents in the feed): a workspace of \(Self.sizes[0]) tabs: one tab made = \(small.made) parts, one tab closed = \(small.closed) parts; "
+            + "a workspace of \(Self.sizes[1]) tabs: one tab made = \(large.made) parts, one tab closed = \(large.closed) parts")
+        #expect(small.made == large.made, "one tab made: \(small.made) tab parts in a workspace of \(Self.sizes[0]) tabs and \(large.made) in one of \(Self.sizes[1]), want the same count")
+        #expect(small.closed == large.closed, "one tab closed: \(small.closed) tab parts in a workspace of \(Self.sizes[0]) tabs and \(large.closed) in one of \(Self.sizes[1]), want the same count")
+        #expect(large.made == 1 && large.closed == 0, "\(large.made) tab parts for one tab made and \(large.closed) for one tab closed, want the new tab's own and none")
+    }
+
+    /// A pane's FIRST tab closed (a terminal): no agent's part is made again. Each chat's part reads whether its
+    /// workspace is a window's Home, for the name that a chat with no title reads as, and that reads each pane's
+    /// first tab: a part that reads it itself is made again for each chat of the workspace.
+    @Test func aPanesFirstTabClosedMakesNoAgentsPartAgain() async throws {
+        let keys = Self.keys(40)
+        let services = try Self.app(keys, storm: Self.sizes[0], chats: true)
+        let store = services.machines.local.store
+        let glances = HomeAgentGlances(services: services)
+        let feed = glances.feed(while: { true })
+        let work = ObservationWork()
+        ObservationWork.$current.withValue(work) { feed.start() }
+        defer { feed.stop() }
+        await LargeSessionFixture.drainMain()
+        await LargeSessionFixture.drainMain()
+        let first = feed.observedItems?.count ?? -1
+        try #require(first == keys.count, "setup: the feed has the agents of \(first) workspaces after the drain, want \(keys.count)")
+
+        /// Every workspace's agents, made now with no kept part: what the feed's items must be.
+        func walk() -> [[HomeAgentGlance]] { services.machines.allWorkspaces.map { glances.glances(in: $0.0) } }
+        /// Gives the storm workspace the tabs `first..<tabs`, lets the main actor run, and gives the tab parts that
+        /// the feed's work made for it and whether the feed's items are the walk's.
+        func step(_ tabs: Int, from first: Int) async -> (parts: Int, same: Bool) {
+            work.reset()
+            store.apply(snapshot: Self.tree(keys, storm: tabs, chats: true, from: first))
+            await LargeSessionFixture.drainMain()
+            await LargeSessionFixture.drainMain()
+            return (work.byStep["HomeAgentGlances.tabParts"] ?? 0, feed.observedItems == walk())
+        }
+
+        var costs: [Int] = []
+        for tabs in Self.sizes {
+            // The workspace at this size; its cost is no row.
+            let sized = await step(tabs, from: 0)
+            let closed = await step(tabs, from: 1)
+            #expect(sized.same && closed.same, "the feed's agents are not the walk's agents at \(tabs) tabs (sized \(sized.same), first tab closed \(closed.same))")
+            costs.append(closed.parts)
+        }
+        print("TAB-PARTS agent glances, a pane's first tab closed: \(costs[0]) parts in a workspace of \(Self.sizes[0]) tabs, \(costs[1]) parts in a workspace of \(Self.sizes[1]) tabs")
+        #expect(costs == [0, 0], "a pane's first tab closed made \(costs[0]) tab parts in a workspace of \(Self.sizes[0]) tabs and \(costs[1]) in one of \(Self.sizes[1]), want none: no agent changed")
+    }
+
+    /// A report with no condition on its times: what one map of a workspace of 84 tabs costs when each agent's
+    /// part is kept. That map is the list of the workspace's tabs, each tab's input (for each chat, what the page
+    /// rule reads from the app's agent tabs, and one read of the workspace's name) and the join of the kept parts.
+    /// The list alone is timed beside it. Under an observation each run arms its own, as the feed's map does.
+    @Test func theTimeOfOneMapOfAWorkspaceWhoseAgentsAreKept() throws {
+        let services = try Self.app(Self.keys(40), storm: Self.sizes[1], chats: true)
+        let glances = HomeAgentGlances(services: services)
+        func tabs(_ workspace: WorkspaceModel) -> [TabModel] { workspace.screens.flatMap(\.panes).flatMap(\.tabs) }
+        let workspace = try #require(services.machines.allWorkspaces.map { $0.0 }.first { tabs($0).count == Self.sizes[1] },
+                                     "setup: the session has no workspace of \(Self.sizes[1]) tabs")
+        let kept = KeptParts<WorkspaceModel, TabModel, HomeAgentGlance?>(step: "TabPartsKeptTests.timed")
+        let work = ObservationWork()
+        let first = ObservationWork.$current.withValue(work) { glances.glances(in: workspace, kept: kept) }
+        try #require(work.byStep["TabPartsKeptTests.timed"] == Self.sizes[1], "setup: the first map did not make a part for each tab")
+        try #require(first == glances.glances(in: workspace), "setup: the kept agents are not the walk's agents")
+
+        let runs = 200
+        /// The mean time of one run of `body`, in milliseconds.
+        func mean(_ body: () -> Void) -> Double {
+            let start = ContinuousClock.now
+            for _ in 0 ..< runs { body() }
+            let elapsed = ContinuousClock.now - start
+            return (Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1e3) / Double(runs)
+        }
+        let list = mean { _ = tabs(workspace) }
+        let plain = mean { _ = glances.glances(in: workspace, kept: kept) }
+        let observed = mean { withObservationTracking { _ = glances.glances(in: workspace, kept: kept) } onChange: {} }
+
+        work.reset()
+        let again = ObservationWork.$current.withValue(work) { glances.glances(in: workspace, kept: kept) }
+        #expect(again == first && (work.byStep["TabPartsKeptTests.timed"] ?? 0) == 0, "a map of a workspace with no change made a part or other agents")
+        print("TAB-PARTS agent glances, one map of a workspace of \(Self.sizes[1]) tabs with each part kept (\(first.count) agents): \(plain) ms with no observation, "
+            + "\(observed) ms under an observation; the list of its tabs alone = \(list) ms (each the mean of \(runs) runs in the tests' build; a report, no condition)")
+    }
+
+    /// A value that the page rule of a blank chat (`RestoredNewTabPages.shows`) reads from the app's agent tabs.
+    /// That store is not observable: a change of one of these wakes no observation.
+    nonisolated enum PageFact: String, CaseIterable, Sendable {
+        /// A link opened the tab's chat.
+        case linkedSession
+        /// The tab's page reported its session.
+        case session
+        /// The tab was opened or shown: the store knows its tree.
+        case tabStore
+    }
+
+    /// A kept part does not hide a value that is not observable: the home view's agent of a tab follows what the
+    /// page rule reads from the app's agent tabs at each map of the tab's workspace, as it did when the map made
+    /// each tab's agent again. The blank chat is no agent while it shows the New Tab page; after the fact changed
+    /// and its workspace is mapped again (another tab of it is made), it is an agent.
+    @Test(arguments: PageFact.allCases)
+    func aKeptAgentFollowsAPageFactThatIsNotObservable(fact: PageFact) async throws {
+        let keys = Self.keys(40)
+        let services = try Self.app(keys, storm: Self.sizes[0], chats: true, blank: true)
+        let store = services.machines.local.store
+        let tabs = services.agentTabs
+        tabs.localHost = Self.host
+        // The storm workspace's first chat: its third tab.
+        let blank = try #require(store.tab(surface: SurfaceID(rawValue: 1003)), "setup: the storm workspace has no third tab")
+        try #require(blank.agentSession != nil && blank.agentSession?.session == nil, "setup: the third tab is not a chat with no session")
+        try #require(RestoredNewTabPages.shows(blank, in: tabs), "setup: the blank chat does not show the New Tab page")
+
+        let glances = HomeAgentGlances(services: services)
+        let feed = glances.feed(while: { true })
+        feed.start()
+        defer { feed.stop() }
+        await LargeSessionFixture.drainMain()
+        await LargeSessionFixture.drainMain()
+        /// Every workspace's agents, made now with no kept part: what the feed's items must be.
+        func walk() -> [[HomeAgentGlance]] { services.machines.allWorkspaces.map { glances.glances(in: $0.0) } }
+        /// The feed lists the blank chat as an agent.
+        func listed() -> Bool { feed.observedItems?.contains { $0.contains { $0.id == blank.id } } ?? false }
+        try #require(feed.observedItems == walk(), "setup: the feed's first agents are not the walk's")
+        try #require(!listed(), "setup: the feed lists the blank chat as an agent while it shows the New Tab page")
+
+        let key = tabs.tabKey(tabs.resolve(blank.id), machine: tabs.daemonListing(blank)?.machineID)
+        switch fact {
+        case .linkedSession: tabs.linkedSessions.insert(key)
+        case .session: tabs.sessions[key] = "s-late"
+        case .tabStore: tabs.tabStores[key] = store
+        }
+        try #require(!RestoredNewTabPages.shows(blank, in: tabs), "setup: the blank chat still shows the New Tab page after its \(fact.rawValue) changed")
+
+        // The next map of the blank chat's workspace: one more tab in it.
+        store.apply(snapshot: Self.tree(keys, storm: Self.sizes[0] + 1, chats: true, blank: true))
+        await LargeSessionFixture.drainMain()
+        await LargeSessionFixture.drainMain()
+        #expect(listed(), "the feed does not list the chat as an agent after its \(fact.rawValue) changed and its workspace was mapped again: its kept part is the old one")
+        #expect(feed.observedItems == walk(), "the feed's agents are not the walk's agents after the chat's \(fact.rawValue) changed and its workspace was mapped again")
+    }
+}

@@ -84,17 +84,30 @@ public final class SidebarFaceBatch {
         return CmuxSidebarFaceRange(offset: UInt32(clamping: offset), len: UInt32(clamping: strings.count - offset))
     }
 
-    /// Adds one row. `listTitle` is the tab list's title of a tab (`tabTitle`, else a New Tab page's title, else
-    /// its display title); `branded` whether its agent has a brand mark or its chat's harness its own icon.
-    /// `focusedPane` is the pane id the window last focused in the workspace: it ranks as the most recently
-    /// focused pane, over the daemon's `focused_at` (a default the app never writes); nil keeps the daemon's.
+    /// What the rules read of one tab, with no place in a batch: its facts, and its three texts beside them (a
+    /// range is a place in one batch's bytes). A caller makes it now or keeps it from batch to batch.
+    struct TabFacts {
+        fileprivate var row: CmuxSidebarFaceTab
+        fileprivate var title: String
+        fileprivate var cwd: String?
+        /// The tab list's title of the tab before a folder title is shortened.
+        var listTitle: String
+    }
+
+    /// Adds one row. `facts` gives each tab's facts (``facts(_:newTabPage:listTitle:branded:)``), asked one time
+    /// for each tab in pane order. `focusedPane` is the pane id the window last focused in the workspace: it ranks
+    /// as the most recently focused pane, over the daemon's `focused_at` (a default the app never writes); nil
+    /// keeps the daemon's.
     func append(_ workspace: WorkspaceModel, local: Bool, status: String?, selectedTab: (PaneModel) -> String?,
-                focusedPane: String? = nil,
-                newTabPages: Set<String>, listTitle: (TabModel) -> String, branded: (TabModel) -> Bool) {
+                focusedPane: String? = nil, facts: (TabModel) -> TabFacts) {
         var row = stage(workspace, selectedTab: selectedTab, focusedPane: focusedPane) { tab in
-            let title = listTitle(tab)
-            listTitles.append(title)
-            return encode(tab, newTabPage: newTabPages.contains(tab.id), listTitle: title, branded: branded(tab))
+            let own = facts(tab)
+            listTitles.append(own.listTitle)
+            var placed = own.row
+            placed.title = add(own.title)
+            placed.cwd = add(own.cwd)
+            placed.list_title = add(own.listTitle)
+            return placed
         }
         if let status = workspace.status {
             for entry in status.entries {
@@ -122,7 +135,7 @@ public final class SidebarFaceBatch {
     func appendPicks(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?, newTabPages: Set<String>) {
         var row = stage(workspace, selectedTab: selectedTab, focusedPane: nil) { tab in
             listTitles.append("")
-            return structure(tab, newTabPage: newTabPages.contains(tab.id))
+            return Self.structure(tab, newTabPage: newTabPages.contains(tab.id))
         }
         row.flags |= Bit.local
         row.status = Self.absent
@@ -167,7 +180,7 @@ public final class SidebarFaceBatch {
 
     /// What the picks read of every tab (`front_tab`, `work_tab`, `label_tab`'s chats, `face_tab`, `chat_tab`):
     /// its kind, whether it is a chat, a page, an app or a New Tab page, and its agent's state. No text.
-    private func structure(_ tab: TabModel, newTabPage: Bool) -> CmuxSidebarFaceTab {
+    private static func structure(_ tab: TabModel, newTabPage: Bool) -> CmuxSidebarFaceTab {
         var row = CmuxSidebarFaceTab()
         row.kind = switch tab.kind {
         case .pty: 0
@@ -202,12 +215,15 @@ public final class SidebarFaceBatch {
         if tab.titleActivity != nil { row.flags |= Bit.titleActivity }
     }
 
-    private func encode(_ tab: TabModel, newTabPage: Bool, listTitle: String, branded: Bool) -> CmuxSidebarFaceTab {
+    /// One tab's facts for ``append(_:local:status:selectedTab:focusedPane:facts:)``. `listTitle` is the tab list's
+    /// title of the tab (`tabTitle`, else a New Tab page's title, else its display title); `branded` whether its
+    /// agent has a brand mark or its chat's harness its own icon.
+    static func facts(_ tab: TabModel, newTabPage: Bool, listTitle: String, branded: Bool) -> TabFacts {
         var row = structure(tab, newTabPage: newTabPage)
-        addShellFacts(tab, to: &row)
         var flags = row.flags
         func mark(_ on: Bool, _ bit: UInt32) { if on { flags |= bit } }
-        row.list_title = add(listTitle)
+        mark(tab.commandSinceMs != nil, Bit.commandRunning)
+        mark(tab.titleActivity != nil, Bit.titleActivity)
         mark(!(tab.name?.isEmpty ?? true), Bit.named)
         mark(branded, Bit.branded)
         mark(tab.hasUnread, Bit.hasUnread)
@@ -227,7 +243,7 @@ public final class SidebarFaceBatch {
         row.attention_at_ms = tab.attention?.atMs ?? 0
         row.agent_updated_ms = tab.agent?.updatedAtMs ?? 0
         row.notification_created_ms = tab.notification?.createdAtMs ?? 0
-        return row
+        return TabFacts(row: row, title: tab.titleText, cwd: tab.cwd, listTitle: listTitle)
     }
 
     /// Maps every row of the batch in one call. Nil when the rules could not read the request.

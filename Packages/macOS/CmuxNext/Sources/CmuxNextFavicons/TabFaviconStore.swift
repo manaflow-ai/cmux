@@ -97,6 +97,10 @@ public final class TabFaviconStore {
         return image
     }
 
+    /// Counts each change of the loader's own icons, which ``image(for:profile:tab:)`` hands out (`adopt`) and which
+    /// are not observable: a caller that keeps what it made with an icon makes it again when this count is another one.
+    public var loaderCacheChanges: Int { loader.cachedFaviconChanges }
+
     /// The icon at `address` for `profile` when it is already here; never fetches (a list
     /// of every bookmark must not fetch every site's icon).
     public func cachedImage(for address: String, profile: BrowserProfileID) -> TabImage? {

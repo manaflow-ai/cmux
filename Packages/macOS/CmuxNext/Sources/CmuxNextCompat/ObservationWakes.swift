@@ -23,9 +23,15 @@ public final class ObservationWakes: Sendable {
     private let wakes = Mutex<[String: Int]>([:])
     /// The woken observer instances (a stream's change state, a tracking, a loop), with their sites.
     private let instances = Mutex<[ObjectIdentifier: String]>([:])
+    /// Runs after each wake is counted, inside the change callback that counted it (``init(atWake:)``).
+    private let atWake: (@Sendable () -> Void)?
 
     /// A counter at zero.
-    public init() {}
+    public init() { atWake = nil }
+
+    /// A counter at zero for a test of what a change callback itself does: `atWake` runs inside the callback of each
+    /// tracking that woke, after its wake is counted (a write there is a change inside a change).
+    package init(atWake: @escaping @Sendable () -> Void) { self.atWake = atWake }
 
     /// The wakes counted so far.
     public var count: Int { wakes.withLock { $0.values.reduce(0, +) } }
@@ -43,6 +49,7 @@ public final class ObservationWakes: Sendable {
         let key = "\(site.fileID):\(site.line)"
         current.wakes.withLock { $0[key, default: 0] += 1 }
         current.instances.withLock { $0[instance] = key }
+        current.atWake?() // after both locks: its write can wake a tracking, which records here again
     }
 }
 
