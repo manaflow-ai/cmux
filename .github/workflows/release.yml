@@ -104,7 +104,7 @@ jobs:
     # macOS 15 above because Zig 0.15.2 cannot link it on macOS 26.
     # Import the Apple Developer ID intermediate chain into the build keychain
     # below so signing does not depend on mutable runner login-keychain state.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     # Notarization wait times vary on Apple's side. The standalone Computer Use
     # helper starts once the thin variants are cut (the first signing step) and
     # overlaps the remaining signing work; the outer app and final DMG still
@@ -915,6 +915,10 @@ jobs:
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
+          # A person installs and checks a dry run's DMGs, sometimes days after it ran (over a weekend), and
+          # nothing else reads them: 7 days, not the 90-day default it had before cmux#43201 or that PR's 3.
+          # About 14 dry runs at 332 MB each is under 5 GB held.
+          retention-days: 7
           name: cmux-release-dry-run
           path: |
             cmux-macos.dmg
