@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 648,
+  "count": 651,
   "sections": [
     {
       "id": "general",
@@ -1956,6 +1956,14 @@
           "group": "Agent Chat"
         },
         {
+          "key": "agentPane.display.font.faces",
+          "title": "Chat Font Files",
+          "help": "A font file for each family, such as \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\".",
+          "kind": "string_map",
+          "default": null,
+          "group": "Agent Chat"
+        },
+        {
           "key": "agentPane.display.font.lineHeight",
           "title": "Chat Line Height",
           "help": "",
@@ -1981,6 +1989,14 @@
             "serif",
             "mono"
           ]
+        },
+        {
+          "key": "agentPane.display.font.proseFamily",
+          "title": "Chat Reply Font Family",
+          "help": "The font of the agent's replies. When set, it replaces the Chat Font.",
+          "kind": "font_family",
+          "default": null,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.font.size",
@@ -2013,11 +2029,17 @@
             "source-sans",
             "geist",
             "cmux-sans",
-            "cmux-sans-squat",
-            "cmux-sans-candy",
             "hanken",
             "atkinson"
           ]
+        },
+        {
+          "key": "agentPane.display.font.uiFamily",
+          "title": "Chat Interface Font Family",
+          "help": "A font family or a comma list of them. When set, it replaces the Chat Interface Font.",
+          "kind": "font_family",
+          "default": null,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.fullWidth",
@@ -3998,9 +4020,10 @@
           "title": "Group Background",
           "help": "How a group draws. Folders shows plain folders; Sections shows plain headings.",
           "kind": "choice",
-          "default": "auto",
+          "default": "folder",
           "group": "Sidebar",
           "values": [
+            "folder",
             "auto",
             "glass",
             "solid",
