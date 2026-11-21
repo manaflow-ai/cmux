@@ -306,7 +306,7 @@ impl Hub {
 
     /// The command that titles a chat on `harness`, or None (none applies,
     /// or `titles.generate` is off).
-    async fn title_command(&self, harness: &str) -> Option<tokio::process::Command> {
+    pub(super) async fn title_command(&self, harness: &str) -> Option<tokio::process::Command> {
         // Never the shared temp dir or the daemon's folder: Claude Code runs
         // `rg --files --hidden` over its cwd at start, and one titler per
         // finished chat over all of `$TMPDIR` pegged the Mac's CPU.
@@ -494,7 +494,7 @@ fn request(prompt: &str, reply: &str, first: bool) -> String {
 }
 
 /// Run a title command with the request on stdin; its cleaned first line.
-async fn run(mut cmd: tokio::process::Command, request: &str) -> Option<String> {
+pub(super) async fn run(mut cmd: tokio::process::Command, request: &str) -> Option<String> {
     cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
     let mut child = cmd.spawn().map_err(|e| tracing::debug!("title command: {e}")).ok()?;
     let pid = child.id();
@@ -526,7 +526,7 @@ async fn run(mut cmd: tokio::process::Command, request: &str) -> Option<String> 
 
 /// The title in a model's answer: its first line without quotes, a
 /// `Title:` label or trailing punctuation, at most 6 words and 60 chars.
-fn clean(out: &str) -> Option<String> {
+pub(super) fn clean(out: &str) -> Option<String> {
     let line = out.lines().map(str::trim).find(|l| !l.is_empty())?;
     let line = line.strip_prefix("Title:").unwrap_or(line);
     let quotes: &[char] = &['"', '\'', '`', '*', '“', '”', '‘', '’'];

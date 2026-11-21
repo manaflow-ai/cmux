@@ -134,7 +134,7 @@ One JSON object per step:
     {
       "rule": "a-head-gap",
       "rowId": "working-user-22",
-      "detail": "working heads turn 2 0px under its opening user (want >= 24)"
+      "detail": "working heads turn 2 0px under its opening user (want >= 16)"
     }
   ],
   "rows": [

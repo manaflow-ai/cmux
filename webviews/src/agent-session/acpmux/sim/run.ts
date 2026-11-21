@@ -12,7 +12,7 @@
 import { AcpmuxDirectClient, type EventRecord } from "../direct";
 import { turnViewFrom, type TurnView } from "../conversation/turns";
 import { layoutConversation, type AcpmuxRow, type AcpmuxSnapshot, type ConversationLayout } from "../model";
-import { TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_TURN_GAP } from "../transcriptGrid";
+import { ROW_GAP_LOOKS, TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_TURN_GAP } from "../transcriptGrid";
 import type { SimScenario, SimStep } from "./script";
 
 /** One drawn row as a probe sees it. */
@@ -211,7 +211,7 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       },
       last,
     );
-    shaped = view === last ? 0 : view.rows.length - view.reusedRows;
+    shaped = view === last ? 0 : view.rows.length - (view.reusedRows ?? 0);
     last = view;
     const rows = view.rows;
     const layout = layoutConversation(rows, width, cache, LINE, undefined, previous);
@@ -287,11 +287,15 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
           probe.id,
           `${probe.kind} opens turn ${probe.turn} ${gap}px under ${above.kind} ${above.id} (want >= ${want})`,
         );
-      if (probe.head && above.opens && gap < TRANSCRIPT_BLOCK_GAP - 0.5)
+      // A turn's head (Thinking, Working for) under the line that opened it: the block gap under a person's
+      // prompt; under another agent's notice or message, the gap "Worked for" stands under any one-line row
+      // (transcriptGrid.ts ROW_GAP_LOOKS.shipped.workedAfterLine, #48591).
+      const headWant = above.received ? ROW_GAP_LOOKS.shipped.workedAfterLine : TRANSCRIPT_BLOCK_GAP;
+      if (probe.head && above.opens && gap < headWant - 0.5)
         flag(
           "a-head-gap",
           probe.id,
-          `${probe.kind} heads turn ${probe.turn} ${gap}px under its opening ${above.kind} (want >= ${TRANSCRIPT_BLOCK_GAP})`,
+          `${probe.kind} heads turn ${probe.turn} ${gap}px under its opening ${above.kind} (want >= ${headWant})`,
         );
     }
 
