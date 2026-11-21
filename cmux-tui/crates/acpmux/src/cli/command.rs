@@ -663,15 +663,41 @@ pub enum Command {
         since: Option<String>,
     },
     #[command(hide = true)]
-    TagCmd { session: String, assignments: Vec<String>, remove: Vec<String>, ttl: Option<u64> },
+    TagCmd {
+        session: String,
+        assignments: Vec<String>,
+        #[arg(long)]
+        remove: Vec<String>,
+        #[arg(long)]
+        ttl: Option<u64>,
+    },
     #[command(hide = true)]
     SessionSearch(crate::cli::session_search::SearchArgs),
     #[command(hide = true)]
-    RulesCmd { session: String, rules: Option<String>, clear: bool },
+    RulesCmd {
+        session: String,
+        rules: Option<String>,
+        #[arg(long)]
+        clear: bool,
+    },
     #[command(hide = true)]
-    LimitsCmd { session: String, max: Option<u32>, clear: bool },
+    LimitsCmd {
+        session: String,
+        #[arg(long)]
+        max: Option<u32>,
+        #[arg(long)]
+        clear: bool,
+    },
     #[command(hide = true)]
-    TurnCapCmd { session: String, minutes: Option<u64>, off: bool, clear: bool },
+    TurnCapCmd {
+        session: String,
+        #[arg(long)]
+        minutes: Option<u64>,
+        #[arg(long)]
+        off: bool,
+        #[arg(long)]
+        clear: bool,
+    },
     #[command(hide = true, subcommand)]
     QueueCmd(crate::cli::session_queue::QueueCmd),
     #[command(hide = true)]
@@ -817,7 +843,12 @@ pub enum Command {
     },
     /// `daemon start`: status, starting a daemon first when none runs.
     #[command(hide = true)]
-    DaemonStart { person_key_fd: Option<i32>, show_token: bool },
+    DaemonStart {
+        #[arg(long)]
+        person_key_fd: Option<i32>,
+        #[arg(long)]
+        show_token: bool,
+    },
     /// `daemon enroll`: give the running daemon the person key (the VM provisioning exec).
     #[command(hide = true)]
     DaemonEnroll { person_key_fd: i32 },
@@ -2091,7 +2122,9 @@ mod help_contract_tests {
 
     /// The class behind `move-sessions`' "HOST not provided": a command field with no `#[arg]`
     /// is a positional, so a `bool` becomes a positional switch nobody can type and a value after
-    /// a list positional can never be reached. No command, hidden or shown, may have either.
+    /// a list positional can never be reached. No command, hidden or shown, may have either: the
+    /// hidden flat forms (`tag-cmd`, `rules-cmd`, `limits-cmd`, `turn-cap-cmd`, `daemon-start`)
+    /// had them too, and clap refused to build their parsers at all.
     #[test]
     fn no_command_has_a_flag_shaped_positional_or_one_after_a_list() {
         use clap::CommandFactory as _;
