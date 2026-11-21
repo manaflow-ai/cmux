@@ -633,6 +633,7 @@
     "setting.home.server": "hosted",
     "setting.imessage.automationSkipped": false,
     "setting.imessage.enabled": false,
+    "setting.labs.agentCustomization": false,
     "setting.labs.liveCode": false,
     "setting.labs.machineJoin": false,
     "setting.labs.previewFeatures": false,
