@@ -331,6 +331,7 @@ extension FieldChrome {
     /// `fill`: the field's tint over a see-through window (the web composer's surface there), so the
     /// placeholder reads on it as on the web field; nil keeps the clear system glass.
     func applyTheme(light: Bool, symbol: NSColor, edge: NSColor? = nil, fill: NSColor? = nil) {
+        if field.tintColor != fill { field.tintColor = fill }
         field.wantsLayer = true
         if let layer = field.layer {
             // NSGlassEffectView rounds its glass internally, independently of its backing

@@ -339,7 +339,7 @@ public struct HomePalette: Hashable, Sendable {
         // The token alone held 2.7:1 (light) and 2.4:1 (dark) on art (be805d96): the clear field shows
         // the picture under the text. The web composer lays its surface there (the solid at the chrome
         // glass tint, composerStates.css), so the native field takes the same fill.
-        p.composeFillOverGlass = nil
+        p.composeFillOverGlass = fill.alpha < 1 ? fieldFillOverGlass : nil
         return p
     }
 

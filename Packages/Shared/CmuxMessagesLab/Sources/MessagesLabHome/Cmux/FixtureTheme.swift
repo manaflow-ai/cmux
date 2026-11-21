@@ -86,7 +86,7 @@ struct FixtureTheme: Equatable, Sendable {
             waveform = light ? c(p.placeholder) : NSColor(white: 212 / 255, alpha: 0.556)
             caret = light || !measured ? c(p.caret) : Fixture.p3(63, 143, 247)
             fieldEdge = c(p.composeStroke)
-            fieldFill = nil
+            fieldFill = p.composeFillOverGlass.map(c)
             chipFill = light ? NSColor(white: 0, alpha: 0.08) : NSColor(white: 1, alpha: 0.12)
         }
 
