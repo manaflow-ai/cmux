@@ -5,9 +5,12 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { SurgeHoldRow } from "./SurgeHoldRow";
 import type { SurgeHold } from "./conversation/surgeHold";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+// Loaded with a document in place (import-order-lint.test.ts): the DOM below installs per test.
+const { SurgeHoldRow } = await importWithDom(() => import("./SurgeHoldRow"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
