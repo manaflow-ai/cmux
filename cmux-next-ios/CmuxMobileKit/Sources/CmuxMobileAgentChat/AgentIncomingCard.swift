@@ -256,13 +256,17 @@ struct AgentIncomingCard: View {
     /// closed message never previews as `swift`, `| a | b |`, `[ ] todo` or `[docs](https://…)`.
     nonisolated static func firstLine(_ text: String) -> String { firstLine(text, depth: 0) }
 
-    /// How many quotes and list items deep a preview reads the Markdown inside; past it, the rest
-    /// is read as text with its quote and list marks dropped. A message can nest without end
-    /// (3,000 `>`), and each level parses it again, which overflowed a phone's stack.
+    /// How many quotes and list items deep a preview reads the Markdown inside by parsing it again.
+    /// A message can nest without end (3,000 `>`), and each level was a parse and a stack frame,
+    /// which overflowed a phone's stack. Past it, every line's leading quote, bullet, number and
+    /// task marks are dropped at once, and what is left is read as Markdown one last time (so a
+    /// heading or fence at the bottom still loses its marks).
     private nonisolated static let nestingLimit = 4
 
-    private nonisolated static func firstLine(_ text: String, depth: Int) -> String {
-        guard depth < nestingLimit else { return unnestedFirstLine(text) }
+    private nonisolated static func firstLine(_ text: String, depth: Int, flattened: Bool = false) -> String {
+        if depth >= nestingLimit, !flattened {
+            return firstLine(withoutNesting(text), depth: depth, flattened: true)
+        }
         var math: String?
         for block in MarkdownDocument(parsing: text).blocks {
             let lines: [String]
@@ -277,11 +281,11 @@ struct AgentIncomingCard: View {
                 lines = plainInline(text).split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
             case .quote(let text):
                 // A quote holds Markdown of its own (a fence, a heading): its first line, read so.
-                lines = [firstLine(text, depth: depth + 1)]
+                lines = [flattened ? unnestedFirstLine(text) : firstLine(text, depth: depth + 1)]
             case .list(let list):
                 // Only the first item with text is shown, so the rest are not read.
                 for item in list.items {
-                    let line = itemFirstLine(item.text, depth: depth + 1)
+                    let line = flattened ? unnestedFirstLine(item.text) : itemFirstLine(item.text, depth: depth + 1)
                     if !line.isEmpty { return line }
                 }
                 continue
@@ -316,12 +320,21 @@ struct AgentIncomingCard: View {
         return firstLine(item, depth: depth)
     }
 
-    /// Past ``nestingLimit``: the first line with text, its leading quote, bullet, number and task
-    /// marks dropped, read for its inline marks.
+    /// Every line of `text` without its leading quote, bullet, number and task marks.
+    nonisolated private static func withoutNesting(_ text: String) -> String {
+        text.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.replacingOccurrences(of: nestingMarks, with: "", options: .regularExpression) }
+            .joined(separator: "\n")
+    }
+
+    private nonisolated static let nestingMarks = #"^(?:[ \t]*(?:>|[-*+](?=\s)|\d{1,9}[.)](?=\s)|\[[ xX]\](?=\s)))+[ \t]*"#
+
+    /// Nesting that is still there after ``withoutNesting(_:)`` (a quote inside a list item's
+    /// joined text): its first line with text, marks dropped, read for its inline marks only.
     nonisolated private static func unnestedFirstLine(_ text: String) -> String {
         for raw in text.split(whereSeparator: \.isNewline) {
-            let line = raw.replacingOccurrences(
-                of: #"^(?:\s*(?:>|[-*+](?=\s)|\d{1,9}[.)](?=\s)|\[[ xX]\](?=\s)))+\s*"#, with: "", options: .regularExpression)
+            let line = raw.replacingOccurrences(of: nestingMarks, with: "", options: .regularExpression)
+                .replacingOccurrences(of: #"^#{1,6}\s+|\s+#+\s*$"#, with: "", options: .regularExpression)
             let plain = plainInline(line).trimmingCharacters(in: .whitespaces)
             if !plain.isEmpty { return plain }
         }
