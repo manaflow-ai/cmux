@@ -341,12 +341,19 @@ export function mentionItems({
 }
 
 /// The row Return or Tab picks: the one the person moved to (by key, so it stays put when the
-/// files land around it), else the first. While the files for the word are still on their way, a
-/// chat is not picked unasked: a quick `@app⏎` means the file, which lists a moment later. -1: none.
+/// files land around it), else the first. While the files for the word are still on their way, the
+/// first row that is not a chat (a quick `@app⏎` means the file), else the first: a listed row is
+/// always chosen, so Return never falls through to send. -1: no rows.
 export function mentionSelection(items: readonly MentionItem[], activeKey: string | undefined, pending: boolean) {
   const chosen = activeKey === undefined ? -1 : items.findIndex((item) => item.key === activeKey);
   if (chosen >= 0) return chosen;
-  return pending ? items.findIndex((item) => item.kind !== "session") : items.length > 0 ? 0 : -1;
+  if (items.length === 0) return -1;
+  return pending
+    ? Math.max(
+        0,
+        items.findIndex((item) => item.kind !== "session"),
+      )
+    : 0;
 }
 
 /// What a pick writes in place of the `@word`: a file's or folder's `@path ` (a folder's with its

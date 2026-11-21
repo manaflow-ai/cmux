@@ -424,6 +424,35 @@ export function defaultSelection(rows: readonly ScreenRow[]): number {
   return rows[0] ? 0 : -1;
 }
 
+/// The row Return takes for the text, the one path Return, Send and the composer's Return hint
+/// read: the highlighted row (`current`) of the shown `rows`; with the list closed, the top of
+/// `suggested` (closed suggestions still answer Return: "reddit" opens reddit.com); with no row
+/// highlighted (↑ from the top row), the top one when the text is an address, since an address is
+/// never sent as a prompt. Staged files make Return send a prompt unless the row asks or creates
+/// (navigation keeps them in the chat). Undefined: Return sends the text as a prompt.
+export function returnRow(
+  rows: readonly ScreenRow[],
+  suggested: readonly ScreenRow[],
+  current: number,
+  context: { address: boolean; attachments: number },
+): { row: ScreenRow | undefined; takes: boolean } {
+  const list = rows.length ? rows : suggested;
+  const opensTop = !rows.length || (current < 0 && context.address);
+  const row = opensTop ? list[defaultSelection(list)] : rows[current];
+  const takes = !!row && (context.attachments === 0 || row.type === "ask" || row.type === "create");
+  return { row, takes };
+}
+
+/// Whether the top row is the prompt for the composer's own agent (Ask, for the agent the model
+/// chip names). That row is what Return does with plain text, which the chip and Send already say,
+/// so the list draws it as no row (David Beyer 2026-11-20: "the Ask Claude code thing is confusing
+/// 'cause it's not clear that I'm ... already set on Claude Code"). It stays the list's first stop:
+/// Down leaves it for the first drawn row and Up comes back to it, Return's highlight on nothing.
+export function promptLeads(rows: readonly ScreenRow[], harness: string | undefined): boolean {
+  const top = rows[0];
+  return top?.type === "ask" && top.harness === harness;
+}
+
 /// The inline address completion accepted by Right or End. Only a top row that is an address and
 /// extends the typed prefix qualifies: an open result (the typed address or a top site) or a visited
 /// page (history, as Chrome's omnibox completes it). Prompt, search, tab and workspace rows stay

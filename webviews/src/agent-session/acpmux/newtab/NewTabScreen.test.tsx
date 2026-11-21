@@ -128,6 +128,12 @@ async function openMachines(button: HTMLElement) {
   await act(async () => item!.click());
 }
 
+/// The Down presses from the field to drawn row `index`: one more while no row is lit, as when the prompt
+/// leads with no row of its own (David Beyer 2026-11-20).
+function downsTo(index: number) {
+  return index + (document.querySelector(".nt-row.is-selected") ? 0 : 1);
+}
+
 function promptValue(field = container.querySelector<MarkdownFieldElement>(".nt-field")) {
   return (field?.acpmuxMarkdownField?.plainText() ?? "").replace(/\n$/, "");
 }
@@ -157,7 +163,8 @@ test.each(["minimal", "default"] as const)("%s home offers creation only as matc
     const index = rows.findIndex((row) => row.textContent?.includes(translateNewTab(`create.${kind}`)));
     expect(index).toBeGreaterThanOrEqual(0);
     if (kind !== "chat") continue;
-    for (let i = 0; i < index; i++) await press(field, "ArrowDown");
+    const downs = downsTo(index);
+    for (let i = 0; i < downs; i++) await press(field, "ArrowDown");
     await press(field, "Enter");
   }
   expect(asks.length).toBe(1);
@@ -233,7 +240,8 @@ test.each(["terminal", "browser", "chat"] as const)(
       (row) => row.dataset.type === "create" && row.textContent?.includes(translateNewTab(`create.${kind}`)),
     );
     expect(index).toBeGreaterThanOrEqual(0);
-    for (let i = 0; i < index; i++) await press(field, "ArrowDown");
+    const downs = downsTo(index);
+    for (let i = 0; i < downs; i++) await press(field, "ArrowDown");
     await press(field, "Enter");
     expect(creates).toEqual(kind === "chat" ? [] : [kind]);
     expect(asks.length).toBe(kind === "chat" ? 1 : 0);
@@ -856,7 +864,7 @@ test("Return navigates the page's tab and Option-Return asks for a new tab besid
 // A last pick names the chip's harness before acpmux lists its harnesses (or when that read failed
 // and nothing has read again), so the chip read "Opus 5.5" over a list with no Ask row, and Return
 // took the prompt to Google. Whatever the chip names, Return asks.
-test("with a remembered pick and no catalog, the Ask row leads and Return asks instead of searching", async () => {
+test("with a remembered pick and no catalog, Return asks instead of searching", async () => {
   const asked: string[] = [];
   const searched: string[] = [];
   saved.set("localStorage", scope.localStorage);
@@ -878,7 +886,8 @@ test("with a remembered pick and no catalog, the Ask row leads and Return asks i
     field.acpmuxMarkdownField!.type("look at the ios connection failures");
   });
   const rows = [...document.querySelectorAll(".nt-row")].map((row) => row.textContent ?? "");
-  expect(rows[0]).toContain("Claude Code");
+  // The prompt is Return's with no row of its own (David Beyer 2026-11-20); the web search is a row.
+  expect(document.querySelector('.nt-row[data-type="ask"]')).toBeNull();
   expect(rows.some((row) => row.includes("Search the web"))).toBe(true);
   await press(field, "Enter");
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -1024,7 +1033,7 @@ test("shell mode asks for no command list and starts no chat for a path in its c
   expect(container.querySelector(".nt-field .acpmux-slash-token")).toBeNull();
 });
 
-test("a cleared draft forgets the row the arrows chose: the same word typed again and Return sends", async () => {
+test("a listed row is always highlighted: Return picks it, and after Esc Return sends the word", async () => {
   const asks: unknown[][] = [];
   const skill = { name: "review-pr", description: "", source: "skill" as const };
   await act(async () => {
@@ -1036,15 +1045,22 @@ test("a cleared draft forgets the row the arrows chose: the same word typed agai
       />,
     );
   });
+  // Leo, 2026-11-20: "i click enter and it should do it".
   let field = await typePrompt("fix /pr");
   expect(container.querySelector("#acpmux-slash-menu")).not.toBeNull();
-  await press(field, "ArrowDown");
-  await typePrompt("");
-  field = await typePrompt("fix /pr");
-  // The same word typed again opens the list again.
-  expect(container.querySelector("#acpmux-slash-menu")).not.toBeNull();
+  // One completion UI: the system's spelling and inline predictions are off while the list shows.
+  const editor = () => field.querySelector<HTMLElement>("[contenteditable]")!;
+  expect(editor().getAttribute("spellcheck")).toBe("false");
+  expect(editor().getAttribute("writingsuggestions")).toBe("false");
   await press(field, "Enter");
-  expect(promptValue()).not.toContain("/review-pr");
+  expect(promptValue()).toContain("/review-pr");
+  expect(container.querySelector("#acpmux-slash-menu")).toBeNull();
+  expect(editor().getAttribute("writingsuggestions")).toBeNull();
+  expect(asks).toEqual([]);
+  field = await typePrompt("fix /pr");
+  expect(container.querySelector("#acpmux-slash-menu")).not.toBeNull();
+  await press(field, "Escape");
+  await press(field, "Enter");
   expect(asks.map((ask) => ask[1])).toEqual(["fix /pr"]);
 });
 
@@ -2220,6 +2236,106 @@ test("Return runs a typed shell command in a terminal; Cmd-Return still asks the
   await press(field, "Enter", { metaKey: true });
   expect(shells).toEqual(["git status"]);
   expect(asks.map((ask) => ask[1])).toEqual(["git status"]);
+});
+
+// David Beyer 2026-11-20 (first-run call): "the Ask Claude code thing is confusing 'cause it's not clear that I'm ...
+// already set on Claude Code". The prompt for the chip's own agent is what Return does with plain text, which the
+// chip and Send already say: the suggestions draw it as no row, nothing is highlighted, and Return asks.
+test("a prompt for the chip's agent is no suggestion row: nothing is highlighted and Return asks", async () => {
+  const asks: unknown[][] = [];
+  const searches: string[] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        template="minimal"
+        snapshot={noChat([])}
+        onAsk={(...args) => void asks.push(args)}
+        onSearch={(text) => void searches.push(text)}
+      />,
+    );
+  });
+  const field = await typePrompt("fix the failing test");
+  expect(document.querySelector('.nt-row[data-type="ask"]'), "no Ask row for the chip's own agent").toBeNull();
+  expect(document.querySelector(".nt-row.is-selected"), "no row is Return's").toBeNull();
+  expect(document.querySelector(".nt-row-return"), "no row shows Return's keycap").toBeNull();
+  expect(document.querySelector(".nt-send")?.getAttribute("data-returns"), "Send is the prompt's arrow").toBeNull();
+  await press(field, "Enter");
+  expect(asks.map((ask) => ask[1])).toEqual(["fix the failing test"]);
+  expect(searches).toEqual([]);
+});
+
+test("Down from the prompt highlights the first drawn row, Up goes back to the prompt", async () => {
+  const asks: unknown[][] = [];
+  const searches: string[] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        template="minimal"
+        snapshot={noChat([])}
+        onAsk={(...args) => void asks.push(args)}
+        onSearch={(text) => void searches.push(text)}
+      />,
+    );
+  });
+  const field = await typePrompt("fix the failing test");
+  const rows = () => [...document.querySelectorAll<HTMLElement>(".nt-popover .nt-row")];
+  expect(rows().length).toBeGreaterThan(0);
+  await press(field, "ArrowDown");
+  expect(rows()[0]!.classList.contains("is-selected"), "the first drawn row").toBe(true);
+  expect(rows()[0]!.querySelector(".nt-row-return"), "Return's keycap on it").toBeTruthy();
+  await press(field, "ArrowUp");
+  expect(document.querySelector(".nt-row.is-selected"), "back on the prompt").toBeNull();
+  // The prompt is one stop: one more Up wraps to the last drawn row, and Down from it comes back.
+  await press(field, "ArrowUp");
+  expect(rows().at(-1)!.classList.contains("is-selected"), "the last drawn row").toBe(true);
+  await press(field, "ArrowDown");
+  expect(document.querySelector(".nt-row.is-selected"), "the prompt again").toBeNull();
+  await press(field, "Enter");
+  expect(asks.map((ask) => ask[1])).toEqual(["fix the failing test"]);
+  expect(searches).toEqual([]);
+});
+
+// David Beyer 2026-11-20: words he typed into New Tab ran as a shell command on Return. What Return does shows
+// before Return: the highlighted row ends in ↩ and Send takes that row's glyph and name.
+test("a shell command's Run row shows Return's keycap and Send names it", async () => {
+  await act(async () => {
+    root!.render(<NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} />);
+  });
+  await typePrompt("ls -la");
+  const run = document.querySelector<HTMLElement>('.nt-row[data-type="run"]');
+  expect(run?.getAttribute("aria-selected")).toBe("true");
+  expect(run?.querySelector(".nt-row-return")).toBeTruthy();
+  const send = document.querySelector<HTMLElement>(".nt-send");
+  expect(send?.getAttribute("data-returns")).toBe("run");
+  expect(send?.getAttribute("aria-label")).toBe(translateNewTab("row.runInTerminal"));
+  expect(send?.querySelector('svg[data-icon="terminal"]')).toBeTruthy();
+});
+
+test("a lone word that also names a program asks on Return, Run in Terminal is one row down", async () => {
+  const shells: string[] = [];
+  const asks: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        template="minimal"
+        snapshot={noChat([])}
+        onShell={(command) => void shells.push(command)}
+        onAsk={(...args) => void asks.push(args)}
+      />,
+    );
+  });
+  let field = await typePrompt("test");
+  expect(document.querySelector('.nt-row[data-type="run"]')?.getAttribute("aria-selected")).toBe("false");
+  await press(field, "Enter");
+  expect(shells).toEqual([]);
+  expect(asks.map((ask) => ask[1])).toEqual(["test"]);
+  field = await typePrompt("test");
+  await press(field, "ArrowDown");
+  await press(field, "Enter");
+  expect(shells).toEqual(["test"]);
 });
 
 // Lawrence 2026-11-19 (New Tab typing lag): a key in the New Tab field renders what the key changed, never the

@@ -70,6 +70,7 @@
 # start longest first, so a long file never runs last alone.
 # CMUX_WEB_TEST_DURATIONS_OUT: optional file to write each file's first-run seconds into, as JSON,
 # for the next manifest (webviews_test_shards.py merge).
+# CMUX_WEB_TEST_LIST_ONLY: 1 prints the files this run (this shard) would test, one a line, and runs none.
 #
 # Files that start a Vite dev server run after the rest: the agent pane and gallery configs
 # (vite.config.acpmux-pane.mjs, vite.config.gallery-dev.ts), and files that spawn `vp dev`
@@ -372,6 +373,12 @@ count="$(tr -cd '\0' < "$results/files" | wc -c | tr -d ' ')"
 if [ "$count" -eq 0 ]; then
   echo "error: no webviews test files found under $PWD${shard:+ for shard $shard/$shard_count}" >&2
   exit 1
+fi
+# CMUX_WEB_TEST_LIST_ONLY=1: print this shard's files, one a line, and run nothing (webviews_pr_shards.py
+# picks a pull request's shards from the very split each shard makes here).
+if [ "${CMUX_WEB_TEST_LIST_ONLY:-}" = 1 ]; then
+  tr '\0' '\n' < "$results/files"
+  exit 0
 fi
 xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/serial" || true
 serial="$(tr -cd '\0' < "$results/serial" | wc -c | tr -d ' ')"
