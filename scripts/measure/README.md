@@ -301,3 +301,13 @@ Retired in the cmux-bench PR: `fresh-home-launch-ab.sh` (same measurement as `ni
 - `hotkey-history.sh`: runs an action-catalog regression test, not a measurement; belongs with the tests.
 - `export-action-catalog-dump.sh`, `export-action-surfaces.sh`, `export-settings-artifacts.sh`: generators, not measurements; they fit better in a generators directory.
 - `update-e2e.sh`, `crash-gate.sh`, `stable-next-smoke.sh`, `terminal-cmd-click.sh`: correctness checks that run on the fleet, not measurements.
+
+## Multi-angle stress bench
+
+`scripts/measure/stress-bench.sh` builds one tagged cmux NEXT app on an exclusive GUI fleet worker and runs short load ramps for chats, terminals, browser, workspaces, input, system and lifecycle. It writes one JSON file per ramp under `artifacts/stress-bench/<scenario>/`, plus `stress-bench.json` and the readable `stress-bench.md` summary.
+
+```sh
+cmux-ci run --class exclusive --measurement --display \
+  --script scripts/measure/stress-bench.sh --ref SHA \
+  --artifact artifacts/stress-bench/stress-bench.json
+```

@@ -140,3 +140,7 @@ key-to-frame and dispatch-to-after-frame p50/p95/p99/max only for runs the harne
 scripts/bench/cmux-bench typing-native --build SHA [--arg modes=L0,L4] [--arg surfaces=agentpane] [--arg samples=200]
 scripts/bench/cmux-bench typing-native --import report.json   # a saved typing-frame report
 ```
+
+## cmux NEXT stress
+
+`cmux-bench stress --build nightly --host fleet` runs the multi-angle GUI stress bench through `scripts/measure/stress-bench.sh`. Every ramp records frame rate, input-to-paint percentiles when native input samples are available, main-thread hangs, CPU, RSS, disk growth and recovery. The harness also emits `stress-bench.md` with the top five issue-ready problems.

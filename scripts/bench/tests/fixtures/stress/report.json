@@ -1,0 +1,19 @@
+{
+  "schema": "cmux-stress-bench/v1",
+  "scenarios": [
+    {
+      "scenario": "terminals",
+      "ramp": "flood",
+      "metrics": {
+        "frame_rate_fps": 48.5,
+        "input_to_paint_ms": {"p50": 8.0, "p95": 22.0, "p99": 35.0},
+        "main_thread_hangs": {"count": 2, "max_ms": 64.0},
+        "cpu_pct": 72.0,
+        "rss_mb": 410.0,
+        "disk_growth_bytes": 2097152,
+        "recovery": {"recovered": true, "fps": 59.0}
+      }
+    }
+  ],
+  "top_problems": [{"scenario": "terminals", "problem": "main-thread hangs", "value": 2}]
+}
