@@ -171,9 +171,13 @@ for name, ctx in (("a push run", context()), ("the loop's retry", context("workf
                             "nightly-next-one-push-cmux15"),
                            ({f"{PICK}.host": "ultra1", f"{PICK}.attempt": "1", "github.run_attempt": "2"},
                             "nightly-next-one-push-cmux15")):
-        group = substitute(one_group, {**ctx, **pick_ctx})
+        group = substitute(one_group, {**ctx, **pick_ctx, "vars.NIGHTLY_NEXT_SLOTS": "2"})
         if group != want:
             failures.append(f"{name}'s nightly-next-one with {pick_ctx} must take the slot {want}, got {group!r}")
+        for count, mini in (("", ""), ("1", ""), ("2", "one-mini")):
+            group = substitute(one_group, {**ctx, **pick_ctx, "vars.NIGHTLY_NEXT_SLOTS": count, "vars.CI_NIGHTLY_MINI": mini})
+            if group != "nightly-next-one-push":
+                failures.append(f"{name} with slots={count!r} mini={mini!r} must keep the shared group, got {group!r}")
 PICK_JOB = JOBS.get("pick-nightly-next-signer") or {}
 if "pick-nightly-next-signer" not in (ONE.get("needs") or []):
     failures.append("nightly-next-one must need pick-nightly-next-signer (its group and pin)")

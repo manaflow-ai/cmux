@@ -57,9 +57,9 @@ SHARED_NIGHTLY_GROUPS = {
 PUSH_SLOT_JOBS = {
     # One slot per signer Mac (docs/ci/nightly-workflow-notes.md#note-33).
     "nightly-next-one": "${{ github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || "
-                        "inputs.nightly_next_loop_retry != '') && format('nightly-next-one-push-{0}', "
+                        "inputs.nightly_next_loop_retry != '') && (vars.NIGHTLY_NEXT_SLOTS == '2' && vars.CI_NIGHTLY_MINI == '' && format('nightly-next-one-push-{0}', "
                         "needs.pick-nightly-next-signer.outputs.attempt == github.run_attempt && "
-                        "needs.pick-nightly-next-signer.outputs.host || 'cmux15') || "
+                        "needs.pick-nightly-next-signer.outputs.host || 'cmux15') || 'nightly-next-one-push') || "
                         "format('nightly-next-one-{0}', github.run_id) }}",
 }
 
