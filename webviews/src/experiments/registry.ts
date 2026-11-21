@@ -93,9 +93,11 @@ import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.
 import { composerDockMotion } from "../agent-session/acpmux/composer/dockMotion.experiment";
 import { teamAudit } from "../agent-session/acpmux/teamAudit/teamAudit.experiment";
 import { jumpPairLook } from "../agent-session/acpmux/jumpPair.experiment";
+import { transcriptCards } from "../agent-session/acpmux/conversation/transcriptCards.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
+  transcriptCards,
   diffTreeDisclosure,
   treeNameFade,
   sessionReplay,

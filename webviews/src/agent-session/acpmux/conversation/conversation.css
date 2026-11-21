@@ -8391,3 +8391,15 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   line-height: 18px;
   white-space: nowrap;
 }
+
+/* RFD 0008's dark stylesheet, opted in through Experiments. Scope the shared
+   card level to the transcript so the composer and app chrome keep their look.
+   Retain the same paint over light themes, as the design's final shot requires. */
+.acpmux-scroll[data-transcript-cards="borderless"] {
+  --ds-surface-card: rgb(255 255 255 / 0.035);
+  --ds-surface-card-line: transparent;
+  --cv-card-fill: var(--ds-surface-card);
+  --cv-card-ring: transparent;
+  --cv-codeblock-bg: var(--ds-surface-card);
+  --cv-codeblock-ring: transparent;
+}
