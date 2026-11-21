@@ -215,3 +215,22 @@ fn a_socket_must_hold_the_exact_local_session() {
         decide_over(&q, &answer(), "sess_mux", &sockets, None, |_, _| Err("question.agent_gone"));
     assert_eq!(code(gone), "question.agent_gone");
 }
+
+/// The signed identity is the raw local id however the stored question spells its session, the
+/// reply's `question` is the stored one untouched, and a session that is no local id is refused.
+#[test]
+fn the_unsigned_session_is_the_raw_local_id() {
+    let info = json!({"pending": [entry("perm_1")]});
+    for stored in ["sess_mux", "local/sess_mux"] {
+        let mut q = question(Some("perm_1"));
+        q.session = stored.to_owned();
+        let decided = decide_from(&q, &answer(), &info).unwrap();
+        assert_eq!(decided["session"], "sess_mux", "{stored}");
+        assert_eq!(decided["question"]["session"], stored, "{stored}");
+    }
+    for bad in ["peer/sess_mux", "local/local/sess_mux", "local/", "", "..", "a/b"] {
+        let mut q = question(Some("perm_1"));
+        q.session = bad.to_owned();
+        assert_eq!(code(decide_from(&q, &answer(), &info)), "question.not_local", "{bad}");
+    }
+}

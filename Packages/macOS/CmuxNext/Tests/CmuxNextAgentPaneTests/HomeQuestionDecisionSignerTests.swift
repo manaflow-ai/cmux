@@ -36,11 +36,11 @@ import Testing
 
     /// The daemon's `conversation-question-decision` reply for `answers`.
     static func unsigned(answers: [String: Any] = ["Which auth method?": "API keys"], nonce: String = nonce,
-                         session: String = "local/s1", request: [String: Any] = request) throws -> String {
+                         session: String = "s1", request: [String: Any] = request) throws -> String {
         let digest = try #require(AcpmuxSecretKey.canonicalDigest(request))
         let reply: [String: Any] = ["session": session, "permission": "p1", "option_id": "answer",
                                     "instance": "0123456789abcdef", "decision_nonce": nonce, "answers": answers,
-                                    "question": ["harness": "chief", "session": session, "permission": "p1"],
+                                    "question": ["harness": "chief", "session": "local/" + session, "permission": "p1"],
                                     "request": request, "request_json": try #require(AcpmuxSecretKey.canonicalJSON(request)),
                                     "digest": digest]
         return String(decoding: try JSONSerialization.data(withJSONObject: reply), as: UTF8.self)
@@ -51,7 +51,7 @@ import Testing
         let bytes = Array(key.utf8)
         let keyBytes = stride(from: 0, to: bytes.count, by: 2).compactMap { UInt8(String(decoding: bytes[$0..<$0 + 2], as: UTF8.self), radix: 16) }
         let answersDigest = SHA256.hash(data: Data(answers.utf8)).map { String(format: "%02x", $0) }.joined()
-        let message = Data("acpmux-person-decision-answers-v1\u{0}0123456789abcdef\u{0}local/s1\u{0}p1\u{0}answer\u{0}\(nonce)\u{0}\(answersDigest)".utf8)
+        let message = Data("acpmux-person-decision-answers-v1\u{0}0123456789abcdef\u{0}s1\u{0}p1\u{0}answer\u{0}\(nonce)\u{0}\(answersDigest)".utf8)
         return HMAC<SHA256>.authenticationCode(for: message, using: SymmetricKey(data: keyBytes)).map { String(format: "%02x", $0) }.joined()
     }
 
@@ -104,9 +104,20 @@ import Testing
     @Test func anotherDaemonsPromptIsNotHere() async throws {
         let (answerer, server, _) = try fixture()
         defer { server.stop() }
-        let outcome = await answerer.signQuestionDecision(try Self.unsigned(session: "local/s2"),
+        let outcome = await answerer.signQuestionDecision(try Self.unsigned(session: "s2"),
                                                          through: { _ in Issue.record("another chat's prompt reached the click"); return false })
         #expect(outcome == .notHere)
+    }
+
+    /// The signed identity is the raw local id: a qualified or path-like session in the reply is
+    /// refused unread, and the proof binds the raw one (`expectedProof`).
+    @Test func aSessionThatIsNotARawLocalIDIsRefusedUnread() async throws {
+        let (answerer, server, _) = try fixture()
+        defer { server.stop() }
+        for session in ["local/s1", "peer/s1", "a/b", ""] {
+            #expect(await answerer.signQuestionDecision(try Self.unsigned(session: session),
+                                                       through: { _ in Issue.record("\(session) reached the click"); return false }) == .refused)
+        }
     }
 
     @Test func aReplyWhoseRequestIsNotItsDigestIsRefusedUnread() async throws {

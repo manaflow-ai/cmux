@@ -31,11 +31,14 @@ extension AcpmuxApprovalAnswerer {
               // lossy JSON value on the way here.
               let claimedJSON = unsigned["request_json"] as? String,
               let claimed = (try? JSONSerialization.jsonObject(with: Data(claimedJSON.utf8))) as? [String: Any],
-              !instance.isEmpty, !nonce.isEmpty,
+              // The signed identity is the raw local session id (acpmux verifies it, the daemon binds
+              // it): a qualified or path-like one is not what the daemon sends.
+              !session.isEmpty, !session.contains("/"), !instance.isEmpty, !nonce.isEmpty,
               AcpmuxSecretKey.canonicalDigest(claimed) == digest else { return .refused }
         guard let line = await AcpmuxPersonLine.open(environment) else { return .notHere }
         defer { line.close() }
-        guard let entry = await line.ownPending(of: session, chiefHomeID: chiefHomeID)
+        // The person line names the session `local/<raw>`; the proof and the reply name the raw id.
+        guard let entry = await line.ownPending(of: "local/" + session, chiefHomeID: chiefHomeID)
                 .first(where: { $0["permissionId"] as? String == permission }),
               let request = entry["request"] as? [String: Any] else { return .notHere }
         guard entry["personInstance"] as? String == instance, entry["decisionNonce"] as? String == nonce,

@@ -134,8 +134,13 @@ pub(in crate::server) fn decide_from(
                 .find(|entry| entry.get("permissionId").and_then(Value::as_str) == Some(permission))
         })
         .ok_or_else(|| refused("question.closed"))?;
-    let decision = question_wire::unsigned_decision(question, answer, entry)
+    // The signed identity is the raw local session id, which acpmux verifies and `prepare` binds
+    // (`local_session`); the stored question keeps its own spelling (`local/` or not) untouched.
+    let raw = super::chief_question_routes::local_session_id(&question.session)
+        .ok_or_else(|| refused("question.not_local"))?;
+    let mut decision = question_wire::unsigned_decision(question, answer, entry)
         .map_err(|error| anyhow::Error::from(DecisionRefused::from(error)))?;
+    decision.session = raw.to_owned();
     reply(question, decision, &entry["request"])
 }
 
