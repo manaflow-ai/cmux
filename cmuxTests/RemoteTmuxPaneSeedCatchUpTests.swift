@@ -420,4 +420,63 @@ extension RemoteTmuxPaneSeedTransportTests {
         var filter = sessionMirror.titleFilters[7] ?? RemoteTmuxScreenTitleFilter()
         #expect(filter.filter(Data("next".utf8)) == Data("next".utf8))
     }
+
+    /// A catch-up captures every pane, with about 700 bytes of commands each, so a few hundred
+    /// panes ask for more than the command writer may hold. Captures that do not fit must wait
+    /// for the writer to make room rather than overflow it, which reconnects, and a pane whose
+    /// capture is still waiting keeps dropping its output.
+    @Test(.timeLimit(.minutes(1))) func aCatchUpSendsCapturesAsTheWriterMakesRoom() async throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        let paneIDs = Array(1_000..<2_000)
+        fixture.connection.windowsByID = Dictionary(uniqueKeysWithValues: paneIDs.map { paneId in
+            let layout = RemoteTmuxLayoutNode(width: 80, height: 24, x: 0, y: 0, content: .pane(paneId))
+            return (paneId, RemoteTmuxWindow(id: paneId, width: 80, height: 24, layout: layout))
+        })
+        // A writer with the shipping bound. Nothing reads its pipe until the test says so.
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-catch-up-writer-room-test",
+            maxPendingBytes: RemoteTmuxControlConnection.maxPendingStdinBytes,
+            onFailure: {}
+        )
+        defer { writer.close() }
+        fixture.connection.stdinWriter = writer
+        var rendered = 0
+        let token = fixture.connection.addObserver(onPaneOutput: { _, data in rendered += data.count })
+        defer { fixture.connection.removeObserver(token) }
+
+        fixture.connection.catchUpAfterFallingBehind()
+        try #require(
+            fixture.connection.connectionState == .connected,
+            "the captures overflowed the command writer: \(fixture.connection.snapshot().recentEvents)"
+        )
+        let waitingPane = try #require(paneIDs.first { fixture.connection.pendingPaneSeeds[$0] == nil })
+        fixture.connection.handleMessageForTesting(.output(paneId: waitingPane, data: Data("stale".utf8)))
+        #expect(rendered == 0, "a pane waiting for its capture drew the backlog")
+
+        // Every capture is one command line. Reading them lets the writer finish its writes, and
+        // nothing else sends more captures.
+        let readFD = pipe.fileHandleForReading.fileDescriptor
+        let expectedLines = paneIDs.count
+        let (linesRead, linesReadContinuation) = AsyncStream<Int>.makeStream()
+        Thread.detachNewThread {
+            var lines = 0
+            var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+            while lines < expectedLines {
+                let count = buffer.withUnsafeMutableBytes { Darwin.read(readFD, $0.baseAddress, $0.count) }
+                guard count > 0 else { break }
+                lines += buffer[0..<count].reduce(0) { $1 == UInt8(ascii: "\n") ? $0 + 1 : $0 }
+            }
+            linesReadContinuation.yield(lines)
+            linesReadContinuation.finish()
+        }
+        let sentLines = await linesRead.first { _ in true }
+
+        #expect(sentLines == expectedLines)
+        #expect(fixture.connection.connectionState == .connected)
+        #expect(paneIDs.allSatisfy { fixture.connection.pendingPaneSeeds[$0]?.last?.dropsPreCaptureOutput == true })
+        #expect(fixture.connection.catchUp.panesAwaitingSeed.isEmpty)
+    }
 }

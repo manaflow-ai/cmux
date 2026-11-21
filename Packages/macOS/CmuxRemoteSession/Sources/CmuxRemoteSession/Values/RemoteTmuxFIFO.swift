@@ -82,3 +82,13 @@ public struct RemoteTmuxFIFO<Element>: Sequence {
         }
     }
 }
+
+/// Two queues are equal when they hold the same elements in the same order, however much of
+/// either one's storage is a removed prefix.
+extension RemoteTmuxFIFO: Equatable where Element: Equatable {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.storage[lhs.head...].elementsEqual(rhs.storage[rhs.head...])
+    }
+}
+
+extension RemoteTmuxFIFO: Sendable where Element: Sendable {}

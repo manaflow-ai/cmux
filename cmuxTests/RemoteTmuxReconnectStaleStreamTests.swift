@@ -1,4 +1,4 @@
-import CmuxRemoteSession
+@testable import CmuxRemoteSession
 import Darwin
 import Foundation
 import Testing
@@ -143,17 +143,8 @@ import Testing
             if let previousSSH { setenv(sshOverrideKey, previousSSH, 1) } else { unsetenv(sshOverrideKey) }
         }
 
-        // The reader says on its own queue when it stops at its bound, so the test can wait for
-        // that while it holds the main actor.
-        // The write handle lives as long as the reader holds the callback.
-        let pauses = Pipe()
-        let pauseWriter = pauses.fileHandleForWriting
         let host = RemoteTmuxHost(destination: "backlog-\(UUID().uuidString)@example.test")
-        let connection = RemoteTmuxControlConnection(
-            host: host,
-            sessionName: "dev",
-            onStdoutReaderPause: { try? pauseWriter.write(contentsOf: Data("p".utf8)) }
-        )
+        let connection = RemoteTmuxControlConnection(host: host, sessionName: "dev")
         var paneOneBytes = 0
         let (floodEnded, floodEndedContinuation) = AsyncStream<Void>.makeStream()
         let token = connection.addObserver(onPaneOutput: { paneId, data in
@@ -178,9 +169,15 @@ import Testing
         try #require(goFD >= 0)
         close(goFD)
         // The main actor is held until the reader has stopped at its bound, so the whole backlog
-        // is waiting. The deadline only catches a reader that never stops.
-        var paused = pollfd(fd: pauses.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
-        try #require(poll(&paused, 1, 60_000) == 1, "the reader never stopped at its bound")
+        // is waiting. The reader reports its pause only to the connection, which needs the main
+        // actor to act on it, so the test reads the reader's own state on the reader's queue. The
+        // deadline only catches a reader that never stops.
+        let reader = try #require(connection.stdoutPipeReader)
+        let deadline = ContinuousClock.now + .seconds(60)
+        while !reader.queue.sync(execute: { reader.paused }) {
+            try #require(ContinuousClock.now < deadline, "the reader never stopped at its bound")
+            usleep(1_000)
+        }
 
         for await _ in floodEnded { break }
 

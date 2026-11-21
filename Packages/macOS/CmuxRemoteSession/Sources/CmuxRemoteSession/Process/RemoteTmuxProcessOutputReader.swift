@@ -19,7 +19,7 @@ public final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
     public let stream: AsyncStream<Data>
 
     private let continuation: AsyncStream<Data>.Continuation
-    private let queue: DispatchQueue
+    let queue: DispatchQueue
     private let maxPendingChunks: Int
     private let maxPendingBytes: Int
     private let maxReadChunkBytes: Int
@@ -28,7 +28,7 @@ public final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
     private var pendingBytes = 0
     private var pendingChunks = 0
     /// Reading stopped because the consumer is at a bound.
-    private var paused = false
+    private(set) var paused = false
     private var sourceSuspended = false
     /// The process exited; reads continue until the pipe is empty, then the stream ends.
     private var draining = false

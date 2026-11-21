@@ -205,9 +205,13 @@ final class RemoteTmuxControlConnection {
     /// Cleanup belongs to the ended spawn, and must finish even if a replacement
     /// stream starts or the last mirror releases this connection in the meantime.
     private var processTerminationTasks: [UUID: Task<Void, Never>] = [:]
-    var stdinWriter: RemoteTmuxControlPipeWriter?
+    var stdinWriter: RemoteTmuxControlPipeWriter? {
+        didSet {
+            stdinWriter?.onRoomFreed = { [weak self] in self?.sendQueuedCatchUpCaptures() }
+        }
+    }
     private var stdoutReader: FileHandle?
-    private var stdoutPipeReader: RemoteTmuxProcessOutputReader?
+    private(set) var stdoutPipeReader: RemoteTmuxProcessOutputReader?
     private var stderrPipeReader: RemoteTmuxProcessOutputReader?
     /// Consumes the current spawn's stderr into `stderrBuffer`. Awaited before a
     /// failed reconnect attempt is classified, so the decision sees the complete
@@ -534,7 +538,7 @@ final class RemoteTmuxControlConnection {
     /// Cap queued stdin bytes while the dedicated writer is backpressured. Above
     /// this, mutations are rejected and the connection reconnects instead of
     /// accepting unbounded user input that may never reach tmux.
-    private static let maxPendingStdinBytes = 256 * 1024
+    nonisolated static let maxPendingStdinBytes = 256 * 1024
     /// Cap pending stdout between the transport's pipe and the main-actor parser.
     /// At either cap the reader stops reading the pipe until the parser catches
     /// up, so a burst (initial attach sends one `capture-pane -S 5000` block per
@@ -607,19 +611,13 @@ final class RemoteTmuxControlConnection {
     /// overrides it (which tests do, to assert argv without spawning anything).
     let transportProfile: RemoteTmuxTransportProfile
 
-    /// Runs on the stdout reader's queue each time it stops at its bound, while the main actor
-    /// may still be busy with the backlog. Lets a caller that holds the main actor see the pause.
-    private let onStdoutReaderPause: (@Sendable () -> Void)?
-
     init(
         host: RemoteTmuxHost,
         sessionName: String,
         attachMode: RemoteTmuxControlAttachMode = .attach,
         transportProfile: RemoteTmuxTransportProfile? = nil,
-        pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes,
-        onStdoutReaderPause: (@Sendable () -> Void)? = nil
+        pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes
     ) {
-        self.onStdoutReaderPause = onStdoutReaderPause
         self.transportProfile = transportProfile ?? host.transportProfile
         self.host = host
         self.sessionName = sessionName
@@ -801,13 +799,11 @@ final class RemoteTmuxControlConnection {
         // backlog. The signal comes from the reader's queue, so it does not wait behind that
         // backlog in the stream. The spawn that succeeds below takes this generation.
         let pauseGeneration = processGeneration &+ 1
-        let onStdoutReaderPause = self.onStdoutReaderPause
         let stdoutPipeReader = RemoteTmuxProcessOutputReader(
             label: "com.cmux.remote-tmux.stdout.\(UUID().uuidString)",
             maxPendingChunks: Self.maxPendingStdoutChunks,
             maxPendingBytes: Self.maxPendingStdoutBytes,
             onPause: { [weak self] in
-                onStdoutReaderPause?()
                 Task { @MainActor [weak self] in
                     guard let self, self.processGeneration == pauseGeneration else { return }
                     self.requestCatchUpAfterFallingBehind()

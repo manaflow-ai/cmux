@@ -60,6 +60,10 @@ extension RemoteTmuxControlConnection {
     /// how much history is retained at once. Its output is dropped until the seed starts, and
     /// the seed drops output up to its capture, as a catch-up seed does.
     ///
+    /// Every other pane's capture is queued, and ``sendQueuedCatchUpCaptures()`` sends as many as
+    /// the command writer has room for. A queued pane's output is dropped until its seed starts,
+    /// so a capture that waits its turn draws none of the backlog.
+    ///
     /// The capture replies queue behind the backlog in the stream, so the parser still reads
     /// through it, but nothing else is done with the dropped bytes. Only one catch-up runs
     /// at a time; ``catchUp`` keeps a pause during one, and ``startRequestedCatchUp()`` starts
@@ -78,11 +82,10 @@ extension RemoteTmuxControlConnection {
             }
             if pendingPaneSeeds[paneId]?.last?.coversCatchUp == true { coveredPaneIDs.insert(paneId) }
         }
-        var seeded = 0
+        var capturing = 0
         var queued = 0
         // A pane whose seeds all have their captures gets a new one too: the output still to
-        // come is newer than those captures. Every capture goes out at once, so the order the
-        // panes are visited in does not matter.
+        // come is newer than those captures.
         var seenPaneIDs = coveredPaneIDs
         let queuedForReconnect = Set(pendingReconnectPaneIDs)
         for window in windowsByID.values {
@@ -90,21 +93,40 @@ extension RemoteTmuxControlConnection {
                 if queuedForReconnect.contains(paneId) {
                     catchUp.awaitSeed(forPane: paneId)
                     queued += 1
-                    continue
-                }
-                // Every other capture goes out now: a pane whose capture waited its turn would
-                // draw the backlog.
-                guard let seedID = capturePane(paneId: paneId, clearScrollback: true) else {
-                    guard connectionState == .connected else { return }
-                    continue
-                }
-                if let index = pendingPaneSeeds[paneId]?.firstIndex(where: { $0.id == seedID }) {
-                    pendingPaneSeeds[paneId]![index].dropsPreCaptureOutput = true
-                    catchUp.track(seedID: seedID)
-                    seeded += 1
+                } else {
+                    catchUp.queueCapture(forPane: paneId)
+                    capturing += 1
                 }
             }
         }
-        record("output-catch-up seeded=\(seeded) joined=\(joined) queued=\(queued)")
+        record("output-catch-up capturing=\(capturing) joined=\(joined) queued=\(queued)")
+        sendQueuedCatchUpCaptures()
+    }
+
+    /// Sends queued catch-up captures while the command writer has room for them. The writer
+    /// calls this again each time a write finishes, so the rest go out as it drains.
+    ///
+    /// Each capture is about 700 bytes of commands, so a few hundred panes ask for more than the
+    /// writer may hold. The writer gives room back only on the main actor, after a write
+    /// finishes, so every capture sent in one turn counts against it at once, and a write it
+    /// rejects reconnects, which is what a catch-up is there to avoid.
+    func sendQueuedCatchUpCaptures() {
+        while connectionState == .connected,
+              stdinWriter?.hasRoomForDeferrableWrite == true,
+              let paneId = catchUp.nextQueuedCapture()
+        {
+            guard let seedID = capturePane(paneId: paneId, clearScrollback: true) else {
+                // The seed budget had no room, so the catch-up stops waiting on this pane. A
+                // request kept during the catch-up starts if nothing else is left.
+                startRequestedCatchUp()
+                continue
+            }
+            // A seed for a waiting pane joins the catch-up by itself. Another seed may have
+            // started while the pane waited and taken that place, so this one is marked too.
+            if let index = pendingPaneSeeds[paneId]?.firstIndex(where: { $0.id == seedID }) {
+                pendingPaneSeeds[paneId]![index].dropsPreCaptureOutput = true
+                catchUp.track(seedID: seedID)
+            }
+        }
     }
 }

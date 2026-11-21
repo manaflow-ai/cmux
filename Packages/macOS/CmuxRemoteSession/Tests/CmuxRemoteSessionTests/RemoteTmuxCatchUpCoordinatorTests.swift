@@ -59,8 +59,40 @@ import Testing
         catchUp.request()
         catchUp.track(seedID: UUID())
         catchUp.awaitSeed(forPane: 4)
+        catchUp.queueCapture(forPane: 5)
         catchUp.reset()
         #expect(catchUp == RemoteTmuxCatchUpCoordinator())
+    }
+
+    /// Captures wait for room in the command writer and go out in the order they were queued.
+    /// A pane waiting for its capture drops its output and holds the catch-up open, and one that
+    /// leaves the session is skipped.
+    @Test func queuedCapturesGoOutInOrderAndHoldTheCatchUpUntilTheirSeedsEnd() {
+        var catchUp = RemoteTmuxCatchUpCoordinator()
+        catchUp.begin()
+        for pane in [3, 1, 2, 3] { catchUp.queueCapture(forPane: pane) }
+        catchUp.request()
+        #expect(catchUp.dropsOutput(forPane: 1))
+        catchUp.paneRemoved(1)
+        #expect(!catchUp.dropsOutput(forPane: 1))
+
+        var captured: [Int] = []
+        var seeds: [UUID] = []
+        while let pane = catchUp.nextQueuedCapture() {
+            captured.append(pane)
+            #expect(!catchUp.shouldStart, "started while pane \(pane) still waited for its capture")
+            let seed = UUID()
+            let joined = catchUp.seedStarted(seed, forPane: pane)
+            #expect(joined)
+            #expect(!catchUp.dropsOutput(forPane: pane))
+            seeds.append(seed)
+        }
+        #expect(captured == [3, 2], "a pane was captured twice or out of order, or a removed pane was captured")
+        for seed in seeds {
+            #expect(!catchUp.shouldStart)
+            catchUp.seedEnded(seed)
+        }
+        #expect(catchUp.shouldStart)
     }
 
     /// A thousand panes: the request starts exactly when the last of a thousand seeds ends.
