@@ -54,6 +54,7 @@ import { WorktreePill } from "./WorktreePill";
 import { useWorktree } from "./worktreePillModel";
 import { useWorktreeOps } from "./worktreeOps";
 import { usePullRequestOps } from "./pullRequestOps";
+import type { PullRequestAction } from "./usePullRequestActions";
 import type { MergeResult } from "./PullRequestMerge";
 import {
   QUICK_ACTION_DEFAULTS,
@@ -113,6 +114,8 @@ function ChatHeaderToolsView({
   onExpanded,
   pullRequestChip,
   onMergePullRequest,
+  onPullRequestAction,
+  pullRequestScope,
   folder,
   readStatus,
   statusKey,
@@ -165,6 +168,8 @@ function ChatHeaderToolsView({
   pullRequestChip?: boolean;
   /// Merge on the PR chip (cx-ncc.77.4): merges that pull request; rejects with why not.
   onMergePullRequest?: (pullRequest: { number: number; url: string }) => Promise<MergeResult>;
+  onPullRequestAction?: PullRequestAction;
+  pullRequestScope?: string;
   /// The chat's folder on this Mac and its `git.status`: a worktree chat's branch shows (cx-lyqio.3b),
   /// read again when `statusKey` changes.
   folder?: string;
@@ -207,7 +212,7 @@ function ChatHeaderToolsView({
   const actions = useQuickActions();
   const worktree = useWorktree(folder, readStatus, statusKey);
   const worktreeOps = useWorktreeOps(worktree, folder, onApplyWorktree, onRemoveWorktree);
-  const pullRequestOps = usePullRequestOps(pullRequest, onMergePullRequest);
+  const pullRequestOps = usePullRequestOps(pullRequest, onMergePullRequest, onPullRequestAction, pullRequestScope);
   const nativeNeedsYouMenu = nativeNeedsYou?.nativeMenu === true;
   const [needsYouFailure, setNeedsYouFailure] = useState<NativeRowNeedsYou["failure"]>();
   const nativeNeedsYouForTools = nativeNeedsYouMenu
@@ -493,7 +498,7 @@ function ChatHeaderToolsView({
       <div ref={toolsRef} className="acpmux-header-tools" data-header-controls="trio" onPointerEnter={onPointerEnter}>
         {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
         {pullRequest && pullRequestChip !== false && (
-          <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
+          <PullRequestChip ops={pullRequestOps} pullRequest={pullRequest} onMerge={onMergePullRequest} />
         )}
         {/* Needs You only with open asks: an alert, not a fourth control. */}
         {inboxRelevant && inbox}

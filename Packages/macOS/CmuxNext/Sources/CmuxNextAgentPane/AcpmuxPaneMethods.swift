@@ -222,6 +222,8 @@ nonisolated enum AcpmuxPaneMethods {
         // small-model call that rewrites a chat in the pane's scope's own prompt into a `coach`
         // record. It sends the chat nothing and runs no turn, so no gesture.
         "_acpmux/prompt_coach",
+        // Rust reads only the displayed chat's PR; this endpoint performs no merge or send.
+        "_acpmux/pull_request_action",
     ]
 
     /// Notifications (no `id`).
@@ -328,6 +330,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
         "_acpmux/run_elsewhere/plan", "_acpmux/run_elsewhere/start", "_acpmux/bg/output", "_acpmux/bg/stop",
         "_acpmux/cold_archive", "_acpmux/prompt_coach",
+        "_acpmux/pull_request_action",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New

@@ -1089,6 +1089,14 @@ export interface PromptCoachParams {
 /** `_acpmux/protocol` takes no params. */
 export type ProtocolParams = Record<string, never>;
 
+export interface PullRequestActionParams {
+  _meta?: RequestMeta;
+  action?: unknown;
+  headSha?: unknown;
+  sessionId?: unknown;
+  url?: unknown;
+}
+
 /** A purged session: only its id is left. */
 export type PurgedSession = {
   sessionId: string;

@@ -1,3 +1,4 @@
+import { pullRequestActionPrompt } from "./header/pullRequestActionPrompt";
 import { composerHealthHarness } from "./composerPickerEntries";
 import { forkMenuRows } from "./header/forkMenu";
 import { openFork, openInOwnTab } from "./conversation/openFork";
@@ -14270,6 +14271,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                           : undefined
                       }
                       // A merge asks the header again, so the chip shows the pull request merged.
+                      onPullRequestAction={
+                        localCwd && snapshot.sessionId
+                          ? async (pr, action, signal) => {
+                              const client = directClient.current;
+                              const sessionId = snapshot.sessionId;
+                              if (!client || !sessionId) throw new Error(translate("error.notOpen"));
+                              return pullRequestActionPrompt(client, sessionId, pr, action, signal, {
+                                currentClient: () => directClient.current,
+                                send: (params) => callNative("chat.send", { ...params }),
+                                error: () => new Error(translate("header.prActionFailed")),
+                              });
+                            }
+                          : undefined
+                      }
+                      pullRequestScope={snapshot.sessionId}
                       onMergePullRequest={
                         localCwd
                           ? ({ number, url }) =>

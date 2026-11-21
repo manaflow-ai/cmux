@@ -2424,6 +2424,7 @@ mod pairing;
 mod plan_build;
 mod project_new;
 mod prompt_coach;
+mod pull_request_actions;
 pub(crate) mod queue_gauge;
 mod review_queue;
 mod run_elsewhere;

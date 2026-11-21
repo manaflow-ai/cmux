@@ -1,6 +1,612 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "header.prFixChecks": {"comment": "Agent pane chat header", "extractionState": "manual", "localizations": {"ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إصلاح الفحوصات الفاشلة"
+          }
+        }, "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Popravi neuspjele provjere"
+          }
+        }, "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ret fejlede kontroller"
+          }
+        }, "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehlgeschlagene Prüfungen beheben"
+          }
+        }, "en": {"stringUnit": {"state": "translated", "value": "Fix failing checks"}}, "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corregir comprobaciones fallidas"
+          }
+        }, "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corriger les vérifications en échec"
+          }
+        }, "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Correggi i controlli non riusciti"
+          }
+        }, "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗したチェックを修正"
+          }
+        }, "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជួសជុលការត្រួតពិនិត្យដែលបរាជ័យ"
+          }
+        }, "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실패한 검사 수정"
+          }
+        }, "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rett mislykkede kontroller"
+          }
+        }, "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Napraw nieudane kontrole"
+          }
+        }, "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corrigir verificações com falha"
+          }
+        }, "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Исправить неудачные проверки"
+          }
+        }, "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แก้ไขการตรวจสอบที่ล้มเหลว"
+          }
+        }, "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başarısız kontrolleri düzelt"
+          }
+        }, "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виправити невдалі перевірки"
+          }
+        }, "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sửa các kiểm tra thất bại"
+          }
+        }, "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修复失败的检查"
+          }
+        }, "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修復失敗的檢查"
+          }
+        }}},
+    "header.prFixingChecks": {"comment": "Agent pane chat header", "extractionState": "manual", "localizations": {"ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ قراءة سجلات الفحوصات…"
+          }
+        }, "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Čitanje dnevnika provjera…"
+          }
+        }, "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Læser kontrollogge…"
+          }
+        }, "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfprotokolle werden gelesen…"
+          }
+        }, "en": {"stringUnit": {"state": "translated", "value": "Reading check logs…"}}, "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leyendo registros de comprobaciones…"
+          }
+        }, "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lecture des journaux de vérification…"
+          }
+        }, "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lettura dei log dei controlli…"
+          }
+        }, "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チェックのログを読み込み中…"
+          }
+        }, "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងអានកំណត់ហេតុការត្រួតពិនិត្យ…"
+          }
+        }, "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검사 로그 읽는 중…"
+          }
+        }, "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leser kontrollogger…"
+          }
+        }, "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odczytywanie dzienników kontroli…"
+          }
+        }, "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lendo logs das verificações…"
+          }
+        }, "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чтение журналов проверок…"
+          }
+        }, "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังอ่านบันทึกการตรวจสอบ…"
+          }
+        }, "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrol günlükleri okunuyor…"
+          }
+        }, "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Читання журналів перевірок…"
+          }
+        }, "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang đọc nhật ký kiểm tra…"
+          }
+        }, "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在读取检查日志…"
+          }
+        }, "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在讀取檢查記錄…"
+          }
+        }}},
+    "header.prAddressComments": {"comment": "Agent pane chat header", "extractionState": "manual", "localizations": {"ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معالجة التعليقات"
+          }
+        }, "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riješi komentare"
+          }
+        }, "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Håndter kommentarer"
+          }
+        }, "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kommentare bearbeiten"
+          }
+        }, "en": {"stringUnit": {"state": "translated", "value": "Address comments"}}, "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atender comentarios"
+          }
+        }, "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traiter les commentaires"
+          }
+        }, "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestisci i commenti"
+          }
+        }, "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コメントに対応"
+          }
+        }, "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដោះស្រាយមតិយោបល់"
+          }
+        }, "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "댓글 처리"
+          }
+        }, "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Håndter kommentarer"
+          }
+        }, "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uwzględnij komentarze"
+          }
+        }, "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolver comentários"
+          }
+        }, "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обработать комментарии"
+          }
+        }, "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จัดการความคิดเห็น"
+          }
+        }, "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yorumları ele al"
+          }
+        }, "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Опрацювати коментарі"
+          }
+        }, "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xử lý bình luận"
+          }
+        }, "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "处理评论"
+          }
+        }, "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "處理評論"
+          }
+        }}},
+    "header.prAddressingComments": {"comment": "Agent pane chat header", "extractionState": "manual", "localizations": {"ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ قراءة مناقشات المراجعة…"
+          }
+        }, "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Čitanje rasprava pregleda…"
+          }
+        }, "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Læser gennemgangstråde…"
+          }
+        }, "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review-Threads werden gelesen…"
+          }
+        }, "en": {"stringUnit": {"state": "translated", "value": "Reading review threads…"}}, "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leyendo hilos de revisión…"
+          }
+        }, "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lecture des discussions de revue…"
+          }
+        }, "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lettura delle discussioni di revisione…"
+          }
+        }, "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビューのスレッドを読み込み中…"
+          }
+        }, "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងអានការពិភាក្សាពិនិត្យកូដ…"
+          }
+        }, "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리뷰 스레드 읽는 중…"
+          }
+        }, "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leser gjennomgangstråder…"
+          }
+        }, "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odczytywanie wątków przeglądu…"
+          }
+        }, "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lendo discussões da revisão…"
+          }
+        }, "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чтение обсуждений ревью…"
+          }
+        }, "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังอ่านเธรดการตรวจทาน…"
+          }
+        }, "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İnceleme dizileri okunuyor…"
+          }
+        }, "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Читання обговорень перевірки…"
+          }
+        }, "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang đọc các luồng đánh giá…"
+          }
+        }, "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在读取审查讨论…"
+          }
+        }, "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在讀取審查討論…"
+          }
+        }}},
+    "header.prMergeWhenReady": {"comment": "Agent pane chat header", "extractionState": "manual", "localizations": {"ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الدمج عند الجاهزية"
+          }
+        }, "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spoji kada bude spremno"
+          }
+        }, "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flet, når den er klar"
+          }
+        }, "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zusammenführen, sobald bereit"
+          }
+        }, "en": {"stringUnit": {"state": "translated", "value": "Merge when ready"}}, "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fusionar cuando esté lista"
+          }
+        }, "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fusionner dès que possible"
+          }
+        }, "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unisci quando pronta"
+          }
+        }, "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "準備ができたらマージ"
+          }
+        }, "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ចូលកូដពេលរួចរាល់"
+          }
+        }, "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "준비되면 병합"
+          }
+        }, "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå sammen når den er klar"
+          }
+        }, "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scal, gdy będzie gotowe"
+          }
+        }, "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesclar quando estiver pronta"
+          }
+        }, "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Объединить, когда будет готово"
+          }
+        }, "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รวมโค้ดเมื่อพร้อม"
+          }
+        }, "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hazır olduğunda birleştir"
+          }
+        }, "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Об’єднати, коли буде готово"
+          }
+        }, "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hợp nhất khi sẵn sàng"
+          }
+        }, "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "就绪后合并"
+          }
+        }, "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "就緒後合併"
+          }
+        }}},
+    "header.prActionFailed": {"comment": "Agent pane chat header", "extractionState": "manual", "localizations": {"ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل إجراء طلب السحب."
+          }
+        }, "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Radnja zahtjeva za spajanje nije uspjela."
+          }
+        }, "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handlingen for pull-anmodningen mislykkedes."
+          }
+        }, "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Pull-Request-Aktion ist fehlgeschlagen."
+          }
+        }, "en": {"stringUnit": {"state": "translated", "value": "The PR action failed."}}, "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La acción de la solicitud de cambios falló."
+          }
+        }, "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’action de la demande de fusion a échoué."
+          }
+        }, "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’azione della pull request non è riuscita."
+          }
+        }, "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プルリクエストの操作に失敗しました。"
+          }
+        }, "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សកម្មភាពសំណើបញ្ចូលកូដបានបរាជ័យ។"
+          }
+        }, "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "풀 리퀘스트 작업에 실패했습니다."
+          }
+        }, "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handlingen for pull-forespørselen mislyktes."
+          }
+        }, "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Operacja żądania scalenia nie powiodła się."
+          }
+        }, "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A ação da solicitação de pull falhou."
+          }
+        }, "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось выполнить действие с запросом на слияние."
+          }
+        }, "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การดำเนินการกับคำขอรวมโค้ดล้มเหลว"
+          }
+        }, "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çekme isteği işlemi başarısız oldu."
+          }
+        }, "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося виконати дію із запитом на злиття."
+          }
+        }, "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thao tác với yêu cầu hợp nhất thất bại."
+          }
+        }, "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拉取请求操作失败。"
+          }
+        }, "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提取要求操作失敗。"
+          }
+        }}},
     "error.subsessionsFull": {
       "comment": "Agent pane: why a plan build or sub-session start was refused (after 'The plan was not built:'): the chat already runs its limit of sub-sessions",
       "extractionState": "manual",
