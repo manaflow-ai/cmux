@@ -87,7 +87,12 @@ final class KeyboardMotionBenchUITests: XCTestCase {
         try bench(Surface(
             name: "chat",
             arguments: ["-cmux-mobile-demo", "kbd-chat"],
-            field: { $0.textViews["chat.composer.field"] },
+            // The demo opens on a question card, which folds the composer into "Reply to Claude"
+            // (ComposerGrowUpUITests): a tap on that button is the tap that shows the keyboard.
+            field: { app in
+                let text = app.textViews["chat.composer.field"]
+                return text.exists ? text : app.buttons["Reply to Claude"].firstMatch
+            },
             hideByTap: { $0.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap() }))
     }
 
@@ -195,7 +200,7 @@ final class KeyboardMotionBenchUITests: XCTestCase {
         for round in 0..<3 {
             surface.ready(app)
             mark(surface, "tti.show.\(round)")
-            field.tap()
+            surface.field(app).tap()
             if surface.types {
                 // XCUITest types once the app is idle: the key lands when the app takes it.
                 app.typeText("a")
@@ -215,7 +220,7 @@ final class KeyboardMotionBenchUITests: XCTestCase {
         settle(0.5)
         attach(app, "\(surface.name)-end")
         for note in notes { XCTContext.runActivity(named: note) { _ in } }
-        print("kbm-notes \(surface.name) \(notes.isEmpty ? "-" : notes.joined(separator: "; "))")
+        log("kbm-notes \(surface.name) \(notes.isEmpty ? "-" : notes.joined(separator: "; "))")
         dumpTrace(surface, probe)
     }
 
@@ -226,7 +231,7 @@ final class KeyboardMotionBenchUITests: XCTestCase {
         surface.field(app).tap()
         settle()
         if !keyboardUp(app) {
-            print("kbm-notes \(surface.name) \(method).show.\(round): no keyboard after the tap")
+            log("kbm-notes \(surface.name) \(method).show.\(round): no keyboard after the tap")
         }
     }
 
@@ -261,7 +266,16 @@ final class KeyboardMotionBenchUITests: XCTestCase {
     }
 
     private func mark(_ surface: Surface, _ label: String) {
-        print(String(format: "kbm-mark %.6f %@ %@", CACurrentMediaTime(), surface.name, label))
+        log(String(format: "kbm-mark %.6f %@ %@", CACurrentMediaTime(), surface.name, label))
+    }
+
+    /// The marks and notes, printed and kept: dumpTrace attaches them as kbm-marks-SURFACE.txt, since the
+    /// simulator step's console export (ui-console.txt) can come back empty.
+    private var logged: [String] = []
+
+    private func log(_ line: String) {
+        print(line)
+        logged.append(line)
     }
 
     @MainActor
@@ -278,6 +292,10 @@ final class KeyboardMotionBenchUITests: XCTestCase {
         attachment.name = "kbm-trace-\(surface.name).txt"
         attachment.lifetime = .keepAlways
         add(attachment)
+        let marks = XCTAttachment(string: logged.joined(separator: "\n") + "\n")
+        marks.name = "kbm-marks-\(surface.name).txt"
+        marks.lifetime = .keepAlways
+        add(marks)
         print("kbm-trace-begin \(surface.name)")
         for row in trace.split(separator: "\n") { print("kbm-trace \(surface.name) \(row)") }
         print("kbm-trace-end \(surface.name)")
