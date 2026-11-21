@@ -546,7 +546,15 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         // selection; apps and MCP send anchor and ids.
         ("layout.bulk", "anchor"),
         ("layout.bulk", "ids"),
+        // git.status's github: the Changes sidebar's pull request list asks for github_repo
+        // (#44129); `cmux git status` prints the working tree's status and never sends it.
+        ("git.status", "github"),
+        // terminal.output_read's recovery token: a client that reconnects to a live terminal
+        // echoes it to resume output (#43185); a one-shot `cmux terminal read` never sends it.
+        ("terminal.output_read", "recovery"),
     ];
+    // Every operation's drift at once, so one run names all of it.
+    let mut drift = Vec::new();
     for operation in &expected {
         let catalog_fields = catalog["operations"][operation]["params"]["fields"]
             .as_object()
@@ -555,10 +563,16 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
             .filter(|field| !app_owned.contains(&(*operation, field.as_str())))
             .cloned()
             .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(
-            covered_fields.get(operation).cloned().unwrap_or_default(),
-            catalog_fields,
-            "{operation} has catalog fields with no exercised CLI representation"
-        );
+        let covered = covered_fields.get(operation).cloned().unwrap_or_default();
+        if covered != catalog_fields {
+            let missing = catalog_fields.difference(&covered).cloned().collect::<Vec<_>>();
+            let extra = covered.difference(&catalog_fields).cloned().collect::<Vec<_>>();
+            drift.push(format!("{operation}: no exercised CLI representation for {missing:?}; not in the catalog: {extra:?}"));
+        }
     }
+    assert!(
+        drift.is_empty(),
+        "catalog fields with no exercised CLI representation:\n{}",
+        drift.join("\n")
+    );
 }

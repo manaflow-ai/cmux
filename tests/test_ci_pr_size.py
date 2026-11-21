@@ -230,7 +230,8 @@ class WorkflowShapeTests(unittest.TestCase):
 
     def test_pull_request_only_into_feat_cmux_next(self) -> None:
         on = self.workflow.get("on", self.workflow.get(True))
-        self.assertEqual(list(on), ["pull_request"])
+        # workflow_call: docs-only-fallback.yml calls it in a pull request's own context (scripts/ci/docs_only_paths.py).
+        self.assertEqual(list(on), ["pull_request", "workflow_call"])
         self.assertEqual(on["pull_request"]["branches"], ["feat-cmux-next"])
         self.assertIn("ready_for_review", on["pull_request"]["types"])
         self.assertNotIn("pull_request_target", self.text)

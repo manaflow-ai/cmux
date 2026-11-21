@@ -1,5 +1,95 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-21 (lane/sidebar-pin-archive): Sidebar-Look: Leo, 2026-11-21: "the pin button does not make sense. you
+  expect this to be the pinned thing. but it isn't. when you pin it, the pin goes to teh left of the bar as an empty
+  looking pin symbol." A hover control says what a press does, never what the row is: Pin on an unpinned row is the
+  outline pin (`action.pin`); Unpin on a pinned row, a pinned tile and a pinned group header is the struck-through pin
+  (`browser.toolbar.unpin`, pin.slash). The pinned state alone draws the filled pin (`state.pinned`, solid): a Pinned
+  row's leading pin, a pinned group's pin and the Pinned header's glyph. Replaces the a-sidebar-pin-hover entry's
+  outline-pin/filled-pin pair (last good 58deafaa036), where the filled hover Unpin and the outline leading mark read
+  the wrong way round.
+- 2026-11-20 (nx-48416-chief-onboarding): Sidebar-Look: user, 2026-11-20 (https://github.com/manaflow-ai/cmux/issues/48416):
+  "rename Home to Chief in the UI". Only names change: the Home item reads Chief (`sidebar.builtin.home`), and the
+  item that was already called Chief (its conversation, status and subagents, `LayoutItem.chief`) reads Chief
+  Activity (`sidebar.builtin.chief`), so Add to Sidebar never lists two items named Chief. Icons, rows and spacing
+  are unchanged.
+- 2026-11-21 (nx-48495-titlebar-icons-jitter): Sidebar-Look: user, 2026-11-20 (https://github.com/manaflow-ai/cmux/issues/48495): "the titlebar icons by the traffic lights (sidebar toggle, back, forward, +) shift slightly while the left sidebar width is dragged. They must stay pixel-fixed". The toolbar band's presence reads the sidebar's share from its width constraint (`SidebarContainerView.onScreenShare`), not its laid-out frame: a drag sets fractional widths, Auto Layout rounds the frame to whole pixels, and the share read just under 1, so the toggle, Back and Forward (and the +, floored at the band's edge) moved by a pixel. The panel's origin that floors the + reads the same constraint (`panelOriginInWindow`), not the rounded bounds, so the + takes no pixel shift on a rounding tie. The slide still opens and closes the band (the constraint is its per-frame width). Regression: `SidebarResizeTitlebarBandSteadyTests`.
+- 2026-11-19 (lane/studio-settled-chats): Sidebar-Look: Leo, 2026-11-19: "how about the customizations for claude/codex/[...] aka \"studio\" and the actual functionality and features of them?". With `sidebar.settleFinished` on (off by default; the Studio look sets it), a seen, finished agent chat folds into a "Settled (N)" row at the end of its list (a group, a section's loose rows, or a Group by Folder project), after the working rows and before the Done and Archived rows; it rises back on its next turn, question, unread answer, failure or lost agent. The rule is Rust's (`cmux-layout-reducer` `settle`, `sidebar_settle_plan`), cached per content revision (`SidebarModel.settledChats`); the row is the existing fold row (`SidebarDoneFoldRowView`, kind `.settled`). Archive Settled Chats (`workspace.archiveSettled`) archives them in one undo step and never archives an unread, failed, lost or busy chat. Off draws every row as before. `SidebarSettledFoldTests`, gallery `AAStudioSettledGalleryTests` (off, folded and open in dark and light, risen; artifact `studio-settled-gallery.tar`).
+- 2026-11-20 (feat-cmux-next-48355-spaces-off): Sidebar-Look: user, 2026-11-20
+  (https://github.com/manaflow-ai/cmux/issues/48355): "i just dont want to see the spaces and dont want the ability to
+  create new spaces. in general we have one view per window and that doesn't change". `sidebar.showSpaces` defaults to
+  false: the footer draws no space dots and no "+" (the hidden state that already existed, now the default), and the
+  band's right-click offers Show Spaces. While it is off the list's two-finger swipe and mouse wheel page no spaces
+  (`SidebarSpacePaging.pagesSpaces`; a swipe begun before settles back), the window never switches space
+  (`WindowManager.switchProfile`), and every space action is off (`installSpacesGate`). Nothing else in the sidebar
+  moves: each window keeps its view, rows, groups and pins, and New Window and tear-off keep their own view.
+  Regression: `SpacesOffKeepsCurrentSpaceTests`, `SidebarBandHideTests`.
+
+- 2026-11-20 (a-ws-row-colors, gallery): Sidebar-Look: Lawrence, 2026-11-20: "make many versions of 'colors' we
+  need this to be better". The Sidebar States Playground (Debug menu) gains a "Workspace colors" sheet: the real
+  `WorkspaceRowView` with a picked color in twelve looks (quiet pill, the former full stripe, hairline on the edge,
+  muted stripe, vivid inset tick, wash, wash and hairline, tinted title, pill and tinted title, dot, filled row, none),
+  a long title at rest and selected, every density and text size, light and dark. `WorkspaceRailLook`
+  (`WorkspaceRowContent.railLook`) carries a `leftRail` row's bar width, length, lead, radius, ink (swatch, quiet,
+  muted), wash and title tint; the app draws `.standard`. Shots: `AAWorkspaceColorGalleryTests`.
+
+- 2026-11-20 (a-ws-row-colors): Sidebar-Look: Lawrence, 2026-11-20 (a row "workspace-1005" with a bright blue bar
+  down its left edge): "these colors look horrible by default". Nothing assigns a workspace a color by itself; a
+  picked color drew, in the default `leftRail` style, as the vibrant swatch at full strength (blue #62A7FD at 7:1 on
+  the dark sidebar, as loud as the title) the whole height of the row. The bar is now a quiet mark: the swatch taken
+  toward the sidebar until it stands at most 2.2:1 from it, 3.0:1 on a selected row so the selection stays clear
+  (`GroupColor.railRGB(_:emphasized:)`, every theme, light and dark; a swatch already that quiet is kept), and a short
+  pill on the title's line (cap height plus `space1`, centered on the capitals) instead of a stripe the row's height.
+  The `dot` and `fill` styles, group colors and rows with no picked color are unchanged. Regression:
+  `WorkspaceColorRailIsQuietTests` (every bundled theme); tour `workspace-row-colors`.
+
+- 2026-11-20 (a-hide-spaces): Sidebar-Look: Lawrence, 2026-11-20: "hide spaces by default, but people can still cmd shift p new space". The space strip shows from the second space on (`ProfileBarLogic.isVisible`: two or more), at the bottom and the top; a lone space shows no dot and no + (replaces the 2026-11-01 rule, #30232, that kept the lone dot). `sidebar.showSpaces` off still hides it with any count. The menus follow the same count for the active window (incognito spaces never count): the Window menu's New, Previous and Next Space, the sidebar menu's New Space and New Incognito Space, and Move or Duplicate to Space leave every menu (`SpacesMenuVisibility`, `ActionTargetVisibility.hideFromMenus`); the palette, keys, CLI and MCP keep them, and the second space brings everything back. Show Spaces gains a help line. Tests: `SidebarPinnedDefaultTests`, `ProfileBarPlusPlacementTests`, `SpacesHiddenByDefaultTests`.
+- 2026-11-20 (a-sidebar-pin-hover): Sidebar-Look: David Beyer, 2026-11-20 call (via Lawrence): pinning by drag and
+  drop is awkward. A hovered workspace row shows a pin beside its more button at every density, not only an expanded
+  pinned row (cx-13w3): Pin workspace on an unpinned row, Unpin workspace on a pinned one (`WorkspaceRowView.layoutPin`,
+  `applyPin`). The row asks for the outline pin and the filled one (`SidebarIconButton.iconStyle`), but under 13 pt the
+  icon catalog draws `state.pinned` solid (`denseStyle`), so at the default sizes both are the solid pin, the glyph the
+  group header's Unpin uses; the tooltip names the action. Fleet captures: tours `sidebar-hover-pin`, `sidebar-hover-unpin`. A pinned workspace's tile shows the
+  filled Unpin left of its more button (`SidebarItemRowView+HoverActions`). Both run Pin/Unpin Workspace through
+  `SidebarModel.workspacePin`, the action the right-click menu (already first under Rename), the palette and the CLI
+  run. No row draws a pin at rest, so Leo's 2026-10-21 "no empty pin symbol by default" still holds at rest; the
+  hover pin reverses only its hover half. Drag still pins. Regression: `SidebarHoverPinTests`,
+  `SidebarTrailingColumnTests.anExpandedRowOffersItsPinOnHoverOnly`.
+
+- 2026-11-20 (a-chat-task-list): Sidebar-Look: David Beyer, Nov 20 call (via Chief): "a task list that tracks
+  what's done and what's next across long agent chats", shown per thread in the sidebar. An agent chat's row shows a
+  quiet `done/total` ("3/7") in its trailing status slot while its task list has steps left, only when the row shows
+  no status and no age there, so nothing moves and no status is hidden. The hover card adds the progress, "Now: ..."
+  and "Next: ...". The list is acpmux's `taskList` (the harness's own plan, else what the Chief keeps); a working
+  lane's unfinished list leads, else the newest (`SidebarLaneStatus.taskProgress`). Tunable `sidebar.taskProgress`
+  (default on) turns it off. VoiceOver says "N of M tasks done". Fixture: `sidebar.laneFixture`.
+
+- 2026-11-19 (lane/needs-you-glow): Sidebar-Look: Leo, 2026-11-19, on eight new features: "all of them" and "some of
+  them maybe just as customizations lol if it affects default looks". "Needs you" as motion, off by default: with
+  `notifications.attention.mark` `glow` (default `badge`, no change), a workspace row that waits for the person (an
+  error, needs you or Ready: what its one badge says) draws no trailing mark; its fill breathes a soft halo in that
+  mark's status color until the row is selected, and a selected row that still waits shows its badge again. The marks
+  only go transparent, so nothing in the row moves. The breath is the indicators gate's `breathAnimation` on the render
+  server, still under Reduce Motion and while the window is covered (`SidebarListView.setWindowVisible`). Tabs do the
+  same (`TabCell+NeedsYouGlow`). Regression: `NeedsYouGlowTests` (CmuxNextAppTests). Review fixes: a row parked and
+  shown again keeps its glow (the reuse reset no longer clears the tone an equal configure would not set again); a
+  row made while its window is covered starts paused (`viewDidMoveToWindow`); loops turned off at runtime stop every
+  row's breath (the list's `Motion.changes` subscription). Cost fix: an endless breath kept WindowServer at 24 %
+  CPU and the GPU at 6 % with 18 glowing tabs and rows (badges: 0.7 % and 0.9 %; M4 mini, `idle_attention` bench),
+  so the halo breathes three times at most 30 fps (`MotionGate.attentionBreathAnimation`), then rests until seen,
+  and breathes again each time its covered window shows.
+
+- 2026-11-20 (a-move-pinned-top): Sidebar-Look: no visual change. User, 2026-11-20 (msg 42511): "move pinned
+  workspace to top should not fail". A pinned workspace is an item of Pinned, not a row of the workspace list, and
+  Move Workspace to Top, to Bottom and Above/Below only searched the list rows (`WorkspaceSlot.reorder`), so they
+  refused with "the workspace is not in the sidebar". Every Move verb on a workspace with no list row now goes
+  through one planner, `SidebarLayoutDocument.bandMove` (`SidebarBandPlacement`: step, top, bottom, above, below),
+  on the sidebar document (`SidebarDocument.moveBand`) or the layout document (`AppActions.moveBandWorkspace`).
+  Move to Top keeps a leading Home item first: the workspace goes first in Pinned, under Home. The first item's
+  Move to Top and the last one's Move Down are a no-op, not a refusal. Move Up/Down off personal mode steps among
+  Pinned's items too (it moved an invisible daemon index). An unpinned row keeps its rule (top of its group or of
+  the loose rows). Regression: `PinnedWorkspaceMoveToTopTests`, `PinnedWorkspaceShortcutsTests`; tour
+  `pinned-move-to-top`.
 - 2026-11-17 (lane/widget-sidebar): Sidebar-Look: Leo, 2026-11-16: "For the customization, the widget ecosystem needs to be improved, I still haven't seen a good weather/time/calendar thing, like apple's iOS or desktop widgets". A Widgets section joins the end of the band below the list while the person has a widget placed or edits them; it is not in the layout document (`SidebarAppSectionProvider.providedSections`), so with no widget placed the sidebar draws as before. Tiles sit on the New Tab tile unit (`AppWidgetGrid`, `Metrics.space2` gaps and inset): small two per row, medium the full width, each a card on `Palette.hoverFill` with the surface corner. A stale widget keeps its scene at 45% with a caption "Retrying". Edit mode adds a minus badge (`Palette.badgeFill`, pressed fill only) per tile and an Add Widget / Done bar; Add Widget opens a native popup gallery on the menu glass. Edit Widgets is in the section header's and the sidebar background's menus. Motion: `Motion.sidebar`. Tests: `AppWidgetSidebarTests`.
 
 - 2026-11-19 (a590, pinned row shown-tab icon): Sidebar-Look: user, 2026-11-19 (msg 40501): "vault h1 h2 is pinned
@@ -2494,3 +2584,11 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   densities. The shared trailing column still reserves the local Share Screen action. Regression coverage:
   `SidebarSearchButtonTests`, `SidebarEvenRowInsetsTests`, `NowPlayingCardTests`.
   Sidebar-Look: every density is Default scaled by one factor.
+
+- 2026-11-21 (Leo: "i dont think it works very well, especially with clicking and dragging"; 2026-11-07: "it's
+  super weird how when you drag ANY workspace, it shifts imediately due to that"): a workspace dragged from the
+  list into Pinned pins (the drop is the document move the palette and the API make; the reducer remembers where
+  it came from, so Unpin returns it there), and a pinned workspace dragged out unpins. `SidebarDocRecords.keepingPinned`
+  (Pinned refused a workspace from the list, #22263) is gone. The lift moves no row: Pinned's zone still opens only
+  where the drag goes (`SidebarEmptyZones`). Regression: `SidebarDocPinnedDropTests`.
+  Sidebar-Look: i dont think it works very well, especially with clicking and dragging.
