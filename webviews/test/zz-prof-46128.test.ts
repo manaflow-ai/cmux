@@ -45,12 +45,15 @@ test("prof", async () => {
       const parent = new Map<number, number>();
       for (const n of profile.nodes) for (const c of n.children ?? []) parent.set(c, n.id);
       const incl: Record<string, number> = {};
+      const attr: Record<string, number> = {};
       for (const n of profile.nodes) {
         const t = dt[n.id] ?? 0;
         if (!t) continue;
         const f = n.callFrame;
         const k = `${f.functionName || "(anon)"} ${f.url.split("/").pop()?.split("?")[0]}:${f.lineNumber}`;
         self[k] = (self[k] ?? 0) + t;
+        { let at: number | undefined = n.id; const leaf = f.functionName || "(anon)"; while (at !== undefined && !byId.get(at)!.callFrame.url) at = parent.get(at);
+          if (at !== undefined && byId.get(at)!.callFrame.url.includes("WindowedRows")) { const g = byId.get(at)!.callFrame; const kk = `ATTR ${g.functionName || "(anon)"}:${g.lineNumber} <- ${leaf}`; attr[kk] = (attr[kk] ?? 0) + t; attr.TOTAL = (attr.TOTAL ?? 0) + t; } }
         // inclusive for WindowedRows frames
         const seen = new Set<string>();
         for (let at: number | undefined = n.id; at !== undefined; at = parent.get(at)) {
@@ -64,6 +67,7 @@ test("prof", async () => {
       }
       const top = Object.entries(self).sort((a, b) => b[1] - a[1]).slice(0, 18).map(([k, t]) => `${(t / 1000 / 40).toFixed(2)} ${k}`);
       const wr = Object.entries(incl).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k, t]) => `${(t / 1000 / 40).toFixed(2)} ${k}`);
+      console.log(`PROFATTR ${v} ${list}\n  ${Object.entries(attr).sort((a, b) => b[1] - a[1]).slice(0, 14).map(([k, t]) => `${(t / 1000 / 40).toFixed(3)} ${k}`).join("\n  ")}`);
       console.log(`PROF ${v} ${list} self ms/open-close:\n  ${top.join("\n  ")}\n PROF ${v} WindowedRows inclusive:\n  ${wr.join("\n  ")}`);
       await page.close();
     }
