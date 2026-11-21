@@ -74,6 +74,7 @@ pub mod resume_here;
 pub mod resume_here_ask;
 pub mod retry;
 pub mod run;
+pub mod whoami;
 pub mod search_all;
 pub(crate) mod select;
 pub(crate) mod send_notice;

@@ -83,6 +83,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "whoami",
+        &[
+            ("Show this session's name, handle, tags and the send that reaches it", "acpmux whoami"),
+            ("The same as JSON, for a hook or a script", "acpmux whoami --json"),
+        ],
+    ),
+    (
         "new",
         &[
             (
