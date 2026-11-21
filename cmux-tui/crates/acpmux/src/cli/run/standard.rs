@@ -76,6 +76,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 &session,
                 thread.as_deref(),
                 mark_read,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
                 json_out,
             )
             .await
