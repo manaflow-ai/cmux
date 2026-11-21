@@ -60,7 +60,6 @@ export function NewChiefSheet({
       onSubmit={() => sheet.run(() => actions.createChief(trimmed, chosen.id))}
       onCancel={() => sheet.finish(null)}
     >
-      <p className="hm-sheet-body">{t("home.chief.new.body")}</p>
       <input
         className="hc-link-field"
         value={name}

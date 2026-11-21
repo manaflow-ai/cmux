@@ -28,14 +28,13 @@ struct ChiefWelcomeShortcutTests {
         let goTo = try #require(text.range(of: HomeStrings.chiefWelcomeGoTo("⌘P")))
         let palette = try #require(text.range(of: "- `⇧⌘P` Command Palette"))
         let newTab = try #require(text.range(of: "- `⌘T` New Tab"))
-        let examples = try #require(text.range(of: HomeStrings.chiefWelcomeExamplesHeader))
-        let ask = try #require(text.range(of: HomeStrings.chiefWelcomeAsk))
         #expect(text.hasPrefix(ChiefWelcome.aboutText))
         #expect(text.components(separatedBy: ChiefWelcome.aboutText).count == 2)
         #expect(!text.contains(ChiefWelcome.helloText))
         #expect(goTo.lowerBound < palette.lowerBound && palette.lowerBound < newTab.lowerBound)
-        #expect(newTab.lowerBound < examples.lowerBound && examples.lowerBound < ask.lowerBound)
-        #expect(text.components(separatedBy: "\n").filter { $0.hasPrefix("- ") }.count == 6)
+        // Quiet UI (2026-11-16): the shortcuts end the message; no example requests or closing line.
+        #expect(newTab.upperBound == text.endIndex)
+        #expect(text.components(separatedBy: "\n").filter { $0.hasPrefix("- ") }.count == 2)
     }
 
 }

@@ -49,7 +49,6 @@ export function InviteSheet({ strings, actions, pending, prefill = "", onFinish 
       onSubmit={submit}
       onCancel={() => sheet.finish(null)}
     >
-      <p className="hm-sheet-body">{t("home.invite.body")}</p>
       <input
         className="hc-link-field"
         type="email"

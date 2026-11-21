@@ -19,10 +19,6 @@ public final class HomeNewChiefSheet: HomeSheetController, NSTextFieldDelegate {
     }
 
     override func addContent(to stack: NSStackView) {
-        let body = ThemedLabel(wrappingLabelWithString: HomeConversationStrings.chiefBody)
-        body.font = Typography.body
-        body.preferredMaxLayoutWidth = 420 - 2 * Metrics.space6
-        stack.addArrangedSubview(body)
         name.delegate = self
         stack.addArrangedSubview(Self.boxed(name))
         let caption = ThemedLabel(labelWithString: HomeConversationStrings.chiefBackend)

@@ -3,7 +3,7 @@ import CmuxNextDesign
 import CmuxNextIcons
 
 /// The quiet row under an open group with no members (`SidebarRowKey.emptyGroup`, user 9757): dimmed
-/// "No workspaces · drag one here" where a member's title would start. A drop over it goes into the
+/// "No workspaces" where a member's title would start. A drop over it goes into the
 /// group; a hover offers New Workspace and a click makes one in the group (the header's + path).
 /// A + on the trailing column shows at rest (user 17912, "empty workspace needs plus button"), so the
 /// way to fill the group reads without a hover. One label and one button, no observers: the text

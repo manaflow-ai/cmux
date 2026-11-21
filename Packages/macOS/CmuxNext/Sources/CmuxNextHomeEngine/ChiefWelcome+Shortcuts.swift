@@ -47,7 +47,7 @@ extension ChiefWelcome {
                     anyApp: shortcut(anyAppAction), anyAppOn: anyAppOn)
     }
 
-    /// The about message's Markdown: what Chief can do, Go to Workspace, other shortcuts and example requests.
+    /// The about message's Markdown: one line, Go to Workspace and the other shortcuts.
     /// An unbound Go to Workspace (`goTo` nil) has no call-out. `anyApp` (Start Agent from Any App) ends the
     /// shortcut list, with a link that turns its key on unless `anyAppOn`.
     public nonisolated static func text(goTo: String?, shortcuts: [Shortcut], anyApp: Shortcut? = nil, anyAppOn: Bool = false) -> String {
@@ -60,8 +60,6 @@ extension ChiefWelcome {
         if !lines.isEmpty {
             blocks.append(([HomeStrings.chiefWelcomeShortcuts] + lines).joined(separator: "\n"))
         }
-        blocks.append(HomeStrings.chiefWelcomeExamplesHeader + "\n" + HomeStrings.chiefWelcomeExamples)
-        blocks.append(HomeStrings.chiefWelcomeAsk)
         return blocks.joined(separator: "\n\n")
     }
 }

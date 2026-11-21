@@ -7090,127 +7090,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الطرفيات المحررة: %lld. تبدأ من جديد عند فتح مساحة العمل هذه."
+            "value": "الطرفيات المحررة: %lld."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Oslobođeni terminali: %lld. Ponovo se pokreću kada otvorite ovaj radni prostor."
+            "value": "Oslobođeni terminali: %lld."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Frigjorte terminaler: %lld. De starter igen, når du åbner dette arbejdsområde."
+            "value": "Frigjorte terminaler: %lld."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Freigegebene Terminals: %lld. Sie starten wieder, wenn du diesen Workspace öffnest."
+            "value": "Freigegebene Terminals: %lld."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Freed terminals: %lld. They start again when you open this workspace."
+            "value": "Freed terminals: %lld."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminales liberados: %lld. Se inician de nuevo al abrir este espacio de trabajo."
+            "value": "Terminales liberados: %lld."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminaux libérés : %lld. Ils redémarrent quand vous ouvrez cet espace de travail."
+            "value": "Terminaux libérés : %lld."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminali liberati: %lld. Si riavviano quando apri questo spazio di lavoro."
+            "value": "Terminali liberati: %lld."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "解放したターミナル: %lld。このワークスペースを開くと再び起動します。"
+            "value": "解放したターミナル: %lld。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ទែមីណាល់ដែលបានដោះលែង៖ %lld។ វាចាប់ផ្ដើមឡើងវិញ ពេលអ្នកបើកកន្លែងធ្វើការនេះ។"
+            "value": "ទែមីណាល់ដែលបានដោះលែង៖ %lld។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "해제된 터미널: %lld개. 이 작업 공간을 열면 다시 시작됩니다."
+            "value": "해제된 터미널: %lld개."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Frigjorte terminaler: %lld. De starter igjen når du åpner dette arbeidsområdet."
+            "value": "Frigjorte terminaler: %lld."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zwolnione terminale: %lld. Uruchomią się ponownie po otwarciu tego obszaru roboczego."
+            "value": "Zwolnione terminale: %lld."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminais liberados: %lld. Eles iniciam de novo quando você abre este espaço de trabalho."
+            "value": "Terminais liberados: %lld."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Освобождённые терминалы: %lld. Они снова запустятся, когда вы откроете это рабочее пространство."
+            "value": "Освобождённые терминалы: %lld."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "เทอร์มินัลที่ปล่อยแล้ว: %lld จะเริ่มใหม่เมื่อคุณเปิดพื้นที่ทำงานนี้"
+            "state": "needs_review",
+            "value": "เทอร์มินัลที่ปล่อยแล้ว: %lld"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Serbest bırakılan terminaller: %lld. Bu çalışma alanını açtığınızda yeniden başlarlar."
+            "value": "Serbest bırakılan terminaller: %lld."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Звільнені термінали: %lld. Вони знову запустяться, коли ви відкриєте цей робочий простір."
+            "value": "Звільнені термінали: %lld."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal đã giải phóng: %lld. Chúng khởi động lại khi bạn mở không gian làm việc này."
+            "value": "Terminal đã giải phóng: %lld."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已释放的终端：%lld。打开此工作区时会重新启动。"
+            "value": "已释放的终端：%lld。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "已釋放的終端機：%lld。開啟此工作區時會重新啟動。"
+            "value": "已釋放的終端機：%lld。"
           }
         }
       }
@@ -34475,127 +34475,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No workspaces · drag one here"
+            "value": "No workspaces"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースなし · ここにドラッグ"
+            "value": "ワークスペースなし"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا توجد مساحات عمل · اسحب واحدة هنا"
+            "value": "لا توجد مساحات عمل"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nema radnih prostora · prevucite jedan ovdje"
+            "value": "Nema radnih prostora"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen arbejdsområder · træk et hertil"
+            "value": "Ingen arbejdsområder"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Keine Arbeitsbereiche · hierher ziehen"
+            "value": "Keine Arbeitsbereiche"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sin espacios de trabajo · arrastra uno aquí"
+            "value": "Sin espacios de trabajo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucun espace de travail · glissez-en un ici"
+            "value": "Aucun espace de travail"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nessuna area di lavoro · trascinane una qui"
+            "value": "Nessuna area di lavoro"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "គ្មានកន្លែងធ្វើការ · អូសមួយមកទីនេះ"
+            "value": "គ្មានកន្លែងធ្វើការ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "작업 공간 없음 · 여기로 끌어오기"
+            "value": "작업 공간 없음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen arbeidsområder · dra ett hit"
+            "value": "Ingen arbeidsområder"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brak przestrzeni roboczych · przeciągnij tutaj"
+            "value": "Brak przestrzeni roboczych"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhuma área de trabalho · arraste uma para cá"
+            "value": "Nenhuma área de trabalho"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нет рабочих пространств · перетащите сюда"
+            "value": "Нет рабочих пространств"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่มีเวิร์กสเปซ · ลากมาที่นี่"
+            "value": "ไม่มีเวิร์กสเปซ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Çalışma alanı yok · buraya sürükleyin"
+            "value": "Çalışma alanı yok"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Немає робочих областей · перетягніть сюди"
+            "value": "Немає робочих областей"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không có không gian làm việc · kéo vào đây"
+            "value": "Không có không gian làm việc"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "没有工作区 · 拖到此处"
+            "value": "没有工作区"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "沒有工作區 · 拖曳至此"
+            "value": "沒有工作區"
           }
         }
       }

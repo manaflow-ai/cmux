@@ -138,127 +138,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your Chief's history could not be copied to the cloud yet. cmux tries again at the next launch."
+            "value": "Your Chief's history could not be copied to the cloud yet."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تعذّر نسخ سجل Chief إلى السحابة بعد. سيحاول cmux مرة أخرى عند التشغيل التالي."
+            "value": "تعذّر نسخ سجل Chief إلى السحابة بعد."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Historija vašeg Chiefa još nije kopirana u oblak. cmux će pokušati ponovo pri sljedećem pokretanju."
+            "value": "Historija vašeg Chiefa još nije kopirana u oblak."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Din Chiefs historik kunne ikke kopieres til skyen endnu. cmux prøver igen ved næste start."
+            "value": "Din Chiefs historik kunne ikke kopieres til skyen endnu."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der Verlauf deines Chiefs konnte noch nicht in die Cloud kopiert werden. cmux versucht es beim nächsten Start erneut."
+            "value": "Der Verlauf deines Chiefs konnte noch nicht in die Cloud kopiert werden."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aún no se pudo copiar el historial de tu Chief a la nube. cmux lo intentará de nuevo en el próximo inicio."
+            "value": "Aún no se pudo copiar el historial de tu Chief a la nube."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "L’historique de votre Chief n’a pas encore pu être copié dans le cloud. cmux réessaiera au prochain lancement."
+            "value": "L’historique de votre Chief n’a pas encore pu être copié dans le cloud."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Non è stato ancora possibile copiare la cronologia del tuo Chief nel cloud. cmux riproverà al prossimo avvio."
+            "value": "Non è stato ancora possibile copiare la cronologia del tuo Chief nel cloud."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief の履歴をまだクラウドにコピーできませんでした。cmux は次回の起動時に再試行します。"
+            "value": "Chief の履歴をまだクラウドにコピーできませんでした。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនទាន់អាចចម្លងប្រវត្តិ Chief របស់អ្នកទៅពពកបានទេ។ cmux នឹងព្យាយាមម្តងទៀតនៅពេលបើកលើកក្រោយ។"
+            "value": "មិនទាន់អាចចម្លងប្រវត្តិ Chief របស់អ្នកទៅពពកបានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief 기록을 아직 클라우드에 복사하지 못했습니다. cmux가 다음 실행 때 다시 시도합니다."
+            "value": "Chief 기록을 아직 클라우드에 복사하지 못했습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chiefens historikk kunne ikke kopieres til skyen ennå. cmux prøver igjen ved neste oppstart."
+            "value": "Chiefens historikk kunne ikke kopieres til skyen ennå."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nie udało się jeszcze skopiować historii Twojego Chiefa do chmury. cmux spróbuje ponownie przy następnym uruchomieniu."
+            "value": "Nie udało się jeszcze skopiować historii Twojego Chiefa do chmury."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ainda não foi possível copiar o histórico do seu Chief para a nuvem. O cmux tentará de novo na próxima abertura."
+            "value": "Ainda não foi possível copiar o histórico do seu Chief para a nuvem."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Историю вашего Chief пока не удалось скопировать в облако. cmux попробует снова при следующем запуске."
+            "value": "Историю вашего Chief пока не удалось скопировать в облако."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ยังคัดลอกประวัติของ Chief ไปยังคลาวด์ไม่ได้ cmux จะลองอีกครั้งเมื่อเปิดครั้งถัดไป"
+            "value": "ยังคัดลอกประวัติของ Chief ไปยังคลาวด์ไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief geçmişiniz henüz buluta kopyalanamadı. cmux bir sonraki açılışta yeniden deneyecek."
+            "value": "Chief geçmişiniz henüz buluta kopyalanamadı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Історію вашого Chief поки не вдалося скопіювати в хмару. cmux спробує знову під час наступного запуску."
+            "value": "Історію вашого Chief поки не вдалося скопіювати в хмару."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chưa thể sao chép lịch sử Chief của bạn lên đám mây. cmux sẽ thử lại ở lần mở tiếp theo."
+            "value": "Chưa thể sao chép lịch sử Chief của bạn lên đám mây."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "暂时无法将 Chief 的历史记录复制到云端。cmux 会在下次启动时重试。"
+            "value": "暂时无法将 Chief 的历史记录复制到云端。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "暫時無法將 Chief 的歷史紀錄複製到雲端。cmux 會在下次啟動時重試。"
+            "value": "暫時無法將 Chief 的歷史紀錄複製到雲端。"
           }
         }
       }
@@ -269,127 +269,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your cloud Chief could not be turned on, so it does not answer yet. cmux tries again at the next launch."
+            "value": "Your cloud Chief could not be turned on, so it does not answer yet."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تعذّر تشغيل Chief السحابي، لذلك لا يجيب بعد. سيحاول cmux مرة أخرى عند التشغيل التالي."
+            "value": "تعذّر تشغيل Chief السحابي، لذلك لا يجيب بعد."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vaš Chief u oblaku nije mogao biti uključen, pa još ne odgovara. cmux će pokušati ponovo pri sljedećem pokretanju."
+            "value": "Vaš Chief u oblaku nije mogao biti uključen, pa još ne odgovara."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Din Chief i skyen kunne ikke slås til, så den svarer ikke endnu. cmux prøver igen ved næste start."
+            "value": "Din Chief i skyen kunne ikke slås til, så den svarer ikke endnu."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dein Cloud-Chief konnte nicht eingeschaltet werden und antwortet daher noch nicht. cmux versucht es beim nächsten Start erneut."
+            "value": "Dein Cloud-Chief konnte nicht eingeschaltet werden und antwortet daher noch nicht."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No se pudo activar tu Chief en la nube, así que todavía no responde. cmux lo intentará de nuevo en el próximo inicio."
+            "value": "No se pudo activar tu Chief en la nube, así que todavía no responde."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Votre Chief cloud n’a pas pu être activé, il ne répond donc pas encore. cmux réessaiera au prochain lancement."
+            "value": "Votre Chief cloud n’a pas pu être activé, il ne répond donc pas encore."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Non è stato possibile attivare il tuo Chief nel cloud, quindi non risponde ancora. cmux riproverà al prossimo avvio."
+            "value": "Non è stato possibile attivare il tuo Chief nel cloud, quindi non risponde ancora."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "クラウドの Chief をオンにできなかったため、まだ応答しません。cmux は次回の起動時に再試行します。"
+            "value": "クラウドの Chief をオンにできなかったため、まだ応答しません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនអាចបើក Chief លើពពករបស់អ្នកបានទេ ដូច្នេះវាមិនទាន់ឆ្លើយតបនៅឡើយ។ cmux នឹងព្យាយាមម្តងទៀតនៅពេលបើកលើកក្រោយ។"
+            "value": "មិនអាចបើក Chief លើពពករបស់អ្នកបានទេ ដូច្នេះវាមិនទាន់ឆ្លើយតបនៅឡើយ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "클라우드 Chief를 켤 수 없어 아직 응답하지 않습니다. cmux가 다음 실행 때 다시 시도합니다."
+            "value": "클라우드 Chief를 켤 수 없어 아직 응답하지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief i skyen kunne ikke slås på, så den svarer ikke ennå. cmux prøver igjen ved neste oppstart."
+            "value": "Chief i skyen kunne ikke slås på, så den svarer ikke ennå."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nie udało się włączyć twojego Chiefa w chmurze, więc jeszcze nie odpowiada. cmux spróbuje ponownie przy następnym uruchomieniu."
+            "value": "Nie udało się włączyć twojego Chiefa w chmurze, więc jeszcze nie odpowiada."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Não foi possível ativar seu Chief na nuvem, então ele ainda não responde. O cmux tentará de novo na próxima abertura."
+            "value": "Não foi possível ativar seu Chief na nuvem, então ele ainda não responde."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не удалось включить ваш облачный Chief, поэтому он пока не отвечает. cmux попробует снова при следующем запуске."
+            "value": "Не удалось включить ваш облачный Chief, поэтому он пока не отвечает."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เปิด Chief บนคลาวด์ของคุณไม่ได้ จึงยังไม่ตอบ cmux จะลองอีกครั้งเมื่อเปิดครั้งถัดไป"
+            "value": "เปิด Chief บนคลาวด์ของคุณไม่ได้ จึงยังไม่ตอบ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bulut Chief'in açılamadı, bu yüzden henüz yanıt vermiyor. cmux bir sonraki açılışta yeniden deneyecek."
+            "value": "Bulut Chief'in açılamadı, bu yüzden henüz yanıt vermiyor."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не вдалося ввімкнути ваш хмарний Chief, тому він ще не відповідає. cmux спробує знову під час наступного запуску."
+            "value": "Не вдалося ввімкнути ваш хмарний Chief, тому він ще не відповідає."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không thể bật Chief trên đám mây của bạn nên Chief chưa trả lời. cmux sẽ thử lại ở lần mở tiếp theo."
+            "value": "Không thể bật Chief trên đám mây của bạn nên Chief chưa trả lời."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "无法开启你的云端 Chief，因此它暂时不会回复。cmux 会在下次启动时重试。"
+            "value": "无法开启你的云端 Chief，因此它暂时不会回复。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "無法開啟你的雲端 Chief，因此它暫時不會回覆。cmux 會在下次啟動時重試。"
+            "value": "無法開啟你的雲端 Chief，因此它暫時不會回覆。"
           }
         }
       }

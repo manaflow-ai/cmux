@@ -1025,11 +1025,6 @@
   font-weight: var(--weight-emphasis, 600);
 }
 
-.feed-reports-subtitle {
-  font-size: var(--text-caption);
-  color: var(--ds-color-faint);
-}
-
 .feed-reports-list {
   display: flex;
   flex: 1;
@@ -1050,11 +1045,6 @@
   padding: 24px;
   text-align: center;
   color: var(--ds-color-muted);
-}
-
-.feed-reports-empty-hint {
-  font-size: var(--text-caption);
-  color: var(--ds-color-faint);
 }
 
 .feed-report-row {

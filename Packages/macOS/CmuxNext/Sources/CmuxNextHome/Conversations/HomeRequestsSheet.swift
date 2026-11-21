@@ -23,11 +23,6 @@ public final class HomeRequestsSheet: HomeSheetController {
     }
 
     override func addContent(to stack: NSStackView) {
-        let body = ThemedLabel(wrappingLabelWithString: HomeConversationStrings.requestsBody)
-        body.font = Typography.caption
-        body.ink = .secondary
-        body.preferredMaxLayoutWidth = Self.width
-        stack.addArrangedSubview(body)
         list.orientation = .vertical
         list.alignment = .leading
         list.spacing = Metrics.space4
