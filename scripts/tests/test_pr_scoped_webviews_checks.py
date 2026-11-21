@@ -34,9 +34,10 @@ IMPORT = re.compile(r'''(?:\bfrom|\bimport\(?)\s*["'](\.\.?/[^"']+)["']''')
 
 
 def outside_imports():
-    """OUTSIDE plus every repo folder (two levels: first-party-apps/widget-calendar) a tracked webviews file imports
-    by a relative path that leaves webviews/. A hand-kept list missed CalendarWidget.gallery.tsx's
-    first-party-apps/widget-calendar/preview/scenes.json (#47735), and every test here failed with it."""
+    """OUTSIDE plus every repo folder (two levels: cmux-tui/crates) a tracked webviews file imports by a relative
+    path that leaves webviews/. The hand-kept list missed CalendarWidget.gallery.tsx's
+    first-party-apps/widget-calendar/preview/scenes.json (#47735) until #49071, and every test here failed with it;
+    it still misses cmux-tui/crates, cmux-tui/spec and config/vite-plus."""
     listed = subprocess.run(['git', 'ls-files', '-z', '--', 'webviews/'], cwd=ROOT, check=True,
                             capture_output=True).stdout.decode().split('\0')
     found = set(OUTSIDE)
