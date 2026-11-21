@@ -11,6 +11,7 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { MOTION_MS, MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 import { isAgentMotionOff } from "../../shared/motion";
+import { exitLeadMs, exitThenClose } from "./exitLead";
 
 /// The fold's duration token. conversation.css sets it from the settle (`--cmux-motion-settle`, the
 /// one fold length every web fold shares, schemas/motion-scale), and the chevron reads the same token.
@@ -392,7 +393,12 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
     if (open) extent.current = toHeight;
     else if (!turning) extent.current = fromHeight;
     // A fold that turns back midway retargets: it plays only the share of the travel left.
-    const ms = turning && foldLook(node) !== "stack" ? turnMs(full, fromHeight, toHeight, extent.current) : full;
+    const move = turning && foldLook(node) !== "stack" ? turnMs(full, fromHeight, toHeight, extent.current) : full;
+    // A close takes its text away before its height moves (exitLead.ts): the body fades out over a
+    // short lead while it holds its height, then shuts, so no text is drawn while the rows under it
+    // travel (Leo, 2026-11-21: "we must hide text faster and sooner"). An open plays no lead.
+    const lead = open ? 0 : exitLeadMs(move, fromOpacity);
+    const ms = lead + move;
     markHeightFold(node, ms);
     clipFold(node, true);
     // The box holds its start height under the motion: a new animation is pending until a frame
@@ -401,13 +407,21 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
     // "sometimes ... there's, like, some elements in between"). It lets go when the fold ends.
     node.style.height = `${fromHeight}px`;
     const animation = node.animate(
-      [
-        { height: `${fromHeight}px`, opacity: fromOpacity },
-        { height: `${toHeight}px`, opacity: open ? 1 : 0 },
-      ],
+      open
+        ? [
+            { height: `${fromHeight}px`, opacity: fromOpacity },
+            { height: `${toHeight}px`, opacity: 1 },
+          ]
+        : exitThenClose(
+            { height: fromHeight, opacity: fromOpacity },
+            { height: toHeight },
+            lead,
+            move,
+            foldMotion.easing(node),
+          ),
       // It holds its end until it lets go (`settled`), so the frame it ends on never draws the held
-      // start height.
-      { duration: ms, easing: foldMotion.easing(node), fill: "forwards" },
+      // start height. A close carries its curves on its keyframes (the exit's, then the fold's).
+      { duration: ms, easing: open ? foldMotion.easing(node) : "linear", fill: "forwards" },
     );
     running.current = animation;
     watchMotion(node, open);

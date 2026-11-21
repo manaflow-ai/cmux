@@ -9,7 +9,10 @@
 //   cps  = rate + (backlog - rate x lag) / 250 ms, at least 40 chars/s
 //
 // A backlog of more than 900 ms of text drains in 250 ms; once the stream ends (or nothing arrives
-// for 600 ms) the rest drains in 180 ms. Pure: the caller ticks it with display-frame times.
+// for 600 ms) the rest drains in 180 ms, or longer for a backlog that would need more than twice the
+// arrival rate (at most 350 ms, the longest lag): the reply's last lines never sprint when a tool call
+// ends its stream (Leo, 2026-11-21: "sometimes animations sprint for no reason"). Pure: the caller
+// ticks it with display-frame times.
 
 export type StreamRevealOptions = {
   /// Text already there when the row mounts (history, or a row scrolled into view mid-stream):
@@ -32,6 +35,8 @@ export class StreamReveal {
   static readonly catchUpMs = 250;
   // motion-allow: the text reveal's finish pace, not a motion step
   static readonly finishMs = 180;
+  /// The most a finish drains over the arrival rate: a larger backlog takes longer, up to maxLagMs.
+  static readonly finishSpeedup = 2;
   static readonly stallMs = 600;
   /// A longer gap between frames (a hidden pane, a long task) counts as this long.
   static readonly maxFrameMs = 100;
@@ -139,7 +144,10 @@ export class StreamReveal {
     // starts, so it finishes on time instead of slowing down as the backlog shrinks.
     const drain =
       done || stalled
-        ? StreamReveal.finishMs
+        ? Math.min(
+            StreamReveal.maxLagMs,
+            Math.max(StreamReveal.finishMs, (backlog / (rate * StreamReveal.finishSpeedup)) * 1000),
+          )
         : backlog > (rate * StreamReveal.maxBacklogMs) / 1000
           ? StreamReveal.catchUpMs
           : 0;

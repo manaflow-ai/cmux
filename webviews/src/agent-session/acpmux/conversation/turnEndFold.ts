@@ -21,6 +21,7 @@
 import { MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 import { bezierAt, cssBezier, parseBezier, type CubicBezier } from "../../../ui/cubicBezier";
 import { currentChatMetrics } from "../chatDisplay";
+import { EXIT_EASING, exitLeadMs } from "./exitLead";
 import { cssTimeMs, foldMs } from "./fold";
 import { ARRIVAL_FRAME_LINES } from "./followChase";
 import { boxOf, clippedBottom, clippedBottomOf, coverClip, ghostOf, type CoverPath } from "./turnFold";
@@ -96,9 +97,6 @@ type Drawn = {
   clip?: number;
   shown?: number;
 };
-
-/// How far into the fold (0 to 1, of its progress) a copy of a row that goes has faded out.
-const COPY_GONE_AT = 0.6;
 
 /// A clip that hides `bottom` px of a row's bottom and nothing past its other edges (tailGlide.ts's).
 const clipBottom = (bottom: number) => `inset(-4096px -4096px ${bottom}px -4096px)`;
@@ -386,12 +384,52 @@ export function playTurnEnd(
   const View = thread.ownerDocument.defaultView;
   const timeline = thread.ownerDocument.timeline;
   const now = () => (typeof timeline?.currentTime === "number" ? timeline.currentTime : performance.now());
+  // Exit before move (exitLead.ts): the copies of the rows the swap took away fade out over the exit
+  // lead, from the first painted frame, and every move (the rows that stay, the copies, their clips, the
+  // rows that come in) starts when it ends, held at its start until then. A fold that takes nothing
+  // away has no lead. Leo, 2026-11-21: "that text hiding as it travels so it doesnt show weird overlays
+  // is the big one ... we must hide text faster and sooner".
+  const lead = capture.rows.some((row) => row.copy) ? exitLeadMs(ms) : 0;
+  /// The first painted frame (the exit's clock), and when the move's clock starts.
   let startedAt: number | undefined;
-  const firstFrame = View?.requestAnimationFrame(() => (startedAt = now()));
+  let movesAt: number | undefined;
+  const firstFrame = View?.requestAnimationFrame(() => {
+    startedAt = now();
+    movesAt = startedAt + lead;
+    // The fold's clock starts here, so its backstop does too: armed only at the swap, a first frame
+    // that came late (a busy main thread, 130 ms and more: entranceClock.ts) left the timer to finish
+    // the fold part way, its rest in one jump (Leo, 2026-11-21: "sometimes animations sprint for no
+    // reason"). A hidden page paints no frame and keeps the swap's timer.
+    if (fold.timer !== undefined) {
+      clearTimeout(fold.timer);
+      fold.timer = setTimeout(() => settleTurnEnd(thread, fold), lead + ms + 50);
+    }
+  });
+  /// How long until the move starts (negative once it runs).
+  const toMove = () => (movesAt === undefined ? lead : movesAt - now());
   const play = (node: HTMLElement, keyframes: Keyframe[], timing: KeyframeAnimationOptions = {}) => {
     // On the fold's clock: a pass after its first frame starts each animation part way, in step.
-    const delay = (timing.delay ?? 0) - (startedAt === undefined ? 0 : Math.max(0, now() - startedAt));
-    const animation = node.animate(keyframes, { duration: ms, easing, ...timing, delay });
+    const delay = (timing.delay ?? 0) + toMove();
+    const fill: FillMode | undefined =
+      lead > 0 ? (timing.fill === "forwards" || timing.fill === "both" ? "both" : "backwards") : timing.fill;
+    const animation = node.animate(keyframes, { duration: ms, easing, ...timing, delay, ...(fill && { fill }) });
+    fold.animations.add(animation);
+    return animation;
+  };
+  /// A copy's ink going to 0 on the exit's clock, `offset` ms into it (a stagger's step). A copy whose
+  /// clock started again (`starts` has its drawn ink) goes on from that ink over the exit left.
+  const exit = (copy: HTMLElement, offset: number) => {
+    const drawn = starts.get(copy)?.opacity;
+    const since = startedAt === undefined ? 0 : now() - startedAt;
+    const timing: KeyframeAnimationOptions =
+      drawn === undefined
+        ? { duration: Math.max(1, lead - offset), delay: offset - since }
+        : { duration: Math.max(1, lead - Math.max(offset, since)), delay: 0 };
+    const animation = copy.animate([{ opacity: drawn ?? 1 }, { opacity: 0 }], {
+      ...timing,
+      easing: EXIT_EASING,
+      fill: "both",
+    });
     fold.animations.add(animation);
     return animation;
   };
@@ -483,7 +521,7 @@ export function playTurnEnd(
     // From where each row now starts: a move too fast for the clock's curve flattens it, in the fold's
     // first frames only. A move past what the straight line fits keeps it: the curve is already
     // as flat as it goes, and the clock never starts again for it.
-    const early = startedAt === undefined || now() - startedAt <= GROW_WINDOW_MS;
+    const early = movesAt === undefined || now() - movesAt <= GROW_WINDOW_MS;
     const longest = early ? longestMove() : 0;
     const timing =
       early && !foldFits(longest, ms, easing) ? turnEndFoldTiming(longest, settleMs, settleEasing) : undefined;
@@ -502,13 +540,14 @@ export function playTurnEnd(
         });
         for (const { node, top, opacity, shown } of drawn)
           starts.set(node, { top, opacity: Number.isFinite(opacity) ? opacity : undefined, shown });
-        startedAt = now();
+        // The move's clock starts again from this pass, or where the exit ends if it has not yet.
+        movesAt = Math.max(now(), movesAt ?? 0);
       }
       // The clock starts again from this pass: its end moves out with it.
       easing = timing!.easing;
       if (fold.timer !== undefined) {
         clearTimeout(fold.timer);
-        fold.timer = setTimeout(() => settleTurnEnd(thread, fold), ms + 50);
+        fold.timer = setTimeout(() => settleTurnEnd(thread, fold), Math.max(0, toMove()) + ms + 50);
       }
     }
     const restart = (
@@ -634,7 +673,6 @@ export function playTurnEnd(
       const crop = [topFrom, topTo, bottomFrom, bottomTo].some((value) => value >= 0.5)
         ? `${cropFrom}|${cropTo}`
         : undefined;
-      const ink = starts.get(copy)?.opacity ?? 1;
       const box = boxes[nodes.length + order]!;
       const cover = coverClip({ from, to: copyTops[order]! + end, ...box }, paths, clippedBottomOf(copy));
       const covered = cover ? JSON.stringify(cover) : undefined;
@@ -652,24 +690,19 @@ export function playTurnEnd(
         animation.cancel();
         fold.animations.delete(animation);
       }
-      // Held at its start through a stagger's delay too, so a copy that has faded never shows full again.
+      // Held at its start until the move, so a copy that has faded never shows full again.
       const timing: KeyframeAnimationOptions = { fill: "both" };
-      if (look === "stagger") {
-        // The last row first, each a step after the one under it, inside the fold's own length.
-        const step = Math.min(40, ms / Math.max(2, copies.length * 2)); // motion-allow: a share of the settle
-        timing.delay = (copies.length - 1 - order) * step;
-        timing.duration = Math.max(ms / 2, ms - timing.delay);
-      }
-      // The copy is gone by COPY_GONE_AT of the fold, while it still moves: the rows coming over its
-      // place draw over nothing. Faded on the whole clock, a copy still drew its text, faint, under a
-      // row arriving over it in the fold's last frames (agent-pane-stream-row-overlap, once a copy's
-      // text counted: 5.5 px under the reply at 94%, and the live line's copy 119 px at 87% under lag).
+      // The last row first, each a step after the one under it, inside the exit lead.
+      const step = look === "stagger" ? lead / Math.max(2, copies.length * 2) : 0;
+      // The copy's text is gone when the exit lead ends, before it or anything over it moves: faded on
+      // the move's clock (by 60% of it, #41078), its text still travelled, faint, while the rows
+      // slid over its place (agent-pane-stream-row-overlap: 5.5 px under the reply at 94%).
+      const faded = exit(copy, (copies.length - 1 - order) * step);
       const motion = play(
         copy,
         [
-          { translate: `0 ${at}px`, opacity: ink, ...(crop && { clipPath: cropFrom }) },
-          { offset: COPY_GONE_AT, opacity: 0 },
-          { translate: `0 ${end}px`, opacity: 0, ...(crop && { clipPath: cropTo }) },
+          { translate: `0 ${at}px`, ...(crop && { clipPath: cropFrom }) },
+          { translate: `0 ${end}px`, ...(crop && { clipPath: cropTo }) },
         ],
         timing,
       );
@@ -678,7 +711,7 @@ export function playTurnEnd(
       copyMoves.set(copy, {
         delta: at,
         fades: true,
-        animations: clipped ? [motion, clipped] : [motion],
+        animations: clipped ? [faded, motion, clipped] : [faded, motion],
         end,
         covered,
         crop,
@@ -717,6 +750,6 @@ export function playTurnEnd(
     scroller?.removeEventListener("scroll", pass);
   };
   // A hidden page suspends its animations: nothing of the fold outlasts its length.
-  fold.timer = setTimeout(() => settleTurnEnd(thread, fold), ms + 50);
+  fold.timer = setTimeout(() => settleTurnEnd(thread, fold), lead + ms + 50);
   return fold;
 }
