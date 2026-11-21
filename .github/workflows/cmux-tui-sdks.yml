@@ -997,11 +997,15 @@ jobs:
       GHOSTTY_ZIG_SOURCE: ghostty-next
     name: seven-language live conformance
     needs: contract
-    # By the crate graph (the contract job's graph step); a failed or skipped router never skips it.
+    # By the crate graph (the contract job's graph step); a failed router never skips it.
     # After merge (CI 10x, 2026-11-21: 1.57% of pull request runner-minutes, 0.05% of heads it alone caught): a
     # pull request runs it only when it changes the SDK and protocol inputs (sdk_inputs: bindings/, spec/, the
     # workspace manifests) or carries full-ci; every feat-cmux-next push the graph reaches runs it.
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.contract.outputs.sdk_inputs != 'false' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.contract.result != 'success' || needs.contract.outputs.conformance != 'false') }}
+    # Tier A (scripts/ci/affected-jobs.json pull_request_skip): a pull request into feat-cmux-next skips it unless
+    # labeled full-ci, like the contract job it needs. Before this, that skipped contract left sdk_inputs empty,
+    # `'' != 'false'` held, and every such pull request ran it (2026-11-21 19-22Z: 192 jobs, 38 runner-min per
+    # merged pull request). The feat-cmux-next push runs it, one pending run at most (concurrency above).
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && !cancelled() && (github.event_name != 'pull_request' || needs.contract.outputs.sdk_inputs != 'false' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.contract.result != 'success' || needs.contract.outputs.conformance != 'false') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 45
     steps:
