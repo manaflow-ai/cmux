@@ -336,7 +336,7 @@ class CheckBundleNoticesTest(unittest.TestCase):
         text = (HERE / "hand-written.md").read_text()
         section = text.split("## Rust and Zig Standard Libraries\n", 1)[1].split("\n## ", 1)[0]
         for entry in manifest.texts():
-            self.assertIn(f"`{manifest.bundle_dir}/{entry.file}`", section)
+            self.assertIn(f"`{manifest.bundle_dir}/{entry.bundled_file}`", section)
         for zig in manifest.zig:
             self.assertIn((toolchain_notices.TEXTS / zig.file).read_text(), section.replace("\n\n---\n", "\n"))
 
