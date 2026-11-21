@@ -258,6 +258,7 @@ extension DockSplitStore {
         }
     }
 
+    /// Restores one Dock terminal, including a truncated scrollback replay when the snapshot says so.
     private func restoreSessionTerminal(
         from snapshot: SessionPanelSnapshot,
         inPane paneId: PaneID,
@@ -513,7 +514,11 @@ extension DockSplitStore {
                 deferredAgentResumeStartupInput != nil || claudeBackgroundAttach != nil
         )
         let restoredScrollback = shouldReplayScrollback ? terminalSnapshot.scrollback : nil
-        let replayFileURL = SessionScrollbackReplayStore.replayFileURL(for: restoredScrollback)
+        let scrollbackWasTruncated = shouldReplayScrollback && terminalSnapshot.scrollbackWasTruncated == true
+        let replayFileURL = SessionScrollbackReplayStore.replayFileURL(
+            for: restoredScrollback,
+            scrollbackWasTruncated: scrollbackWasTruncated
+        )
         let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(forFileURL: replayFileURL)
         let reusableSurfaceId = GhosttyApp.terminalSurfaceRegistry.surface(id: snapshot.id) == nil
             ? snapshot.id
@@ -583,9 +588,11 @@ extension DockSplitStore {
         if let managedResumeBinding {
             managedAgentResumeBindingsByPanelId[terminal.id] = managedResumeBinding
         }
-        if let restoredScrollback {
-            restoredTerminalScrollbackByPanelId[terminal.id] = restoredScrollback
-        }
+        restoredTerminalScrollbackByPanelId.rememberRestoredScrollback(
+            restoredScrollback,
+            for: terminal.id,
+            wasTruncated: restoredScrollback != nil && scrollbackWasTruncated
+        )
         terminalStartupRestoreCoordinator.stage(
             panel: terminal,
             snapshot: restorableAgent,

@@ -87,7 +87,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// Live agent runtime owned by Dock panels. The matching transfer snapshot
     /// is kept in sync so the state survives Dock-to-workspace moves.
     @ObservationIgnored var agentRuntimeByPanelId: [UUID: Workspace.DetachedAgentRuntimeState] = [:]
-    @ObservationIgnored var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
+    /// Restored scrollback tails, each carrying its text and truncation state.
+    @ObservationIgnored var restoredTerminalScrollbackByPanelId: [UUID: SessionPersistedScrollback] = [:]
     @ObservationIgnored let terminalStartupRestoreCoordinator: TerminalStartupRestoreCoordinator
     var restoredAgentLifecycle: RestoredAgentLifecycleCoordinator {
         terminalStartupRestoreCoordinator.lifecycle

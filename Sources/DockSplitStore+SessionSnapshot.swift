@@ -224,6 +224,7 @@ extension DockSplitStore {
         return result
     }
 
+    /// Builds one Dock panel's session snapshot, including bounded scrollback and its truncation marker.
     private func sessionPanelSnapshot(
         panelId: UUID,
         includeScrollback: Bool,
@@ -332,16 +333,25 @@ extension DockSplitStore {
                 ? TerminalController.shared.readTerminalTextForSnapshot(
                     terminalPanel: terminal,
                     includeScrollback: true,
-                    lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal
+                    // One line past the cap so a full 4,000-line tail stays unmarked
+                    // and a longer history records that older lines were dropped.
+                    lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal + 1
                 )
                 : nil
-            let scrollback = policy.resolvedSnapshotTerminalScrollback(
+            let storedFallback = restoredTerminalScrollbackByPanelId[panelId]
+            let persistedScrollback = SessionPersistencePolicy.persistedSnapshotScrollback(
                 capturedScrollback: capturedScrollback,
-                fallbackScrollback: restoredTerminalScrollbackByPanelId[panelId],
+                fallbackScrollback: storedFallback?.text,
+                fallbackWasTruncated: storedFallback?.wasTruncated == true,
                 allowFallbackScrollback: shouldPersistScrollback
             )
-            if let scrollback {
-                restoredTerminalScrollbackByPanelId[panelId] = scrollback
+            let scrollback = persistedScrollback.text
+            if scrollback != nil {
+                restoredTerminalScrollbackByPanelId.rememberRestoredScrollback(
+                    scrollback,
+                    for: panelId,
+                    wasTruncated: persistedScrollback.wasTruncated
+                )
             }
             let sessionFontSize: Float32?
             let sessionFontSizeChangeTokens: [UUID]?
@@ -365,6 +375,7 @@ extension DockSplitStore {
                 fontSize: sessionFontSize,
                 fontSizeChangeTokens: sessionFontSizeChangeTokens,
                 scrollback: scrollback,
+                scrollbackWasTruncated: persistedScrollback.wasTruncated ? true : nil,
                 agent: restorableAgent,
                 tmuxStartCommand: tmuxStartCommand,
                 hibernation: localTmuxStartCommand == nil ? hibernation.map {
