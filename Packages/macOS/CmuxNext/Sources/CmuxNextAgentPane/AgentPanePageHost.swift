@@ -32,6 +32,8 @@ enum AgentPanePageHost {
         // The composer menu's edits run as the page view's own responder actions.
         provider.onEdit = { [weak page] command in page?.performEdit(command.selector) }
         if let page { chatRows.watch(page) }
+        // App health names a stuck chat by its tab's title and workspace.
+        page?.healthTabKey = { [weak provider] in provider?.tabKey() }
         return page
     }
 
