@@ -49,6 +49,22 @@ pub struct Doc {
     placements: HashMap<RefKey, BTreeSet<ItemId>>,
     /// Items per section (top level and children).
     counts: HashMap<SectionId, usize>,
+    /// What row writes touched since [`Doc::take_touched`], while recording
+    /// ([`Doc::record_touched`]): the dirty set of an incremental view
+    /// ([`super::view_cache`]). Not part of the document (equality, wire).
+    touched: Option<Box<Touched>>,
+}
+
+/// The rows written since the last [`Doc::take_touched`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Touched {
+    /// Every item put or removed.
+    pub items: std::collections::HashSet<ItemId>,
+    /// The workspaces those items placed, before and after the write.
+    /// (session, workspace id).
+    pub refs: std::collections::HashSet<(String, String)>,
+    /// A section was put or removed.
+    pub sections: bool,
 }
 
 impl PartialEq for Doc {
@@ -507,6 +523,27 @@ impl Doc {
         }
     }
 
+    /// Start (or stop) recording what row writes touch; starting clears it.
+    pub fn record_touched(&mut self, on: bool) {
+        self.touched = on.then(Box::default);
+    }
+
+    /// What row writes touched since the last call (empty when not
+    /// recording); recording goes on.
+    pub fn take_touched(&mut self) -> Touched {
+        self.touched.as_mut().map(|touched| std::mem::take(&mut **touched)).unwrap_or_default()
+    }
+
+    fn touch(&mut self, id: &str, items: [Option<&Item>; 2]) {
+        let Some(touched) = self.touched.as_mut() else { return };
+        touched.items.insert(id.to_string());
+        for item in items.into_iter().flatten() {
+            if let Some(reference) = item.body.workspace() {
+                touched.refs.insert((reference.session_id.clone(), reference.workspace_id.clone()));
+            }
+        }
+    }
+
     /// Store `item` (insert or replace by id); returns the old row.
     pub(crate) fn replace_item(&mut self, item: Item) -> Option<Item> {
         let old = self.items.remove(&item.id);
@@ -514,6 +551,9 @@ impl Doc {
             self.unindex(old);
         }
         self.index(&item);
+        if self.touched.is_some() {
+            self.touch(&item.id.clone(), [old.as_ref(), Some(&item)]);
+        }
         self.items.insert(item.id.clone(), item);
         old
     }
@@ -521,11 +561,15 @@ impl Doc {
     pub(crate) fn remove_item(&mut self, id: &str) -> Option<Item> {
         let old = self.items.remove(id)?;
         self.unindex(&old);
+        self.touch(id, [Some(&old), None]);
         Some(old)
     }
 
     /// Store `section` (insert or replace by id); returns the old row.
     pub(crate) fn replace_section(&mut self, section: Section) -> Option<Section> {
+        if let Some(touched) = self.touched.as_mut() {
+            touched.sections = true;
+        }
         let old = match self.sections.iter_mut().find(|existing| existing.id == section.id) {
             Some(existing) => Some(std::mem::replace(existing, section)),
             None => {
@@ -538,6 +582,9 @@ impl Doc {
     }
 
     pub(crate) fn remove_section(&mut self, id: &str) -> Option<Section> {
+        if let Some(touched) = self.touched.as_mut() {
+            touched.sections = true;
+        }
         let at = self.sections.iter().position(|section| section.id == id)?;
         Some(self.sections.remove(at))
     }
