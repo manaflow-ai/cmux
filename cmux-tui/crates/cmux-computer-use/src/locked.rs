@@ -143,7 +143,10 @@ pub fn refusal(tool: &str, kind: Kind, while_locked: bool) -> (String, Value) {
 /// server's `CGSSessionScreenIsLocked` in `CGSessionCopyCurrentDictionary`.
 /// A display that dimmed on idle is locked too (macOS 14 on). `false` when
 /// the process has no window server session (nothing it posts reaches one).
-#[cfg(target_os = "macos")]
+/// Only with the `desktop` feature, as its only callers (`platform::macos`):
+/// the engine-only build that acpmux and the cmux-tui daemon link must not
+/// need CoreGraphics, which the Linux pool's macOS cross SDK does not have.
+#[cfg(all(target_os = "macos", feature = "desktop"))]
 pub fn session_screen_locked() -> bool {
     use std::ffi::c_void;
     type CFTypeRef = *const c_void;

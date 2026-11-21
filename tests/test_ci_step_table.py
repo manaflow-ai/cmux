@@ -374,7 +374,7 @@ class PipelineTest(unittest.TestCase):
 
     def test_the_moved_pull_request_triggers_are_gone(self) -> None:
         # These keep their push, dispatch or post-merge runs; a pull request runs them as steps of the table.
-        moved = {"cmux-next-crash-class.yml": "crash-class", "labels-sync.yml": "labels-manifest",
+        moved = {"labels-sync.yml": "labels-manifest",
                  "cmux-next-shim-cpp.yml": "shim-cpp", "cmux-next-chromium-currency.yml": "chromium-currency",
                  "swift-acpmux-protocol.yml": "swift-acpmux-protocol"}
         steps = ci_steps.load().steps
