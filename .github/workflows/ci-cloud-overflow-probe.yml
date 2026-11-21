@@ -223,7 +223,8 @@ jobs:
       # on 2026-11-02 the linux pool stayed on 4 vCPU with 428 jobs queued beside 535 running
       # while 16 vCPU had room. The reviewed feat-cmux-next entry point at this pinned commit
       # runs main's unchanged runner_pools.py policy, then spills linux off a backed-up member.
-      # Only its two files are checked out; main's policy and clients stay this checkout's.
+      # Only its files are checked out (the spill, its reconcile, and expected_wait.py with its deadline_http.py
+      # client, which judge each capped pool by expected wait); main's policy and clients stay this checkout's.
       - name: Check out the reviewed linux pool spill
         id: spill-tooling
         if: always() && steps.switch.outcome != 'skipped' && steps.app-spend.outputs.low != 'true'
@@ -231,11 +232,13 @@ jobs:
         timeout-minutes: 2
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: 7c45ab8e4f6f0a345217f044b257c37cc0b8abfc # feat-cmux-next with cmux#45861 (hosted-first valve, served marks) and #45878 (linux_16 spill)
+          ref: a2ef561b58dbc8163408f5c995c9b5b45de24a74 # feat-cmux-next with cmux#48949 (wait-based admission, cmuxterm-hq#16113 step 3), #45861 and #45878
           path: .runner-pool-tooling
           sparse-checkout: |
             scripts/ci/linux_pool_spill.py
             scripts/ci/runner_pool_reconcile.py
+            scripts/ci/expected_wait.py
+            scripts/ci/deadline_http.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -265,6 +268,11 @@ jobs:
           CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
           # The Blacksmith Linux outage override (runner_pools.HOSTED_OVERRIDE): unset in normal running.
           CI_LINUX_HOSTED_RUNNER: ${{ vars.CI_LINUX_HOSTED_RUNNER }}
+          # Wait-based admission (expected_wait.py, cmuxterm-hq#16113 step 3): the build controller whose job and
+          # timing feeds judge each capped pool's expected wait. Unset, unreachable or stale: no verdict, routing as before.
+          RUNNER_ADMISSION_CONTROLLER: ${{ vars.RUNNER_ADMISSION_CONTROLLER }}
+          # Owned Mac family label -> runners (JSON); a family it does not name is not judged.
+          CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           SPILL_TOOLING: ${{ steps.spill-tooling.outcome == 'success' && '.runner-pool-tooling/scripts/ci/linux_pool_spill.py' || '' }}
         run: |
           if [ -n "$SPILL_TOOLING" ] && [ -f "$SPILL_TOOLING" ]; then

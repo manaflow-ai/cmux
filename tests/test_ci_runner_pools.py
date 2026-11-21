@@ -190,13 +190,21 @@ class Declared(unittest.TestCase):
                         if checkout["with"]["ref"] in line)
         self.assertIn("#45861", pin_line, "the spill pin must carry the hosted-first valve")
         self.assertEqual(checkout["with"]["persist-credentials"], False)
+        # cmuxterm-hq#16113 step 3: the spill imports expected_wait.py (and its deadline_http.py client) for the
+        # wait-based admission verdict; without them it publishes none.
+        self.assertIn("#48949", pin_line, "the spill pin must carry wait-based admission")
         self.assertEqual(set(checkout["with"]["sparse-checkout"].split()),
-                         {"scripts/ci/linux_pool_spill.py", "scripts/ci/runner_pool_reconcile.py"})
+                         {"scripts/ci/linux_pool_spill.py", "scripts/ci/runner_pool_reconcile.py",
+                          "scripts/ci/expected_wait.py", "scripts/ci/deadline_http.py"})
         self.assertTrue(checkout.get("continue-on-error"))
         [step] = [s for s in steps if "runner_pools.py" in str(s.get("run", ""))]
         self.assertIn('--policy-root "$GITHUB_WORKSPACE"', step["run"])
         # Without the checkout, or when the spill fails, main's policy still runs alone.
         self.assertEqual(step["run"].count("python3 scripts/ci/runner_pools.py"), 2)
+        # The admission verdict's inputs reach the spill, read-only: the controller that serves its feeds and the
+        # owned families' slots.
+        self.assertEqual(step["env"]["RUNNER_ADMISSION_CONTROLLER"], "${{ vars.RUNNER_ADMISSION_CONTROLLER }}")
+        self.assertEqual(step["env"]["CI_OWNED_POOL_SLOTS"], "${{ vars.CI_OWNED_POOL_SLOTS }}")
         names = [s.get("name") for s in steps]
         self.assertLess(names.index(checkout["name"]), names.index(step["name"]))
 
