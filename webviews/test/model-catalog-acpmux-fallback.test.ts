@@ -29,13 +29,20 @@ const unserved = async () => {
 function acpmuxCatalog() {
   const catalog = structuredClone(BUNDLED_MODEL_CATALOG) as typeof BUNDLED_MODEL_CATALOG;
   const gemini = catalog.harnesses.find((harness) => harness.id === "gemini")!;
-  gemini.models.unshift({ id: "gemini-9-test", ref: "google/gemini-9-test", name: "Gemini 9 Test", shortName: "9 Test" });
+  gemini.models.unshift({
+    id: "gemini-9-test",
+    ref: "google/gemini-9-test",
+    name: "Gemini 9 Test",
+    shortName: "9 Test",
+  });
   catalog.models["google/gemini-9-test"] = { name: "Gemini 9 Test", releaseDate: "2026-11-19" };
   return catalog;
 }
 
 const geminiIds = () =>
-  modelCatalogStateForTests().catalog.harnesses.find((harness) => harness.id === "gemini")!.models.map((m) => m.id);
+  modelCatalogStateForTests()
+    .catalog.harnesses.find((harness) => harness.id === "gemini")!
+    .models.map((m) => m.id);
 
 beforeEach(() => resetModelCatalogForTests());
 afterEach(() => {
@@ -79,7 +86,13 @@ test("an acpmux reply without a catalog (an older acpmux) keeps the bundled cata
 test("a host that serves models.catalog wins", async () => {
   const served = acpmuxCatalog();
   setNativeHost(async (method) => (method === "models.catalog" ? { catalog: served, delivery: "network" } : undefined));
-  scope.window = fakeWindow({ cmuxAcpmuxActions: { "models.catalog": async () => { throw new Error("not asked"); } } });
+  scope.window = fakeWindow({
+    cmuxAcpmuxActions: {
+      "models.catalog": async () => {
+        throw new Error("not asked");
+      },
+    },
+  });
   await loadModelCatalog();
   expect(geminiIds()[0]).toBe("gemini-9-test");
 });
@@ -109,7 +122,9 @@ test("an acpmux that never answers frees the load after its time limit", async (
   }
   expect(modelCatalogStateForTests().catalog).toBe(BUNDLED_MODEL_CATALOG);
   // The next load asks again instead of waiting on the stuck one.
-  scope.window = fakeWindow({ cmuxAcpmuxActions: { "models.catalog": async () => ({ schemaVersion: 1, catalog: acpmuxCatalog() }) } });
+  scope.window = fakeWindow({
+    cmuxAcpmuxActions: { "models.catalog": async () => ({ schemaVersion: 1, catalog: acpmuxCatalog() }) },
+  });
   await loadModelCatalog();
   expect(geminiIds()[0]).toBe("gemini-9-test");
 });
