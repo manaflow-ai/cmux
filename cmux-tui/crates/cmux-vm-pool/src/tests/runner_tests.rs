@@ -442,3 +442,23 @@ fn job_record_parses_the_hook_file() {
     );
     assert!(runner::parse_job_record("repository \nrun_id \n").is_none());
 }
+
+#[test]
+fn a_new_vm_beside_a_parked_one_says_why_it_was_skipped() {
+    let vms = vec![
+        vm("other", "stopped", Some("zed"), 8, "w"),
+        vm("hq", "stopped", None, 8, "w"),
+        vm("busy", "running", Some("leo"), 8, "w"),
+        vm("napping", "paused", Some("leo"), 8, "w"),
+    ];
+    let why = runner::no_resume_reason(&vms, "leo");
+    assert!(why.starts_with("no parked runner VM of leo to resume; making one"), "{why}");
+    assert!(why.contains("paused with a GitHub record: napping (paused, owner leo)"), "{why}");
+    assert!(why.contains("yours, not parked: busy (running, owner leo)"), "{why}");
+    assert!(why.contains("parked, another owner's: other (stopped, owner zed)"), "{why}");
+    assert!(why.contains(&format!("hq (stopped, owner {})", runner::HQ_OWNER)), "{why}");
+    assert_eq!(
+        runner::no_resume_reason(&[], "leo"),
+        "no parked runner VM of leo to resume; making one"
+    );
+}

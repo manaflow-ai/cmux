@@ -237,6 +237,31 @@ pub fn rank_parked<'a>(
     parked
 }
 
+/// Why no parked VM was resumed, naming the runner VMs that were seen and skipped (another owner's, not
+/// parked, or paused with a GitHub record), so a new VM is never made silently beside a parked one.
+pub fn no_resume_reason(vms: &[RunnerVm], owner: &str) -> String {
+    let list = |f: &dyn Fn(&RunnerVm) -> bool| -> Vec<String> {
+        vms.iter()
+            .filter(|v| f(v))
+            .map(|v| format!("{} ({}, owner {})", v.id, v.state, v.owner))
+            .collect()
+    };
+    let mine_paused = list(&|v| v.owner == owner && v.state == "paused");
+    let others_parked = list(&|v| v.owner != owner && v.parked());
+    let mine_unparked = list(&|v| v.owner == owner && !v.parked());
+    let mut parts = vec![format!("no parked runner VM of {owner} to resume; making one")];
+    if !mine_paused.is_empty() {
+        parts.push(format!("paused with a GitHub record: {}", mine_paused.join(", ")));
+    }
+    if !mine_unparked.is_empty() {
+        parts.push(format!("yours, not parked: {}", mine_unparked.join(", ")));
+    }
+    if !others_parked.is_empty() {
+        parts.push(format!("parked, another owner's: {}", others_parked.join(", ")));
+    }
+    parts.join("; ")
+}
+
 /// Whether the account may take another VM: `Err` names the stop (or that the count could not be read).
 pub fn saved_room(saved: Option<u64>) -> Result<(), String> {
     match saved {
@@ -482,6 +507,9 @@ impl Fleet<'_> {
                 }
                 Err(e) => (self.log)(&format!("{}: not resumed, stays parked: {e}", vm.id)),
             }
+        }
+        if candidate.is_none() {
+            (self.log)(&no_resume_reason(&vms, &req.owner));
         }
         let vm_id = self.create(&name, req).await?;
         Ok(Prepared { vm_id, name, reused: false, previous_runner: None })
