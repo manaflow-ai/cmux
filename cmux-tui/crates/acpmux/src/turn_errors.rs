@@ -63,11 +63,12 @@ pub(crate) fn is_usage_limit_error(message: &str) -> bool {
 /// "never retry usage limits"); the chat holds until the reset and the person switches model.
 pub fn is_hard_usage_limit(message: &str) -> bool {
     let m = message.to_lowercase();
-    m.contains("hit your usage limit")
-        || m.contains("hit your limit")
+    // "hit your usage limit", "hit your limit", "hit your weekly usage limit"; not a rate limit.
+    (m.contains("hit your") && m.contains("limit") && !m.contains("rate limit"))
         || m.contains("usage limit reached")
         || (m.contains("reached your") && m.contains("usage limit"))
         || m.contains("weekly limit")
+        || m.contains("weekly usage limit")
         || m.contains("session limit")
         || m.contains("purchase more credits")
         || m.contains("out of credits")
