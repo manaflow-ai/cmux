@@ -8,7 +8,7 @@
 // A row this page already drew for a chat never animates again either: not when the transcript
 // remounts over it, not when a reconnect redraws it under a new frame, not as a cold open's fade.
 // The page keeps that per chat (`ChatDrawn`), bounded in chats and in rows per chat.
-import type { AcpmuxRow } from "../model";
+import { PENDING_MESSAGES, type AcpmuxRow } from "../model";
 
 /// How many chats the page remembers drawn rows for. A chat past it draws as one opened cold.
 export const DRAWN_CHATS_KEPT = 24;
@@ -89,10 +89,20 @@ export function openChat(session: string, page: ChatDrawn = chatDrawn): ChatOpen
   return { at: Date.now(), drewBefore, drawn: page.open(session) };
 }
 
+/// The fields that say what a drawn row is and when it happened.
+type DrawnRow = Pick<AcpmuxRow, "id" | "at" | "below"> & Partial<Pick<AcpmuxRow, "kind" | "frame">>;
+
+/// The group of messages that wait for the agent now (pendingMessages.ts): never history, it is there
+/// only while they wait, and each time it comes it is a new frame. Its time is its first message's,
+/// a queued one's 0, so by its time it never entered and popped in whole at a turn's end
+/// (agent-pane-turn-end-motion).
+const waitsNow = (row: DrawnRow) => row.kind === PENDING_MESSAGES && row.frame !== undefined;
+
 /// What a drawn row is remembered by: its id, and for the running turn's live line, which keeps one
 /// id from turn to turn (turns.ts LIVE_THINKING), its turn's time too, so the next turn's line is new.
-export const drawnKey = (row: Pick<AcpmuxRow, "id" | "at" | "below">): string =>
-  row.below ? `${row.id}@${row.at}` : row.id;
+/// The waiting messages' group, which keeps one id too, by the frame of its coming (`waitsNow`).
+export const drawnKey = (row: DrawnRow): string =>
+  row.below ? `${row.id}@${row.at}` : waitsNow(row) ? row.frame! : row.id;
 
 /// Whether a row's time is already on this computer's clock: a prompt the pane echoed before the
 /// host had it (direct.ts, `local-` ids) and the running turn's live line (turns.ts moves it).
@@ -102,11 +112,9 @@ const onLocalClock = (row: Pick<AcpmuxRow, "id" | "below">) => row.below === tru
 /// this computer's clock), and so may take a live entrance. A host row's time is the agent host's clock;
 /// `clockOffset` (the snapshot's `clockOffsetMs`) moves it onto this computer's, so a host whose
 /// clock runs behind or ahead neither replays history nor holds back what came after the open.
-/// One the page already drew never gets here.
-export function happenedAfterOpen(
-  row: Pick<AcpmuxRow, "id" | "at" | "below">,
-  openedAt: number,
-  clockOffset = 0,
-): boolean {
+/// One the page already drew never gets here. The waiting messages' group came now whenever it
+/// arrives (`waitsNow`): one there when the chat opened was drawn then.
+export function happenedAfterOpen(row: DrawnRow, openedAt: number, clockOffset = 0): boolean {
+  if (waitsNow(row)) return true;
   return row.at + (onLocalClock(row) ? 0 : clockOffset) >= openedAt;
 }
