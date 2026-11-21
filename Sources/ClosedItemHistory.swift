@@ -1,3 +1,4 @@
+import CmuxBrowser
 import CmuxSurfaceCatalogModel
 import CmuxWorkspaces
 import Foundation
@@ -56,6 +57,19 @@ struct ClosedPanelHistoryEntry: Codable, Sendable {
         self.projection = projection
     }
 }
+
+/// The legacy browser stack still exists as a fallback for closes that do not
+/// enter unified history. Keep its placement snapshot, but also retain the
+/// unified restore entry so that this fallback can preserve browser session
+/// state instead of constructing a fresh WebKit view at the same URL.
+struct LegacyClosedBrowserPanelRestoreSnapshot: BrowserPanelRestoreSnapshot {
+    let fallbackSnapshot: CmuxBrowser.ClosedBrowserPanelRestoreSnapshot
+    let historyEntry: ClosedPanelHistoryEntry?
+
+    var workspaceId: UUID { fallbackSnapshot.workspaceId }
+    var closedAt: Date { fallbackSnapshot.closedAt }
+}
+
 struct ClosedWorkspaceHistoryEntry: Codable, Sendable {
     let workspaceId: UUID
     let windowId: UUID?
