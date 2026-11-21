@@ -7536,6 +7536,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         snapshotRef.current?.sessionId !== undefined
       )
         return;
+      ((globalThis as any).__emitLog ??= []).push({ t: Math.round(performance.now()), c: "RESTORED", w: next.isWorking, rows: next.rows.length });
       rowsRef.current = next.rows;
       snapshotRef.current = next;
       setSnapshot(next);
@@ -7563,6 +7564,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (settledNow) settledReported.current = settledSession;
     // The page drew what it is under the chat's snapshot (chatSnapshot/boot.ts): it takes over at
     // the next frame, in one step.
+    if (first)
+      ((globalThis as any).__emitLog ??= []).push({
+        t: Math.round(performance.now()),
+        c: "SWAP",
+        conn: clientSnapshot.connection,
+        w: clientSnapshot.isWorking,
+        rows: clientSnapshot.rows.length,
+        last: clientSnapshot.rows[clientSnapshot.rows.length - 1]?.id,
+        chatRead: clientSnapshot.chatRead,
+        drewKept: clientSnapshot.drewKeptTail,
+        restored: restoredTailSession,
+      });
     if (first) swapChatSnapshot();
     requestAnimationFrame(() =>
       setTimeout(() => {
@@ -8613,6 +8626,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 host.transport === "acpmux-bridge" ||
                 (host.transport === "acpmux-websocket" && Boolean(host.endpoint && host.token))),
           );
+        ((globalThis as any).__emitLog ??= []).push({ t: Math.round(performance.now()), c: "HANDSHAKEN", snap: snapshotRef.current?.connection, w: snapshotRef.current?.isWorking, rows: snapshotRef.current?.rows.length });
         setHandshaken(true);
         // After a reload (a web update that went anyway, a crash) the host still holds this tab's
         // Sandboxed send (the host holds it): read at each handshake (a reconnect too) and shown
