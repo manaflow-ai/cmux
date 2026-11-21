@@ -9,21 +9,12 @@ import CmuxNextNotifications
 
 /// Tab lookups, the dock badge and the pane attention marks.
 extension NotificationCenterService {
-    /// The tab `resolved` types into: a terminal, a page (with its bars) or an agent chat.
-    static func contentTab(_ resolved: FocusState.Resolved) -> String? {
-        switch resolved {
-        case .terminal(_, let tab), .browserPage(_, let tab), .addressBar(_, let tab), .findBar(_, let tab), .devTools(_, let tab),
-             .agentPage(_, let tab), .page(_, let tab), .conversation(_, let tab): tab
-        default: nil
-        }
-    }
-
     /// The workspace focus of `controller` that the person sees: nil while a top page (History,
     /// Settings, the App Store) covers the workspace, whose focus model still names the pane
     /// underneath. Every "viewed" and "typed into" rule reads this, never the raw focus model.
     static func shownFocus(_ c: WindowController) -> FocusState.Resolved? { c.shownTopPage == nil ? c.focus.state.resolved : nil }
     /// The tab `c` shows in its focused pane: its content's, or a loading pane's shown tab (an agent chat whose page is not up yet, cmux#42210).
-    func viewedTab(_ c: WindowController) -> String? { guard let r = Self.shownFocus(c) else { return nil }; if case let .emptyPane(p) = r { return c.content?.paneModel(key: p).flatMap(shownTab(of:)) }; return Self.contentTab(r) }
+    func viewedTab(_ c: WindowController) -> String? { guard let r = Self.shownFocus(c) else { return nil }; if case let .emptyPane(p) = r { return c.content?.paneModel(key: p).flatMap(shownTab(of:)) }; return r.tab }
 
     /// The content tab of the window whose focus owns `window` (a Chromium
     /// page window resolves to its cmux window).
@@ -231,7 +222,16 @@ extension NotificationCenterService {
     static let attentionRingBase: UInt64 = 1 << 62
 
     /// A viewed tab reads its notifications and needs-you requests at once (cmux#42210), so it draws no ring (a mark stays).
-    func readsOnSight(_ t: TabModel) -> Bool { let p = NotificationPolicy(prefs: preferences); return (t.hasUnread || t.attention != nil) && !t.markedUnread && (!t.hasUnread || p.clears(.focus, for: source(of: t))) && (t.attention == nil || p.clears(.focus, for: .agent)) && isViewed(t.id) }
+    func readsOnSight(_ t: TabModel) -> Bool { reads(.focus, t) && isViewed(t.id) }
+    /// Going into `t`'s pane by `trigger` reads its ring by the policy: an unread notification, a needs-you request, a mark (a click), a finished turn (`turn`).
+    func reads(_ trigger: NotificationTrigger, _ t: TabModel, turn: Bool = false) -> Bool { let p = NotificationPolicy(prefs: preferences); return turn && agentFinished[t.id] != nil && p.clears(trigger, for: .agent) || trigger == .click && t.markedUnread || (t.hasUnread || t.attention != nil) && !t.markedUnread && (!t.hasUnread || p.clears(trigger, for: source(of: t))) && (t.attention == nil || p.clears(trigger, for: .agent)) }
+    /// The person went into ringing `pane` (a focus, a click) in the window they work in: read it now, not once a loading chat's page holds the keys (cmux#46908).
+    func readOnEntry(_ pane: LayoutPaneID, click: Bool, in content: WorkspaceContentController) -> Bool {
+        guard let services, services.appActiveSource(), let window = services.windows.active, window.content === content, window.shownTopPage == nil,
+              let model = content.paneModel(key: pane.rawValue), let id = shownTab(of: model), !viewHolds.contains(id),
+              let tab = model.tabs.first(where: { $0.id == id }), reads(click ? .click : .focus, tab, turn: true) else { return false }
+        interacted(click ? .click : .focus, tab: tab); return true
+    }
     /// Of the panes in `removed` (their mark just went away), those the person went into, focus included (cmux#42210: its
     /// ring is read on sight, maybe before `interacted(.focus)`): their ring blinks out. Forgets `workspace`'s entry reads.
     func takeEntryReads(removed: Set<LayoutPaneID>, in workspace: WorkspaceModel) -> Set<LayoutPaneID> {
