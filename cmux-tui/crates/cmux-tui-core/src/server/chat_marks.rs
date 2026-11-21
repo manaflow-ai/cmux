@@ -3,6 +3,7 @@
 //! through `_acpmux/tag`. Each opens its own link to this machine's acpmux
 //! socket and never starts acpmux; acpmux forwards a peer's chat to that peer.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -38,30 +39,44 @@ impl crate::mux::Mux {
         self.acp_chat_call("_acpmux/tag", params)
     }
 
+    /// Share one daemon socket across all targets authorized by this gesture.
+    pub(crate) fn acp_archive_writer(
+        &self,
+    ) -> Result<impl Fn(&str, bool) -> Result<(), ChatMarkError>, ChatMarkError> {
+        let link = self.chat_mark_link()?;
+        Ok(move |route, archived| {
+            chat_call(&link, "_acpmux/archive", json!({"sessionId": route, "archived": archived}))
+        })
+    }
+
     fn acp_chat_call(&self, method: &str, params: Value) -> Result<(), ChatMarkError> {
+        let link = self.chat_mark_link()?;
+        chat_call(&link, method, params)
+    }
+
+    fn chat_mark_link(&self) -> Result<Arc<AcpmuxLink>, ChatMarkError> {
         let socket = self
             .control_clients
             .agent_sessions
             .socket()
             .ok_or_else(|| ChatMarkError::Unavailable("acpmux is not running here".into()))?;
-        let link = AcpmuxLink::connect(&socket, |_| {})
-            .map_err(|error| ChatMarkError::Unavailable(format!("acpmux: {error}")))?;
-        let answer = link.call(method, params, MARK_TIMEOUT);
-        link.close();
-        match answer {
-            Ok(_) => Ok(()),
-            Err(LinkError::Rpc(message, _) | LinkError::BadList(message)) => {
-                Err(ChatMarkError::Refused(message))
-            }
-            Err(LinkError::MethodNotFound(message)) => Err(ChatMarkError::Refused(format!(
-                "this acpmux does not know {method}: {message}"
-            ))),
-            Err(LinkError::Closed) => {
-                Err(ChatMarkError::Unavailable("acpmux closed the link".into()))
-            }
-            Err(LinkError::Timeout | LinkError::Busy) => {
-                Err(ChatMarkError::Unavailable("acpmux did not answer in time".into()))
-            }
+        AcpmuxLink::connect(&socket, |_| {})
+            .map_err(|error| ChatMarkError::Unavailable(format!("acpmux: {error}")))
+    }
+}
+
+fn chat_call(link: &AcpmuxLink, method: &str, params: Value) -> Result<(), ChatMarkError> {
+    match link.call(method, params, MARK_TIMEOUT) {
+        Ok(_) => Ok(()),
+        Err(LinkError::Rpc(message, _) | LinkError::BadList(message)) => {
+            Err(ChatMarkError::Refused(message))
+        }
+        Err(LinkError::MethodNotFound(message)) => {
+            Err(ChatMarkError::Refused(format!("this acpmux does not know {method}: {message}")))
+        }
+        Err(LinkError::Closed) => Err(ChatMarkError::Unavailable("acpmux closed the link".into())),
+        Err(LinkError::Timeout | LinkError::Busy) => {
+            Err(ChatMarkError::Unavailable("acpmux did not answer in time".into()))
         }
     }
 }

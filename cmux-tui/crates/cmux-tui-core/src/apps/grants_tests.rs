@@ -72,7 +72,9 @@ fn chat_ops_take_the_chat_scopes_and_marks_need_a_gesture() {
     );
     let mark = json!({"chat": "s1"});
     let pin = json!({"chat": "s1", "pinned": true});
-    for (op, params) in [("chat.mark_read", &mark), ("chat.pin", &pin)] {
+    let archive = json!({"targets": [{"chat":"s1","peer":"east"},{"chat":"s2"}],"archived":true});
+    for (op, params) in [("chat.mark_read", &mark), ("chat.pin", &pin), ("chat.archive", &archive)]
+    {
         assert_eq!(
             table.check(op, params, &grant(&["chat:write"])),
             Decision::Allow(OpClass::Mutation),

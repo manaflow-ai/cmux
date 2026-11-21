@@ -118,3 +118,19 @@ async fn a_rename_logs_its_line_before_its_metadata() {
         "the name was saved before its line: {calls:?}"
     );
 }
+
+#[test]
+fn archive_retries_preserve_the_first_timestamp_and_restore_other_tags() {
+    let (hub, session, calls) =
+        hub_with(|m| m.tags.get("archived").map(|t| t.value.clone()).unwrap_or_default());
+    let set = json!({"archived": "1700", "pinned": "true"});
+    hub.set_tags_answered(&session, set.as_object(), &[], None).unwrap();
+    take_calls(&calls);
+    hub.set_archived_answered(&session, true).unwrap();
+    assert_eq!(session.meta().tags["archived"].value, "1700");
+    assert!(!take_calls(&calls).contains(&"line:tags".to_owned()));
+    hub.set_archived_answered(&session, false).unwrap();
+    hub.set_archived_answered(&session, false).unwrap();
+    assert!(!session.meta().tags.contains_key("archived"));
+    assert_eq!(session.meta().tags["pinned"].value, "true");
+}

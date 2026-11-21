@@ -55,7 +55,7 @@ fn a_row_has_every_listed_field_with_pinned_and_unread_from_acpmux() {
         listed,
         json!({
             "id": "s1", "title": "Fix upload", "harness": "claude", "state": "failed",
-            "unread": true, "unread_turns": 2, "pinned": true, "ci_failing": null,
+            "unread": true, "unread_turns": 2, "pinned": true, "archived": false, "ci_failing": null,
             "machine": "mini", "cwd": "/src/cmux", "project": "cmux", "parent": null,
             "step": "Running tests", "error": "Credit balance too low",
             "since_ms": "900", "updated_ms": "1000", "created_ms": "500",
@@ -78,9 +78,12 @@ fn a_row_has_every_listed_field_with_pinned_and_unread_from_acpmux() {
 }
 
 #[test]
-fn closed_archived_and_laneless_chats_are_off_the_list() {
+fn closed_and_laneless_chats_leave_the_index_archived_chats_stay() {
     assert!(row(&with(summary("s", "idle"), json!({"status": "closed"}))).is_none());
-    assert!(row(&with(summary("s", "idle"), json!({"tags": {"archived": "1700"}}))).is_none());
+    assert_eq!(
+        row(&with(summary("s", "idle"), json!({"tags": {"archived": "1700"}}))).unwrap()["archived"],
+        true
+    );
     assert!(row(&with(summary("s", "idle"), json!({"lane": null}))).is_none());
 }
 
@@ -167,7 +170,7 @@ fn chat_changed_fires_once_per_change() {
     assert_eq!(next(), Some(2));
     assert_eq!(next(), None);
 
-    let rows = mux.chat_rows();
+    let rows = mux.chat_rows(false);
     assert_eq!(rows.len(), 2);
     let b = rows.iter().find(|row| row["id"] == "b").unwrap();
     assert_eq!(b["unread"], true);
@@ -175,7 +178,7 @@ fn chat_changed_fires_once_per_change() {
 
     // A mark applied ahead of acpmux's push is one change; the push that confirms it is none.
     let (pinned, revision) = mux
-        .update_chat("b", |row| {
+        .update_chat(&mux.listed_chat("b").unwrap(), |row| {
             row.insert("pinned".into(), Value::Bool(true));
         })
         .expect("b is listed");
@@ -188,6 +191,6 @@ fn chat_changed_fires_once_per_change() {
         )))
     });
     assert_eq!(next(), None, "acpmux's confirming push changes nothing more");
-    assert!(mux.update_chat("missing", |_| {}).is_none());
-    assert!(!mux.chat_listed("missing"));
+    assert!(mux.update_chat(&ChatTarget { chat: "missing".into(), peer: None }, |_| {}).is_none());
+    assert!(mux.listed_chat("missing").is_none());
 }

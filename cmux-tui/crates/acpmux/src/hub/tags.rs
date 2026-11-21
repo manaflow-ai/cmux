@@ -44,6 +44,43 @@ impl Hub {
                 m.tags.remove(k);
             }
         }
+        self.tags_changed_answered(session)
+    }
+
+    /// Preserve the original archive time when a caller retries or two clients archive together.
+    pub(crate) fn set_archived_answered(
+        &self,
+        session: &Session,
+        archived: bool,
+    ) -> Result<(), RpcError> {
+        const ARCHIVED: &str = "archived";
+        let changed = {
+            let mut meta = session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let now = now_ms();
+            if archived {
+                let active = meta.tags.get(ARCHIVED).is_some_and(|tag| {
+                    !tag.value.is_empty() && tag.expires_at.is_none_or(|expiry| expiry > now)
+                });
+                if !active {
+                    meta.tags.insert(
+                        ARCHIVED.into(),
+                        crate::store::Tag { value: now.to_string(), expires_at: None },
+                    );
+                }
+                !active
+            } else {
+                meta.tags.remove(ARCHIVED).is_some()
+            }
+        };
+        if changed {
+            self.tags_changed_answered(session)
+        } else {
+            // A previous persistence attempt may have failed after updating memory.
+            self.save_meta_answered(session)
+        }
+    }
+
+    fn tags_changed_answered(&self, session: &Session) -> Result<(), RpcError> {
         self.child_tags.note(session);
         self.lane_tags_changed(session);
         // The line first, then the metadata: with the event journal, a crash keeps records as a

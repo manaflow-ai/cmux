@@ -15,8 +15,8 @@
 //! once for the whole page. `updated_ms` moves with every output a working chat
 //! writes, so it is kept fresh but is no change signal of its own.
 //!
-//! A chat that is closed, archived (acpmux's `archived` tag) or has no lane
-//! leaves the list. A connection's list that comes whole drops the rows it did
+//! A chat that is closed or has no lane
+//! leaves the index. Archived chats are visible only on request. A connection's list that comes whole drops the rows it did
 //! not name (purged while the watch was away); a chat a push reached during that
 //! list stays, and a page older than that push does not undo it. A follow
 //! (acpmux answers only what changed since the watch's cursor) applies its rows
@@ -73,6 +73,24 @@ fn key(peer: Option<&str>, id: &str) -> String {
     format!("{}\0{id}", peer.unwrap_or_default())
 }
 
+/// The two parts of a chat id in this daemon's acpmux index.
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ChatTarget {
+    pub chat: String,
+    pub peer: Option<String>,
+}
+
+impl ChatTarget {
+    pub(crate) fn route(&self) -> String {
+        format!("{}/{}", self.peer.as_deref().unwrap_or("local"), self.chat)
+    }
+
+    fn key(&self) -> String {
+        key(self.peer.as_deref(), &self.chat)
+    }
+}
+
 fn summary_key(summary: &Value, peer: &Value) -> Option<String> {
     let id = summary.get("sessionId").and_then(Value::as_str).filter(|id| !id.is_empty())?;
     Some(key(peer.as_str(), id))
@@ -90,7 +108,7 @@ pub(crate) fn row(summary: &Value) -> Option<Value> {
             .and_then(Value::as_str)
             .filter(|value| !value.is_empty())
     };
-    if status == "closed" || tag(ARCHIVED_TAG).is_some() {
+    if status == "closed" {
         return None;
     }
     let state = match lane.get("state").and_then(Value::as_str)? {
@@ -126,13 +144,14 @@ pub(crate) fn row(summary: &Value) -> Option<Value> {
         "unread": summary.get("unread").and_then(Value::as_bool) == Some(true),
         "unread_turns": unread_turns,
         "pinned": tag(PIN_TAG).is_some(),
+        "archived": tag(ARCHIVED_TAG).is_some(),
         // No owner tells cmux a chat's checks yet; the field is in the shape so an app
         // ranks a red chat the day one does (the native view reads the session tree's badge).
         "ci_failing": Value::Null,
         "machine": text(summary.get("peer")),
         "cwd": cwd,
         "project": project,
-        "parent": text(summary.get("parent")),
+        "parent": text(summary.get("parent")).or_else(|| text(summary.get("spawnedBy"))),
         "step": text(lane.get("step")),
         "error": text(lane.get("error")),
         "since_ms": ms(lane.get("since")),
@@ -195,7 +214,10 @@ impl Chats {
         let row = if params.get("kind").and_then(Value::as_str) == Some("purged") {
             None
         } else {
-            params.get("session").and_then(row)
+            params.get("session").and_then(row).map(|mut row| {
+                row["machine"] = peer.clone();
+                row
+            })
         };
         self.put(key, row)
     }
@@ -240,16 +262,6 @@ impl Chats {
         self.revision = self.revision.saturating_add(1);
         self.revision
     }
-
-    /// The key of the row `chat` names: an exact id, this machine's first.
-    fn find(&self, chat: &str) -> Option<String> {
-        let local = key(None, chat);
-        if self.rows.contains_key(&local) {
-            return Some(local);
-        }
-        let suffix = format!("\0{chat}");
-        self.rows.keys().find(|key| key.ends_with(&suffix)).cloned()
-    }
 }
 
 impl Mux {
@@ -270,8 +282,14 @@ impl Mux {
     }
 
     /// `chat.list`: every row, with the workspace of a tab that shows the chat.
-    pub(crate) fn chat_rows(&self) -> Vec<Value> {
-        let mut rows = self.chats().rows.values().cloned().collect::<Vec<_>>();
+    pub(crate) fn chat_rows(&self, include_archived: bool) -> Vec<Value> {
+        let mut rows: Vec<_> = self
+            .chats()
+            .rows
+            .values()
+            .filter(|row| include_archived || row["archived"] != true)
+            .cloned()
+            .collect();
         if rows.is_empty() {
             return rows;
         }
@@ -289,9 +307,37 @@ impl Mux {
         rows
     }
 
-    /// Whether `chat.list` lists `chat`.
-    pub(crate) fn chat_listed(&self, chat: &str) -> bool {
-        self.chats().find(chat).is_some()
+    /// Existing callers of pin/mark_read pass only an id. Prefer the listed local
+    /// row, then the first listed peer, as the original index did.
+    pub(crate) fn listed_chat(&self, chat: &str) -> Option<ChatTarget> {
+        let chats = self.chats();
+        let local = chats.rows.get(&key(None, chat)).filter(|row| row["archived"] != true);
+        let row = local
+            .or_else(|| chats.rows.values().find(|r| r["id"] == chat && r["archived"] != true))?;
+        Some(ChatTarget { chat: chat.to_owned(), peer: row["machine"].as_str().map(str::to_owned) })
+    }
+
+    pub(crate) fn has_chat(&self, target: &ChatTarget, include_archived: bool) -> bool {
+        self.chats()
+            .rows
+            .get(&target.key())
+            .is_some_and(|row| include_archived || row["archived"] != true)
+    }
+
+    /// A confirmed write can race a purge. Never recreate a row after it left the index.
+    pub(crate) fn set_chat_archived(&self, target: &ChatTarget, archived: bool) {
+        self.change_chats(|chats| {
+            let Some(row) = chats.rows.get_mut(&target.key()) else { return false };
+            if row["archived"] == archived {
+                return false;
+            }
+            row["archived"] = Value::Bool(archived);
+            true
+        });
+    }
+
+    pub(crate) fn chat_revision(&self) -> u64 {
+        self.chats().revision
     }
 
     /// Applies a change acpmux accepted (`chat.mark_read`, `chat.pin`) to `chat`'s row
@@ -299,13 +345,12 @@ impl Mux {
     /// row after it, with its workspace, or `None` when the list no longer has it.
     pub(crate) fn update_chat(
         &self,
-        chat: &str,
+        chat: &ChatTarget,
         change: impl FnOnce(&mut Map<String, Value>),
     ) -> Option<(Value, u64)> {
         let mut found = None;
         self.change_chats(|chats| {
-            let Some(key) = chats.find(chat) else { return false };
-            let Some(row) = chats.rows.get_mut(&key) else { return false };
+            let Some(row) = chats.rows.get_mut(&chat.key()) else { return false };
             let before = row.clone();
             if let Some(fields) = row.as_object_mut() {
                 change(fields);

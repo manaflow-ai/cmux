@@ -146,7 +146,7 @@ fn agent_chat_list(mux: &Mux, params: &Value) -> Result<Value, Value> {
         return Err(error("validation.invalid", "agent_chat.list takes no params"));
     }
     let chats = mux
-        .chat_rows()
+        .chat_rows(false)
         .into_iter()
         .map(|mut row| {
             if let Some(fields) = row.as_object_mut() {
