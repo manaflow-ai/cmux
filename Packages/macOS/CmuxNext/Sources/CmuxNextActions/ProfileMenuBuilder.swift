@@ -22,8 +22,9 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
         self.registry = registry
     }
 
-    /// `avatar` is drawn in the current-profile row's image column. `chiefPetShown` (the
-    /// `home.chiefPetEnabled` that applies now) adds Show Chief or Hide Chief above Settings; nil
+    /// `avatar` is drawn in the current-profile row's image column. Show Chief (``ProfileMenuSpec/chief``)
+    /// follows the submenus. `chiefPetShown` (the `home.chiefPetEnabled` that applies now) adds Show
+    /// Chief Pet or Hide Chief Pet under it; nil
     /// leaves the row out. Personalization… follows it (Leo 2026-11-07: the profile menu's fast
     /// path to the look of the app).
     public func make(profile: ProfileMenuProfile, avatar: NSImage? = nil, chiefPetShown: Bool? = nil,
@@ -44,7 +45,11 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
             item.submenu = sub
             menu.addItem(item)
         }
-        if let chiefPetShown, let chief = chiefPetRow(shown: chiefPetShown) { menu.addItem(chief) }
+        if let chief = row(spec.chief) {
+            chief.identifier = NSUserInterfaceItemIdentifier("profileMenu.showChief")
+            menu.addItem(chief)
+        }
+        if let chiefPetShown, let pet = chiefPetRow(shown: chiefPetShown) { menu.addItem(pet) }
         if let personalization = row(spec.personalization) { menu.addItem(personalization) }
         if let settings = row(spec.settings) { menu.addItem(settings) }
         if let updates = row(spec.updates) { menu.addItem(updates) }
@@ -152,14 +157,14 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
         return item
     }
 
-    /// Show Chief / Hide Chief (Leo 2026-10-20, as Codex's profile menu toggles its floating
-    /// window): flips `home.chiefPetEnabled` to the other value through the one setting path,
+    /// Show Chief Pet / Hide Chief Pet (Leo 2026-10-20, as Codex's profile menu toggles its floating
+    /// window; named for the pet since Show Chief opens the Chief, David Beyer Nov 20): flips `home.chiefPetEnabled` to the other value through the one setting path,
     /// `palette.toggleSetting`, as the palette and `cmux settings toggle-setting` do.
     private func chiefPetRow(shown: Bool) -> NSMenuItem? {
         let toggle: ActionID = "palette.toggleSetting"
         guard let item = boundMenuItem(toggle) else { return nil }
-        item.title = shown ? ProfileMenuSpec.text("menu.profile.hideChief", "Hide Chief")
-            : ProfileMenuSpec.text("menu.profile.showChief", "Show Chief")
+        item.title = shown ? ProfileMenuSpec.text("menu.profile.hideChiefPet", "Hide Chief Pet")
+            : ProfileMenuSpec.text("menu.profile.showChiefPet", "Show Chief Pet")
         item.keyEquivalent = ""
         item.keyEquivalentModifierMask = []
         item.image = Self.symbol(shown ? "eye.slash" : "eye", label: item.title)
