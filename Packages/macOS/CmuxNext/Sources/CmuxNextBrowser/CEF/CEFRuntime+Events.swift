@@ -262,12 +262,18 @@ extension CEFRuntime {
             tab.automaticDownloads.userGesture()
             tab.pageUserInput?(ProcessInfo.processInfo.systemUptime)
         }
+        windowRequests.linkClicks.onPersonInput = { [weak self] browser in self?.tabsByBrowser[browser]?.allowWebAuthnForPerson() }
         windowRequests.linkClicks.startRecordingClicks { [weak self] in self?.windowRequests.clickTargets() ?? [] }
         tabsByBrowser[browser] = tab
         drawOnInput.addressChanged(browser: browser, url: tab.pendingURL ?? tab.loadAfterAttach ?? tab.state.url)
         tab.attach(browser: browser)
         accessibility.attached(browser)
         signInCallbacks.attached(tab)
+        // An import's unpacked extensions, once the profile has a browser to load them through (after this callback).
+        if extensionStores.hasPendingUnpacked(tab.profileID) {
+            let profile = tab.profileID
+            Task { [weak self] in self?.extensionStores.browserRegistered(profile) }
+        }
     }
 
     private func browserClosed(_ browser: Int32) {
