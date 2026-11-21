@@ -446,7 +446,7 @@ impl Hub {
             let owner = bg_owner_words(record.subagent.as_ref());
             let what = record.description.as_deref().unwrap_or(&record.command);
             return Err(RpcError::invalid_params(format!(
-                "bg_stop refused: background task {id} ({what}) was started by {owner}, not by you, so it was left running. Stop only tasks you started (bg_list lists them); ask its owner or your lead to stop it, or, if it truly must stop now, call bg_stop again with force_other_owner: true"
+                "bg_stop refused: background task {id} ({what}) was started by {owner}, not by you, so it was left running. Stop only tasks you started (bg_list lists them); ask its owner or your lead to stop it, or, if it truly must stop now, call bg_stop again with force_other_owner: true (`acpmux bg stop <id> --force-other-owner` in a shell)"
             ))
             .with_data(json!({"id": id, "startedBy": record.subagent, "owner": owner})));
         }
