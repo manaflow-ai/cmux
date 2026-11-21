@@ -182,7 +182,7 @@ extension SettingsPageLayout {
             // Whether agents the person starts in cmux (its terminals and agent chats) get cmux's MCP server, Computer Use included (the onboarding step's question); the agentTools card under it lists the agents with Turn On.
             GroupSpec(group: "settings.group.agentTools"),
         ],
-        trail: [.agentCustomization, .agentTools, .harnesses, .agentHarnesses, .agentIntegrations, .worktreeSetup]
+        trail: [.agentCustomization, .agentSkills, .agentTools, .harnesses, .agentHarnesses, .agentIntegrations, .worktreeSetup]
     )
 
     /// Every Chief setting on one page (Leo 2026-10-20: the name pill's popover is the quick version; its All Chief Settings link opens this): Chiefs lists every Chief, each opening its editor (name, picture, backend; u2586); the Chief Pet card (ChatGPT's Mini & Pets; the Chief's look, its one home since Personalization folded into Appearance) draws the preview, Show/Hide and the characters from its group's two rows; then the chat's look. Voice input (the message box's mic) shows only in builds with Debug Settings. Notices last: a row that opens Notifications (the Chief's notices are the app's notifications; their rows keep their one home there).
@@ -348,6 +348,8 @@ extension SettingsPageLayout {
         id: "experimental", title: SettingsText.keyed("settings.category.experimental", "Experimental"), symbol: "flask",
         groups: [
             GroupSpec(group: "settings.group.labs", keys: ["appearance.experimentalControls"]),
+            // Taste prototypes, each behind its own switch, all off by default.
+            GroupSpec(group: "settings.group.experiments"),
             GroupSpec(group: "settings.group.appearanceTuning"),
         ]
     )
