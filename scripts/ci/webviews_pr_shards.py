@@ -22,7 +22,8 @@ a pull request runs:
     whole share of the affected closure: the shards were picked for them, and the closure share is what the 0%
     above measured. Shard 1 keeps its whole share;
   - every shard for a build or runner input (webviews_affected.EVERYTHING: package.json, bun.lock, vite configs, the
-    runner scripts, ci-web.yml, this file) or a deleted source.
+    runner scripts, ci-web.yml, this file, the preload and what it imports) or a deleted source. A test helper
+    (test/support/) or webviews script (webviews/scripts/) counts as a source here: the tests that import it.
 A shard's files come from the very split it makes itself (run-webviews-tests.sh CMUX_WEB_TEST_LIST_ONLY with the
 run's one duration manifest, widths and head start, passed in the environment), so the pick and the shards agree.
 Every feat-cmux-next push still runs all N shards over every file: a red a skipped shard would have caught shows on
@@ -40,6 +41,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -48,6 +50,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import webviews_affected as wa  # noqa: E402
 
 RUNNER = Path(__file__).resolve().parent / "run-webviews-tests.sh"
+# Build inputs webviews_affected.EVERYTHING lists that a pull request's pick treats as sources: test helpers and
+# webviews scripts. On 11-20's merges they made 14 of 17 every-shard picks; the import graph reaches their tests.
+HOP = re.compile(r"^webviews/(test/support/|scripts/)")
 
 
 def matrix(shards: list[int], count: int) -> str:
@@ -58,8 +63,13 @@ def touched(selector: "wa.Selector", files: list[str]) -> tuple[set[str] | None,
     """The tests the change touches directly (repo paths), or None for every shard, and why."""
     out: set[str] = set()
     for f in files:
-        if wa.EVERYTHING.search(f) or f in selector.preload:
+        if f in selector.preload or (wa.EVERYTHING.search(f) and not HOP.search(f)):
             return None, f"{f} is a build or runner input"
+        if wa.EVERYTHING.search(f):
+            # A test helper or webviews script (not the preload's): the tests that import it, as for a source. A file
+            # nothing imports (a baseline a check reads) touches none; shard 1 still runs its whole share.
+            out |= {t for t in selector.graph.importers.get(f, ()) if t in selector.graph.tests}
+            continue
         if not f.startswith(wa.WEB):
             continue
         if f in selector.graph.tests:

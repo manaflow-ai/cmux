@@ -268,6 +268,21 @@ class PullRequestShardsTest(unittest.TestCase):
         self.assertEqual(self.touched("unrelated/tool.py"), [])
         self.assertEqual(self.touched("schemas/settings/settings-schema.json"), [])
 
+    def test_a_test_helper_or_webviews_script_touches_its_importers(self) -> None:
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        self.assertTrue(ps.HOP.search("webviews/test/support/papercutChat.ts"))
+        self.assertTrue(ps.HOP.search("webviews/scripts/design-tokens-baseline.jsonl"))
+        self.assertFalse(ps.HOP.search("webviews/package.json"))
+        self.assertFalse(ps.HOP.search("webviews/test/preload.ts"))
+        (self.root / "webviews/test/support").mkdir(parents=True, exist_ok=True)
+        (self.root / "webviews/test/support/helper.ts").write_text("export const h = 1;\n")
+        (self.root / "webviews/test/helped.test.ts").write_text('import { h } from "./support/helper";\n')
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "helper")
+        self.assertEqual(self.touched("webviews/test/support/helper.ts"), ["webviews/test/helped.test.ts"])
+        self.assertEqual(self.touched("webviews/scripts/baseline.jsonl"), [])
+        self.assertIsNone(self.touched("webviews/test/preload.ts"))
+
     def test_build_and_runner_inputs_and_deleted_sources_run_every_shard(self) -> None:
         self.assertIsNone(self.touched("webviews/package.json"))
         self.assertIsNone(self.touched("scripts/ci/webviews_affected.py"))
