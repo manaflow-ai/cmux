@@ -20,12 +20,16 @@
 //!    reset, and the app's next ensure starts it). A root whose guard is
 //!    held, missing, or cannot be named is never touched; a held one starts
 //!    its hosts' times over;
-//! 2. it has been seen that way for its grace, counted from the first pass
-//!    that saw it, kept across restarts in this session's directory
-//!    ([`STORE_FILE`]), so an owner in a restart loop still reaps. Each time
-//!    is saved with what the session's last owner run left in its session
-//!    directory (`session_owner_mark`): an owner run since then (one that
-//!    adopted or used the host) starts the grace over.
+//! 2. it has been seen that way for its grace, counted from the first
+//!    sighting of it with its guard free, kept across restarts in this
+//!    session's directory ([`STORE_FILE`]), so an owner in a restart loop
+//!    still reaps. Each time is saved with what the session's last owner run
+//!    left in its session directory (`session_owner_mark`): an owner run
+//!    since then (one that adopted or used the host) starts the grace over.
+//!    The reapers of every session and `cmux ps` / `cmux gc`
+//!    (`process_census.rs`, [`SIGHTINGS_FILE`] in a state root) share one
+//!    clock: each takes the earliest sighting any of them saved that still
+//!    holds ([`Sightings`]).
 //!
 //! Graces: [`LIVE_SHELL_GRACE`] for a host whose shell still runs (the user's
 //! work may be in it: a session that has not started for a day while this
@@ -73,6 +77,13 @@ const MAX_REMOVALS_PER_PASS: usize = 64;
 const MAX_STORE_ENTRIES: usize = 4096;
 /// In this session's directory: when each unowned host was first seen.
 pub(crate) const STORE_FILE: &str = "unowned-terminal-hosts.json";
+/// In a state root: when `cmux ps` or `cmux gc` first saw each unowned host
+/// (the same shape as [`STORE_FILE`]), under [`SIGHTINGS_LOCK_FILE`].
+pub(crate) const SIGHTINGS_FILE: &str = "unowned-terminal-host-sightings.json";
+const SIGHTINGS_LOCK_FILE: &str = "unowned-terminal-host-sightings.lock";
+/// How long a sighting write waits for another's lock before it gives up
+/// (a sighting not saved only starts the grace later).
+const SIGHTINGS_LOCK_BUDGET: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Timing {
@@ -351,6 +362,110 @@ fn key_root(key: &str) -> Option<&str> {
     key.rsplitn(3, '|').nth(2)
 }
 
+/// The store key of one host: `<record root>|<terminal id>|<incarnation>`.
+pub(super) fn sighting_key(record_root: &Path, terminal_id: &str, incarnation: &str) -> String {
+    format!("{}|{terminal_id}|{incarnation}", record_root.display())
+}
+
+/// Every saved first sighting of unowned hosts under some state roots: each
+/// reaper's ([`STORE_FILE`] in each session directory) and the census's
+/// ([`SIGHTINGS_FILE`] in each state root). One clock for all of them.
+#[derive(Debug, Default)]
+pub(super) struct Sightings {
+    stores: Vec<Store>,
+}
+
+impl Sightings {
+    pub(super) fn load(state_roots: &[PathBuf]) -> Self {
+        let mut stores = Vec::new();
+        for state_root in state_roots {
+            let census = state_root.join(SIGHTINGS_FILE);
+            if census.is_file() {
+                stores.push(load_store(&census));
+            }
+            for entry in std::fs::read_dir(state_root).into_iter().flatten().flatten() {
+                let store = entry.path().join(STORE_FILE);
+                if entry.file_type().is_ok_and(|kind| kind.is_dir()) && store.is_file() {
+                    stores.push(load_store(&store));
+                }
+            }
+        }
+        Self { stores }
+    }
+
+    /// The earliest saved first sighting of `key` that still holds: saved
+    /// with this `owner_mark` (no owner ran since) and not after `now_ms`.
+    pub(super) fn first_seen(&self, key: &str, owner_mark: &str, now_ms: u64) -> Option<u64> {
+        self.stores
+            .iter()
+            .filter_map(|store| store.hosts.get(key))
+            .filter(|seen| seen.owner_mark == owner_mark && seen.first_seen_ms <= now_ms)
+            .map(|seen| seen.first_seen_ms)
+            .min()
+    }
+}
+
+/// What one census saw of one record root, for [`record_sightings`].
+pub(super) struct RootSighting {
+    pub(super) record_root: PathBuf,
+    /// Its guard was free: its live hosts' keys, with the owner mark. Empty
+    /// (its guard held or missing, or no live host) drops its sightings.
+    pub(super) live: Vec<String>,
+    pub(super) owner_mark: String,
+}
+
+/// Saves what a census saw in `state_root`'s [`SIGHTINGS_FILE`], under its
+/// lock: a live host of a free root keeps its first sighting (a new one,
+/// or one saved with another owner mark, is seen at `now_ms`); every other
+/// host of a root it saw leaves, as do the hosts of roots that are gone.
+pub(super) fn record_sightings(
+    state_root: &Path,
+    roots: &[RootSighting],
+    now_ms: u64,
+) -> anyhow::Result<()> {
+    use cmux_file_lock::{FileLock, Kind};
+    let lock_path = state_root.join(SIGHTINGS_LOCK_FILE);
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).read(true).write(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    }
+    let file = options.open(&lock_path)?;
+    let _lock = FileLock::take_within(
+        file,
+        Kind::Exclusive,
+        SIGHTINGS_LOCK_BUDGET,
+        Duration::from_millis(10),
+    )
+    .map_err(std::io::Error::from)?;
+    let path = state_root.join(SIGHTINGS_FILE);
+    let previous = load_store(&path);
+    let mut store = previous.clone();
+    store.hosts.retain(|key, _| key_root(key).is_some_and(|root| Path::new(root).is_dir()));
+    for root in roots {
+        let prefix = format!("{}|", root.record_root.display());
+        store.hosts.retain(|key, seen| {
+            !key.starts_with(&prefix)
+                || (root.live.contains(key)
+                    && seen.owner_mark == root.owner_mark
+                    && seen.first_seen_ms <= now_ms)
+        });
+        for key in &root.live {
+            store.hosts.entry(key.clone()).or_insert_with(|| Seen {
+                first_seen_ms: now_ms,
+                owner_mark: root.owner_mark.clone(),
+                failed_ms: None,
+            });
+        }
+    }
+    if store != previous {
+        save_store(&path, &store);
+    }
+    Ok(())
+}
+
 /// What the reaper keeps across passes and restarts ([`STORE_FILE`]).
 #[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct Store {
@@ -515,6 +630,11 @@ fn reap_pass_with(
     let previous = load_store(store_path);
     let mut store = previous.clone();
     let roots = other_session_roots(own_root);
+    // The first sightings `cmux ps`, `cmux gc` and other reapers saved.
+    let shared = own_root
+        .parent()
+        .map(|own_state_root| Sightings::load(&state_roots(own_state_root)))
+        .unwrap_or_default();
     // Times of roots that are gone leave before the store's cap can drop
     // the times of hosts seen since.
     let present =
@@ -565,17 +685,18 @@ fn reap_pass_with(
             for (record_path, record) in records {
                 let key = format!("{prefix}{}|{}", record.terminal_id, record.incarnation);
                 // A wall clock set back only restarts the count.
-                let first_seen = previous
+                let saved = previous
                     .hosts
                     .get(&key)
-                    .filter(|seen| seen.owner_mark == owner_mark && seen.first_seen_ms <= now_ms)
-                    .map_or(now_ms, |seen| seen.first_seen_ms);
-                let failed_ms = previous
-                    .hosts
-                    .get(&key)
-                    .filter(|seen| seen.first_seen_ms == first_seen)
-                    .and_then(|seen| seen.failed_ms)
-                    .filter(|failed| *failed <= now_ms);
+                    .filter(|seen| seen.owner_mark == owner_mark && seen.first_seen_ms <= now_ms);
+                let first_seen = saved
+                    .map(|seen| seen.first_seen_ms)
+                    .into_iter()
+                    .chain(shared.first_seen(&key, &owner_mark, now_ms))
+                    .min()
+                    .unwrap_or(now_ms);
+                let failed_ms =
+                    saved.and_then(|seen| seen.failed_ms).filter(|failed| *failed <= now_ms);
                 let seen =
                     Seen { first_seen_ms: first_seen, owner_mark: owner_mark.clone(), failed_ms };
                 let unowned_for = Duration::from_millis(now_ms - first_seen);

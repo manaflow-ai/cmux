@@ -85,6 +85,47 @@ pub(crate) enum SessionOwnerProbe {
 /// [`SessionOwnerProbe::Owned`]. Whoever holds the lease checks
 /// [`SessionLease::still_guards`] before each step that ends a host.
 pub(crate) fn probe_session_owner(root: &Path, component: &str) -> SessionOwnerProbe {
+    match lock_free_session_guard(root, component) {
+        // The coordinator goes as this returns; the lease stays.
+        Ok((lease, _coordinator)) => SessionOwnerProbe::Unowned(lease),
+        Err(probe) => probe,
+    }
+}
+
+/// What [`peek_session_owner`] saw.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SessionOwnerPeek {
+    /// No daemon held the guard.
+    Unowned,
+    /// A daemon holds the guard, or the peek could not tell.
+    Owned,
+    /// The session has no guard file in `root`.
+    NoGuard,
+}
+
+/// [`probe_session_owner`] that keeps nothing, for `cmux ps` and a `cmux gc`
+/// dry run: the guard's lock is taken and let go while the coordinator is
+/// held. A daemon starts a session by taking the coordinator first, so one
+/// starting meanwhile waits on the coordinator for that instant instead of
+/// failing on a guard held here.
+pub(crate) fn peek_session_owner(root: &Path, component: &str) -> SessionOwnerPeek {
+    match lock_free_session_guard(root, component) {
+        Ok((lease, coordinator)) => {
+            drop(lease);
+            drop(coordinator);
+            SessionOwnerPeek::Unowned
+        }
+        Err(SessionOwnerProbe::NoGuard) => SessionOwnerPeek::NoGuard,
+        Err(_) => SessionOwnerPeek::Owned,
+    }
+}
+
+/// The free guard of `component` locked here, with the coordinator still
+/// held; `Err` with what the probe found otherwise.
+fn lock_free_session_guard(
+    root: &Path,
+    component: &str,
+) -> Result<(SessionLease, SessionLease), SessionOwnerProbe> {
     let lock_dir = platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR));
     let lock_path = session_guard_lock_component_path(&lock_dir, component);
     let mut options = OpenOptions::new();
@@ -97,24 +138,24 @@ pub(crate) fn probe_session_owner(root: &Path, component: &str) -> SessionOwnerP
     let file = match options.open(&lock_path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return SessionOwnerProbe::NoGuard;
+            return Err(SessionOwnerProbe::NoGuard);
         }
-        Err(_) => return SessionOwnerProbe::Owned,
+        Err(_) => return Err(SessionOwnerProbe::Owned),
     };
-    let Ok(_coordinator) =
+    let Ok(coordinator) =
         SessionLease::acquire_coordinator(&session_guard_coordinator_path(&lock_dir))
     else {
-        return SessionOwnerProbe::Owned;
+        return Err(SessionOwnerProbe::Owned);
     };
     // Locked first, then checked: the path must still name the locked file.
     let lock = match FileLock::try_take(file, Kind::Exclusive) {
         Ok(lock) => lock,
-        Err(LockError::Busy(_) | LockError::Io(_)) => return SessionOwnerProbe::Owned,
+        Err(LockError::Busy(_) | LockError::Io(_)) => return Err(SessionOwnerProbe::Owned),
     };
     if validate_session_lock_file(&lock_path, lock.file()).is_err() {
-        return SessionOwnerProbe::Owned;
+        return Err(SessionOwnerProbe::Owned);
     }
-    SessionOwnerProbe::Unowned(SessionLease { lock, path: lock_path, coordinator_waiter_dir: None })
+    Ok((SessionLease { lock, path: lock_path, coordinator_waiter_dir: None }, coordinator))
 }
 
 /// What the last owner run of the session `component` of `root` left in its
@@ -160,6 +201,35 @@ pub(crate) fn session_owner_last_active(
             metadata.is_file().then(|| metadata.modified().ok()).flatten()
         })
         .max()
+}
+
+/// The terminals the workspace registry of the session `component` of
+/// `root` still references (every row not tombstoned): what its next start
+/// restores. `Ok(None)`: the session keeps no registry. Read-only, without
+/// the session's locks.
+pub(crate) fn stored_terminal_references(
+    root: &Path,
+    component: &str,
+) -> anyhow::Result<Option<std::collections::HashSet<String>>> {
+    let database = platform::normalize_filesystem_path(
+        root.join(component).join(super::WORKSPACE_REGISTRY_FILE),
+    );
+    match fs::symlink_metadata(&database) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error).with_context(|| format!("stat {}", database.display()));
+        }
+    }
+    let connection = super::open_registry_database_read_only(&database)
+        .with_context(|| format!("open {}", database.display()))?;
+    connection.busy_timeout(std::time::Duration::from_millis(500))?;
+    let mut statement = connection
+        .prepare("SELECT terminal_id FROM terminal_hosts WHERE lifecycle != 'tombstoned'")?;
+    let ids = statement
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<std::collections::HashSet<_>, _>>()?;
+    Ok(Some(ids))
 }
 
 /// The guard file stems in `root` (`session-locks/<stem>.lock`), sorted.

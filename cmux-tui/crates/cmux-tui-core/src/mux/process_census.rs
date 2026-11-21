@@ -22,14 +22,29 @@
 //! `orphaned` (no live daemon holds it), `unknown` (its lease or session
 //! cannot be read, or this daemon references it but does not hold it).
 //!
+//! A daemon that holds a host's stream or owns its session decides its state
+//! before its lease does: an adopted legacy host whose lease cannot be read
+//! still reads `in-use` while a live daemon holds or shows it.
+//!
 //! `cmux gc` ends only what [`super::unowned_hosts`] would end, with the same
 //! proof: a live host of a root whose session guard is free, held by gc while
 //! it ends the host so no daemon can start and adopt it meanwhile, after the
-//! same grace (counted here from the session's last owner activity). It
-//! refuses a host whose stream a live daemon holds, one a live workspace
-//! references (both imply a held guard), and one whose lease is
-//! indeterminate. Stale records and sockets no record names are reported,
-//! never removed.
+//! same grace. The grace counts from the first time a census, a gc or a
+//! reaper saw the host with its guard free and no owner run since (one clock,
+//! [`super::unowned_hosts::Sightings`]); a host never seen unowned before is
+//! seen now, so its grace starts now, however long its session sat quiet.
+//! gc refuses a host whose stream a live daemon holds, one a live workspace
+//! references (both imply a held guard), one the on-disk workspace registry of
+//! its free session still references (an unrestored workspace), one whose
+//! registry cannot be read, and one whose lease is indeterminate. Each end is
+//! logged before it is asked for and again with its outcome. Stale records and
+//! sockets no record names are reported, never removed.
+//!
+//! `cmux ps` and a dry-run gc only peek at a free root's guard, under its
+//! coordinator ([`crate::workspace_registry::peek_session_owner`]): a session
+//! starting meanwhile waits on the coordinator for the peek, never fails on
+//! the guard. Only `cmux gc --apply` keeps a free root's guard, and only
+//! while it handles that root's hosts.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -38,13 +53,17 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
-use super::unowned_hosts::{current_shell_ended, session_roots, state_roots, unowned_host_grace};
+use super::time::now_ms;
+use super::unowned_hosts::{
+    RootSighting, Sightings, current_shell_ended, record_sightings, session_roots, sighting_key,
+    state_roots, unowned_host_grace,
+};
 use super::{HostEnd, Mux, request_terminal_host_end, terminal_host_record_liveness};
 use crate::SurfaceId;
 use crate::terminal_host_runtime::{TerminalHostLiveness, TerminalHostRecord};
 use crate::workspace_registry::{
-    SessionLease, SessionOwnerProbe, TerminalLifecycle, probe_session_owner,
-    session_owner_last_active,
+    SessionLease, SessionOwnerPeek, SessionOwnerProbe, TerminalLifecycle, peek_session_owner,
+    probe_session_owner, session_owner_last_active, session_owner_mark, stored_terminal_references,
 };
 
 /// The shape of [`Census`] and [`GcReport`]; bumped on a breaking change.
@@ -114,6 +133,9 @@ pub struct OwnView {
     pub held: HashMap<String, HeldHost>,
     /// Terminal ids its registry has not tombstoned.
     pub referenced: HashSet<String>,
+    /// Its registry could not be read, so `referenced` is not known: every
+    /// host of its root it does not hold reads `unknown`.
+    pub referenced_error: Option<String>,
 }
 
 /// Whether `cmux gc` may end a host, and why not.
@@ -124,8 +146,20 @@ pub struct GcVerdict {
     pub refusal: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub grace_ms: Option<u64>,
+    /// Since the host was first seen with its session guard free and no
+    /// owner run since (a free root only).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unowned_for_ms: Option<u64>,
+}
+
+/// Whether a workspace still references a host: the answering daemon's live
+/// registry for its own root, the on-disk registry for a free root.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Reference<'a> {
+    None,
+    Referenced,
+    /// The registry could not be read: why.
+    Unreadable(&'a str),
 }
 
 /// The facts one host is classified on.
@@ -136,9 +170,11 @@ pub(crate) struct HostFacts<'a> {
     pub(crate) liveness: TerminalHostLiveness,
     pub(crate) incarnation: &'a str,
     pub(crate) held: Option<&'a HeldHost>,
-    pub(crate) referenced: bool,
+    pub(crate) reference: Reference<'a>,
     pub(crate) shell_ended: bool,
-    /// How long no owner of its session has run (only for a free root).
+    /// How long it has been seen with its session guard free and no owner
+    /// run since, from the shared first sighting (only for a free root;
+    /// zero when first seen now).
     pub(crate) unowned_for: Option<Duration>,
 }
 
@@ -183,21 +219,20 @@ pub(crate) fn classify(facts: &HostFacts<'_>, grace: impl Fn(bool) -> Duration) 
 }
 
 fn classify_state(facts: &HostFacts<'_>, grace: impl Fn(bool) -> Duration) -> Verdict {
-    if facts.liveness == TerminalHostLiveness::Indeterminate {
-        return refused(
-            HostState::Unknown,
-            "its lease cannot be read, so whether the host lives is unknown",
-            "its lease is indeterminate",
-        );
-    }
+    let indeterminate = facts.liveness == TerminalHostLiveness::Indeterminate;
+    let lease_note = if indeterminate { "; its lease cannot be read" } else { "" };
     match facts.owner {
+        // A live daemon that holds or owns the host decides first: an adopted
+        // legacy host it holds or shows reads in-use even when its lease
+        // cannot be read (gc refuses it either way).
         RootOwner::ThisDaemon => {
             if let Some(held) = facts.held {
                 if held.incarnation != facts.incarnation {
                     return refused(
                         HostState::Unknown,
                         format!(
-                            "this daemon holds incarnation {} of this terminal, the record is {}",
+                            "this daemon holds incarnation {} of this terminal, the record is \
+                             {}{lease_note}",
                             held.incarnation, facts.incarnation
                         ),
                         "a surface of the live daemon names its terminal",
@@ -207,36 +242,51 @@ fn classify_state(facts: &HostFacts<'_>, grace: impl Fn(bool) -> Duration) -> Ve
                 if held.placements.is_empty() {
                     return refused(
                         HostState::Idle,
-                        format!("this daemon {how}; no pane shows it"),
+                        format!("this daemon {how}; no pane shows it{lease_note}"),
                         "a surface of the live daemon names it",
                     );
                 }
                 return refused(
                     HostState::InUse,
-                    format!("this daemon {how}; shown in {} pane(s)", held.placements.len()),
+                    format!(
+                        "this daemon {how}; shown in {} pane(s){lease_note}",
+                        held.placements.len()
+                    ),
                     "a surface of the live daemon names it",
                 );
             }
-            if facts.referenced {
-                return refused(
+            if indeterminate {
+                return indeterminate_verdict();
+            }
+            match facts.reference {
+                Reference::Referenced => refused(
                     HostState::Unknown,
                     "a live workspace of this daemon references it but no surface holds it \
                      (adoption pending or failed)",
                     "a live workspace references it",
-                );
+                ),
+                Reference::Unreadable(why) => refused(
+                    HostState::Unknown,
+                    format!(
+                        "no surface of this daemon holds it and its registry cannot be read \
+                         ({why})"
+                    ),
+                    "the live daemon's registry cannot be read",
+                ),
+                Reference::None => refused(
+                    HostState::Orphaned,
+                    "nothing of the live daemon that owns its root names it (a product bug: \
+                     that daemon adopts or ends its own hosts at start)",
+                    "a live daemon owns its root",
+                ),
             }
-            refused(
-                HostState::Orphaned,
-                "nothing of the live daemon that owns its root names it (a product bug: that \
-                 daemon adopts or ends its own hosts at start)",
-                "a live daemon owns its root",
-            )
         }
         RootOwner::LiveDaemon => refused(
             HostState::InUse,
-            "a live daemon owns its session (the session guard is held)",
+            format!("a live daemon owns its session (the session guard is held){lease_note}"),
             "a live daemon owns its session",
         ),
+        _ if indeterminate => indeterminate_verdict(),
         RootOwner::NoGuard => refused(
             HostState::Unknown,
             "its session has no guard file, so no owner can be proven absent",
@@ -248,9 +298,28 @@ fn classify_state(facts: &HostFacts<'_>, grace: impl Fn(bool) -> Duration) -> Ve
             "no session guard proves it unowned",
         ),
         RootOwner::Free => {
-            let grace = grace(facts.shell_ended);
             let shell = if facts.shell_ended { "its shell ended" } else { "its shell runs" };
             let reason = format!("no live daemon owns its session (the guard is free); {shell}");
+            match facts.reference {
+                Reference::Referenced => {
+                    return refused(
+                        HostState::Orphaned,
+                        format!("{reason}; its session's workspace registry still references it"),
+                        "referenced by an unrestored workspace",
+                    );
+                }
+                Reference::Unreadable(why) => {
+                    return refused(
+                        HostState::Unknown,
+                        format!(
+                            "{reason}; its session's workspace registry cannot be read ({why})"
+                        ),
+                        "its session's workspace registry cannot be read",
+                    );
+                }
+                Reference::None => {}
+            }
+            let grace = grace(facts.shell_ended);
             let verdict = |candidate: bool, refusal: Option<String>| Verdict {
                 state: HostState::Orphaned,
                 reason: reason.clone(),
@@ -263,7 +332,9 @@ fn classify_state(facts: &HostFacts<'_>, grace: impl Fn(bool) -> Duration) -> Ve
                 },
             };
             match facts.unowned_for {
-                None => verdict(false, Some("when its session last ran is unknown".into())),
+                None => {
+                    verdict(false, Some("never seen unowned before: its grace starts now".into()))
+                }
                 Some(unowned_for) if unowned_for < grace => verdict(
                     false,
                     Some(format!(
@@ -276,6 +347,14 @@ fn classify_state(facts: &HostFacts<'_>, grace: impl Fn(bool) -> Duration) -> Ve
             }
         }
     }
+}
+
+fn indeterminate_verdict() -> Verdict {
+    refused(
+        HostState::Unknown,
+        "its lease cannot be read, so whether the host lives is unknown",
+        "its lease is indeterminate",
+    )
 }
 
 /// One terminal host in the census.
@@ -342,7 +421,8 @@ pub struct RootEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session: Option<String>,
     pub owner: RootOwner,
-    /// When an owner of its session last wrote its session directory.
+    /// When an owner of its session last wrote its session directory
+    /// (informational: the gc grace counts from the first sighting).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner_last_active_ms: Option<u64>,
     pub hosts: usize,
@@ -396,6 +476,9 @@ pub struct Census {
     pub hosts: Vec<HostEntry>,
     pub helpers: Vec<HelperEntry>,
     pub state: StateSection,
+    /// What this census could not do (saving its sightings).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<String>,
 }
 
 fn unix_ms(time: SystemTime) -> Option<u64> {
@@ -423,6 +506,35 @@ fn pgid(_pid: u32) -> Option<i32> {
     None
 }
 
+/// How the census reads and ends hosts: the real record files, leases and
+/// host sockets, or a test's.
+pub(crate) struct CensusOps<'a> {
+    pub(crate) load: &'a dyn Fn(&Path) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>>,
+    pub(crate) liveness: &'a dyn Fn(&Path, &TerminalHostRecord) -> TerminalHostLiveness,
+    /// Run under the session guard's coordinator: it must not wait on the
+    /// host (see [`request_terminal_host_end`]).
+    pub(crate) end: &'a dyn Fn(&TerminalHostRecord, &Path) -> HostEnd,
+    pub(crate) grace: &'a dyn Fn(bool) -> Duration,
+}
+
+impl CensusOps<'static> {
+    pub(crate) const REAL: Self = Self {
+        load: &crate::terminal_host_runtime::load_terminal_host_records,
+        liveness: &terminal_host_record_liveness,
+        end: &request_terminal_host_end,
+        grace: &unowned_host_grace,
+    };
+}
+
+/// How a free root's guard is read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Probe {
+    /// Under its coordinator, let go at once (`cmux ps`, a dry-run gc).
+    Peek,
+    /// Kept as a lease while the root's hosts are handled (`gc --apply`).
+    Lease,
+}
+
 /// One record root as read: its owner, and its lease while gc holds it.
 struct RootScan {
     state_root: PathBuf,
@@ -431,79 +543,91 @@ struct RootScan {
     owner: RootOwner,
     lease: Option<SessionLease>,
     owner_last_active: Option<SystemTime>,
+    /// A free root's owner mark ([`session_owner_mark`]), read under its lease
+    /// when gc applies.
+    owner_mark: Option<String>,
+    /// A free root's on-disk registry: the terminals it has not tombstoned.
+    stored: Result<HashSet<String>, String>,
     records: Vec<(PathBuf, TerminalHostRecord)>,
     error: Option<String>,
 }
 
+/// A record root to scan: (state root, record root, guard file stem, owned
+/// by the answering daemon).
+type ListedRoot = (PathBuf, PathBuf, Option<String>, bool);
+
 /// Every record root under the state roots of `state_root` (its own and,
-/// on the app's per-build layout, every build's: as the reaper reads them),
-/// each with the owner its session guard names. `own` is the answering
-/// daemon's root, owned by it. A probe that finds a guard free takes its
-/// lease; `keep_leases` keeps it (gc), else it is dropped at once.
-fn scan_roots(state_root: &Path, own: Option<&OwnView>, keep_leases: bool) -> Vec<RootScan> {
+/// on the app's per-build layout, every build's: as the reaper reads them).
+/// `own` is the answering daemon's root, listed once, as its own.
+fn list_roots(state_root: &Path, own: Option<&OwnView>) -> Vec<ListedRoot> {
     let own_root = own.map(|own| own.record_root.clone());
     let mut found = Vec::new();
     if let Some(own) = own {
         found.push((state_root.to_path_buf(), own.record_root.clone(), None, true));
     }
+    let excluded = own_root.unwrap_or_default();
     for root_dir in state_roots(state_root) {
-        let excluded = own_root.clone().unwrap_or_default();
         for (record_root, component) in session_roots(&root_dir, &excluded) {
             found.push((root_dir.clone(), record_root, component, false));
         }
     }
-    found.sort_by(|left, right| (!left.3, &left.1).cmp(&(!right.3, &right.1)));
-    found.dedup_by(|left, right| left.1 == right.1);
+    // By path, the answering daemon's entry first: `dedup_by` sees each
+    // path's entries side by side and keeps the first.
+    found.sort_by(|left, right| (&left.1, !left.3).cmp(&(&right.1, !right.3)));
+    found.dedup_by(|later, kept| later.1 == kept.1);
     found
-        .into_iter()
-        .map(|(state_root, record_root, component, is_own)| {
-            let (records, error) =
-                match crate::terminal_host_runtime::load_terminal_host_records(&record_root) {
-                    Ok(records) => (records, None),
-                    Err(error) => (Vec::new(), Some(format!("{error:#}"))),
-                };
-            let (owner, lease) = if is_own {
-                (RootOwner::ThisDaemon, None)
-            } else {
-                match component.as_deref() {
-                    None => (RootOwner::Unnamed, None),
-                    Some(component) => match probe_session_owner(&state_root, component) {
-                        SessionOwnerProbe::Unowned(lease) => {
-                            (RootOwner::Free, keep_leases.then_some(lease))
-                        }
-                        SessionOwnerProbe::Owned => (RootOwner::LiveDaemon, None),
-                        SessionOwnerProbe::NoGuard => (RootOwner::NoGuard, None),
-                    },
-                }
-            };
-            let owner_last_active = component
-                .as_deref()
-                .and_then(|component| session_owner_last_active(&state_root, component));
-            RootScan {
-                state_root,
-                record_root,
-                component,
-                owner,
-                lease,
-                owner_last_active,
-                records,
-                error,
-            }
-        })
-        .collect()
 }
 
-/// How long no owner of a free root's session has run, for one record: since
-/// the later of the session directory's last write and the record's.
-fn unowned_for(
-    owner_last_active: Option<SystemTime>,
-    record_path: &Path,
-    now: SystemTime,
-) -> Option<Duration> {
-    let last_owner = owner_last_active?;
-    let record_written = std::fs::metadata(record_path).and_then(|meta| meta.modified()).ok();
-    let since = record_written.map_or(last_owner, |written| written.max(last_owner));
-    Some(now.duration_since(since).unwrap_or_default())
+/// Reads one listed root: its owner from its session guard and, for a free
+/// root, its owner mark and stored references. With [`Probe::Lease`] the
+/// free guard is held from before the records are read until the scan drops.
+fn scan_root(listed: ListedRoot, probe: Probe, ops: &CensusOps<'_>) -> RootScan {
+    let (state_root, record_root, component, is_own) = listed;
+    let (owner, lease) = if is_own {
+        (RootOwner::ThisDaemon, None)
+    } else {
+        match (component.as_deref(), probe) {
+            (None, _) => (RootOwner::Unnamed, None),
+            (Some(component), Probe::Peek) => match peek_session_owner(&state_root, component) {
+                SessionOwnerPeek::Unowned => (RootOwner::Free, None),
+                SessionOwnerPeek::Owned => (RootOwner::LiveDaemon, None),
+                SessionOwnerPeek::NoGuard => (RootOwner::NoGuard, None),
+            },
+            (Some(component), Probe::Lease) => match probe_session_owner(&state_root, component) {
+                SessionOwnerProbe::Unowned(lease) => (RootOwner::Free, Some(lease)),
+                SessionOwnerProbe::Owned => (RootOwner::LiveDaemon, None),
+                SessionOwnerProbe::NoGuard => (RootOwner::NoGuard, None),
+            },
+        }
+    };
+    let (records, error) = match (ops.load)(&record_root) {
+        Ok(records) => (records, None),
+        Err(error) => (Vec::new(), Some(format!("{error:#}"))),
+    };
+    let free = component.as_deref().filter(|_| owner == RootOwner::Free);
+    let owner_mark = free.map(|component| session_owner_mark(&state_root, component));
+    let stored = match free {
+        None => Ok(HashSet::new()),
+        Some(component) => match stored_terminal_references(&state_root, component) {
+            Ok(ids) => Ok(ids.unwrap_or_default()),
+            Err(error) => Err(format!("{error:#}")),
+        },
+    };
+    let owner_last_active = component
+        .as_deref()
+        .and_then(|component| session_owner_last_active(&state_root, component));
+    RootScan {
+        state_root,
+        record_root,
+        component,
+        owner,
+        lease,
+        owner_last_active,
+        owner_mark,
+        stored,
+        records,
+        error,
+    }
 }
 
 /// A classified host, before it becomes a [`HostEntry`] or a gc candidate.
@@ -516,48 +640,93 @@ struct ScannedHost<'a> {
     verdict: Verdict,
 }
 
-/// Classifies every record of `roots`; dead ones go to `stale`.
-fn classify_roots<'a>(
-    roots: &'a [RootScan],
+/// Classifies every record of `root`; dead ones go to `stale`. A free root's
+/// hosts count their grace from `sightings` (now, when never seen).
+fn classify_root<'a>(
+    root: &'a RootScan,
     own: Option<&OwnView>,
-    now: SystemTime,
+    ops: &CensusOps<'_>,
+    sightings: &Sightings,
+    now_ms: u64,
     stale: &mut Vec<StaleRecord>,
 ) -> Vec<ScannedHost<'a>> {
     let mut hosts = Vec::new();
-    for root in roots {
-        for (record_path, record) in &root.records {
-            let liveness = terminal_host_record_liveness(record_path, record);
-            let shell_ended = current_shell_ended(record_path, record);
-            if liveness == TerminalHostLiveness::Dead {
-                stale.push(StaleRecord {
-                    terminal_id: record.terminal_id.clone(),
-                    incarnation: record.incarnation.clone(),
-                    host_pid: record.host_pid,
-                    record_path: record_path.display().to_string(),
-                    record_root: root.record_root.display().to_string(),
-                    session: root.component.clone(),
-                    shell_ended,
-                });
-                continue;
-            }
-            let this_daemon = root.owner == RootOwner::ThisDaemon;
-            let facts = HostFacts {
-                owner: root.owner,
-                liveness,
-                incarnation: &record.incarnation,
-                held: own.filter(|_| this_daemon).and_then(|own| own.held.get(&record.terminal_id)),
-                referenced: this_daemon
-                    && own.is_some_and(|own| own.referenced.contains(&record.terminal_id)),
+    let this_daemon = root.owner == RootOwner::ThisDaemon;
+    let own = own.filter(|_| this_daemon);
+    for (record_path, record) in &root.records {
+        let liveness = (ops.liveness)(record_path, record);
+        let shell_ended = current_shell_ended(record_path, record);
+        if liveness == TerminalHostLiveness::Dead {
+            stale.push(StaleRecord {
+                terminal_id: record.terminal_id.clone(),
+                incarnation: record.incarnation.clone(),
+                host_pid: record.host_pid,
+                record_path: record_path.display().to_string(),
+                record_root: root.record_root.display().to_string(),
+                session: root.component.clone(),
                 shell_ended,
-                unowned_for: (root.owner == RootOwner::Free)
-                    .then(|| unowned_for(root.owner_last_active, record_path, now))
-                    .flatten(),
-            };
-            let verdict = classify(&facts, unowned_host_grace);
-            hosts.push(ScannedHost { root, record_path, record, liveness, shell_ended, verdict });
+            });
+            continue;
         }
+        let reference = match (root.owner, own) {
+            (RootOwner::ThisDaemon, Some(own)) => match &own.referenced_error {
+                Some(why) => Reference::Unreadable(why),
+                None if own.referenced.contains(&record.terminal_id) => Reference::Referenced,
+                None => Reference::None,
+            },
+            (RootOwner::Free, _) => match &root.stored {
+                Ok(ids) if ids.contains(&record.terminal_id) => Reference::Referenced,
+                Ok(_) => Reference::None,
+                Err(why) => Reference::Unreadable(why),
+            },
+            _ => Reference::None,
+        };
+        let unowned_for =
+            root.owner_mark.as_deref().filter(|_| root.owner == RootOwner::Free).map(|mark| {
+                let key = sighting_key(&root.record_root, &record.terminal_id, &record.incarnation);
+                let first = sightings.first_seen(&key, mark, now_ms).unwrap_or(now_ms);
+                Duration::from_millis(now_ms - first)
+            });
+        let facts = HostFacts {
+            owner: root.owner,
+            liveness,
+            incarnation: &record.incarnation,
+            held: own.and_then(|own| own.held.get(&record.terminal_id)),
+            reference,
+            shell_ended,
+            unowned_for,
+        };
+        let verdict = classify(&facts, ops.grace);
+        hosts.push(ScannedHost { root, record_path, record, liveness, shell_ended, verdict });
     }
     hosts
+}
+
+/// What a census saw of one root for the shared clock: a free root's live
+/// hosts keep (or start) their first sighting; any other root's leave. A
+/// root whose records could not be read is left as it was.
+fn root_sighting(root: &RootScan, hosts: &[ScannedHost<'_>]) -> Option<RootSighting> {
+    if root.error.is_some() {
+        return None;
+    }
+    let (live, owner_mark) = match (root.owner, root.owner_mark.as_ref()) {
+        (RootOwner::Free, Some(mark)) => (
+            hosts
+                .iter()
+                .filter(|host| host.liveness == TerminalHostLiveness::Live)
+                .map(|host| {
+                    sighting_key(
+                        &root.record_root,
+                        &host.record.terminal_id,
+                        &host.record.incarnation,
+                    )
+                })
+                .collect(),
+            mark.clone(),
+        ),
+        _ => (Vec::new(), String::new()),
+    };
+    Some(RootSighting { record_root: root.record_root.clone(), live, owner_mark })
 }
 
 /// The sockets under this user's host socket directory (flat legacy
@@ -609,10 +778,30 @@ fn helpers(daemon_pid: u32, host_pids: &HashSet<u32>) -> Vec<HelperEntry> {
 /// The census of `state_root`'s hosts and state. `own` is the answering
 /// daemon's view, `None` when the CLI reads the records with no daemon.
 pub fn census(state_root: &Path, own: Option<&OwnView>) -> Census {
-    let now = SystemTime::now();
-    let roots = scan_roots(state_root, own, false);
+    census_with(state_root, own, &CensusOps::REAL)
+}
+
+fn census_with(state_root: &Path, own: Option<&OwnView>, ops: &CensusOps<'_>) -> Census {
+    let now_ms = now_ms();
+    let now = UNIX_EPOCH + Duration::from_millis(now_ms);
+    let sightings = Sightings::load(&state_roots(state_root));
+    let roots = list_roots(state_root, own)
+        .into_iter()
+        .map(|listed| scan_root(listed, Probe::Peek, ops))
+        .collect::<Vec<_>>();
     let mut state = StateSection::default();
-    let scanned = classify_roots(&roots, own, now, &mut state.stale_records);
+    let mut scanned = Vec::new();
+    let mut seen = Vec::new();
+    for root in &roots {
+        let hosts = classify_root(root, own, ops, &sightings, now_ms, &mut state.stale_records);
+        seen.extend(root_sighting(root, &hosts));
+        scanned.extend(hosts);
+    }
+    let errors = record_sightings(state_root, &seen, now_ms)
+        .err()
+        .map(|error| format!("saving the unowned-host sightings: {error:#}"))
+        .into_iter()
+        .collect();
     let mut named = HashSet::new();
     for root in &roots {
         let exits =
@@ -696,6 +885,7 @@ pub fn census(state_root: &Path, own: Option<&OwnView>) -> Census {
         helpers: own.map(|own| helpers(own.daemon_pid, &host_pids)).unwrap_or_default(),
         hosts,
         state,
+        errors,
     }
 }
 
@@ -742,127 +932,155 @@ pub struct GcReport {
     pub stale_records: usize,
     /// The gc logs written (one per state root with an outcome).
     pub logs: Vec<String>,
+    /// What gc could not do: a log line it could not write (a host whose
+    /// intent line fails is not ended), saving its sightings.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<String>,
 }
 
 /// `cmux gc`: the proven orphans of `state_root`'s roots, ended when `apply`.
 /// Runs with no daemon view: a root a live daemon owns has its guard held,
 /// so every host it holds or references is refused.
 pub fn gc(state_root: &Path, apply: bool) -> GcReport {
-    gc_with(state_root, apply, &request_terminal_host_end)
+    gc_with(state_root, apply, &CensusOps::REAL)
 }
 
-fn gc_with(
-    state_root: &Path,
-    apply: bool,
-    end: &dyn Fn(&TerminalHostRecord, &Path) -> HostEnd,
-) -> GcReport {
-    let now = SystemTime::now();
-    let mut roots = scan_roots(state_root, None, apply);
-    // Leases of roots with nothing to end go at once.
-    let mut stale = Vec::new();
-    let keep = {
-        let scanned = classify_roots(&roots, None, now, &mut stale);
-        scanned
-            .iter()
-            .filter(|host| host.verdict.gc.candidate)
-            .map(|host| host.root.record_root.clone())
-            .collect::<HashSet<_>>()
-    };
-    for root in &mut roots {
-        if !keep.contains(&root.record_root) {
-            root.lease = None;
-        }
-    }
-    stale.clear();
-    let scanned = classify_roots(&roots, None, now, &mut stale);
+/// One root at a time: with `apply` its free guard is held from its scan
+/// until its last host is handled, then let go before the next root.
+fn gc_with(state_root: &Path, apply: bool, ops: &CensusOps<'_>) -> GcReport {
+    let now_ms = now_ms();
+    let sightings = Sightings::load(&state_roots(state_root));
+    let probe = if apply { Probe::Lease } else { Probe::Peek };
     let mut report = GcReport {
         census_version: CENSUS_VERSION,
         applied: apply,
-        generated_at_ms: unix_ms(now).unwrap_or_default(),
+        generated_at_ms: now_ms,
         state_root: state_root.display().to_string(),
         candidates: Vec::new(),
         refused: Vec::new(),
         ended: 0,
         failed: 0,
-        stale_records: stale.len(),
+        stale_records: 0,
         logs: Vec::new(),
+        errors: Vec::new(),
     };
     let mut logs = BTreeSet::new();
-    for host in scanned {
-        if !host.verdict.gc.candidate {
-            report.refused.push(GcRefusal {
+    let mut seen = Vec::new();
+    for listed in list_roots(state_root, None) {
+        let root = scan_root(listed, probe, ops);
+        let mut stale = Vec::new();
+        let hosts = classify_root(&root, None, ops, &sightings, now_ms, &mut stale);
+        report.stale_records += stale.len();
+        seen.extend(root_sighting(&root, &hosts));
+        for host in hosts {
+            if !host.verdict.gc.candidate {
+                report.refused.push(GcRefusal {
+                    terminal_id: host.record.terminal_id.clone(),
+                    incarnation: host.record.incarnation.clone(),
+                    host_pid: host.record.host_pid,
+                    record_path: host.record_path.display().to_string(),
+                    state: host.verdict.state,
+                    refusal: host.verdict.gc.refusal.clone().unwrap_or_default(),
+                });
+                continue;
+            }
+            let mut candidate = GcCandidate {
                 terminal_id: host.record.terminal_id.clone(),
                 incarnation: host.record.incarnation.clone(),
                 host_pid: host.record.host_pid,
                 record_path: host.record_path.display().to_string(),
-                state: host.verdict.state,
-                refusal: host.verdict.gc.refusal.clone().unwrap_or_default(),
-            });
-            continue;
-        }
-        let mut candidate = GcCandidate {
-            terminal_id: host.record.terminal_id.clone(),
-            incarnation: host.record.incarnation.clone(),
-            host_pid: host.record.host_pid,
-            record_path: host.record_path.display().to_string(),
-            session: host.root.component.clone(),
-            reason: host.verdict.reason.clone(),
-            unowned_for_ms: host.verdict.gc.unowned_for_ms,
-            outcome: None,
-        };
-        if apply {
-            let outcome = end_candidate(&host, end);
-            match outcome.as_str() {
-                "ended" => report.ended += 1,
-                "failed" => report.failed += 1,
-                _ => {}
-            }
-            let event = match outcome.as_str() {
-                "ended" => "host_gc_ended",
-                "failed" => "host_gc_failed",
-                _ => "host_gc_skipped",
+                session: host.root.component.clone(),
+                reason: host.verdict.reason.clone(),
+                unowned_for_ms: host.verdict.gc.unowned_for_ms,
+                outcome: None,
             };
-            let line = serde_json::json!({
-                "at_ms": unix_ms(SystemTime::now()).unwrap_or_default(),
-                "event": event,
-                "outcome": outcome,
-                "terminal_id": host.record.terminal_id,
-                "incarnation": host.record.incarnation,
-                "host_pid": host.record.host_pid,
-                "record_path": host.record_path.display().to_string(),
-                "session": host.root.component,
-                "reason": host.verdict.reason,
-                "unowned_for_ms": host.verdict.gc.unowned_for_ms,
-                "grace_ms": host.verdict.gc.grace_ms,
-                "gc_pid": std::process::id(),
-            });
-            if let Some(log) = crate::terminal_loss_log::record_host_gc(host.record_path, &line) {
-                logs.insert(log.display().to_string());
+            if apply {
+                candidate.outcome = Some(apply_candidate(&host, ops, &mut report, &mut logs));
             }
-            candidate.outcome = Some(outcome);
+            report.candidates.push(candidate);
         }
-        report.candidates.push(candidate);
+        // `root`, and with it the lease on its guard, drops here.
+    }
+    if let Err(error) = record_sightings(state_root, &seen, now_ms) {
+        report.errors.push(format!("saving the unowned-host sightings: {error:#}"));
     }
     report.logs = logs.into_iter().collect();
     report
+}
+
+/// Logs the intent to end `host`, ends it, and logs the outcome. A host
+/// whose intent line cannot be written is not ended.
+fn apply_candidate(
+    host: &ScannedHost<'_>,
+    ops: &CensusOps<'_>,
+    report: &mut GcReport,
+    logs: &mut BTreeSet<String>,
+) -> String {
+    let intent = gc_line(host, "host_gc_ending", None);
+    match crate::terminal_loss_log::record_host_gc(host.record_path, &intent) {
+        Ok(log) => {
+            logs.insert(log.display().to_string());
+        }
+        Err(error) => {
+            report.errors.push(format!(
+                "gc log for {} ({}): {error}",
+                host.record.terminal_id,
+                host.record_path.display()
+            ));
+            return format!("skipped: its gc log cannot be written ({error})");
+        }
+    }
+    let outcome = end_candidate(host, ops);
+    let event = match outcome.as_str() {
+        "ended" => {
+            report.ended += 1;
+            "host_gc_ended"
+        }
+        "failed" => {
+            report.failed += 1;
+            "host_gc_failed"
+        }
+        _ => "host_gc_skipped",
+    };
+    let line = gc_line(host, event, Some(&outcome));
+    if let Err(error) = crate::terminal_loss_log::record_host_gc(host.record_path, &line) {
+        report.errors.push(format!(
+            "gc log for {} ({}): {error}; outcome {outcome}",
+            host.record.terminal_id,
+            host.record_path.display()
+        ));
+    }
+    outcome
+}
+
+fn gc_line(host: &ScannedHost<'_>, event: &str, outcome: Option<&str>) -> serde_json::Value {
+    serde_json::json!({
+        "at_ms": unix_ms(SystemTime::now()).unwrap_or_default(),
+        "event": event,
+        "outcome": outcome,
+        "terminal_id": host.record.terminal_id,
+        "incarnation": host.record.incarnation,
+        "host_pid": host.record.host_pid,
+        "record_path": host.record_path.display().to_string(),
+        "session": host.root.component,
+        "reason": host.verdict.reason,
+        "unowned_for_ms": host.verdict.gc.unowned_for_ms,
+        "grace_ms": host.verdict.gc.grace_ms,
+        "gc_pid": std::process::id(),
+    })
 }
 
 /// Ends one candidate under its root's session lease, as the reaper does:
 /// the guard is checked to still be this lease's and the host to still live
 /// inside the guard's coordinator, the end is asked for there, and the wait
 /// for its exit comes after.
-fn end_candidate(
-    host: &ScannedHost<'_>,
-    end: &dyn Fn(&TerminalHostRecord, &Path) -> HostEnd,
-) -> String {
+fn end_candidate(host: &ScannedHost<'_>, ops: &CensusOps<'_>) -> String {
     let Some(lease) = host.root.lease.as_ref() else {
         return "skipped: its session guard is no longer held here".into();
     };
-    let requested = lease.while_guarding(|| {
-        match terminal_host_record_liveness(host.record_path, host.record) {
-            TerminalHostLiveness::Live => Some(end(host.record, host.record_path)),
-            _ => None,
-        }
+    let requested = lease.while_guarding(|| match (ops.liveness)(host.record_path, host.record) {
+        TerminalHostLiveness::Live => Some((ops.end)(host.record, host.record_path)),
+        _ => None,
     });
     let ended = match requested {
         None => return "skipped: its session guard was replaced".into(),
@@ -929,23 +1147,27 @@ impl Mux {
                 }
             }
         }
-        let referenced = self
-            .terminal_registry_snapshot()
-            .map(|snapshot| {
+        // A registry that cannot be read references nothing provably: every
+        // host this daemon does not hold then reads unknown, never orphaned.
+        let (referenced, referenced_error) = match self.terminal_registry_snapshot() {
+            Ok(snapshot) => (
                 snapshot
                     .terminals
                     .into_iter()
                     .filter(|terminal| terminal.lifecycle != TerminalLifecycle::Tombstoned)
                     .map(|terminal| terminal.terminal_id)
-                    .collect()
-            })
-            .unwrap_or_default();
+                    .collect(),
+                None,
+            ),
+            Err(error) => (HashSet::new(), Some(format!("{error:#}"))),
+        };
         Some(OwnView {
             daemon_pid: std::process::id(),
             session: self.session.clone(),
             record_root,
             held,
             referenced,
+            referenced_error,
         })
     }
 }

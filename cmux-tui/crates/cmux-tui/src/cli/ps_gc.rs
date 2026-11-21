@@ -19,7 +19,7 @@ use super::{GlobalArgs, OutputMode};
 
 const PS_USAGE: &str = "usage: cmux ps [--json] [--state-dir DIR]\n\n  The terminal hosts and state cmux keeps, read from its own records: each host's\n  pid and process group, the workspace and pane it serves, whether a live daemon\n  holds its stream, and a state (in-use, idle, orphaned, unknown) with the reason.\n  Then each record root and the live daemon that owns it, stale records, exit\n  records and sockets no record names. With no cmux running it reads the records\n  in the state folder (--state-dir, else CMUX_TUI_STATE_DIR, else the default).";
 
-const GC_USAGE: &str = "usage: cmux gc [--apply] [--json] [--state-dir DIR]\n\n  Lists the terminal hosts no live cmux owns: hosts whose session has no running\n  daemon, past the grace the session keeps them for (24 hours, 10 minutes once\n  the shell ended). A host a live daemon holds or shows, or whose lease cannot be\n  read, is refused with the reason. Nothing changes without --apply.\n  --apply ends each listed host, writes each outcome to terminal-host-gc.jsonl in\n  the state folder and prints a receipt. Stale records are reported, not removed.";
+const GC_USAGE: &str = "usage: cmux gc [--apply] [--json] [--state-dir DIR]\n\n  Lists the terminal hosts no live cmux owns: hosts whose session has no running\n  daemon, seen that way for the whole grace (24 hours, 10 minutes once the shell\n  ended), counted from the first time cmux ps, cmux gc or a running cmux saw it\n  unowned. A host a live daemon holds or shows, one a saved workspace of its\n  session still references, or one whose lease or registry cannot be read, is\n  refused with the reason. Nothing changes without --apply.\n  --apply ends each listed host, writes its intent and then its outcome to\n  terminal-host-gc.jsonl in the state folder and prints a receipt. Stale records\n  are reported, not removed.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Verb {
@@ -27,8 +27,16 @@ enum Verb {
     Gc { apply: bool },
 }
 
-/// `cmux [global options] ps|gc ...`.
-pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
+/// What the words after `ps` or `gc` ask for.
+#[derive(Debug)]
+enum Request {
+    Help(&'static str),
+    Usage(&'static str),
+    Run { global: GlobalArgs, verb: Verb, state_dir: Option<PathBuf> },
+}
+
+/// `None` when `args` is not `ps` or `gc`.
+fn parse(args: &[String]) -> Option<Request> {
     let (mut global, command_args) = super::parse_globals(args).ok()?;
     let (verb, rest) = command_args.split_first()?;
     let usage = match verb.as_str() {
@@ -41,28 +49,34 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let mut words = rest.iter();
     while let Some(word) = words.next() {
         match word.as_str() {
-            "-h" | "--help" => {
-                println!("{usage}");
-                return Some(0);
-            }
+            "-h" | "--help" => return Some(Request::Help(usage)),
             "--json" => global.output = OutputMode::Json,
             "--quiet" => global.output = OutputMode::Quiet,
             "--apply" if verb == "gc" => apply = true,
             "--state-dir" => match words.next() {
                 Some(dir) => state_dir = Some(PathBuf::from(dir)),
-                None => {
-                    eprintln!("{usage}");
-                    return Some(2);
-                }
+                None => return Some(Request::Usage(usage)),
             },
-            _ => {
-                eprintln!("{usage}");
-                return Some(2);
-            }
+            _ => return Some(Request::Usage(usage)),
         }
     }
     let verb = if verb == "ps" { Verb::Ps } else { Verb::Gc { apply } };
-    Some(run(&global, &verb, state_dir))
+    Some(Request::Run { global, verb, state_dir })
+}
+
+/// `cmux [global options] ps|gc ...`.
+pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
+    Some(match parse(args)? {
+        Request::Help(usage) => {
+            println!("{usage}");
+            0
+        }
+        Request::Usage(usage) => {
+            eprintln!("{usage}");
+            2
+        }
+        Request::Run { global, verb, state_dir } => run(&global, &verb, state_dir),
+    })
 }
 
 fn state_root(explicit: Option<PathBuf>) -> Option<PathBuf> {
@@ -231,6 +245,7 @@ fn human_ps(census: &Value) -> String {
             out.push_str(&format!("  {}\n", socket.as_str().unwrap_or("")));
         }
     }
+    push_errors(&mut out, census);
     out
 }
 
@@ -286,7 +301,18 @@ fn human_gc(report: &Value) -> String {
             "{stale} stale record(s) left for their session's next start (cmux ps lists them)\n"
         ));
     }
+    push_errors(&mut out, report);
     out
+}
+
+fn push_errors(out: &mut String, report: &Value) {
+    let errors = list(report, "errors");
+    if !errors.is_empty() {
+        out.push_str(&format!("\n{} error(s)\n", errors.len()));
+        for error in errors {
+            out.push_str(&format!("  {}\n", error.as_str().unwrap_or("")));
+        }
+    }
 }
 
 #[cfg(test)]
@@ -319,6 +345,64 @@ mod tests {
     fn human_gc_says_dry_run_until_applied() {
         let report = json!({"applied": false, "state_root": "/s", "candidates": [], "refused": []});
         assert!(human_gc(&report).contains("dry run"));
+    }
+
+    #[test]
+    fn human_gc_receipt_names_outcomes_refusals_logs_and_errors() {
+        let report = json!({
+            "applied": true, "state_root": "/s", "ended": 1, "failed": 0,
+            "candidates": [{
+                "host_pid": 42, "terminal_id": "t1", "reason": "no live daemon owns its session",
+                "outcome": "ended"
+            }],
+            "refused": [{
+                "host_pid": 43, "state": "orphaned", "terminal_id": "t2",
+                "refusal": "referenced by an unrestored workspace"
+            }],
+            "logs": ["/s/terminal-host-gc.jsonl"],
+            "errors": ["gc log for t3 (/s/r/t3.json): permission denied"],
+            "stale_records": 0
+        });
+        let out = human_gc(&report);
+        assert!(!out.contains("dry run"), "{out}");
+        assert!(out.contains("t1") && out.contains("-> ended"), "{out}");
+        assert!(out.contains("referenced by an unrestored workspace"), "{out}");
+        assert!(out.contains("ended 1, failed 0"), "{out}");
+        assert!(out.contains("logged to /s/terminal-host-gc.jsonl"), "{out}");
+        assert!(out.contains("1 error(s)") && out.contains("permission denied"), "{out}");
+    }
+
+    fn words(line: &str) -> Vec<String> {
+        line.split_whitespace().map(str::to_string).collect()
+    }
+
+    fn run_request(line: &str) -> (Verb, OutputMode, Option<PathBuf>) {
+        match parse(&words(line)) {
+            Some(Request::Run { global, verb, state_dir }) => (verb, global.output, state_dir),
+            other => panic!("{line}: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn gc_is_a_dry_run_unless_apply_is_given() {
+        assert_eq!(run_request("gc").0, Verb::Gc { apply: false });
+        assert_eq!(run_request("gc --apply").0, Verb::Gc { apply: true });
+        let (verb, output, state_dir) = run_request("gc --json --apply --state-dir /x");
+        assert_eq!(verb, Verb::Gc { apply: true });
+        assert_eq!(output, OutputMode::Json);
+        assert_eq!(state_dir, Some(PathBuf::from("/x")));
+    }
+
+    #[test]
+    fn ps_takes_json_and_a_state_dir_but_never_apply() {
+        let (verb, output, state_dir) = run_request("ps --json --state-dir /y");
+        assert_eq!(verb, Verb::Ps);
+        assert_eq!(output, OutputMode::Json);
+        assert_eq!(state_dir, Some(PathBuf::from("/y")));
+        assert!(matches!(parse(&words("ps --apply")), Some(Request::Usage(PS_USAGE))));
+        assert!(matches!(parse(&words("gc --state-dir")), Some(Request::Usage(GC_USAGE))));
+        assert!(matches!(parse(&words("gc --help")), Some(Request::Help(GC_USAGE))));
+        assert!(parse(&words("list-workspaces")).is_none());
     }
 
     #[test]
