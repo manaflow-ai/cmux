@@ -54,6 +54,16 @@ public nonisolated struct ExternalOpenRouter: Sendable {
 
     /// A path shaped like a chat share page (`/g/<id>` or `/i/<id>`); the daemon decides whether its host
     /// is a share room's, so any other site's page of that shape still opens as a browser tab.
+    /// A run's screen link's web form (`https://cmux.com/deeplink/screen?device=&display=`, a
+    /// universal link): `link.open` opens that device's Screen Sharing tab.
+    static func isScreenLink(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https", let host = url.host(percentEncoded: false)?.lowercased(),
+              host == "cmux.com" || host == "www.cmux.com" else { return false }
+        var path = url.path(percentEncoded: false)
+        while path.count > 1, path.hasSuffix("/") { path.removeLast() }
+        return path == "/deeplink/screen"
+    }
+
     static func isSharePagePath(_ path: String) -> Bool {
         var parts = path.split(separator: "/", omittingEmptySubsequences: false)
         if parts.last == "", parts.count == 4 { parts.removeLast() }
@@ -105,6 +115,7 @@ public nonisolated struct ExternalOpenRouter: Sendable {
         }
         switch url.scheme?.lowercased() {
         case "https" where Self.isSharePagePath(url.path(percentEncoded: true)): return .shareLink(url)
+        case "https" where Self.isScreenLink(url): return .deepLink(url)
         case "http", "https": return .browserTab(url)
         case "file": return routeFile(url.path)
         case "ssh": return ssh(url)
@@ -132,6 +143,7 @@ public nonisolated struct ExternalOpenRouter: Sendable {
         guard activityType == NSUserActivityTypeBrowsingWeb, let url = webpageURL,
               let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return .unsupported }
         if scheme == "https", Self.isSharePagePath(url.path(percentEncoded: true)) { return .shareLink(url) }
+        if Self.isScreenLink(url) { return .deepLink(url) }
         return .browserTab(url)
     }
 
