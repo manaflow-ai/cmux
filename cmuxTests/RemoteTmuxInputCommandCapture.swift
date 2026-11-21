@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-/// Collects the control commands emitted by a test's physical key delivery.
+/// Collects the control commands emitted by a test's key or paste delivery.
 @MainActor
 struct RemoteTmuxInputCommandCapture {
     enum CaptureError: Error, Equatable {
@@ -18,12 +18,12 @@ struct RemoteTmuxInputCommandCapture {
         timeout: Duration = .seconds(5),
         clock: some Clock<Duration> = ContinuousClock(),
         onCommand: (String) -> Void = { _ in },
-        sendInput: () throws -> Void
+        sendInput: () async throws -> Void
     ) async throws -> [String] {
         guard expectedCount > 0 else { throw CaptureError.invalidExpectedCount }
         try Task.checkCancellation()
         // A fatal input precondition must escape before waiting for any output.
-        try sendInput()
+        try await sendInput()
         let descriptor = dup(handle.fileDescriptor)
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         let (chunks, continuation) = AsyncThrowingStream<Data, Error>.makeStream()
@@ -71,7 +71,9 @@ struct RemoteTmuxInputCommandCapture {
                     }
                     let line = String(decoding: lineData, as: UTF8.self)
                     lineData.removeAll(keepingCapacity: true)
-                    guard line.hasPrefix("send-keys -t %4 ") else { continue }
+                    guard line.hasPrefix("send-keys -t %4 ")
+                        || line.hasPrefix("set-buffer ")
+                        || line.hasPrefix("paste-buffer ") else { continue }
                     commands.append(line)
                     onCommand(line)
                     if commands.count == expectedCount { return commands }

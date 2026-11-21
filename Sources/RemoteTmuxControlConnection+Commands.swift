@@ -535,8 +535,8 @@ extension RemoteTmuxControlConnection {
     /// genuine paste, so the remote app recognizes it (e.g. claude → `[Image #N]`)
     /// instead of seeing the plain keystrokes that ``sendKeys(paneId:data:)`` would
     /// deliver. Uses a dedicated, immediately-deleted (`-d`) per-pane buffer so
-    /// there's no buffer-name collision. `text` must be a single line (callers route
-    /// only single-line content — e.g. file/image paths — here).
+    /// there's no buffer-name collision between panes. Multi-line text is escaped
+    /// for the tmux command parser and delivered in the same paste.
     func pastePane(paneId: Int, text: String) -> Bool {
         guard let commands = Self.pastePaneCommands(paneId: paneId, text: text) else { return false }
         return send(commands.setBuffer) && send(commands.pasteBuffer)
@@ -547,8 +547,17 @@ extension RemoteTmuxControlConnection {
     {
         guard !text.isEmpty else { return nil }
         let buffer = "cmux-paste-\(paneId)"
+        // tmux expands escapes inside double quotes. Escape backslashes first
+        // so literal \n stays literal, and dollars so pasted text isn't expanded.
+        let quoted = text
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "$", with: "\\$")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+            .replacingOccurrences(of: "\t", with: "\\t")
         return (
-            setBuffer: "set-buffer -b \(buffer) -- \(RemoteTmuxHost.shellSingleQuoted(text))",
+            setBuffer: "set-buffer -b \(buffer) -- \"\(quoted)\"",
             pasteBuffer: "paste-buffer -p -d -b \(buffer) -t %\(paneId)"
         )
     }

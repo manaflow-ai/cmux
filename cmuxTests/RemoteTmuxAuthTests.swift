@@ -474,8 +474,35 @@ import Testing
 
     @Test func pastePaneCommandsProtectOptionLookingText() throws {
         let commands = try #require(RemoteTmuxControlConnection.pastePaneCommands(paneId: 7, text: "-n not-an-option"))
-        #expect(commands.setBuffer == "set-buffer -b cmux-paste-7 -- '-n not-an-option'")
+        #expect(commands.setBuffer == #"set-buffer -b cmux-paste-7 -- "-n not-an-option""#)
         #expect(commands.pasteBuffer == "paste-buffer -p -d -b cmux-paste-7 -t %7")
+    }
+
+    @Test(arguments: [
+        ("one\ntwo\n", #""one\ntwo\n""#),
+        ("one\r\ntwo\rthree", #""one\r\ntwo\rthree""#),
+        ("it's \"quoted\"", #""it's \"quoted\"""#),
+        ("\\n\\r\\t\\", #""\\n\\r\\t\\""#),
+        ("one\ttwo", #""one\ttwo""#),
+        ("café 日本語 👋", #""café 日本語 👋""#),
+        ("$HOME ${USER}; #{pane_id}", #""\$HOME \${USER}; #{pane_id}""#),
+        ("'\"\\\t\r\n日本語", #""'\"\\\t\r\n日本語""#),
+    ])
+    func pastePaneCommandsQuotePayload(text: String, quoted: String) throws {
+        let commands = try #require(RemoteTmuxControlConnection.pastePaneCommands(paneId: 7, text: text))
+        #expect(commands.setBuffer == "set-buffer -b cmux-paste-7 -- \(quoted)")
+        #expect(commands.pasteBuffer == "paste-buffer -p -d -b cmux-paste-7 -t %7")
+        #expect(!commands.setBuffer.contains("\n"))
+        #expect(!commands.setBuffer.contains("\r"))
+    }
+
+    @Test func pastePaneCommandsKeepBuffersSeparateForEachPane() throws {
+        let first = try #require(RemoteTmuxControlConnection.pastePaneCommands(paneId: 7, text: "one\ntwo"))
+        let second = try #require(RemoteTmuxControlConnection.pastePaneCommands(paneId: 8, text: "three\nfour"))
+        #expect(first.setBuffer == #"set-buffer -b cmux-paste-7 -- "one\ntwo""#)
+        #expect(second.setBuffer == #"set-buffer -b cmux-paste-8 -- "three\nfour""#)
+        #expect(first.pasteBuffer == "paste-buffer -p -d -b cmux-paste-7 -t %7")
+        #expect(second.pasteBuffer == "paste-buffer -p -d -b cmux-paste-8 -t %8")
     }
 
     @Test func pastePaneCommandsRejectEmptyText() {
