@@ -320,6 +320,47 @@ class PipelineTest(unittest.TestCase):
                     bad.write_text(body)
                     self.assertIsNone(pr_router.table_steps(callees["pr-pipeline.yml"], ["docs/x.md"], bad))
 
+    def test_the_changed_paths_are_nul_separated(self) -> None:
+        # Without -z git quotes a non-ASCII path, which then matches no step's inputs: green, nothing run.
+        wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        self.assertIn("git diff --name-only --no-renames -z ", wf["jobs"]["linux"]["steps"][1]["run"])
+        with tempfile.TemporaryDirectory() as tmp:
+            listed = Path(tmp) / "paths"
+            listed.write_bytes("skills/caf\u00e9/SKILL.md\0a b.txt\0".encode())
+            self.assertEqual(ci_steps.read_paths(str(listed)), ["skills/caf\u00e9/SKILL.md", "a b.txt"])
+            listed.write_text("a.txt\nb.txt\n")
+            self.assertEqual(ci_steps.read_paths(str(listed)), ["a.txt", "b.txt"])
+
+    def test_a_steps_log_prints_when_it_ends(self) -> None:
+        # A job cut by its own timeout still shows the steps that finished: nothing waits for the last one.
+        seen: list[str] = []
+        real = ci_steps.report
+
+        def late_report(results, job, out=sys.stdout, logs=True):
+            seen.append(out.getvalue())
+            return real(results, job, out, logs)
+
+        t = table('''
+            [step.one]
+            job = "linux"
+            run = "echo said-by-one"
+            blocks = true
+            inputs = ["**"]
+        ''')
+        out = io.StringIO()
+        with mock.patch.object(ci_steps, "report", late_report), mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": ""}):
+            self.assertEqual(ci_steps.run_job(t, "linux", None, out=out), 0)
+        self.assertIn("::group::one\nsaid-by-one\n::endgroup::", seen[0])
+        self.assertEqual(out.getvalue().count("::group::one"), 1)
+
+    def test_the_router_check_names_a_runner_that_does_not_import(self) -> None:
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import pr_router
+
+        with mock.patch.object(pr_router, "ci_steps", None):
+            problems = pr_router.check(pr_router.load_manifest(), pr_router.ENTRY.read_text(), pr_router.ENTRY.parent)
+        self.assertTrue(any("does not import" in p for p in problems), problems)
+
     def test_the_router_checks_out_the_table(self) -> None:
         wf = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())
         sparse = wf["jobs"]["route"]["steps"][0]["with"]["sparse-checkout"].split()

@@ -180,10 +180,12 @@ def check(callees: dict, entry_text: str, workflows: Path) -> list[str]:
             problems.append(f"{name}: skips drafts but does not listen to ready_for_review, so a draft marked"
                             " ready would never run it")
     for name, config in callees.items():
-        if "table_jobs" in config:
+        if "table_jobs" in config and ci_steps is None:
+            problems.append(f"{name}: scripts/ci/ci_steps.py does not import, so its table_jobs cannot be read")
+        elif "table_jobs" in config:
             try:
                 unknown = sorted(set(config["table_jobs"]) - set(ci_steps.load(ci_steps.TABLE).jobs))
-            except (OSError, ValueError) as error:
+            except Exception as error:  # noqa: BLE001 - any broken table is one named problem
                 problems.append(f"{name}: the step table does not load: {error}")
             else:
                 if unknown:

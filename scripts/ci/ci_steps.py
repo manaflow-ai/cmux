@@ -34,6 +34,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
@@ -47,6 +48,7 @@ SETUP_TIMEOUT = 600
 # The pipeline's own definition: a change to any of them routes every step, so the change runs what it moved.
 PIPELINE_PATHS = ("ci/steps.toml", "ci/run", "scripts/ci/ci_steps.py", ".github/workflows/pr-pipeline.yml")
 ADVISORY_JOB = "advisory"
+LOG_LOCK = threading.Lock()
 CLASSES = ("feed", "named", "pr", "batch", "idle")
 
 
@@ -205,13 +207,19 @@ def run_step(step: Step, env: dict[str, str] | None = None) -> Result:
     return Result(step, code, time.monotonic() - start, out or "")
 
 
-def report(results: list[Result], job: str, out=sys.stdout) -> str:
-    """Print each step's log and annotation; return the summary table's Markdown."""
+def print_log(r: Result, out=sys.stdout) -> None:
+    """One step's output as one log group, whole: steps end on several threads."""
+    with LOG_LOCK:
+        print(f"::group::{r.step.name}\n{r.output.rstrip(chr(10))}\n::endgroup::", file=out, flush=True)
+
+
+def report(results: list[Result], job: str, out=sys.stdout, logs: bool = True) -> str:
+    """Print each step's log (unless it was printed as the step ended) and annotation; return the
+    summary table's Markdown."""
     rows = [f"### Job `{job}`", "", "| Step | Blocks | Class | Result | Seconds |", "|---|---|---|---|---|"]
     for r in results:
-        print(f"::group::{r.step.name}", file=out)
-        print(r.output.rstrip("\n"), file=out)
-        print("::endgroup::", file=out)
+        if logs:
+            print_log(r, out)
         result = "passed" if r.ok else ("timed out" if r.code is None else f"exit {r.code}")
         if not r.ok:
             level = "error" if r.step.blocks else "warning"
@@ -236,14 +244,21 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
         if job in table.setup:
             setup = run_step(Step(name=f"setup ({job})", job=job, run=table.setup[job], timeout=SETUP_TIMEOUT,
                                   title=f"{job} setup"), env)
+            print_log(setup, out)
             results.append(setup)
             ready = setup.ok
         if ready:
             # Advisory steps wait on the network, not a CPU: they all start at once, as before.
             limit = len(steps) if job == ADVISORY_JOB else min(len(steps), workers or max(2, os.cpu_count() or 1))
             with ThreadPoolExecutor(max_workers=limit) as pool:
-                results += pool.map(lambda step: run_step(step, env), steps)
-    summary = report(results, job, out)
+                # A step's log prints when it ends, so a job cut by its own timeout still shows the steps
+                # that finished and which one was running.
+                def run_and_print(step: Step) -> Result:
+                    result = run_step(step, env)
+                    print_log(result, out)
+                    return result
+                results += pool.map(run_and_print, steps)
+    summary = report(results, job, out, logs=False)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
             f.write(summary)
@@ -254,9 +269,11 @@ def read_paths(path: str | None) -> list[str] | None:
     if not path:
         return None
     try:
-        return [line for line in Path(path).read_text(encoding="utf-8").splitlines() if line]
-    except OSError:
+        text = Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
         return None
+    # `git diff -z` ends each path with a NUL and quotes none; a list with no NUL is one path a line.
+    return [p for p in (text.split("\0") if "\0" in text else text.splitlines()) if p]
 
 
 def main(argv: list[str] | None = None) -> int:
