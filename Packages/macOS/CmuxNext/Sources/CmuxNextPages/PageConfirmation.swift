@@ -36,10 +36,14 @@ public nonisolated struct PageConfirmation: Sendable, Hashable {
     public var detail: String?
     /// For `install` with a deploy: where the app's server runs (`self-hosted:<host>`, `cloud-vm:<machine>`).
     public var deployTarget: String?
+    /// Params the approved call must carry, set from what this sheet showed (an install from a git
+    /// repository binds the `commit` the card listed, so the daemon installs that one).
+    public var bind: [String: String]
 
     public init(kind: Kind, name: String, scopes: [Scope] = [], webURL: String? = nil, webOrigins: [String] = [], detail: String? = nil,
-                deployTarget: String? = nil) {
+                deployTarget: String? = nil, bind: [String: String] = [:]) {
         self.deployTarget = deployTarget
+        self.bind = bind
         self.kind = kind
         self.name = name
         self.scopes = scopes

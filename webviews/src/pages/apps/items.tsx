@@ -17,6 +17,7 @@ import {
   type CardStyle,
 } from "./model";
 import { AppIcon, Badge, Switch } from "./parts";
+import { SourceLink } from "./SourceLink";
 import type { AppsStore } from "./store";
 import type { AppContribution, AppDetail, CatalogApp, ScopeRequest } from "./types";
 
@@ -493,11 +494,7 @@ export function InfoFacts({ detail, strings }: { detail: AppDetail; strings: Str
           </div>
         ))}
       </dl>
-      {detail.repository?.startsWith("https://") && (
-        <a className="apps-link" href={detail.repository} target="_blank" rel="noreferrer">
-          {t("store.action.repository")} ↗
-        </a>
-      )}
+      <SourceLink source={detail} strings={strings} />
     </DetailSection>
   );
 }

@@ -13,7 +13,7 @@ import {
   type InstalledApp,
   type LogLine,
 } from "./types";
-import type { WireDetail, WireIcon, WireInstalledList, WireListing, WireUpdatesList } from "./wire";
+import type { WireDetail, WireInstalledList, WireListing, WireUpdatesList, WireIcon } from "./wire";
 import { iconArt, screenshotArt } from "./mockArt";
 
 export interface MockCall {
@@ -268,6 +268,12 @@ export class MockAppsProvider implements PageClient {
       categories: detail.categories,
       keywords: detail.keywords,
       hide_only: detail.tier === "first-party",
+      ...(detail.commit && {
+        repository: detail.repository,
+        path: detail.path,
+        commit: detail.commit,
+        tag: detail.tag,
+      }),
       shelf: detail.shelf ?? "store",
       install: installed
         ? {
