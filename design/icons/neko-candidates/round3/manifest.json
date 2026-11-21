@@ -1,0 +1,41 @@
+{
+  "status": "Original vector experiments only. Unaccepted; no release assets or theme changes.",
+  "source_root": "design/icons/source",
+  "common": {
+    "grid": 24,
+    "display_css_px": 16,
+    "stroke_width": 1.5,
+    "color": "currentColor",
+    "fill": "none",
+    "linecap": "round",
+    "linejoin": "round",
+    "renderer": "nekoRounds.json through Icon (shared renderer)"
+  },
+  "provenance": "First-party cmux geometry. No third-party SVG copied, traced or modified; the licensed sets surveyed for this round are in ../manifest.json surveyed.",
+  "directions": [
+    {
+      "id": "tail",
+      "intent": "One cue across the row: an open line ends in a small tail curl; More's dots become toe beans.",
+      "files": [
+        {"file": "tail/action.copy.svg", "base": "actions-nav.json action.copy", "change": "Front sheet unchanged; the rear sheet's lower-right corner turns in as a tail curl, its bottom edge left open."},
+        {"file": "tail/action.retry.svg", "base": "round2 02-tailterm-retry (actions-nav.json action.reload arc)", "change": "Arc with top chevron; the trailing end bends into a small curl."},
+        {"file": "tail/media.audio.svg", "base": "round2 02-tailterm-speak (browser.json media.audio)", "change": "Speaker and inner wave unchanged; the outer wave's lower end curls inward."},
+        {"file": "tail/bookmark.svg", "base": "browser.json bookmark (star)", "change": "Star unchanged; its lower-right point continues into a short curl."},
+        {"file": "tail/action.pin.svg", "base": "actions-nav.json action.pin", "change": "Pin head unchanged; the needle curls right at its tip."},
+        {"file": "tail/action.more.svg", "base": "actions-nav.json action.more", "change": "Three dots become three toe-bean ovals on a slight arch, outer ones tilted out."}
+      ]
+    },
+    {
+      "id": "mix",
+      "intent": "The cue that suits each noun: ears where there is a top edge, tail where there is an open end.",
+      "files": [
+        {"file": "mix/action.copy.svg", "base": "actions-nav.json action.copy", "change": "Front sheet's top corners rise into two ear points; rear sheet unchanged."},
+        {"file": "mix/action.retry.svg", "base": "tail/action.retry.svg", "change": "Same as tail."},
+        {"file": "mix/media.audio.svg", "base": "tail/media.audio.svg", "change": "Same as tail."},
+        {"file": "mix/bookmark.svg", "base": "browser.json bookmark (star)", "change": "The star's top point splits into two ear points."},
+        {"file": "mix/action.pin.svg", "base": "tail/action.pin.svg", "change": "Same as tail."},
+        {"file": "mix/action.more.svg", "base": "tail/action.more.svg", "change": "Same as tail."}
+      ]
+    }
+  ]
+}

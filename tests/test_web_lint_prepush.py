@@ -171,6 +171,7 @@ class WebLintPrePushTests(unittest.TestCase):
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
             "scripts/ci/workload_entrypoints.py",
+            "scripts/ci/workflow_job_bounds.py",
             "scripts/normalize-pbxproj.py",
             "scripts/webviews_bun_version.py",
             "scripts/lint_swift_namespaces.py",
@@ -804,6 +805,28 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("::warning title=web lint (base)::webviews: sh check-lanes.sh", result.stderr)
 
+    def test_new_only_hands_the_checks_the_changed_files_and_a_full_lint_none(self):
+        # check:compiler-bails compiled every agent-chat file on every pull request (65 s of the fast gates' step,
+        # 2026-11-21); with --new-only it reads the change's files from CMUX_WEB_LINT_CHANGED_FILES and checks only
+        # those. Without --new-only (the push lint, the pre-push hook) the variable is unset: every file is checked.
+        seen = Path(self.temporary.name) / "seen.txt"
+        self.write("webviews/check-lanes.sh",
+                   'if [ -n "$CMUX_WEB_LINT_CHANGED_FILES" ]; then cat "$CMUX_WEB_LINT_CHANGED_FILES" >> "$SEEN"; '
+                   'else echo unset >> "$SEEN"; fi\n' + CHECK_LANES)
+        self.commit("a check that records the changed files")
+        self.write("webviews/src/app.ts", "export const app = 4;\n")
+        self.commit("a change")
+        self.env["SEEN"] = str(seen)
+
+        result = self.lint_range("--new-only")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(seen.read_text(), "webviews/src/app.ts\n")
+        self.assertNotIn("CMUX_WEB_LINT_CHANGED_FILES", os.environ)
+        seen.unlink()
+        self.assertEqual(self.lint_range().returncode, 0)
+        self.assertEqual(seen.read_text(), "unset\n")
+
     # The trust boundary (docs/contributor-verification.md): the hook runs only check code the push did not change.
     # Each test below plants a marker-writing script that only pushed content can reach, and the hook must never run
     # it, on a build host or a host that runs no heavy checks.
@@ -1374,10 +1397,11 @@ class WebLintPrePushTests(unittest.TestCase):
 
         self.assertNotIn("web-lint: webviews: bun install", run_lint(), "without --timings the log stays as it was")
 
-    def test_in_ci_the_type_aware_checks_take_one_slot_per_two_cores_and_light_ones_run_beside_them(self):
+    def test_checks_run_one_per_core_and_the_type_aware_ones_one_per_two_cores_in_ci_or_not(self):
         # All the vp checks at once on a 4 vCPU fast-gates runner: the web lint took 185 to 698 s and once outgrew the
-        # job's 15 min. In CI the type-aware ones now share a slot per two cores (99.9 and 135.8 s); elsewhere
-        # capped_env and nice already keep them off a person's machine.
+        # job's 15 min; sharing a slot per two cores took 99.9 and 135.8 s. On a 2 vCPU lane VM outside CI the hook had
+        # about 8 checks running for 141 s at load 17.8 (2026-11-15): nice lowers priority, not the run
+        # queue. So everywhere: at most one check per core, the type-aware ones one per two cores, light ones beside.
         self.heavy_fixture()
         lint = load_lint(self.repo)
         real = subprocess.run
@@ -1401,6 +1425,8 @@ class WebLintPrePushTests(unittest.TestCase):
                 running.add(name)
                 heavy_now = [n for n in running if weighty(n.split())]
                 peak["heavy"] = max(peak.get("heavy", 0), len(heavy_now))
+                peak["all"] = max(peak.get("all", 0), len(running))
+                peak["seen"] = peak.get("seen", 0) + 1
                 if not weighty(words) and heavy_now:
                     overlapped.append(name)
             time.sleep(0.3)  # long enough for the pool to start whatever it would run beside this one
@@ -1409,17 +1435,19 @@ class WebLintPrePushTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0, "", "")
 
         head = self.git("rev-parse", "HEAD").stdout.strip()
-        for ci, expected in (("true", 1), ("", 2)):
+        for ci in ("true", ""):
             peak.clear()
             overlapped.clear()
             with mock.patch.dict(os.environ, {"CMUX_LOCAL_HEAVY_CHECKS": "1", "GITHUB_ACTIONS": ci, "CI": ""}), \
                     mock.patch.object(lint.subprocess, "run", spy), \
                     mock.patch.object(lint.os, "sched_getaffinity", lambda pid: {0, 1}, create=True), \
                     mock.patch("sys.stderr", new_callable=lambda: open(os.devnull, "w")):
+                self.assertEqual(lint.heavy_slots(), 1, f"CI={ci!r}: type-aware slots on 2 cores")
                 self.assertEqual(lint.main(["--repo", str(self.repo), "--base", "HEAD~1", "--head", head]), 0)
-            self.assertEqual(peak.get("heavy"), expected, f"CI={ci!r}: type-aware checks at once on 2 cores")
-            if ci:
-                self.assertTrue(overlapped, "light checks run beside the type-aware one, not after it")
+            self.assertGreater(peak.get("seen", 0), 2, f"CI={ci!r}: the fixture runs more checks than cores")
+            self.assertEqual(peak.get("heavy"), 1, f"CI={ci!r}: type-aware checks at once on 2 cores")
+            self.assertLessEqual(peak.get("all", 0), 2, f"CI={ci!r}: checks at once on 2 cores")
+            self.assertTrue(overlapped, f"CI={ci!r}: light checks run beside the type-aware one, not after it")
 
     def test_new_only_reruns_a_piece_on_the_base_niced_and_capped(self):
         # Both the head and the base fail `vp lint` with the same finding: the base rerun is a second type check,

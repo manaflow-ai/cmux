@@ -34,16 +34,16 @@ import Testing
 
     @Test func everyCarrierChildArgvIsTheOneTheRealParserChecks() throws {
         let children = try Self.fixture().children
-        #expect(Set(children.map(\.swift.builder)) == ["arguments", "serveArguments"], "a carrier child the fixture does not cover")
+        #expect(Set(children.map(\.swift.builder)) == ["arguments", "superviseArguments"], "a carrier child the fixture does not cover")
         for child in children {
             let service = try #require(CloudCarrierDial.Service(rawValue: child.swift.service), "\(child.name)")
             let dial = try #require(CloudCarrierDial(machine: child.swift.machine, service: service), "\(child.name)")
             switch child.swift.builder {
             case "arguments":
                 #expect(dial.arguments == child.argv, "\(child.name)")
-            case "serveArguments":
+            case "superviseArguments":
                 let socket = try #require(child.swift.socket, "\(child.name)")
-                #expect(dial.serveArguments(socket: socket) == child.argv, "\(child.name)")
+                #expect(dial.superviseArguments(socket: socket) == child.argv, "\(child.name)")
             default:
                 Issue.record("\(child.name): CloudCarrierDial has no builder \(child.swift.builder)")
             }

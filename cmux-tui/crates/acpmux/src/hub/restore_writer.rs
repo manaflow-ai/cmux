@@ -301,8 +301,20 @@ impl Hub {
         kinds: &[&str],
         f: &mut dyn FnMut(EventRecord) -> bool,
     ) -> anyhow::Result<()> {
+        self.scan_kinds_after_and_kept(session, 0, kinds, f)
+    }
+
+    /// [`Self::scan_kinds_and_kept`] of the journal records past `after` (a restore point's seq,
+    /// `restore_point.rs`); every kept one is numbered past the journal's end, so all are read.
+    pub(super) fn scan_kinds_after_and_kept(
+        &self,
+        session: &Session,
+        after: u64,
+        kinds: &[&str],
+        f: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> anyhow::Result<()> {
         let mut going = true;
-        self.store.scan_kinds(&session.id, kinds, &mut |e| {
+        self.store.scan_kinds_after(&session.id, after, kinds, &mut |e| {
             going = f(e);
             going
         })?;
@@ -331,6 +343,34 @@ impl Hub {
             return self.store.scan_kinds(&session.id, kinds, f);
         }
         self.scan_kinds_and_kept(session, kinds, f)
+    }
+
+    /// [`Self::scan_for_rebuild`] of the records whose head `keep` keeps
+    /// ([`crate::store::Store::scan_kinds_keyed`]), in order: the journal's, then the kept ones.
+    pub(super) fn scan_for_rebuild_keyed(
+        &self,
+        session: &Session,
+        kinds: &[&str],
+        keep: &mut dyn FnMut(&crate::store::KindHead<'_>) -> bool,
+        f: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> anyhow::Result<()> {
+        let mut going = true;
+        self.store.scan_kinds_keyed(&session.id, kinds, keep, &mut |e| {
+            going = f(e);
+            going
+        })?;
+        if self.at_918d() {
+            return Ok(());
+        }
+        for e in self.kept_unstored(session, kinds) {
+            if !going {
+                break;
+            }
+            if keep(&crate::store::KindHead::of(&e)) {
+                going = f(e);
+            }
+        }
+        Ok(())
     }
 
     /// The records of `kinds` kept for `session` that are not in its journal yet: those the
@@ -720,8 +760,10 @@ mod tests {
                     continue;
                 }
                 let rel = path.strip_prefix(root).unwrap().to_string_lossy().into_owned();
+                // A test module in its own file (`mod tests;` beside its source) is a test module.
                 if !rel.ends_with(".rs")
                     || rel.ends_with("_tests.rs")
+                    || rel.ends_with("/tests.rs")
                     || rel.starts_with("store")
                     || allowed.contains(&rel.as_str())
                     || fixtures.iter().any(|f| rel.starts_with(f))

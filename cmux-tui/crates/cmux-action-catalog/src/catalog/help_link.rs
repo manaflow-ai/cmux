@@ -86,4 +86,17 @@ pub static ACTIONS: &[Action] = &[
         main_menu: Some("help"),
         ..Action::DEFAULT
     },
+    // A catalog request row (`Action::request`): the app's own `errors.clear` control method.
+    Action {
+        id: "errors.clear",
+        group: GROUP,
+        title: t("ActionCatalog", "action.errors.clear", "Clear Error Journal"),
+        keywords: &["errors", "error journal", "logs", "diagnostics", "clear", "reset"],
+        category: "settings",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "errors clear",
+        request: Some(Request { lane: RequestLane::App, operation: "errors.clear", params: &[] }),
+        ..Action::DEFAULT
+    },
 ];

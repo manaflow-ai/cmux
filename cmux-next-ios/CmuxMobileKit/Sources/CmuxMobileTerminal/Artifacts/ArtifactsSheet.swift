@@ -108,7 +108,7 @@ struct ArtifactsSheet: View {
                             .background(Color.primary.opacity(selected ? 0.16 : 0.06), in: .capsule)
                             .contentShape(.capsule)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFill)
                     .accessibilityAddTraits(selected ? .isSelected : [])
                     .accessibilityIdentifier("artifacts.filter.\(item.rawValue.lowercased())")
                 }

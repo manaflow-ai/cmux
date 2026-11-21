@@ -61,11 +61,12 @@ pub async fn resolve_dial_target(host: &str, port: u16) -> Result<Vec<SocketAddr
 }
 
 /// How long one resolved address may take to accept a TCP connect before the
-/// next address is tried. A name that resolves to an address that black-holes
-/// SYNs (an IPv6 address on a network with no IPv6 route, a stale record)
-/// otherwise held the dial for the kernel's whole SYN retry window (over two
-/// minutes on Linux) before the next address was tried. The last address has
-/// no bound of its own here. The whole dial stays
+/// next address is tried, for dialers that try addresses one after the other
+/// ([`SocksDialer`]; [`OsTcpDialer`] hedges instead). A name that resolves to an
+/// address that black-holes SYNs (an IPv6 address on a network with no IPv6
+/// route, a stale record) otherwise held the dial for the kernel's whole SYN
+/// retry window (over two minutes on Linux) before the next address was tried.
+/// The last address has no bound of its own here. The whole dial stays
 /// under the caller's own deadline ([`crate::provider::DIRECT_DIAL_TIMEOUT`]
 /// for a direct WebSocket).
 pub const PER_ADDRESS_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -83,9 +84,9 @@ async fn bounded_unless_last<T>(last: bool, connect: impl Future<Output = T>) ->
     }
 }
 
-/// The operating system's TCP stack. Tries every resolved address in order,
-/// each but the last within [`PER_ADDRESS_CONNECT_TIMEOUT`], with Nagle
-/// disabled because the link carries keystrokes.
+/// The operating system's TCP stack, hedged over the resolved addresses
+/// ([`super::hedge`]: a new socket when one's SYN goes unanswered), with
+/// Nagle disabled because the link carries keystrokes.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct OsTcpDialer;
 
@@ -97,27 +98,15 @@ impl Dialer for OsTcpDialer {
 
     async fn dial(&self, host: &str, port: u16) -> Result<DialedStream, LinkError> {
         let addresses = resolve_dial_target(host, port).await?;
-        let mut last_error = None;
-        let last = addresses.len().saturating_sub(1);
-        for (index, address) in addresses.into_iter().enumerate() {
-            match bounded_unless_last(index == last, TcpStream::connect(address)).await {
-                Ok(Ok(stream)) => {
-                    let _ = stream.set_nodelay(true);
-                    return Ok(Box::new(stream));
-                }
-                Ok(Err(error)) => last_error = Some(error.to_string()),
-                Err(_) => {
-                    last_error = Some(format!(
-                        "{address} did not accept within {} s",
-                        PER_ADDRESS_CONNECT_TIMEOUT.as_secs()
-                    ));
-                }
-            }
-        }
-        Err(LinkError::Transport(match last_error {
-            Some(error) => format!("connect {host}:{port}: {error}"),
-            None => format!("connect {host}:{port}: no addresses"),
-        }))
+        let stream = super::hedge::connect(
+            &addresses,
+            super::hedge::HedgePolicy::INTERNET,
+            TcpStream::connect,
+        )
+        .await
+        .map_err(|error| LinkError::Transport(format!("connect {host}:{port}: {error}")))?;
+        let _ = stream.set_nodelay(true);
+        Ok(Box::new(stream))
     }
 }
 

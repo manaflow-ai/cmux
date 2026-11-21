@@ -492,6 +492,19 @@ extension MotionGate {
         return breath
     }
 
+    /// A few breaths that catch the eye, then rest (`breaths` of ``breathAnimation(low:)``, ending at 1), at
+    /// most `maxFramesPerSecond`; nil when loops are off. For a mark that stays up until it is seen (the
+    /// needs-you glow): a breath that never ends recomposites its window at full refresh for as long as it
+    /// shows (24 % WindowServer CPU and 6 % GPU with 18 glowing tabs and rows, against 0.7 % and 0.9 % for
+    /// the badges; M4 mini, `idle_attention` bench), and a resting layer costs no frames. The finished
+    /// animation stays on the layer, so a host that adds it only when it has none breathes once per showing.
+    public func attentionBreathAnimation(low: Float, breaths: Float = 3, maxFramesPerSecond: Float = 30) -> CAAnimation? {
+        guard let breath = breathAnimation(low: low) else { return nil }
+        breath.repeatCount = breaths
+        breath.preferredFrameRateRange = CAFrameRateRange(minimum: 10, maximum: maxFramesPerSecond, preferred: maxFramesPerSecond)
+        return breath
+    }
+
     /// An opacity pulse (1 -> `low` -> 1), or nil when loops are off.
     public func pulseAnimation(low: Float) -> CAAnimation? {
         guard let period = period(.pulse) else { return nil }
@@ -534,6 +547,22 @@ extension MotionGate {
         hide.keyTimes = [0, NSNumber(value: settle / total), 1]
         hide.duration = total
         return hide
+    }
+
+    /// Holds a moving row's background at `cover` (opaque) until a `token` move has settled (within 0.2% of its
+    /// target, the bound the move's own end uses), then fades it to `fill`, its own: a selected row passing over
+    /// others hides what it crosses itself in every frame it moves, and needs nothing undone once it ends. Nil when
+    /// moves snap in `window`.
+    public func passOverCover(_ token: MotionSpring, cover: CGColor, fill: CGColor?, in window: NSWindow?) -> CAAnimation? {
+        guard animatesMovement(in: window) else { return nil }
+        let settle = spring(token).settlingTime(within: 0.002)
+        let total = settle + duration(MotionFade.fadeIn)
+        let end = fill ?? cover.copy(alpha: 0) ?? cover
+        let hold = CAKeyframeAnimation(keyPath: "backgroundColor")
+        hold.values = [cover, cover, end]
+        hold.keyTimes = [0, NSNumber(value: settle / total), 1]
+        hold.duration = total
+        return hold
     }
 
     /// Under Reduce Motion, a change that would move things crossfades in place instead

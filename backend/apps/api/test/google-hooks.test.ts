@@ -84,9 +84,13 @@ describe("Google Pub/Sub receiver", () => {
   })
 
   it("rate-limits refused requests per IP only", async () => {
-    let last = 0
-    for (let i = 0; i < 70; i++) last = (await push("a@example.com", 1, undefined, "203.0.113.9")).status
-    expect(last).toBe(429)
+    // The limit is 60 refusals a minute in a window the runtime resets on its own clock, so a run that crosses a
+    // reset starts counting again (backend job 134258342511: the 70th was still 401). At most one reset falls in
+    // the minute these take, so the 429 comes by the 121st refusal; past the first 60, each is either 401 or 429.
+    const statuses: number[] = []
+    while (statuses.length < 121 && statuses.at(-1) !== 429) statuses.push((await push("a@example.com", 1, undefined, "203.0.113.9")).status)
+    expect(statuses.at(-1)).toBe(429)
+    expect(statuses.slice(0, 60).every((s) => s === 401)).toBe(true)
     // Valid pushes from another (Google) address are not counted.
     expect((await push("nobody@example.com", 1, await pubsubToken(), "203.0.113.10")).status).toBe(204)
   })

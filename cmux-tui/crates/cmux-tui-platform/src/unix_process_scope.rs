@@ -1082,7 +1082,7 @@ fn scan_registered_processes(
             return result;
         }
         let process = std::path::PathBuf::from(format!("/proc/{pid}"));
-        let Some(snapshot) = std::fs::read_to_string(process.join("stat"))
+        let Some(snapshot) = crate::process_resources::stat_line(process.join("stat"))
             .ok()
             .and_then(|stat| linux_process_snapshot_from_stat(pid, &stat))
         else {
@@ -1168,7 +1168,7 @@ fn scan_registered_processes(
 
 #[cfg(target_os = "linux")]
 fn process_identity(pid: u32) -> Option<ProcessIdentity> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let stat = crate::process_resources::stat_line(format!("/proc/{pid}/stat")).ok()?;
     linux_process_identity_from_stat(pid, &stat)
 }
 

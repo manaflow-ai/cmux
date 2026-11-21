@@ -18,6 +18,9 @@ import Testing
         try #require(window.screen != nil)
         let picker = IconPickerService(services: nil)
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in picker.prepare { done.resume() } }
+        // A page that has not drawn yet holds the open (PageRevealGate); this test is about a warm picker's open.
+        for _ in 0..<100 where !picker.isPageReady { try await Task.sleep(for: .milliseconds(50)) }
+        try #require(picker.isPageReady, "the warm page never loaded")
         var results: [IconPickerResult] = []
         // Synchronous inside: the override is process-wide.
         let (panel, opened) = try { () throws -> (IconPickerPanel, Bool) in

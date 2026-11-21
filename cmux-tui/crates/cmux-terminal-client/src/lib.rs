@@ -2578,10 +2578,13 @@ pub unsafe extern "C" fn cmux_wireguard_net_start(
         Ok(parsed) => parsed,
         Err(error) => return fail(format!("wireguard config: {error}")),
     };
-    // Settings' Ultra Connection Mode (`remote.ultraMode`), read at each
-    // start; `CMUX_WG_ULTRA` still wins over it.
-    parsed.ultra =
-        cmux_tui_core::user_settings::ultra_mode().then_some(cmux_wg::UltraMode::SETTING);
+    // Settings' Ultra Connection Mode (`remote.ultra`, Auto by default),
+    // read at each start; `CMUX_WG_ULTRA` still wins over it.
+    parsed.ultra = match cmux_tui_core::user_settings::ultra() {
+        cmux_tui_core::user_settings::UltraConnection::Off => cmux_wg::UltraChoice::Off,
+        cmux_tui_core::user_settings::UltraConnection::Auto => cmux_wg::UltraChoice::AUTO,
+        cmux_tui_core::user_settings::UltraConnection::Always => cmux_wg::UltraChoice::ALWAYS,
+    };
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .worker_threads(1)
         .enable_all()
@@ -2940,8 +2943,11 @@ pub unsafe extern "C" fn cmux_terminal_client_create_terminal(
 ///
 /// The daemon adds the tab to the workspace's focused pane (the active pane of
 /// its active screen) and makes it that pane's selected tab; a workspace with
-/// no screen gets a new screen and pane. The session's focused workspace does
-/// not change. `workspace_id` must be an opaque `ws_` id: a name or `current`
+/// no screen gets a new screen and pane. When the focused pane is a chat dock
+/// or holds an agent chat, the tab goes to a pane on the chat's right instead
+/// when there is one; an agent chat that is not docked and is alone on its
+/// screen gets a new column there. The session's focused workspace does not
+/// change. `workspace_id` must be an opaque `ws_` id: a name or `current`
 /// is rejected before any request is sent, so it cannot select another
 /// workspace.
 ///
