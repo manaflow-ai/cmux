@@ -97,25 +97,23 @@ fn command_line(cmd: &tokio::process::Command) -> Vec<String> {
 }
 
 /// The arguments a session's harness, started in `cwd` with the profile's
-/// `env`, starts with: a `codex app-server` launch's with acpmux's
-/// overrides (`codex_args`), any other's as given. `None` for a launch
-/// without a session.
+/// `env`, starts with: a `codex app-server` launch's (`codex_launch`, decided on the
+/// profile's own program) with acpmux's overrides (`codex_args`), any other's as given.
+/// `None` for a launch without a session, whose overrides only move before the subcommand.
 pub fn launch_args(
-    program: &str,
+    codex_launch: bool,
     args: &[String],
     session: Option<(&std::path::Path, &std::collections::BTreeMap<String, String>)>,
 ) -> Vec<String> {
     match session {
-        Some((cwd, env)) if crate::codex_app_server::is_launch(program, args) => {
+        Some((cwd, env)) if codex_launch => {
             let home = env.get("CODEX_HOME").map(std::path::PathBuf::from);
             let configs = codex_configs(cwd, home);
             codex_args(args.to_vec(), &configs)
         }
         // A launch with no session (a model probe) still has a credential's provider after the
         // subcommand, which would drop a launcher wrapper's root overrides (cmux#48354).
-        _ if crate::codex_app_server::is_launch(program, args) => {
-            hoist_subcommand_config(args.to_vec())
-        }
+        _ if codex_launch => hoist_subcommand_config(args.to_vec()),
         _ => args.to_vec(),
     }
 }
@@ -192,8 +190,12 @@ fn hoist_subcommand_config(args: Vec<String>) -> Vec<String> {
     let mut after = args[sub + 1..].iter().cloned();
     while let Some(a) = after.next() {
         if a == "-c" || a == "--config" {
-            hoisted.push(a);
-            hoisted.extend(after.next());
+            // A flag with no value stays where it was: codex refuses it there, rather than
+            // taking the subcommand as its value.
+            match after.next() {
+                Some(value) => hoisted.extend([a, value]),
+                None => rest.push(a),
+            }
         } else if a.starts_with("--config=")
             || (a.starts_with("-c") && a.len() > 2 && !a.starts_with("--"))
         {
@@ -354,6 +356,18 @@ mod tests {
         assert_eq!(hoist_subcommand_config(other.clone()), other);
         let none = words(&["-c", "a=1"]);
         assert_eq!(hoist_subcommand_config(none.clone()), none);
+        // A dangling flag never takes the subcommand as its value.
+        let dangling = words(&["-c", "a=1", "app-server", "-c"]);
+        assert_eq!(hoist_subcommand_config(dangling.clone()), dangling);
+        // A launch with no session (a model probe) is moved too.
+        assert_eq!(
+            launch_args(true, &words(&["app-server", "-c", "model_provider=\"x\""]), None),
+            words(&["-c", "model_provider=\"x\"", "app-server"])
+        );
+        assert_eq!(
+            launch_args(false, &words(&["exec", "-c", "a=1"]), None),
+            words(&["exec", "-c", "a=1"])
+        );
     }
 
     #[test]
