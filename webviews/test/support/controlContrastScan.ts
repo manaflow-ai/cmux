@@ -6,7 +6,8 @@
 // themes/modes". The contrast is read from the pixels the browser painted, not from the CSS: every
 // control is captured twice, once as drawn and once with its ink hidden (text made clear, SVG icons and
 // marks hidden, everything drawn in `currentColor` that is not ink left as it is: hideInk), so each
-// ink pixel is compared with the very pixel behind it. That
+// ink pixel is compared with the very pixel behind it (an icon's pixels only inside the boxes of the
+// ink hideInk hid). That
 // counts opacity, blending, glass, a picture behind a see-through window and any fill the CSS cascade
 // gives, which a stylesheet resolver cannot.
 //
@@ -88,6 +89,29 @@ export function markControls(): Control[] {
     }
     return true;
   };
+  // A control in a scroll edge's fade (a mask on a container: the thread minimap's list, a scrolled
+  // sidebar) is faded on purpose while it scrolls out; it reads once it scrolls in. Within a quarter of
+  // the container's side, at most 48 px, of a masked container's edge is the fade.
+  const inFade = (el: Element, rect: DOMRect): boolean => {
+    for (let node = el.parentElement; node; node = node.parentElement) {
+      const css = getComputedStyle(node);
+      const mask =
+        css.maskImage && css.maskImage !== "none" ? css.maskImage : css.getPropertyValue("-webkit-mask-image");
+      if (!mask || mask === "none" || !mask.includes("gradient")) continue;
+      // A gradient runs top to bottom unless it says left or right: the fade is on that axis only.
+      const across = /to (?:left|right)\b/.test(mask);
+      const box = node.getBoundingClientRect();
+      const dx = Math.min(48, box.width / 4),
+        dy = Math.min(48, box.height / 4);
+      if (
+        across
+          ? rect.left < box.left + dx || rect.right > box.right - dx
+          : rect.top < box.top + dy || rect.bottom > box.bottom - dy
+      )
+        return true;
+    }
+    return false;
+  };
   for (const el of all) {
     const rect = el.getBoundingClientRect();
     if (rect.width < 4 || rect.height < 4) continue;
@@ -97,6 +121,7 @@ export function markControls(): Control[] {
       bottom = Math.min(innerHeight, rect.bottom);
     if (right - x < 4 || bottom - y < 4) continue;
     if (!shown(el)) continue;
+    if (inFade(el, rect)) continue;
     // Covered by something else (a menu, a sheet): what is painted there is not this control.
     const hit = document.elementFromPoint((x + right) / 2, (y + bottom) / 2);
     if (!hit || !(el.contains(hit) || hit.contains(el))) continue;
@@ -150,16 +175,28 @@ export function markControls(): Control[] {
  * `currentColor` is never changed: a border, a hover pill or a 7% wash drawn in it is the control's
  * ground, not its ink, so it stays as painted and the ink is read against it. Text goes clear through
  * `-webkit-text-fill-color` (pseudo-element text too), an SVG hides, and so does a mark: a mask icon
- * (an element's or its `::before`/`::after`'s) or an empty element of at most 32 px a side that paints
- * a fill (a tick, a dot, a bar). An agent's brand mark in its owner's colors (`svg.agent-mark`, the
- * "brand" logo style) is a logo, which WCAG exempts: it stays drawn.
+ * (a leaf element's mask, or its `::before`/`::after`'s; a mask on an element with children is a fade,
+ * as the thread minimap's list has, not an icon) or an empty element of at most 32 px a side that
+ * paints a fill (a tick, a dot, a bar). A small switch, checkbox or radio hides whole: what WCAG 1.4.11
+ * asks of it is its track or box against the ground, not its thumb against its own track. An agent's
+ * brand mark in its owner's colors (`svg.agent-mark`, the "brand" logo style) is a logo, which WCAG
+ * exempts: it stays drawn.
+ *
+ * Returns the boxes of the ink it hid (CSS pixels): a control's icon reading counts only the pixels in
+ * them, so a glass layer that blurs again once the text under it goes clear is not read as ink.
  */
-export function hideInk(hidden: boolean): void {
+export function hideInk(hidden: boolean): Box[] {
   const id = "contrast-audit-hide-ink";
   const mark = "data-contrast-audit-mark";
   document.getElementById(id)?.remove();
   for (const el of document.querySelectorAll(`[${mark}]`)) el.removeAttribute(mark);
-  if (!hidden) return;
+  if (!hidden) return [];
+  const boxes: Box[] = [];
+  const keep = (el: Element) => {
+    const r = el.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0) boxes.push({ x: r.left - 1, y: r.top - 1, w: r.width + 2, h: r.height + 2 });
+  };
+  const toggle = '[role="switch"], [role="checkbox"], [role="radio"], input[type="checkbox"], input[type="radio"]';
   const masked = (css: CSSStyleDeclaration) =>
     (css.maskImage !== "none" && css.maskImage !== "") ||
     (css.getPropertyValue("-webkit-mask-image") || "none") !== "none";
@@ -172,14 +209,24 @@ export function hideInk(hidden: boolean): void {
     const parts: string[] = [];
     const rect = el.getBoundingClientRect();
     const small = rect.width <= 32 && rect.height <= 32 && rect.width > 0 && rect.height > 0;
-    if (masked(css) || (el.childNodes.length === 0 && small && paints(css))) parts.push("self");
+    const smallToggle = el.matches(toggle) && rect.width <= 48 && rect.height <= 32 && rect.width > 0;
+    if (
+      smallToggle ||
+      (masked(css) && el.children.length === 0) ||
+      (el.childNodes.length === 0 && small && paints(css))
+    )
+      parts.push("self");
     for (const pseudo of ["::before", "::after"] as const) {
       const p = getComputedStyle(el, pseudo);
       if (p.content === "none" || p.content === "normal") continue;
       if (masked(p)) parts.push(pseudo.slice(2));
     }
-    if (parts.length) el.setAttribute(mark, parts.join(" "));
+    if (parts.length) {
+      el.setAttribute(mark, parts.join(" "));
+      keep(el);
+    }
   }
+  for (const svg of document.querySelectorAll("svg:not(.agent-mark)")) keep(svg);
   const style = document.createElement("style");
   style.id = id;
   style.textContent = `
@@ -193,6 +240,7 @@ export function hideInk(hidden: boolean): void {
     [${mark}~="self"] { visibility: hidden !important; }
     [${mark}~="before"]::before, [${mark}~="after"]::after { visibility: hidden !important; }`;
   document.head.append(style);
+  return boxes;
 }
 
 /**
@@ -204,6 +252,8 @@ export async function readControls(arg: {
   bare: string;
   scale: number;
   controls: Control[];
+  /** The boxes of the hidden ink (hideInk's answer): only their pixels count as icon ink. */
+  ink: Box[];
 }): Promise<Reading[]> {
   const pixels = async (url: string): Promise<ImageData> => {
     const bitmap = await createImageBitmap(await (await fetch(url)).blob());
@@ -227,6 +277,14 @@ export async function readControls(arg: {
     s = arg.scale;
   // Which pixels this read has counted already (its line boxes may overlap): a generation per read.
   const mark = new Uint32Array(width * height);
+  const inked = new Uint8Array(width * height);
+  for (const b of arg.ink) {
+    const x0 = Math.max(0, Math.floor(b.x * s)),
+      y0 = Math.max(0, Math.floor(b.y * s));
+    const x1 = Math.min(width, Math.ceil((b.x + b.w) * s)),
+      y1 = Math.min(height, Math.ceil((b.y + b.h) * s));
+    for (let py = y0; py < y1; py++) inked.fill(1, py * width + x0, py * width + x1);
+  }
   let generation = 0;
   const inside = (px: number, py: number, boxes: Box[]) =>
     boxes.some((b) => px >= b.x * s && px < (b.x + b.w) * s && py >= b.y * s && py < (b.y + b.h) * s);
@@ -244,6 +302,7 @@ export async function readControls(arg: {
             o = p * 4;
           if (mark[p] === generation) continue;
           mark[p] = generation;
+          if (kind === "icon" && !inked[p]) continue;
           const a = drawn.data,
             g = bare.data;
           if (Math.abs(a[o]! - g[o]!) + Math.abs(a[o + 1]! - g[o + 1]!) + Math.abs(a[o + 2]! - g[o + 2]!) <= 12)
