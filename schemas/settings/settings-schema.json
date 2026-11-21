@@ -673,6 +673,7 @@
               "appearance.chromeStyle",
               "appearance.titleAreaTone",
               "appearance.titleAreaContrast",
+              "appearance.cornerFlush",
               "layout.paneSeparation",
               "layout.panePadding",
               "layout.paneCornerRadius",
@@ -1183,6 +1184,7 @@
               "agentPane.display.thinking.shimmerBand",
               "agentPane.display.thinking.jumpButton",
               "agentPane.needsYou.enabled",
+              "agentPane.display.finishSound",
               "agentPane.showMachineLoadWarnings"
             ],
             "title" : {
@@ -1218,7 +1220,10 @@
             "key" : "chat.2",
             "rows" : [
               "agentPane.display.font.ui",
+              "agentPane.display.font.uiFamily",
               "agentPane.display.font.preset",
+              "agentPane.display.font.proseFamily",
+              "agentPane.display.font.faces",
               "agentPane.display.font.size",
               "agentPane.display.font.lineHeight",
               "agentPane.display.code.family",
@@ -1303,9 +1308,7 @@
           {
             "key" : "settings.group.agentChat",
             "rows" : [
-              "agentPane.display.finishSound",
               "agentPane.newChatsIn",
-              "agentPane.sessionWorktrees",
               "agents.defaultPermissionMode",
               "agents.promptCache",
               "agents.modelRouter.model",
@@ -34681,6 +34684,181 @@
     },
     {
       "accepts" : [
+        "off",
+        "flush",
+        "flush-tight",
+        "flush-goo"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.cornerFlush.off",
+            "text" : "Pill"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.cornerFlush.flush",
+            "text" : "Flush"
+          },
+          "value" : "flush"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.cornerFlush.tight",
+            "text" : "Flush, Tight to the Sidebar"
+          },
+          "value" : "flush-tight"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.cornerFlush.goo",
+            "text" : "Goo"
+          },
+          "value" : "flush-goo"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "flush",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.panes",
+        "text" : "Panes"
+      },
+      "help" : {
+        "key" : "settings.appearance.cornerFlush.help",
+        "text" : "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.cornerFlush",
+      "keywords" : [
+        "corner",
+        "flush",
+        "goo",
+        "gooey",
+        "folder tab",
+        "fillet",
+        "pill",
+        "selected tab",
+        "tab shape",
+        "card",
+        "material"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "cornerFlush"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.cornerFlush.summary",
+        "text" : "Pill, flush or goo for the selected tab"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.cornerFlush"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.cornerFlush",
+        "text" : "Selected Tab Shape"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -53667,6 +53845,439 @@
       "title" : {
         "key" : "settings.agentPane.display.uiFont",
         "text" : "Chat Interface Font"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.uiFamily.help",
+        "text" : "A font family or a comma list of them. When set, it replaces the Chat Interface Font."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.uiFamily",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "font",
+        "interface",
+        "ui",
+        "family",
+        "typeface",
+        "custom"
+      ],
+      "kind" : "font_family",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "uiFamily"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.font.uiFamily"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.uiFamily",
+        "text" : "Chat Interface Font Family"
+      },
+      "validation" : "domain:font_family"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.proseFamily.help",
+        "text" : "The font of the agent's replies. When set, it replaces the Chat Font."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.proseFamily",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "font",
+        "reply",
+        "prose",
+        "family",
+        "serif",
+        "typeface",
+        "custom"
+      ],
+      "kind" : "font_family",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "proseFamily"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.font.proseFamily"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.proseFamily",
+        "text" : "Chat Reply Font Family"
+      },
+      "validation" : "domain:font_family"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "*" : "★",
+          "Work" : ""
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.fontFaces.help",
+        "text" : "A font file for each family, such as \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.faces",
+      "keywords" : [
+        "agent",
+        "chat",
+        "display",
+        "font",
+        "file",
+        "woff2",
+        "ttf",
+        "otf",
+        "face",
+        "typeface",
+        "custom"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "faces"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "★",
+        [
+
+        ],
+        {
+          "Work" : 1
+        }
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.font.faces"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.fontFaces",
+        "text" : "Chat Font Files"
       },
       "validation" : "portable"
     },
@@ -108565,163 +109176,6 @@
       "title" : {
         "key" : "settings.agentPane.newChatsIn",
         "text" : "Start New Chats In"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "off",
-        "shared",
-        "project"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.off",
-            "text" : "Off"
-          },
-          "value" : "off"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.sessionWorktreesShared",
-            "text" : "Shared Worktree Folder"
-          },
-          "value" : "shared"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.sessionWorktreesProject",
-            "text" : "Inside Project"
-          },
-          "value" : "project"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "off",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.agentChat",
-        "text" : "Agent Chat"
-      },
-      "help" : {
-        "key" : "settings.agentPane.sessionWorktrees.help",
-        "text" : "Choose where to keep worktrees for local chats and forks."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "agentPane.sessionWorktrees",
-      "keywords" : [
-        "git",
-        "worktree",
-        "fork",
-        "folder"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "agentPane",
-        "sessionWorktrees"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "general",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "options",
-          "offered" : true,
-          "operations" : [
-
-          ],
-          "reason" : null,
-          "row" : "setting:agentPane.sessionWorktrees"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.agentPane.sessionWorktrees",
-        "text" : "Session Worktrees"
       },
       "validation" : "portable"
     },
