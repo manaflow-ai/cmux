@@ -6,24 +6,32 @@
 //! cmux app is ever connected to approve it. This file lets an approval made ahead of time count
 //! for exactly such a write, and nothing wider:
 //!
-//! - The list is [`SYSTEM_PATH`], a fixed path, never one a request or the daemon's flags name.
-//!   It counts only when the file is a regular file (not a symlink) owned by root and writable
-//!   by no one else, and every directory above it (symlinks resolved) is owned by root and not
-//!   writable by group or others (a sticky world-writable one aside). An agent runs as the
-//!   daemon's user and cannot write it. Root can; root can also read a keyed daemon's memory or
-//!   replace its binary, so the file trusts no one the person key does not already trust (a
-//!   Cloud machine's daemon takes its person key from uid 0 too, `daemon/provision.rs`).
+//! - Linux only. The list is [`SYSTEM_PATH`], a fixed path, never one a request or the daemon's
+//!   flags name. It counts only when the file is a regular file (not a symlink) owned by root and
+//!   writable by no one else, and every directory above it (symlinks resolved) is owned by root
+//!   and not writable by group or others (a sticky world-writable one aside). An agent runs as
+//!   the daemon's user and cannot write it. Root can; on Linux root can also read a keyed
+//!   daemon's memory or replace its binary, so the file trusts no one the person key does not
+//!   already trust (a Cloud machine's daemon takes its person key from uid 0 too,
+//!   `daemon/provision.rs`). On a Mac code signing keeps root out of a Team-signed daemon, so
+//!   root is less than the person there and nothing is approved this way. Where the daemon's
+//!   user has passwordless sudo, an agent can write the file, and can equally defeat the person
+//!   key: on such a host this file is the reviewed record, not a wall, and what bounds it is the
+//!   rule below on which env it may approve at all.
 //!   Any doubt (missing, wrong owner, unreadable, over [`MAX_BYTES`], unparsable, a schema
 //!   other than 1, an unknown field) approves nothing.
 //! - An entry approves one preset write: the same `name`, the same `harness` named in the
 //!   request, and a request env that is the entry's env map exactly (no key more or less, no
-//!   null, the same values). Everything else in the request is checked as before: a policy
+//!   null, the same values). The write merges that env into the stored preset's
+//!   (`server/requests/presets.rs`), whose other keys were set by the person. Everything else in the request is checked as before: a policy
 //!   that does not ask, a mode that does not ask and `approveMode` stay the person's own.
 //!   `_acpmux/defaults` never takes an env from this list, and remote connections are refused
 //!   any env before this check (`server/remote_guard.rs`).
 //! - An entry counts only when every key is in [`ENV_KEYS`] (a harness's config folder) and
-//!   every value is an absolute path below the daemon user's home, in normal form (no `.`, `..`,
-//!   `//` or trailing `/`), that stays below the home with symlinks resolved. So even a file root wrote by
+//!   every value is an absolute path below the daemon user's home (the account database's, never
+//!   `HOME`), in normal form (no `.`, `..`, `//` or trailing `/`), with no `$` or `~` (the spawn
+//!   expands `${model}`, `${home}` and a leading `~/` in env values, `config.rs`), whose existing
+//!   part resolves below the home when the preset is written. So even a file root wrote by
 //!   mistake approves no `PATH`, `LD_*`, `DYLD_*`, `NODE_OPTIONS` or secret. A config folder
 //!   below the home grants nothing the default one (`~/.codex`, `~/.claude`) does not: the
 //!   user, and so an agent, can already write either.
@@ -57,7 +65,7 @@ pub struct Source {
 impl Source {
     /// The daemon's own: [`SYSTEM_PATH`], owned by root, under this user's home.
     pub fn system() -> Self {
-        Self { path: PathBuf::from(SYSTEM_PATH), owner_uid: 0, home: dirs::home_dir() }
+        Self { path: PathBuf::from(SYSTEM_PATH), owner_uid: 0, home: account_home() }
     }
 }
 
@@ -117,7 +125,7 @@ pub fn approves(source: &Source, params: &Value) -> bool {
 
 /// An approvable env pair: a listed key, and a path below `home` that stays there.
 fn env_ok(home: &Path, key: &str, value: &str) -> bool {
-    if !ENV_KEYS.contains(&key) || value.contains('\0') {
+    if !ENV_KEYS.contains(&key) || value.contains(['\0', '$', '~']) {
         return false;
     }
     let path = Path::new(value);
@@ -144,7 +152,7 @@ fn env_ok(home: &Path, key: &str, value: &str) -> bool {
 }
 
 /// The file's text when it, and every directory above it, is `owner`'s alone (module docs).
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn read_trusted(path: &Path, owner: u32) -> Option<String> {
     use std::io::Read;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
@@ -172,8 +180,41 @@ fn read_trusted(path: &Path, owner: u32) -> Option<String> {
     (text.len() as u64 <= MAX_BYTES).then_some(text)
 }
 
-/// No ownership to check: nothing is approved.
-#[cfg(not(unix))]
+/// Not Linux: nothing is approved (module docs).
+#[cfg(not(target_os = "linux"))]
 fn read_trusted(_path: &Path, _owner: u32) -> Option<String> {
+    None
+}
+
+/// This uid's home from the account database, never `HOME`; None when it has none.
+#[cfg(target_os = "linux")]
+fn account_home() -> Option<PathBuf> {
+    use std::ffi::{CStr, OsStr};
+    use std::os::unix::ffi::OsStrExt;
+    let mut entry = std::mem::MaybeUninit::<libc::passwd>::uninit();
+    let mut result = std::ptr::null_mut();
+    let mut buffer = vec![0u8; 64 * 1024];
+    // SAFETY: every output pointer refers to a live buffer; the strings the entry points to live
+    // in `buffer`, which outlives their use below.
+    let code = unsafe {
+        libc::getpwuid_r(
+            libc::geteuid(),
+            entry.as_mut_ptr(),
+            buffer.as_mut_ptr().cast(),
+            buffer.len(),
+            &mut result,
+        )
+    };
+    // SAFETY: a successful lookup filled `result`; `pw_dir` is checked for null first.
+    if code != 0 || result.is_null() || unsafe { (*result).pw_dir }.is_null() {
+        return None;
+    }
+    let dir = unsafe { CStr::from_ptr((*result).pw_dir) };
+    let path = PathBuf::from(OsStr::from_bytes(dir.to_bytes()));
+    (path.is_absolute() && path != Path::new("/")).then_some(path)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn account_home() -> Option<PathBuf> {
     None
 }
