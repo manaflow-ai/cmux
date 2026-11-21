@@ -1,18 +1,18 @@
 import { SignInContext, useSignIn } from "../signIn";
 import type { ExtraFolderControl } from "../extraFolders";
-import { authBlocksSend, authText, useSessionAuth } from "../sessionAuth";
+import { authBlocksSend, authText, useSessionAuth, authLoginText, authParty } from "../sessionAuth";
 import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
 import React, {
   useCallback,
   useEffect,
   useEffectEvent,
-  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
+  useInsertionEffect,
 } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import type { ConnectKind } from "../environments";
@@ -73,7 +73,7 @@ import { type NowPlayingCommand } from "./nowPlayingPlayerModel";
 import { ArrowUpIcon } from "../ComposerPickers";
 import { Spinner } from "../conversation/icons";
 import { useNewTabChipModel, useNewTabStart } from "./chipDefaults";
-import { useLastPick } from "../lastPick";
+import { useChipPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
 import { listingWanted, omnibarFolders } from "./launchRows";
 import { type CompleteFolder, useFolderListing } from "./omnibarReads";
@@ -421,6 +421,9 @@ export function NewTabScreen(props: Props) {
   // at the foot, the environment and suggestions cards over it.
   const stage = sections.stage;
   const [carried] = useState(() => props.takeDraft?.());
+  /// Return or Send was refused because the agent is signed out (first-run findings row 5: they did
+  /// nothing, with no word why). The note over the field then leads with what to do first.
+  const [signInAsked, setSignInAsked] = useState(false);
   // A host-provided location is literal text, not Markdown (paths can contain `_`, `*`, or `[`);
   // a carried composer draft is already serialized Markdown, including attachment tokens.
   const [untouchedText, setUntouchedText] = useState(() =>
@@ -435,8 +438,6 @@ export function NewTabScreen(props: Props) {
   const newProjectMade = useRef<{ name: string; folder: string }>(undefined);
   const originalLocation = useRef((location ?? "").replace(/\r\n?/g, "\n"));
   const [commandActive, setCommandActive] = useState(0);
-  /// The `/word` the arrows chose a row at: Return picks that row while the word and the list stay.
-  const [commandArrowedAt, setCommandArrowedAt] = useState<string>();
   const [commandDismissed, setCommandDismissed] = useState<string>();
   /// The `/word` the field's caret ends (MarkdownField `onSlash`), as in the chat composer.
   const [commandTrigger, setCommandTrigger] = useState<SlashTrigger>();
@@ -851,7 +852,10 @@ export function NewTabScreen(props: Props) {
     // still running never does (Leo 2026-10-30: "I SHOULD BE ALWAYS ABLE TO SATRT NEW FUCKGN
     // CHATS"): it has no deadline and can take many seconds on a busy daemon, and the turn itself
     // reports a sign-in that turns out missing.
-    if (authBlocksSend(targetAuth)) return false;
+    if (authBlocksSend(targetAuth)) {
+      setSignInAsked(true);
+      return false;
+    }
     if (command.intercept(prompt, agent, attachments.length)) return false;
     if (props.runMode?.mode === "cloud" && props.onCloud) {
       // No project picked: no folder goes (`envFolder` is none), so the start copies nothing and the
@@ -892,7 +896,8 @@ export function NewTabScreen(props: Props) {
   // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
   // The chips' agent or model pick starts no chat in a folder New project has not made yet.
   const chipFolder = newProject ? undefined : chatFolder;
-  const remembered = useLastPick(chatFolder);
+  // The folder's own last pick, until the person picks here: a folder pick never swaps the chips (cmux#47677).
+  const remembered = useChipPick(chatFolder);
   const harnessesListed = useHarnessesListed();
   const { harness, snapshot: chipSnapshot } = useNewTabStart(
     snapshot,
@@ -984,10 +989,6 @@ export function NewTabScreen(props: Props) {
   // word typed again opens the list again, as in the chat composer (Composer `edit`).
   if (commandDismissed !== undefined && commandDismissed !== text) setCommandDismissed(undefined);
   const commandsOpen = commandAt !== undefined && commandDismissed !== text && commandMatches.length > 0;
-  // The row the arrows chose holds only while its word and its list stay: a new word, a cleared draft
-  // or the list closing forgets it (adjusted while rendering, before any key reads it).
-  if (commandArrowedAt !== undefined && (!commandsOpen || commandQuery !== commandArrowedAt))
-    setCommandArrowedAt(undefined);
   // A `/word` further on that names no command is the person's text (a path): the rows stay.
   const commandTyping = commandAt !== undefined && (commandAt.leading || commandMatches.length > 0);
   const commandIndex = Math.min(commandActive, Math.max(0, commandMatches.length - 1));
@@ -1091,6 +1092,10 @@ export function NewTabScreen(props: Props) {
   // A highlighted row that went away (its tab closed) hands Return back to the top row.
   const kept = selected === undefined ? -1 : rows.findIndex((row) => rowKey(row) === selected);
   const current = selected === undefined || (kept < 0 && selected !== NO_ROW) ? defaultSelection(rows) : kept;
+  // Where the pointer last moved over a suggestion. WebKit sends a mousemove at the same spot when the list opens or
+  // scrolls under a still pointer (an arrow key's keepInView), which must not take the selection back. So a move only
+  // selects when the spot is known and changed: the first move only records it.
+  const pointerAt = useRef("");
   const pick = (index: number) => {
     const row = rows[index];
     setSelected(row ? rowKey(row) : NO_ROW);
@@ -1099,6 +1104,31 @@ export function NewTabScreen(props: Props) {
   // A send held while acpmux starts or reconnects stays in the prompt, and this says so (sendWhenReady.ts).
   const heldForHost = useSyncExternalStore(sendsHeldForHost.subscribe, sendsHeldForHost.get);
   const targetAuthText = authText(targetAuth, t);
+  const signedOut = authBlocksSend(targetAuth);
+  /// The signed-out note's fix: the agent's own login in a terminal tab on this Mac (the same login the
+  /// model chip's Sign In runs), else the account sign-in the host offers; none for a chat elsewhere.
+  const signedOutAgent = targetAuth?.harness ?? harness;
+  const signedOutLogin =
+    targetAuth?.login?.kind === "terminal" && !targetAuth.login.host && !targetAuth.host
+      ? targetAuth.login.command
+      : signedOutAgent
+        ? parentSignIn?.signedOut[signedOutAgent] || undefined
+        : undefined;
+  const signInNow =
+    signedOutLogin && signedOutAgent
+      ? () => parentSignIn?.logIn(signedOutAgent, signedOutLogin)
+      : targetAuth?.credential === "cmux" && parentSignIn?.loginSession
+        ? () => parentSignIn.loginSession?.(targetAuth)
+        : undefined;
+  const signInFirst = (() => {
+    if (!targetAuth) return undefined;
+    const party = authParty(targetAuth, t);
+    return party.kind === "cmux"
+      ? t("auth.signInFirst", { name: "cmux" })
+      : party.kind === "login" && party.agent
+        ? t("auth.signInFirst", { name: party.agent })
+        : authLoginText(targetAuth, t);
+  })();
   const chrome = useComposerChrome();
   // The chat composer's footer look (composerSettings.ts plainFooter): the New Tab row draws the
   // same plain chips, so the two composers never disagree (composerLocation.css).
@@ -1201,6 +1231,8 @@ export function NewTabScreen(props: Props) {
     (node: HTMLDivElement | null) => {
       list.current = node;
       listEdges(node);
+      // A list that opens again opens under a pointer that may have moved while it was closed: the spot is unknown.
+      pointerAt.current = "";
     },
     [listEdges],
   );
@@ -1495,6 +1527,7 @@ export function NewTabScreen(props: Props) {
     // files stay in the field.
     if (authBlocksSend(targetAuth)) {
       created.current = false;
+      setSignInAsked(true);
       return;
     }
     requestChat(agent, "", folder, agent === harness ? chipModel : undefined);
@@ -1623,19 +1656,14 @@ export function NewTabScreen(props: Props) {
         setCommandActive(
           (commandIndex + (event.key === "ArrowDown" ? 1 : commandMatches.length - 1)) % commandMatches.length,
         );
-        setCommandArrowedAt(commandQuery);
         return;
       }
-      // As in chat (slashCommands.ts returnPicks): Tab picks; a plain Return picks only a row the
-      // arrows chose or one whose name the typed word begins. Shift-Return, Cmd-Return and any other
-      // Return keep their meaning (a line, a send).
+      // As in chat (slashCommands.ts returnPicks): Tab and a plain Return pick the highlighted row
+      // (Return runs a whole command name that takes no arguments). Shift-Return, Cmd-Return and any
+      // other Return keep their meaning (a line, a send).
       const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
       const match = commandMatches[commandIndex];
-      if (
-        plain &&
-        (event.key === "Tab" ||
-          (event.key === "Enter" && returnPicks(match, commandQuery ?? "", commandArrowedAt !== undefined)))
-      ) {
+      if (plain && (event.key === "Tab" || (event.key === "Enter" && returnPicks(match, commandQuery ?? "")))) {
         event.preventDefault();
         pickCommand(match!.command);
         return;
@@ -2226,10 +2254,26 @@ export function NewTabScreen(props: Props) {
         data-icon-column={iconColumn}
         data-attachment-view={attachmentView}
       >
-        {authBlocksSend(targetAuth) ? (
-          <p className="acpmux-composer-remote-note" role="alert">
-            {targetAuthText}
-          </p>
+        {signedOut ? (
+          // Signed out: say so before the person sends, say what to do first once they tried, and
+          // offer the two fixes in place (first-run findings row 5).
+          <div className="acpmux-composer-remote-note nt-signed-out" role="alert">
+            <span className="nt-signed-out-text">
+              {signInAsked && signInFirst ? <strong>{signInFirst}</strong> : null}
+              {signInAsked && signInFirst ? " " : null}
+              {targetAuthText}
+            </span>
+            <span className="nt-signed-out-actions">
+              {signInNow && (
+                <button type="button" className="acpmux-trust-ask-action" onClick={signInNow}>
+                  {authLoginText(targetAuth, t)}
+                </button>
+              )}
+              <button type="button" className="acpmux-trust-ask-action" onClick={() => openSetup()}>
+                {t("auth.useAnotherAgent")}
+              </button>
+            </span>
+          </div>
         ) : (
           starting !== undefined && (
             // Read out, not drawn: a line here pushed the card while the chat started (Leo,
@@ -2386,9 +2430,12 @@ export function NewTabScreen(props: Props) {
                     : rows[current]
                       ? `nt-row-${current}`
                       : undefined,
-                  spellcheck: spellChecking && !shell ? "true" : "false",
+                  // One completion UI: the system's spelling bubble and inline predictions stay off
+                  // while the slash list shows, as in the chat composer.
+                  spellcheck: spellChecking && !shell && !commandsOpen ? "true" : "false",
                   autocapitalize: "off",
                   autocorrect: "off",
+                  writingsuggestions: commandsOpen ? "false" : undefined,
                 }}
               />
               {/* The attachments placed in the text draw inside the field at their place, as Messages
@@ -2575,7 +2622,10 @@ export function NewTabScreen(props: Props) {
           label={nt("suggestions")}
           // One row (a prompt on many lines): whole-pixel padding and row, so it sits centered (screen.css).
           className={
-            rows.length === 1 ? "nt-composer-surface nt-popover nt-popover-single" : "nt-composer-surface nt-popover"
+            // The Console template's field has the popup corner; the portal cannot see the screen's template.
+            `nt-composer-surface nt-popover${rows.length === 1 ? " nt-popover-single" : ""}${
+              template === "console" ? " nt-popover-console" : ""
+            }`
           }
           hostGlass={false}
           initialFocus={false}
@@ -2600,6 +2650,15 @@ export function NewTabScreen(props: Props) {
                 aria-selected={index === current}
                 data-type={row.type}
                 className={index === current ? "nt-row is-selected" : "nt-row"}
+                // The pointer moves the one selection the arrow keys move, as the shared lists do (ui/Listbox.tsx), so
+                // a hovered row and a keyed row never light up at once (Lucas 2026-11-20).
+                onMouseMove={(event) => {
+                  const at = `${event.screenX},${event.screenY}`;
+                  if (at === pointerAt.current) return;
+                  const known = pointerAt.current !== "";
+                  pointerAt.current = at;
+                  if (known && index !== current) pick(index);
+                }}
                 onMouseDown={(event) => {
                   event.preventDefault();
                   activate(row, event.altKey || event.metaKey);
