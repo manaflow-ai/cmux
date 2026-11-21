@@ -267,6 +267,7 @@ let package = Package(
             .product(name: "CmuxChiefList", package: "CmuxChiefList"),
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
+            .product(name: "CmuxConversationGeometry", package: "CmuxConversation"),
             .product(name: "CmuxConversationUI", package: "CmuxConversation", condition: .when(platforms: [.iOS])),
             .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
         ]),
