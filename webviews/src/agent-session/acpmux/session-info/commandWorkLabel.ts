@@ -24,7 +24,9 @@ function operation(command: ShellCommand): string | undefined {
   if (!program) return undefined;
   // A test (`[ -z "$(pgrep x)" ]`), a pause or a note to the log does nothing worth naming; the
   // work in its substitutions is still named. One that writes a file is named, as all writes are.
-  if (program.literal && !command.writes && (CLOSING_KEYWORDS.has(program.text) || QUIET.has(program.text)))
+  // The lexer reads `[` as a glob, so a test's `[` or `[[` is never literal; it is still a test.
+  const test = program.text === "[" || program.text === "[[";
+  if ((program.literal || test) && !command.writes && (CLOSING_KEYWORDS.has(program.text) || QUIET.has(program.text)))
     return undefined;
   if (!program.literal) return "…"; // an expanded program is not known from the command line
   const names = [program.text.split("/").pop()!];
