@@ -58,6 +58,26 @@ fn the_sink_acknowledges_what_the_parser_parsed_so_the_holder_sends_more() {
     assert!(last >= ACK_EVERY && last <= 2 * chunk.len() as u64, "{acks:?}");
 }
 
+/// An idle terminal keeps none of a parsed burst's queue (CMUX-571:
+/// 1,000 idle terminals each kept their largest burst's capacity).
+#[test]
+fn a_parsed_burst_leaves_no_queue_capacity_behind() {
+    let sink = HolderSink::new(0);
+    let burst = vec![b'a'; 256 * 1024];
+    sink.data(0, &burst);
+    let mut reader = SinkReader(sink.clone());
+    let mut buf = vec![0u8; 64 * 1024];
+    let mut read = 0;
+    while read < burst.len() {
+        read += reader.read(&mut buf).unwrap();
+    }
+    sink.confirm_parsed();
+    let state = sink.state.lock().unwrap();
+    assert!(state.bytes.is_empty());
+    assert!(state.bytes.capacity() <= IDLE_QUEUE_BYTES, "{}", state.bytes.capacity());
+    assert!(state.runs.capacity() <= IDLE_QUEUE_RUNS, "{}", state.runs.capacity());
+}
+
 #[test]
 fn missing_bytes_are_cancelled_not_spliced() {
     let sink = HolderSink::new(0);

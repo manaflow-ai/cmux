@@ -2,7 +2,7 @@
 // schemas/settings/source/labs.json. Do not edit; edit the JSON and rerun.
 
 extension CmuxConfigSnapshot {
-    /// `labs.previewFeatures`: Surfaces still being shaped (the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.
+    /// `labs.previewFeatures`: Surfaces still being shaped (the App Store, the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.
     public nonisolated static let previewFeaturesPath = ["labs", "previewFeatures"]
     public nonisolated static let previewFeaturesDefault = false
     /// `labs.voiceRoom`: Unofficial Labs feature (plans/cmux-next/voice-room-DESIGN.md): Open Voice Room transcribes the mic on device, reads the screen's text on device when it changes, and posts both to the room server at labs.voiceRoomURL, whose cheap model keeps the room's memory and sends asks spoken to Chief as tasks. Off by default; while off the Voice Room actions are unavailable everywhere. The person turns it on: agents may not (not in SettingsSchema agent-writable keys).
@@ -36,10 +36,10 @@ nonisolated enum LabsSettingsSchema {
                 section: .advanced,
                 group: group,
                 title: SettingsText.keyed("settings.labs.previewFeatures", "Show Preview Features"),
-                help: SettingsText.keyed("settings.labs.previewFeatures.help", "Unfinished surfaces, such as the agent session's coverage label and Pull requests view."),
+                help: SettingsText.keyed("settings.labs.previewFeatures.help", "Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.previewFeaturesDefault),
-                keywords: ["labs", "preview", "experimental", "beta", "prototype"]
+                keywords: ["labs", "preview", "experimental", "beta", "prototype", "app store", "apps", "extensions"]
             ),
             SettingDescriptor(
                 CmuxConfigSnapshot.voiceRoomPath,
