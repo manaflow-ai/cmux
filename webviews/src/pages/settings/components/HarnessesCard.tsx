@@ -14,7 +14,7 @@ import { Switch } from "../../../ui/Switch";
 import { agentDisplayName } from "../../../agent-session/acpmux/agents";
 import { installName, oneRowPerInstall } from "../../../agent-session/acpmux/harnessInstalls";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
-import { useSettingsState, useStore } from "../context";
+import { useRowState, useSettingsState, useStore } from "../context";
 import {
   accountRows,
   accountsFor,
@@ -212,6 +212,8 @@ function Row({ row, family }: { row: HarnessRow; family: string | null }) {
 export function HarnessesCard() {
   const store = useStore();
   const { harnesses } = useSettingsState();
+  const { value: previewFeatures } = useRowState("labs.previewFeatures");
+  const showUpdateCard = previewFeatures === true;
   const outdated = updatable(harnesses);
   const families = accountRows(harnesses);
   const checked = newestCheck(harnesses);
@@ -275,7 +277,7 @@ export function HarnessesCard() {
           </Button>
         )}
       </div>
-      {harnesses && !harnesses.problem && (
+      {showUpdateCard && harnesses && !harnesses.problem && (
         <div className="harness-update-cards" data-harness-update-cards="">
           {/* One card per installed binary: two profiles that run one are one update (msg 42278). */}
           {oneRowPerInstall(harnesses.harnesses.filter(hasUpdate)).map((row) => (
