@@ -59,6 +59,29 @@ Screen pane of cmux NEXT showing the shared Mac's marker): pass its --presented-
 observe.rs: CGEventPostToPid to the ScreenCaptureKit display timestamp of the frame whose marker
 changed). The bench viewer has no window on macOS, so without them Total ends at decode.
 
+The stage ledger, every leg in one table (design piece 0, D8): `--legs wired,wifi-away` runs every
+stack once per leg and prints one table, a cmux and an Apple column per leg, Total as glass to
+glass. A leg named after a scripts/measure/screen-stream-eval/mac-holds.sh profile (stall,
+wifi-away, wifi-short, wifi-long, wifi-loss; or LINK=PROFILE) is shaped with dummynet on the shared
+Mac's egress to --viewer-ip only, started before the leg and cleared after it (also when the leg
+fails; the shaper's own watchdog clears it after --shape-max-s if this script dies). mac-holds.sh
+needs root: --shape-sudo is `sudo -n` on the shared Mac by default, or `local:fleet-sudo {host}`
+from a Mac whose keychain holds the fleet password. `table FILE...` prints the same table again
+from the --out files. On the fleet pair, to the presented frame on both stacks:
+
+  screen-share-vs.py run --host cmux20 --viewer cmux17 --host-ip SHARED_IP --viewer-ip VIEWER_IP \
+      --tools ./tools --cua-vnc PATH/cua-vnc --vnc-user USER --vnc-password-file PATH \
+      --presented-pid P --presented-window W --presented-origin X,Y --presented-at X,Y \
+      --apple-presented-pid P --apple-presented-window W --apple-presented-origin X,Y \
+      --apple-presented-at X,Y --legs wired,wifi-away --shape-sudo 'local:fleet-sudo {host}' \
+      --out ledger.jsonl
+
+Apple to the presented frame: with --apple-presented-* naming a Screen Sharing.app window on the
+viewing Mac that shows the shared Mac's marker, the same `cmux-rd observe` times it (key posted to
+that window's process -> the display time of the frame whose marker changed), and Apple's Total
+ends at the presented frame like cmux's. Observe reads the screen, not the stream, so it times
+both viewers the same way. Apple's other stages stay null: it exposes no stage times.
+
 The Apple leg is a headless RFB client (the cua-vnc client, imported from --cua-vnc) on port 5900
 asking only for the marker's strip. It never opens Screen Sharing.app or any window on either Mac.
 The marker window is not key when the rig starts it, so before timing keys the leg clicks the
@@ -145,6 +168,9 @@ import sys
 import threading
 import time
 
+MAC_HOLDS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..",
+                         "scripts", "measure", "screen-stream-eval", "mac-holds.sh")
+MAC_HOLDS_PROFILES = ("stall", "wifi-away", "wifi-short", "wifi-long", "wifi-loss")
 MONO = time.CLOCK_MONOTONIC  # the clock cmux-rd's now_ns() reads (clock.rs)
 KEYSYM_A = 0x61
 CELLS = 20
@@ -237,6 +263,9 @@ BUDGET_ROWS = (
     ("Input", 3, "viewer key down -> host inject", ("up", "inject")),
     ("Screen", 12, "inject -> ScreenCaptureKit display time", ("draw",)),
     ("Capture", 8, "display time -> encode start", ("sck", "gate")),
+    # Capture's two parts, rows of their own (budget None: inside Capture's).
+    (" Gate wait", None, "frame ready -> capture start (encode start without it)", ("gate_wait",)),
+    (" Readback", None, "capture start -> encode start", ("readback",)),
     ("Encode", 8, "encode start -> bitstream", ("encode",)),
     ("Send", 8, "bitstream -> last datagram on the wire", ("send",)),
     ("Network", 2, "wire -> last shard received", ("down",)),
@@ -260,6 +289,9 @@ LEDGER_ROWS = {
 }
 WHY_LEDGER = "needs the per-frame stage ledger (cmux.rd-stage-ledger/1), not in this build"
 WHY_CMUX = {
+    " Readback": "the host timing log has no capture_start_us (a Linux host with ss-capture's field "
+                 "has it; a Mac host captures before the gate, so Capture holds no readback)",
+    " Gate wait": "the host timing log has no frame-ready time (arrived_us or damage_us)",
     "Reassembly": "not split today: the bench stamps a frame complete and releases it in one step, "
                   "so Network holds it; " + WHY_LEDGER,
     "Present": "the bench viewer has no window on macOS (it ends at decode); pass --presented-* for "
@@ -337,14 +369,22 @@ def cmux_cells(rows, ledgers, presented, synthetic=False):
             why = (WHY_SYNTHETIC_PRESENT if synthetic and row == "Present"
                    else WHY_CMUX.get(row, WHY_LEDGER))
             cells[row] = null(why)
+    for row in (" Gate wait", " Readback"):
+        if "null" in cells[row] and cells[row]["null"].startswith("no samples"):
+            cells[row] = null(WHY_CMUX[row])
     return cells
 
 
-def apple_cells(g2g, why_skipped=None):
+def apple_cells(g2g, why_skipped=None, presented=None):
+    """The Apple column. PRESENTED (cmux-rd observe on a visible Screen Sharing.app window, ms)
+    makes Total end at the presented frame; otherwise it is the headless RFB client's total."""
     cells = {}
+    pres = stat(presented or [])
     for row, _, _, _ in BUDGET_ROWS:
         if why_skipped:
             cells[row] = null(why_skipped)
+        elif row == "Total" and pres:
+            cells[row] = dict(pres, source="cmux-rd observe on Screen Sharing.app", to="presented")
         elif row == "Total":
             s = stat(g2g or [])
             cells[row] = dict(s, source="RFB key -> update", to="RFB update") if s else null(
@@ -380,7 +420,7 @@ def quality_summary(scores, why_none):
 
 def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=None, source=None):
     """The budget record. CMUX: {"rows", "ledgers", "presented", "motion_rows", "scores",
-    "quality_null"} or {"skipped": why}; APPLE: {"g2g"} or {"skipped": why}."""
+    "quality_null"} or {"skipped": why}; APPLE: {"g2g", "presented"} or {"skipped": why}."""
     cmux = cmux or {"skipped": "not run (--stacks)"}
     apple = apple or {"skipped": "not run (--stacks)"}
     if cmux.get("skipped"):
@@ -394,10 +434,11 @@ def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=Non
         c_quality = quality_summary(cmux.get("scores") or [],
                                     cmux.get("quality_null") or "no motion trial finished")
     why_apple = apple.get("skipped")
+    a_cells = apple_cells(apple.get("g2g"), why_apple, apple.get("presented"))
     rows = []
     for row, budget, span, _ in BUDGET_ROWS:
         rows.append({"row": row, "budget_ms": budget, "span": span, "cmux": c_cells[row],
-                     "apple": apple_cells(apple.get("g2g"), why_apple)[row]})
+                     "apple": a_cells[row]})
     return {
         "schema": BUDGET_SCHEMA, "label": label, "rev": rev, "link": link, "rtt": rtt,
         "source": source or "screen", "rows": rows,
@@ -406,6 +447,10 @@ def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=Non
                     "apple": {"frame_score": null(why_apple or WHY_APPLE["quality"]),
                               "text_cer": null(why_apple or WHY_APPLE["quality"])}},
     }
+
+
+def budget_text(row):
+    return "" if row.get("budget_ms") is None else row["budget_ms"]
 
 
 def cell_text(cell, keys=("p50", "p95")):
@@ -442,7 +487,7 @@ def format_budget(b):
         title += " (--source synthetic)"
     lines = [title, f"  {'row':<11} {'budget':>6}  {'cmux':<26} {'Apple Screen Sharing':<26} from, to"]
     for r in b["rows"]:
-        lines.append(f"  {r['row']:<11} {r['budget_ms']:>6}  {show(r['cmux']):<26} "
+        lines.append(f"  {r['row']:<11} {budget_text(r):>6}  {show(r['cmux']):<26} "
                      f"{show(r['apple']):<26} {r['span']}")
     lines.append(f"  {'Mbps':<11} {'':>6}  {show(b['mbps']['cmux'], ('avg', 'peak')):<26} "
                  f"{show(b['mbps']['apple'], ('avg', 'peak')):<26} received under motion, avg / peak 1 s")
@@ -510,7 +555,7 @@ def format_compare(before, after):
     for r in after["rows"]:
         b = rows_before.get(r["row"], {})
         d = delta(b.get("cmux"), r["cmux"], "p50")
-        lines.append(f"  {r['row']:<11} {r['budget_ms']:>6}  {cell_text(b.get('cmux')):<22} "
+        lines.append(f"  {r['row']:<11} {budget_text(r):>6}  {cell_text(b.get('cmux')):<22} "
                      f"{cell_text(r['cmux']):<22} {('-' if d is None else f'{d:+g}'):>10}  "
                      f"{cell_text(r['apple']):<20}")
     extra = (("Mbps", lambda x: x["mbps"]["cmux"], ("avg", "peak"), "avg"),
@@ -530,6 +575,82 @@ def cmd_compare(args):
         print(json.dumps({"before": before, "after": after}))
         return
     print("\n".join(format_compare(before, after)))
+
+
+def load_budgets(paths):
+    """Every budget record in the result files, in order (one per leg of a `run --legs`)."""
+    found = []
+    for path in paths:
+        with open(path, encoding="utf8") as f:
+            for line in f:
+                line = line.strip()
+                if not line.startswith("{"):
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                b = rec.get("budget") if isinstance(rec, dict) else None
+                if isinstance(b, dict) and b.get("schema") == BUDGET_SCHEMA:
+                    found.append(b)
+    if not found:
+        raise SystemExit(f"{', '.join(paths)}: no {BUDGET_SCHEMA} record (a `run --out` file)")
+    return found
+
+
+def format_legs(budgets):
+    """The stage ledger: one row per stage, cmux and Apple side by side for every leg (link),
+    p50 / p95 in ms. Total is glass to glass when it ends at the presented frame; a cell that
+    ends earlier says where. Every null cell is footnoted with its reason."""
+    notes = {}
+
+    def show(cell, keys=("p50", "p95")):
+        text = cell_text(cell, keys)
+        if text == "null":
+            why = cell["null"] if cell else "no value"
+            text = f"null [{notes.setdefault(why, len(notes) + 1)}]"
+        return text
+
+    revs = sorted({b["rev"][:12] for b in budgets if b.get("rev")})
+    title = "stage ledger (ms, p50 / p95)"
+    if revs:
+        title += ": @ " + ", ".join(revs)
+    lines = [title]
+    for i, b in enumerate(budgets):
+        rtt = b.get("rtt")
+        lines.append(f"  leg {i + 1}: {b.get('link') or '?'}"
+                     + (f", udp rtt min {rtt:g} ms" if isinstance(rtt, (int, float)) else "")
+                     + (" (--source synthetic)" if b.get("source") == "synthetic" else ""))
+    heads = []
+    for b in budgets:
+        leg = b.get("link") or "?"
+        heads += [f"cmux {leg}", f"Apple {leg}"]
+    width = max([22] + [len(h) + 2 for h in heads])
+    lines.append(f"  {'stage':<15} {'budget':>6}  " + "".join(f"{h:<{width}}" for h in heads))
+    by_name = [{r["row"]: r for r in b["rows"]} for b in budgets]
+    names = []
+    for b in budgets:
+        names += [r["row"] for r in b["rows"] if r["row"] not in names]
+    for name in names:
+        first = next(rows[name] for rows in by_name if name in rows)
+        cells = []
+        for rows in by_name:
+            row = rows.get(name)
+            cells += ([show(row.get("cmux")), show(row.get("apple"))] if row
+                      else ["-", "-"])  # a record from before this row existed
+        label = "Glass to glass" if name == "Total" else name
+        lines.append(f"  {label:<15} {budget_text(first):>6}  " + "".join(f"{c:<{width}}" for c in cells))
+    cells = []
+    for b in budgets:
+        cells += [show(b["mbps"]["cmux"], ("avg", "peak")), show(b["mbps"]["apple"], ("avg", "peak"))]
+    lines.append(f"  {'Mbps avg/peak':<15} {'':>6}  " + "".join(f"{c:<{width}}" for c in cells))
+    for why, n in notes.items():
+        lines.append(f"  [{n}] null: {why}")
+    return lines
+
+
+def cmd_table(args):
+    print("\n".join(format_legs(load_budgets(args.files))))
 
 
 # --- motion quality: one decoded frame against the source the marker drew -------------------
@@ -1193,7 +1314,9 @@ class Orchestrator:
         self.geometry = None  # the marker's motion-geometry, read from the shared Mac
         self.quality_null = None
         self.apple_g2g = None
+        self.apple_presented = None  # cmux-rd observe through a visible Screen Sharing.app window
         self.apple_skipped = None
+        self.shaped = False  # mac-holds.sh started for this leg and not yet cleared
         self.marker_bin = self.ocr_bin = None
         self.rev = getattr(args, "rev", None)
         if getattr(args, "tools", None):
@@ -1463,12 +1586,18 @@ class Orchestrator:
             if not f or not inj:
                 continue
             shown, arrived = f.get("shown_us"), f.get("arrived_us")
+            ready = arrived if arrived is not None else f.get("damage_us")
+            # ss-capture's Linux field: when the encode thread began the capture (the readback).
+            start = f.get("capture_start_us")
             rows.append({
                 "up": ms(v(inj["recv_us"]) - sent),
                 "inject": ms(inj["inject_us"] - inj["recv_us"]),
                 "draw": ms(shown - inj["inject_us"]) if shown else None,
                 "sck": ms(arrived - shown) if shown and arrived else None,
                 "gate": ms(f["release_us"] - arrived) if arrived else None,
+                "gate_wait": ms((start if start is not None else f["release_us"]) - ready)
+                if ready is not None else None,
+                "readback": ms(f["release_us"] - start) if start is not None else None,
                 "encode": ms(f["encoded_us"] - f["release_us"]),
                 "send": ms(f["sent_us"] - f["encoded_us"]),
                 "first_packet": ms(s["first_rx_ns"] / 1000.0 - v(f["sent_us"])),
@@ -1608,11 +1737,28 @@ class Orchestrator:
             # The pane would show the real display's marker app, which a synthetic run has not.
             self.log({"skipped": "presented", "why": "--source synthetic runs no marker app"})
             return None
-        cmd = (f"{self.root}/bin/cmux-rd observe --pid {int(a.presented_pid)} "
-               f"--window {int(a.presented_window)} --input key --samples {int(a.samples)} "
-               f"--cell-size {int(a.presented_cell)} "
-               f"--marker-origin {shlex.quote(a.presented_origin)} --at {shlex.quote(a.presented_at)}")
-        rec = {"stack": "cmux", "mode": "presented"}
+        return self.observe("cmux", a.presented_pid, a.presented_window, a.presented_origin,
+                            a.presented_cell, a.presented_at)
+
+    def run_apple_presented(self):
+        """The same through a visible Screen Sharing.app window on the viewing Mac, when
+        --apple-presented-* name one: Apple's glass to glass. None otherwise."""
+        a = self.a
+        if not (a.apple_presented_pid and a.apple_presented_window and a.apple_presented_origin
+                and a.apple_presented_at):
+            return None
+        return self.observe("apple", a.apple_presented_pid, a.apple_presented_window,
+                            a.apple_presented_origin, a.apple_presented_cell, a.apple_presented_at)
+
+    def observe(self, stack, pid, window, origin, cell, at):
+        """cmux-rd observe on the viewing Mac against one visible viewer window: key press posted
+        to PID -> the ScreenCaptureKit display time of the frame whose marker changed. It never
+        reads the stream, so it times any viewer the same way. The latencies in ms, or None."""
+        cmd = (f"{self.root}/bin/cmux-rd observe --pid {int(pid)} "
+               f"--window {int(window)} --input key --samples {int(self.a.samples)} "
+               f"--cell-size {int(cell)} "
+               f"--marker-origin {shlex.quote(origin)} --at {shlex.quote(at)}")
+        rec = {"stack": stack, "mode": "presented"}
         try:
             # A rig error costs this leg only, never the tables after it.
             self.rig({"cmd": "marker", "flags": []})
@@ -1676,7 +1822,61 @@ class Orchestrator:
         return firsts, g2g, fps
 
     def main(self):
+        """One leg: setup, the shaped link if --shape names a profile, every stack, the tables.
+        Returns the budget record."""
         self.setup()
+        self.shape_start()
+        try:
+            return self.measure()
+        finally:
+            self.shape_clear()
+
+    def shape_start(self):
+        """The leg's link profile: mac-holds.sh (dummynet) on the shared Mac's egress to the
+        viewing Mac only, for --shape PROFILE; its detached watchdog clears it after
+        --shape-max-s even if this script dies."""
+        if not self.a.shape:
+            return
+        if not self.a.viewer_ip:
+            raise SystemExit("--shape needs --viewer-ip (the viewing Mac's address on the link)")
+        self.host.put(MAC_HOLDS, f"{self.root}/bin/mac-holds.sh")
+        self.shaped = True
+        self.shape_run(f"start {shlex.quote(self.a.shape)} {int(self.a.shape_max_s)} "
+                       f"{shlex.quote(self.a.viewer_ip)}")
+        self.log({"shape": self.a.shape, "peer": self.a.viewer_ip, "max_s": self.a.shape_max_s})
+
+    def shape_clear(self):
+        if not self.shaped:
+            return
+        rec = {"shape_end": self.a.shape}
+        try:
+            holds = self.shape_run("holds")
+            rec["holds"] = [json.loads(x) for x in holds.splitlines() if x.startswith("{")]
+        except Exception as e:  # noqa: BLE001 - the holds log is evidence; the clear still runs
+            rec["holds_error"] = repr(e)[-200:]
+        try:
+            self.shape_run("clear")
+            self.shaped = False
+        except Exception as e:  # noqa: BLE001
+            rec["clear_error"] = repr(e)[-400:] + " (the watchdog clears it after --shape-max-s)"
+        self.log(rec)
+
+    def shape_run(self, verb):
+        """mac-holds.sh VERB as root on the shared Mac. --shape-sudo is a prefix run there
+        (default `sudo -n`), or with `local:` a command run here with {host} filled in
+        (`local:fleet-sudo {host}`)."""
+        script = f"/bin/bash {self.root}/bin/mac-holds.sh {verb}"
+        via = self.a.shape_sudo
+        if via.startswith("local:"):
+            argv = shlex.split(via[len("local:"):].replace("{host}", self.a.host)) + [script]
+            p = subprocess.run(argv, capture_output=True, text=True, timeout=120)
+            if p.returncode != 0:
+                raise RuntimeError(f"{' '.join(argv)[:120]}: exit {p.returncode}: "
+                                   f"{p.stderr.strip()[-400:]}")
+            return p.stdout
+        return self.host.run(f"{via} {script}", timeout=120)
+
+    def measure(self):
         clock0 = self.clock()
         self.log({"clock": clock0, "host": self.a.host, "viewer": self.a.viewer,
                   "host_ip": self.a.host_ip, "link": self.a.link})
@@ -1694,6 +1894,7 @@ class Orchestrator:
         elif "apple" in stacks:
             r = self.run_apple()
             results["macOS Screen Sharing"] = r
+            self.apple_presented = self.run_apple_presented()
         try:
             clock1 = self.clock()
             self.log({"clock_end": clock1,
@@ -1701,7 +1902,7 @@ class Orchestrator:
         except Exception as e:  # noqa: BLE001 - the drift check never costs the table
             self.log({"clock_end_error": repr(e)[-400:]})
         self.table(results, clock0, rows)
-        self.budget(stacks, rows, clock0)
+        return self.budget(stacks, rows, clock0)
 
     def budget(self, stacks, rows, clock):
         """The design's budget table, printed and written as one {"budget"} line."""
@@ -1711,12 +1912,14 @@ class Orchestrator:
                     "motion_rows": self.motion_rows, "scores": self.scores,
                     "quality_null": self.quality_null}
         if "apple" in stacks:
-            apple = {"skipped": self.apple_skipped} if self.apple_skipped else {"g2g": self.apple_g2g}
+            apple = ({"skipped": self.apple_skipped} if self.apple_skipped
+                     else {"g2g": self.apple_g2g, "presented": self.apple_presented})
         b = build_budget(cmux, apple, label=self.a.label, rev=self.rev, link=self.a.link,
                          rtt=clock.get("rtt_min_ms"), source=self.a.source)
         print()
         print("\n".join(format_budget(b)))
         self.log({"budget": b})
+        return b
 
     def table(self, results, clock, rows):
         rtt = clock.get("rtt_ms") or {}
@@ -1776,8 +1979,36 @@ class Orchestrator:
         self.log({"summary": summ, "link": self.a.link, "rtt": clock})
 
 
+def parse_legs(spec):
+    """--legs: comma-separated LINK or LINK=PROFILE (a mac-holds.sh profile). A leg named after a
+    profile (wifi-away) is shaped with it; any other name (wired) is not."""
+    legs = []
+    for item in (spec or "").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        name, _, profile = item.partition("=")
+        if not profile and name in MAC_HOLDS_PROFILES:
+            profile = name
+        if profile and profile not in MAC_HOLDS_PROFILES:
+            raise SystemExit(f"--legs {item}: unknown profile {profile!r} "
+                             f"(mac-holds.sh has {', '.join(MAC_HOLDS_PROFILES)})")
+        legs.append((name, profile or None))
+    return legs
+
+
 def cmd_run(args):
-    Orchestrator(args).main()
+    legs = parse_legs(args.legs)
+    if not legs:
+        Orchestrator(args).main()
+        return
+    budgets = []
+    for name, profile in legs:
+        leg = argparse.Namespace(**vars(args))
+        leg.link, leg.shape = name, profile
+        budgets.append(Orchestrator(leg).main())
+    print()
+    print("\n".join(format_legs(budgets)))
 
 
 def main():
@@ -1832,7 +2063,28 @@ def main():
     r.add_argument("--presented-origin", help="X,Y: the marker in the viewing Mac's capture pixels")
     r.add_argument("--presented-cell", type=int, default=32, help="the marker cell in those pixels")
     r.add_argument("--presented-at", help="X,Y: the marker's gray pad in those pixels")
+    r.add_argument("--apple-presented-pid", type=int, help="Screen Sharing.app's process on the "
+                   "viewing Mac, its window showing the shared Mac: Apple's Total then ends at the "
+                   "presented frame (cmux-rd observe)")
+    r.add_argument("--apple-presented-window", type=int, help="that window's CGWindow id")
+    r.add_argument("--apple-presented-origin", help="X,Y: the marker in the viewing Mac's capture pixels")
+    r.add_argument("--apple-presented-cell", type=int, default=32, help="the marker cell in those pixels")
+    r.add_argument("--apple-presented-at", help="X,Y: the marker's gray pad in those pixels")
+    r.add_argument("--legs", help="every stack once per leg, then one table of all legs: "
+                   "comma-separated LINK or LINK=PROFILE, e.g. wired,wifi-away; a mac-holds.sh "
+                   "profile shapes that leg (needs --viewer-ip)")
+    r.add_argument("--shape", choices=MAC_HOLDS_PROFILES, help="shape this run with a mac-holds.sh "
+                   "profile (dummynet on the shared Mac's egress to --viewer-ip)")
+    r.add_argument("--viewer-ip", help="the viewing Mac's address on the measured link (--shape)")
+    r.add_argument("--shape-max-s", type=int, default=3600,
+                   help="the shaper's watchdog clears it after this many seconds")
+    r.add_argument("--shape-sudo", default="sudo -n", help="how mac-holds.sh gets root: a prefix "
+                   "run on the shared Mac, or `local:CMD` run here with {host} filled in "
+                   "(`local:fleet-sudo {host}`)")
     r.set_defaults(fn=cmd_run)
+    t = sub.add_parser("table", help="the stage ledger of every budget record in result files")
+    t.add_argument("files", nargs="+")
+    t.set_defaults(fn=cmd_table)
     m = sub.add_parser("compare", help="two result files side by side")
     m.add_argument("before")
     m.add_argument("after")
