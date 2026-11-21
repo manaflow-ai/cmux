@@ -365,7 +365,7 @@ fn alive(pid: u32) -> bool {
 }
 
 /// What a projection server [`start`] left serves (its `.served` file beside its pid file): the
-/// machine it projects to (`identify`'s `session_id`), the chat key its projection is named for
+/// machine it projects to (`identify`'s `session_id`, empty when it answers none), the chat key its projection is named for
 /// ([`chat_name`]) and this Mac's folder, NUL-separated, the folder last.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ServerRecord {
@@ -389,7 +389,7 @@ impl ServerRecord {
         use std::os::unix::ffi::OsStrExt as _;
         let mut parts = bytes.splitn(3, |byte| *byte == 0);
         let (machine, chat, local) = (parts.next()?, parts.next()?, parts.next()?);
-        if machine.is_empty() || chat.is_empty() || local.is_empty() {
+        if chat.is_empty() || local.is_empty() {
             return None;
         }
         Some(Self {
@@ -439,7 +439,7 @@ pub(crate) fn restart(
     if enabled()
         && let Some(on) = projected_at(remote)
         && on.local == local
-        && machine_id(socket).as_deref() == Some(on.machine.as_str())
+        && machine_id(socket).unwrap_or_default() == on.machine
     {
         stop_server(remote)?;
     }

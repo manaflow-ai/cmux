@@ -66,8 +66,10 @@ fn what_a_server_serves_reads_back_as_written() {
         chat: "move-p0123456789abcdef-1".into(),
         local: PathBuf::from("/Users/leo/Projects/with\nnewline"),
     };
-    assert_eq!(ServerRecord::decode(&served.encode()), Some(served));
+    assert_eq!(ServerRecord::decode(&served.encode()), Some(served.clone()));
     assert_eq!(ServerRecord::decode(b"no separator"), None);
     assert_eq!(ServerRecord::decode(b"m\0\0/no/chat"), None);
-    assert_eq!(ServerRecord::decode(b"\0chat\0/no/machine"), None);
+    // A machine that answers no id is recorded as none, and matches only itself.
+    let unnamed = ServerRecord { machine: String::new(), ..served };
+    assert_eq!(ServerRecord::decode(&unnamed.encode()), Some(unnamed));
 }

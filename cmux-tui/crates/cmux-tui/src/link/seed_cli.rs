@@ -710,7 +710,7 @@ pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyh
     let machine = Machine::read(socket)?;
     if let Some(on) = sync_cli::project::projected_at(remote)
         && on.local == canonical
-        && machine.id.as_deref() == Some(on.machine.as_str())
+        && machine.id.as_deref().unwrap_or_default() == on.machine
     {
         return project_again(socket, &canonical, remote, &on.chat);
     }
