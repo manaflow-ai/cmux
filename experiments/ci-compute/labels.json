@@ -1,0 +1,58 @@
+{
+  "blacksmith-12vcpu-macos-26": {
+    "os": "macos",
+    "owned": false
+  },
+  "blacksmith-16vcpu-ubuntu-2404": {
+    "os": "linux",
+    "owned": false
+  },
+  "blacksmith-2vcpu-ubuntu-2404": {
+    "os": "linux",
+    "owned": false
+  },
+  "blacksmith-32vcpu-ubuntu-2404": {
+    "os": "linux",
+    "owned": false
+  },
+  "blacksmith-4vcpu-ubuntu-2404": {
+    "os": "linux",
+    "owned": false
+  },
+  "blacksmith-4vcpu-ubuntu-2404-arm": {
+    "os": "linux",
+    "owned": false
+  },
+  "blacksmith-4vcpu-windows-2025": {
+    "os": "windows",
+    "owned": false
+  },
+  "blacksmith-6vcpu-macos-15": {
+    "os": "macos",
+    "owned": false
+  },
+  "blacksmith-6vcpu-macos-26": {
+    "os": "macos",
+    "owned": false
+  },
+  "blacksmith-6vcpu-macos-latest": {
+    "os": "macos",
+    "owned": false
+  },
+  "blacksmith-8vcpu-ubuntu-2404": {
+    "os": "linux",
+    "owned": false
+  },
+  "cmux-fleet-linux-x64": {
+    "os": "linux",
+    "owned": true
+  },
+  "macos-15-intel": {
+    "os": "macos",
+    "owned": false
+  },
+  "ubuntu-24.04": {
+    "os": "linux",
+    "owned": false
+  }
+}
