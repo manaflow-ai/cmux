@@ -138,33 +138,13 @@ fn new_key() -> Result<String> {
     Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
 }
 
-/// Writes the token owner-only (its folder too), replacing an older one.
+/// Writes the token owner-only (its folder too), replacing an older one: through `home_fs`,
+/// whole (a new 0600 copy renamed over it), so a home swapped mid-write never gets it.
 fn save_token(path: &Path, key: &str) -> Result<()> {
     let folder = path.parent().context("the token file has no folder")?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
-        std::fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(folder)
-            .with_context(|| format!("create {}", folder.display()))?;
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(path)
-            .with_context(|| format!("write {}", path.display()))?;
-        // An older token file keeps its mode through `open`: make it owner-only.
-        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
-        file.write_all(key.as_bytes())?;
-    }
-    #[cfg(not(unix))]
-    {
-        std::fs::create_dir_all(folder)?;
-        std::fs::write(path, key)?;
-    }
+    crate::home_fs::create_dir_all(folder, 0o700)
+        .with_context(|| format!("create {}", folder.display()))?;
+    crate::home_fs::write(path, key).with_context(|| format!("write {}", path.display()))?;
     Ok(())
 }
 
