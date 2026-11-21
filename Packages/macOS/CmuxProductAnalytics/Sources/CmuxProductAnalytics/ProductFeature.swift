@@ -2,6 +2,8 @@
 public enum ProductFeature: String, Sendable, CaseIterable {
     case commandPalette = "command_palette"
     case filesExplorer = "files_explorer"
+    case gitGraph = "git_graph"
+    case herd
     case find
     case vault
     case feed
