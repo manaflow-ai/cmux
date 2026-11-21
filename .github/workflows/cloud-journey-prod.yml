@@ -20,7 +20,9 @@ name: Cloud journey (production, hourly)
 # A red run opens one issue per model, or rewrites the open one's body; the next green run of that model closes it.
 # Secrets: the production agent test account, CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD in the cmux-next-cloud-journey
 # environment (they shadow the repository's pair, the dev Stack account, which production rejects), and for the real
-# model the repository's CLAUDE_CODE_OAUTH_TOKEN. The staging preclaim below runs in cmux-next-vm-image-dev with that
+# model CLOUD_PROBE_CLAUDE_CODE_OAUTH_TOKEN when set, else the repository's CLAUDE_CODE_OAUTH_TOKEN. claude.yml spends
+# the shared login's weekly limit (spent 2026-11-19 until 11-25), and a spent limit measures nothing; a probe-only
+# login keeps the real leg measuring. The staging preclaim below runs in cmux-next-vm-image-dev with that
 # environment's staging pair and the same Claude token; production names stay intact.
 # They reach the one run step through env; the journey sends them only in headers and request bodies and scrubs them
 # from its output.
@@ -155,7 +157,7 @@ jobs:
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ matrix.model == 'real' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ matrix.model == 'real' && (secrets.CLOUD_PROBE_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN) || '' }}
           MODEL: ${{ matrix.model }}
           CMUX_TUI: ${{ steps.build-cmux-tui.outputs.path }}
           # The dedicated private sandbox repository (OWNER/REPO) the test team's GitHub connection lists: the live
@@ -301,7 +303,7 @@ jobs:
         env:
           CMUX_STAGING_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_STAGING_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLOUD_PROBE_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           HQ_GH_TOKEN: ${{ steps.hq-preclaim-token.outputs.token }}
           PRECLAIM_ENSURE_BENCH: ${{ inputs.ensure_bench && '5' || '' }}
         run: |
