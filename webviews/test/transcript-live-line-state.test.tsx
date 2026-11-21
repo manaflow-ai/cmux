@@ -230,12 +230,6 @@ test("once the reply has stopped, the line's clock and token count stop with it"
   expect(drawn(line, reply.at + 2_000)).toBe(`Writing ${(reply.at + 2_000 - user.at) / 1_000}s`);
   // Past the pause it says only Thinking: no clock, however long the turn stays open.
   const tokens = {
-    agents: 0,
-    commands: 0,
-    sessions: 0,
-    openAgents() {},
-    openCommands() {},
-    openSessions() {},
     tokens: 4_200,
   };
   const counted = (now: number) =>

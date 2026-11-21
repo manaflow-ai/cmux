@@ -102,11 +102,10 @@ test("a steered turn is one live block at its bottom, under the steer, timed fro
 // Usage data does not add a counter to the live line.
 test("the live line keeps the turn clock without token amounts, beside a call too", () => {
   const start = 1_000_000;
-  const counts = { agents: 0, commands: 0, sessions: 0, openAgents() {}, openCommands() {}, openSessions() {} };
   const drawn = (node: ReactElement) =>
     words(
       renderToStaticMarkup(
-        <WorkingCountsContext.Provider value={{ ...counts, tokens: 2_140_000 }}>{node}</WorkingCountsContext.Provider>,
+        <WorkingCountsContext.Provider value={{ tokens: 2_140_000 }}>{node}</WorkingCountsContext.Provider>,
       ),
     );
   expect(drawn(<Thinking since={start} now={() => start + 354_000} />)).toBe("Thinking 5m 54s");
