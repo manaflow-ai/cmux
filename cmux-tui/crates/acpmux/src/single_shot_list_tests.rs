@@ -51,6 +51,18 @@ const ALLOWED: &[(&str, &str, usize, &str)] = &[
         "`acpmux ls`'s page fetcher: one `limit` page per call, its cursor followed",
     ),
     (
+        "cmux-tui/crates/acpmux/src/cli/run/board.rs",
+        "method::MUX_SESSIONS",
+        1,
+        "`acpmux board`'s page fetcher for `ls_pages::read`: one page per call, its cursor followed",
+    ),
+    (
+        "cmux-tui/crates/coord-sim/src/drive/readers.rs",
+        "\"_acpmux/sessions\"",
+        1,
+        "coord-sim's reader: a `limit`/`cursor` loop, page by page",
+    ),
+    (
         "cmux-tui/crates/cmux-tui-core/src/server/agent_session_link.rs",
         "\"_acpmux/sessions\"",
         1,
@@ -148,6 +160,7 @@ const V1_LIST_USES: &[(&str, &str, usize, &str)] = &[
     // daemon without the list surface or `info-rows-v1` (`Via::open` gave none).
     ("cli/run/ls.rs", "method::MUX_SESSIONS", 1, "`ls`'s fallback (`V1_PAGES`)"),
     ("cli/run/standard.rs", "method::MUX_SESSIONS", 1, "`pending`'s fallback"),
+    ("cli/run/board.rs", "method::MUX_SESSIONS", 1, "`board`'s fallback (`ls_pages::read`)"),
     ("cli/run/fanout.rs", "method::MUX_SESSIONS", 1, "`send --tag`'s fallback"),
     ("cli/search_all.rs", "method::MUX_SESSIONS", 1, "search's fallback for the whole view"),
     ("acpmux_mcp.rs", "method::MUX_SESSIONS", 1, "MCP `ls`'s fallback"),
