@@ -28,6 +28,9 @@ CMD is a shell command with `{sha}` (and `{short}`, `{pr}`) filled in. --host ru
 without --host it runs here, for a host-side driver. The probe for "chat does not work" is
 scripts/ci/app-bisect-probe.sh: `cmux app try` the commit into a side-by-side copy of NIGHTLY, then `cmux app
 health --json` against that copy (chat starts, the model picker has models, a terminal echoes).
+scripts/ci/app-bisect-pane-params-probe.py is a probe that needs no Mac, for the class that broke chat on 2026-11-21:
+the page sends a param the app relay's params rule refuses (every chat's initialize refused as transport.intent_invalid).
+Its first run: good build 4490607108701 to Leo's NIGHTLY at 229690498cfd, 196 commits, 8 probes, culprit #46563.
 
 When the commits left between the last good and the first bad have no build (every probe skipped), --build-cmd
 (`{sha}`), when given, is run for the middle one and that commit probed again: it is the only step that builds.

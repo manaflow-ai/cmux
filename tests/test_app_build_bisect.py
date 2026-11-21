@@ -103,5 +103,34 @@ class Bisect(unittest.TestCase):
         self.assertIn("reverts it or fixes forward", b.text(v))
 
 
+spec = importlib.util.spec_from_file_location("app_bisect_pane_params_probe",
+                                              ROOT / "scripts/ci/app-bisect-pane-params-probe.py")
+probe = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(probe)
+
+PAGE = """
+export function initializeParams() {
+  return {
+    protocolVersion: 1,
+    clientInfo: { name: "x", version: "1" }, // a comment, with a comma
+    _meta: { acpmux: { peerRowBatches: true } },
+  };
+}
+await this.request("initialize", initializeParams(), 5);
+await this.request("session/new", { cwd, ...extra, _meta: { acpmux: { harness: "claude" } } });
+"""
+
+
+class PaneParamsProbe(unittest.TestCase):
+    def test_helper_and_inline_literals(self):
+        self.assertEqual(set(probe.sent(PAGE, "initialize")[0]), {"protocolVersion", "clientInfo", "_meta"})
+        self.assertEqual(set(probe.sent(PAGE, "session/new")[0]), {"cwd", "_meta"})
+
+    def test_meta_keys(self):
+        meta = probe.sent(PAGE, "initialize")[0]["_meta"]
+        inner = probe.literal(meta, meta.index("{", meta.index("acpmux")))
+        self.assertEqual(set(probe.top_keys(inner)), {"peerRowBatches"})
+
+
 if __name__ == "__main__":
     unittest.main()
