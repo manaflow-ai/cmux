@@ -222,7 +222,8 @@ export default {
     // A single-use wire ticket for a browser socket (wire-ticket.ts): Authorization header only.
     if (url.pathname === "/v1/wire/ticket") return handleWireTicket(request, env)
     // The console's callback hands an app-started connect's provider answer to the API (integrations/handoff.ts).
-    if (url.pathname === INTEGRATION_HANDOFF_PATH) return handleIntegrationHandoff(request, env)
+    // Raw env: the console sends no build space header; the signed state names the space (integrations/handoff.ts).
+    if (url.pathname === INTEGRATION_HANDOFF_PATH) return handleIntegrationHandoff(request, raw)
     const m = url.pathname.match(/^\/v1\/wire\/(user|team|feed|cloud)$/)
     if (m && request.headers.get("Upgrade") === "websocket") return wire(request, env, spent, m[1] as WireScope)
     // Home (E5): one socket per conversation; the ConversationDO admits current participants only.

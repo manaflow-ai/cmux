@@ -25,7 +25,7 @@ import { HttpApiBuilder } from "effect/http-api"
 import { mintAccessToken, publicJwks, authenticateOrUnreachable } from "./auth.ts";
 import type { Env } from "./env.ts"
 import { requestEnv } from "./request-env.ts"
-import { isDevSpace } from "./build-space.ts"
+import { BASE_SPACE, isDevSpace } from "./build-space.ts"
 import type { DomainReply } from "./team-domain-external.ts"
 import type { ExternalReply } from "./connection-do.ts"
 import { automationHookPath, automationHookSecret } from "./ingress/automation-hook.ts"
@@ -165,6 +165,8 @@ const externalOp = (principalIn: Principal, frameIn: { op: string; params: unkno
       const invalid = (message: string) => ({ ok: false, op: frame.op, error: { code: "integration.state_invalid", message, retryable: false }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `connections:${principal.team}`, sequence: 0 })
       // The state must name this user and team: a link from someone else cannot finish their connection under this session.
       if (!st || st.user !== principal.user || st.team !== principal.team) return invalid("the connection link expired or belongs to someone else")
+      // A connect finishes in the build space it started in: its connection, and any hand-off, are that space's.
+      if ((st.build_space ?? BASE_SPACE) !== requestEnv().BUILD_SPACE) return invalid("this connection was started by another cmux build")
       // A connect the app started finishes only from that app: the code the console handed to the API (never one sent
       // here), the single-use handoff value the app's completion link carried, and the secret whose hash the state holds.
       if (st.attempt_hash !== undefined) {
@@ -463,7 +465,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const target = asked.repo && c.provider === "github"
             ? yield* Effect.tryPromise({ try: () => rpc<GithubConnectTarget>(requestEnv().CONNECTION_DO.get(requestEnv().CONNECTION_DO.idFromName(c.owner)).githubConnectTarget(c.owner, principal, asked.repo!)), catch: unreachable })
             : undefined
-          const state = yield* Effect.promise(() => signState(requestEnv(), { conn: c.id, team: c.owner, user: c.created_by, provider: c.provider, ...(asked.return_to ? { return_to: asked.return_to } : {}), ...(asked.attempt_hash ? { attempt_hash: asked.attempt_hash } : {}), ...(target?.kind === "installed" ? { installation: target.installation, repo: asked.repo!, configure_url: target.configure_url } : {}) }))
+          const state = yield* Effect.promise(() => signState(requestEnv(), { conn: c.id, team: c.owner, user: c.created_by, provider: c.provider, ...(asked.return_to ? { return_to: asked.return_to } : {}), ...(asked.attempt_hash ? { attempt_hash: asked.attempt_hash } : {}), ...(isDevSpace(requestEnv().BUILD_SPACE) ? { build_space: requestEnv().BUILD_SPACE } : {}), ...(target?.kind === "installed" ? { installation: target.installation, repo: asked.repo!, configure_url: target.configure_url } : {}) }))
           const scopes = scopesToRequest(requestEnv(), impl, c.scopes_requested)
           const authorizeUrl = target ? githubConnectUrl(requestEnv(), target, state, callbackUrl()) : yield* Effect.promise(() => Promise.resolve(impl.authorizeUrl(requestEnv(), state, scopes, callbackUrl(), c.id)))
           return { ...response, value: { connection: c, authorize_url: authorizeUrl } }

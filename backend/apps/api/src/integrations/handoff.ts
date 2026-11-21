@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import { INTEGRATION_ATTEMPT_PATTERN, isConnectReturnTo, isDevReturnTo, isIntegrationCompleteReturnTo } from "@cmux/protocol"
-import type { Env } from "../env.ts"
+import type { Env, RawEnv } from "../env.ts"
+import { BASE_SPACE, DEV_SPACE_ENVIRONMENTS, spacedEnv } from "../build-space.ts"
 import { open, seal, type SealedSecret } from "./crypto.ts"
 import { STATE_TTL_SECONDS, verifyState } from "./state.ts"
 
@@ -167,9 +168,10 @@ const refuse = (status: number, code: string, message: string) => Response.json(
  * POST /v1/integrations/handoff {state, code?, installation_id?, setup_action?}: the console's callback hands an
  * app-started connect's provider answer to the API. No session: the signed state is the authority, and the answer
  * is only kept; it is redeemed when the app that started the connect finishes it. Answers
- * `{ok: true, value: {connection, return_to, handoff}}`.
+ * `{ok: true, value: {connection, return_to, handoff}}`. Takes the raw env: the console sends no build space header,
+ * so the answer goes to the ConnectionDO of the space the signed state names (build-space.ts).
  */
-export const handleIntegrationHandoff = async (request: Request, env: Env): Promise<Response> => {
+export const handleIntegrationHandoff = async (request: Request, rawEnv: RawEnv): Promise<Response> => {
   if (request.method !== "POST") return refuse(405, "validation.invalid", "POST only")
   // No session here: bound the body before reading it (a declared length first, then what actually arrives).
   const declared = Number(request.headers.get("content-length") ?? "0")
@@ -189,9 +191,12 @@ export const handleIntegrationHandoff = async (request: Request, env: Env): Prom
   const installation = str(body.installation_id, 20, /^[0-9]{1,20}$/)
   const setup = str(body.setup_action, 40)
   if (!state || code === null || installation === null || setup === null) return refuse(400, "validation.invalid", "state, code, installation_id or setup_action is malformed")
-  const st = await verifyState(env, state)
+  const st = await verifyState(rawEnv, state)
   const invalid = (message: string) => refuse(400, "integration.state_invalid", message)
   if (!st) return invalid("the connection link expired or is not valid")
+  // The space the connect ran in; an environment that serves no dev spaces never signs one, and refuses one here.
+  if (st.build_space !== undefined && !DEV_SPACE_ENVIRONMENTS.has(rawEnv.ENVIRONMENT)) return invalid("this deployment serves no development builds")
+  const env: Env = spacedEnv(rawEnv, st.build_space ?? BASE_SPACE)
   // Only a connect the app started, with its attempt hash, hands over; any other is finished by the signed-in console.
   if (st.attempt_hash === undefined || st.return_to === undefined || !isIntegrationCompleteReturnTo(st.return_to)) return invalid("this connection is finished on the console")
   if (env.ENVIRONMENT === "production" && isDevReturnTo(st.return_to)) return invalid("a development build cannot finish a production connection")

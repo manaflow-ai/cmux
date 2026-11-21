@@ -566,8 +566,9 @@ describe("connections end to end (workerd)", () => {
       const streamed = new Request(`https://api.test${INTEGRATION_HANDOFF_PATH}`, { method: "POST", body: new Blob(["x".repeat(HANDOFF_MAX_BODY_BYTES + 1)]).stream(), duplex: "half" } as RequestInit)
       expect((await handleIntegrationHandoff(streamed, testEnv as any)).status).toBe(413)
       // Over the per-team limit: refused as retryable, and nothing is kept.
-      // Defined on the wrapper itself: an assignment would write through to the shared env (a proxy) and limit every later test.
-      const limited = Object.defineProperty(Object.create(testEnv), "INTEGRATION_HANDOFF_LIMIT", { value: { limit: async ({ key }: { key: string }) => ({ success: !key.startsWith("team:") }) } })
+      // A copy of the env, not an assignment: that would write through to the shared env (a proxy) and limit every later
+      // test. A plain own-property copy, since the route spreads its raw env into the state's build space (spacedEnv).
+      const limited = { ...testEnv, INTEGRATION_HANDOFF_LIMIT: { limit: async ({ key }: { key: string }) => ({ success: !key.startsWith("team:") }) } }
       const req = new Request(`https://api.test${INTEGRATION_HANDOFF_PATH}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ state, code: "c" }) })
       const answer = await handleIntegrationHandoff(req, limited as any)
       expect(answer.status).toBe(429)
@@ -596,6 +597,39 @@ describe("connections end to end (workerd)", () => {
       down = false
       const done = await op(token, "integration.complete", { state, handoff, attempt }, failed.json.idempotency_key)
       expect(done.json).toMatchObject({ ok: true, value: { status: "active" } })
+    })
+
+    it("a dev build's connect hands off and finishes in that build's space, though the console sends no build space", async () => {
+      const { token, team } = await signedIn("conn-gh-app-space")
+      const space = "dev:gh-handoff"
+      const inSpace = async (name: string, params: unknown, as?: string, key: string = crypto.randomUUID()) => {
+        const res = await worker.fetch("https://api.test/v1/ops", {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${token}`, ...(as ? { "x-cmux-build-space": as } : {}) },
+          body: JSON.stringify({ op: name, params, idempotency_key: key, origin: "cli" })
+        })
+        return (await res.json()) as any
+      }
+      expect((await inSpace("user.ensure", {}, space)).value.personal_team).toBe(team)
+      // The dev space's own ConnectionDO (build-space.ts spacedName), never nightly's.
+      const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(`${space}|${team}`))
+      const fake = githubAs("c")
+      await inDO(connections, async (instance) => { instance.http = fake.http })
+      const attempt = secret()
+      const started = await inSpace("integration.connect", { provider: "github", return_to: back, attempt_hash: await hashOf(attempt) }, space)
+      expect(started.ok).toBe(true)
+      const state = new URL(started.value.authorize_url).searchParams.get("state")!
+      expect(claims(state)).toMatchObject({ bsp: space })
+      const handed = await handOff({ state, code: "c", installation_id: "55" })
+      expect(handed.json).toMatchObject({ ok: true, value: { connection: started.value.connection.id } })
+      const handoff = handed.json.value.handoff as string
+      // Nightly (no header) and another dev build cannot finish it; the build that started it does.
+      expect((await inSpace("integration.complete", { state, handoff, attempt })).error.code).toBe("integration.state_invalid")
+      expect((await inSpace("integration.complete", { state, handoff, attempt }, "dev:other")).error.code).toBe("integration.state_invalid")
+      expect(await inSpace("integration.complete", { state, handoff, attempt }, space)).toMatchObject({ ok: true, value: { id: started.value.connection.id, status: "active" } })
+      expect(new URLSearchParams(fake.calls[0]!.body).get("code")).toBe("c")
+      // A nightly connect signs no space.
+      expect(claims((await start(token)).state).bsp).toBeUndefined()
     })
 
     it("the handoff route refuses a state that is not an app attempt, altered, or naming another installation", async () => {
