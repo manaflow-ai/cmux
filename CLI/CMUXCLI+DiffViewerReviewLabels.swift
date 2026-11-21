@@ -21,6 +21,7 @@ extension CMUXCLI.DiffViewerLabels {
             "markNotViewed": CMUXDiffViewerLocalization.string("diffViewer.markNotViewed", defaultValue: "Mark as not viewed"),
             "markViewed": CMUXDiffViewerLocalization.string("diffViewer.markViewed", defaultValue: "Mark as viewed"),
             "noFilesMatchFilter": CMUXDiffViewerLocalization.string("diffViewer.noFilesMatchFilter", defaultValue: "No files match the filter."),
+            "openFile": CMUXDiffViewerLocalization.string("diffViewer.openFile", defaultValue: "Open file"),
             "showViewedFiles": CMUXDiffViewerLocalization.string("diffViewer.showViewedFiles", defaultValue: "Show viewed files"),
             "viewed": CMUXDiffViewerLocalization.string("diffViewer.viewed", defaultValue: "Viewed"),
         ]

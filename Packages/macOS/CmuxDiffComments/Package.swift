@@ -18,5 +18,9 @@ let package = Package(
             name: "CmuxDiffComments",
             path: "Sources/CmuxDiffComments"
         ),
+        .testTarget(
+            name: "CmuxDiffCommentsTests",
+            dependencies: ["CmuxDiffComments"]
+        ),
     ]
 )
