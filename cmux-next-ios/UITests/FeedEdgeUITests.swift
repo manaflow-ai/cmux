@@ -9,11 +9,11 @@ import XCTest
 /// - FEED-14 (landscape): turning the iPhone keeps the event being read where it was; a phone's
 ///   screen stays portrait.
 final class FeedEdgeUITests: XCTestCase {
-    /// A terminal ask a few rows down (its swipe actions: Done and Open). The Feed pins its open
-    /// asks first (`pinningNeedsYou`), about 22 of the 60 stress events, so an answer such as
-    /// stress-20 sat past the drags that bring a row to the middle: the test scrolled the asks for
-    /// 30 drags and never reached it.
-    static let removed = "stress-11"
+    /// An answer mid-list (its swipe actions: Done and Read), below the open asks the Feed pins
+    /// first (`pinningNeedsYou`: about 22 of the 60 stress events, many screens). A person reaches
+    /// it by scrolling past them; the test's slow drags never did in 30 tries, so the rig's
+    /// `reveal` scrolls the list by its own offset to it, and a short drag then settles it.
+    static let removed = "stress-20"
 
     override func setUp() {
         continueAfterFailure = false
@@ -51,12 +51,19 @@ final class FeedEdgeUITests: XCTestCase {
         let (app, list) = launch()
         defer { app.terminate() }
         let row = list.cells["feed.row.\(Self.removed)"]
+        RigSignal.post("reveal")
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "the rig scrolled to the event\n\(app.debugDescription)")
         RowFrames.bring(row, toMiddleOf: list)
         XCTAssertTrue(row.exists && row.isHittable, "the event to remove is on screen\n\(app.debugDescription)")
         let before = RowFrames.settled(list, prefix: "feed.row.")
         XCTAssertNotNil(before["feed.row.\(Self.removed)"], "the event is measured: \(before.keys.sorted())")
+        // Mid-list, as a reader is: rows on screen above and below it, and a screen of rows above.
+        let gone = before["feed.row.\(Self.removed)"]!
+        XCTAssertTrue(before.values.contains { $0.maxY <= gone.minY + RowFrames.shiftBar }, "a row above it on screen: \(before)")
+        XCTAssertTrue(before.values.contains { $0.minY >= gone.maxY - RowFrames.shiftBar }, "a row below it on screen: \(before)")
+        XCTAssertNil(before["feed.row.stress-2"], "the list is scrolled down: the first ask is a screen or more above")
 
-        // Its swipe actions open (UIKit's trailing actions: Done and Open on a terminal ask).
+        // Its swipe actions open (UIKit's trailing actions: Done and Read on an answer).
         let reads = list.buttons.matching(NSPredicate(format: "label IN {'Read', 'Unread', 'Done'}"))
         let closedCount = reads.count
         row.swipeLeft()

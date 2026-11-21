@@ -300,6 +300,14 @@ final class ListStressRig: NSObject {
                 store.replaceWorkspaces(macID: macID, with: store.workspaces.filter { $0.macID == macID && $0.id != removeID })
             }
         }
+        // `reveal`: the list scrolls (by its own offset, no finger) until the row to remove sits in
+        // the middle of the screen, however far down it is (the Feed pins its open asks first, so
+        // an answer can be dozens of screens down: a test's drags never reached it).
+        RigSignals.observe("reveal") { [weak self, log] in
+            let id = (screen == "feed" ? "feed.row." : "ws.") + removeID
+            let found = self?.reveal(identifier: id) ?? false
+            log.notice("FRAMELOG list-stress signal reveal \(id, privacy: .public) found=\(found, privacy: .public)")
+        }
         for (name, online) in [("mac-offline", false), ("mac-online", true)] {
             RigSignals.observe(name) { [log] in
                 log.notice("FRAMELOG list-stress signal \(name, privacy: .public)")
@@ -376,6 +384,36 @@ final class ListStressRig: NSObject {
         guard line != lastTrace else { return }
         lastTrace = line
         log.notice("PULL \(CACurrentMediaTime(), privacy: .public) \(line, privacy: .public)")
+    }
+
+    /// Scrolls the list a screen at a time from the top until a view with `identifier` is laid
+    /// out, then puts it in the middle.
+    private func reveal(identifier: String) -> Bool {
+        guard let scroll = findScrollView(horizontal: false) else { return false }
+        func find(_ view: UIView) -> UIView? {
+            if view.accessibilityIdentifier == identifier { return view }
+            for sub in view.subviews { if let hit = find(sub) { return hit } }
+            return nil
+        }
+        let top = -scroll.adjustedContentInset.top
+        let bottom = max(top, scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)
+        var y = top
+        while true {
+            scroll.contentOffset.y = y
+            scroll.layoutIfNeeded()
+            if let row = find(scroll) {
+                let frame = row.convert(row.bounds, to: scroll)
+                let visible = scroll.bounds.height - scroll.adjustedContentInset.top - scroll.adjustedContentInset.bottom
+                let target = frame.midY - scroll.adjustedContentInset.top - visible * 0.45
+                scroll.contentOffset.y = min(max(target, top), max(top, scroll.contentSize.height - scroll.bounds.height
+                    + scroll.adjustedContentInset.bottom))
+                scroll.layoutIfNeeded()
+                return true
+            }
+            if y >= bottom { return false }
+            y = min(y + scroll.bounds.height * 0.8, max(top, scroll.contentSize.height - scroll.bounds.height
+                + scroll.adjustedContentInset.bottom))
+        }
     }
 
     func findScrollView(horizontal: Bool? = nil) -> UIScrollView? {
