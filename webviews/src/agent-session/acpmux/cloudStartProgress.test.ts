@@ -1,6 +1,7 @@
 // l10n-allow-file: test fixture prompts and host words, not shipped UI.
 import { expect, test } from "bun:test";
-import type { CloudStartAsk } from "./cloudStartProgress";
+import type { CloudStartAsk, CloudStartProgress } from "./cloudStartProgress";
+import { translate } from "./i18n";
 import {
   cloudRefusalText,
   cloudStartAsk,
@@ -8,12 +9,21 @@ import {
   cloudStartEnded,
   cloudStartPushed,
   cloudStartSignedIn,
+  cloudStartWayOn,
+  cloudFolderTooBig,
+  folderSizeText,
 } from "./cloudStartProgress";
 
 const begun = () => cloudStartBegun("k-1", "fix the build", "/Users/me/src/paint/");
 
 test("a start shows the message and the folder by its name", () => {
-  expect(begun()).toEqual({ key: "k-1", task: "fix the build", state: "starting", folder: "paint" });
+  expect(begun()).toEqual({
+    key: "k-1",
+    task: "fix the build",
+    state: "starting",
+    folder: "paint",
+    cwd: "/Users/me/src/paint",
+  });
   expect(cloudStartBegun("k", "t", undefined)).toEqual({ key: "k", task: "t", state: "starting" });
 });
 
@@ -44,10 +54,13 @@ test("the host's push fills the card, field by field, each checked", () => {
     token: "never shown",
   });
   expect(pushed).toEqual({
+    advancedAt: expect.any(Number),
     key: "k-1",
     task: "fix the build",
     state: "starting",
     folder: "paint-app",
+    // The host renames the card's folder; the folder the start copies (the composer's chip) stays.
+    cwd: "/Users/me/src/paint",
     step: "folder",
     machine: "paint machine",
     size: "4 CPU, 16 GB",
@@ -55,7 +68,7 @@ test("the host's push fills the card, field by field, each checked", () => {
     network: "limited",
   });
   const odd = cloudStartPushed(begun(), { key: "k-1", step: "done", secrets: -1, network: "open", machine: 7 });
-  expect(odd).toEqual(begun());
+  expect(odd).toEqual({ ...begun(), advancedAt: expect.any(Number) });
   expect(cloudStartPushed(begun(), { key: "k-1", machine: "x".repeat(100) })?.machine).toHaveLength(64);
   expect(cloudStartPushed(begun(), { key: "k-1", folder: "/Users/me/src" })?.folder).toBe("paint");
 });
@@ -80,6 +93,9 @@ test("the start's answer: an opened chat clears the card, a failure keeps it wit
     state: "failed",
     code: "unavailable",
   });
+  expect(
+    cloudStartEnded(begun(), "k-1", { ok: false, code: "cloud_plan_required", message: "Upgrade to use Cloud" }),
+  ).toEqual({ ...begun(), state: "failed", code: "cloud_plan_required", message: "Upgrade to use Cloud" });
   expect(cloudStartEnded(begun(), "k-2", { ok: true })).toEqual(begun());
   expect(cloudStartEnded(undefined, "k-1", { ok: true })).toBeUndefined();
 });
@@ -164,6 +180,30 @@ test("a copy's files and bytes, its fallback and an https install link reach the
   expect(unsafe?.clone?.installUrl).toBeUndefined();
 });
 
+test("the files a first pass left on this Mac stay on the clone through its end", () => {
+  const copying = cloudStartPushed(begun(), {
+    key: "k-1",
+    step: "folder",
+    clone: { state: "running", phase: "copy", left_on_mac: 1204 },
+  });
+  expect(copying?.clone?.leftOnMac).toBe(1204);
+  // The final answer without the count keeps it: a partial copy never reads as complete.
+  const ended = cloudStartPushed(copying, { key: "k-1", step: "folder", clone: { state: "done", phase: "complete" } });
+  expect(ended?.clone).toEqual({ state: "done", phase: "complete", leftOnMac: 1204 });
+  // A plain copy's end carries only the count; it lands on the clone it ends.
+  const plain = cloudStartPushed(begun(), { key: "k-1", step: "folder", clone: { left_on_mac: 7 } });
+  expect(plain?.clone).toEqual({ state: "done", leftOnMac: 7 });
+  // Nothing left, or a malformed count, adds nothing.
+  for (const left of [0, -3, 1.5, "12"]) {
+    const whole = cloudStartPushed(begun(), {
+      key: "k-1",
+      step: "folder",
+      clone: { state: "done", phase: "complete", left_on_mac: left },
+    });
+    expect(whole?.clone).toEqual({ state: "done", phase: "complete" });
+  }
+});
+
 test("forwards the environment id and setup ran or cached state", () => {
   const ran = cloudStartPushed(begun(), {
     key: "k-1",
@@ -241,6 +281,13 @@ test("the pane's other refusals before Cloud (attachments, a busy pane) mark no 
   }
 });
 
+// Leo 2026-11-10: "Cloud isn't available for this chat" said no reason and offered nothing.
+test("the host's not-now refusal says a chat is starting in this tab and how to use Cloud instead", () => {
+  const text = cloudRefusalText("unavailable_now");
+  expect(text).toBe("A chat is already starting in this tab. Open a new chat to start one in Cloud.");
+  expect(text).not.toContain("isn't available");
+});
+
 const question: CloudStartAsk = {
   id: "ask-1",
   kind: "codexDevice",
@@ -258,7 +305,7 @@ test("the host's question shows in the card and leaves it when the host takes it
   const asked = cloudStartPushed(begun(), { key: "k-1", ask: question });
   expect(asked?.ask).toEqual(question);
   expect(cloudStartPushed(asked, { key: "k-1", step: "folder" })?.ask).toEqual(question);
-  expect(cloudStartPushed(asked, { key: "k-1", ask: null })).toEqual(begun());
+  expect(cloudStartPushed(asked, { key: "k-1", ask: null })).toEqual({ ...begun(), advancedAt: expect.any(Number) });
   // Another start's question, or one after the start failed, shows nothing.
   expect(cloudStartPushed(begun(), { key: "k-2", ask: question })).toEqual(begun());
   const failed = cloudStartEnded(begun(), "k-1", { ok: false, code: "cloud_start_failed", message: "x" });
@@ -295,8 +342,143 @@ test("a failed start drops its question and says whether Retry can help", () => 
     message: "Slow",
     retryable: true,
   });
-  expect(retry).toEqual({ ...begun(), state: "failed", code: "cloud_start_failed", message: "Slow", retryable: true });
+  expect(retry).toEqual({
+    ...begun(),
+    advancedAt: expect.any(Number),
+    state: "failed",
+    code: "cloud_start_failed",
+    message: "Slow",
+    retryable: true,
+  });
   const final = cloudStartEnded(asked, "k-1", { ok: false, code: "cloud_start_failed", message: "No" });
   expect(final?.retryable).toBeUndefined();
   expect(final?.ask).toBeUndefined();
+});
+
+test("a start the team's spending cap or the member's budget refused is worded by the pane, with no Retry", () => {
+  const cap = cloudStartEnded(begun(), "k-1", {
+    ok: false,
+    code: "cloud_start_failed",
+    message: "this team has spent 503.10 USD of its 500.00 USD spending cap; an admin can raise it",
+    retryable: true,
+  });
+  expect(cap).toMatchObject({ state: "failed", code: "cloud_spend_cap" });
+  expect(cap?.retryable).toBeUndefined();
+  expect(cap?.message).toContain("team admin");
+  const budget = cloudStartEnded(begun(), "k-1", {
+    ok: false,
+    code: "cloud_start_failed",
+    message: "you have spent 50.20 USD of your 50.00 USD monthly budget; a team admin can raise it",
+  });
+  expect(budget).toMatchObject({ state: "failed", code: "cloud_member_budget" });
+  // Any other failure keeps the host's words.
+  expect(
+    cloudStartEnded(begun(), "k-1", {
+      ok: false,
+      code: "cloud_start_failed",
+      message: "the machine stopped answering",
+    }),
+  ).toMatchObject({ code: "cloud_start_failed", message: "the machine stopped answering" });
+});
+
+test("a folder too big to copy says why with its size, offers no Retry and marks no step failed (Leo, 2026-11-10)", () => {
+  const gib = 1024 ** 3;
+  const details = {
+    folder: "~/Projects",
+    bytes: 20.1 * gib,
+    files: 323_831,
+    repos: [
+      { name: "cmux", path: "/Users/me/Projects/cmux" },
+      { name: "work/api", path: "/Users/me/Projects/work/api" },
+      { name: "relative", path: "not/absolute" },
+      { name: "", path: "/Users/me/Projects/empty" },
+    ],
+    more: false,
+  };
+  const ended = cloudStartEnded(begun(), "k-1", {
+    ok: false,
+    code: "cloud_folder_too_big",
+    message: "~/Projects is too big to copy to a Cloud machine",
+    retryable: true,
+    details,
+  });
+  expect(ended?.state).toBe("failed");
+  expect(ended?.code).toBe("cloud_folder_too_big");
+  expect(ended?.retryable).toBeUndefined();
+  expect(ended?.refusedHere).toBe(true);
+  // Only well-formed repositories with absolute paths are offered.
+  expect(ended?.tooBig).toEqual({
+    folder: "~/Projects",
+    repos: [
+      { name: "cmux", path: "/Users/me/Projects/cmux" },
+      { name: "work/api", path: "/Users/me/Projects/work/api" },
+    ],
+    more: false,
+  });
+  expect(ended?.message).toBe(
+    "~/Projects is too big to copy (at least 20.1 GB in 323,831 files). Pick one of its repositories, or start without a folder.",
+  );
+  // No repository inside: the limit is named, and another folder is the way on.
+  const plain = cloudStartEnded(begun(), "k-1", {
+    ok: false,
+    code: "cloud_folder_too_big",
+    details: { ...details, folder: "~/Downloads", repos: [] },
+  });
+  expect(plain?.message).toBe(
+    "~/Downloads is too big to copy (at least 20.1 GB in 323,831 files; the limit is 20 GB or 500,000 files). Pick a smaller folder, or start without one.",
+  );
+});
+
+test("a too-big folder's size reads as the copy's limit words it", () => {
+  expect(folderSizeText(20.1 * 1024 ** 3)).toBe("20.1 GB");
+  expect(folderSizeText(20 * 1024 ** 3)).toBe("20 GB");
+  expect(folderSizeText(632 * 1024 ** 3)).toBe("632 GB");
+  expect(folderSizeText(300 * 1024 ** 2)).toBe("300 MB");
+  // Malformed details still say why, with no repository to offer.
+  expect(cloudFolderTooBig(undefined).tooBig).toEqual({ folder: "~", repos: [], more: false });
+});
+
+test("a host failure whose words are only its code reads as a sentence, never the code", () => {
+  const begun = cloudStartBegun("k", "fix the build", "/Users/me/paint");
+  const off = cloudStartEnded(begun, "k", { ok: false, code: "cloud_disabled", message: "cloud_disabled" });
+  expect(off?.message).toBe(translate("cloudStart.cloudDisabled"));
+  expect(off?.message).not.toContain("cloud_disabled");
+  expect(cloudStartEnded(begun, "k", { ok: false, code: "cloud_disabled" })?.message).toBe(
+    translate("cloudStart.cloudDisabled"),
+  );
+  // Any other raw code says Cloud isn't available for the chat; the host's own sentence stays as it is.
+  expect(cloudStartEnded(begun, "k", { ok: false, code: "cloud_unknown", message: "cloud_unknown" })?.message).toBe(
+    translate("composer.offloadNotRun", { action: translate("composer.cloud") }),
+  );
+  expect(
+    cloudStartEnded(begun, "k", { ok: false, code: "cloud_start_failed", message: "No machine free" })?.message,
+  ).toBe("No machine free");
+});
+
+test("a failed start's way on: the folder, a new Cloud chat, Retry, or This Mac; none beside its own recovery", () => {
+  const failed = (code: string, extra: Partial<CloudStartProgress> = {}): CloudStartProgress => ({
+    key: "k",
+    task: "t",
+    state: "failed",
+    code,
+    ...extra,
+  });
+  expect(cloudStartWayOn(failed("cloud_folder_missing"))).toEqual(["pick-folder", "no-folder"]);
+  expect(cloudStartWayOn(failed("transport.path_outside_roots"))).toEqual(["pick-folder", "no-folder"]);
+  expect(cloudStartWayOn(failed("unavailable_now"))).toEqual(["new-cloud-chat"]);
+  expect(cloudStartWayOn(failed("transport.gesture_required"))).toEqual(["retry"]);
+  expect(cloudStartWayOn(failed("cloud_prompt_changed"))).toEqual(["retry"]);
+  expect(cloudStartWayOn(failed("cloud_start_failed"))).toEqual(["retry", "run-here"]);
+  expect(cloudStartWayOn(failed("cloud_disabled"))).toEqual(["run-here", "dismiss"]);
+  expect(cloudStartWayOn({ key: "k", task: "t", state: "failed" })).toEqual(["run-here", "dismiss"]);
+  for (const code of [
+    "not_signed_in",
+    "cloud_plan_required",
+    "cloud_spend_cap",
+    "cloud_member_budget",
+    "cloud_folder_too_big",
+  ])
+    expect(cloudStartWayOn(failed(code)), code).toEqual([]);
+  expect(cloudStartWayOn(failed("cloud_start_failed", { retryable: true }))).toEqual([]);
+  expect(cloudStartWayOn({ key: "k", task: "t", state: "starting" })).toEqual([]);
 });

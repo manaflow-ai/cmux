@@ -91,7 +91,7 @@ class PublishReleaseAssetsCallers(unittest.TestCase):
         self.assertIn('dmg="nightly-out/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg"', step)
         self.assertIn('--immutable "$dmg" --alias "$rolling"', step)
         # The job reads that file from the same variant artifacts its upload step published.
-        self.assertIn("- &download-nightly-variant-artif", job[:job.index(step)])
+        self.assertIn("- name: Download nightly variant artifacts", job[:job.index(step)])
 
     def test_finder_refuses_the_alias_and_feed_only_call(self):
         text = """

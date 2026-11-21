@@ -35,6 +35,17 @@ type LevelId = keyof typeof LEVELS;
 const mix = (percent: number) =>
   `color-mix(in srgb, var(--agent-text) ${percent}%, var(--agent-page-bg, var(--acpmux-base)))`;
 
+const PROMPT = ".acpmux-composer > .acpmux-composer-box [contenteditable='true']";
+const BOX = ".acpmux-composer > .acpmux-composer-box";
+
+/// Each level's CSS beats the shipped rule it replaces on the same element: the glint one outranks
+/// composerStates.css's `.acpmux-composer > .acpmux-composer-box.ui-glass-material` (0,3,0) by the
+/// `html` type selector, so `before` really draws the full light (composer-rim-gallery.test.ts reads
+/// the computed value back). The pane focuses the prompt when it mounts, so a resting stage blurs it
+/// and waits until no field in the card is focused; a focused stage focuses it from the keyboard's
+/// side (a text field always matches :focus-visible) and waits until the card matches
+/// `:has(:focus-visible)`, the rule that lifts the rim. A stage that cannot reach its state times out
+/// instead of capturing the wrong one.
 async function stage(ctx: PlayContext, id: LevelId, focused: boolean) {
   const { rest, focus, glint } = LEVELS[id];
   ctx.document.getElementById("composer-rim-gallery")?.remove();
@@ -43,11 +54,22 @@ async function stage(ctx: PlayContext, id: LevelId, focused: boolean) {
   style.textContent = `
     html .acpmux-shell { --acpmux-composer-edge: ${mix(rest)}; }
     html :is(.acpmux-composer, .nt-composer, .nt-box) { --acpmux-composer-edge-focus: ${mix(focus)}; }
-    html .acpmux-composer > .acpmux-composer-box { --acpmux-composer-glint: ${glint}; }
+    html .acpmux-composer > .acpmux-composer-box.ui-glass-material { --acpmux-composer-glint: ${glint}; }
   `;
   ctx.document.head.append(style);
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-box [contenteditable='true']"));
-  if (focused) await ctx.focus({ selector: ".acpmux-composer-box [contenteditable='true']" });
+  await ctx.waitFor(() => ctx.document.querySelector(PROMPT));
+  const box = ctx.document.querySelector<HTMLElement>(BOX)!;
+  if (focused) {
+    await ctx.focus({ selector: PROMPT });
+    await ctx.waitFor(() => box.matches(":has(:focus-visible)"));
+  } else {
+    // The mount's own focus can land after the first frame: blur until the card holds none.
+    await ctx.waitFor(() => {
+      if (box.matches(":focus-within")) (ctx.document.activeElement as HTMLElement | null)?.blur();
+      return !box.matches(":focus-within");
+    });
+  }
+  ctx.document.documentElement.dataset.composerRimState = focused ? "focused" : "rest";
 }
 
 const NOTES: Record<LevelId, string> = {

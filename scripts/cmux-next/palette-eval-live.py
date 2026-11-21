@@ -4,9 +4,10 @@
 
 Launches the tagged app headless (no activation, bounded window), then:
   1. writes the root palette's ranker input (debug.palette.entries) to OUT/root-entries.json,
-     the source of webviews/test/fixtures/palette-eval/root-entries.json;
+     the source of cmux-tui/crates/cmux-palette-eval/tests/eval/root-entries.json;
   2. runs palette.query for every query of the eval cases and writes OUT/live-results.json
-     (score them with `bun webviews/scripts/palette-eval.ts --live OUT/live-results.json`);
+     (score them with `cargo run -p cmux-palette-eval --example eval -- --live OUT/live-results.json`
+     in cmux-tui);
   3. opens the palette with each --shot query and captures it (debug.palette.capture) to
      OUT/shot-<n>-<slug>.png.
 Then quits with quitEndSessions and stops the tag's daemons. Kills only the PID it started.
@@ -14,6 +15,8 @@ Then quits with quitEndSessions and stops the tag's daemons. Kills only the PID 
 Usage: palette-eval-live.py TAG APP OUT_DIR CASES_JSON [--shot QUERY ...]
 """
 import json, os, pwd, re, signal, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 TAG, APP, OUT, CASES = sys.argv[1:5]
 SHOTS = []
@@ -74,7 +77,7 @@ env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR":
        "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(scratch, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800"}
 log = open(os.path.join(OUT, "app-%s.log" % TAG), "a")
 app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-print("launched pid %d" % app.pid, flush=True)
+safe_print("launched pid %d" % app.pid, flush=True)
 rc = 1
 try:
     deadline = time.time() + 180
@@ -90,31 +93,31 @@ try:
     if not wins:
         sys.exit("no window")
     time.sleep(3)  # let providers (settings, apps) publish their first rows
-    print("entries:", json.dumps(rpc("debug.palette.entries", {"path": os.path.join(OUT, "root-entries.json")}, timeout=60)),
-          flush=True)
+    safe_print("entries:", json.dumps(rpc("debug.palette.entries", {"path": os.path.join(OUT, "root-entries.json")}, timeout=60)),
+               flush=True)
     results = {}
     for query in queries:
         reply = rpc("palette.query", {"scope": "root", "query": query, "limit": 10}, timeout=30)
         results[query] = [{"id": item["id"], "title": item["title"], "section": item.get("section"), "score": item["score"]}
                           for item in (reply or {}).get("items", [])] if "items" in (reply or {}) else reply
     json.dump({"tag": TAG, "results": results}, open(os.path.join(OUT, "live-results.json"), "w"), indent=1)
-    print("live queries: %d" % len(results), flush=True)
+    safe_print("live queries: %d" % len(results), flush=True)
     for n, query in enumerate(SHOTS):
         opened = rpc("action.run", {"action": "palette.open", "args": {"query": query}, "focus": True}, timeout=20)
         time.sleep(1.5)
         path = os.path.join(OUT, "shot-%d-%s.png" % (n, slug(query)))
         shot = rpc("debug.palette.capture", {"path": path}, timeout=30)
-        print("shot %r: open=%s capture=%s" % (query, json.dumps(opened)[:120], json.dumps(shot)[:160]), flush=True)
+        safe_print("shot %r: open=%s capture=%s" % (query, json.dumps(opened)[:120], json.dumps(shot)[:160]), flush=True)
         rpc("debug.key", {"key": "escape"}, timeout=10)
         time.sleep(0.5)
     rc = 0
 finally:
-    print("quit:", json.dumps(rpc("action.run", {"action": "quitEndSessions"}, timeout=10))[:200], flush=True)
+    safe_print("quit:", json.dumps(rpc("action.run", {"action": "quitEndSessions"}, timeout=10))[:200], flush=True)
     try:
         app.wait(timeout=30)
-        print("app exited %s" % app.returncode, flush=True)
+        safe_print("app exited %s" % app.returncode, flush=True)
     except subprocess.TimeoutExpired:
-        print("app did not quit in 30s; SIGKILL pid %d" % app.pid, flush=True)
+        safe_print("app did not quit in 30s; SIGKILL pid %d" % app.pid, flush=True)
         os.kill(app.pid, signal.SIGKILL)
     subprocess.run([ACPMUX, "daemon", "shutdown", "--end-agents"], env={**os.environ, "ACPMUX_HOME": ACPMUX_HOME,
                    "ACPMUX_SOCKET": os.path.join(ACPMUX_HOME, "acpmux.sock")}, capture_output=True, timeout=30)

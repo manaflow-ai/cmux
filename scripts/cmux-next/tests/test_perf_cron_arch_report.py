@@ -18,6 +18,16 @@ kept and no GitHub request is made, also in a dry run; the in-process run_report
 Run: python3 -I scripts/cmux-next/tests/test_perf_cron_arch_report.py (not a CI job)."""
 import contextlib, copy, importlib.util, io, json, os, subprocess, tempfile, time, unittest, urllib.error
 from unittest import mock
+import importlib.util  # noqa: E402
+import os  # noqa: E402
+
+# tests/git_fixture_env.py turns off git's background maintenance in temp repos.
+_git_fixture_env = importlib.util.spec_from_file_location(
+    "git_fixture_env",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "git_fixture_env.py"),
+)
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_env)
+_git_fixture_env.loader.exec_module(git_fixture_env)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("perf_cron_arch_report", os.path.join(HERE, "..", "perf-cron-arch-report.py"))

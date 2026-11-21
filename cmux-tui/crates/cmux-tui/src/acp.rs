@@ -12,8 +12,11 @@ pub(crate) fn run(args: Vec<OsString>) -> i32 {
     run_as(args, "cmux acp")
 }
 
-/// `cmux <head> <args>` for `head` = `acp`, `chats` or `harness`.
+/// Enter the session engine under the name the caller typed.
 pub(crate) fn run_scope(head: &str, args: Vec<OsString>) -> i32 {
+    if head == "agent" {
+        return run_engine(args, "cmux agent");
+    }
     run_as(args, if head == "acp" { "cmux acp" } else { "cmux" })
 }
 
@@ -47,6 +50,10 @@ pub(crate) fn run_as(args: Vec<OsString>, display_name: &str) -> i32 {
             .collect();
         return harness_tab(&words);
     }
+    run_engine(args, display_name)
+}
+
+fn run_engine(args: Vec<OsString>, display_name: &str) -> i32 {
     let home = std::env::var("HOME").ok().map(PathBuf::from);
     finish(
         entry::main(
@@ -134,6 +141,74 @@ fn daemon_socket(configured: Option<&str>, home: &Path, uid: u32) -> PathBuf {
 pub(crate) fn install_daemon_acpmux(mux: &cmux_tui_core::Mux, socket: &Path) {
     mux.set_acpmux_starter(daemon_acpmux_starter(socket));
     mux.set_acpmux_handoff(daemon_acpmux_handoff(socket));
+    if let Some(sender) = daemon_feed_reply_sender() {
+        mux.set_feed_reply_sender(sender);
+    }
+}
+
+/// How long a Reports reply waits for acpmux to take it.
+#[cfg(unix)]
+const FEED_REPLY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// `feed.reports.reply` (plans/cmux-next/feed-page.md; Swift
+/// `AcpmuxReplySender`): this binary's `acp send --no-wait --no-steer
+/// --prompt-id <id> -- <session> -` with the acpmux home `cmux acp` uses and
+/// the text on stdin (never an argument: acpmux reads `-` from stdin), true
+/// when acpmux took it. The prompt id makes a retry deliver once. Bounded:
+/// a send past [`FEED_REPLY_TIMEOUT`] is killed and answers false.
+#[cfg(unix)]
+fn daemon_feed_reply_sender() -> Option<cmux_tui_core::feed_client::ReplySender> {
+    let home = daemon_acpmux_home()?;
+    let exe = std::env::current_exe().ok()?;
+    Some(std::sync::Arc::new(move |session: &str, text: &str, prompt_id: &str| {
+        send_feed_reply(&exe, &home, session, text, prompt_id)
+    }))
+}
+
+#[cfg(unix)]
+fn send_feed_reply(exe: &Path, home: &Path, session: &str, text: &str, prompt_id: &str) -> bool {
+    use std::io::Write;
+    if session.is_empty() || prompt_id.is_empty() {
+        return false;
+    }
+    let mut command = cmux_process::Command::new(exe);
+    for name in TERMINAL_IDENTITY_ENV {
+        command.env_remove(name);
+    }
+    let spawned = command
+        .env("ACPMUX_HOME", home)
+        .args([
+            "acp",
+            "send",
+            "--no-wait",
+            "--no-steer",
+            "--prompt-id",
+            prompt_id,
+            "--",
+            session,
+            "-",
+        ])
+        .stdin(cmux_process::Stdio::piped())
+        .stdout(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
+        .spawn();
+    let Ok(mut child) = spawned else { return false };
+    if let Some(mut stdin) = child.stdin.take() {
+        // Closing stdin ends the prompt.
+        if stdin.write_all(text.as_bytes()).is_err() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return false;
+        }
+    }
+    match child.wait_timeout(FEED_REPLY_TIMEOUT) {
+        Ok(Some(status)) => status.success(),
+        _ => {
+            let _ = child.kill();
+            let _ = child.wait();
+            false
+        }
+    }
 }
 
 /// How the session daemon starts the acpmux that [`daemon_socket_path`]
@@ -228,7 +303,7 @@ const TERMINAL_IDENTITY_ENV: [&str; 5] =
 /// The acpmux home `cmux acp` uses: `ACPMUX_HOME`, else its build's home
 /// ([`build_home`]), else `~/.acpmux`.
 #[cfg(unix)]
-fn daemon_acpmux_home() -> Option<PathBuf> {
+pub(crate) fn daemon_acpmux_home() -> Option<PathBuf> {
     // Another app's terminal names that app's acpmux (per-build isolation S4).
     if let Some(home) = env_value("ACPMUX_HOME")
         && !crate::app_identity::this_process_in_other_apps_terminal()
@@ -237,6 +312,25 @@ fn daemon_acpmux_home() -> Option<PathBuf> {
     }
     let home = PathBuf::from(env_value("HOME")?);
     Some(build_home(&home).unwrap_or_else(|| home.join(".acpmux")))
+}
+
+/// The acpmux home of this process's app, by [`daemon_acpmux_home`]'s rule
+/// but with no side effect (no adoption of a pre-isolation home): where this
+/// machine's WireGuard key lock lives (`cmux_link::key_holder`). `None`
+/// outside any cmux app and without `ACPMUX_HOME` (a test binary, a hand-run
+/// `cmux-tui`), which names no build's acpmux.
+#[cfg(unix)]
+pub(crate) fn key_lock_home() -> Option<PathBuf> {
+    if let Some(home) = env_value("ACPMUX_HOME")
+        && !crate::app_identity::this_process_in_other_apps_terminal()
+    {
+        return Some(PathBuf::from(home));
+    }
+    let identity = crate::app_identity::AppIdentity::detect(
+        |name| std::env::var(name).ok(),
+        std::env::current_exe().ok().as_deref(),
+    )?;
+    Some(identity.build().acpmux_home(Path::new(&env_value("HOME")?)))
 }
 
 #[cfg(unix)]
@@ -381,121 +475,5 @@ pub(crate) fn build_home(home: &Path) -> Option<PathBuf> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[cfg(unix)]
-    #[test]
-    fn the_daemon_finds_the_acpmux_socket_where_acpmux_puts_it() {
-        let home = Path::new("/Users/me/.cmux/brains/chief/acpmux");
-        assert_eq!(daemon_socket(None, home, 501), home.join("acpmux.sock"));
-        let long = PathBuf::from(format!("/Users/me/{}", "d".repeat(100)));
-        let socket = daemon_socket(None, &long, 501);
-        assert!(socket.starts_with("/tmp/acpmux-501/"), "{socket:?}");
-        assert_eq!(socket.extension().and_then(|e| e.to_str()), Some("sock"));
-    }
-
-    /// The shared cases (cmux-agent-pane-policy tests/cases/environment.json) the
-    /// Swift host, the brain host and the Chief run too.
-    #[cfg(unix)]
-    #[test]
-    fn the_daemon_socket_matches_the_shared_cases() {
-        let file = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../cmux-agent-pane-policy/tests/cases/environment.json");
-        let cases: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
-        for row in cases["sockets"].as_array().unwrap() {
-            let got = daemon_socket(
-                None,
-                Path::new(row[0].as_str().unwrap()),
-                row[1].as_u64().unwrap() as u32,
-            );
-            assert_eq!(got.to_str(), row[2].as_str(), "home {}", row[0]);
-        }
-        let configured = cases["configured_sockets"].as_array().unwrap();
-        assert!(!configured.is_empty());
-        for row in configured {
-            let given = row[0].as_str().unwrap();
-            let got = daemon_socket(
-                Some(given).filter(|g| !g.is_empty()),
-                Path::new(row[1].as_str().unwrap()),
-                row[2].as_u64().unwrap() as u32,
-            );
-            assert_eq!(got.to_str(), row[3].as_str(), "configured {given}");
-        }
-    }
-
-    #[test]
-    fn harness_run_tab_runs_the_harness_in_a_new_tab_in_its_folder() {
-        let words = |list: &[&str]| list.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
-        assert_eq!(
-            harness_tab_command(&words(&["aider"]), "/b/cmux", Path::new("/repo")),
-            words(&[
-                "pane", "current", "run", "--", "/b/cmux", "harness", "run", "aider", "--cwd",
-                "/repo"
-            ])
-        );
-        assert_eq!(
-            harness_tab_command(&words(&["aider", "--cwd", "/x"]), "/b/cmux", Path::new("/repo")),
-            words(&[
-                "pane", "current", "run", "--", "/b/cmux", "harness", "run", "aider", "--cwd", "/x"
-            ])
-        );
-    }
-
-    #[test]
-    fn chats_open_runs_each_plan_in_a_new_tab_with_values_as_arguments() {
-        use acpmux::cli::chats::OpenOutcome;
-        use std::collections::BTreeMap;
-        let words = |list: &[&str]| list.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
-        let session = OpenOutcome::Session { session_id: "s_1".into() };
-        assert_eq!(
-            chat_tab_command(&session, "/b/cmux"),
-            words(&["pane", "current", "run", "--", "/b/cmux", "acp", "attach", "s_1"])
-        );
-        // A folder and a store path that hold shell syntax stay inert values.
-        let terminal = OpenOutcome::Terminal {
-            argv: words(&["claude", "--resume", "abc"]),
-            env: BTreeMap::from([("CLAUDE_CONFIG_DIR".to_owned(), "/h/a $(x)".to_owned())]),
-            cwd: PathBuf::from("/r/it's \"here\"; rm -rf ~"),
-        };
-        assert_eq!(
-            chat_tab_command(&terminal, "/b/cmux"),
-            words(&[
-                "pane",
-                "current",
-                "run",
-                "--",
-                "/bin/sh",
-                "-c",
-                r#"cd "$1" && shift && exec "$@""#,
-                "sh",
-                "/r/it's \"here\"; rm -rf ~",
-                "/usr/bin/env",
-                "CLAUDE_CONFIG_DIR=/h/a $(x)",
-                "claude",
-                "--resume",
-                "abc",
-            ])
-        );
-        let read_only = OpenOutcome::ReadOnly { path: PathBuf::from("/h/t.json") };
-        assert_eq!(
-            chat_tab_command(&read_only, "/b/cmux"),
-            words(&["pane", "current", "run", "--", "/usr/bin/less", "--", "/h/t.json"])
-        );
-    }
-
-    #[test]
-    fn open_runs_the_acpmux_tui_in_a_new_tab() {
-        let words = |list: &[&str]| list.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
-        assert_eq!(
-            open_command(&words(&["review"]), "/b/cmux").unwrap(),
-            words(&["pane", "current", "run", "--", "/b/cmux", "acp", "attach", "review"])
-        );
-        assert_eq!(
-            open_command(&words(&["--pane", "pane_01", "review"]), "/b/cmux").unwrap(),
-            words(&["pane", "pane_01", "run", "--", "/b/cmux", "acp", "attach", "review"])
-        );
-        assert!(open_command(&words(&[]), "/b/cmux").is_err());
-    }
-}
+#[path = "acp_tests.rs"]
+mod tests;

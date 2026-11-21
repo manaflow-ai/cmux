@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import QuartzCore
 
 /// The app's one main-thread scheduler for budgeted work (plans/cmux-next/main-thread-budget.md):
@@ -14,7 +15,7 @@ public import QuartzCore
 ///
 /// ```swift
 /// // The composition root:
-/// let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
+/// let mainWork = MainWorkScheduler.app(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
 /// let requests = FrameBatchQueue(owner: "Control.frames", budgeted: .automation, on: mainWork)
 ///
 /// // A test drives the frames by hand:
@@ -50,6 +51,25 @@ public final class MainWorkScheduler {
             self.budget.tickOwnsWindow = running
             if running { self.renderPasses?.start() } else { self.renderPasses?.stop() }
         }
+    }
+
+    /// The app's one scheduler, built at the composition root: a scheduler on the main screen's link
+    /// (``init(budget:)``) that also runs every ``ObservationStream`` evaluation of the process as a
+    /// task of its budget (``runsObservationEvaluations()``).
+    public static func app(budget: MainFrameBudget) -> MainWorkScheduler {
+        let scheduler = MainWorkScheduler(budget: budget)
+        scheduler.runsObservationEvaluations()
+        return scheduler
+    }
+
+    /// From now on every ``ObservationStream`` evaluation in the process (its first value, each
+    /// re-evaluation after a change, on both of its paths) runs inside
+    /// ``MainFrameBudget/run(_:owner:_:)`` as a ``MainWorkClass/visible`` task owned by the stream's
+    /// site (`#fileID:#line`): the board names it, its time is charged to the frame and the budgeted
+    /// work after a long one yields (plans/cmux-next/main-thread-scheduling.md, G1). The process has
+    /// one runner; the last call wins (the app calls it once, through ``app(budget:)``).
+    public func runsObservationEvaluations() {
+        ObservationSite.evaluations = ObservationEvaluationBudget(budget: budget)
     }
 
     /// A scheduler on a fake link (tests): frames fire only through ``frameDidFire(timestamp:refreshInterval:)``,

@@ -25,6 +25,15 @@ type Inspect = {
 
 const MAX_BATCH = 64;
 const MAX_KEPT = 2000;
+/// The host's limits for one `link.inspect` entry, in UTF-8 bytes (AgentPaneReplyRequest.swift
+/// `maximumURL`, AgentPaneReplyPaths.swift `maximumLength`). It refuses the whole call when any
+/// entry is past them, empty or holds a NUL, so such an entry is answered here, as one the host
+/// has nothing for, and never sent: one oversized link would leave every other one unanswered.
+const MAX_URL_BYTES = 2048;
+const MAX_PATH_BYTES = 4096;
+const utf8 = new TextEncoder();
+const sendable = (value: string, limit: number) =>
+  value.length > 0 && !value.includes("\u0000") && utf8.encode(value).length <= limit;
 
 const paths = new Map<string, PathInfo | null>();
 const sites = new Map<string, SiteInfo | null>();
@@ -93,12 +102,14 @@ function ask(path?: string, url?: string) {
   }
   if (path !== undefined && !paths.has(path)) {
     paths.set(path, null);
-    asking.add(path);
-    queuedPaths.push(path);
+    if (sendable(path, MAX_PATH_BYTES)) {
+      asking.add(path);
+      queuedPaths.push(path);
+    }
   }
   if (url !== undefined && !sites.has(url)) {
     sites.set(url, null);
-    queuedUrls.push(url);
+    if (sendable(url, MAX_URL_BYTES)) queuedUrls.push(url);
   }
   if (!scheduled && (!policyAsked || queuedPaths.length || queuedUrls.length)) {
     scheduleFlush();

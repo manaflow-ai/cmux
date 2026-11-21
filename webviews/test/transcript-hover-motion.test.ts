@@ -24,12 +24,13 @@ function collect(list: CSSRuleList, media: string[] = []) {
 }
 collect(style.sheet!.cssRules);
 
-const actions = [".cv-user__actions", ".cv-received-actions", ".cv-turn-actions"];
+const fadeActions = [".cv-received-actions", ".cv-turn-actions"];
+const actions = [".cv-user__actions", ...fadeActions];
 
 test("transcript hover fades require motion preference and a hover-capable fine pointer", () => {
   const fades = rules.filter(
     ({ rule }) =>
-      actions.some((action) => rule.selectorText.includes(action)) &&
+      fadeActions.some((action) => rule.selectorText.includes(action)) &&
       rule.style.getPropertyValue("transition") &&
       // Always-visible pending controls disable transitions; that is not a hover fade.
       rule.style.getPropertyValue("transition") !== "none" &&
@@ -46,12 +47,24 @@ test("transcript hover fades require motion preference and a hover-capable fine 
 
 test("keyboard focus and action visibility remain independent of pointer capability", () => {
   for (const action of actions) {
-    const focus = rules.find(
-      ({ rule }) => rule.selectorText.includes(`${action}:focus-within`) && rule.style.getPropertyValue("transition"),
-    );
-    expect(focus).toBeDefined();
-    expect(focus!.media).toEqual(["(prefers-reduced-motion: no-preference)"]);
-    expect(focus!.rule.style.getPropertyValue("transition")).not.toContain("--cv-actions-in-delay");
+    if (fadeActions.includes(action)) {
+      const focus = rules.find(
+        ({ rule }) => rule.selectorText.includes(`${action}:focus-within`) && rule.style.getPropertyValue("transition"),
+      );
+      expect(focus).toBeDefined();
+      expect(focus!.media).toEqual(["(prefers-reduced-motion: no-preference)"]);
+      expect(focus!.rule.style.getPropertyValue("transition")).not.toContain("--cv-actions-in-delay");
+    } else {
+      const transitions = rules
+        .filter(
+          ({ rule }) =>
+            rule.selectorText.includes(action) &&
+            rule.style.getPropertyValue("transition") &&
+            rule.style.getPropertyValue("transition") !== "none",
+        )
+        .map(({ rule }) => rule.selectorText);
+      expect(transitions).toEqual([]);
+    }
     const visibility = rules.filter(({ rule }) => rule.selectorText.includes(action) && rule.style.opacity === "1");
     expect(visibility.length).toBeGreaterThan(0);
     for (const { media } of visibility) expect(media).toEqual([]);

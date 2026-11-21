@@ -83,3 +83,35 @@ export const hatRowMotionLook = defineExperiment({
   },
   defaultArm: "height",
 });
+
+/// Where a finished item's check stands against the hat's other glyphs (DoneMark.tsx). Leo, 2026-11-08,
+/// on "47s ✓": "it's just bc the alignment/whatever around the rest of the hat when you look at the
+/// symbol and size/whatnot of it it just feels iffy how it's close the the number but idk if it should
+/// be so close". Every arm draws the check at the hat's icon size and stroke on the full grid, so its
+/// ink is the Stop square's size (it was a cropped row icon, a third wider), and a line keeps it in
+/// Stop's column; the arms
+/// differ on a lone finished item's folded header. Compare them in the gallery's
+/// `agent-pane.composer-hat-done-check`.
+export const hatDoneCheckPlace = defineExperiment({
+  id: "composer-hat-done-check",
+  title: "Composer hat: where the done check stands",
+  description:
+    "A lone finished item's folded header: the check one small gap after its time, in a Stop-wide column of its own after the time, or in the header's leading icon column with the time alone at the end.",
+  arms: {
+    column: {
+      label: "Own column",
+      description:
+        "A Stop-wide column one tray gap after the time, the check centred in it: the time-to-check spacing of a line's time and its Stop square. Picked: it reads as the lines' rhythm and never hugs the digits.",
+    },
+    grid: {
+      label: "After the time",
+      description: "The check right after the time, one tray gap away, at the Stop square's ink size.",
+    },
+    leading: {
+      label: "Leading column",
+      description:
+        "The check in the header's leading icon column, where the lines draw their own glyph; the time ends the row alone.",
+    },
+  },
+  defaultArm: "column",
+});

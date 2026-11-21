@@ -104,24 +104,33 @@
   background-color: var(--ui-hover-fill, color-mix(in srgb, currentColor 10%, transparent));
 }
 
-/* A control revealed on hover of its host fades in over micro (120 ms) and out over quick (80 ms),
-   never blinks; it stays shown while a menu it opened is open (data-popup-open) or it has focus. */
+/* A control revealed on hover of its host follows the pointer's dwell (pages/shared/desktop.css
+   --cmux-hover-reveal-*): it ramps toward full for as long as the pointer stays and reverses from
+   wherever it got to when the pointer leaves, so a pass reaches only a faint level. It is at full at
+   once from the keyboard, and stays shown while a menu it opened is open (data-popup-open). The
+   literal fallbacks are for a page without desktop.css. */
 .ui-reveal {
-  --ui-reveal-ms: var(--cmux-motion-quick, 80ms);
+  --ui-reveal-ms: var(--cmux-hover-reveal-out, 180ms);
+  --ui-reveal-ease: var(--cmux-hover-reveal-out-ease, ease-in);
   opacity: 0;
-  transition: opacity var(--ui-reveal-ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
+  transition: opacity var(--ui-reveal-ms) var(--ui-reveal-ease);
 }
 .ui-reveal-host:hover .ui-reveal,
 .ui-reveal-host:focus-within .ui-reveal,
 .ui-reveal[data-popup-open],
 .ui-reveal-host:has([data-popup-open]) .ui-reveal {
-  --ui-reveal-ms: var(--cmux-motion-micro, 120ms);
+  --ui-reveal-ms: var(--cmux-hover-reveal-in, 400ms); /* motion-allow: the dwell ramp's fallback (desktop.css --cmux-hover-reveal-in) */
+  --ui-reveal-ease: var(--cmux-hover-reveal-in-ease, ease-out);
   opacity: 1;
 }
-/* Both: the reveal's own in and out durations, and the fill's 80 ms fade beside them. */
+.ui-reveal-host:has(:focus-visible) .ui-reveal,
+.ui-reveal:focus-visible {
+  --ui-reveal-ms: 0s;
+}
+/* Both: the reveal's own in and out, and the fill's 80 ms fade beside them. */
 .ui-reveal.ui-hover-fill {
   transition:
-    opacity var(--ui-reveal-ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1)),
+    opacity var(--ui-reveal-ms) var(--ui-reveal-ease),
     var(--ui-fill-transition);
 }
 

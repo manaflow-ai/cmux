@@ -13,9 +13,28 @@ impl Hub {
     /// Build a plain-text transcript from the log for rehydration. After a
     /// compaction it is the latest compaction summary and the messages since,
     /// and only those messages are cut to fit `max_chars`.
-    pub(super) fn transcript(&self, session: &Session, max_chars: usize) -> Option<String> {
+    ///
+    /// `prompt_id` is the turn the transcript is sent with. Its prompt is logged before the
+    /// transcript is built and goes to the agent right after it, so the transcript leaves it
+    /// out: sent in both, a restored chat's prompt reached the agent twice.
+    pub(super) fn transcript(
+        &self,
+        session: &Session,
+        max_chars: usize,
+        prompt_id: &str,
+    ) -> Option<String> {
         let mut transcript = TranscriptBuilder::new(max_chars);
-        self.store.scan_kinds(&session.id, KINDS, &mut |e| transcript.read(&e)).ok()?;
+        self.store
+            .scan_kinds(&session.id, KINDS, &mut |e: EventRecord| {
+                // The turn's own prompt goes to the agent right after the transcript.
+                if e.kind == "user_message"
+                    && e.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id)
+                {
+                    return true;
+                }
+                transcript.read(&e)
+            })
+            .ok()?;
         transcript.finish()
     }
 

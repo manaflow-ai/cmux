@@ -75,7 +75,8 @@ pub fn describe(p: Protection) -> String {
 }
 
 /// The first of [`DAEMON_STEPS`] below `was` that `write` takes, or `was`
-/// when it takes none.
+/// when it takes none. Only Linux has `oom_score_adj`; the unit tests run everywhere.
+#[cfg(any(target_os = "linux", test))]
 fn lower(was: i32, mut write: impl FnMut(&[u8]) -> bool) -> i32 {
     for step in DAEMON_STEPS {
         let Some(value) = parse(step) else { continue };
@@ -114,6 +115,7 @@ pub fn agent_at_exec(cmd: &mut tokio::process::Command) {
 }
 
 /// The decimal `oom_score_adj` in `bytes` (`-1000`..`1000`, a newline after it).
+#[cfg(any(target_os = "linux", test))]
 fn parse(bytes: &[u8]) -> Option<i32> {
     let (negative, digits) = match bytes.split_first()? {
         (b'-', rest) => (true, rest),

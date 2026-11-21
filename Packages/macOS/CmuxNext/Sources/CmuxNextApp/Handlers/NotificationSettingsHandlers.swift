@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextNotifications
 import CmuxNextSettings
 import CmuxNextWindowRules
 
@@ -45,6 +46,7 @@ enum NotificationSettingsHandlers {
             context.writeSetting("toggle banners", ["notifications", "desktop"], .string(next.rawValue))
         })
         ActionTargetTitles.setPaletteSettingState("notifications.toggleBanners", in: registry) { notifications.preferences.desktop != .never }
+        notifications.desktop.bindAllowDesktop(into: registry)
         for mode in NotificationDismissal.allCases {
             registry.bind(ActionID(rawValue: "notifications.dismissal.\(mode.rawValue)"), run: { _ in
                 notifications.preferences.dismissal = mode

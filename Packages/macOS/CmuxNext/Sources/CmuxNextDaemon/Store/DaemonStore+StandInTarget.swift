@@ -71,6 +71,11 @@ extension DaemonStore {
     /// over and its first tab's daemon surface (``WorkspaceModel/tookOverStandIn``), for a create pressed on that
     /// stand-in that is sent after the hand-over (a window that still shows the stand-in for a frame).
     func noteIntentLeft(_ entry: PendingIntent, rejected: Bool) {
+        if !rejected { intentLog.noteStandInSettled(entry) }
+        // A close that leaves the log changes `closedLately` and `closePending` for its tabs: the tab lists publish
+        // (`tabListRevision`), so a new tab's move waiting for one of them stops even when its `tab-closed` applied before
+        // the reply. A refused close too: it gives no tab back when the daemon closed the tab.
+        if case .closeTabs = entry.kind { index.noteTabOrderChanged() }
         guard !rejected, case .createWorkspace(let provisional, _) = entry.kind,
               let workspace = workspacesByKey[provisional.key], !workspace.isProvisional else { return }
         workspace.tookOverStandIn = (provisional.pane, entry.createdConfirmed ? entry.createdSurface : nil)

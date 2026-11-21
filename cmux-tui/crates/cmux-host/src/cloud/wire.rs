@@ -10,6 +10,10 @@ use serde_json::{Map, Value, json};
 pub const BIND_FILE: &str = "/var/lib/cmux/bind.json";
 /// Written by a successful bind, before `bind.json` is removed (0600).
 pub const BOUND_FILE: &str = "/var/lib/cmux/bound.json";
+/// A bind POST whose answer was lost (a transport error, 429 or 5xx): the
+/// token's digest and when (0600). A refusal of that same token later may be
+/// the platform answering a replay of a bind it already committed.
+pub const BIND_UNANSWERED_FILE: &str = "/var/lib/cmux/bind-unanswered.json";
 /// This VM's kind for processes that cannot read /var/lib/cmux (0700 root):
 /// `owner` or `team`, root-owned, 0644. Informational: it records the kind
 /// cmux assigned, and acpmux does not trust it for any decision (#26227).

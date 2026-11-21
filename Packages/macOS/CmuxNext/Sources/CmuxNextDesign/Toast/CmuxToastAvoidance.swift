@@ -33,7 +33,7 @@ public final class CmuxToastAvoidance {
     }
 
     /// Adds `host` to the hosts that move `window`'s toasts when an avoided view there changes.
-    static func register(_ host: any CmuxToastReanchoring, in window: NSWindow) {
+    public static func register(_ host: any CmuxToastReanchoring, in window: NSWindow) {
         if let link = existing(in: window) {
             link.hosts.add(host)
             return
@@ -45,7 +45,7 @@ public final class CmuxToastAvoidance {
 
     /// Removes `host` from `window`'s link once it shows no toast there; the last host to leave
     /// detaches the link, so later changes in `window` start no task.
-    static func unregister(_ host: any CmuxToastReanchoring, from window: NSWindow) {
+    public static func unregister(_ host: any CmuxToastReanchoring, from window: NSWindow) {
         guard let link = existing(in: window) else { return }
         link.hosts.remove(host)
         if link.hosts.anyObject == nil { objc_setAssociatedObject(window, &key, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
@@ -77,5 +77,41 @@ public final class CmuxToastAvoidance {
             guard let window, let link else { return }
             for case let host as any CmuxToastReanchoring in link.hosts.allObjects { host.reanchor(in: window) }
         }
+    }
+
+    /// The gap between a toast and the view it avoids.
+    public static let avoidanceGap: CGFloat = 8
+
+    /// The lowest bottom edge (window coordinates) a toast of `width`, centered in `bounds`, may
+    /// take in `window`: above every avoided rect under it, else `bounds.minY`.
+    public static func floor(width: CGFloat, in bounds: NSRect, window: NSWindow) -> CGFloat {
+        let band = NSRect(x: bounds.midX - width / 2 - avoidanceGap, y: bounds.minY,
+                          width: width + 2 * avoidanceGap, height: bounds.height)
+        var floor = bounds.minY
+        // Every shown view under the content view, a view before its subviews. An explicit stack,
+        // not a recursive local function that captures `floor` (Swift 6.3.3's SendNonSendable pass
+        // crashed now and then on such captures in Release).
+        var pending: [NSView] = window.contentView.map { [$0] } ?? []
+        while let view = pending.popLast() {
+            guard !view.isHidden, view.alphaValue > 0.01 else { continue }
+            if let avoiding = view as? any CmuxToastAvoiding {
+                let rect = avoiding.convert(avoiding.toastAvoidanceRect, to: nil)
+                if !rect.isEmpty, rect.intersects(band) { floor = max(floor, rect.maxY + avoidanceGap) }
+            }
+            pending.append(contentsOf: view.subviews.reversed())
+        }
+        return floor
+    }
+
+    /// Every view under `window`'s content view that reserves room for toasts, hidden ones too
+    /// (one hidden while toasts showed still hears that they went).
+    public static func reservingViews(in window: NSWindow) -> [any CmuxToastReserving] {
+        var found: [any CmuxToastReserving] = []
+        var pending: [NSView] = window.contentView.map { [$0] } ?? []
+        while let view = pending.popLast() {
+            if let reserving = view as? any CmuxToastReserving { found.append(reserving) }
+            pending.append(contentsOf: view.subviews)
+        }
+        return found
     }
 }

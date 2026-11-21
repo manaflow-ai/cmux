@@ -91,7 +91,7 @@ struct KeyboardResizeShownLimitTests {
         Self.check(towardLimit: Self.moves(from: divider(base), right.edges), back: Self.moves(from: lastRight, backLeft.edges), step: step)
     }
 
-    /// p1 is the last column: Left moves its left edge, so c0 narrows to its minimum and c1 takes the width it gives.
+    /// p1 is the last column: Left shrinks it across its left edge, so c1 narrows to its minimum and c0 takes the width it gives.
     @Test func columnPressesStopAtTheColumnMinimumAndComeBackAWholeStep() {
         let start = ScreenLayout.columns([LayoutColumn(id: "c0", width: 0.5, root: .leaf("p0")),
                                           LayoutColumn(id: "c1", width: 0.5, root: .leaf("p1"))])

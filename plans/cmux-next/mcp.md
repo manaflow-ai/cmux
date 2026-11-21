@@ -201,7 +201,9 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
 - Mutations carry an idempotency key: the `idempotency_key` argument, else a new
   one. A failed call returns `{error, state, idempotency_key}`: `error` is the
   owner's error unchanged, `state` is `rejected`, `not_run` or `in_progress`. Retry
-  an `in_progress` call with the same key; it cannot apply twice.
+  an `in_progress` call with the same key; it cannot apply twice. An app refusal's
+  `data.state: "rejected"` (the app decided: a pane that cannot split) is `rejected`
+  here too, never `not_run`; `not_run` is a request the owner did not get to.
 - App actions send `action.run` with `wait: true`, `after: "sync"`, `cli: true` and
   `origin: "mcp"`. The app changes the user's focus, selection, shown workspace or key
   window only when the call passes `focus: true` or the action's purpose is focus.

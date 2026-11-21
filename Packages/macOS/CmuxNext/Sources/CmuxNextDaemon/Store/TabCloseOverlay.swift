@@ -19,6 +19,7 @@ import Foundation
             hidden.append(HiddenTab(tab: removed, pane: pane.handle, index: index))
         }
         guard !hidden.isEmpty else { return nil }
+        store.intentLog.noteClosed(hidden.map { ($0.tab.id, $0.tab.surface) })
         store.index.noteTabOrderChanged()
         return .closedTabs(hidden)
     }
@@ -54,6 +55,26 @@ extension DaemonStore {
 }
 
 extension DaemonStore {
+    /// Whether the person closed the daemon tab with this id or surface lately and the close settled, so a wait for it
+    /// to be listed can stop: it never comes back (Leo 2026-11-05: "delete the proper thing"). Cmd-T twice, then the
+    /// first tab closed before its reply: the second's move waited out the first's list wait (`NewTabSlot.listLimit`,
+    /// 10 s), past its open, and the second tab fell to the end of the strip. A close still pending (held for a running
+    /// program's confirmation, or not answered) can still give the tab back, so it does not count. Observes the tab
+    /// lists (`tabListRevision`), which change as a close settles.
+    public func closedLately(_ tab: String) -> Bool { intentLog.closedTabs.last { $0.id == tab }.map { closeSettled($0.surface) } ?? false }
+    public func closedLately(_ surface: SurfaceID) -> Bool { intentLog.closedTabs.contains { $0.surface == surface } && closeSettled(surface) }
+
+    /// Whether a close of the daemon tab with this id or surface is in the log (held back from the daemon, or not
+    /// answered): the tab is hidden and can still come back. False after the close settled, and after the daemon
+    /// refused it. Observes the tab lists (`tabListRevision`), which change as a close leaves the log.
+    public func closePending(_ tab: String) -> Bool { intentLog.closedTabs.last { $0.id == tab }.map { !closeSettled($0.surface) } ?? false }
+    public func closePending(_ surface: SurfaceID) -> Bool { !closeSettled(surface) }
+
+    private func closeSettled(_ surface: SurfaceID) -> Bool {
+        _ = tabListRevision
+        return !intentLog.entries.contains { if case .closeTabs(let surfaces) = $0.kind { surfaces.contains(surface) } else { false } }
+    }
+
     /// The ids of the daemon tabs whose close is in flight (hidden by a pending close intent).
     public var closingTabIDs: Set<String> {
         intentLog.entries.reduce(into: Set<String>()) { ids, entry in
@@ -68,15 +89,20 @@ extension DaemonStore {
     /// slot early (Leo 2026-11-05, the close/create shuffle: Cmd-T after b, close a, the new tab ended first). A close
     /// already sent reaches the daemon before the move, so its tabs do not count.
     public func daemonMoveIndex(_ index: Int, moving surface: SurfaceID, in pane: PaneModel) -> (final: Int, current: Int?) {
+        let others = pane.tabs.map(\.surface).filter { $0 != surface }, order = daemonOrder(of: pane)
+        let full = order.filter { $0 != surface }
+        let final = others.dropFirst(index).first.flatMap { full.firstIndex(of: $0) } ?? full.count
+        return (final, order.firstIndex(of: surface))
+    }
+
+    /// The daemon's order of `pane`'s tabs: the visible tabs, and the tabs of each close held back from the daemon.
+    func daemonOrder(of pane: PaneModel) -> [SurfaceID] {
         var order = pane.tabs.map(\.surface)
-        let others = order.filter { $0 != surface }
         // Each held close's overlay undone, newest first, as `TabCloseOverlay.undo` would.
         for entry in intentLog.entries.reversed() {
             guard case .closedTabs(let hidden)? = entry.undo else { continue }
             for tab in hidden.reversed() where tab.pane == pane.handle && heldTabIDs.contains(tab.tab.id) { order.insert(tab.tab.surface, at: min(tab.index, order.count)) }
         }
-        let full = order.filter { $0 != surface }
-        let final = others.dropFirst(index).first.flatMap { full.firstIndex(of: $0) } ?? full.count
-        return (final, order.firstIndex(of: surface))
+        return order
     }
 }

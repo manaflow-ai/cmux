@@ -18,6 +18,17 @@ fn a_cloud_start_is_refused_only_when_cloud_is_off_or_nobody_is_signed_in() {
     assert_eq!(serde_json::to_value(Refusal::CloudDisabled).unwrap(), "cloud_disabled");
 }
 
+/// The plan card's Switch to <team>: a team switch the app only queued (another switch was still
+/// saving) leaves the old team active, so the start refuses rather than run in it (cmux#39928 F3).
+#[test]
+fn a_start_that_asked_for_a_team_runs_only_once_that_team_is_active() {
+    assert_eq!(team_refusal(None, Some("team-a")), None);
+    assert_eq!(team_refusal(Some("team-a"), Some("team-a")), None);
+    assert_eq!(team_refusal(Some("team-a"), Some("team-b")), Some(Refusal::TeamSwitching));
+    assert_eq!(team_refusal(Some("team-a"), None), Some(Refusal::TeamSwitching));
+    assert_eq!(serde_json::to_value(Refusal::TeamSwitching).unwrap(), "cloud_team_switching");
+}
+
 /// A team switch keeps the user signed in and the previous team's machines in the store until the
 /// new list lands. A send is kept under the account it was sent in, and copies nothing while the
 /// account changed or its list is not current.

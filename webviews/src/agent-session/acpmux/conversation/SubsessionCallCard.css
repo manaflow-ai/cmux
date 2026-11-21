@@ -66,6 +66,19 @@
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+.cv-send-batch__pages {
+  display: flex;
+  align-items: center;
+  gap: var(--grid-gap);
+  height: var(--cv-tool-row-height);
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+}
+.cv-send-batch__pages .cv-subsession__toggle:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
 /* A sent message's line takes the message rows' grammar from AgentMessageRow.css: its recipient
    is the chip (`.cv-agentmsg__name`), its first line `.cv-agentmsg__preview`. */
 

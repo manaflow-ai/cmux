@@ -14,28 +14,16 @@
 //   moves again or the list unmounts; the window listeners exist only while a drag runs (pointer up,
 //   pointer cancel, Escape and window blur end it). Reduce Motion or the host's motion switch
 //   (`data-agent-motion="off"`) moves everything in one frame.
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { MOTION_EASE_OUT, MOTION_MS } from "../../../motion/scale.generated";
 import { isAgentMotionOff } from "../../shared/motion";
 import { useT } from "../i18n";
+import { useFoldMotion } from "./foldMotion";
 import { heldPlace } from "./heldPlace";
 import { SessionInfoFold } from "./SessionInfoSection";
 import { isAppId, MORE_LINE, moveTo, setSectionOrder, tuckedSections, useSectionOrder } from "./sectionOrder";
 import type { SessionInfoSectionId } from "./sessionInfoState";
-
-type Reorder = {
-  dragging: SessionInfoSectionId | undefined;
-  start: (id: SessionInfoSectionId, event: React.PointerEvent<HTMLElement>) => void;
-  step: (id: SessionInfoSectionId, by: -1 | 1) => void;
-};
-
-const ReorderContext = createContext<Reorder | undefined>(undefined);
-
-/// The panel's reorder actions, for a section inside it; none outside (the gallery's lone sections).
-export function useReorder(): Reorder | undefined {
-  return useContext(ReorderContext);
-}
-
+import { type Reorder, ReorderContext } from "./sessionInfoGroupModel";
 type Drag = {
   id: SessionInfoSectionId;
   /// The pointer's clientY at the press and now.
@@ -110,11 +98,21 @@ export function SessionInfoSectionList({
   // section is under it, and only in the `more` look.
   const present = base.filter((id) => (id === MORE_LINE ? look === "more" && !!onMoreChange : sections[id]));
   const tucked = look === "more" ? tuckedSections(present, base) : [];
+  const list = useRef<HTMLDivElement>(null);
+  // Show more opens the sections under the line in place, and Show less closes the list over them, as
+  // one motion with the panel's edge; they stay drawn until it has (foldMotion.ts).
+  const moreFold = useFoldMotion(
+    more,
+    (box) => {
+      const line = [...box.children].find((node) => (node as HTMLElement).dataset.slot === MORE_LINE);
+      return line ? line.getBoundingClientRect().bottom - box.getBoundingClientRect().top : box.offsetHeight;
+    },
+    list,
+  );
   // The held section stays drawn while it is under a closed line: it folds away on the drop.
-  const shown = (more ? present : present.filter((id) => !tucked.includes(id) || id === dragging)).filter(
+  const shown = (moreFold.drawn ? present : present.filter((id) => !tucked.includes(id) || id === dragging)).filter(
     (id) => id !== MORE_LINE || tucked.length > 0,
   );
-  const list = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | undefined>(undefined);
   // Each section's layout top at the last commit, the order then, and the slides running.
   const places = useRef(new Map<SessionInfoSectionId, number>());
@@ -328,7 +326,11 @@ export function SessionInfoSectionList({
             // Open, it reads Show less with a hairline to the row's end, over the sections it holds.
             // It has no handle: sections drag across it, into view or under it.
             <div key={id} className="acpmux-session-info-slot" data-slot={id}>
-              <SessionInfoFold className="acpmux-session-info-more" open={more} onToggle={() => onMoreChange?.(!more)}>
+              <SessionInfoFold
+                className="acpmux-session-info-more"
+                open={more}
+                onToggle={() => onMoreChange && moreFold.toggle(!more, onMoreChange)}
+              >
                 <span>{t(more ? "sessionInfo.changes.showLess" : "sessionInfo.changes.showMore")}</span>
                 {more && <span className="acpmux-session-info-more__rule" aria-hidden="true" />}
               </SessionInfoFold>

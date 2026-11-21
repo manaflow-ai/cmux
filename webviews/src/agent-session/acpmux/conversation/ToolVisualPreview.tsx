@@ -1,22 +1,28 @@
 import { useState, type ReactNode } from "react";
 import { AnchoredCard } from "../../../ui/Tooltip";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
-import { mediaKind } from "../chips/ReplyMedia";
 import { useHoverCard } from "../chips/useHoverCard";
 import "./toolVisualPreview.css";
-
-/** Keep audio and video in their existing players, including inline MCP media. */
-export function isStillVisual(source: string): boolean {
-  return source.startsWith("data:image/") || (!source.startsWith("data:") && !mediaKind(source));
-}
-
-export function ToolVisualRow({ sources, label, children }: { sources: string[]; label: string; children: ReactNode }) {
+import { isStillVisual } from "./toolVisualPreviewModel";
+/// `opened`: the row shows its images under it, so the small one at its edge steps aside. The wrapper
+/// stays, so the row's button is the same element open or closed (its focus and its fold's anchor).
+export function ToolVisualRow({
+  sources,
+  label,
+  opened = false,
+  children,
+}: {
+  sources: string[];
+  label: string;
+  opened?: boolean;
+  children: ReactNode;
+}) {
   const source = sources.find(isStillVisual);
   if (!source) return <>{children}</>;
   return (
     <div className="cv-tool-with-visual">
       {children}
-      <ToolVisualPreview source={source} label={label} />
+      {!opened && <ToolVisualPreview source={source} label={label} />}
     </div>
   );
 }

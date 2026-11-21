@@ -3,12 +3,36 @@
 // word glued to the `#` is not a reference.
 import { describe, expect, test } from "bun:test";
 import {
+  githubIssueLink,
   githubReferences,
   latestMentionedRepository,
   mentionedRepository,
   REPOSITORY_ALIASES,
   shortNames,
 } from "./githubReferences";
+
+describe("githubIssueLink", () => {
+  test("accepts a lone issue URL and normalizes a trailing slash", () => {
+    expect(githubIssueLink("  https://github.com/manaflow-ai/cmux/issues/123/  ")).toEqual({
+      url: "https://github.com/manaflow-ai/cmux/issues/123",
+      owner: "manaflow-ai",
+      repository: "cmux",
+      number: 123,
+    });
+  });
+
+  test.each([
+    "https://github.com/manaflow-ai/cmux/Issues/123",
+    "https://github.com/manaflow-ai/cmux/issues/0",
+    "https://github.com/manaflow-ai/cmux/issues/12345678901",
+    "https://github.com/manaflow-ai/cmux/pull/123",
+    "https://github.com/manaflow-ai/cmux/issues/123\nplease fix",
+    "http://github.com/manaflow-ai/cmux/issues/123",
+    "https://github.com/login/issues/123",
+  ])("rejects %s", (url) => {
+    expect(githubIssueLink(url)).toBeUndefined();
+  });
+});
 
 const REPO = "manaflow-ai/cmux";
 

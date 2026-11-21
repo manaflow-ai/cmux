@@ -216,10 +216,10 @@ if [ "$(exe_sha "$D")" = "$TARGET_SHA" ]; then
     restore_state_mount || finish "FAIL state-mount-restore reason=$STATE_MOUNT_FAILURE"
     finish "FAIL $STATE_MOUNT_FAILURE"
   }
-  # The next restart runs the binary on disk, so it must match too.
-  if [ "$(bin_sha)" != "$TARGET_SHA" ]; then
-    sh "$RUN/install.cmd" >> "$RUN/log" 2>&1 || finish "FAIL install"
-  fi
+  # The next restart runs the binary on disk, so it must match too. The
+  # install also puts in this build's guest integration (the adapter), which
+  # a binary-only update left behind; it skips a binary that already matches.
+  sh "$RUN/install.cmd" >> "$RUN/log" 2>&1 || finish "FAIL install"
   [ "$(bin_sha)" = "$TARGET_SHA" ] && finish "OK already-current daemon=$D" || finish "FAIL daemon-current-but-binary-not"
 fi
 FREE=$(df -Pm "$H" | awk 'NR==2{print $4}')

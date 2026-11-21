@@ -124,16 +124,25 @@ impl Mux {
         }
         let (commit, terminal_incarnation, public_id, notify_public_id) = {
             let mut registry = self.workspace_registry.lock().unwrap();
-            if guard == TerminalCloseGuard::UnplacedAndNotKept {
-                let placed = {
+            if guard.requires_unplaced() {
+                let (placed, attached) = {
                     let state = self.lock_state_pinned(&registry).unwrap();
-                    state.surfaces.values().any(|surface| {
+                    let hosts = |surface: &Arc<Surface>| {
                         self.resource_terminal_host_identity(surface)
                             .is_some_and(|identity| identity.terminal_id == terminal_id)
-                    })
+                    };
+                    let placed = state.surfaces.values().any(&hosts);
+                    let attached = guard.requires_detached()
+                        && state.terminal_catalog.values().any(|runtime| {
+                            hosts(runtime) && self.terminal_view_attached(runtime.id)
+                        });
+                    (placed, attached)
                 };
                 if placed || registry.terminal_keep(terminal_id)? {
-                    return Err(TerminalCloseGuardFailed.into());
+                    return Err(TerminalCloseGuardFailed::PlacedOrKept.into());
+                }
+                if attached {
+                    return Err(TerminalCloseGuardFailed::Attached.into());
                 }
             }
             let public_id = registry.terminal_resource_id(terminal_id)?;

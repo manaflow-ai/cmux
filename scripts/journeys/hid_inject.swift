@@ -24,6 +24,12 @@
 //   {"do": "drag", "from": [X, Y], "to": [X, Y], "duration_ms": D, "hz": 120, "hold_ms": 60, "modifiers": [...]}
 //       mouse down at `from`, `hold_ms`, then one dragged event per 1/hz s on a straight line to `to`, mouse up
 //   {"do": "wait", "ms": N}
+//   {"do": "glide", "from": [X, Y], "to": [X, Y], "duration_ms": D, "hz": 120}
+//       pointer moves (no button) at 1/hz s on a straight line: hover paths
+//   {"do": "scroll", "x": X, "y": Y, "dy": N, "count": C, "hz": 120, "units": "line"|"pixel", "phases": false}
+//       the pointer moves to (x, y), then C scroll-wheel events of N units each (CGEvent's wheel1 sign: positive is a wheel
+//       turned up, which shows earlier content) at 1/hz s. "phases": true makes a trackpad gesture: pixel units, a began
+//       event, C - 2 changed events and an ended event (scrollPhase), continuous
 // LOG: {"clock": "mach_absolute_time ns", "start_ns", "steps": [{"do", "events": N, "target_hz"?, "achieved_hz"?}],
 //       "events": [[t_ns, type, x, y, key_code]], "rate_floor", "rate_ok": bool, "posted": bool}. A drag's
 //       achieved rate is (drag events - 1) / (last - first drag timestamp); a late wake of this process lowers it.
@@ -127,6 +133,13 @@ func point(_ v: Any?) throws -> CGPoint {
     return CGPoint(x: x, y: y)
 }
 
+/// The target and achieved rate of a step's timed events of `type` (as a drag's): (n - 1) / (last - first).
+func rate(_ inj: Injector, from first: Int, type: String, hz: Double) -> [String: Any] {
+    let times = inj.events[first...].filter { ($0[1] as? String) == type }.compactMap { $0[0] as? UInt64 }
+    guard times.count > 1, let lo = times.first, let hi = times.last, hi > lo else { return [:] }
+    return ["target_hz": hz, "achieved_hz": Double(times.count - 1) / (Double(hi - lo) / 1e9)]
+}
+
 /// Plays the script; returns the per-step summary.
 func play(_ script: [String: Any], _ inj: Injector, start: UInt64) throws -> [[String: Any]] {
     guard let steps = script["steps"] as? [[String: Any]], !steps.isEmpty else { throw Fail(code: 2, message: "no steps") }
@@ -183,6 +196,46 @@ func play(_ script: [String: Any], _ inj: Injector, start: UInt64) throws -> [[S
                 summary["target_hz"] = hz
                 summary["achieved_hz"] = Double(drags.count - 1) / (Double(hi - lo) / 1e9)
             }
+        case "glide":
+            let a = try point(step["from"]), b = try point(step["to"])
+            let duration = try millis(step["duration_ms"], default: 0) / 1000
+            let hz = max(1, min(1000, number(step["hz"]) ?? 120))
+            let count = max(1, Int((duration * hz).rounded()))
+            inj.mouse(.mouseMoved, a, mods: mods, at: t, name: "move")
+            let glideStart = t
+            for i in 1...count {
+                let f = Double(i) / Double(count)
+                let p = CGPoint(x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f)
+                inj.mouse(.mouseMoved, p, mods: mods, at: glideStart + UInt64(Double(i) * 1e9 / hz), name: "glide")
+            }
+            t = glideStart + UInt64(Double(count) * 1e9 / hz)
+            summary.merge(rate(inj, from: first, type: "glide", hz: hz)) { $1 }
+        case "scroll":
+            let p = CGPoint(x: number(step["x"]) ?? 0, y: number(step["y"]) ?? 0)
+            let dy = Int32(max(-1000, min(1000, number(step["dy"]) ?? 1)))
+            let count = max(1, min(100_000, Int(number(step["count"]) ?? 1)))
+            let hz = max(1, min(1000, number(step["hz"]) ?? 120))
+            let phases = (step["phases"] as? Bool) ?? false
+            let units: CGScrollEventUnit = (phases || (step["units"] as? String) == "pixel") ? .pixel : .line
+            inj.mouse(.mouseMoved, p, mods: mods, at: t, name: "move")
+            t += 20_000_000
+            let scrollStart = t
+            for i in 0..<count {
+                // kCGScrollPhaseBegan 1, Changed 2, Ended 4; 0 = a plain wheel event.
+                let phase: Int64 = !phases ? 0 : (i == 0 ? 1 : (i == count - 1 ? 4 : 2))
+                inj.emit({
+                    let e = CGEvent(scrollWheelEvent2Source: inj.source, units: units, wheelCount: 1, wheel1: dy, wheel2: 0, wheel3: 0)
+                    e?.flags = mods
+                    e?.location = p
+                    if phases {
+                        e?.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+                        e?.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
+                    }
+                    return e
+                }, at: scrollStart + UInt64(Double(i) * 1e9 / hz), type: "scroll", x: p.x, y: p.y, key: Int(dy))
+            }
+            t = scrollStart + UInt64(Double(count) * 1e9 / hz)
+            summary.merge(rate(inj, from: first, type: "scroll", hz: hz)) { $1 }
         default:
             throw Fail(code: 2, message: "unknown step \(kind)")
         }

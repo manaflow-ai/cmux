@@ -13,7 +13,7 @@ nonisolated extension SidebarLayout {
     ///   - group: The group as the model holds it (its members; `isCollapsed` is ignored).
     ///   - collapsed: The fold to show.
     ///   - section: The section that lists the group (its machine names the rows of another computer).
-    ///   - base: The list's metrics (`options.minimal` makes them minimal, as in `make`).
+    ///   - base: The list's metrics (`options` resolves them, as in `make`).
     ///   - o: The options the list lays out with.
     func folding(_ group: SidebarGroup, collapsed: Bool, in section: SidebarSection, metrics base: SidebarLayoutMetrics,
                  options o: SidebarLayoutOptions) -> SidebarLayout? {
@@ -37,6 +37,7 @@ nonisolated extension SidebarLayout {
         // So does one holding archived workspaces (its "Archived (N)" row), and one longer than the row limit (its
         // "Show N more" row).
         guard group.parent == nil, !(o.foldsDone && group.workspaces.contains { $0.taskStatus == .done }),
+              !group.workspaces.contains(where: { o.settled.contains($0.id) }),
               !(o.foldsArchived && group.workspaces.contains(where: \.isArchived)),
               !(o.archiveSection && (group.isArchived || group.workspaces.contains(where: \.isArchived))),
               o.rowLimit == 0 || group.members.count <= o.rowLimit + 1,

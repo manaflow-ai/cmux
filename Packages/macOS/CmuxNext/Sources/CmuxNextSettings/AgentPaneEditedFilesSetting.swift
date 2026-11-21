@@ -1,3 +1,6 @@
+// The paths, defaults, range and choices are generated from schemas/settings/source/agent-pane-edited-files.json
+// (Schema/SettingsSchema+AgentPaneEditedFiles.generated.swift).
+
 /// The agent pane's edited-files card in cmux.json (the pane reads the same names,
 /// webviews/src/agent-session/acpmux/turnChanges/settings.ts):
 ///
@@ -9,16 +12,9 @@
 /// tool rows). `maxRows`: rows before "Show N more". `scope`: turn (a card per turn) or session (one
 /// card, at the session's latest edit). A bad value is that key's default plus a diagnostic.
 public nonisolated struct AgentPaneEditedFilesSetting: Sendable, Hashable {
-    public static let showPath = ["agentPane", "editedFiles", "show"]
-    public static let maxRowsPath = ["agentPane", "editedFiles", "maxRows"]
-    public static let scopePath = ["agentPane", "editedFiles", "scope"]
-    public static let shows = ["always", "collapsed", "never"]
-    public static let scopes = ["turn", "session"]
-    public static let maxRowsRange: ClosedRange<Double> = 1...50
-
-    public var show = "always"
-    public var maxRows = 5
-    public var scope = "turn"
+    public var show = Self.showDefault
+    public var maxRows = Int(Self.maxRowsDefault)
+    public var scope = Self.scopeDefault
 
     public init() {}
 
@@ -38,7 +34,7 @@ public nonisolated struct AgentPaneEditedFilesSetting: Sendable, Hashable {
             }
             switch descriptor.path {
             case showPath: setting.show = value.stringValue ?? setting.show
-            case maxRowsPath: setting.maxRows = Int(value.doubleValue ?? 5)
+            case maxRowsPath: setting.maxRows = Int(value.doubleValue ?? Self.maxRowsDefault)
             case scopePath: setting.scope = value.stringValue ?? setting.scope
             default: break
             }

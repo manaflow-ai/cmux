@@ -1,7 +1,8 @@
 // l10n-allow-file: gallery fixtures for the command palette menu.
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
-import { PaletteMenu, paletteSections } from "./PaletteMenu";
+import { PaletteMenu } from "./PaletteMenu";
+import { paletteSections } from "./paletteMenuModel";
 import { nativeComposerExtensions } from "./composerPlusRegistry";
 import { useT } from "./i18n";
 

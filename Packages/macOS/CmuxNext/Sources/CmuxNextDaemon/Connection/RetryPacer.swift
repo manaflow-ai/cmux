@@ -29,12 +29,23 @@ public struct RetryPolicy: Sendable {
     /// itself starts its peer (the app's local daemon, through `server ensure`): what made the
     /// start fail can end with no event at all (a full disk that has space again, restore fuzz h2).
     public var keepsTrying: Bool
+    /// An explicit event that came while an attempt ran wakes the wait after it fails
+    /// (``RetryWake/rebaseline(keepingEventsAfter:)``). For a loop with no timer left
+    /// (``linkReconnect``): the link reporting connected during a failing attempt must not be lost.
+    public var keepsEventsDuringAttempt: Bool
+    /// Drops of a connection that each spend one token (``DropBudget``) instead of resetting the
+    /// spacing when a connection opens or stays healthy: a peer that accepts and then closes at once
+    /// gets at most `capacity` attempts before the next refill (cmuxterm-hq#7766). Nil: no budget.
+    public var dropBudget: DropBudget?
 
-    public init(initial: Duration, maximum: Duration, timedRetries: Int, socketRetries: Int = 3, keepsTrying: Bool = false) {
+    public init(initial: Duration, maximum: Duration, timedRetries: Int, socketRetries: Int = 3, keepsTrying: Bool = false,
+                keepsEventsDuringAttempt: Bool = false, dropBudget: DropBudget? = nil) {
         backoff = Backoff(initial: initial, maximum: maximum)
         self.timedRetries = timedRetries
         self.socketRetries = socketRetries
         self.keepsTrying = keepsTrying
+        self.keepsEventsDuringAttempt = keepsEventsDuringAttempt
+        self.dropBudget = dropBudget
     }
 
     /// Daemon reconnect: 50 ms growing to 30 s, 10 timed attempts (~80 s).
@@ -46,12 +57,78 @@ public struct RetryPolicy: Sendable {
     public static let localReconnect = RetryPolicy(initial: .milliseconds(50), maximum: .seconds(30), timedRetries: 10, keepsTrying: true)
     /// The app's first connect to its local daemon: as ``firstConnect``, then one attempt every 30 s.
     public static let localFirstConnect = RetryPolicy(initial: .milliseconds(250), maximum: .seconds(30), timedRetries: 10, keepsTrying: true)
+    /// A remote machine's first connect over a link whose own state machine redials (`cmux-tui remote
+    /// connect`, cmuxterm-hq#7766): one attempt, then events only (the link reporting connected again,
+    /// its process exiting, its socket replaced, app activation, a person's Reconnect). No timer: the
+    /// link spends its own budget and deadlines from its first dial on (the SSH probe included), so a
+    /// timed retry here would only stack dials on it.
+    public static let linkFirstConnect = RetryPolicy(initial: .milliseconds(1), maximum: .milliseconds(1), timedRetries: 0,
+                                                     keepsEventsDuringAttempt: true)
+    /// ``linkFirstConnect`` for a connection that dropped: each drop spends one token of a budget that
+    /// lives across connections (3 tokens, 1 back every 10 s) for one attempt after a jittered backoff
+    /// (50 ms growing to 2 s while drops come faster than the refill); an empty budget waits for the
+    /// next token or an event. A failed attempt waits for an event only.
+    public static let linkReconnect = RetryPolicy(initial: .milliseconds(50), maximum: .seconds(2), timedRetries: 1,
+                                                  keepsEventsDuringAttempt: true,
+                                                  dropBudget: DropBudget(capacity: 3, refill: .seconds(10)))
     /// A failing store snapshot while connected: 100 ms growing to 10 s, 8 attempts.
     public static let resync = RetryPolicy(initial: .milliseconds(100), maximum: .seconds(10), timedRetries: 8)
 }
 
+/// A token bucket for reconnects after drops (``RetryPolicy/dropBudget``): `capacity` tokens, one
+/// back every `refill`. It lives as long as its pacer, across connections, so neither a handshake nor
+/// a connection that stays up refills it; only time and an explicit reconnect (``fill()``) do.
+public struct DropBudget: Sendable, Equatable {
+    public let capacity: Int
+    public let refill: Duration
+    public private(set) var tokens: Int
+    /// When the token being refilled started; meaningless while full.
+    private var since: ContinuousClock.Instant?
+
+    public init(capacity: Int, refill: Duration) {
+        self.capacity = capacity
+        self.refill = refill
+        tokens = capacity
+    }
+
+    /// Whether the budget is full at `now`: no drop spent a token for at least a refill.
+    public mutating func isFull(at now: ContinuousClock.Instant) -> Bool {
+        accrue(at: now)
+        return tokens >= capacity
+    }
+
+    /// Spends one token and returns nil, or returns how long until the next token when it is empty.
+    public mutating func take(at now: ContinuousClock.Instant) -> Duration? {
+        accrue(at: now)
+        if tokens > 0 {
+            if tokens == capacity { since = now }
+            tokens -= 1
+            return nil
+        }
+        let start = since ?? now
+        return max(.zero, refill - (now - start))
+    }
+
+    /// An explicit reconnect: every token back.
+    public mutating func fill() {
+        tokens = capacity
+        since = nil
+    }
+
+    private mutating func accrue(at now: ContinuousClock.Instant) {
+        guard tokens < capacity, var start = since, refill > .zero else { return }
+        // At most `capacity` steps: each one is a token back.
+        while tokens < capacity, start + refill <= now {
+            tokens += 1
+            start += refill
+        }
+        since = tokens == capacity ? nil : start
+    }
+}
+
 /// One retry loop's pacing state: a single ``Backoff`` across consecutive
-/// failures, reset only after a success that stayed healthy.
+/// failures, reset only after a success that stayed healthy (or, under a
+/// ``RetryPolicy/dropBudget``, spent per drop and never reset by a connection).
 public struct RetryPacer: Sendable {
     public let policy: RetryPolicy
     private var backoff: Backoff
@@ -64,13 +141,34 @@ public struct RetryPacer: Sendable {
     private var budgetSocket: RetryWake.Identity?
     /// The last attempt was refused at the daemon's connection limit (``refusedBusy()``).
     private var busyRefusal = false
+    /// Spacing of busy refusals under a link policy (``RetryPolicy/keepsEventsDuringAttempt``), whose own
+    /// backoff is 1 ms: from 50 ms toward ``busyRetryCap``, as the timed policies space them.
+    private var busyBackoff = Backoff(initial: .milliseconds(50), maximum: RetryPacer.busyRetryCap)
     /// The longest spacing after a busy refusal: the daemon is up and frees a slot
     /// as soon as one of its connections ends.
     public static let busyRetryCap: Duration = .seconds(1)
+    /// Tokens for attempts after drops (``RetryPolicy/dropBudget``); kept by ``reset()``.
+    public private(set) var dropBudget: DropBudget?
+    /// A drop happened and its attempt has not run yet (``noteDrop()``).
+    private var dropPending = false
+    /// The current wait is for the next token of an empty ``dropBudget``.
+    public private(set) var waitsForToken = false
 
     public init(_ policy: RetryPolicy) {
         self.policy = policy
         backoff = policy.backoff
+        dropBudget = policy.dropBudget
+    }
+
+    /// The connection dropped: under a ``RetryPolicy/dropBudget`` the next ``failed()`` spends a token
+    /// for the attempt (or waits for the next one) instead of counting a failed attempt.
+    public mutating func noteDrop() {
+        dropPending = dropBudget != nil
+    }
+
+    /// An explicit reconnect (a person's Reconnect): the drop budget is full again.
+    public mutating func refillDropBudget() {
+        dropBudget?.fill()
     }
 
     /// The timed-retry budget is spent: wait for an event only (never for a ``RetryPolicy/keepsTrying`` loop).
@@ -90,6 +188,7 @@ public struct RetryPacer: Sendable {
         budgetSocket = nil
         busyRefusal = false
         backoff.reset()
+        busyBackoff.reset()
     }
 
     /// Notes one failure and returns the spacing before the next attempt,
@@ -98,7 +197,30 @@ public struct RetryPacer: Sendable {
         if busyRefusal {
             busyRefusal = false
             wokeBySocket = false
+            if policy.keepsEventsDuringAttempt { return busyBackoff.next() }
             return min(backoff.next(), Self.busyRetryCap)
+        }
+        if dropPending, var budget = dropBudget {
+            // A drop: one attempt per token, spaced by the backoff while drops come faster than the refill.
+            let now = ContinuousClock.now
+            if budget.isFull(at: now) { backoff.reset() }
+            let wait = budget.take(at: now)
+            dropBudget = budget
+            guard let wait else {
+                dropPending = false
+                failures = 0
+                wokeBySocket = false
+                return backoff.next()
+            }
+            waitsForToken = true
+            return wait
+        }
+        if dropBudget != nil {
+            // A failed attempt after a drop's: the link redials, so wait for its event only.
+            failures += 1
+            if wokeBySocket { socketFailures += 1 }
+            wokeBySocket = false
+            return nil
         }
         failures += 1
         if wokeBySocket { socketFailures += 1 }
@@ -153,6 +275,14 @@ public struct RetryPacer: Sendable {
     /// Now, Restart cmux-tui) starts a ``RetryPolicy/keepsTrying`` loop's spacing over; the
     /// crash-loop count stays, so a daemon that dies on every connect still stops socket wakes.
     public mutating func woke(_ cause: RetryWake.Cause) {
+        if waitsForToken {
+            waitsForToken = false
+            // The next token is due: the drop's attempt spends it. An event or socket change
+            // attempts at once without one.
+            if cause == .timer { _ = dropBudget?.take(at: .now) }
+            dropPending = false
+            failures = 0
+        }
         wokeBySocket = cause == .socket
         if cause == .event, policy.keepsTrying {
             failures = 0
@@ -166,8 +296,10 @@ extension RetryPacer {
     /// spacing (cut short by an event) or, once the budget is spent, for an
     /// event only; in a crash loop a socket change no longer counts.
     /// Returns false when cancelled.
-    public mutating func waitAfterFailure(wake: RetryWake, clock: any Clock<Duration>) async -> Bool {
-        wake.rebaseline()
+    /// `mark`: ``RetryWake/eventMark`` taken before the failed attempt; an event since then is kept
+    /// when the policy ``RetryPolicy/keepsEventsDuringAttempt``.
+    public mutating func waitAfterFailure(wake: RetryWake, clock: any Clock<Duration>, since mark: UInt64? = nil) async -> Bool {
+        wake.rebaseline(keepingEventsAfter: policy.keepsEventsDuringAttempt ? mark : nil)
         let delay = failed()
         let cause = await wake.awaitWake(delay: delay, clock: clock, socket: wakesOnSocket)
         woke(cause)

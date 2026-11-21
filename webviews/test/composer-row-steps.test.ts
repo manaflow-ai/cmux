@@ -14,7 +14,7 @@
 //     row takes no composer-width step (composerRowFit.ts paneWidth): it holds the mode, the model
 //     button and the ring, so it keeps "Opus 5.5  Medium" and "Auto" while they fit (live-qa
 //     2026-10-21 read "Opus Med" with about 250 px of the row free), and shortens the effort only
-//     when they do not (below a 280 px pane: test/composer-model-quiet.test.ts measures it).
+//     when they do not (below a 300 px pane: test/composer-model-quiet.test.ts measures it).
 //   - The stepped row (Debug Settings' plain footer off): the same row element, without
 //     `data-footer-look="plain"`, where the composer's width steps still apply as they did when
 //     every control shared one row. First the button's effort shows the level's short name ("Med"),
@@ -27,6 +27,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { MODEL_PICKER, PLUS_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 type Control = {
   /** The labels the control draws (text nodes and ::before text), left to right. */
@@ -42,8 +43,11 @@ type Control = {
 type Measured = { controls: Record<string, Control | undefined>; overflow: string[] };
 
 await requireBrowserLane("composer-row-steps.test.ts", async () => {
+  /** The composer's pickers, passed into the page function that measures the row. */
+  type Pickers = { MODEL_PICKER: string; PLUS_PICKER: string };
+  const PICKERS: Pickers = { MODEL_PICKER, PLUS_PICKER };
   /** Runs in the page. */
-  function measure(): Measured {
+  function measure({ MODEL_PICKER, PLUS_PICKER }: Pickers): Measured {
     const bars = [...document.querySelectorAll<HTMLElement>(".acpmux-composer .acpmux-composer-bar")];
     const find = (selector: string) =>
       bars.map((bar) => bar.querySelector<HTMLElement>(selector)).find((button) => button) ?? null;
@@ -95,8 +99,8 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
     }
     return {
       controls: {
-        plus: control(".acpmux-composer-plus .acpmux-picker-button"),
-        model: control(".acpmux-model .acpmux-picker-button"),
+        plus: control(PLUS_PICKER),
+        model: control(MODEL_PICKER),
         access: control(".acpmux-access-trigger"),
         // Gone since Leo 2026-10-20 (one model button, Fast mode in its menu): must stay absent.
         effortChip: control(".acpmux-effort .acpmux-picker-button"),
@@ -111,12 +115,14 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
   type Expected = { model: string; effort: string; access: string; mic: boolean };
   /** The quiet row under the box (the default look): no width takes a step; the row's measured room
    *  does. Since #24938 took the harness label out of it, the row holds only the mode, the model
-   *  button and the context ring, so it keeps every whole label down to a 280 px pane (a 244 px
-   *  composer). Below that it does run out, which test/composer-model-quiet.test.ts measures
-   *  (204 and 164 px composers shorten whole units); every width here checks that nothing is cut,
-   *  ellipsized or overlapping while the row still has room. */
+   *  button (its provider's logo before the name, cmux#38053) and the context ring, so it keeps
+   *  every whole label down to a 300 px pane (a 264 px composer); at 280 px the logo's width makes
+   *  the effort take its short name, the fonts deciding it. Below that the row runs out, which
+   *  test/composer-model-quiet.test.ts measures (204 and 164 px composers shorten whole units);
+   *  every width here checks that nothing is cut, ellipsized or overlapping while the row still has
+   *  room. */
   const QUIET: Record<number, Expected> = Object.fromEntries(
-    [760, 520, 500, 460, 440, 400, 300, 280].map((width) => [
+    [760, 520, 500, 460, 440, 400, 300].map((width) => [
       width,
       { model: "Opus 5.5", effort: "Medium", access: "Auto", mic: true },
     ]),
@@ -171,7 +177,7 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width, height: 300 } });
     await page.goto(stageURL());
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-    await page.locator(".acpmux-model .acpmux-picker-button").waitFor();
+    await page.locator(MODEL_PICKER).waitFor();
     await page.evaluate(() => document.fonts.ready);
     // The plain footer is the default (DEFAULT_COMPOSER.plainFooter); the host's `composer` event
     // turns it off, as Debug Settings does. ComposerFoot draws the same row either way and marks
@@ -191,7 +197,7 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
     await page.locator(".acpmux-composer-actions .acpmux-send").waitFor();
     // Two frames: the row's fit runs on layout and on its resize observer.
     await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
-    const measured = await page.evaluate(measure);
+    const measured = await page.evaluate(measure, PICKERS);
     await page.close();
     return measured;
   };

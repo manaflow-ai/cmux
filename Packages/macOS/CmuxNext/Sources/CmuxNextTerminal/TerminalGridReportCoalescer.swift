@@ -52,7 +52,13 @@ final class TerminalGridReportCoalescer {
     let interval: Duration
 
     /// The grid the open window will send when it fires; nil while no window is open.
-    private(set) var pending: TerminalGridSize?
+    private(set) var pending: TerminalGridSize? {
+        didSet { if pending == nil { pendingIsJustShown = false } }
+    }
+
+    /// The waiting grid is a just-shown view's (``viewSized(_:waitsForRefresh:)``): the next grid of a size that shows
+    /// replaces it and goes at once when this refresh sent nothing.
+    private var pendingIsJustShown = false
 
     /// The last grid handed to `send`; nil before the first send.
     private(set) var lastSent: TerminalGridSize?
@@ -63,6 +69,10 @@ final class TerminalGridReportCoalescer {
     /// A grid went since the last refresh of the view's window (at once, or at that refresh): the next new grid waits for
     /// the next refresh. Cleared by a refresh that sends nothing.
     private(set) var spent = false
+
+    /// A grid went at once in place of an unshown one in this refresh (``viewSized(_:waitsForRefresh:replacesUnshown:)``):
+    /// a second one waits for the refresh, so a burst of retargets (scripted resizes) still sends at most two per refresh.
+    private var replacedInRefresh = false
 
     private let send: @MainActor (TerminalGridSize) -> Void
     private let timer: DemandTimer
@@ -76,7 +86,8 @@ final class TerminalGridReportCoalescer {
     ///   - interval: The backstop of a window no refresh reaches; Ghostty's 25 ms by default.
     ///   - clock: The backstop timer's clock; tests pass a manual one.
     ///   - ticks: The display refreshes that end a window (the view's window presenter); nil: the timer only.
-    ///   - send: Reports one grid to the PTY owner. Called on the main thread; while frames run, at most once per refresh.
+    ///   - send: Reports one grid to the PTY owner. Called on the main thread; while frames run, at most once per refresh,
+    ///     plus at most one grid that replaces an unshown one (``viewSized(_:waitsForRefresh:replacesUnshown:)``).
     init(interval: Duration = TerminalGridReportCoalescer.defaultInterval,
          clock: any Clock<Duration> = ContinuousClock(),
          ticks: @escaping @MainActor () -> (any TerminalGridReportTicks)? = { nil },
@@ -88,20 +99,42 @@ final class TerminalGridReportCoalescer {
     }
 
     /// The view's fit grid is now `grid`: while frames run and this refresh sent nothing, it goes at once; else it waits
-    /// for the open window, or opens one.
-    func viewSized(_ grid: TerminalGridSize) {
+    /// for the open window, or opens one. `waitsForRefresh`: a grid of a size no frame shows yet (a view shown into a
+    /// key hold, before its pane's layout gives it its frame) never goes at once; the layout's grid replaces it, and goes at
+    /// once by the same rule as any grid of a size that shows (review of #37964, finding 1).
+    ///
+    /// `replacesUnshown`: `grid` replaces a grid sent for a frame that will never show (a key press retargeted its pane's
+    /// spring after the size drawn ahead for the next refresh went, RESIZE P0 11). While frames run it goes at once even in
+    /// a spent refresh: the replaced grid's frame is not presented, so the program still redraws once per presented frame,
+    /// and the grid of the frame the next pass presents reaches it before that pass. Waiting for the next refresh made that
+    /// frame, and each later one, show the program's picture of the previous grid (the refresh's send spent the next
+    /// refresh too): px-keys-held-2-s1r on cmux21 (macOS 26, 1x 120 Hz, build bffa4140) failed 2-4 frames per press.
+    func viewSized(_ grid: TerminalGridSize, waitsForRefresh: Bool = false, replacesUnshown: Bool = false) {
+        if replacesUnshown, !replacedInRefresh, !waitsForRefresh, grid != lastSent, ticks() != nil {
+            replacedInRefresh = true
+            if pending != nil { close() }
+            deliver(grid)
+            return
+        }
         if pending != nil {
-            pending = grid
+            guard pendingIsJustShown, !waitsForRefresh, !spent, ticks() != nil else {
+                pending = grid
+                return
+            }
+            // The just-shown grid was never shown: it is dropped, and the grid of the size that shows goes now.
+            close()
+            deliver(grid)
             return
         }
         guard grid != lastSent else { return }
         let source = ticks()
-        if source != nil, !spent {
+        if source != nil, !spent, !waitsForRefresh {
             // Frames run and this refresh sent nothing: the grid goes in the turn that showed its size.
             deliver(grid)
             return
         }
         pending = grid
+        pendingIsJustShown = waitsForRefresh
         window &+= 1
         armBackstop()
         source?.tickGridReports(self)
@@ -111,6 +144,7 @@ final class TerminalGridReportCoalescer {
     /// goes, which spends this refresh; with nothing waiting, the refresh is unspent. Returns whether to tick it at the next
     /// refresh (while a grid went in this one).
     func frameTicked() -> Bool { // perf-hot: 1ms motion-frame
+        replacedInRefresh = false
         guard pending != nil else {
             spent = false
             return false

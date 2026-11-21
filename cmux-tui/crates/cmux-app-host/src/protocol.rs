@@ -47,6 +47,10 @@ pub enum ToHost {
         #[serde(default)]
         strings: Value,
         main: String,
+        /// The script's file in its package (`runtime.main`, `main.js`): a
+        /// syntax or load error names it (`main.js:2:12`). Absent: `eval_script`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        main_name: Option<String>,
     },
     Mount {
         mount: String,
@@ -63,6 +67,12 @@ pub enum ToHost {
         event: String,
         #[serde(default)]
         payload: Value,
+    },
+    /// A widget mount's host-owned tick (`cmux.widget/1`), at `now_ms` (Unix
+    /// ms): the runtime sets the mount's `now()` clock; nothing else runs.
+    Tick {
+        mount: String,
+        now_ms: u64,
     },
     Resolve {
         cb: u64,

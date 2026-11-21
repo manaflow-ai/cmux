@@ -63,6 +63,7 @@ export function GuestMessages({
 export function GuestComposer({
   onSend,
   onDraft,
+  initialText = "",
   placeholder,
   sendIcon,
   disabled = false,
@@ -73,6 +74,8 @@ export function GuestComposer({
   onSend: (text: string) => void;
   /** The draft changed (typing `{on}`). */
   onDraft: (text: string) => void;
+  /** The draft to start with (one kept across a reload). */
+  initialText?: string;
   placeholder?: string;
   sendIcon?: ReactNode;
   disabled?: boolean;
@@ -81,7 +84,7 @@ export function GuestComposer({
   className?: string;
 }) {
   const t = useT();
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialText);
   const tooLong = promptBytes(text) > PROMPT_MAX_BYTES;
   const canSend = text.trim().length > 0 && !tooLong && !disabled;
   const change = (next: string) => {

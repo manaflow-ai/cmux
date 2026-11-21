@@ -3,6 +3,12 @@
 
 public import CmuxNextDesign
 
+extension NekoIconThemeSetting {
+    /// `appearance.iconTheme`: Reserved for the optional Neko icon family; neko resolves to the default artwork until a reviewed set ships.
+    public nonisolated static let configPath = ["appearance", "iconTheme"]
+    public nonisolated static let fallback: NekoIconTheme = .default
+}
+
 extension AppThemeSetting {
     /// `appearance.theme`: cmux's terminal theme: a Ghostty theme name or a light/dark pair; unset is the Ghostty config's theme.
     public nonisolated static let configPath = ["appearance", "theme"]
@@ -40,6 +46,12 @@ extension ThemeFileSetting {
     public nonisolated static let configPath = ["appearance", "themeFile"]
 }
 
+extension ThemeFileExceptionsSetting {
+    /// `appearance.themeFileExceptions`.
+    public nonisolated static let configPath = ["appearance", "themeFileExceptions"]
+    public nonisolated static let fallback: [String] = []
+}
+
 extension HighlightColorSetting {
     /// `appearance.highlightColor`.
     public nonisolated static let configPath = ["appearance", "highlightColor"]
@@ -58,6 +70,21 @@ extension BackdropSelectionSetting {
     /// `appearance.backgroundRotation`.
     public nonisolated static let rotationPath = ["appearance", "backgroundRotation"]
     public nonisolated static let rotationDefault: BackdropRotation = .daily
+    public nonisolated static let rotationRange: ClosedRange<Double> = 1...1440
+    public nonisolated static let rotationPlaceholder: Double = 30
+    /// `appearance.backgroundLight`: The picture of Background's Light and Dark (appearance) in the light appearance: any fixed background id (art, desktop, system:, file:). Unset: the dark side's picture.
+    public nonisolated static let lightPath = ["appearance", "backgroundLight"]
+    /// `appearance.backgroundDark`: The picture of Background's Light and Dark (appearance) in the dark appearance: any fixed background id. Unset: the light side's picture.
+    public nonisolated static let darkPath = ["appearance", "backgroundDark"]
+    /// `appearance.backgroundSchedule`: Background's Time of Day (schedule): when -> fixed background id. When is HH:MM (24 h, local) or sunrise | sunset | dawn | dusk | noon with an optional offset (sunset-30m, sunrise+1h). Now's picture is the latest entry at or before now (before the first: yesterday's last); a sun event that does not happen today is skipped (BackdropTimeOfDay).
+    public nonisolated static let schedulePath = ["appearance", "backgroundSchedule"]
+    /// `appearance.backgroundDynamic`: How a dynamic macOS wallpaper (system: .madesktop or .heic) changes: appearance shows its light or dark frame; time follows the sun (solar metadata), the clock (h24), or for a light/dark-only or not downloaded picture the sun above or below -6 degrees.
+    public nonisolated static let dynamicPath = ["appearance", "backgroundDynamic"]
+    public nonisolated static let dynamicDefault: BackdropDynamicMode = .appearance
+    /// `appearance.backgroundLocation`: LAT,LON in degrees for sun events and solar frames; unset: the system time zone's coordinates from /usr/share/zoneinfo/zone.tab (no location permission).
+    public nonisolated static let locationPath = ["appearance", "backgroundLocation"]
+    /// `appearance.backgroundMemory`: What Background's modes last showed, so switching modes never loses one (Leo, 2026-11-19: "it lost the folder ... i couldn't get back into it"): rotate is Rotate's last shuffle (daily or folder:<path>), folder the last folder it shuffled, off the picture Off last showed (none for No Wallpaper). The Settings page's Background card writes it when the background moves to another mode and reads it back in a new page or after a restart; the app's engine never reads it.
+    public nonisolated static let memoryPath = ["appearance", "backgroundMemory"]
     /// `appearance.displayBackgrounds`.
     public nonisolated static let displayBackgroundsPath = ["appearance", "displayBackgrounds"]
     /// `appearance.displayBackgroundRotations`.
@@ -73,6 +100,18 @@ extension PaneBackgroundsSetting {
 extension ReducedBackgroundsSetting {
     /// `ui.reducedBackgrounds`.
     public nonisolated static let configPath = ["ui", "reducedBackgrounds"]
+    public nonisolated static let fallback = false
+}
+
+extension AgentGlowSetting {
+    /// `appearance.agentGlow`.
+    public nonisolated static let configPath = ["appearance", "agentGlow"]
+    public nonisolated static let fallback = false
+}
+
+extension PreviousGlassSetting {
+    /// `appearance.previousGlass`: Web pages only: on sends glassLevels "previous" with the web theme (WebTheme), data-glass-levels="previous" on <html>, and webviews ui/glass/glass.css (PREVIOUS GLASS) restores the glass numbers from before the one glass system (design/glass-system.md, cmux#48174). Off (default) draws the one glass system.
+    public nonisolated static let configPath = ["appearance", "previousGlass"]
     public nonisolated static let fallback = false
 }
 
@@ -121,7 +160,7 @@ extension AppearanceTuningSetting {
 extension DensitySetting {
     /// `appearance.density`.
     public nonisolated static let configPath = ["appearance", "density"]
-    public nonisolated static let fallback: DensityPreset = .compact
+    public nonisolated static let fallback: DensityPreset = .cozy
 }
 
 extension CustomDensitySelectionSetting {
@@ -139,15 +178,21 @@ extension UIScaleSetting {
     /// `app.uiScale`.
     public nonisolated static let configPath = ["app", "uiScale"]
     public nonisolated static let fallback: Double = 1
-    public nonisolated static let range: ClosedRange<Double> = 0.85...1.5
+    public nonisolated static let range: ClosedRange<Double> = 0.25...5
     public nonisolated static let placeholder: Double = 1
 }
 
 extension InterfaceSizeSetting {
     /// `appearance.metrics.chromeFontSize`.
     public nonisolated static let configPath = ["appearance", "metrics", "chromeFontSize"]
-    public nonisolated static let range: ClosedRange<Double> = 10...16
+    public nonisolated static let range: ClosedRange<Double> = 10...20
     public nonisolated static let placeholder: Double = 12
+}
+
+extension FontSmoothingSetting {
+    /// `appearance.fontSmoothing`: How cmux's text draws, in the CSS model (-webkit-font-smoothing), native and web. Native: AppleFontSmoothing in the app's domain, written at launch and on each change for the next launch (ProcessFontSmoothing). Web: the web theme's data-cmux-font-smoothing, live (WebTheme). Chrome text cmux draws itself (ChromeLabel, ChromeTextLayer: the sidebar, tabs) follows live too (ProcessFontSmoothing.chrome). Ghostty's font-thicken is not affected.
+    public nonisolated static let configPath = ["appearance", "fontSmoothing"]
+    public nonisolated static let fallback: FontSmoothing = .auto
 }
 
 extension InterfaceScaleSetting {
@@ -178,6 +223,10 @@ extension LayoutMetricSetting {
     public nonisolated static let titlebarHeightPath = ["appearance", "metrics", "titlebarHeight"]
     public nonisolated static let titlebarHeightRange: ClosedRange<Double> = 24...56
     public nonisolated static let titlebarHeightPlaceholder: Double = 32
+    /// `appearance.metrics.sidebarRowHeight`.
+    public nonisolated static let sidebarRowHeightPath = ["appearance", "metrics", "sidebarRowHeight"]
+    public nonisolated static let sidebarRowHeightRange: ClosedRange<Double> = 20...48
+    public nonisolated static let sidebarRowHeightPlaceholder: Double = 24
 }
 
 extension BordersSetting {
@@ -207,6 +256,20 @@ extension ChromeStyleSetting {
     public nonisolated static let fallback: ChromeStyle = .flat
 }
 
+extension TitleAreaToneSetting {
+    /// `appearance.titleAreaTone`: One colour (the default: no shade; the sidebar's edge line, the split panes' lines, the tab row's divider and the selected tab's pill separate) or a subtle tone (half the flush corner's frame shade, scaled by appearance.titleAreaContrast; the selected tab is a folder tab in the content's glass). Only the default flush-corner frame follows it; a picked chrome style keeps its own shade. Leo 2026-11-12: the default is mono-ish as Lawrence wants, with the divider kept across most panes; a refined subtle tone is the option.
+    public nonisolated static let configPath = ["appearance", "titleAreaTone"]
+    public nonisolated static let fallback: TitleAreaTone = .oneColor
+}
+
+extension TitleAreaContrastSetting {
+    /// `appearance.titleAreaContrast`: Scales the chrome's shade around the content card (Metrics.titleAreaShadeScale): Subtle Tone's share of the flush corner's frame, or a picked chrome style's own shade; 2 under Subtle Tone is the older two-tone shade. Leo 2026-11-11: the title area's contrast may be too intense for some people, so it needs to be adjustable.
+    public nonisolated static let configPath = ["appearance", "titleAreaContrast"]
+    public nonisolated static let fallback: Double = 1
+    public nonisolated static let range: ClosedRange<Double> = 0...2
+    public nonisolated static let placeholder: Double = 1
+}
+
 extension PaneAnimationsSetting {
     /// `ui.paneAnimations`.
     public nonisolated static let configPath = ["ui", "paneAnimations"]
@@ -220,9 +283,6 @@ extension AnimationKindsSetting {
     /// `ui.animations.newWorkspace`.
     public nonisolated static let newWorkspacePath = ["ui", "animations", "newWorkspace"]
     public nonisolated static let newWorkspaceDefault = true
-    /// `ui.animations.bounce`.
-    public nonisolated static let bouncePath = ["ui", "animations", "bounce"]
-    public nonisolated static let bounceDefault: MotionBounce = .none
 }
 
 extension PaneChromeConfigParser {
@@ -273,113 +333,22 @@ extension PaneRingConfigParser {
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum AppearanceSettingsSchema {
-    static var appTheme: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.appTheme", "App Theme")
+    static var iconTheme: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.iconTheme", "Icon Theme")
         return [
             SettingDescriptor(
-                AppThemeSetting.configPath,
+                NekoIconThemeSetting.configPath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.appearance.theme", "Theme"),
-                help: SettingsText.keyed("settings.appearance.theme.help", "Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it."),
-                summary: SettingsText.keyed("settings.appearance.theme.summary", "Colors for terminals, and cmux unless App Theme is set"),
-                kind: .theme,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.source.ghostty", "Ghostty"),
-                keywords: ["theme", "color", "colors", "color scheme", "dark", "light", "ghostty", "palette"]
-            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
-            SettingDescriptor(
-                ChromeThemeSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.appTheme", "App Theme"),
-                help: SettingsText.keyed("settings.appearance.appTheme.help", "Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast."),
-                summary: SettingsText.keyed("settings.appearance.appTheme.summary", "Colors for the window, sidebar, tabs and pages"),
-                kind: .theme,
-                default: .string(ChromeThemeSetting.fallback),
-                defaultLabel: SettingsText.keyed("settings.default.followTerminal", "Match Terminal Theme"),
-                keywords: ["app theme", "accent", "chrome", "interface", "colors", "contrast", "wcag"]
-            ),
-            SettingDescriptor(
-                ThemeEditsSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.themeEdits", "Theme Edits"),
-                help: SettingsText.keyed("settings.appearance.themeEdits.help", "Your color changes to a theme, such as \"Rose Pine/background\": \"#1f1d2e\". The theme itself never changes; remove an entry to reset that color."),
-                kind: .stringMap,
-                default: ThemeEditsSetting.fallback,
-                keywords: ["theme", "custom", "edit", "color", "colour", "palette", "background", "foreground", "cursor", "selection"]
-            ),
-            SettingDescriptor(
-                ThemeFavoritesSetting.favoritesPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.favoriteThemes", "Starred Themes"),
-                help: SettingsText.keyed("settings.appearance.favoriteThemes.help", "Themes starred in a theme picker. The picker lists them first."),
-                kind: .stringList,
-                default: .array(ThemeFavoritesSetting.favoritesDefault.map { .string($0) }),
-                keywords: ["theme", "star", "starred", "favorite", "favourite", "pin"]
-            ).hiddenFromPalette("a theme picker's stars edit it: a list of theme names"),
-            SettingDescriptor(
-                ThemeFavoritesSetting.rotationPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.rotateFavoriteThemes", "Rotate Starred Themes"),
-                help: SettingsText.keyed("settings.appearance.rotateFavoriteThemes.help", "When cmux opens, the terminal theme changes to the next starred theme. Needs two starred themes, and has no effect while Match System Appearance is on."),
-                summary: SettingsText.keyed("settings.appearance.rotateFavoriteThemes.summary", "Change to the next starred theme"),
+                title: SettingsText.keyed("settings.appearance.iconTheme", "Icon Theme"),
+                help: SettingsText.keyed("settings.appearance.iconTheme.help", "The icon drawings used by cmux."),
                 kind: .choice([
-                    SettingChoice(ThemeRotation.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
-                    SettingChoice(ThemeRotation.launch.rawValue, SettingsText.keyed("settings.choice.eachLaunch", "Each Launch")),
-                    SettingChoice(ThemeRotation.daily.rawValue, SettingsText.keyed("settings.choice.everyDay", "Every Day")),
+                    SettingChoice(NekoIconTheme.default.rawValue, SettingsText.keyed("settings.choice.default", "Default")),
+                    SettingChoice(NekoIconTheme.neko.rawValue, SettingsText.keyed("settings.choice.neko", "Neko")),
                 ]),
-                default: .string(ThemeFavoritesSetting.rotationDefault.rawValue),
-                keywords: ["theme", "rotate", "rotation", "shuffle", "starred", "favorite", "daily", "launch"]
-            ),
-            SettingDescriptor(
-                AccentSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.accent", "Accent"),
-                help: SettingsText.keyed("settings.appearance.accent.help", "The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris."),
-                summary: SettingsText.keyed("settings.appearance.accent.summary", "Color of selection and focus"),
-                kind: .choice([
-                    SettingChoice(ThemeAccent.neutral.rawValue, SettingsText.keyed("settings.choice.accent.neutral", "Neutral")),
-                    SettingChoice(ThemeAccent.theme.rawValue, SettingsText.keyed("settings.choice.accent.theme", "Theme Color")),
-                    SettingChoice("art", SettingsText.keyed("settings.choice.accent.art", "Art Color")),
-                    SettingChoice(ThemeAccent.red.rawValue, SettingsText.keyed("settings.choice.accent.red", "Red")),
-                    SettingChoice(ThemeAccent.green.rawValue, SettingsText.keyed("settings.choice.accent.green", "Green")),
-                    SettingChoice(ThemeAccent.yellow.rawValue, SettingsText.keyed("settings.choice.accent.yellow", "Yellow")),
-                    SettingChoice(ThemeAccent.blue.rawValue, SettingsText.keyed("settings.choice.accent.blue", "Blue")),
-                    SettingChoice(ThemeAccent.magenta.rawValue, SettingsText.keyed("settings.choice.accent.magenta", "Magenta")),
-                    SettingChoice(ThemeAccent.cyan.rawValue, SettingsText.keyed("settings.choice.accent.cyan", "Cyan")),
-                ]),
-                default: .string(AccentSetting.fallback.rawValue),
-                keywords: ["accent", "color", "colour", "highlight", "selection", "personality", "rose pine", "ansi"]
-            ),
-            SettingDescriptor(
-                ThemeFileSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.themeFile", "Theme File"),
-                help: SettingsText.keyed("settings.appearance.themeFile.help", "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies."),
-                summary: SettingsText.keyed("settings.appearance.themeFile.summary", "A look from ~/.config/cmux/themes"),
-                kind: .text,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.choice.none", "None"),
-                keywords: ["theme file", "rice", "ricing", "dotfile", "dotfiles", "look", "config", "themes folder", "json"]
-            ),
-            SettingDescriptor(
-                HighlightColorSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.highlightColor", "Highlight Color"),
-                help: SettingsText.keyed("settings.appearance.highlightColor.help", "The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color."),
-                summary: SettingsText.keyed("settings.appearance.highlightColor.summary", "Color of selected text"),
-                kind: .color,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.terminalTheme", "Terminal Theme"),
-                keywords: ["highlight", "selection", "selected text", "selection-background", "color", "colour", "theme"]
-            ),
+                default: .string(NekoIconThemeSetting.fallback.rawValue),
+                keywords: ["icons", "icon", "theme", "neko", "cat"]
+            ).hiddenFromSettingsPage("reserved until the Neko artwork passes light/dark 1x/2x review"),
         ]
     }
 }

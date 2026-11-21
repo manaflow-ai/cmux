@@ -49,22 +49,24 @@ impl NewIds {
 }
 
 /// A create's or an invite-chat's terms, checked: a TTL of 1 minute to 7 days, 1 to 8 uses (to
-/// 1000 for a view-only link), and a `create_id` of 1 to 64 bytes when there is one.
+/// 1000 for a link made with a role, `view` or `talk`), and a `create_id` of 1 to 64 bytes when
+/// there is one.
 fn terms(
     ttl_secs: u64,
     uses: u32,
     create_id: Option<String>,
     role: Option<Role>,
+    signed_in_role: Option<Role>,
 ) -> Result<ShareTerms, &'static str> {
     let id_ok =
         create_id.as_ref().is_none_or(|id| !id.is_empty() && id.len() <= MAX_CREATE_ID_BYTES);
     if !(MIN_TTL_SECS..=MAX_TTL_SECS).contains(&ttl_secs)
-        || !(1..=if role == Some(Role::View) { MAX_VIEW_USES } else { MAX_USES }).contains(&uses)
+        || !(1..=if role.is_some() { MAX_LINK_USES } else { MAX_USES }).contains(&uses)
         || !id_ok
     {
         return Err("share.bad_request");
     }
-    Ok(ShareTerms { ttl_secs, uses, create_id, role })
+    Ok(ShareTerms { ttl_secs, uses, create_id, role, signed_in_role })
 }
 
 /// The session `surface` shows, refused when the caller named another one.
@@ -97,8 +99,13 @@ pub(super) fn create(
     directory: Option<&Path>,
     p: Create,
 ) -> Result<Value, &'static str> {
-    let terms =
-        terms(p.ttl_secs.unwrap_or(DEFAULT_TTL_SECS), p.uses.unwrap_or(1), p.create_id, p.role)?;
+    let terms = terms(
+        p.ttl_secs.unwrap_or(DEFAULT_TTL_SECS),
+        p.uses.unwrap_or(1),
+        p.create_id,
+        p.role,
+        p.signed_in_role,
+    )?;
     let session = chat(mux, p.surface, p.session.as_deref())?;
     match room_for_new(shares, p.owner_token)? {
         None => shares.insert(directory, session, p.surface, terms, false),
@@ -118,7 +125,7 @@ pub(super) fn invite_chat(
 ) -> Result<Value, &'static str> {
     let account = normal_account(&p.account)?;
     let role = p.role.unwrap_or(Role::Talk);
-    let terms = terms(p.ttl_secs.unwrap_or(MAX_TTL_SECS), 1, p.create_id, None)?;
+    let terms = terms(p.ttl_secs.unwrap_or(MAX_TTL_SECS), 1, p.create_id, None, None)?;
     let session = chat(mux, p.surface, p.session.as_deref())?;
     let ids = NewIds::draw()?;
     // Asked before the lock: the room a new share would open in, or why none may be made.
@@ -184,7 +191,7 @@ pub(super) fn push(
     terms: ShareTerms,
     provisioning: bool,
 ) -> Result<Value, &'static str> {
-    let ShareTerms { ttl_secs, uses, create_id, role } = terms;
+    let ShareTerms { ttl_secs, uses, create_id, role, signed_in_role } = terms;
     let NewIds(share_id, secret, provision_key) = ids;
     if shares.len() >= MAX_SHARES {
         prune(shares);
@@ -209,13 +216,15 @@ pub(super) fn push(
         guests: Vec::new(),
         invitees: Vec::new(),
         role,
+        signed_in_role,
     });
     // The records there may fit while the new one does not: ended ones go first.
     if !fits_or_prune(shares, now, connected) {
         return Err("share.limit");
     }
     Ok(json!({"share_id": share_id, "secret": secret, "url": null, "expires_at": expires_at,
-        "session": session, "surface": surface, "uses_left": uses, "role": role}))
+        "session": session, "surface": surface, "uses_left": uses, "role": role,
+        "signed_in_role": signed_in_role}))
 }
 
 /// Invites `account` to share `share_id` of `shares` (see [`LinkShares::invite`]); answers the
@@ -238,9 +247,16 @@ pub(super) fn invite_in(
         if invitee.state == InviteState::Invited {
             return if invitee.role == role { Ok((answer, false)) } else { Err("share.invited") };
         }
-        *invitee = Invitee { account, role, invited_at: now, state: InviteState::Invited };
+        *invitee = Invitee {
+            account: account.clone(),
+            role,
+            invited_at: now,
+            state: InviteState::Invited,
+        };
+        retire_link_guests(share, &account);
         return Ok((answer, true));
     }
+    retire_link_guests(share, &account);
     if share.invitees.len() >= MAX_INVITEES {
         // A removed account goes first, when room is needed.
         share.invitees.retain(|i| i.state == InviteState::Invited);
@@ -253,4 +269,18 @@ pub(super) fn invite_in(
         return Err("share.limit");
     }
     Ok((answer, true))
+}
+
+/// The account's guests that joined by the link end once it is invited: from then on it reaches
+/// the chat only as the invite's guest, with the role the owner chose (a viewer invite never
+/// leaves an earlier link guest able to send). Their connections close at the next `settle` and
+/// the room hears their end; their attempts answer nothing, so a retry joins by the invite.
+fn retire_link_guests(share: &mut LinkShare, account: &str) {
+    let joined_by_link = |g: &Guest| g.via.is_some() && g.account.as_deref() == Some(account);
+    for guest in share.guests.iter_mut().filter(|g| joined_by_link(g)) {
+        if guest.state == GuestState::Active {
+            guest.state = GuestState::Left;
+        }
+        guest.attempt_id_sha256 = String::new();
+    }
 }

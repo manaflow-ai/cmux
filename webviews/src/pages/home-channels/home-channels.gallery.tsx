@@ -6,6 +6,7 @@ import { useState, type CSSProperties } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { PlayContext } from "../../gallery/play";
 import { UiProvider } from "../../ui/UiProvider";
+import { LOGIN_TESTS_MP4 } from "../../gallery/fixtures/toolImages";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { APP_ACTION_RUN, HomeChannelsPage, NEW_CLOUD_MACHINE } from "./HomeChannelsPage";
@@ -35,6 +36,8 @@ type Props = {
   refuseInbox?: boolean;
   /** Adds #media: images, a video with its poster and a PDF. */
   media?: boolean;
+  /** #media's video plays (a sample MP4); without it its link cannot be had. */
+  video?: boolean;
   /** Adds #launch, a channel two teammates share; Ana types in it. */
   teammates?: boolean;
   /** The theme's terminal selection color, as the app sets `--cmux-text-selection`. */
@@ -53,6 +56,8 @@ type Props = {
   hostBridge?: boolean;
   /** A cmux link the page opens (as the Messages view's switch does through the hash). */
   link?: string;
+  /** The Cloud inbox read fails with this reason: the rows stay and the list says why. */
+  cloudError?: string;
   /** Where the list shows New Cloud Machine (needs `hostBridge`: only the app host runs it). */
   cloudEntry?: CloudEntryLook;
   /** The app does not run the action (turned off): its `cmux.app.action.run` answers `ran: false`. */
@@ -120,6 +125,7 @@ function HomeChannelsGallery({
   runs = "none",
   refuseInbox = false,
   media = false,
+  video = false,
   teammates = false,
   terminalSelection,
   route,
@@ -131,11 +137,14 @@ function HomeChannelsGallery({
   link,
   cloudEntry,
   cloudNotRun = false,
+  cloudError,
 }: Props) {
   const [store] = useState(() => {
     const provider = offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox, media, teammates);
     if (provider) provider.hostGrants = hostGrants;
+    if (provider && video) provider.videoUrl = `data:video/mp4;base64,${LOGIN_TESTS_MP4}`;
     if (provider && extraChief) provider.addChief("Release Chief");
+    if (provider && cloudError) provider.cloudError = cloudError;
     let host: BridgePageClient | MockHomeProvider | null = hostGrants ? provider : null;
     if (hostBridge) {
       const bridge = new GalleryBridgeHost();
@@ -423,6 +432,62 @@ export default componentEntry<Props>({
         );
       },
     },
+    "attachments-lightbox-video": {
+      note: "Leo 2026-11-04: \"i can neither preview a vid in place nor have it pop up anymore :(\". A video's Expand opens it in the lightbox, paused with its Play and length (the agent chat's player); it still plays in place.",
+      props: { select: "c-media", media: true, video: true },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.scroll({ selector: ".lg-main .hc-timeline" }, "bottom");
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".hc-att-video video")?.getAttribute("src")));
+        await ctx.click({ selector: ".hc-att-video .hc-att-expand" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox .cv-media__poster"));
+      },
+    },
+    "attachments-lightbox-video-playing": {
+      note: "Play in the lightbox: the video plays large with sound and the player's controls; the inline copy pauses.",
+      props: { select: "c-media", media: true, video: true },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.scroll({ selector: ".lg-main .hc-timeline" }, "bottom");
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".hc-att-video video")?.getAttribute("src")));
+        await ctx.click({ selector: ".hc-att-video .hc-att-expand" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox .cv-media__poster"));
+        await ctx.click({ selector: ".hc-lightbox .cv-media__poster" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox .cv-media__frame.is-playing"));
+      },
+    },
+    "attachments-lightbox-arrow-to-video": {
+      note: "From the first image, Left arrow wraps to the message's video (images, then videos): the lightbox steps among both.",
+      props: { select: "c-media", media: true, video: true },
+      checks: {
+        longFrameFailMs: openFrame,
+        layoutShiftMax: {
+          value: 0.05,
+          reason: "The arrow key swaps the lightbox's image for the video, which has its own size.",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".hc-att-grid img").length === 3);
+        await ctx.click({ selector: ".hc-att-image" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox img"));
+        await ctx.press("ArrowLeft");
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".hc-lightbox-bar .hc-att-name")?.textContent === "run-recording.mp4",
+        );
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox .cv-media__poster"));
+      },
+    },
+    "attachments-lightbox-video-unavailable": {
+      note: "A video whose link cannot be had (an owner without attachment reads): the lightbox shows its poster and says it cannot play here.",
+      props: { select: "c-media", media: true },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.scroll({ selector: ".lg-main .hc-timeline" }, "bottom");
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".hc-att-video video")?.getAttribute("poster")));
+        await ctx.click({ selector: ".hc-att-video .hc-att-expand" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox-unread.failed img"));
+      },
+    },
     "attachments-composer": {
       note: "Files pasted into the composer show in its tray with their progress, then are ready to send.",
       props: { select: "c-media", media: true },
@@ -507,6 +572,17 @@ export default componentEntry<Props>({
             ctx.document.querySelector(".hc-error") !== null &&
             ctx.document.querySelector(".lg-list-section") === null &&
             !ctx.document.querySelector('[data-list-row="c-design"]')?.hasAttribute("data-pinned"),
+        );
+      },
+    },
+    "cloud-unreachable": {
+      note: "A Cloud inbox read failed: the rows stay (the last good list) and the list says why while the page retries.",
+      props: { select: "c-chief", cloudError: "timed out after 10 s" },
+      play: async (ctx) => {
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelector("[data-cloud-error]") !== null &&
+            ctx.document.querySelector('[data-list-row="c-design"]') !== null,
         );
       },
     },

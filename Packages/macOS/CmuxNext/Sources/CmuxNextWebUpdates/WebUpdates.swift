@@ -67,13 +67,13 @@ public final class WebUpdates {
     /// viewers (`appResources`: the app's resources folder).
     static func registerBundledFolders(_ overlay: WebBundleOverlay, appResources: URL?) {
         if let agentPane = AgentPaneView.bundledPage?.deletingLastPathComponent() {
-            overlay.register(bundled: agentPane, output: WebUpdateTree.outputs[0])
+            overlay.register(bundled: agentPane, output: WebUpdateTree.agentPaneOutput)
         }
         if let activity = PageID.bundledRoot(for: "cmux.agent-activity") {
-            overlay.register(bundled: activity, output: WebUpdateTree.outputs[2])
+            overlay.register(bundled: activity, output: WebUpdateTree.agentActivityOutput)
         }
         if let appResources {
-            overlay.register(bundled: PageDescriptor.diffRoot(inAppResources: appResources), output: WebUpdateTree.outputs[4])
+            overlay.register(bundled: PageDescriptor.diffRoot(inAppResources: appResources), output: WebUpdateTree.webviewsAppOutput)
         }
     }
 

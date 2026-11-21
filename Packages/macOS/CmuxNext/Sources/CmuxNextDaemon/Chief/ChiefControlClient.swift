@@ -352,6 +352,22 @@ public struct ChiefControlClient: Sendable {
         }
     }
 
+    /// `chief.stop {start: name}` (Start now on a queued agent in Home): that
+    /// queued subagent starts at once, past the live cap; nothing stops.
+    /// `chief` as in `chiefEngine(chief:)`. A brain that refuses (the agent
+    /// is not queued) throws.
+    public func startAgent(_ name: String, chief: String? = nil) async throws(ChiefControlError) -> ChiefStartNow {
+        let key = "cmux-next-chief-start-" + UUID().uuidString.lowercased()
+        let params = Self.naming(chief, ["start": .string(name)])
+        do {
+            return try await connection.resourceRequest({ id in
+                ResourceRequestEnvelope(id: id, operation: "chief.stop", params: params, idempotencyKey: key)
+            }, as: ResourceMutationResult<ChiefStartNow>.self).value
+        } catch {
+            throw ChiefControlError(error)
+        }
+    }
+
     /// `params` with the `chief` field when `chief` names a Chief.
     static func naming(_ chief: String?, _ params: [String: JSONValue]) -> [String: JSONValue] {
         guard let chief, !chief.isEmpty else { return params }

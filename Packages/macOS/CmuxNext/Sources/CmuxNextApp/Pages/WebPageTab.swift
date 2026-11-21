@@ -79,10 +79,10 @@ extension WebPageTab {
     @discardableResult
     static func registerGitHub(_ services: AppServices) -> WebPageTab {
         if let tab = services.pages.provider(.github) as? WebPageTab { return tab }
-        let tab = WebPageTab(.github, symbol: "arrow.triangle.pull", icon: .gitPullrequest, title: GitHubPageProvider.title) { [weak services] _, route in
+        let tab = WebPageTab(.github, symbol: "arrow.triangle.pull", icon: .gitPullrequest, title: GitHubPageProvider.title) { [weak services, checks = GitHubChecksCache()] _, route in
             guard let services else { return nil }
             let opener = services.linkOpener
-            let provider = GitHubPageProvider(diffReader: { await AgentChatPullRequestReader().diff(url: $0) }, localDiff: GitHubLocalDiff { [git = services.agentGit.local] in try? await git.read("git.diff", params: $0) }, openWeb: { url, view in
+            let provider = GitHubPageProvider(diffReader: { await AgentChatPullRequestReader().diff(url: $0) }, localDiff: GitHubLocalDiff { [git = services.agentGit.local] in try? await git.read("git.diff", params: $0) }, checks: checks, openWeb: { url, view in
                 // Open on GitHub: the web page, as the chat's own card opens it (the GitHub tab of that pull request, if any).
                 opener.openWeb(url, from: view.flatMap(opener.source(containing:)), background: false, reusesTab: true)
             }, openDiff: { [weak services] text, link, file, view in
@@ -136,7 +136,8 @@ extension WebPageTab {
             guard let tab, let window = services.windowController(showing: pane) else { return false }
             let key = LocalPageTab.makeKey(.github), opener = pane === source && placed == nil && !HomeDockOpens.opensBeside(pane.pane, services: services) ? pane.selectedTab : nil
             tab.restore(link.route, for: key)
-            // As for its web tab: the chat is its opener in the chat's pane; in another pane its close, emptying it, focuses the chat.
+            // As for its web tab: the chat is its opener in the chat's pane (the close rule hears of it here: the page shows before its store tab exists); in another pane its close, emptying it, focuses the chat.
+            if let opener { pane.state?.selection.closeRule.expect(in: pane.paneKey, opener: opener.id, listed: pane.pane.tabs.map(\.id), quick: false, link: true) }
             let adopt = opener.flatMap { o in NewTabSlot.placing(after: o, services: services) { [weak services] in services?.cache.pageRequests.openers.adopt($0, opener: o.surface) } }
             let made = placed ?? adopt ?? HomeDockOpens.placing(pane.pane, services: services, focus: true, then: nil)
             var created = made

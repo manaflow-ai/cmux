@@ -6,7 +6,7 @@ import {
   replyTime,
 } from "../src/agent-session/acpmux/conversation/relativeTime";
 
-import { nextTimestampHover, timestampHoverLabel } from "../src/agent-session/acpmux/conversation/timeHover";
+import { nextTimestampHover, timestampHoverLabel } from "../src/agent-session/acpmux/conversation/timeHoverModel";
 
 const minute = 60_000;
 const at = Date.UTC(2026, 9, 19, 9, 0, 23, 813);

@@ -7,7 +7,7 @@
 /// network work starts first and runs beside the saves, so a slow network
 /// never delays one. If every step hangs they take ``worstCase`` (2.6 s), which fits
 /// a keep quit's deadline (``QuitDeadline/keepQuitLimit``) with the quit mark
-/// and ``rememberLimit`` before them; in practice a few hundred ms.
+/// before them; in practice a few hundred ms.
 ///
 /// The App fills each step from its services (`QuitCoordinator`).
 public struct QuitSaveSteps {
@@ -44,9 +44,6 @@ public struct QuitSaveSteps {
     /// Cloud's step: it ends no local data, so an End quit does not wait for
     /// it before the sessions end (``QuitSteps``).
     public static let cloudStepName = "cloud"
-
-    /// The limit of the "Don't ask again" setting write, before the save steps (`QuitSteps`).
-    public static let rememberLimit: Duration = .milliseconds(300)
 
     public init(remoteSnapshots: @escaping @MainActor () async -> Void,
                 agentComposers: @escaping @MainActor () async -> Void,

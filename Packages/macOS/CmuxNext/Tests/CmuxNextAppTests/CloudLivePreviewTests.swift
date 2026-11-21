@@ -99,10 +99,12 @@ struct CloudLivePreviewTests {
 
     @Test func pickerShowsDetectedOriginsAndOpensTheSelectedPort() throws {
         let spec = CloudPreviewPresentation(try inventory()).picker(machineName: "My machine", cancelTitle: "Cancel")
-        let view = CmuxDialogView(spec: spec)
-        #expect(view.setValue(.text("3000"), for: "port"))
-        #expect(view.values["port"] == .text("3000"))
-        #expect(!view.setValue(.text("22"), for: "port"), "an unavailable listener cannot be opened")
+        let center = CmuxDialogCenter(host: CmuxDialogHeadlessHost())
+        let id = center.present(spec, in: .app) { _ in }
+        defer { center.dismissAll() }
+        #expect(center.setValue(.text("3000"), for: "port", in: id))
+        #expect(center.record(id)?.values["port"] == .text("3000"))
+        #expect(!center.setValue(.text("22"), for: "port", in: id), "an unavailable listener cannot be opened")
         #expect(spec.defaultButton?.id == "open")
         #expect(spec.lines == ["My machine"])
         guard case .choice(_, _, let options, _) = try #require(spec.fields.first) else {

@@ -3,60 +3,106 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { loopNextText, TaskGoalStrip } from "./TaskGoalStrip";
+import type { TaskGoal } from "./goal";
+import { TaskGoalStrip } from "./TaskGoalStrip";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const never = async () => {
   throw new Error("a loop has no command");
 };
 
-test("a Claude Code loop shows its prompt, that it loops and when it next runs, with no controls", () => {
+// Leo, 2026-11-14, of the "Checking back in 19 min." chip a self-paced /loop drew over the composer:
+// "what even is this? idk if we shuold have this". A scheduled wake-up adds no row to the chat.
+const WAKE_PROMPT =
+  "Check background job b2mqa7gwr (fleet build 38051) and https://github.com/manaflow-ai/cmux/pull/1. Steps: 1. read the job log 2. post the receipt";
+
+test("a scheduled wake-up (ScheduleWakeup, CronCreate, autonomous) adds no row", () => {
   const now = 1_000_000;
-  const html = renderToStaticMarkup(
-    <TaskGoalStrip
-      goal={{ kind: "loop", status: "active", objective: "check the deploy", nextRunAt: now + 4 * 60_000 }}
-      command={never}
-      now={() => now}
-    />,
-  );
-  expect(html).toContain('data-kind="loop"');
-  expect(html).toContain("Looping");
-  expect(html).toContain("check the deploy");
-  expect(html).toContain("in 4 min.");
-  // Claude Code has no way to stop or pause a loop from outside its turn: no button pretends to.
-  expect(html).not.toContain("<button");
+  const goals: TaskGoal[] = [
+    {
+      kind: "loop" as const,
+      status: "active" as const,
+      objective: WAKE_PROMPT,
+      reason: "watching",
+      nextRunAt: now + 15 * 60_000,
+    },
+    {
+      kind: "loop" as const,
+      status: "active" as const,
+      objective: "/babysit-prs",
+      schedule: "every 5 minutes",
+      nextRunAt: now + 90_000,
+    },
+    { kind: "loop" as const, status: "active" as const, objective: "", autonomous: true },
+  ];
+  for (const goal of goals) {
+    const html = renderToStaticMarkup(<TaskGoalStrip goal={goal} command={never} now={() => now} />);
+    expect(html).toBe("");
+  }
 });
 
-test("a cron loop names its schedule; a past run time shows no countdown", () => {
-  const html = renderToStaticMarkup(
-    <TaskGoalStrip
-      goal={{ kind: "loop", status: "active", objective: "/babysit-prs", schedule: "every 5 minutes", nextRunAt: 5 }}
-      command={never}
-      now={() => 10}
-    />,
-  );
-  expect(html).toContain("every 5 minutes");
-  expect(html).not.toContain("acpmux-goal-next");
-});
-
-test("an autonomous loop reads as one, not as an empty prompt", () => {
-  const html = renderToStaticMarkup(
-    <TaskGoalStrip goal={{ kind: "loop", status: "active", objective: "", autonomous: true }} command={never} />,
-  );
-  expect(html).toContain("Autonomous loop");
-});
-
-test("a Codex goal keeps its Pause and Clear", () => {
+test("a Codex goal keeps its Pause and Clear, gains Edit, and its line is one fold button", () => {
   const html = renderToStaticMarkup(
     <TaskGoalStrip goal={{ objective: "Ship the fix", status: "active" }} command={never} />,
   );
-  expect(html.match(/<button/g)?.length).toBe(2);
+  expect(html.match(/<button/g)?.length).toBe(4);
+  expect(html).toContain('aria-label="Pause"');
+  expect(html).toContain('aria-label="Edit goal"');
+  expect(html).toContain('aria-label="Clear"');
+  expect(html).toContain('aria-expanded="false"');
+  expect(new JSDOM(html).window.document.querySelector(".acpmux-goal-state")?.textContent).toBe("Goal running");
 });
 
-test("the countdown text changes at whole seconds under a minute, then at whole minutes", () => {
-  expect(loopNextText(0, 45_000, "en")).toBe("in 45 sec.");
-  expect(loopNextText(0, 4 * 60_000 + 1, "en")).toBe("in 4 min.");
-  expect(loopNextText(0, 2 * 3_600_000, "en")).toBe("in 2 hr.");
-  expect(loopNextText(10, 5, "en")).toBeUndefined();
+// Leo, 2026-11-09, on a reference goal pill: "that rapid click togle on/of fand its speed too", and
+// "no expansion of the goal in place either". The line opens in place and every click counts: fifteen
+// clicks leave it open (odd), sixteen folded, with nothing queued behind them.
+test("every click on the goal's line toggles it in place, however fast", async () => {
+  const host = installDom();
+  root = createRoot(host);
+  const goal = { objective: "Finish the timeout fix and verify the retry behavior", status: "stalled" as const };
+  await act(async () => root!.render(<TaskGoalStrip goal={goal} command={never} harness="codex" />));
+  const line = host.querySelector<HTMLButtonElement>(".acpmux-goal-toggle")!;
+  const section = host.querySelector<HTMLElement>(".acpmux-goal")!;
+  expect(section.querySelector(".acpmux-goal-state")?.textContent).toBe("Goal stalled");
+  expect(section.dataset.clamped).toBe("true");
+  for (let click = 1; click <= 16; click++) {
+    await act(async () => line.click());
+    expect(line.getAttribute("aria-expanded")).toBe(click % 2 === 1 ? "true" : "false");
+    expect(section.hasAttribute("data-open")).toBe(click % 2 === 1);
+  }
+});
+
+test("Edit swaps the objective for a field in place; Return sends the new goal, Escape keeps the old", async () => {
+  const host = installDom();
+  root = createRoot(host);
+  const sent: [string, string | undefined][] = [];
+  const command = async (action: string, objective?: string) => {
+    sent.push([action, objective]);
+  };
+  const goal = { objective: "Ship the fix", status: "active" as const, provider: "codex" as const };
+  await act(async () => root!.render(<TaskGoalStrip goal={goal} command={command} />));
+  const edit = () => host.querySelector<HTMLButtonElement>('[aria-label="Edit goal"]')!;
+  await act(async () => edit().click());
+  let field = host.querySelector<HTMLTextAreaElement>(".acpmux-goal-field")!;
+  expect(field.value).toBe("Ship the fix");
+  expect(host.querySelector(".acpmux-goal")?.hasAttribute("data-open")).toBe(true);
+  const type = async (node: HTMLTextAreaElement, value: string) => {
+    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
+    setter.call(node, value);
+    await act(async () => node.dispatchEvent(new dom!.window.Event("input", { bubbles: true })));
+  };
+  const key = async (node: HTMLElement, name: string) =>
+    act(async () => node.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: name, bubbles: true })));
+  await type(field, "Ship the fix and its test");
+  await key(field, "Escape");
+  expect(host.querySelector(".acpmux-goal-field")).toBeNull();
+  expect(sent).toEqual([]);
+  await act(async () => edit().click());
+  field = host.querySelector<HTMLTextAreaElement>(".acpmux-goal-field")!;
+  await type(field, "  Ship the fix and its test  ");
+  await key(field, "Enter");
+  expect(sent).toEqual([["edit", "Ship the fix and its test"]]);
+  expect(host.querySelector(".acpmux-goal-field")).toBeNull();
 });
 
 let dom: JSDOM | undefined;
@@ -83,6 +129,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -92,19 +139,31 @@ afterEach(async () => {
   saved.clear();
 });
 
-// Review of #34452: a parent render just after the run time, before the page clock's next tick,
-// stopped the clock while its last sample was still before the deadline, so "in 2 sec." stayed up
-// with no timer left to take it down.
-test("a render past the run time, before the next clock tick, drops the countdown", async () => {
+// composer-typing-flicker, on cmux#39151: the goal heads the composer hat and its time ticks every
+// second. A tick re-renders only the time (`GoalTime`), never the row, or the hat flickers with it.
+test("a clock tick changes the goal's time and re-renders nothing else of the row", async () => {
   const host = installDom();
-  let clock = 1_000_000;
-  const now = () => clock;
-  const at = clock + 1_500;
-  const goal = { kind: "loop" as const, status: "active" as const, objective: "check the deploy", nextRunAt: at };
   root = createRoot(host);
-  await act(async () => root!.render(<TaskGoalStrip goal={goal} command={never} now={now} />));
-  expect(host.querySelector(".acpmux-goal-next")?.textContent).toBe("in 2 sec.");
-  clock = at + 10;
-  await act(async () => root!.render(<TaskGoalStrip goal={{ ...goal }} command={never} now={now} />));
-  expect(host.querySelector(".acpmux-goal-next")).toBeNull();
+  // The row reads its `now` once per render (its "Updated" line); the time leaf reads the page clock.
+  let rowRenders = 0;
+  const now = () => {
+    rowRenders++;
+    return Date.now();
+  };
+  const startedAt = Date.now() - 65_000;
+  const goal = { objective: "Ship the fix", status: "active" as const, provider: "codex" as const, startedAt };
+  await act(async () =>
+    root!.render(<TaskGoalStrip goal={{ ...goal, updatedAt: startedAt }} command={never} now={now} />),
+  );
+  const time = () => host.querySelector(".acpmux-goal-time")?.textContent;
+  const first = time();
+  // The shared Clock holds the minute shape's widest text, so a tick never moves the chevron.
+  expect(host.querySelector(".acpmux-goal-time .ui-clock")?.getAttribute("data-clock-size")).toBe("00m 00s");
+  const before = rowRenders;
+  await act(async () => {
+    // fixed-wait: the page clock's real one-second tick is what this measures; two pass.
+    await new Promise((resolve) => setTimeout(resolve, 2_100));
+  });
+  expect(time()).not.toBe(first);
+  expect(rowRenders).toBe(before);
 });

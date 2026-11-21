@@ -49,6 +49,7 @@ export default componentEntry<ShareDemoProps>({
     "agent-session/acpmux/share/ShareDemo.tsx",
   ],
   load: () => import("./ShareDemo").then((module) => module.ShareDemo),
+  styles: () => import("./Share.gallery.css"),
   height: 560,
   variants: {
     unshared: {
@@ -64,8 +65,36 @@ export default componentEntry<ShareDemoProps>({
       props: { viewing: [], shares: [], open: true },
     },
     "dialog-shared": {
-      note: "Two people invited (one in the chat now) and Anyone with the link as a viewer.",
+      note: "Two people invited (one in the chat now) and Anyone with the link, whose row says Can send: signed-in people can send messages, others can view (cmux#38102). Shipped: the sheet role's glass, veil and 14 px corners; every control a 28 px shared button or field; Done the one solid button.",
       props: { viewing, shares: [people, link], open: true },
+    },
+    "rows-restricted-back": {
+      note: "Shipped: General access and each person are one button the size of their row, edged at rest like a sign-in choice, with the hover and press fills on the whole block; pressing General access offers Restricted, which turns the link back off.",
+      props: { viewing, shares: [people, link], open: true },
+    },
+    "look-row-hover": {
+      note: "Compared, not shipped: no edge at rest, the fill only on hover. The rows read as plain text until the pointer finds them, the dead-chip problem again.",
+      props: { viewing, shares: [people, link], open: true, look: "row-hover" },
+    },
+    "look-row-filled": {
+      note: "Compared, not shipped: the rows filled at rest. Every row reads as pressed, so the hover says nothing.",
+      props: { viewing, shares: [people, link], open: true, look: "row-filled" },
+    },
+    "look-row-bleed": {
+      note: "Compared, not shipped: square rows divided by hairlines, a list rather than buttons. Nothing says a row presses.",
+      props: { viewing, shares: [people, link], open: true, look: "row-bleed" },
+    },
+    "look-two-primaries": {
+      note: "Compared, not shipped: Invite solid as well as Done. Two accent buttons compete for the one primary action.",
+      props: { viewing, shares: [people, link], open: true, look: "two-primaries" },
+    },
+    "look-popover": {
+      note: "Compared, not shipped: the popover level's glass (the theme surface at 70%) and the 12 px card radius instead of the sheet role.",
+      props: { viewing, shares: [people, link], open: true, look: "popover" },
+    },
+    "look-outline": {
+      note: "Compared, not shipped: hairline-outlined field, selects and buttons with no fill at rest.",
+      props: { viewing, shares: [people, link], open: true, look: "outline" },
     },
     toast: {
       note: "After Copy link with Anyone with the link: the toast and Manage links.",
