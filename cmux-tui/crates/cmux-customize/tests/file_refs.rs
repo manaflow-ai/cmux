@@ -125,7 +125,7 @@ fn referenced_contents_and_destinations_still_validate_before_preview_or_install
     let target = tempfile::tempdir().unwrap();
     fs::write(source.path().join("bad.json"), "not json").unwrap();
     let customize = Customize::open(Roots::under(target.path()));
-    for logical in ["themes/look.json", "../outside.json"] {
+    for logical in ["keybindings.json", "../outside.json"] {
         let path = write_manifest(source.path(), json!({logical:{"$file":"bad.json"}}));
         let profile = customize.load_profile(path.to_str().unwrap()).unwrap();
         assert!(customize.preview_profile(&profile, "test", 1).is_err());
