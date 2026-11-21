@@ -173,10 +173,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.quit.watchdog = control.watchdog
         DebugTimings.markReveal(services.launchReveal)
         services.launchReveal.firstFrame = firstFrame // the views' own launch work waits on it (FirstFrameHold)
-        // This launch's times, in every build, for `cmux app launch-times` (CMUX-571): after the first frame, at Home's reveal or 10 s on (a relaunch into another workspace never shows Home).
+        // This launch's times, in every build, for `cmux app launch-times` (CMUX-571) and a sampled field timing (LaunchTiming): after the first frame, at Home's reveal or 10 s on (a relaunch into another workspace never shows Home).
         if let bundleID = environment.launch.bundleID, let file = LaunchTimesFile.app(bundleID: bundleID) {
             let recorder = LaunchTimesRecorder(file: file, work: services.work, info: Bundle.main.infoDictionary ?? [:], listen: AgentPaneLaunchTimings.shared.listen, marks: DebugTimings.launchMarkTimes) { StagedUpdatePrewarm.consumeLaunchMarker(build: $0, bundleIdentifier: bundleID) }
-            firstFrame.whenOpen { [launchReveal = services.launchReveal] in launchReveal.whenReady(.home, orAfter: .seconds(10)) { recorder.write(marks: DebugTimings.launchMarkTimes()) } }
+            firstFrame.whenOpen { [launchReveal = services.launchReveal, weak services] in launchReveal.whenReady(.home, orAfter: .seconds(10)) { let marks = DebugTimings.launchMarkTimes(); let field = services?.crashReporting.reporter.launchTimingSink(marks: marks, workspaceCount: services?.daemon.store.workspaces.count ?? 0); recorder.write(marks: marks) { field?($0.priorChatLiveMs, $0.firstLaunchOfBuild, $0.prewarmed) } } }
         }
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
         services.debugSettings.start()
