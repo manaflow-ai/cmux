@@ -72,3 +72,11 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+
+  swift-linux-packages:
+    name: Swift packages on Linux
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'swift-linux-packages.yml') }}
+    uses: ./.github/workflows/swift-linux-packages.yml
+    permissions:
+      contents: read
