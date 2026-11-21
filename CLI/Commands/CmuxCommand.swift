@@ -176,6 +176,7 @@ struct CmuxCommand: AsyncParsableCommand {
             TreeCommand.self,
             IdentifyCommand.self,
             TriggerFlashCommand.self,
+            TextBoxCommand.self,
             ShotCommand.self,
             RecordCommand.self,
             RestoreCommand.self,

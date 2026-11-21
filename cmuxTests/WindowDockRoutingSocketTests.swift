@@ -51,6 +51,7 @@ struct WindowDockRoutingSocketTests {
     @MainActor
     private func withSocketAppContext(
         fileExplorerState: FileExplorerState? = nil,
+        window: NSWindow? = nil,
         _ body: (TabManager, Workspace, UUID) throws -> Void
     ) throws {
         let previousAppDelegate = AppDelegate.shared
@@ -63,10 +64,24 @@ struct WindowDockRoutingSocketTests {
             appDelegate.fileExplorerState = fileExplorerState
         }
         TerminalController.shared.setActiveTabManager(manager)
-        let windowId = appDelegate.registerMainWindowContextForTesting(
-            tabManager: manager,
-            fileExplorerState: fileExplorerState
-        )
+        let windowId: UUID
+        if let window {
+            windowId = UUID()
+            window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+            appDelegate.registerMainWindow(
+                window,
+                windowId: windowId,
+                tabManager: manager,
+                sidebarState: SidebarState(),
+                sidebarSelectionState: SidebarSelectionState(),
+                fileExplorerState: fileExplorerState
+            )
+        } else {
+            windowId = appDelegate.registerMainWindowContextForTesting(
+                tabManager: manager,
+                fileExplorerState: fileExplorerState
+            )
+        }
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
@@ -77,6 +92,71 @@ struct WindowDockRoutingSocketTests {
 
         let workspace = try #require(manager.tabs.first)
         try body(manager, workspace, windowId)
+    }
+
+    @Test("TextBox focus reveals and selects its Dock terminal only when requested",
+          arguments: ["show", "toggle"], [false, true])
+    @MainActor
+    func textBoxFocusRevealsItsDockTerminal(action: String, focus: Bool) throws {
+        let defaultsName = "cmux-tests-textbox-dock-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let sidebar = FileExplorerState(defaults: defaults)
+        sidebar.mode = .files
+        sidebar.setVisible(false)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.orderFront(nil)
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+
+        try withSocketAppContext(fileExplorerState: sidebar, window: window) { _, _, windowId in
+            let dock = try #require(AppDelegate.shared?.windowDock(forWindowId: windowId))
+            let pane = try #require(dock.bonsplitController.allPaneIds.first)
+            let originalID = try #require(dock.newSurface(kind: .terminal, inPane: pane, focus: false))
+            let requestedID = try #require(dock.newSurface(kind: .terminal, inPane: pane, focus: false))
+            let panel = try #require(dock.panels[requestedID] as? TerminalPanel)
+            dock.focusPanel(originalID)
+
+            let result = try v2Result(method: "surface.textbox.\(action)", params: [
+                "surface_id": requestedID.uuidString,
+                "focus": focus,
+            ])
+
+            #expect(result["visible"] as? Bool == true)
+            #expect(result["changed"] as? Bool == true)
+            #expect(sidebar.isVisible == focus)
+            #expect(sidebar.mode == (focus ? .dock : .files))
+            #expect(dock.focusedPanelId == (focus ? requestedID : originalID))
+            #expect(panel.preferredFocusIntentForActivation() == .terminal(focus ? .textBoxInput : .surface))
+        }
+    }
+
+    @Test("TextBox focus fails without mutating a Dock whose host is unavailable",
+          arguments: ["show", "toggle"])
+    @MainActor
+    func textBoxFocusRejectsUnavailableDock(action: String) throws {
+        try withSocketAppContext { _, _, windowId in
+            let dock = try #require(AppDelegate.shared?.windowDock(forWindowId: windowId))
+            let pane = try #require(dock.bonsplitController.allPaneIds.first)
+            let surfaceID = try #require(dock.newSurface(kind: .terminal, inPane: pane, focus: false))
+            let panel = try #require(dock.panels[surfaceID] as? TerminalPanel)
+
+            let envelope = try v2Envelope(method: "surface.textbox.\(action)", params: [
+                "surface_id": surfaceID.uuidString,
+                "focus": true,
+            ])
+
+            #expect(envelope["ok"] as? Bool == false)
+            let error = try #require(envelope["error"] as? [String: Any])
+            #expect(error["code"] as? String == "unavailable")
+            #expect(!panel.isTextBoxActive)
+        }
     }
 
     @Test("Dock focus commands fail when the owning Dock cannot be revealed")

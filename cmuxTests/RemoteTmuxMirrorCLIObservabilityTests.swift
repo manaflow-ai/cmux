@@ -39,6 +39,43 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         }
     }
 
+    @Test(arguments: ["show", "toggle"], [false, true])
+    func textBoxFocusSelectsProjectedPaneWorkspace(action: String, focus: Bool) throws {
+        let harness = try Harness(focusAwayFromMirror: true, connectedTransport: true)
+        defer { harness.tearDown() }
+        let manager = try #require(harness.appDelegate.tabManagerFor(windowId: harness.windowID))
+        let panel = try #require(harness.mirror.panel(forPane: 11))
+        let other = manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.selectWorkspace(other)
+
+        let textBoxAction = try #require(ControlSurfaceTextBoxAction(rawValue: action))
+        let result = TerminalController.shared.withSocketCommandPolicy(
+            commandKey: "surface.textbox.\(action)", isV2: true, params: ["focus": focus]
+        ) {
+            TerminalController.shared.controlSurfaceTextBox(
+                action: textBoxAction,
+                routing: harness.routing(),
+                surfaceID: panel.id,
+                hasSurfaceIDParam: true,
+                focusRequested: focus
+            )
+        }
+
+        #expect(result == .applied(
+            windowID: harness.windowID, workspaceID: harness.workspace.id,
+            surfaceID: panel.id, visible: true, changed: true
+        ))
+        #expect(manager.selectedTabId == (focus ? harness.workspace.id : other.id))
+        #expect(harness.mirror.activePaneId == (focus ? 11 : 22))
+        if focus {
+            #expect(harness.workspace.focusedPanelId == harness.outerPanelID)
+            #expect(panel.preferredFocusIntentForActivation() == .terminal(.textBoxInput))
+        } else {
+            #expect(!panel.debugHasPendingTextBoxFocusRequest)
+            #expect(panel.preferredFocusIntentForActivation() == .terminal(.surface))
+        }
+    }
+
     @Test func multiPaneMirrorPublishesInnerPanesAndRoutesInput() throws {
         let harness = try Harness()
         defer { harness.tearDown() }
