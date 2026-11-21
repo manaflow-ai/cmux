@@ -37,6 +37,7 @@ fn main() {
             })
             .collect(),
         session_socket_path: String::new(),
+        session_registry_id: String::new(),
     };
     write_atomic(&path, &data).unwrap();
     let length = std::fs::metadata(&path).unwrap().len() as usize;
