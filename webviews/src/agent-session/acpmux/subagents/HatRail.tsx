@@ -72,6 +72,8 @@ export function HatRail({
       className="acpmux-hat-rail"
       data-side={side}
       role="toolbar"
+      // Focus lands on its marks, never on the rail itself; it takes focus only from script.
+      tabIndex={-1}
       aria-label={t("summary.backgroundTasks")}
       aria-orientation={inline ? "horizontal" : "vertical"}
       onKeyDown={onKeyDown}

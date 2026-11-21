@@ -54,7 +54,6 @@ type BackgroundCommand = import("../src/agent-session/acpmux/session-info/proces
 type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;
 type HatSide = import("../src/agent-session/acpmux/subagents/hatSide.experiment").HatSide;
 
-
 afterAll(async () => {
   await teardownDom(saved, { window: dom.window, scope });
 });

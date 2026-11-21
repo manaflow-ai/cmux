@@ -122,80 +122,95 @@ export function ComposerHatHeadStage({
             <div className="acpmux-composer">
               <div
                 className="acpmux-composer-box"
-                style={{ margin: "0 16px 16px", height: 72, borderRadius: 12, background: "var(--acpmux-composer-tray)" }}
+                style={{
+                  margin: "0 16px 16px",
+                  height: 72,
+                  borderRadius: 12,
+                  background: "var(--acpmux-composer-tray)",
+                }}
               />
             </div>
           ) : (
-          <div className="acpmux-composer">
-            <div
-              data-stage-composer-row
-              style={{
-                display: "flex",
-                alignItems: "flex-end",
-                gap: "var(--ds-space-1)",
-                margin: "0 16px 16px",
-                flexDirection: side === "left-rail" ? "row-reverse" : "row",
-              }}
-            >
+            <div className="acpmux-composer">
               <div
-                className="acpmux-composer-box"
+                data-stage-composer-row
                 style={{
-                  flex: 1,
-                  minWidth: 0,
                   display: "flex",
-                  flexDirection: "column",
-                  justifyContent: "space-between",
-                  gap: "var(--ds-space-2)",
-                  minHeight: 72,
-                  padding: "var(--ds-space-2) var(--ds-space-2) var(--ds-space-1)",
-                  borderRadius: 12,
-                  background: "var(--acpmux-composer-tray)",
-                  color: "var(--agent-muted)",
-                  fontSize: "var(--text-control)",
+                  alignItems: "flex-end",
+                  gap: "var(--ds-space-1)",
+                  margin: "0 16px 16px",
+                  flexDirection: side === "left-rail" ? "row-reverse" : "row",
                 }}
               >
-                <span style={{ paddingInline: "var(--ds-space-1)" }}>Ask anything</span>
-                {/* The bottom line: + at its start, mic and Send at its end, always on this line. */}
-                <div data-stage-bottom-line style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-1)" }}>
-                  <span style={STAND_IN_BUTTON} aria-hidden="true">
-                    <Icon name="composer.add" size={14} />
-                  </span>
-                  {side === "bottom-line" && (
-                    <HatRail
-                      side="bottom-line"
-                      items={items}
-                      finished={finished}
-                      waiting={NO_WAITING}
-                      listOpen={listOpen}
-                      onOpen={(id) => setOpened((current) => [...current, id])}
-                      onList={(open) => openList(open, setListOpen)}
-                    />
-                  )}
-                  <span style={{ flex: 1 }} />
-                  <span style={STAND_IN_BUTTON} aria-hidden="true" data-stage-mic>
-                    <span style={{ width: 6, height: 10, borderRadius: 3, border: "1.5px solid currentColor" }} />
-                  </span>
-                  <span
-                    style={{ ...STAND_IN_BUTTON, background: "var(--agent-accent)", color: "white" }}
-                    aria-hidden="true"
+                <div
+                  className="acpmux-composer-box"
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                    gap: "var(--ds-space-2)",
+                    minHeight: 72,
+                    padding: "var(--ds-space-2) var(--ds-space-2) var(--ds-space-1)",
+                    borderRadius: 12,
+                    background: "var(--acpmux-composer-tray)",
+                    color: "var(--agent-muted)",
+                    fontSize: "var(--text-control)",
+                  }}
+                >
+                  <span style={{ paddingInline: "var(--ds-space-1)" }}>Ask anything</span>
+                  {/* The bottom line: + at its start, mic and Send at its end, always on this line. */}
+                  <div
+                    data-stage-bottom-line
+                    style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-1)" }}
                   >
-                    <Icon name="composer.send" size={14} />
-                  </span>
+                    <span style={STAND_IN_BUTTON} aria-hidden="true">
+                      <Icon name="composer.add" size={14} />
+                    </span>
+                    {side === "bottom-line" && (
+                      <HatRail
+                        side="bottom-line"
+                        items={items}
+                        finished={finished}
+                        waiting={NO_WAITING}
+                        listOpen={listOpen}
+                        onOpen={(id) => setOpened((current) => [...current, id])}
+                        onList={(open) => openList(open, setListOpen)}
+                      />
+                    )}
+                    <span style={{ flex: 1 }} />
+                    <span style={STAND_IN_BUTTON} aria-hidden="true" data-stage-mic>
+                      <span
+                        style={{
+                          width: 6,
+                          height: 10,
+                          borderRadius: "var(--ds-radius-sm)",
+                          border: "1.5px solid currentColor",
+                        }}
+                      />
+                    </span>
+                    <span
+                      style={{ ...STAND_IN_BUTTON, background: "var(--agent-accent)", color: "white" }}
+                      aria-hidden="true"
+                    >
+                      <Icon name="composer.send" size={14} />
+                    </span>
+                  </div>
                 </div>
+                {(side === "right-rail" || side === "left-rail") && (
+                  <HatRail
+                    side={side}
+                    items={items}
+                    finished={finished}
+                    waiting={NO_WAITING}
+                    listOpen={listOpen}
+                    onOpen={(id) => setOpened((current) => [...current, id])}
+                    onList={(open) => openList(open, setListOpen)}
+                  />
+                )}
               </div>
-              {(side === "right-rail" || side === "left-rail") && (
-                <HatRail
-                  side={side}
-                  items={items}
-                  finished={finished}
-                  waiting={NO_WAITING}
-                  listOpen={listOpen}
-                  onOpen={(id) => setOpened((current) => [...current, id])}
-                  onList={(open) => openList(open, setListOpen)}
-                />
-              )}
             </div>
-          </div>
           )}
           {opened.length > 0 && (
             <output data-stage-opened style={{ position: "absolute", top: 8, left: 16, color: "var(--agent-muted)" }}>

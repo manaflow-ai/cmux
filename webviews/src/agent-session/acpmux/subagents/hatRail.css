@@ -75,7 +75,7 @@
 /* The mark's name and what it does now, in a small popup beside it, over the composer's edge. */
 .acpmux-hat-rail__label {
   position: absolute;
-  z-index: 3;
+  z-index: var(--layer-tooltip);
   max-width: min(320px, 70vw);
   padding: var(--ds-space-1) var(--ds-space-2);
   border: 1px solid var(--agent-border);
@@ -88,7 +88,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   pointer-events: none;
-  box-shadow: 0 4px 14px color-mix(in srgb, #000 18%, transparent);
+  box-shadow: var(--ui-popup-shadow);
   animation: acpmux-hat-rail-label var(--agent-motion-in) var(--agent-ease-out);
 }
 .acpmux-hat-rail[data-side="right-rail"] .acpmux-hat-rail__label {
