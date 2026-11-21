@@ -236,6 +236,10 @@ await requireBrowserLane("chat-open-smooth.test.ts", async () => {
     let last = "";
     let changedAt = started;
     let seen = false;
+    let first: () => void = () => {};
+    (window as unknown as { __smoothOpenStarted: Promise<void> }).__smoothOpenStarted = new Promise<void>((resolve) => {
+      first = resolve;
+    });
     const done = new Promise<Recorded>((resolve) => {
       window.cmuxAfterPaint(() => {
         const now = performance.now();
@@ -244,7 +248,10 @@ await requireBrowserLane("chat-open-smooth.test.ts", async () => {
         const view = scroller && !hidden ? scroller.getBoundingClientRect() : undefined;
         const rows: { id: string; top: number }[] = [];
         let marked = false;
-        if (view && Number(getComputedStyle(scroller!).opacity) > 0)
+        // Rows under a running fade (the opened chat's fade in, from 0) are shown, fading in; rows at
+        // opacity 0 with none (held unseen) are not: the pane is empty there.
+        const fading = scroller?.getAnimations?.().some((animation) => animation.playState === "running") ?? false;
+        if (view && (fading || Number(getComputedStyle(scroller!).opacity) > 0))
           for (const row of Array.from(scroller!.querySelectorAll<HTMLElement>(rowSelector))) {
             const box = row.getBoundingClientRect();
             if (box.height <= 0 || box.bottom <= view.top || box.top >= view.bottom) continue;
@@ -273,6 +280,7 @@ await requireBrowserLane("chat-open-smooth.test.ts", async () => {
           last = signature;
           changedAt = now;
           frames.push(frame);
+          if (frames.length === 1) first();
         }
         if (now - started < limitMs && (!seen || now - changedAt < quietMs)) return;
         const painted = (window as { cmuxDevPaintedAt?: number }).cmuxDevPaintedAt;
@@ -351,6 +359,8 @@ await requireBrowserLane("chat-open-smooth.test.ts", async () => {
     await tab.evaluate(
       `(${recorder.toString()})(${JSON.stringify({ marker, quietMs: QUIET_MS, limitMs: LIMIT_MS, rowSelector: TRANSCRIPT_ROW })})`,
     );
+    // The frame before the switch is recorded first, so the switch's own frames come after it.
+    await tab.evaluate(() => (window as unknown as { __smoothOpenStarted: Promise<void> }).__smoothOpenStarted);
     await start();
     return judge(
       (await tab.evaluate(() => (window as unknown as { __smoothOpen: Promise<Recorded> }).__smoothOpen)) as Recorded,
