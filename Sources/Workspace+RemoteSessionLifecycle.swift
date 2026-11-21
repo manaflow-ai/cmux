@@ -238,6 +238,7 @@ extension Workspace {
         if retryReservedCloudTerminalPane(surfaceId: surfaceId) { return true }
         if let resource = cloudProjectedResource(forPanel: surfaceId),
            let provider = SurfaceCatalog.shared.provider(for: resource.id.machine) as? CmuxTuiSurfaceProvider {
+            provider.wakeForReconnect()
             guard let session = provider.manualMirrorSessions[surfaceId] else {
                 clearCloudMaterializationFailure(surfaceID: surfaceId)
                 provider.scheduleRefresh()
