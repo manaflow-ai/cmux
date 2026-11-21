@@ -13,8 +13,8 @@ async function keypair(kid) {
   return { pair, jwk: { kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y, kid } }
 }
 
-async function sign(key, claims, kid) {
-  const head = b64(JSON.stringify({ alg: "ES256", typ: "JWT", kid }))
+async function sign(key, claims, kid, typ = "JWT") {
+  const head = b64(JSON.stringify({ alg: "ES256", typ, kid }))
   const body = b64(JSON.stringify(claims))
   const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key.pair.privateKey, new TextEncoder().encode(`${head}.${body}`))
   return `${head}.${body}.${b64(new Uint8Array(sig))}`
@@ -85,7 +85,7 @@ test("a token the stack itself issued (hub session, ticket, API install token) i
   const { own, seen, call } = await setup()
   const session = await sign(own, { iss: "device-hub", sub: "p:u1", exp: NOW / 1000 + 3600 }, "hub-session")
   assert.equal((await call("https://hub.s7.wdev.cmux.dev/v1/devices", { headers: { authorization: `Bearer ${session}` } })).status, 200)
-  const ticket = await sign(own, { iss: "device-hub", exp: NOW / 1000 + 60 }, "hub-session")
+  const ticket = await sign(own, { sub: "p:u1", scope: "full", exp: NOW / 1000 + 60, jti: "t1" }, "hub-session", "dh-ticket")
   const ws = await call(`https://hub.s7.wdev.cmux.dev/v1/sessions/0b8e7c1e-1111-4111-8111-111111111111/ws?ticket=${ticket}`)
   assert.equal(ws.status, 200)
   const stranger = await keypair("hub-session")
@@ -120,4 +120,46 @@ test("only health, the API's client-config and its JWKS are open; other hosts ar
     assert.equal((await call(url)).status, 404, url)
   }
   assert.equal(seen.length, 5)
+})
+
+test("a token the stack signed for anything but a signed-in account never admits a request", async () => {
+  const { own, seen, call } = await setup()
+  const api = await sign(own, { iss: "https://api.s7.wdev.cmux.dev", aud: "api", sub: "u1", exp: NOW / 1000 + 600 }, "hub-session")
+  assert.equal((await call("https://api.s7.wdev.cmux.dev/v1/me", { headers: { authorization: `Bearer ${api}` } })).status, 200)
+  for (const [claims, typ] of [
+    [{ iss: "https://api.s7.wdev.cmux.dev", aud: "cmux-integration-state", sub: "u1", exp: NOW / 1000 + 600 }, "JWT"], // OAuth state
+    [{ iss: "https://api.s7.wdev.cmux.dev", aud: "cmux-model-gateway", sub: "run", exp: NOW / 1000 + 600 }, "JWT"], // run token
+    [{ iss: "https://api.s7.wdev.cmux.dev", aud: "cmux-free", sub: "k", fr: 1, exp: NOW / 1000 + 600 }, "cmux-free+jwt"],
+    [{ iss: "https://api.s7.wdev.cmux.dev", aud: ["api", "other"], sub: "u1", exp: NOW / 1000 + 600 }, "JWT"],
+    [{ iss: "device-hub", exp: NOW / 1000 + 600 }, "JWT"], // a hub session with no subject
+  ]) {
+    const token = await sign(own, claims, "hub-session", typ)
+    const r = await call("https://api.s7.wdev.cmux.dev/v1/me", { headers: { authorization: `Bearer ${token}` } })
+    assert.equal(r.status, 401, JSON.stringify(claims))
+    assert.match((await r.json()).error.message, /not a kind of token/)
+  }
+  assert.equal(seen.length, 1)
+})
+
+test("a flood of tokens under unknown keys fetches the key sets at most once a minute", async () => {
+  clearKeyCache()
+  const stack = await keypair("stack-1")
+  const own = await keypair("hub-session")
+  let stackFetches = 0
+  let ownFetches = 0
+  const env = { WDEV_ALLOWED_EMAIL_DOMAINS: "manaflow.ai", VM: { fetch: async () => new Response("ok") } }
+  const at = (now) => ({ now, stackKeys: async () => (stackFetches++, [stack.jwk]), ownKeys: async () => (ownFetches++, [own.jwk]) })
+  const stranger = await keypair("stack-2")
+  for (let i = 0; i < 20; i++) {
+    const forged = await sign(stranger, teamClaims({ exp: NOW / 1000 + 600 }), `stack-x${i}`)
+    const r = await handle(new Request("https://api.s7.wdev.cmux.dev/v1/me", { headers: { authorization: `Bearer ${forged}` } }), env, at(NOW + i))
+    assert.equal(r.status, 401)
+    const hub = await sign(stranger, { iss: "device-hub", sub: "p:u1", exp: NOW / 1000 + 600 }, `own-x${i}`)
+    assert.equal((await handle(new Request("https://hub.s7.wdev.cmux.dev/v1/devices", { headers: { authorization: `Bearer ${hub}` } }), env, at(NOW + i))).status, 401)
+  }
+  assert.ok(stackFetches <= 2, `${stackFetches} Stack key fetches`)
+  assert.ok(ownFetches <= 2, `${ownFetches} stack key fetches`)
+  // A minute later a new key is picked up again.
+  const good = await sign(stack, teamClaims({ exp: NOW / 1000 + 600 }), "stack-1")
+  assert.equal((await handle(new Request("https://api.s7.wdev.cmux.dev/v1/me", { headers: { authorization: `Bearer ${good}` } }), env, at(NOW + 61_000))).status, 200)
 })

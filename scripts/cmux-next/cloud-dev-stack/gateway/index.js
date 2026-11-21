@@ -23,9 +23,39 @@ const OPEN = [
   (svc, method, path) => svc === "api" && method === "GET" && (path === "/v1/client-config" || path === "/.well-known/jwks.json"),
 ]
 const KEYS_TTL_MS = 5 * 60_000
+// A token whose key is not in the cached set refetches it at most this often per set: a flood of bad tokens never
+// turns into a flood of key fetches (Stack would rate-limit the gateway, the VM would wake stacks).
+const REFETCH_MIN_MS = 60_000
 const keyCache = new Map()
+const lastRefetch = new Map()
 /** Tests start from an empty cache. */
-export const clearKeyCache = () => keyCache.clear()
+export const clearKeyCache = () => {
+  keyCache.clear()
+  lastRefetch.clear()
+}
+
+/** Refetch a key set once its cached copy lacks this token's key, at most every REFETCH_MIN_MS. */
+async function verifyRefetching(name, load, jwt, now) {
+  const keys = await cachedKeys(name, load, now)
+  if (await verifyWith(keys, jwt)) return true
+  const known = jwt.header.kid && keys.some((k) => k.kid === jwt.header.kid)
+  if (known || now - (lastRefetch.get(name) ?? -Infinity) < REFETCH_MIN_MS) return false
+  lastRefetch.set(name, now)
+  keyCache.delete(name)
+  return verifyWith(await cachedKeys(name, load, now), jwt)
+}
+
+/** The kinds of token a stack issues that admit a request: the API's access tokens (aud "api"), the hub's sessions
+ * (iss "device-hub") and its tickets (typ "dh-ticket"). Every other token the stack signs (OAuth state, model
+ * gateway run tokens, free inference) never does, though its signature is the stack's. */
+export function stackTokenKind(jwt) {
+  const { header, claims } = jwt
+  const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud]
+  if ((header.typ ?? "JWT") === "JWT" && aud.length === 1 && aud[0] === "api" && typeof claims.sub === "string") return "api access token"
+  if ((header.typ ?? "JWT") === "JWT" && claims.iss === "device-hub" && claims.aud === undefined && typeof claims.sub === "string") return "hub session"
+  if (header.typ === "dh-ticket" && claims.iss === undefined && typeof claims.jti === "string") return "hub ticket"
+  return undefined
+}
 
 const b64url = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (s.length % 4)) % 4)), (c) => c.charCodeAt(0))
 const text = (bytes) => new TextDecoder().decode(bytes)
@@ -81,20 +111,13 @@ export async function refusal(token, ctx) {
     if (claims.is_anonymous === true || claims.is_restricted === true) return "anonymous or restricted account"
     const domain = typeof claims.email === "string" ? claims.email.split("@").pop().toLowerCase() : ""
     if (claims.email_verified !== true || !allowedDomains(ctx.env).has(domain)) return "an account outside the cmux team"
-    let keys = await cachedKeys("stack", ctx.stackKeys, ctx.now)
-    if (!(await verifyWith(keys, jwt))) {
-      keyCache.delete("stack") // a key Stack added since the cached set: once more, fresh
-      keys = await cachedKeys("stack", ctx.stackKeys, ctx.now)
-      if (!(await verifyWith(keys, jwt))) return "bad signature"
-    }
-    return undefined
+    // A key Stack added since the cached set: fetched again (rate-limited).
+    return (await verifyRefetching("stack", ctx.stackKeys, jwt, ctx.now)) ? undefined : "bad signature"
   }
-  // A token the stack signed: its own public keys, from the router (fetched again once on a miss: the slot's
-  // stack may have changed, or made its keys since).
-  const name = `stack:${ctx.slot}`
-  if (await verifyWith(await cachedKeys(name, ctx.ownKeys, ctx.now), jwt)) return undefined
-  keyCache.delete(name)
-  return (await verifyWith(await cachedKeys(name, ctx.ownKeys, ctx.now), jwt)) ? undefined : "not signed by the Stack project or this stack"
+  // A token the stack signed: only the kinds that stand for a signed-in account, then its own public keys, from the
+  // router (fetched again, rate-limited, when the slot's stack changed or made its keys since).
+  if (!stackTokenKind(jwt)) return "not a kind of token that admits a request"
+  return (await verifyRefetching(`stack:${ctx.slot}`, ctx.ownKeys, jwt, ctx.now)) ? undefined : "not signed by the Stack project or this stack"
 }
 
 /** The credential a request carries, read without consuming its body (the hub's auth body is re-sent). */

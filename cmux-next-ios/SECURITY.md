@@ -1289,11 +1289,16 @@ token to that origin, so the origin is allowlisted in each app, not only in the 
     itself, before the stack's unmerged code runs. It accepts:
     - a Stack Auth access token of the development project, signed by the project's key, unexpired, not
       anonymous or restricted, with a verified email in a cmux team domain (`manaflow.ai`); or
-    - a token that stack signed (the API's install tokens, the hub's sessions and tickets), checked
-      against that stack's public keys. The stack issues these only to an account the gateway admitted.
+    - a token that stack signed of a kind that stands for a signed-in account: the API's access tokens
+      (`aud` `api`), the hub's sessions (`iss` `device-hub`) and its tickets (`typ` `dh-ticket`),
+      checked against that stack's public keys. The stack issues these only to an account the gateway
+      admitted. Every other token it signs (OAuth state, model gateway run tokens, free inference) is
+      refused, though its signature is the stack's.
 
     The only open paths carry no data: `GET /v1/health`, and the API's `GET /v1/client-config` and
-    `/.well-known/jwks.json`.
+    `/.well-known/jwks.json`. Anyone can send them, so on a public host they never wake a stopped stack
+    or count as its activity; only a request that passed the gateway's check does. A token under a key
+    the gateway has not cached refetches the key set at most once a minute.
   - **The path to the VM.** The gateway reaches the VM through a Workers VPC service and the Cloudflare
     Tunnel `cmux-wdev` (`cloudflared` on the VM, `cmux-wdev-tunnel.service`), which ends at the VM's
     router on 127.0.0.1. The tunnel has no public hostname or ingress rule, so the gateway is the only
@@ -1301,11 +1306,13 @@ token to that origin, so the origin is allowlisted in each app, not only in the 
     account, another Worker could bind the same VPC service; account access is already a higher trust
     level than a tag stack's data.
   - **Slot reuse.** The router serves a public host only for the stack that holds that slot. It refuses
-    a request whose `X-Cmux-Build-Space` names another tag: for example, a phone that kept a released
-    stack's origin after the slot went to another tag.
+    a request whose `X-Cmux-Build-Space` names another tag, without naming either tag: for example, a
+    phone that kept a released stack's origin after the slot went to another tag.
   - **What's left.** Anyone with a cmux team account can reach any slot's stack, the same as any tailnet
     member can reach any stack today. The tunnel token lives only on the VM
-    (`<base>/secrets/tunnel.token`, mode 0600).
+    (`<base>/secrets/tunnel.token`, mode 0600). The tunnel must have no private-network routes, so a
+    WARP client in the account cannot reach the router directly. The stack's JWKS key id contains its
+    tag, so `/.well-known/jwks.json` names the tag.
 - **Phone:** read only in DEBUG builds (Debug, Demo): `ChiefCloudConfig.current` compiles the read
   out of Release, TestFlight and App Store builds, and Production removes the kept value at launch
   (`DeveloperOptions.storedKeys`). The first hand-off launch passes `CMUX_NEXT_CLOUD_BACKEND`; the app

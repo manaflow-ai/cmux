@@ -321,7 +321,7 @@ fn allowed_origin(value: &str, selected: &str) -> Result<(), String> {
                 .is_some_and(|(_, selected_slot)| selected_slot == slot);
         return if own_slot
             && matches!(service, "api" | "mobile" | "hub")
-            && url::Url::parse(&origin).is_ok_and(|u| u.port().is_none())
+            && url::Url::parse(&origin).is_ok_and(|u| u.scheme() == "https" && u.port().is_none())
         {
             Ok(())
         } else {
@@ -675,6 +675,8 @@ mod tests {
             "https://mobile.s8.wdev.cmux.dev",
             "https://evil.s7.wdev.cmux.dev",
             "https://mobile.s7.wdev.cmux.dev:8443",
+            "http://mobile.s7.wdev.cmux.dev",
+            "http://hub.s7.wdev.cmux.dev",
         ] {
             let mut cross = config(stack);
             cross.configuration.mobile_origin = other.into();

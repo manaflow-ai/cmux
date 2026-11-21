@@ -170,7 +170,8 @@ test("a public host refuses another tag's build space and serves the stack's pub
   assert.equal((await ask("api.s1.wdev.cmux.dev")).status, 200, "no build space: the stack decides")
   const other = await ask("api.s1.wdev.cmux.dev", "dev:another-tag")
   assert.equal(other.status, 421)
-  assert.match(other.body, /tag pub, not another-tag/)
+  assert.match(other.body, /another tag's stack/)
+  assert.doesNotMatch(other.body, /pub|another-tag/, "an unauthenticated caller learns no tag name")
   assert.equal((await ask("vm.tail.ts.net:4760", "dev:another-tag")).status, 200, "tailnet use by another tag stays possible")
   const jwks = await ask("api.s1.wdev.cmux.dev", undefined, "/__wdev/jwks")
   assert.deepEqual(JSON.parse(jwks.body), { keys: [{ kty: "EC", x: "X" }] })
@@ -313,5 +314,34 @@ test("a WebSocket client that leaves while its crashed stack wakes leaves nothin
   client.on("error", () => {})
   await sleep(400)
   assert.equal(upstreamConnections, 0, "no upstream socket (and no heartbeat) for a client that left")
+  done(router, stack)
+})
+
+test("an open path on a public host never wakes its stack or counts as its activity", async () => {
+  const stack = fakeStack()
+  const sport = await listen(stack)
+  const dir = base([{ tag: "op", state: "stopped", port: sport, authorities: [] }])
+  writeFileSync(join(dir, "routes.json"), JSON.stringify({ "api.s3.wdev.cmux.dev": { tag: "op", port: sport, public: true },
+                                                          "hub.s3.wdev.cmux.dev": { tag: "op", port: sport, public: true } }))
+  let wakes = 0
+  const wakeRun = async (tag) => { wakes++; writeFileSync(join(dir, "registry", `${tag}.json`), JSON.stringify({ tag, state: "running" })) }
+  const router = createRouter({ base: dir, wakeRun })
+  const rport = await listen(router)
+  const beat = join(dir, "stacks/op/heartbeat")
+  for (const [host, path] of [["api.s3.wdev.cmux.dev", "/v1/health"], ["api.s3.wdev.cmux.dev", "/v1/client-config"],
+                              ["api.s3.wdev.cmux.dev", "/.well-known/jwks.json"], ["hub.s3.wdev.cmux.dev", "/v1/health?x=1"]]) {
+    const r = await get(rport, host, path)
+    assert.equal(r.status, 503, `${host}${path}`)
+    assert.match(r.body, /signed-in request wakes it/)
+  }
+  assert.equal(wakes, 0)
+  assert.throws(() => statSync(beat), "no heartbeat from an open path")
+  assert.equal((await get(rport, "api.s3.wdev.cmux.dev", "/v1/me")).status, 200, "an authenticated path (the gateway checked it) wakes it")
+  assert.equal(wakes, 1)
+  const old = Date.now() / 1000 - 3 * 3600
+  utimesSync(beat, old, old)
+  await sleep(10)
+  assert.equal((await get(rport, "api.s3.wdev.cmux.dev", "/v1/health")).status, 200, "running: the open path is served")
+  assert.ok(Math.abs(statSync(beat).mtimeMs / 1000 - old) < 1, "and still counts as no activity")
   done(router, stack)
 })

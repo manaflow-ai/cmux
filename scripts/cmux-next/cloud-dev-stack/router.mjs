@@ -143,7 +143,18 @@ export function spaceTag(headers) {
 export function publicRefusal(route, headers) {
   if (!route.public) return undefined
   const tag = spaceTag(headers)
-  return tag !== undefined && tag !== route.tag ? `this origin is the stack of tag ${route.tag}, not ${tag}` : undefined
+  // Names neither tag: anyone on the internet can send this header to an open path.
+  return tag !== undefined && tag !== route.tag ? "this origin is another tag's stack (its slot changed hands); run the hand-off again" : undefined
+}
+
+/** A path the gateway lets through with no credential (gateway/index.js OPEN), on a public host. Anyone can send
+ * one, so it never counts as the stack's activity and never wakes it: a stopped stack answers 503 until a
+ * signed-in request wakes it. */
+export function publicOpenPath(route, req, host) {
+  if (!route.public || req.method !== "GET") return false
+  const path = (req.url ?? "").split("?")[0]
+  const svc = String(host ?? "").toLowerCase().split(".")[0]
+  return path === "/v1/health" || (svc === "api" && (path === "/v1/client-config" || path === "/.well-known/jwks.json"))
 }
 
 function serveJwks(opts, res, route) {
@@ -258,6 +269,10 @@ export function createRouter(opts = {}) {
     const refused = publicRefusal(route, req.headers)
     if (refused) return refuse(res, 421, refused)
     if (route.public && req.method === "GET" && req.url === "/__wdev/jwks") return serveJwks(opts, res, route)
+    if (publicOpenPath(route, req, req.headers.host)) {
+      if (stackState(opts.base, route.tag) !== "running") return refuse(res, 503, "the stack is stopped; a signed-in request wakes it")
+      return proxy({ ...opts, wakeRun: async () => { throw new Error("not woken by an open path") } }, req, res, route)
+    }
     heartbeat(opts.base, route.tag)
     // A client that leaves while its stack wakes is not sent on: its request never reaches the stack.
     let gone = false
