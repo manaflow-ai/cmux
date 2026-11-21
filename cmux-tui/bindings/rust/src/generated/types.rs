@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226.
+// cmux-tui mux protocol 12, IR 5ef5e3f7c49d7de863d18fc83f298f34a41b331815505a3533eda7703d49c6d7.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -563,6 +563,36 @@ pub struct ConversationParticipant {
     pub id: String,
     /// Known values: human, agent. Other values are future kinds.
     pub kind: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationQuestionAnswer {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub answered_at: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub respondent: Optional<ConversationQuestionRespondent>,
+    pub selections: BTreeMap<String, ConversationQuestionSelection>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationQuestionRespondent {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub device: Optional<String>,
+    pub display_name: String,
+    pub participant: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub remote: Option<bool>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ConversationQuestionSelection {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub option_ids: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub other: Optional<String>,
 }
 
 #[rustfmt::skip]
