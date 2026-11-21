@@ -1533,15 +1533,6 @@ impl Hub {
     /// `mac-ci-3` for `claude-sr2/mac-ci-3` when `key` names no session here in any way
     /// (`Hub::local_match_counts`), or `PEER/mac-ci-3` on that peer only.
     pub fn resolve_remote(&self, key: &str) -> Option<(Arc<crate::peer::Peer>, String, Value)> {
-        // Direct callers do not pass through `server::route_bare_key`. Resolve a native agent id
-        // through the shared route first, then read the exact mirrored row it selected.
-        if let Ok(Some(route)) = self.key_route(key)
-            && let Some((peer_name, mux_id)) = route.split_once('/')
-            && let Some(row) = self.remote_sessions.read().get(&route)
-        {
-            let peer = self.peer(peer_name)?;
-            return Some((peer, mux_id.to_owned(), row.summary.value()));
-        }
         let map = self.remote_sessions.read();
         // Only the one row picked is parsed.
         let row = |r: &RemoteSession| {
@@ -1601,11 +1592,24 @@ impl Hub {
     /// list (`Hub::unknown_session`).
     pub(super) fn remote_names_containing(&self, lower: &str) -> Vec<String> {
         let map = self.remote_sessions.read();
-        map.values()
+        let mut names: Vec<String> = map
+            .values()
             .filter_map(|r| r.summary.name())
             .filter(|n| crate::session_name::contains_ignore_case(n, lower))
             .map(str::to_owned)
-            .collect()
+            .collect();
+        let id_key = lower.rsplit('/').next().unwrap_or(lower);
+        if crate::session_identity::agent_id_query(id_key)
+            || id_key.bytes().any(|b| b.is_ascii_digit())
+        {
+            names.extend(map.values().filter_map(|r| {
+                r.summary
+                    .agent_session_id()
+                    .filter(|id| crate::session_name::contains_ignore_case(id, id_key))
+                    .map(str::to_owned)
+            }));
+        }
+        names
     }
 
     /// Peer `peer`'s session `mux` was deleted through us: drop it now rather than at the next
@@ -1875,9 +1879,12 @@ pub(super) fn listed_remote_text(
 /// or `PEER/NAME`.
 pub(super) fn names_remote(id: &str, r: &RemoteSession, key: &str) -> bool {
     let name = r.summary.name().unwrap_or("");
+    let agent_key = key.strip_prefix(&format!("{}/", r.peer)).unwrap_or(key);
     name == key
         || r.receipt.mux_session_id.starts_with(key)
         || id.starts_with(key)
+        || crate::session_identity::match_agent_session_id(r.summary.agent_session_id(), agent_key)
+            .is_some()
         || name.strip_prefix(&format!("{}/", r.peer)) == Some(key)
 }
 

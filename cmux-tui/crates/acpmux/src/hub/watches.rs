@@ -246,11 +246,7 @@ fn concerns(hub: &Hub, e: &HubEvent) -> bool {
 }
 /// Bind a name once. A rename or a new session reusing it cannot retarget a watch.
 pub fn resolve(hub: &Hub, key: &str) -> Result<String, RpcError> {
-    if let Ok(s) = hub.resolve(key) {
-        return Ok(s.id.clone());
-    }
-    hub.resolve_remote(key)
-        .map(|(p, id, _)| format!("{}/{id}", p.name))
+    hub.key_route(key)?
         .ok_or_else(|| RpcError::not_found(format!("no session matches {key:?}; run acpmux ls")))
 }
 pub(super) fn summary(hub: &Hub, key: &str) -> Value {

@@ -60,6 +60,7 @@ impl RemoteRows {
         if let Some(pair) = row.summary.pair() {
             self.by_pair.entry(pair).or_default().insert(key.clone());
         }
+        self.names.add_agent_id(&key, &row);
         let peer = self.by_peer.entry(row.peer.clone()).or_default();
         peer.entry(row.receipt.mux_session_id.clone()).or_default().insert(key.clone());
         self.names.add(&key, &row);
@@ -231,6 +232,10 @@ impl RemoteRows {
                 .take_while(|(mux, _)| mux.starts_with(key))
                 .map(|(_, k)| k),
         );
+        keys.extend(n.agent_keys(key));
+        if let Some((_, rest)) = key.split_once('/') {
+            keys.extend(n.agent_keys(rest));
+        }
         keys.into_iter().filter_map(|k| self.rows.get_key_value(k.as_str())).collect()
     }
 
@@ -267,6 +272,7 @@ struct Names {
     by_last_segment: PMap<String, PSet<String>>,
     keys: PSet<String>,
     muxes: PSet<(String, String)>,
+    agent_ids: PSet<(String, String)>,
 }
 
 impl Names {
@@ -276,6 +282,30 @@ impl Names {
         let bare = name.strip_prefix(row.peer.as_str()).and_then(|rest| rest.strip_prefix('/'));
         let last = name.rsplit_once('/').map(|(_, last)| last);
         [(0, Some(name.to_owned())), (1, bare.map(str::to_owned)), (2, last.map(str::to_owned))]
+    }
+
+    fn add_agent_id(&mut self, key: &str, row: &RemoteSession) {
+        if let Some(id) = row.summary.agent_session_id() {
+            self.agent_ids.insert((id.to_ascii_lowercase(), key.to_owned()));
+        }
+    }
+
+    fn agent_keys<'a>(&'a self, key: &str) -> impl Iterator<Item = &'a String> {
+        let lower = key.to_ascii_lowercase();
+        let exact_lower = lower.clone();
+        let exact = self
+            .agent_ids
+            .range((lower.clone(), String::new())..)
+            .take_while(move |(id, _)| id == &exact_lower)
+            .map(|(_, row)| row);
+        let prefix_lower = lower;
+        let prefix = crate::session_identity::agent_id_query(key).then(|| {
+            self.agent_ids
+                .range((prefix_lower.clone(), String::new())..)
+                .take_while(move |(id, _)| id.starts_with(&prefix_lower))
+                .map(|(_, row)| row)
+        });
+        exact.chain(prefix.into_iter().flatten())
     }
 
     fn map(&mut self, which: u8) -> &mut PMap<String, PSet<String>> {
@@ -309,6 +339,9 @@ impl Names {
         }
         self.keys.remove(key);
         self.muxes.remove(&(row.receipt.mux_session_id.clone(), key.to_owned()));
+        if let Some(id) = row.summary.agent_session_id() {
+            self.agent_ids.remove(&(id.to_ascii_lowercase(), key.to_owned()));
+        }
     }
 
     #[cfg(test)]
@@ -318,6 +351,7 @@ impl Names {
             && self.by_last_segment.is_empty()
             && self.keys.is_empty()
             && self.muxes.is_empty()
+            && self.agent_ids.is_empty()
     }
 }
 
@@ -378,6 +412,16 @@ mod tests {
         assert!(rows.is_empty());
         assert!(rows.by_peer.is_empty(), "no empty entry is left behind");
         assert!(rows.names.is_empty(), "no name entry is left behind");
+    }
+
+    #[test]
+    fn agent_session_ids_are_indexed() {
+        let mut rows = RemoteRows::default();
+        let (key, mut r) = row("hb", "r1", "running");
+        r.summary = json!({"sessionId":"r1","peer":"hb","name":"hb/lane","status":"running","agentSessionId":"6e0bad7d-1100-4000-8000-000000000001"}).into();
+        rows.insert(key, r);
+        assert_eq!(rows.named("6e0bad7d-1100-4000-8000-000000000001").len(), 1);
+        assert_eq!(rows.named("6E0BAD").len(), 1);
     }
 
     #[test]

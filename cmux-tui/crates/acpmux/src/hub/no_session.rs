@@ -113,8 +113,6 @@ impl Hub {
     /// (the machine `key` names, the name on it, that machine's live session names): a peer's
     /// rows for `PEER/NAME`, this machine's sessions for a bare key or this machine's own name.
     fn names_on_host_of<'k>(&self, key: &'k str) -> (String, &'k str, Vec<String>) {
-        let id_query = (key.len() >= 6 && key.bytes().all(|b| b.is_ascii_hexdigit()))
-            || key.bytes().any(|b| b.is_ascii_digit());
         if let Some((host, rest)) = key.split_once('/')
             && !rest.is_empty()
             && self.peer(host).is_some()
@@ -128,6 +126,8 @@ impl Hub {
                     n.strip_prefix(host).and_then(|n| n.strip_prefix('/')).unwrap_or(n).to_owned()
                 })
                 .collect();
+            let id_query = crate::session_identity::agent_id_query(rest)
+                || rest.bytes().any(|b| b.is_ascii_digit());
             if id_query {
                 names.extend(map.values().filter_map(|r| {
                     (r.peer == host && !super::peers::remote_closed(r))
@@ -146,6 +146,8 @@ impl Hub {
             }
             _ => (crate::pairing::machine_name(), key),
         };
+        let id_query = crate::session_identity::agent_id_query(name)
+            || name.bytes().any(|b| b.is_ascii_digit());
         let mut names: Vec<String> = self
             .sessions
             .lock()

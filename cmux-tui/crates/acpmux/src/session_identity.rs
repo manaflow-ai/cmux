@@ -21,13 +21,17 @@ pub(crate) enum AgentIdMatch {
 /// A harness's full id, or a prefix of at least six ASCII hex digits.
 pub(crate) fn match_agent_session_id(agent_id: Option<&str>, key: &str) -> Option<AgentIdMatch> {
     let id = agent_id.filter(|id| !id.is_empty())?;
-    if id == key {
+    if id.eq_ignore_ascii_case(key) {
         return Some(AgentIdMatch::Full);
     }
     (key.len() >= 6
         && key.bytes().all(|b| b.is_ascii_hexdigit())
         && id.get(..key.len()).is_some_and(|head| head.eq_ignore_ascii_case(key)))
     .then_some(AgentIdMatch::Prefix)
+}
+
+pub(crate) fn agent_id_query(key: &str) -> bool {
+    key.len() >= 6 && key.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 /// The identity receipt for one observed mux session.
