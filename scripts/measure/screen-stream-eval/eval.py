@@ -39,7 +39,7 @@ import statistics
 import sys
 from pathlib import Path
 
-SCHEMA = "cmux.screen-stream-eval/2"
+SCHEMA = "cmux.screen-stream-eval/1"
 SCENARIOS = ["idle", "typing", "scroll", "video", "ocr"]
 REQUIRED_WINDOW_PHASES = ["idle", "typing", "scroll"]
 WINDOW_PHASES = [*REQUIRED_WINDOW_PHASES, "video"]
@@ -483,11 +483,11 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
         for name, t in targets.items():
             latency = " / ".join(fmt(((t.get("latency") or {}).get(kind) or {}).get("p50_ms"), " ms")
                                  for kind in ("key", "pointer"))
-            kbps = " / ".join(fmt((t.get("kbps") or {}).get(phase), "", 0) for phase in WINDOW_PHASES)
+            kbps = " / ".join(fmt((t.get("kbps") or {}).get(phase), "", 0) for phase in REQUIRED_WINDOW_PHASES)
             fps, mark = t.get("fps") or {}, ""
             if all(v is None for v in fps.values()) and any(v is not None for v in (t.get("sampled_fps") or {}).values()):
                 fps, mark, sampled_only = t["sampled_fps"], "*", True
-            rate = " / ".join(fmt(fps.get(phase), mark) for phase in WINDOW_PHASES)
+            rate = " / ".join(fmt(fps.get(phase), mark) for phase in REQUIRED_WINDOW_PHASES)
             lines.append(f"| {name} | {latency} | {kbps} | {rate} |")
         if sampled_only:
             lines += ["", "\\* sampled screenshot changes a second (at most 10 captures a second), not decoded FPS."]
