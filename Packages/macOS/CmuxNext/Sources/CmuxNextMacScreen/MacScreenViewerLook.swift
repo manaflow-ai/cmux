@@ -58,8 +58,16 @@ struct MacScreenViewerStyle {
         case black
         /// The theme's chrome color.
         case chrome
-        /// The pane's page fill (the window material, as on other page tabs): the picture letterboxes on the window's ground.
+        /// The page fill other page tabs use (clear over the window's material).
         case page
+
+        func color(_ colors: MacScreenColors) -> NSColor {
+            switch self {
+            case .black: .black
+            case .chrome: colors.chrome
+            case .page: colors.page
+            }
+        }
     }
 
     var toolbarPlacement = ToolbarPlacement.topBar
@@ -107,18 +115,24 @@ struct MacScreenViewerStyle {
     /// A brief outage over a shown picture (a stall) keeps the last frame up with no card over it; the toolbar says
     /// Reconnecting quietly instead (false: the Reconnecting card covers the picture).
     var quietOutage = false
+    /// The material behind the toolbar, made for its corner radius (nil: none, the toolbar's own fill).
+    var toolbarSurface: (@MainActor (CGFloat) -> NSView)?
+    /// The toolbar's row height (nil: fitted to its controls).
+    var toolbarRowHeight: CGFloat?
+    /// A View | Control segmented control in place of the access menu.
+    var toolbarScopeSegments = false
+    /// A floating toolbar fades out after a while live and idle, and back in at the pane's top edge.
+    var toolbarAutoHide = false
+    /// Marks on the live picture: a focus-color edge and a Controlling pill while the keyboard goes to the other Mac,
+    /// a View Only pill in a View Only session, a quiet Reconnecting pill during an outage.
+    var pictureMarks = false
+    /// A stall with a picture up keeps the last frame and shows no card (an outage is not an error).
+    var outageKeepsPicture = false
+    /// Transient cards (connecting, waiting) are a small mark and one line, with no surface.
+    var cardQuietTransient = false
 
     /// The pane as shipped.
     static var current: MacScreenViewerStyle { MacScreenViewerStyle() }
-
-    /// The pane's color around the letterboxed picture, in `colors` (the toolbar's resolved colors).
-    func backdropColor(_ colors: MacScreenColors) -> NSColor {
-        switch backdrop {
-        case .black: .black
-        case .chrome: colors.chrome
-        case .page: colors.page
-        }
-    }
 }
 
 extension MacScreenPaneModel {

@@ -382,11 +382,8 @@ public final class MacScreenPaneView: NSView {
         layer?.addSublayer(pictureShadow)
         video.install(presenter)
         video.scaling = .fit
-        addSubview(video)
-        addSubview(capture)
-        addSubview(veil)
-        addSubview(chrome.toolbar)
-        addSubview(chrome.card)
+        // The video stays first (the gallery draws its picture there); the look's overlay sits under the toolbar and card.
+        for view in [video, capture, veil, chrome.overlay, chrome.toolbar, chrome.card] as [NSView] { addSubview(view) }
         input.geometry = { [weak self] in self?.geometry }
         syncInputGate()
         observe()
@@ -414,7 +411,7 @@ public final class MacScreenPaneView: NSView {
         let style = style
         chrome.toolbar.frame = toolbarFrame()
         capture.frame = screenRect
-        layer?.backgroundColor = style.backdropColor(chrome.toolbar.colors).cgColor
+        layer?.backgroundColor = style.backdrop.color(chrome.toolbar.colors).cgColor
         // Auto streams at the pane's size; the next session (Connect, a quality change) reads it.
         let pixels = Int((screenRect.width * (window?.backingScaleFactor ?? 2)).rounded(.up))
         if pixels > 0, let session = model.session, session.paneWidthPixels != pixels { session.paneWidthPixels = pixels }
@@ -429,6 +426,7 @@ public final class MacScreenPaneView: NSView {
         pictureShadow.cornerRadius = style.pictureCornerRadius
         pictureShadow.frame = video.frame
         cursor.update()
+        chrome.overlay.place(picture: video.frame, toolbar: chrome.toolbar.frame, in: bounds)
         let showsCard = chrome.layoutStatusStrip(style, in: self) && !model.isQuietOutage
         chrome.card.isHidden = !showsCard
         capture.isHidden = model.gate != .open

@@ -44,6 +44,9 @@ final class MacScreenToolbarView: MacScreenThemedView {
     private var isPill: Bool { model.viewerLook.style.toolbarLayout == .pill }
     /// The pill's width the pane last laid out (nil: not a pill).
     private var reportedPillWidth: CGFloat?
+    /// The look's View | Control segments, in place of `access` when it asks (``MacScreenViewerStyle/toolbarScopeSegments``).
+    private lazy var segments = MacScreenScopeSegments { [weak self] scope in self?.actions.requestScope(scope) }
+    private var scopeControl: NSView { model.viewerLook.style.toolbarScopeSegments ? segments : access }
 
     init(model: MacScreenPaneModel, actions: MacScreenChromeActions) {
         self.model = model
@@ -71,7 +74,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         super.init(frame: .zero)
         wantsLayer = true
         stats.setAccessibilityIdentifier("macScreen.stats")
-        for view in [dot, icon, name, stats, access, hint, displayButton, quality, sendKeys, refresh, fullScreen, more, connect, disconnect, line] as [NSView] {
+        for view in [dot, icon, name, stats, access, segments, hint, displayButton, quality, sendKeys, refresh, fullScreen, more, connect, disconnect, line] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = true
             addSubview(view)
         }
@@ -106,10 +109,10 @@ final class MacScreenToolbarView: MacScreenThemedView {
         layer?.backgroundColor = (style.toolbarFilled ? colors.chrome : NSColor.clear).cgColor
         layer?.cornerRadius = style.toolbarLayout == .pill ? Metrics.capsuleRadius(bounds.size) : style.toolbarCornerRadius
         layer?.cornerCurve = .continuous
-        if surfaceLook != model.viewerLook {
+        if let make = style.makeToolbarSurface, surfaceLook != model.viewerLook {
             surfaceLook = model.viewerLook
             surface?.removeFromSuperview()
-            surface = style.makeToolbarSurface?()
+            surface = make()
             if let surface {
                 surface.frame = bounds
                 surface.autoresizingMask = [.width, .height]
@@ -117,6 +120,12 @@ final class MacScreenToolbarView: MacScreenThemedView {
             }
         }
         line.isHidden = !colors.borders || style.toolbarPlacement == .floating
+        if style.makeToolbarSurface == nil {
+            surfaceLook = nil
+            surface?.removeFromSuperview()
+            surface = style.toolbarSurface?(style.toolbarCornerRadius)
+            if let surface { surface.frame = bounds; addSubview(surface, positioned: .below, relativeTo: nil) }
+        }
         super.colorsChanged()
     }
 
@@ -163,13 +172,15 @@ final class MacScreenToolbarView: MacScreenThemedView {
             access.retitle(viewOnly ? L.t("macScreen.scope.view", "View Only") : L.t("macScreen.scope.full", "Full Control"))
             access.image = NSImage(systemSymbolName: viewOnly ? "eye" : "cursorarrow", accessibilityDescription: nil)
             access.ink = viewOnly ? \.attention : \.secondary
+            segments.select(viewOnly ? .view : .full)
         }
         hintSlot = model.capturesKeyboard && live
         controlsShown = model.showsSessionControls
         let pill = isPill
         // A pill floats only over a live picture: every other state takes the pane with its own actions.
         isHidden = pill && !(controlsShown && live)
-        access.isHidden = !controlsShown
+        access.isHidden = !controlsShown || scopeControl !== access
+        segments.isHidden = !controlsShown || scopeControl !== segments
         access.isEnabled = controlsShown
         fullScreen.isHidden = !controlsShown || pill
         more.isHidden = !controlsShown
@@ -360,7 +371,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
     /// Three responsive arrangements keep the primary controls directly reachable.
     /// The pane uses the same height for video, input and state-card geometry.
     func height(for width: CGFloat) -> CGFloat {
-        let row = max((Metrics.space6 * 2), access.fittingSize.height + Metrics.space2)
+        let row = model.viewerLook.style.toolbarRowHeight ?? max((Metrics.space6 * 2), access.fittingSize.height + Metrics.space2)
         guard controlsShown && width < expandedWidth && !isPill else { return row }
         let controls = arrangedControls(for: width)
         let available = max(0, width - Metrics.space3 * 2)
@@ -376,7 +387,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
 
     var expandedWidth: CGFloat {
         if isPill { return pillWidth }
-        let controls = [access, displayButton, quality, sendKeys, refresh, fullScreen, connect, disconnect] as [NSView]
+        let controls = [scopeControl, displayButton, quality, sendKeys, refresh, fullScreen, connect, disconnect] as [NSView]
         return controls.filter { $0 !== displayButton || model.displays.count > 1 }
             .reduce((Metrics.space6 * 2) * 8) { total, control in
                 total + controlWidth(control) + Metrics.space2
@@ -425,7 +436,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         sendKeys.isHidden = !controlsShown || compact
         refresh.isHidden = !controlsShown || compact
         more.isHidden = !controlsShown || !compact
-        return ([access, displayButton, quality, sendKeys, refresh, fullScreen, more, connect, disconnect] as [NSView]).filter { !$0.isHidden }
+        return ([scopeControl, displayButton, quality, sendKeys, refresh, fullScreen, more, connect, disconnect] as [NSView]).filter { !$0.isHidden }
     }
 
     override func layout() {
@@ -434,7 +445,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         updateFullScreenControl()
         let gap = Metrics.space2
         let padding = Metrics.space3
-        let rowHeight = max((Metrics.space6 * 2), access.fittingSize.height + gap)
+        let rowHeight = model.viewerLook.style.toolbarRowHeight ?? max((Metrics.space6 * 2), access.fittingSize.height + gap)
         let pill = isPill
         let stacked = !pill && controlsShown && bounds.width < expandedWidth
         let compact = stacked && bounds.width < expandedWidth - (Metrics.space6 * 2) * 4

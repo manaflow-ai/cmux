@@ -87,15 +87,18 @@ final class MacScreenChromeHost {
     let card: MacScreenCardView
     /// Look B's status strip, made the first time a look with ``MacScreenViewerStyle/statusStrip`` is shown.
     var statusStrip: MacScreenStatusStrip?
+    /// The look's layer over the picture: the toolbar's auto-hide and the control edge (``MacScreenViewerStyle``).
+    let overlay: MacScreenViewerOverlay
     let model: MacScreenPaneModel
 
     init(model: MacScreenPaneModel) {
         self.model = model
         toolbar = MacScreenToolbarView(model: model, actions: actions)
         card = MacScreenCardView(model: model, actions: actions)
+        overlay = MacScreenViewerOverlay(model: model, toolbar: toolbar)
     }
 
-    var showsCard: Bool { model.card != nil }
+    var showsCard: Bool { model.card != nil && !(model.viewerLook.style.outageKeepsPicture && model.outageOverPicture) }
 }
 
 extension MacScreenPaneModel {

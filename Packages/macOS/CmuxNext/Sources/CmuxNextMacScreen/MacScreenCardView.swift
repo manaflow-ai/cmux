@@ -34,9 +34,12 @@ final class MacScreenCardView: MacScreenThemedView {
     private var background = MacScreenCardView.makeBackground(MacScreenViewerStyle.current)
     private var backgroundConstraints: [NSLayoutConstraint] = []
     private var backgroundLook = MacScreenViewerLook.current
+    private var backgroundQuiet = false
     private let stack = MacScreenStack.make(.vertical, spacing: 12, alignment: .centerX,
                                             insets: NSEdgeInsets(top: 24, left: 24, bottom: 24, right: 24))
     private(set) var shown: Shown?
+    /// The shown card is transient and its look draws those quietly (``MacScreenViewerStyle/cardQuietTransient``).
+    private var quiet: Bool { shown.map { $0.look.style.cardQuietTransient && $0.card?.isTransient == true } ?? false }
 
     init(model: MacScreenPaneModel, actions: MacScreenChromeActions) {
         self.model = model
@@ -47,9 +50,9 @@ final class MacScreenCardView: MacScreenThemedView {
         render()
     }
 
-    private static func makeBackground(_ style: MacScreenViewerStyle) -> MacScreenFill {
-        let background = MacScreenFill(style.cardFill, shape: .rounded(style.cardCornerRadius ?? Metrics.panelCornerRadius),
-                                       bordered: style.cardBordered)
+    private static func makeBackground(_ style: MacScreenViewerStyle, quiet: Bool = false) -> MacScreenFill {
+        let background = MacScreenFill(quiet ? \.noFill : style.cardFill, shape: .rounded(style.cardCornerRadius ?? Metrics.panelCornerRadius),
+                                       bordered: style.cardBordered && !quiet)
         background.setAccessibilityElement(true)
         background.setAccessibilityRole(.group)
         background.setAccessibilityIdentifier("macScreen.card")
@@ -62,8 +65,9 @@ final class MacScreenCardView: MacScreenThemedView {
     private func installBackground(_ look: MacScreenViewerLook) {
         NSLayoutConstraint.deactivate(backgroundConstraints)
         background.removeFromSuperview()
-        background = Self.makeBackground(look.style)
+        background = Self.makeBackground(look.style, quiet: quiet)
         backgroundLook = look
+        backgroundQuiet = quiet
         background.isHidden = shown?.card == nil
         addSubview(background)
         background.addSubview(stack)
@@ -106,7 +110,7 @@ final class MacScreenCardView: MacScreenThemedView {
         }
         guard next != shown else { return }
         shown = next
-        if next.look != backgroundLook { installBackground(next.look) }
+        if next.look != backgroundLook || quiet != backgroundQuiet { installBackground(next.look) }
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         background.isHidden = next.card == nil
         if let card = next.card {
@@ -133,10 +137,12 @@ final class MacScreenCardView: MacScreenThemedView {
     // MARK: Pieces
 
     private func title(_ text: String) {
-        stack.addArrangedSubview(MacScreenText(text, font: MacScreenType.cardTitle, wraps: true, alignment: .center, width: Self.textWidth))
+        stack.addArrangedSubview(MacScreenText(text, font: quiet ? MacScreenType.body : MacScreenType.cardTitle, ink: quiet ? \.secondary : \.primary,
+                                               wraps: true, alignment: .center, width: Self.textWidth))
     }
 
     private func detail(_ text: String) {
+        guard !quiet else { return }
         stack.addArrangedSubview(MacScreenText(text, font: MacScreenType.body, ink: \.secondary, wraps: true, alignment: .center,
                                                width: Self.textWidth))
     }
@@ -153,9 +159,12 @@ final class MacScreenCardView: MacScreenThemedView {
     private func spinner() {
         let spinner = StatusIndicatorView.spinner()
         spinner.translatesAutoresizingMaskIntoConstraints = false
+        // A quiet card's mark: small and faint, as the terminal's status banner draws it.
+        let side = quiet ? MacScreenCard.quietMarkSide : Self.spinnerSide
+        spinner.alphaValue = quiet ? MacScreenCard.quietMarkAlpha : 1
         NSLayoutConstraint.activate([
-            spinner.widthAnchor.constraint(equalToConstant: Self.spinnerSide),
-            spinner.heightAnchor.constraint(equalToConstant: Self.spinnerSide),
+            spinner.widthAnchor.constraint(equalToConstant: side),
+            spinner.heightAnchor.constraint(equalToConstant: side),
         ])
         spinner.spin(true)
         stack.addArrangedSubview(spinner)
