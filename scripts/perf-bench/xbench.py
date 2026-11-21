@@ -964,8 +964,66 @@ def palette_rows(path: str | None) -> tuple[dict, list[str]]:
     return rows, lines
 
 
+def pane_drag_rows(path: str | None) -> tuple[dict, list[str]]:
+    """Rows and BENCH.md lines from scripts/ci/frame-pacing/pane_drag.py's report (RFD 0022 item 1): tab drags and
+    pane-header drags through the real mouse path at 2, 8 and 30 panes of mixed kinds. Report only."""
+    if not path or not os.path.exists(path):
+        return {}, []
+    data = json.load(open(path))
+    rows, lines = {}, []
+    lines += ["## Pane and tab drag (cmux NEXT, tagged Debug build)", "",
+              "**Debug only**, like the tab switch rows; report only (no threshold fails the bench). pane_drag.py: "
+              "`debug.mouse` down, one drag event per 120 Hz frame, up. Input to move = the mouse-up's event time "
+              "to the first display frame whose pane layout differs (p50 / max ms); lift = first drag event to "
+              "the first frame the tab strip changes. Over 8.33 ms = frames whose main-thread work passed one "
+              "120 Hz frame, while dragging + after the drop; missed = display intervals over 1.5 refreshes. Blank = "
+              "frames from the commit on with a pane showing its late ground, at alpha 0, or not shown yet (the "
+              "app's signal); pixel-late = frames after rest whose pane pixels still differ from their final "
+              "picture (ScreenCaptureKit rows; noise = the same test at rest before the press). Jumps = a pane "
+              "moving again after it rested.", "",
+              "| Gesture | Panes | Landed | Input to move | Lift | Over 8.33 ms | Missed | Blank / drop | "
+              "Pixel-late / drop (noise) | Jumps |", "|---|---|---|---|---|---|---|---|---|---|"]
+
+    def ms(spread):
+        return f"{spread['p50']:.1f} / {spread['max']:.1f}" if spread else "–"
+
+    def both(entry, key):
+        a, b = entry.get(f"drag_{key}"), entry.get(f"drop_{key}")
+        return "–" if a is None and b is None else f"{a or 0} + {b or 0}"
+
+    for count in data.get("counts") or []:
+        panes = (count.get("setup") or {}).get("panes", count.get("asked"))
+        if count.get("error"):
+            lines.append(f"| – | {panes} | not run: {count['error']} | | | | | | | |")
+            continue
+        for gesture, label in (("tab", "Tab drag"), ("pane", "Pane header drag")):
+            entry = count.get(gesture) or {}
+            if not entry.get("drops"):
+                first = next((d.get("error") for d in entry.get("each") or [] if d.get("error")), "no drop")
+                lines.append(f"| {label} | {panes} | not run: {first} | | | | | | | |")
+                continue
+            pixel = "–" if entry.get("pixel_late_per_drop") is None else \
+                f"{entry['pixel_late_per_drop']:g} ({entry.get('pixel_noise_frames')})"
+            blank = "–" if entry.get("blank_frames_per_drop") is None else f"{entry['blank_frames_per_drop']:g}"
+            lines.append(f"| {label} | {panes} | {entry['landed']}/{entry['drops']} | {ms(entry.get('drop_ms'))} | "
+                         f"{ms(entry.get('lift_ms')) if gesture == 'tab' else 'n/a'} | {both(entry, 'main_over_8_33')} | "
+                         f"{both(entry, 'missed')} | {blank} | {pixel} | {entry.get('jumps') if entry.get('jumps') is not None else '–'} |")
+            slug = f"pane-drag-{gesture}-{panes}"
+            if entry.get("drop_ms"):
+                rows.setdefault(f"{slug}-input-to-move", {})[TAB_SWITCH_BROWSER] = {
+                    "median": entry["drop_ms"]["p50"], "max": entry["drop_ms"]["max"], "n": entry["drop_ms"]["n"]}
+            for key in ("blank_frames_per_drop", "pixel_late_per_drop", "jumps"):
+                if entry.get(key) is not None:
+                    rows.setdefault(f"{slug}-{key.replace('_', '-')}", {})[TAB_SWITCH_BROWSER] = {"median": entry[key]}
+    theirs = data.get("theirs") or {}
+    lines += ["", f"Claude Code desktop (the RFD's \"theirs\" column): "
+              f"{'measured' if theirs.get('ran') else 'not run. ' + str(theirs.get('reason') or '')}", ""]
+    return rows, lines
+
+
 def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str | None = None,
-           palette: str | None = None, budgets: str | None = None):
+           palette: str | None = None, budgets: str | None = None,
+           panedrag: str | None = None):
     path = os.path.join(out, "samples.jsonl")
     samples = [json.loads(line) for line in open(path) if line.strip()] if os.path.exists(path) else []
     meta = json.load(open(os.path.join(out, "meta.json")))
@@ -974,6 +1032,8 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
     rows.update(switch_rows)
     palette_found, palette_lines = palette_rows(palette)
     rows.update(palette_found)
+    drag_found, drag_lines = pane_drag_rows(panedrag)
+    rows.update(drag_found)
     errors = [s for s in samples if s["row"] == "session-error" or (s.get("value") is None and s.get("note"))]
     budget_errors = sum(1 for sample in samples if sample["browser"] == budget.NAME and sample["row"] == "session-error")
     # The run's budgets file decides, so samples are judged against the scenario that collected them.
@@ -1019,6 +1079,7 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
     lines += budget_lines
     lines += switch_lines
     lines += palette_lines
+    lines += drag_lines
     if errors:
         lines += ["## Rows that could not be measured", ""]
         seen = set()
@@ -1141,6 +1202,7 @@ def main():
     rep.add_argument("--json")
     rep.add_argument("--tabswitch", help="tab-switch-matrix.py's --json report")
     rep.add_argument("--palette", help="palette-open-stages.py's --json report")
+    rep.add_argument("--panedrag", help="scripts/ci/frame-pacing/pane_drag.py's --json report")
     rep.add_argument("--budgets", help="budgets.json (default: the one the run used); an enforced budget "
                      "the cmux-budget session broke exits 1")
     gat = sub.add_parser("gate")
@@ -1153,7 +1215,7 @@ def main():
         random.seed(0)
         Run(args).main()
     elif args.command == "report":
-        result = report(args.out, args.md, args.json, args.tabswitch, args.palette, args.budgets)
+        result = report(args.out, args.md, args.json, args.tabswitch, args.palette, args.budgets, args.panedrag)
         sys.exit(1 if result["budgets"]["failed"] else 0)
     else:
         sys.exit(gate(args.results, args.baseline, args.tolerance))
