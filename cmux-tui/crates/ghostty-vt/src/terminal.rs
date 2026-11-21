@@ -17,6 +17,12 @@ use crate::mouse::{MouseModeProbe, MouseModeSignature, MouseWireFormat};
 use crate::render::{Cell, CellWidth, CursorShape, read_grid_ref_cell, terminal_palette};
 use crate::{Error, Result, check};
 
+mod logical_text;
+
+// Copy-mode reads of the retained screen: row text, block text, search.
+#[path = "terminal_screen_text.rs"]
+mod screen_text;
+
 static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_HISTORY_EPOCH: AtomicU64 = AtomicU64::new(1);
 const VT_REPLAY_ESTIMATED_BYTES_PER_CELL: u64 = 32;

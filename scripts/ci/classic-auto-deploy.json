@@ -95,6 +95,28 @@
       ]
     }
   ],
+  "deploy_guard": {
+    "description": "What scripts/ci/classic_deploy_guard.py (.github/workflows/classic-deploy-guard.yml, and docs-channels.yml before it deploys) refuses at deploy time: a commit landing on main that changes a path of these deploys, less `exclude` (the inputs web/tools/vercel-ignore-build.sh skips), from a pull request with neither the `label` (Leo's, the one classic-frozen-guard accepts) nor a `teammates` author (login and immutable user id; classic is their product, Leo 2026-11-04: \"Lawrence/the team should be allowed to merge wherever\"). A refusal cancels the Vercel production deployment of `vercel_project` for that commit while it is still building, and skips the docs deploy.",
+    "deploys": ["vercel-cmux-com", "vercel-cmux-com-site", "docs-channels"],
+    "exclude": [
+      "web/tests/**",
+      "web/e2e/**",
+      "web/scripts/**",
+      "web/README.md",
+      "web/AGENTS.md",
+      "web/CLAUDE.md"
+    ],
+    "label": "classic-migration",
+    "seed_baseline": "098485d516f5e116eb508bac6202250c6e867845",
+    "seed_baseline_note": "the merge of #40119, where this guard landed: the baseline until its first green push run",
+    "vercel_project": "cmux",
+    "teammates": [
+      {"login": "austinywang", "id": 38676809},
+      {"login": "azooz2003-bit", "id": 67667005},
+      {"login": "lawrencecchen", "id": 54008264},
+      {"login": "lucasr1b", "id": 38605132}
+    ]
+  },
   "next_deploys_not_classic": [
     "backend.yml: push to feat-cmux-next deploys cmux-api development and staging (cloud-api-staging.cmux.dev); production only by the promote dispatch. Not on main's tree, so a push to main runs nothing from it.",
     "cmux-vm.yml: feat-cmux-next and feat-cmux-vm-* pushes deploy the NEXT cmux-vm Worker; production by dispatch.",

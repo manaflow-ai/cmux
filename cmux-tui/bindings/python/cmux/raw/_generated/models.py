@@ -277,6 +277,7 @@ class AgentRecord:
     source: AgentSource
     state: AgentState
     updated_at_ms: int
+    status: Union[AgentState, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1384,6 +1385,12 @@ class ZoomPaneResult:
     pane: Id
     zoomed: bool
     zoomed_pane: Union[Id, None]
+
+
+@dataclass(frozen=True)
+class AckTabNotificationsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/ack-tab-notifications/request'
+    surface: Id
 
 
 @dataclass(frozen=True)
@@ -3088,6 +3095,7 @@ __all__ = [
     'Workspace',
     'WorkspaceMutationResult',
     'ZoomPaneResult',
+    'AckTabNotificationsRequest',
     'ApplyLayoutRequest',
     'AttachSurfaceRequest',
     'BrowserActivateRequest',

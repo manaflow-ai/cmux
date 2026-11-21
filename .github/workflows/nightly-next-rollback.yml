@@ -20,8 +20,36 @@ name: nightly-next rollback
 # NIGHTLY_NEXT_CANARY=enforce and the build it launched failed.
 #
 # GitHub registers a dispatch workflow only from the default branch, so this
-# file is on main too; a run there does nothing.
+# file is on main too; a run there does nothing. Its workflow_call trigger is
+# here only so main's copy of nightly-next-rollback-drill.yml, which calls it,
+# is a valid workflow; nightly-next's copy has the drill folder's paths.
 on:
+  workflow_call:
+    inputs:
+      reason:
+        required: true
+        type: string
+      bad_build:
+        required: false
+        default: ''
+        type: string
+      if_newest:
+        required: false
+        default: ''
+        type: string
+      drill:
+        description: Roll back the drill folder's feed (nightly-next/drill/), never the users' feed.
+        required: false
+        default: false
+        type: boolean
+    # Named, never inherited, as on nightly-next: the caller passes only the feed's R2 token.
+    secrets:
+      NIGHTLY_NEXT_R2_ACCESS_KEY_ID:
+        required: false
+      NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY:
+        required: false
+      NIGHTLY_NEXT_R2_ACCOUNT_ID:
+        required: false
   workflow_dispatch:
     inputs:
       reason:

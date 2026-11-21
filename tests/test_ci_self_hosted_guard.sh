@@ -189,7 +189,7 @@ check_release_build_runner_disk_capacity() {
   # paid-overflow gate appearing here, which does not belong: MACOS_RUNNER_26
   # is the free macOS 26 pool and is read ungated everywhere. See
   # docs/ci-runners.md for why the gate must not grow to cover it.
-  if ! awk -v release_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-26' || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}" '
+  if ! awk -v release_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-26' || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) || contains(fromJSON('[\"pull_request\",\"workflow_dispatch\"]'), github.event_name) && vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}" '
     /^  release-build:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
     in_job && index($0, release_runner) { saw_release_runner=1 }
@@ -332,8 +332,12 @@ check_ios_runner_routing() {
   # The runner job (scripts/ci/ios_runner_pool.py) resolves the dispatch
   # override, MACOS_RUNNER_TESTS, then MACOS_RUNNER_IOS, and the owned pool;
   # every macOS job reads its answer, and a re-run attempt its retry answer.
-  # mobile-core-package needs no simulator, so it reads package_runs_on.
-  if [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}" "$IOS_FILE")" -ne 2 ]] ||
+  # mobile-core-package needs no simulator, so it reads package_runs_on; the
+  # ios-simulator matrix reads sim_runs_on (glaeda's sim-first label when the
+  # picker chose it), falling back to runs_on; ios-simulator-build reads
+  # build_runs_on (the sim-first label when one is idle), falling back to runs_on.
+  if [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.build_runs_on || needs.runner.outputs.runs_on) }}" "$IOS_FILE")" -ne 1 ]] ||
+     [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.sim_runs_on || needs.runner.outputs.runs_on) }}" "$IOS_FILE")" -ne 1 ]] ||
      [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.package_runs_on) }}" "$IOS_FILE")" -ne 1 ]]; then
     echo "FAIL: all macOS iOS test jobs must take the runner job's pool, which honors the dispatch runner override"
     exit 1
@@ -1253,6 +1257,68 @@ check_tmux_terminal_nightly_isolation() {
   echo "PASS: tmux corpus terminal-nightly uses isolated DerivedData, noninteractive xcodebuild, and expected-failure handling"
 }
 
+check_queue_janitor_runs_off_the_pools_it_judges() {
+  # A repair path must not run on a pool it repairs (hq
+  # docs/handbook/repair-path-on-the-pool-it-repairs.md). The queue janitor's
+  # sweep judges the owned labels (starved_labels.py: every FLEET_PREFIX label
+  # and FLEET_LINUX) and moves the Blacksmith pools (runner_pools.py), so a
+  # busy pool would hold back the sweep that relieves it: on 2026-11-20 a
+  # sweep waited 77 minutes to start. Its runs-on names no
+  # Blacksmith label, and in manaflow-ai with no repository variable set it
+  # takes a label the janitor does not judge. The variable-set fallback may
+  # name a judged label: an operator picks it while that pool is not busy.
+  python3 - "$ROOT_DIR" <<'PY'
+import pathlib, re, sys
+root = pathlib.Path(sys.argv[1])
+def fail(message):
+    print(f"FAIL: ci-queue-janitor.yml sweep: {message}")
+    sys.exit(1)
+starved = (root / "scripts/ci/starved_labels.py").read_text(encoding="utf-8")
+prefix = re.search(r'^FLEET_PREFIX = "([^"]+)"$', starved, re.M)
+fleet = re.search(r'^FLEET_LINUX = "([^"]+)"$', starved, re.M)
+if not prefix or not fleet:
+    fail("scripts/ci/starved_labels.py no longer names FLEET_PREFIX and FLEET_LINUX; update this check")
+def judged(label):
+    return label.startswith(prefix.group(1)) or label == fleet.group(1) or label.lower().startswith("blacksmith-")
+text = (root / ".github/workflows/ci-queue-janitor.yml").read_text(encoding="utf-8")
+block = re.search(r"(?ms)^  sweep:\n(.*?)(?=^  \S|\Z)", text)
+lines = [line for line in (block.group(1) if block else "").splitlines() if line.startswith("    runs-on:")]
+if len(lines) != 1:
+    fail(f"expected one runs-on line, found {len(lines)}")
+runs_on = lines[0].split("runs-on:", 1)[1].strip()
+if re.search(r"blacksmith", runs_on, re.I):
+    fail(f"names a Blacksmith label, a pool the janitor moves: {runs_on}")
+expression = re.fullmatch(r"\$\{\{(.*)\}\}", runs_on)
+operands = [part.strip() for part in (expression.group(1) if expression else repr(runs_on)).split("||")]
+# Evaluate in manaflow-ai with no repository variable set. Only the forms below
+# are understood; any other form fails, so a new route updates this check.
+default = None
+for operand in operands:
+    *conditions, result = [part.strip() for part in operand.split("&&")]
+    label = re.fullmatch(r"'([A-Za-z0-9._-]+)'", result)
+    if not label:
+        fail(f"operand {operand!r} does not end with a literal label")
+    holds = True
+    for condition in conditions:
+        owner = re.fullmatch(r"github\.repository_owner != 'manaflow-ai'", condition)
+        var = re.fullmatch(r"vars\.[A-Z0-9_]+ (==|!=) '[^']+'", condition)
+        if owner:
+            holds = False
+        elif var:
+            holds = holds and var.group(1) == "!="
+        else:
+            fail(f"condition {condition!r} is not a form this check understands")
+    if holds:
+        default = label.group(1)
+        break
+if default is None:
+    fail(f"yields no label by default: {runs_on}")
+if judged(default):
+    fail(f"takes {default} first, a label the janitor judges; lead with one it does not judge (ubuntu-24.04)")
+print(f"PASS: the queue janitor takes {default} by default, a label it does not judge, and names no Blacksmith label")
+PY
+}
+
 check_no_github_hosted_runners() {
   # Nightly workflows (*nightly*.yml, *notarization*.yml) may still name the
   # GitHub-hosted Windows image (cmux-tui-nightly.yml's Windows package leg).
@@ -1274,6 +1340,17 @@ check_no_github_hosted_runners() {
   # Allowed GitHub-hosted forms:
   #   - the fork branch `github.repository_owner != 'manaflow-ai' && '<label>'`
   #     (and `&& matrix.hosted_runner`), which never evaluates in manaflow-ai;
+  #   - the fork pull-request branch `github.event_name == 'pull_request' &&
+  #     github.event.pull_request.head.repo.full_name != github.repository &&
+  #     'ubuntu-24.04'` (optionally with the owned_head_repos exclusion), Linux only:
+  #     the persistent Linux pool registers cmux-linux, cmux-fleet-linux-x64 and every
+  #     blacksmith-{2,4,8,16,32}vcpu-ubuntu-2404 label (cmuxterm-hq linux-runner-pool
+  #     pool.sh, hq#15393), so a fork's code takes the one ephemeral label outside that
+  #     set (#47956 review; tests/test_ci_fork_runner_routing.py POOL_REGISTERED_LABELS);
+  #   - the same 'ubuntu-24.04' for a dispatch that runs a caller-chosen commit, which may be
+  #     a fork's: `needs.resolve-ref.outputs.trusted_ref != 'true' && 'ubuntu-24.04'` (the
+  #     ref is not a branch head of this repository) or `github.event_name ==
+  #     'workflow_dispatch' && inputs.ref != '' && 'ubuntu-24.04'` (#47956 review);
   #   - the label list inside the exact CI_TRUSTED_RUNNER selector, where
   #     GitHub-hosted is an operator choice and Blacksmith is the default;
   #   - the exact lines in `exceptions` below, each with the reason it cannot move.
@@ -1281,7 +1358,7 @@ check_no_github_hosted_runners() {
   # scalar list items, dispatch defaults, and every *RUNNER* key (env mirrors
   # and inputs feed runs-on too).
   local hosted='(^|[^A-Za-z0-9_-])(ubuntu-(latest|slim|[0-9]{2}[.][0-9]{2}(-arm)?)|macos-(latest|[0-9]+(-intel|-large|-xlarge|-arm64)?)|windows-(latest|[0-9]{4}(-arm)?|11-arm))([^A-Za-z0-9_.-]|$)'
-  local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)"
+  local fork_branch="(github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)|github[.]event_name == 'pull_request' [&][&] github[.]event[.]pull_request[.]head[.]repo[.]full_name != github[.]repository( [&][&] !contains[(]fromJSON[(]inputs[.]owned_head_repos[)], github[.]event[.]pull_request[.]head[.]repo[.]full_name[)])? [&][&] 'ubuntu-24[.]04'|needs[.]resolve-ref[.]outputs[.]trusted_ref != 'true' [&][&] 'ubuntu-24[.]04'|github[.]event_name == 'workflow_dispatch' [&][&] inputs[.]ref != '' [&][&] 'ubuntu-24[.]04')"
   local trusted_list='fromJSON[(]'"'"'[[]"ubuntu-24[.]04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"(,"blacksmith-8vcpu-ubuntu-2404")?[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
   # "<workflow>:<line content>" -> why it stays GitHub-hosted. Exact lines only.
   # This is the whole allowlist: every other Linux job takes a Blacksmith label
@@ -1394,9 +1471,30 @@ PY_LIGHT
     "coderouter-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a GitHub-hosted runner"
     # PyPI trusted publishing accepts only GitHub-hosted runners too.
     "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
+    "sdk-bootstrap-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
+    "sdk-release-cut.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
+    "tui-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
+    # crates.io trusted publishing (id-token: write) takes GitHub's OIDC on a GitHub-hosted runner.
+    "sdk-release-cut.yml:    runs-on: ubuntu-latest # github-hosted-required: crates.io trusted publishing needs a GitHub-hosted runner"
+    # Reads untrusted pull request source (pull_request_target) and requires an ephemeral runner; the
+    # persistent Linux pool registers every blacksmith-*-ubuntu-2404 label, so only hosted Ubuntu is
+    # ephemeral (run 44801662760 landed on cmux-runner-pool-n4c-0027). Not a required check on main.
+    "web-complexity-trusted.yml:    runs-on: ubuntu-24.04 # github-hosted-required: reads untrusted pull request source; the persistent pool carries every Blacksmith Linux label"
     # The packages' attestations are verified with --deny-self-hosted-runners,
     # so they must be signed on a GitHub-hosted runner.
     "cmux-tui-build-package.yml:    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC"
+    # The queue repair job must not depend on the pools it repairs: the queue
+    # janitor's sweep judges the owned labels (glaeda-*, cmux-fleet-linux-x64)
+    # and moves the Blacksmith pools, so a busy pool would hold back the job
+    # that relieves it (a sweep waited 77 minutes on 2026-11-20). It runs on
+    # GitHub-hosted Ubuntu, with the fleet label behind a repository variable
+    # (hq docs/handbook/repair-path-on-the-pool-it-repairs.md;
+    # check_queue_janitor_runs_off_the_pools_it_judges).
+    "ci-queue-janitor.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET == '1' && 'cmux-fleet-linux-x64' || 'ubuntu-24.04' }}"
+    # Its watchdog runs off the label the sweep runs on, so it is hosted Ubuntu
+    # exactly when CI_QUEUE_JANITOR_ON_FLEET=1 puts the sweep on the fleet label
+    # (tests/test_ci_janitor_watchdog_route.py).
+    "ci-queue-janitor-watchdog.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET != '1' && 'cmux-fleet-linux-x64' || 'ubuntu-24.04' }}"
   )
   # The declared hosted light jobs' exact runs-on lines (validated above).
   local light_line
@@ -1416,6 +1514,8 @@ PY_LIGHT
   for probe in 'runs-on: ubuntu-24.04' 'runs-on: ubuntu-latest # github-hosted-required: x' \
                "runs-on: \${{ vars.X || 'ubuntu-24.04' }}" '- os: macos-15' '          - windows-latest' \
                "runs-on: \${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'blacksmith-4vcpu-ubuntu-2404' }}" \
+               "runs-on: \${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}" \
+               "runs-on: \${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && 'ubuntu-24.04' || 'cmux-linux' }}" \
                "LINUX_ARM64_RUNNER: \${{ vars.LINUX_ARM64_RUNNER || 'ubuntu-24.04-arm' }}" \
                "runs-on: \${{ vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}" 'runs-on: macos-15-intel' 'runs-on: windows-2025'; do
     if ! printf '%s\n' "$probe" | sed -E "s/$fork_branch//g; s/$trusted_list//g" | grep -Eq "$hosted"; then
@@ -1427,6 +1527,8 @@ PY_LIGHT
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || 'blacksmith-4vcpu-windows-2025' }}" \
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'ubuntu-24.04' || 'cmux-linux' }}" \
                '- blacksmith-6vcpu-macos-15' 'runs-on: blacksmith-4vcpu-ubuntu-2404-arm' '- warp-macos-15-arm64-6x'; do
     if printf '%s\n' "$probe" | sed -E "s/$fork_branch//g; s/$trusted_list//g" | grep -Eq "$hosted"; then
       echo "FAIL: GitHub-hosted runner guard self-test flagged an allowed runner: $probe"
@@ -1876,7 +1978,8 @@ GUARDED = (
     " || 'blacksmith-6vcpu-macos-15')",
     # A side lane: the side label of the pool first, when the picker named one.
     "github.event_name == 'pull_request' && ((" + lane_side("claude-wrapper") + ")"
-    " || needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15')",
+    " || needs.changes.outputs.macos_pr_runner || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)"
+    " || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15')",
     # The bot's re-run past attempt 2 on an owned-pool run, or a job the picker did not
     # place on the owned pool: the Blacksmith pool the picker named for it.
     "github.event_name == 'pull_request' && (github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(needs.changes.outputs.macos_pr_owned_jobs,"
@@ -1973,6 +2076,7 @@ run_check check_cla_guard_runner
 
 # ci-macos.yml jobs
 run_check check_no_github_hosted_runners
+run_check check_queue_janitor_runs_off_the_pools_it_judges
 run_check check_no_self_hosted_fleet_runners
 run_check check_owned_pools_route_through_picker
 run_check check_macos_runner "$CI_MACOS_FILE" "app-host-unit-tests"
