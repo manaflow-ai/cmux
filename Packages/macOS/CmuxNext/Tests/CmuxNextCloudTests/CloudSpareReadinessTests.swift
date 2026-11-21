@@ -254,8 +254,8 @@ import Testing
         #expect(readiness.link(for: "vm_spare", team: "team_a") != nil)
     }
 
-    /// Any other prime (the service's "spare ready") links and keys, and dials nothing: only a warm says a chat is
-    /// about to start.
+    /// Any other prime (the service's "spare ready") links and keys, and dials nothing: only a warm or a compose's
+    /// reserve says a chat is about to start.
     @Test func aPrimeThatDoesNotDialLinksOnly() async {
         let world = World(), readiness = CloudSpareReadiness(world.dependencies())
         readiness.prime("vm_spare", team: "team_a")
@@ -294,8 +294,8 @@ import Testing
         #expect(!readiness.holdsLink("vm_spare"))
     }
 
-    /// The warm names the team the service gave for the spare, the one its session asks for: its prime replaces a
-    /// link made for another team, and a prime that does not dial keeps the warm's.
+    /// A prime that dials (the warm's, a reserve's) names the machine's own team, the one its session asks for: it
+    /// replaces a link made for another team, and a prime that does not dial keeps it.
     @Test func theWarmsTeamReplacesAnotherAndIsKept() async {
         let world = World(), readiness = CloudSpareReadiness(world.dependencies())
         world.dialed = true

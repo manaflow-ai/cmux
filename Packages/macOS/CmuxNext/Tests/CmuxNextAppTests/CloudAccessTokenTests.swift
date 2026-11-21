@@ -1,4 +1,5 @@
 import CmuxInstallAuthCore
+@testable import CmuxNextAgentPane
 @testable import CmuxNextCloud
 import CmuxNextHomeEngine
 import Foundation
@@ -38,6 +39,23 @@ import Testing
         let token = try await identity.accessToken(team: team)
         #expect(token.team == team)
         #expect(MacInstallIdentity.team(ofToken: token.accessToken) == team)
+    }
+
+    /// A reserve's machine is in the install token's team, which need not be the team picked in the app: the reserve
+    /// names that team for the link made ahead, since the machine's session asks its link for the machine's own team
+    /// (a link made for the app's team was ended at Send, not taken; measured on a dev build, 2026-11-21).
+    @Test func aReservesTeamIsItsInstallTokensTeam() async throws {
+        let root = scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let owner = MacTeamAuthOwner(), identity = identity(owner, root: root)
+        try await identity.signedIn(stackUser: "stack_1", session: { "test-session" })
+        let token = try await identity.accessToken(team: team)
+        #expect(AgentPaneCloudReservationRequest.team(ofInstall: token.accessToken) == team)
+        #expect(AgentPaneCloudReservationRequest.team(ofInstall: nil) == nil)
+        #expect(AgentPaneCloudReservationRequest.team(ofInstall: "not a token") == nil)
+        // A team claim that is no backend team id: Rust reserves with no team, so none is named here either.
+        let claims = Data(#"{"team":"personal"}"#.utf8).base64EncodedString().replacingOccurrences(of: "=", with: "")
+        #expect(AgentPaneCloudReservationRequest.team(ofInstall: "e30.\(claims).sig") == nil)
     }
 
     @Test func signedOutBadAndDeniedTeamsAreTheirOwnFailures() async throws {

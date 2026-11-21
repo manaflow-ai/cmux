@@ -6,8 +6,8 @@ import os
 /// (``CloudSpareWarm``) or the platform's `cloud.spare.ready` (``CloudMachineWire/onSpareReady``), ``prime(_:team:)``
 /// keys the spare's acpmux for remote approvals (the start's own keyed restart, done ahead: an unclaimed spare's
 /// creator is the person, all the owner check asks) and starts its carrier link beside it. A prime from the warm
-/// (the person is about to start a chat, and the service keeps the spare running for it) also dials the machine on
-/// that link: the first dial of a machine took about 3 s on 2026-11-19, a stream on a session already dialed 0.05 to
+/// or from a compose's reserve (the person is about to start a chat, and the service keeps the machine running for
+/// it) also dials the machine on that link: the first dial of a machine took about 3 s on 2026-11-19, a stream on a session already dialed 0.05 to
 /// 0.2 s. A start on a machine this app run keyed skips its approvals step (``isKeyed(_:scope:instance:)``), and the
 /// session made for the claimed machine takes the link that is already up (``link(for:team:)``).
 ///
@@ -115,9 +115,11 @@ public final class CloudSpareReadiness {
     }
 
     /// Makes `machine` ready for a claim in the scope signed in now: keyed and linked, each once. Never awaited by its
-    /// caller; a second prime of the same machine while one runs joins it. `dials`: the warm's prime, which names the
-    /// team the service gave for the spare and dials the machine on the link; one that joins a prime that does not
-    /// dial links and dials beside it.
+    /// caller; a second prime of the same machine while one runs joins it. `dials`: a prime that names the machine's
+    /// own team and dials the machine on the link: the warm's (the team the service gave for the spare) and a
+    /// reserve's (the install token's, the team its machine is made in). Both read the same install token, so two
+    /// dialing primes of one machine name one team, and the second joins the first whatever team it names. One that
+    /// joins a prime that does not dial links and dials beside it.
     public func prime(_ machine: String, team: String?, dials: Bool = false) {
         let scope = dependencies.scope()
         sweep()
@@ -200,8 +202,8 @@ public final class CloudSpareReadiness {
     private func linkAhead(_ machine: String, team: String?, scope: Scope, resets: Int, dials: Bool) async {
         // Forgotten since its prime (the scope may still be the same one: Cloud turned off): no link is made or held.
         guard resets == self.resets else { return }
-        // Held and fit: kept. A prime that dials names the team the service gave for the spare, the one its session
-        // asks for, so it replaces a link made for another; any other prime keeps what is held.
+        // Held and fit: kept. A prime that dials names the machine's own team, the one its session asks for, so it
+        // replaces a link made for another; any other prime keeps what is held.
         let kept = links[machine].map { fits($0, scope: scope) && ($0.team == team || !dials) } ?? false
         if !kept {
             if let stale = links.removeValue(forKey: machine) { end(stale.link) }
