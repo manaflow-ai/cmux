@@ -95,6 +95,8 @@ mod review_queue_tests;
 #[cfg(test)]
 mod sender_claim_tests;
 #[cfg(test)]
+mod shared_row_tests;
+#[cfg(test)]
 mod shutdown_scan_tests;
 #[cfg(test)]
 mod shutdown_tests;
@@ -567,8 +569,9 @@ pub struct HubEvent {
     pub update_line: Arc<std::sync::OnceLock<Option<Arc<str>>>>,
     /// The session's row as a watcher's `_acpmux/session_changed` carries it, without and with
     /// its tools, built by the first watching connection that sends it and shared by the rest
-    /// (`server::deliver`): one build per record, not one per watching connection. Its fan-out
-    /// clock rides in the same allocation (`gauges.fanout`).
+    /// (`server::deliver`): one build per record, not one per watching connection. The ring
+    /// keeps no row once its watchers sent it ([`SharedRow`]). Its fan-out clock rides in the
+    /// same allocation (`gauges.fanout`).
     pub row: Arc<EventRow>,
     /// The list position its row change took (`row_log.rs`), stamped as it is sent; 0 for an
     /// event that changes no row.
@@ -583,8 +586,29 @@ pub struct HubEvent {
 /// of its fan-out to the connections (`gauges::FanoutClock`).
 #[derive(Debug, Default)]
 pub struct EventRow {
-    pub cells: [std::sync::OnceLock<Value>; 2],
+    pub cells: [SharedRow; 2],
     pub fanout: crate::gauges::FanoutClock,
+}
+
+/// One record's row, shared by the watchers sending it at the same time and held only while one
+/// does. The event ring keeps its last 8,192 events (`Events::new`), so a row each event kept
+/// stayed until 8,192 later records pushed it out: a full row carries up to 512 time spans,
+/// the tools and the MCP servers as `Value`s, and huge-blue's daemon grew about 1.1 GB an hour
+/// to 17 GB (cmuxterm-hq#14649); a lane VM's held 1.6 million spans in 6.4 GB after 6 hours.
+#[derive(Debug, Default)]
+pub struct SharedRow(std::sync::Mutex<std::sync::Weak<Value>>);
+
+impl SharedRow {
+    /// The row a watcher is still sending, else `build`'s, which the next one shares.
+    pub(crate) fn get_or_build(&self, build: impl FnOnce() -> Option<Value>) -> Option<Arc<Value>> {
+        let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(row) = held.upgrade() {
+            return Some(row);
+        }
+        let row = Arc::new(build()?);
+        *held = Arc::downgrade(&row);
+        Some(row)
+    }
 }
 
 /// One `_acpmux/message` copy in a journal: its message id, plus for a sender's copy the chat

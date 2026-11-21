@@ -66,41 +66,57 @@ def g_chief(tag):
 
 def g_home_search(tag):
     return [step("Home", cmux("action", "run", "home.show"), wait=4, shot=False), KEY()] \
-        + native_states("Home sidebar search (native)", cmux("action", "run", "home.search"), tag)
+        + native_states("Home sidebar search (native)", {"click": {"x": 590, "y": 54}}, tag)  # its field, window pixels at 2x
 
 def chat_setup(tag):
     return [step("A chat workspace", cmux("action", "run", "newTab", "--name", f"Chat {tag}", "--focus", "--cwd", "/tmp"), shot=False, wait=1.5),
-            step("Open a chat", cmux("agent", "new-chat", "--cwd", "/tmp"), shot=False, wait=4),
-            step("Wait for the chat page", rpc("debug.agent_pane", {"action": "chat_state"}), shot=False, wait=1), KEY()]
+            step("Open a chat", cmux("agent", "new-chat", "--cwd", "/tmp"), shot=False, wait=5), KEY()]
 
 def g_chat(tag):
     return chat_setup(tag) + web_states("Agent chat composer (web)", "cmux.agent", ".acpmux-composer .ProseMirror", tag)
 
 def g_chat_find(tag):
-    return chat_setup(tag) + [step("Chat find bar opens", rpc("debug.page", {"page": "cmux.agent", "action": "command", "command": "find"}), shot=False, wait=1)] \
+    # Find works over a transcript: one prompt first (the showcase daemon answers it).
+    send = [step("A prompt", rpc("debug.page", {"page": "cmux.agent", "action": "type", "selector": ".acpmux-composer .ProseMirror", "text": "Show me Liquid Glass inputs"}), shot=False, wait=0.5),
+            step("Send it", rpc("debug.page", {"page": "cmux.agent", "action": "click", "selector": ".acpmux-composer .acpmux-send.acpmux-send-ready"}), shot=False, wait=5)]
+    # A click in the transcript gives the chat page the window's keyboard (Home's composer has it), as a person's would.
+    send.append({"title": "Click the transcript", "click": {"x": 1760, "y": 500}, "wait": 1, "shot": False})
+    return chat_setup(tag) + send + [step("Chat find bar opens", rpc("debug.page", {"page": "cmux.agent", "action": "command", "command": "find"}), shot=False, wait=1)] \
         + web_states("Chat find bar (web)", "cmux.agent", ".acpmux-find__bar input", tag)
 
 def g_newtab_web(tag):
-    return [step("A new tab (web)", cmux("tab", "new-page"), shot=False, wait=3), KEY()] \
-        + web_states("New tab composer (web)", "cmux.agent", ".acpmux-newtab-field [contenteditable=true]", tag)
+    return page_tab(tag) + web_states("New tab composer (web)", "cmux.agent", ".acpmux-newtab-field [contenteditable=true]", tag)
+
+def page_tab(tag):
+    return [step("A new tab", cmux("tab", "new-page"), shot=False, wait=2.5),
+            # A script's new tab is not selected, and a selector matches only a given name, not the default title:
+            # a click on the first New Tab in the tab bar (window pixels at 2x), as a person's.
+            {"title": "Select it", "click": {"x": 960, "y": 42}, "wait": 1.5, "shot": False}, KEY()]
+
+def web_tab(tag):
+    name = "Web " + " ".join(re.findall(r"[a-z]+", tag))
+    return name, [step("A browser tab", cmux("tab", "create", "browser", "--url", "https://example.com", "--name", name), shot=False, wait=4),
+                  step("Select it", cmux("tab", name, "focus"), shot=False, wait=1.5), KEY()]
 
 def g_newtab_native(tag):
-    return [step("Native new tab page on", cmux("settings", "set", "tabs.nativeNewTabPage", "true"), shot=False, wait=1),
-            step("A new tab (native)", cmux("tab", "new-page"), shot=False, wait=2.5), KEY()] \
+    return [step("Native new tab page on", cmux("settings", "set", "tabs.nativeNewTabPage", "true"), shot=False, wait=1)] + page_tab(tag) \
         + native_states("New tab composer (native)", rpc("debug.new_tab", {"action": "state"}), tag)
 
 def g_omnibar(tag):
-    return [step("A browser tab", cmux("tab", "new-browser", "--url", "https://example.com"), shot=False, wait=4), KEY()] \
-        + native_states("Omnibar (native)", cmux("action", "run", "focusLocation"), tag)
+    name, setup = web_tab(tag)
+    return setup + native_states("Omnibar (native)", cmux("action", "run", "focusLocation"), tag) \
+        + [step("Close the browser tab", cmux("tab", name, "close"), shot=False, wait=1)]
 
 def g_browser_find(tag):
-    return [step("A browser tab", cmux("tab", "new-browser", "--url", "https://example.com"), shot=False, wait=4), KEY()] \
-        + native_states("Browser find bar (native)", cmux("action", "run", "find"), tag)
+    name, setup = web_tab(tag)
+    return setup + native_states("Browser find bar (native)", cmux("action", "run", "find"), tag) \
+        + [step("Close the browser tab", cmux("tab", name, "close"), shot=False, wait=1)]
 
 def g_term_find(tag):
     return [step("A terminal workspace", cmux("workspace", "new", "--name", f"Term {tag}"), shot=False, wait=1.5),
             step("Show it", cmux("workspace", f"name:Term {tag}", "focus"), shot=False, wait=1.5), KEY()] \
-        + native_states("Terminal find bar (native)", cmux("action", "run", "find"), tag)
+        + [step("Terminal find bar opens", cmux("action", "run", "find"), shot=False, wait=1)] \
+        + native_states("Terminal find bar (native)", {"click": {"x": 1600, "y": 136}}, tag)  # the bar's field (it opens without the keyboard)
 
 def g_rename(tag):
     return [step("A workspace to rename", cmux("workspace", "new", "--name", f"Rename {tag}"), shot=False, wait=1.5),
