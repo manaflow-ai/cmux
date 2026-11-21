@@ -38,6 +38,8 @@ mod apps_run;
 #[cfg(unix)]
 mod attention;
 #[cfg(unix)]
+mod auth_handoff;
+#[cfg(unix)]
 mod auth_token;
 #[cfg(unix)]
 mod automation;
@@ -63,6 +65,8 @@ mod chief;
 mod chief_target;
 #[cfg(unix)]
 mod cloud_api;
+#[cfg(unix)]
+mod cloud_auth_handoff_relay;
 #[cfg(unix)]
 mod cloud_automation_relay;
 #[cfg(unix)]
@@ -947,6 +951,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_api::run_if_requested(args))
         .or_else(|| cloud_hands::run_if_requested(args))
         .or_else(|| cloud_automation_relay::run_if_requested(args))
+        .or_else(|| cloud_auth_handoff_relay::run_if_requested(args))
         .or_else(|| machine_link::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
