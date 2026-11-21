@@ -40,6 +40,11 @@ final class PagedListStressUITests: XCTestCase {
     /// HomeStressUITests homelive, step 87db292d frame 1476).
     @MainActor func testDownSlowTyping() { stress("down", .slow, "typing") }
     @MainActor func testUpSlowTyping() { stress("up", .slow, "typing") }
+    /// The same during a fling: HomeStressUITests homelive at 1a836b3d (step 10b2f791) drew the rows
+    /// 9.8 pt past the fling in the frame a row above grew 10 pt and its correction landed.
+    @MainActor func testDownMediumTyping() { stress("down", .medium, "typing") }
+    @MainActor func testDownFastTyping() { stress("down", .fast, "typing") }
+    @MainActor func testUpFastTyping() { stress("up", .fast, "typing") }
     @MainActor func testUpMediumEdits() { stress("up", .medium, "edits") }
     @MainActor func testUpFastEdits() { stress("up", .fast, "edits") }
     @MainActor func testUpSlowInserts() { stress("up", .slow, "inserts") }
