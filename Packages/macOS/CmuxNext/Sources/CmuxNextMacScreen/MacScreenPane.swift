@@ -318,6 +318,20 @@ public final class MacScreenPane {
     }
 }
 
+/// A fill that takes no clicks: the veil over a dimmed picture.
+final class MacScreenVeilView: NSView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        isHidden = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 /// The pane's view: toolbar on top, the fitted screen and its input surface
 /// below, a state card over the screen while there is no picture.
 public final class MacScreenPaneView: NSView {
@@ -332,6 +346,8 @@ public final class MacScreenPaneView: NSView {
     private let model: MacScreenPaneModel
     /// Under the picture when its look gives it a shadow.
     private let pictureShadow = CALayer()
+    /// Over the picture while a card shows, when the look dims it (``MacScreenViewerStyle/cardVeilOpacity``).
+    private let veil = MacScreenVeilView()
     private var style: MacScreenViewerStyle { model.viewerLook.style }
     /// The toolbar's own height at the pane's width (a floating toolbar uses its capsule's width).
     var toolbarHeight: CGFloat { style.statusStrip ? MacScreenStatusStrip.height : chrome.toolbar.height(for: toolbarFrame(height: false).width) }
@@ -368,6 +384,7 @@ public final class MacScreenPaneView: NSView {
         video.scaling = .fit
         addSubview(video)
         addSubview(capture)
+        addSubview(veil)
         addSubview(chrome.toolbar)
         addSubview(chrome.card)
         input.geometry = { [weak self] in self?.geometry }
@@ -412,7 +429,7 @@ public final class MacScreenPaneView: NSView {
         pictureShadow.cornerRadius = style.pictureCornerRadius
         pictureShadow.frame = video.frame
         cursor.update()
-        let showsCard = chrome.layoutStatusStrip(style, in: self)
+        let showsCard = chrome.layoutStatusStrip(style, in: self) && !model.isQuietOutage
         chrome.card.isHidden = !showsCard
         capture.isHidden = model.gate != .open
         if showsCard {
@@ -420,6 +437,11 @@ public final class MacScreenPaneView: NSView {
             let area = screenRect
             chrome.card.frame = CGRect(x: area.midX - size.width / 2, y: area.midY - size.height / 2,
                                        width: size.width, height: size.height).integral
+        }
+        veil.isHidden = !showsCard || style.cardVeilOpacity <= 0 || video.frame.isEmpty
+        if !veil.isHidden {
+            veil.frame = screenRect
+            veil.layer?.backgroundColor = backdrop.withAlphaComponent(style.cardVeilOpacity).cgColor
         }
     }
 

@@ -17,7 +17,7 @@ public nonisolated enum MacScreenViewerLook: String, Sendable, CaseIterable, Has
         case .current: "Current (default): top toolbar, black backdrop"
         case .a: "Look A"
         case .b: "Look B"
-        case .c: "Look C"
+        case .c: "Look C: floating pill, full-pane states"
         }
     }
 
@@ -80,6 +80,34 @@ struct MacScreenViewerStyle {
     /// state and its buttons, and the screen area below holds only the picture or a calm mark.
     var statusStrip = false
 
+    enum ToolbarLayout {
+        /// Every control in the bar (stacked, then folded into More, as the pane narrows).
+        case bar
+        /// A one-row pill: name, latency, access, quality and Disconnect; the rest in More. Shown only while live.
+        case pill
+    }
+
+    enum CardLayout {
+        /// The card as shipped: a fixed-width popup with a spinner or a glyph, a title and buttons.
+        case standard
+        /// A large, calm state that reads as the whole pane: a big symbol, a headline, one line of why,
+        /// named connect steps, a primary and a secondary button, the details faint.
+        case fullPane
+    }
+
+    var toolbarLayout = ToolbarLayout.bar
+    /// The material behind the toolbar's controls, made once per look (nil: none, the fill above decides).
+    var makeToolbarSurface: (@MainActor () -> NSView)?
+    var cardLayout = CardLayout.standard
+    /// The card's width (nil: ``MacScreenCardView/width``).
+    var cardWidth: CGFloat?
+    /// While a card shows over a picture (a stall, a reconnect), the picture is dimmed under a veil of the
+    /// backdrop at this opacity (0: the card sits over the picture as is).
+    var cardVeilOpacity: CGFloat = 0
+    /// A brief outage over a shown picture (a stall) keeps the last frame up with no card over it; the toolbar says
+    /// Reconnecting quietly instead (false: the Reconnecting card covers the picture).
+    var quietOutage = false
+
     /// The pane as shipped.
     static var current: MacScreenViewerStyle { MacScreenViewerStyle() }
 
@@ -90,5 +118,14 @@ struct MacScreenViewerStyle {
         case .chrome: colors.chrome
         case .page: colors.page
         }
+    }
+}
+
+extension MacScreenPaneModel {
+    /// A stall over a shown picture that the look keeps quiet (``MacScreenViewerStyle/quietOutage``): the picture
+    /// stays, the card does not show, input still waits for the picture to come back.
+    var isQuietOutage: Bool {
+        guard viewerLook.style.quietOutage, isLive, hasFrame, case .connecting(reconnecting: true)? = card else { return false }
+        return true
     }
 }

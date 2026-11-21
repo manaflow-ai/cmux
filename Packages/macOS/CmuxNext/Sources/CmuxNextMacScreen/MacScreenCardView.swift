@@ -19,6 +19,8 @@ final class MacScreenCardView: MacScreenThemedView {
         var typeSizes = MacScreenType.sizes
         /// The viewer look the card's surface is drawn in.
         var look = MacScreenViewerLook.current
+        /// The session's link is up (read only by a full-pane look, whose connect steps name it).
+        var linkConnected = false
     }
 
     static let width: CGFloat = 340
@@ -73,7 +75,7 @@ final class MacScreenCardView: MacScreenThemedView {
         backgroundConstraints = [
             stack.leadingAnchor.constraint(equalTo: background.leadingAnchor),
             stack.topAnchor.constraint(equalTo: background.topAnchor),
-            stack.widthAnchor.constraint(equalToConstant: Self.width),
+            stack.widthAnchor.constraint(equalToConstant: look.style.cardWidth ?? Self.width),
             trailing,
             bottom,
         ]
@@ -86,7 +88,7 @@ final class MacScreenCardView: MacScreenThemedView {
     /// The card's size: its width, and the height of what it says at that width (zero with no card).
     override var fittingSize: NSSize {
         guard shown?.card != nil else { return .zero }
-        return NSSize(width: Self.width, height: ceil(stack.fittingSize.height))
+        return NSSize(width: shown?.look.style.cardWidth ?? Self.width, height: ceil(stack.fittingSize.height))
     }
 
     override func layout() {
@@ -95,8 +97,10 @@ final class MacScreenCardView: MacScreenThemedView {
     }
 
     private func render() {
-        let next = withObservationTracking {
-            Shown(card: model.card, name: model.name, failedDetail: Self.failedDetail(model.card, model), look: model.viewerLook)
+        let next = withObservationTracking { () -> Shown in
+            var next = Shown(card: model.card, name: model.name, failedDetail: Self.failedDetail(model.card, model), look: model.viewerLook)
+            if next.look.style.cardLayout == .fullPane { next.linkConnected = model.session?.linkConnected ?? false }
+            return next
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.render() }
         }
@@ -105,7 +109,12 @@ final class MacScreenCardView: MacScreenThemedView {
         if next.look != backgroundLook { installBackground(next.look) }
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         background.isHidden = next.card == nil
-        if let card = next.card { content(card) }
+        if let card = next.card {
+            switch next.look.style.cardLayout {
+            case .standard: content(card)
+            case .fullPane: MacScreenFullPaneState(card: card, shown: next, model: model, actions: actions).build(in: stack)
+            }
+        }
         paint(background)
         // The pane centers the card at its new size.
         superview?.needsLayout = true
