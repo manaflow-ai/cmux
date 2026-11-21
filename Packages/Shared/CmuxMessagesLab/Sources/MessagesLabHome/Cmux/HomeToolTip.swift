@@ -9,14 +9,23 @@ extension NSView {
 }
 
 extension NSSegmentedControl {
-    /// cmux: `texts[i]` as segment `i`'s tooltip, through the host's ``MessagesLabHomeHost/toolTipRegions``. The
-    /// segments are taken as equally wide (the transcript's segmented controls give every segment one width), so call
-    /// it after the control's size changes.
+    /// cmux: `texts[i]` as segment `i`'s tooltip, through the host's ``MessagesLabHomeHost/toolTipRegions``. Each
+    /// region is its segment's width (`width(forSegment:)`; 0, AppKit's own size, counts as an even share), and the
+    /// room the style leaves between segments (`.separated`'s gaps) is split between its neighbours, so the regions
+    /// tile the control. Call it after the control's size changes.
     @MainActor func setHomeSegmentToolTips(_ texts: [String]) {
-        let count = max(1, segmentCount)
-        let width = bounds.width / CGFloat(count)
-        let regions = texts.prefix(count).enumerated().map { index, text in
-            (rect: NSRect(x: CGFloat(index) * width, y: 0, width: width, height: bounds.height), text: text)
+        let count = segmentCount
+        guard count > 0 else { return MessagesLabHomeView.host.toolTipRegions(self, []) }
+        let set = (0..<count).map { width(forSegment: $0) }
+        let even = bounds.width / CGFloat(count)
+        let widths = set.contains(0) ? Array(repeating: even, count: count) : set
+        let gap = count > 1 ? max(0, (bounds.width - widths.reduce(0, +)) / CGFloat(count - 1)) : 0
+        var x: CGFloat = 0
+        var regions: [(rect: NSRect, text: String)] = []
+        for (index, (width, text)) in zip(widths, texts).enumerated() {
+            let lead = index == 0 ? 0 : gap / 2, trail = index == count - 1 ? 0 : gap / 2
+            regions.append((rect: NSRect(x: x - lead, y: 0, width: width + lead + trail, height: bounds.height), text: text))
+            x += width + gap
         }
         MessagesLabHomeView.host.toolTipRegions(self, regions)
     }
