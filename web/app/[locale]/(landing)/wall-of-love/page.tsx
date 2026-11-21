@@ -2,12 +2,12 @@ import { useTranslations, useLocale } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
+import { testimonials } from "@/app/[locale]/testimonials-data";
+import { TestimonialCard } from "@/app/[locale]/testimonial-card";
 import {
-  testimonials,
-  TestimonialCard,
   getTestimonialSubtitle,
   getTestimonialTranslation,
-} from "@/app/[locale]/testimonials";
+} from "@/app/[locale]/testimonials-utils";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
