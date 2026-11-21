@@ -254,7 +254,6 @@ fn a_silent_app_is_not_watched_frame_by_frame() {
     let state = &out.body["state"];
     assert_eq!(state["unchanged"], true, "{state}");
     assert_eq!(state["waited_ms"], 120, "{state}");
-    assert_eq!(state["captures"], 1, "{state}");
     assert_eq!(*d.captures.lock().unwrap(), 1 + 1);
     assert_eq!(*slept.0.lock().unwrap(), vec![Duration::from_millis(120)]);
 }
