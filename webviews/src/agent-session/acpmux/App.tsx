@@ -109,7 +109,6 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
-  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -118,12 +117,13 @@ import {
   useSessionAdoption,
   type SessionAdoption,
   withHandshakeNewTab,
+  useLostSharedPart,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {
   heldPick,
-  withCloudStartFolder,
   withDraftFolder,
+  withCloudStartFolder,
   shownCloudStartPick,
   withCloudStartPick,
 } from "./newtab/draftFolder";
@@ -232,7 +232,7 @@ import { PICKER_LABELS } from "./composerPickerModel";
 import { openComposerControl } from "./composerControls";
 import { chatAccessGrants, revokeAccessRows } from "./header/grantsMenu";
 import { openPicker } from "./pickerOpeners";
-import { SIGN_IN_REQUIRED, startRefusalRoute } from "./startRefusal";
+import { startRefusalRoute, SIGN_IN_REQUIRED } from "./startRefusal";
 import { EmptyState, type EmptyStateProjects } from "./EmptyState";
 import { isNewChat, projectName } from "./emptyStateModel";
 import { TourStartContext } from "./repoTour/TourBlock";
@@ -278,12 +278,12 @@ import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
 import {
   cloudMachineAsleep,
-  currentCloudPlan,
-  readCloudPlanFresh,
   readUntilMoved,
   refreshCloudMachines,
   useCloudMachines,
   type CloudMachine,
+  currentCloudPlan,
+  readCloudPlanFresh,
 } from "./cloudMachines";
 import { usePeerCloudMachine } from "./peerCloudMachine";
 import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
@@ -292,11 +292,11 @@ import { routeCurrentTrustRefusal, routeOwnedTrustRefusal, type TrustRefusalOwne
 import { heldPrompts, type SendGesture } from "./heldPrompt";
 import { bindsHeldSendNow } from "./heldSendBinding";
 import {
-  StartingSends,
-  type StartingSend,
-  startingQueueEntry,
   queuedStartingSends,
+  StartingSends,
+  startingQueueEntry,
   withStartingPrompt,
+  type StartingSend,
   startingIn,
 } from "./startingSends";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
@@ -593,14 +593,14 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
   type CloudStartAnswer,
   cloudSendAfterCheck,
   heldPromptShown,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
   cloudPickExtras,
   composerCloudStartFolder,
   pageOnOtherMachine,
@@ -619,12 +619,12 @@ import { harnessLabel } from "./subagents/agentRuns";
 import {
   cloudStartBegun,
   cloudStartEnded,
-  cloudStartPlanHeld,
   cloudStartPushed,
   cloudStartStalled,
   watchCloudStartStall,
   cloudStartSignedIn,
   type CloudStartProgress,
+  cloudStartPlanHeld,
 } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
 import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
@@ -686,11 +686,11 @@ import {
   foldsToHold,
   linedCallOf,
   oneKeyPerMessageRun,
+  rowsToHold,
   withHeldFolds,
   withoutHeldCalls,
-  lastTurnWorkedKeys,
-  rowsToHold,
   withoutHeldRows,
+  lastTurnWorkedKeys,
 } from "./conversation/turnEndHold";
 import { HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type HarnessHealth, type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
@@ -717,8 +717,8 @@ import {
   nextRetryDelay,
   offersAcpmuxRestart,
   readHostRestoring,
-  hostSelfRetrying,
   lostRetryDelay,
+  hostSelfRetrying,
   jitteredDelay,
   quickRetry,
 } from "./hostRetry";
@@ -8116,6 +8116,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           : sandboxHoldsChat && !sandboxDraftMoved
             ? "sandbox_holds_chat"
             : undefined),
+    runPlace: () => ({
+      runMode: sandbox.mode ?? null,
+      checked: sandbox.checked,
+      freshChat,
+      sessionId: snapshot.sessionId ?? null,
+      summarySessionId: snapshot.summary?.sessionId ?? null,
+      switchingPhase: snapshot.switching?.phase ?? null,
+      selection: sessionSelection?.state ?? null,
+      surface,
+      offered: sandboxOffered,
+      cloudPickedNotOffered,
+    }),
   };
   useEffect(() => {
     window.React = React;
@@ -8423,6 +8435,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           runMode: () => automationCompose.current?.runMode(),
           setRunMode: (mode) => automationCompose.current?.setRunMode(mode) ?? false,
           cloudStart: () => automationCompose.current?.cloudStart() ?? null,
+          blocked: () => automationCompose.current?.blocked?.(),
+          runPlace: () => automationCompose.current?.runPlace?.() ?? {},
         },
       },
     });
