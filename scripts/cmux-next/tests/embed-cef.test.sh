@@ -74,14 +74,17 @@ mkdir -p "$TMP/shim"; : > "$TMP/shim/libcmux_cef_shim.dylib"; : > "$TMP/shim/cmu
 echo "$TMP/shim"
 STUB
   chmod +x "$TMP/scripts/"*.sh
+  printf 'precomputed cache\n' > "$fw/Resources/gpu_shader_cache.bin"
   out=$(env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" ARCHS=arm64 TARGET_BUILD_DIR="$TMP/build" WRAPPER_NAME=app.app \
     PRODUCT_NAME=app PRODUCT_BUNDLE_IDENTIFIER=test.app DERIVED_FILE_DIR="$TMP/derived" CMUX_NEXT_SKIP_UBLOCK=1 \
     /bin/bash "$TMP/scripts/embed-cef.sh" 2>&1) || { printf 'embed-cef.sh failed:\n%s\n' "$out" >&2; exit 1; }
   lib="$TMP/build/app.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Libraries/libvk_swiftshader.dylib"
   pak="$TMP/build/app.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Resources/resources.pak"
+  shader_cache="$TMP/build/app.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Resources/gpu_shader_cache.bin"
   if grep -q 'fLaC-sound' "$pak" || ! grep -q kept "$pak"; then
     echo 'embedded resources.pak still has the intro sound, or lost the other resource' >&2; exit 1
   fi
+  [[ ! -e "$shader_cache" ]] || { echo 'embedded CEF still carries gpu_shader_cache.bin' >&2; exit 1; }
   locale="$TMP/build/app.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Resources/en.lproj/locale.pak"
   if grep -q gemini-text "$locale" || ! grep -q untitled-text "$locale"; then
     echo 'embedded locale.pak still has the AI assistant string, or lost the tab title' >&2; exit 1

@@ -46,7 +46,7 @@ nonisolated enum AcpmuxPaneMethods {
         // Take Over a View Only chat (direct.ts takeOver): the chat runs the conversation from then on.
         "_acpmux/watch_take_over", "_acpmux/project_new", // New project: AgentPaneProjectNewRelayTests.
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
-        "_acpmux/status", "_acpmux/peers", "_acpmux/draft_get",
+        "_acpmux/status", "_acpmux/peers", "_acpmux/move_targets", "_acpmux/draft_get",
         // Session-scoped draft writes are kept separate from the filtered replies above.
         "_acpmux/draft_set",
         // An inbox notice's thread the person opened (direct.ts inboxThread, InboxNoticeCard):
@@ -238,8 +238,10 @@ nonisolated enum AcpmuxPaneMethods {
         /// Send `text` (the first frame with the LocalApp token added when there is one).
         case send(String)
         /// Refuse it. `requestID` is the JSON-RPC id of a refused request (its raw JSON), so the
-        /// relay can answer it with an error frame instead of leaving the page waiting.
-        case refuse(AgentPaneTransportError, method: String?, requestID: String?)
+        /// relay can answer it with an error frame instead of leaving the page waiting. `detail`:
+        /// which rule the frame broke (``paramsRuleViolation(_:modeFields:)``), for the log and the
+        /// refusal's `data.detail`.
+        case refuse(AgentPaneTransportError, method: String?, requestID: String?, detail: String? = nil)
     }
 
     /// The decision for `text`, the page's `isFirst` frame or a later one.
@@ -407,7 +409,8 @@ nonisolated enum AcpmuxPaneMethods {
     }
 
     public static let gestureRules: [String: GestureRule] = [
-        "session/prompt": .always,
+        // `session/prompt` (Send, Retry) needs none: a person's own typed message came back "Not
+        // sent: it needs your own key press or click." (Leo, 2026-11-17: "go remove this").
         // Fixing a GitHub link creates a worktree and starts an agent turn; it is a person click,
         // never a scriptable background launch.
         "chat.fix_from_link": .always,

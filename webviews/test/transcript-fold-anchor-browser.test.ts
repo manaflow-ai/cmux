@@ -51,10 +51,12 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
   });
   const output = (lines: number) =>
     Array.from({ length: lines }, (_, index) => `line ${index + 1}: the keeper trimmed the wick`).join("\n");
+  // A call that opens to its output: a search (a read is a plain row that does not open since
+  // 2026-11-17, readPath.ts). Two of them group, as reads did.
   const read = (id: string, lines = 30) => ({
     kind: "tool",
     text: "",
-    tool: { id, title: `Read src/${id}.ts`, kind: "read", status: "completed", output: output(lines) },
+    tool: { id, title: `Search src/${id}.ts`, kind: "search", status: "completed", output: output(lines) },
   });
   const paragraphs = (count: number) =>
     Array.from(

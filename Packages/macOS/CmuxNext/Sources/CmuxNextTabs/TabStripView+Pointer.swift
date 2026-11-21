@@ -25,7 +25,7 @@ extension TabStripView {
         guard let cell = cells[id], let rect = cell.closeButtonRect else { return false }
         let local = convert(point, to: tabsClip)
         let inCell = CGPoint(x: local.x - cell.frame.minX, y: local.y - cell.frame.minY)
-        return rect.insetBy(dx: -2, dy: -2).contains(inCell)
+        return cell.metrics.closeHitRect(rect).contains(inCell)
     }
 
     /// Whether `point` (strip coordinates) is on tab `id`'s speaker, with a

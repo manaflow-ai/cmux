@@ -19,6 +19,9 @@ public nonisolated struct TypeAheadTail<Key> {
 
     public var isEmpty: Bool { keys.isEmpty }
 
+    /// How many keys wait behind `surface`'s text.
+    public func count(behind surface: String) -> Int { self.surface == surface ? keys.count : 0 }
+
     /// Whether a key typed now waits here. Return or keypad Enter starts the tail when it follows
     /// queued text (`behindText`); every later key joins it, except Escape (it cancels what waits).
     /// A chord never waits: it ends the queue.

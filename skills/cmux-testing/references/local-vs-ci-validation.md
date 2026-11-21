@@ -47,3 +47,31 @@ run them on a Testbox or in CI. Never run `xcodebuild test` locally.
 
 For CLI dogfood use `CMUX_TAG=<tag> scripts/cmux-debug-cli.sh ...`, not the global
 `/tmp/cmux-cli` symlink. Confirm the tested artifact is the one you launched.
+
+## Repeat admission without rebuilding between runs
+
+Use one managed step for repeated independent suite processes:
+
+```sh
+cmux-ci run --class light --script scripts/ci/run-swift-testing-suites.sh \
+  --ref FULL_SHA --arg Packages/macOS/CmuxNext --arg=--repeat --arg 20 \
+  --env CMUX_SWIFT_TEST_SUITES=HandlerCoverageTests \
+  --env CMUX_SWIFT_TEST_DIRECT=0 --env CMUX_SWIFT_TEST_SUITE_JOBS=1 \
+  --env CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS=60 \
+  --key handler-admission-FULL_SHA --timeout 7200
+```
+
+`--repeat N` (1–9999) builds/lists once with the normal binary-header guard
+then starts a fresh process for each repetition of each selected suite. Each
+process must finish within its deadline and report nonzero test execution.
+Admission disables timeout and database-lock retries and stops a suite at its
+first failure. Other selected suites still report their results. Omit the flag
+for the ordinary suite runner's existing retry policy.
+
+Keep the exact source SHA, worker, toolchain, CPU budget, debug-info options,
+`ci-phase build-and-list` duration, and every `ci-repeat` row. The summary must
+say all requested repetitions passed; a timed-out build means zero completed
+repetitions. Compare build minutes separately from warm execution seconds.
+A compiled target alone is not a linked/discovered test bundle. A binary-header
+ABI change legitimately invalidates build products; preserve that guard and
+do not claim a scheduler cache defect without evidence of a compatible slot.

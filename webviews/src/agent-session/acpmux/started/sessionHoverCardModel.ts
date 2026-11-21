@@ -1,9 +1,10 @@
 import { createContext } from "react";
+import { HOVER_INTENT } from "../../../ui/hoverIntent";
 import { type SessionHoverStore } from "./sessionHover";
 
-/// The pointer's rest on a reference before its card shows: shorter than a sidebar row's
-/// preview (`HOVER_INTENT.cardDwell`), since a reference in prose is something to read about.
-export const SESSION_HOVER_DELAY = 500;
+/// The pointer's rest on a reference before its card shows: the delay every hover card waits
+/// (`HOVER_INTENT.cardDwell`, Chrome's).
+export const SESSION_HOVER_DELAY: number = HOVER_INTENT.cardDwell;
 
 /// Where the cards read sessions from, and how a click opens one. Absent (started session cards
 /// off), references draw no card.

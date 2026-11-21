@@ -48,7 +48,10 @@ const namedLater = async (ctx: PlayContext) => {
   await ctx.waitFor(() => doc.querySelectorAll(".is-titled[data-title][data-icon]").length === 2);
   const chips = [...doc.querySelectorAll<HTMLElement>(".is-titled[data-title][data-icon]")];
   for (const chip of chips) {
-    const icon = getComputedStyle(chip, "::before");
+    // The icon is the chip's front, before the link's hidden text (composer/deeplinkTitles.ts).
+    const front = chip.previousElementSibling?.previousElementSibling;
+    if (!front?.matches(".is-titled-start[data-icon]")) throw new Error(`the ${chip.dataset.kind} chip has no front`);
+    const icon = getComputedStyle(front, "::before");
     const title = getComputedStyle(chip, "::after");
     if (!(icon.maskImage || icon.getPropertyValue("-webkit-mask-image")).includes("data:image/svg"))
       throw new Error(`the ${chip.dataset.kind} chip draws no kind icon`);

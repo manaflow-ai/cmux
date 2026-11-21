@@ -314,11 +314,12 @@ def cleanup_warmer(
     process: subprocess.Popen[str],
 ) -> tuple[str, str]:
     """Terminate the owned warmer and its native group after benchmark failure."""
-    if process.poll() is None:
-        try:
-            os.killpg(process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
+    # The group, whatever the leader's state: an exited warmer can leave a child running in it (cmux#41767 review
+    # F1). The group keeps the leader's pid as its id while any member lives.
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        pass
     try:
         stdout, stderr = process.communicate(timeout=30)
     except subprocess.TimeoutExpired:
@@ -339,6 +340,11 @@ def cleanup_warmer(
             pass
         stdout, stderr = process.communicate()
         inflight_path.unlink(missing_ok=True)
+    # A child that ignored SIGTERM outlives a leader that exited on it.
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
     clear_owned_warmer_state(state, slot, process.pid)
     return stdout, stderr
 
