@@ -68,6 +68,8 @@ struct WorkspacesListModel: Equatable {
     var version = 0
     var patchedFrom: Int?
     var patchedItems: Set<String> = []
+    /// Of a patched model: the items that moved within their section (the rest kept their order).
+    var patchedMoves: Set<String> = []
 
     static func == (a: Self, b: Self) -> Bool { a.sections == b.sections && a.items == b.items }
 
@@ -319,6 +321,9 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
     private(set) var lastReconfigured: [String] = []
     private var shownVersion = 0
     private var pendingItems: Set<String>?
+    private var pendingMoves: Set<String> = []
+    /// Passes that moved a patched model's moved items alone (tests).
+    private(set) var movedApplyCount = 0
     /// Applies that kept the row being read in place (tests).
     private(set) var anchoredApplyCount = 0
     private(set) var reconfigureCount = 0
@@ -436,8 +441,10 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         let base = pending?.version ?? shownVersion
         if let from = model.patchedFrom, from == base, pending == nil || pendingItems != nil {
             pendingItems = (pendingItems ?? []).union(model.patchedItems)
+            pendingMoves.formUnion(model.patchedMoves)
         } else {
             pendingItems = nil
+            pendingMoves = []
         }
         pending = model
         guard !applyScheduled else { return }
@@ -455,7 +462,9 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         guard let next = pending, let dataSource else { return }
         pending = nil
         let changedItems = pendingItems
+        let movedItems = pendingMoves
         pendingItems = nil
+        pendingMoves = []
         shownVersion = next.version
         var animated = pendingAnimated && !UIAccessibility.isReduceMotionEnabled && collectionView?.window != nil
         pendingAnimated = false
@@ -472,15 +481,43 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         #endif
         let sections: [ListSectionIDs]
         let plan: ListApplyPlan
-        if let changedItems, dataSource.snapshot().numberOfSections != 0 {
-            // The same sections as shown: the changed items alone (O(changed)).
-            sections = shownSections
-            plan = ListApplyPlan(orderChanged: false, membershipChanged: false,
+        if let changedItems, !shownSections.isEmpty {
+            // The shown sections, with only the moved items in new places: the changed items alone
+            // are compared and redrawn, and each moved item is moved (O(changed)).
+            sections = movedItems.isEmpty ? shownSections : next.sections
+            plan = ListApplyPlan(orderChanged: !movedItems.isEmpty, membershipChanged: false,
                                  reconfigure: changedItems.filter { id in
                                      guard let before = items[id], let after = next.items[id] else { return false }
                                      return before != after
                                  })
             patchedApplyCount += 1
+            if !movedItems.isEmpty {
+                let anchor = animated ? nil : readingAnchor()
+                var snapshot = dataSource.snapshot()
+                var places: [(section: Int, index: Int, id: String)] = []
+                for (s, section) in sections.enumerated() {
+                    for (index, id) in section.items.enumerated() where movedItems.contains(id) { places.append((s, index, id)) }
+                }
+                // Last first: each moved item goes before the item that follows it in the new
+                // order, which is already in its final place.
+                for place in places.sorted(by: { ($0.section, $0.index) > ($1.section, $1.index) }) {
+                    let items = sections[place.section].items
+                    if place.index + 1 < items.count {
+                        snapshot.moveItem(place.id, beforeItem: items[place.index + 1])
+                    } else if let last = snapshot.itemIdentifiers(inSection: sections[place.section].id).last, last != place.id {
+                        snapshot.moveItem(place.id, afterItem: last)
+                    }
+                }
+                dataSource.apply(snapshot, animatingDifferences: false)
+                applyCount += 1
+                movedApplyCount += 1
+                if let anchor { restore(anchor) }
+                shownSections = sections
+                items = next.items
+                lastReconfigured = plan.reconfigure
+                reconfigureShown(plan.reconfigure)
+                return
+            }
         } else {
             sections = ListSectionIDs.unique(next.sections)
             plan = ListApplyPlan.make(old: shownSections, oldItems: items, new: sections, newItems: next.items)
@@ -520,7 +557,18 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         // cell whose height changes asks the layout again); every other cell is
         // filled when it is dequeued or comes on screen. A `reconfigureItems`
         // snapshot re-solved the whole list's layout for each change.
-        for id in plan.reconfigure {
+        reconfigureShown(plan.reconfigure)
+    }
+
+    /// The item ids the list shows in `section`, in order (tests).
+    func shownItemIDs(inSection section: String) -> [String] {
+        dataSource?.snapshot().itemIdentifiers(inSection: section) ?? []
+    }
+
+    /// The changed rows on screen take their new value in place.
+    private func reconfigureShown(_ ids: [String]) {
+        guard let dataSource else { return }
+        for id in ids {
             guard let indexPath = dataSource.indexPath(for: id),
                   let cell = collectionView?.cellForItem(at: indexPath) as? WorkspacesListCell else { continue }
             configure(cell, id)

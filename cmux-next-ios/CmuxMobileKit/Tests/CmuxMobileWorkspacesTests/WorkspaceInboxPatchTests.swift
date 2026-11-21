@@ -58,6 +58,25 @@ import Testing
         #expect(inbox == WorkspaceInbox(scope: .all, macs: Self.macs, workspaces: store.workspaces))
     }
 
+    /// An active workspace jumps to the top (newer activity): an update with one move, reading
+    /// one row, not a whole build.
+    @Test func aRowJumpingToTheTopIsAnUpdateWithOneMove() {
+        let store = Self.store(Self.rows(500))
+        let memo = WorkspaceInbox.Memo()
+        _ = memo.inbox(Self.input(store, memo))
+        let whole = memo.wholeBuilds, read = memo.rowsEvaluated
+        var row = store.workspaces[400]
+        row.lastActivityAt = Self.now.addingTimeInterval(60)
+        row.isWorking.toggle()
+        store.updateWorkspaces(macID: row.macID, rows: [row])
+        let inbox = memo.inbox(Self.input(store, memo))
+        #expect(memo.wholeBuilds == whole)
+        #expect(memo.rowsEvaluated - read == 1)
+        #expect(memo.lastPatch?.moved == true)
+        #expect(inbox.recent.first?.id == "w400")
+        #expect(inbox == WorkspaceInbox(scope: .all, macs: Self.macs, workspaces: store.workspaces))
+    }
+
     /// The same through the store's whole-list setter (a Mac's whole list, rows changed in place).
     @Test func aWholeListWithRowsChangedInPlaceReadsThoseRows() {
         let store = Self.store(Self.rows(500))

@@ -493,18 +493,26 @@ public struct WorkspacesList: View {
                                    grouping: grouping, unfolded: unfolded, searching: !query.isEmpty, scopeMacID: scope.macID,
                                    typeSize: typeSize, canReconnect: reconnect != nil, sameNames: sameNames,
                                    groupsRevision: creator.groupsRevision, macGroups: macGroups)
-        let patchedRows = inboxMemo.lastPatchedRows
+        let patch = inboxMemo.lastPatch
         let version = inboxMemo.builds
         return listMemo.value(input, patch: { last, model in
-            // The inbox changed only rows in place (none moved or changed lists) and nothing else
-            // the model reads changed: those rows' items alone (Group by Folder buckets rows by
-            // their folders, so it builds whole).
-            guard let patchedRows, input.grouping == .none, last.inboxBuild == input.inboxBuild - 1 else { return false }
+            // The inbox changed rows in place, or moved rows within their lists (an active workspace
+            // jumping to the top), and nothing else the model reads changed: those rows' items and
+            // places alone. Group by Folder buckets rows by their folders, so it builds whole.
+            guard let patch, input.grouping == .none, !inbox.isMacOrder, last.inboxBuild == input.inboxBuild - 1 else { return false }
             var same = last
             same.inboxBuild = input.inboxBuild
             guard same == input else { return false }
+            var moved: Set<String> = []
+            if patch.moved {
+                for (section, list) in [("needs", inbox.needsYou), ("pinned", inbox.pinned), ("recent", inbox.recent)] {
+                    guard list.contains(where: { patch.rows.contains($0.id) }) else { continue }
+                    guard let s = model.sections.firstIndex(where: { $0.id == section }) else { return false }
+                    guard Self.move(rows: patch.rows, in: &model.sections[s], to: list, moved: &moved) else { return false }
+                }
+            }
             var items: Set<String> = []
-            for id in patchedRows {
+            for id in patch.rows.union(patch.runEnds) {
                 let key = WorkspacesListModel.rowID(id)
                 guard case .row? = model.items[key], let ws = inbox.workspace(id) else { continue }
                 model.items[key] = .row(rowModel(ws, inbox, input.names, rights: input.rights[ws.macID] ?? .none,
@@ -514,12 +522,35 @@ public struct WorkspacesList: View {
             model.patchedFrom = model.version
             model.version = version
             model.patchedItems = items
+            model.patchedMoves = moved
             return true
         }) {
             var model = buildListModel(inbox, input)
             model.version = version
             return model
         }
+    }
+
+    /// Puts `rows` of `section` (the list's rows after any title) where they are in `list`, the
+    /// inbox's new order: each moved row taken out and put back at its place (O(rows moved) edits,
+    /// with a scan of the ids to find each). False when the section is not the list's rows.
+    static func move(rows: Set<String>, in section: inout ListSectionIDs, to list: [Workspace], moved: inout Set<String>) -> Bool {
+        let offset = section.items.first?.hasPrefix("title.") == true ? 1 : 0
+        guard section.items.count == list.count + offset else { return false }
+        var targets: [(index: Int, key: String, was: Int)] = []
+        for (index, ws) in list.enumerated() where rows.contains(ws.id) {
+            let key = WorkspacesListModel.rowID(ws.id)
+            guard let was = section.items.firstIndex(of: key) else { return false }
+            targets.append((index + offset, key, was))
+        }
+        for target in targets.sorted(by: { $0.was > $1.was }) { section.items.remove(at: target.was) }
+        for target in targets.sorted(by: { $0.index < $1.index }) {
+            section.items.insert(target.key, at: target.index)
+            if target.index != target.was { moved.insert(target.key) }
+        }
+        // The result must be the list's order (a row of another section never moves in here).
+        for target in targets where section.items[target.index] != target.key { return false }
+        return true
     }
 
     /// Sections and items for the collection, in the SwiftUI list's order:

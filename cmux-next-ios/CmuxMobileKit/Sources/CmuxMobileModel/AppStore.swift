@@ -19,13 +19,18 @@ public final class AppStore {
             // One pass: equal lists change nothing; rows changed where they were are noted by
             // id (`rowsChanged(since:)`), so what reads the list can update those rows alone.
             var inPlace: Set<String>? = []
+            var attention = 0
             if newValue.count == workspaceStorage.count {
+                let activeMacIDs = Set(activeTeam?.macs.map(\.id) ?? [])
                 for (new, old) in zip(newValue, workspaceStorage) where new != old {
                     guard new.id == old.id, new.macID == old.macID else {
                         inPlace = nil
                         break
                     }
                     inPlace?.insert(new.id)
+                    if new.needsAttention != old.needsAttention, activeMacIDs.contains(new.macID) {
+                        attention += new.needsAttention ? 1 : -1
+                    }
                 }
                 if inPlace?.isEmpty == true { return }
             } else {
@@ -34,7 +39,12 @@ public final class AppStore {
             withMutation(keyPath: \.workspaces) { workspaceStorage = newValue }
             workspacesRevision &+= 1
             noteRowChange(inPlace)
-            refreshAttentionCount()
+            if inPlace != nil {
+                // Rows changed where they were: the badge moves by theirs alone.
+                if attention != 0 { attentionCount += attention }
+            } else {
+                refreshAttentionCount()
+            }
         }
     }
 

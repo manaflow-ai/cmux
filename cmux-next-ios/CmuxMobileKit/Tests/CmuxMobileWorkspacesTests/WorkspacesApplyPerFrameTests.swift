@@ -113,6 +113,55 @@ import UIKit
         #expect(host.list.lastReconfigured == ["ws.w8"])
     }
 
+    /// An active workspace jumps to the top on every tick (the normal live case): a model patched
+    /// with that one move applies one move, not a new snapshot of every row.
+    @Test func aRowMovedToTheTopIsOneMove() {
+        let host = host()
+        defer { host.window.isHidden = true }
+        host.list.update(model: Self.model(300, version: 1), actions: host.actions, animated: false, membershipKey: 0)
+        turn()
+        host.view.layoutIfNeeded()
+        let moves = host.list.movedApplyCount
+        var next = Self.model(300, titles: [150: "jumped"], version: 2)
+        var order = next.sections[0].items
+        let key = WorkspacesListModel.rowID("w150")
+        order.removeAll { $0 == key }
+        order.insert(key, at: 0)
+        next.sections[0].items = order
+        next.patchedFrom = 1
+        next.patchedItems = [key]
+        next.patchedMoves = [key]
+        host.list.update(model: next, actions: host.actions, animated: false, membershipKey: 0)
+        turn()
+        #expect(host.list.movedApplyCount == moves + 1, "the move rebuilt the list")
+        #expect(host.list.shownItemIDs(inSection: "recent") == order, "the list's order is the model's")
+        #expect(host.list.lastReconfigured == [key])
+    }
+
+    /// The list model's move edit puts each moved row at its place in the inbox's new order
+    /// (random jumps, several at once, with and without a title row).
+    @Test func theModelsMoveEditMatchesTheNewOrder() {
+        var random = WorkspaceInboxPatchTests.Generator(state: 11)
+        for round in 0..<300 {
+            let count = 2 + random.next(40)
+            var list = (0..<count).map { Workspace(id: "w\($0)", macID: "m", title: "", directory: "", tabs: [], lastActivityAt: Self.now) }
+            let titled = round % 2 == 0
+            var section = ListSectionIDs(id: "recent", items: (titled ? ["title.recent"] : []) + list.map { WorkspacesListModel.rowID($0.id) })
+            var rows: Set<String> = []
+            for _ in 0..<(1 + random.next(3)) {
+                let from = random.next(list.count)
+                let ws = list.remove(at: from)
+                list.insert(ws, at: random.next(list.count + 1))
+                rows.insert(ws.id)
+            }
+            var moved: Set<String> = []
+            #expect(WorkspacesList.move(rows: rows, in: &section, to: list, moved: &moved))
+            let expected = (titled ? ["title.recent"] : []) + list.map { WorkspacesListModel.rowID($0.id) }
+            #expect(section.items == expected, "round \(round)")
+            if section.items != expected { return }
+        }
+    }
+
     /// Mid-list, rows above the one being read leave without animation (a busy Mac closed them):
     /// the row being read stays where it was on screen.
     @Test func rowsRemovedAboveTheRowBeingReadLeaveItInPlace() throws {

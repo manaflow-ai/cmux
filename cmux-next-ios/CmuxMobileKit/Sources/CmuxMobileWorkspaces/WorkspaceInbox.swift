@@ -380,20 +380,30 @@ public struct WorkspaceInbox: Hashable, Sendable {
     /// False (and `self` part-changed: patch a copy) when a change needs a whole build: a row of
     /// an offline Mac (its fold), a move in the Mac's sidebar order, a change of that order.
     /// `order`: each workspace's first position in the list, by id, as `init` reads it.
+    /// What an update did beyond changing rows in place.
+    struct PatchResult: Equatable {
+        /// A row moved within its list or changed lists.
+        var moved = false
+        /// A row changed lists, or left or joined the lists.
+        var membership = false
+        /// Rows at the ends of a Move Up / Down run, before or after (their menu changes).
+        var runEnds: Set<String> = []
+    }
+
     mutating func patch(ids: Set<String>, old: [Workspace], new: [Workspace], order: [String: Int],
-                        macs: [MacDevice], query: String, context: Context) -> Bool {
+                        macs: [MacDevice], query: String, context: Context) -> PatchResult? {
         let byID = Dictionary(macs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         var moved = false
         var membership = false
         for id in ids {
             guard let position = order[id], position < new.count, position < old.count,
-                  new[position].id == id, old[position].id == id, old[position].macID == new[position].macID else { return false }
+                  new[position].id == id, old[position].id == id, old[position].macID == new[position].macID else { return nil }
             let was = old[position], ws = new[position]
             // Not in scope: in no list before or after.
             guard scope.macID == nil || scope.macID == ws.macID, let mac = byID[ws.macID] else { continue }
-            guard mac.isOnline else { return false }
-            if (was.sidebarIndex == nil) != (ws.sidebarIndex == nil) || was.group?.id != ws.group?.id { return false }
+            guard mac.isOnline else { return nil }
+            if (was.sidebarIndex == nil) != (ws.sidebarIndex == nil) || was.group?.id != ws.group?.id { return nil }
             let oldStatus = statuses[id]
             let matches = Self.matches(ws, macName: mac.name, query)
             var newStatus: WorkspaceStatus?
@@ -425,8 +435,8 @@ public struct WorkspaceInbox: Hashable, Sendable {
                 }
             }
             // It leaves its list, joins another, or moves within one.
-            if isMacOrder, from == .recent || to == .recent { return false }
-            if to == .recent, ws.sidebarIndex != nil { return false }
+            if isMacOrder, from == .recent || to == .recent { return nil }
+            if to == .recent, ws.sidebarIndex != nil { return nil }
             if let from { remove(id, from: from) }
             if let to {
                 insert(ws, into: to, order: order)
@@ -440,6 +450,7 @@ public struct WorkspaceInbox: Hashable, Sendable {
         if !isMacOrder {
             recentSections = recent.isEmpty ? [] : [RecentSection(macID: "", group: nil, workspaces: recent)]
         }
+        var result = PatchResult(moved: moved, membership: membership)
         if moved {
             var runs: [MoveRunKey: MoveRun] = [:]
             for ws in recent where statuses[ws.id] != .needsYou {
@@ -452,6 +463,11 @@ public struct WorkspaceInbox: Hashable, Sendable {
                     runs[key] = MoveRun(count: 1, firstID: ws.id, lastID: ws.id)
                 }
             }
+            for key in Set(runs.keys).union(moveRuns.keys) where runs[key] != moveRuns[key] {
+                for run in [runs[key], moveRuns[key]] {
+                    if let run { result.runEnds.formUnion([run.firstID, run.lastID]) }
+                }
+            }
             moveRuns = runs
         }
         if membership {
@@ -459,7 +475,7 @@ public struct WorkspaceInbox: Hashable, Sendable {
             showsMacNames = scope == .all && Set(recent.map(\.macID)).count > 1
             isLoading = isUpdating && needsYou.isEmpty && pinned.isEmpty && recent.isEmpty && query.isEmpty
         }
-        return true
+        return result
     }
 
     private mutating func replace(_ ws: Workspace, in place: Place) {
@@ -598,6 +614,15 @@ extension WorkspaceInbox {
         /// The rows the last inbox changed in place, when it was an update that kept every row's
         /// list and place (no row moved): the list's model redraws those alone. Nil otherwise.
         public private(set) var lastPatchedRows: Set<String>?
+        /// The last inbox's update, when it was one: its changed rows, whether one moved within
+        /// its list (none changed lists), and the Move Up / Down run ends it changed. The list's
+        /// model moves and redraws those rows alone. Nil after a whole build or a change of lists.
+        struct Patch: Equatable {
+            var rows: Set<String>
+            var moved: Bool
+            var runEnds: Set<String>
+        }
+        private(set) var lastPatch: Patch?
         /// Changes when rows come or go (the store's set of workspace ids), not
         /// when they only reorder or a row's content changes: the list animates
         /// on it, and a live reorder moves rows in place without animating.
@@ -616,6 +641,7 @@ extension WorkspaceInbox {
                 return patched
             }
             lastPatchedRows = nil
+            lastPatch = nil
             let inbox = WorkspaceInbox(scope: input.scope, macs: input.macs, workspaces: input.workspaces, query: input.query,
                                        context: input.context)
             builds += 1
@@ -655,9 +681,11 @@ extension WorkspaceInbox {
                   last.input.scope == input.scope, last.input.query == input.query, last.input.macs == input.macs,
                   last.input.context == input.context, last.input.workspaces.count == input.workspaces.count else { return nil }
             var inbox = last.inbox
-            guard inbox.patch(ids: changes.ids, old: last.input.workspaces, new: input.workspaces, order: order,
-                              macs: input.macs, query: input.query, context: input.context) else { return nil }
+            guard let result = inbox.patch(ids: changes.ids, old: last.input.workspaces, new: input.workspaces, order: order,
+                                           macs: input.macs, query: input.query, context: input.context) else { return nil }
             rowsEvaluated += changes.ids.count
+            lastPatch = result.membership || inbox.showsMacNames != last.inbox.showsMacNames ? nil
+                : Patch(rows: changes.ids, moved: result.moved, runEnds: result.runEnds)
             // A row that moved or changed lists changes the sections: the list's model is built again.
             let sameShape = inbox.needsYou.map(\.id) == last.inbox.needsYou.map(\.id)
                 && inbox.pinned.map(\.id) == last.inbox.pinned.map(\.id)
