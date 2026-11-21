@@ -33,7 +33,10 @@ extension ShortcutAction {
             return .navigation
         case .focusLeft, .focusRight, .focusUp, .focusDown,
              .focusPreviousPane, .focusNextPane, .focusPaneByNumber, .splitRight, .splitDown, .newPaneAutoLayout,
-             .toggleSplitZoom, .increaseWorkspaceTerminalFontSize,
+             .toggleSplitZoom,
+             .movePaneToOuterLeft, .movePaneToOuterRight,
+             .movePaneToOuterTop, .movePaneToOuterBottom,
+             .increaseWorkspaceTerminalFontSize,
              .decreaseWorkspaceTerminalFontSize, .resetWorkspaceTerminalFontSize,
              .equalizeSplits, .resizePaneLeft, .resizePaneRight,
              .resizePaneUp, .resizePaneDown, .splitBrowserRight, .splitBrowserDown,
