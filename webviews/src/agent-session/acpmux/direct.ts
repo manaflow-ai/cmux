@@ -10313,7 +10313,7 @@ export class AcpmuxDirectClient {
         // reason `prompt`). Leo, 2026-11-21, on a five-paragraph answer to his message that never
         // drew, the finish's turn having closed quiet over it: "things dont get rendeed?".
         if (msg.steer === true && this.bgDoneTurns.size > 0 && incoming === undefined && !received)
-          for (const id of [...this.bgDoneTurns.keys()]) this.endBgDoneTurn(event, id, "prompt");
+          for (const id of Array.from(this.bgDoneTurns.keys())) this.endBgDoneTurn(event, id, "prompt");
         const shown =
           incoming?.kind === "message"
             ? {
