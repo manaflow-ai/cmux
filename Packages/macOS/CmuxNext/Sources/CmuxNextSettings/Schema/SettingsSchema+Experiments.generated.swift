@@ -5,6 +5,9 @@ extension CmuxConfigSnapshot {
     /// `experiments.glassToolbarGroups`: Taste prototype: the agent chat header's buttons draw as round glass buttons, related actions share one glass capsule, with a search chip and shortcut keycaps (webviews useExperimentSwitch("glassToolbarGroups")). Off by default; off keeps today's header.
     public nonisolated static let glassToolbarGroupsPath = ["experiments", "glassToolbarGroups"]
     public nonisolated static let glassToolbarGroupsDefault = false
+    /// `experiments.composerV2`: Taste prototype: the agent chat composer as a glass panel with an edge light on focus, mode and scope chips in a row inside it (only the active one raised), inline @mention chips, the model picker left and + and Send right, and a round Send dimmed until there is text (webviews useExperimentSwitch("composerV2"), composerV2.css). Off by default; off keeps today's composer.
+    public nonisolated static let composerV2Path = ["experiments", "composerV2"]
+    public nonisolated static let composerV2Default = false
     /// `experiments.menuStyleV2`: Menu Style v2: the restyled menus (webviews experiment menu-style-v2, arm v2; the native popup reads DesignSettings.shared.experiment("menuStyleV2")). Off by default.
     public nonisolated static let menuStyleV2Path = ["experiments", "menuStyleV2"]
     public nonisolated static let menuStyleV2Default = false
@@ -28,6 +31,16 @@ nonisolated enum ExperimentsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.glassToolbarGroupsDefault),
                 keywords: ["experiments", "experimental", "prototype", "glass", "toolbar", "header", "buttons", "capsule", "keycaps"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.composerV2Path,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.composerV2", "Composer Refresh"),
+                help: SettingsText.keyed("settings.experiments.composerV2.help", "The chat composer becomes a glass panel with mode chips, mention chips and a round Send button."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.composerV2Default),
+                keywords: ["experiments", "experimental", "prototype", "composer", "glass", "chips", "mention", "send"]
             ),
             SettingDescriptor(
                 CmuxConfigSnapshot.menuStyleV2Path,
