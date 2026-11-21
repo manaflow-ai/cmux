@@ -45,7 +45,7 @@ fn a_terminal_first_persons_cmd_t_opens_a_terminal() {
     assert_eq!(new_tab_kind(&user), NewTabKind::Terminal);
     // Even on a chat or a browser: Cmd-T is the person's terminal key.
     assert_eq!(new_tab_kind(&NewTabFacts { agent: true, ..user.clone() }), NewTabKind::Terminal);
-    let browser = NewTabFacts { selected_kind: SelectedKind::Browser, ..user.clone() };
+    let browser = NewTabFacts { selected_kind: SelectedKind::Browser, ..user };
     assert_eq!(new_tab_kind(&browser), NewTabKind::Terminal);
     // New <Kind> Tab and scripts still follow the selected tab.
     assert_eq!(
