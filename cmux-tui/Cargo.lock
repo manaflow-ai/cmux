@@ -2162,9 +2162,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bincode",
+ "cmux-process",
  "fuser",
  "libc",
  "serde",
+ "sha1",
  "tempfile",
  "zstd",
 ]
@@ -2200,6 +2202,7 @@ name = "cmux-rd-host"
 version = "0.2.7"
 dependencies = [
  "cc",
+ "cmux-computer-use",
  "cmux-encode",
  "cmux-file-lock",
  "cmux-hub-host",
