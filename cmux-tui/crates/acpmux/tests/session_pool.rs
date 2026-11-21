@@ -423,8 +423,14 @@ async fn a_hinted_switch_takes_a_hidden_session_that_was_never_listed() {
     assert!(taken(&daemon, &second));
     assert!(cold >= Duration::from_millis(INIT_MS + NEW_MS), "cold {cold:?}");
     assert_runs_on_pooled_host(&daemon, &second, &pooled);
-    // The taken session is durable like any other: its record moved.
-    assert!(daemon.pool_records().is_empty());
+    // The taken session is durable like any other: its record moved. The pool may already warm
+    // the harness used before in this folder (fake, the last-used role, checked below), so its
+    // folder need not be empty: only the taken record must be gone from it.
+    let left = daemon.pool_records();
+    assert!(
+        !left.iter().any(|r| r["session_id"] == second.as_str()),
+        "the taken session's record is still in the pool: {left:?}"
+    );
     assert!(daemon.host_records().iter().any(|r| r["session_id"] == second.as_str()));
     // Its log holds the pooled start, in order, then it works.
     let kinds: Vec<String> =

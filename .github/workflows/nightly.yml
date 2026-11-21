@@ -2046,6 +2046,7 @@ jobs:
       daemon_build: ${{ steps.resume.outputs.build || steps.remote_daemon.outputs.build }}
       daemon_version: ${{ steps.resume.outputs.version || steps.remote_daemon.outputs.version }}
       cmux_tui_commit: ${{ steps.install_client.outputs.commit || steps.resume.outputs.cmux_tui_commit }}
+      cmux_tui_key: ${{ steps.install_client.outputs.key }}
       # A sign stage restored the push run's prepared app: the sign run prepares nothing again.
       prepared: ${{ steps.resume.outputs.prepared }}
       # Its sha256, checked through the zip's artifact digest: prepare-nightly-variant records it for admission.
@@ -2830,6 +2831,7 @@ jobs:
           CMUX_TUI_CLIENT_CACHE: ${{ runner.temp }}/cmux-tui-client
           TREE_PENDING: ${{ needs.resolve-nightly-cmux-tui-client.outputs.tree_pending }}
           TREE_CANDIDATES: ${{ needs.resolve-nightly-cmux-tui-client.outputs.tree_candidates }}
+          TREE_FALLBACK: ${{ needs.resolve-nightly-cmux-tui-client.outputs.tree_fallback }}
         run: bash scripts/ci/nightly-steps/app-bundle-cmux-tui-client.sh
 
       - &x47
@@ -3180,6 +3182,8 @@ jobs:
       source_commit: ${{ steps.resume_source.outputs.build_sha || steps.pending.outputs.source_commit || steps.resolve.outputs.source_commit }}
       tree_pending: ${{ steps.pending.outputs.tree_pending == 'true' && 'true' || 'false' }}
       tree_candidates: ${{ steps.pending.outputs.candidates }}
+      # "<commit> <key>" of the newest published tree, bundled when the tip's is still unpublished (RFD 0021).
+      tree_fallback: ${{ steps.pending.outputs.fallback }}
       build_sha: ${{ steps.build.outputs.build_sha }}
       build_short_sha: ${{ steps.build.outputs.build_short_sha }}
       tip_sha: ${{ needs.decide.outputs.head_sha }}
@@ -5670,6 +5674,7 @@ jobs:
           BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           KEY: ${{ needs.resolve-nightly-cmux-tui-client.outputs.key }}
           INSTALLED: ${{ needs.build-nightly-app.outputs.cmux_tui_commit || needs.resolve-nightly-cmux-tui-client.outputs.commit }}
+          INSTALLED_KEY: ${{ needs.build-nightly-app.outputs.cmux_tui_key }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/await-tree-marker.sh
 
   publish-nightly:
@@ -7424,6 +7429,7 @@ jobs:
           BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           KEY: ${{ needs.resolve-nightly-cmux-tui-client.outputs.key }}
           INSTALLED: ${{ steps.install_client.outputs.commit || needs.resolve-nightly-cmux-tui-client.outputs.commit }}
+          INSTALLED_KEY: ${{ steps.install_client.outputs.key }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/await-tree-marker.sh
       - name: Select the build to publish
         if: ${{ !env.LEFT_SLOT }}
