@@ -327,7 +327,7 @@ public final class ScreenSharingService {
         preferences.rememberMacs(listed, for: configuration.accountID)
         guard let pending = pendingSelection else { return }
         pendingSelection = nil
-        if let mac = listed.first(where: { $0.id == pending.hostID }) {
+        if let mac = listed.first(where: { $0.id.lowercased() == pending.hostID.lowercased() }) {
             select(mac, scope: pending.scope)
         } else {
             alert = ScreenSharingMacAlert(hostID: pending.hostID, hostName: pending.hostName, refusal: .notFound,
@@ -351,6 +351,28 @@ public final class ScreenSharingService {
             alert = ScreenSharingMacAlert(hostID: mac.id, hostName: mac.name, refusal: refusal, requested: scope)
         } else {
             connect(to: mac, scope: scope)
+        }
+    }
+
+    /// A screen link (`cmux://mac-screen?device=…`): the device `id` connects with `scope` once the
+    /// account's list is read; a device the list doesn't hold says so (the not-found alert), and
+    /// one that can't be shared now says why, as a tap on it in the list would. `name` (the link's
+    /// label) only names the alert until the list does.
+    public func open(deviceID id: String, name: String?, scope: SessionScope) {
+        let id = id.lowercased()
+        let listedName = (discovery == .listed ? macs : preferences.lastMacs(for: configuration.accountID))
+            .first { $0.id.lowercased() == id }?.name
+        let hostName = listedName ?? name ?? String(localized: "That Mac")
+        guard discovery == .listed else {
+            leaveUnshownRequest()
+            pendingSelection = PendingSelection(hostID: id, hostName: hostName, scope: scope)
+            return
+        }
+        if let mac = macs.first(where: { $0.id.lowercased() == id }) {
+            select(mac, scope: scope)
+        } else {
+            leaveUnshownRequest()
+            alert = ScreenSharingMacAlert(hostID: id, hostName: hostName, refusal: .notFound, requested: scope)
         }
     }
 
