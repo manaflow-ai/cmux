@@ -15,10 +15,18 @@
 //! (`snapshot_retry_at_ms`; call [`OwnershipMirror::snapshot_retry_due`]
 //! then). After the last attempt `reconnect` is set: the app closes the
 //! socket and subscribes again on a new one ([`OwnershipMirror::resume`]).
+//!
+//! A change costs what it changed, not the size of the list: after applied
+//! events the listener gets their row writes (`rows_changed`), never every
+//! row again. Every row comes only where rows are replaced or first read:
+//! `view()`, `set_listener`, an applied snapshot and `reset` (`rows_full`).
+//! `tests/list_stress.rs` holds that bound at 5000 rows and 100k rows.
 
 use std::fmt;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use cmux_mobile_core::wire::frames::RowWrite;
+use cmux_mobile_core::wire::mirror::{Applied, Rows};
 use cmux_mobile_core::wire::{ClientOut, Origin, OwnerUnreachable, SnapshotRetry, StreamMirror};
 use serde_json::Value;
 
@@ -58,6 +66,17 @@ pub struct OwnershipIntent {
     pub origin: String,
 }
 
+/// One row an applied event wrote.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct OwnershipRowChange {
+    pub table: String,
+    pub key: String,
+    /// Order within the table; none when unordered.
+    pub n: Option<i64>,
+    /// The row as JSON; none when the row was deleted.
+    pub row_json: Option<String>,
+}
+
 /// The mirror as a view renders it.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct OwnershipMirrorView {
@@ -67,8 +86,13 @@ pub struct OwnershipMirrorView {
     pub generation: u64,
     pub seq: u64,
     pub state_json: String,
-    /// `{table: {key: {key, n, row}}}`.
+    /// `{table: {key: {key, n, row}}}` when `rows_full`; empty otherwise.
     pub rows_json: String,
+    /// `rows_json` holds every row: replace the rows the view had.
+    pub rows_full: bool,
+    /// Without `rows_full`: the rows written since the view the listener
+    /// had, in order. Apply them to that view's rows.
+    pub rows_changed: Vec<OwnershipRowChange>,
     /// Not decided yet, in issue order: render as pending.
     pub pending: Vec<OwnershipIntent>,
     /// Outlived the TTL undecided: show as not sent.
@@ -128,9 +152,6 @@ struct Inner {
     mirror: StreamMirror,
     listener: Option<Arc<dyn OwnershipMirrorListener>>,
     generation: u64,
-    /// The view the listener has (none without a listener): an applied
-    /// frame that leaves the view equal is not told.
-    told: Option<OwnershipMirrorView>,
 }
 
 /// What a view shows, short of the head and rows (which move only with an
@@ -190,12 +211,28 @@ fn intents(list: &[cmux_mobile_core::wire::mirror::Intent]) -> Vec<OwnershipInte
         .collect()
 }
 
+/// The view with every row: to render from nothing.
 fn view_of(mirror: &StreamMirror, generation: u64) -> OwnershipMirrorView {
+    OwnershipMirrorView {
+        rows_json: mirror.rows().dump().to_string(),
+        rows_full: true,
+        ..view_with(mirror, generation, Vec::new())
+    }
+}
+
+/// The view with only the rows written since the last one: O(changed).
+fn view_with(
+    mirror: &StreamMirror,
+    generation: u64,
+    rows_changed: Vec<OwnershipRowChange>,
+) -> OwnershipMirrorView {
     OwnershipMirrorView {
         generation,
         seq: mirror.seq(),
         state_json: mirror.state().to_string(),
-        rows_json: mirror.rows().dump().to_string(),
+        rows_json: String::new(),
+        rows_full: false,
+        rows_changed,
         pending: intents(mirror.pending()),
         expired: intents(mirror.expired()),
         connected: mirror.is_connected(),
@@ -206,15 +243,48 @@ fn view_of(mirror: &StreamMirror, generation: u64) -> OwnershipMirrorView {
     }
 }
 
-/// What a call did to the view: `Applied` when frames applied (the head or
-/// rows may have moved), `Marked` to compare the cheap marks, `Always` for a
-/// call that replaces the head. A possible change is then checked against
-/// the view the listener has, so it is told only real changes.
-enum Moved {
-    Applied(bool),
-    Marked,
-    Always,
+/// The rows the applied events wrote, in order; none when a snapshot
+/// replaced the rows (the view then carries every row).
+fn written(applied: &[Applied]) -> Option<Vec<OwnershipRowChange>> {
+    let mut changes = Vec::new();
+    for frame in applied {
+        let Applied::Event(event) = frame else { return None };
+        let Some(effects) = &event.effects else { return None };
+        for write in &effects.writes {
+            changes.push(match write {
+                RowWrite::Upsert { table, key, n, row } => OwnershipRowChange {
+                    table: table.clone(),
+                    key: key.clone(),
+                    n: *n,
+                    row_json: Some(row.to_string()),
+                },
+                RowWrite::Delete { table, key } => OwnershipRowChange {
+                    table: table.clone(),
+                    key: key.clone(),
+                    n: None,
+                    row_json: None,
+                },
+                // Never applied: the mirror resyncs instead.
+                RowWrite::Unknown => return None,
+            });
+        }
+    }
+    Some(changes)
 }
+
+/// What a call did to the view. `Events` applied in order (each moves the
+/// seq, so the view changed). `Replaced`: a snapshot or a reset replaced the
+/// head and rows, maybe with equal ones. `Marked`: only the cheap marks may
+/// have moved. While a listener is set it has the view from before the call,
+/// so a call changed the view when the view before and after it differ.
+enum Moved {
+    Events(Vec<OwnershipRowChange>),
+    Replaced,
+    Marked,
+}
+
+/// What a replacing call is compared with: the head and rows before it.
+type Before = Option<(Value, Rows)>;
 
 impl OwnershipMirror {
     fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -222,32 +292,37 @@ impl OwnershipMirror {
     }
 
     /// Runs one call on the mirror and tells the listener when the view
-    /// changed, after the lock is released.
-    fn mutate<T>(&self, call: impl FnOnce(&mut StreamMirror) -> (T, Moved)) -> T {
+    /// changed, after the lock is released. `replaces`: the call may replace
+    /// the head and rows (a snapshot frame, a reset), so with a listener
+    /// they are kept to compare (the one O(rows) step, as the snapshot is).
+    // perf-hot: 250us phone-mirror-change (p95 per frame at 5000 rows and 100k rows)
+    fn mutate<T>(&self, replaces: bool, call: impl FnOnce(&mut StreamMirror) -> (T, Moved)) -> T {
         let (value, delivery) = {
             let mut inner = self.lock();
-            let before = Mark::of(&inner.mirror);
+            let mark = Mark::of(&inner.mirror);
+            let listening = inner.listener.is_some();
+            let before: Before = (replaces && listening)
+                .then(|| (inner.mirror.state().clone(), inner.mirror.rows().clone()));
             let (value, moved) = call(&mut inner.mirror);
-            let maybe = match moved {
-                Moved::Always | Moved::Applied(true) => true,
-                Moved::Applied(false) | Moved::Marked => Mark::of(&inner.mirror) != before,
+            let mirror = &inner.mirror;
+            let generation = inner.generation + 1;
+            let view = match moved {
+                Moved::Events(changes) => Some(view_with(mirror, generation, changes)),
+                Moved::Replaced if !listening => Some(view_with(mirror, generation, Vec::new())),
+                Moved::Replaced => {
+                    let same = before.as_ref().is_some_and(|(state, rows)| {
+                        Mark::of(mirror) == mark && mirror.state() == state && mirror.rows() == rows
+                    });
+                    (!same).then(|| view_of(mirror, generation))
+                }
+                Moved::Marked => {
+                    (Mark::of(mirror) != mark).then(|| view_with(mirror, generation, Vec::new()))
+                }
             };
             let mut delivery = None;
-            if maybe && inner.listener.is_none() {
-                // Nobody to tell: no view is built under the lock.
-                inner.generation += 1;
-            } else if maybe {
-                let view = view_of(&inner.mirror, inner.generation + 1);
-                let same = inner.told.as_ref().is_some_and(|told| {
-                    OwnershipMirrorView { generation: view.generation, ..told.clone() } == view
-                });
-                if !same {
-                    inner.generation = view.generation;
-                    if let Some(listener) = inner.listener.clone() {
-                        inner.told = Some(view.clone());
-                        delivery = Some((listener, view));
-                    }
-                }
+            if let Some(view) = view {
+                inner.generation = generation;
+                delivery = inner.listener.clone().map(|listener| (listener, view));
             }
             (value, delivery)
         };
@@ -270,7 +345,7 @@ impl OwnershipMirror {
     ) -> Result<Arc<Self>, OwnershipMirrorError> {
         let initial: Value = serde_json::from_str(&initial_json)?;
         let mirror = StreamMirror::new(key_prefix, initial);
-        let inner = Inner { mirror, listener: None, generation: 0, told: None };
+        let inner = Inner { mirror, listener: None, generation: 0 };
         Ok(Arc::new(Self { inner: Mutex::new(inner) }))
     }
 
@@ -290,7 +365,6 @@ impl OwnershipMirror {
     ) -> OwnershipMirrorView {
         let mut inner = self.lock();
         let now = view_of(&inner.mirror, inner.generation);
-        inner.told = listener.as_ref().map(|_| now.clone());
         inner.listener = listener;
         now
     }
@@ -305,10 +379,15 @@ impl OwnershipMirror {
         now_ms: i64,
     ) -> Result<OwnershipStep, OwnershipMirrorError> {
         let frame: Value = serde_json::from_str(&frame_json)?;
-        let received = self.mutate(|mirror| {
+        let replaces = frame.get("t").and_then(Value::as_str) == Some("snapshot");
+        let received = self.mutate(replaces, |mirror| {
             let received = mirror.receive_value(frame, now_ms);
-            let applied = !received.applied.is_empty();
-            (received, Moved::Applied(applied))
+            let moved = if received.applied.is_empty() {
+                Moved::Marked
+            } else {
+                written(&received.applied).map_or(Moved::Replaced, Moved::Events)
+            };
+            (received, moved)
         });
         Ok(OwnershipStep {
             send: frames(received.send),
@@ -324,7 +403,7 @@ impl OwnershipMirror {
     /// The snapshot request of a snapshot that did not decode, once its
     /// backoff ended (nothing before that, or after a new snapshot).
     pub fn snapshot_retry_due(&self, now_ms: i64) -> Vec<String> {
-        frames(self.mutate(|mirror| (mirror.snapshot_retry_due(now_ms), Moved::Marked)))
+        frames(self.mutate(false, |mirror| (mirror.snapshot_retry_due(now_ms), Moved::Marked)))
     }
 
     /// Issues a typed intent. `origin` is the wire value (`user`, `cli`,
@@ -339,29 +418,29 @@ impl OwnershipMirror {
         let params: Value = serde_json::from_str(&params_json)?;
         let origin: Origin = serde_json::from_value(Value::String(origin))?;
         let (key, out) = self
-            .mutate(|mirror| (mirror.issue(&op, params, origin, now_ms), Moved::Marked))
+            .mutate(false, |mirror| (mirror.issue(&op, params, origin, now_ms), Moved::Marked))
             .map_err(|_| OwnershipMirrorError::OwnerUnreachable)?;
         Ok(OwnershipIssued { idempotency_key: key, send: frames(out) })
     }
 
     /// Timeout resend of one pending intent with the same key.
     pub fn retry(&self, idempotency_key: String, now_ms: i64) -> Vec<String> {
-        frames(self.mutate(|mirror| (mirror.retry(&idempotency_key, now_ms), Moved::Marked)))
+        frames(self.mutate(false, |mirror| (mirror.retry(&idempotency_key, now_ms), Moved::Marked)))
     }
 
     pub fn disconnect(&self) {
-        self.mutate(|mirror| (mirror.disconnect(), Moved::Marked));
+        self.mutate(false, |mirror| (mirror.disconnect(), Moved::Marked));
     }
 
     /// The socket is back on a client that keeps its subscription: resend
     /// pending intents, then ask for a snapshot.
     pub fn reconnect(&self, now_ms: i64) -> Vec<String> {
-        frames(self.mutate(|mirror| (mirror.reconnect(now_ms), Moved::Marked)))
+        frames(self.mutate(false, |mirror| (mirror.reconnect(now_ms), Moved::Marked)))
     }
 
     /// A new socket subscribes: where to resume and what to resend.
     pub fn resume(&self, now_ms: i64) -> OwnershipResume {
-        let resume = self.mutate(|mirror| (mirror.resume(now_ms), Moved::Marked));
+        let resume = self.mutate(false, |mirror| (mirror.resume(now_ms), Moved::Marked));
         OwnershipResume {
             after_seq: resume.after_seq,
             pending: resume.pending,
@@ -372,12 +451,12 @@ impl OwnershipMirror {
     /// Asks for a snapshot unless one is asked for (a frame the app could
     /// not render).
     pub fn resync(&self) -> Vec<String> {
-        frames(self.mutate(|mirror| (mirror.resync(), Moved::Marked)))
+        frames(self.mutate(false, |mirror| (mirror.resync(), Moved::Marked)))
     }
 
     /// Moves intents older than the TTL from pending to expired.
     pub fn expire_stale(&self, now_ms: i64) {
-        self.mutate(|mirror| (mirror.expire_stale(now_ms), Moved::Marked));
+        self.mutate(false, |mirror| (mirror.expire_stale(now_ms), Moved::Marked));
     }
 
     /// Keys settled ok since the last call (each reported once).
@@ -388,7 +467,7 @@ impl OwnershipMirror {
     /// Another principal signed in: forget the stream and the log.
     pub fn reset(&self, initial_json: String) -> Result<(), OwnershipMirrorError> {
         let initial: Value = serde_json::from_str(&initial_json)?;
-        self.mutate(|mirror| (mirror.reset(initial), Moved::Always));
+        self.mutate(true, |mirror| (mirror.reset(initial), Moved::Replaced));
         Ok(())
     }
 }
