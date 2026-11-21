@@ -26,6 +26,7 @@ import { type CoveredCandidates, useSeeThroughBlur } from "../../../ui/glass/see
 import { useSenderIdentity } from "../subagents/subsessions";
 import { SenderIdentityLabel } from "../SenderIdentityLabel";
 import { PromptMarksSession } from "./promptMarks";
+import { intl } from "../../../ui/intl";
 
 const middleEllipsis = (value: string, max = 36) => {
   if (value.length <= max) return value;
@@ -42,7 +43,7 @@ const linkLabel = (href: string) => {
 /// one, and the card renders again for each row the pointer (or a wheel under it) passes.
 let timeFormat: Intl.DateTimeFormat | undefined;
 const timeLabel = (at: number) =>
-  (timeFormat ??= new Intl.DateTimeFormat(undefined, {
+  (timeFormat ??= intl.DateTimeFormat(undefined, {
     hour: "numeric",
     minute: "2-digit",
   })).format(new Date(at));
