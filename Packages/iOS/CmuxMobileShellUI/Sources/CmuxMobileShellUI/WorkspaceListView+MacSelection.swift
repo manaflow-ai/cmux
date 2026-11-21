@@ -277,36 +277,75 @@ struct WorkspaceMacTitlePicker: View, Equatable {
                 }
                 .accessibilityIdentifier("MobileWorkspaceMacPickerAdd")
             }
+            if let openDevices = actions.openDevices {
+                if !value.canAddDevice {
+                    Divider()
+                }
+                Button(action: openDevices) {
+                    Label(
+                        L10n.string("mobile.connections.title", defaultValue: "Computers"),
+                        systemImage: "desktopcomputer"
+                    )
+                }
+                .accessibilityIdentifier("MobileWorkspaceMacPickerComputers")
+            }
         } label: {
-            WorkspaceMacTitlePickerLabel(
-                title: value.title,
-                isLoading: value.isLoading,
-                width: value.labelWidth,
-                truncationMode: {
-                    switch value.selection {
-                    case .machine:
-                        // Device names repeat their prefix ("MacBook Pro …"),
-                        // so the distinguishing suffix must survive.
-                        return .middle
-                    case .automatic, .all:
-                        return .tail
-                    }
-                }(),
-                usesCompactLabelTreatment: value.usesCompactLabelTreatment,
-                statusLine: value.statusLine
-            )
-            // Put the identity and status on the final combined label element.
-            // UIKit's toolbar bridge can otherwise omit the outer SwiftUI
-            // identifier from the native accessibility tree used by CUA.
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(value.title)
-            .accessibilityValue(
-                value.statusLine.map(WorkspaceConnectionStatusLineView.text) ?? ""
-            )
-            .accessibilityIdentifier("MobileWorkspaceMacPicker")
+            if value.usesIconLabel {
+                ZStack {
+                    Image(systemName: "ellipsis")
+                        .font(.body.weight(.semibold))
+                        .opacity(value.isLoading ? 0 : 1)
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(.primary)
+                        .opacity(value.isLoading ? 1 : 0)
+                }
+                .frame(
+                    width: WorkspaceRootToolbarSizing.controlHeight,
+                    height: WorkspaceRootToolbarSizing.controlHeight
+                )
+                .contentShape(Rectangle())
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(value.title)
+                .accessibilityValue(
+                    value.statusLine.map(WorkspaceConnectionStatusLineView.text) ?? ""
+                )
+                .accessibilityIdentifier("MobileWorkspaceMacPicker")
+            } else {
+                titledLabel
+            }
         }
         .buttonStyle(.plain)
         .tint(.primary)
+        .accessibilityIdentifier("MobileWorkspaceMacPicker")
+    }
+
+    private var titledLabel: some View {
+        WorkspaceMacTitlePickerLabel(
+            title: value.title,
+            isLoading: value.isLoading,
+            width: value.labelWidth,
+            truncationMode: {
+                switch value.selection {
+                case .machine:
+                    // Device names repeat their prefix ("MacBook Pro …"),
+                    // so the distinguishing suffix must survive.
+                    return .middle
+                case .automatic, .all:
+                    return .tail
+                }
+            }(),
+            usesCompactLabelTreatment: value.usesCompactLabelTreatment,
+            statusLine: value.statusLine
+        )
+        // Put the identity and status on the final combined label element.
+        // UIKit's toolbar bridge can otherwise omit the outer SwiftUI
+        // identifier from the native accessibility tree used by CUA.
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(value.title)
+        .accessibilityValue(
+            value.statusLine.map(WorkspaceConnectionStatusLineView.text) ?? ""
+        )
         .accessibilityIdentifier("MobileWorkspaceMacPicker")
     }
 
