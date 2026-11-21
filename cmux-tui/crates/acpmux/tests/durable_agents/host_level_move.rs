@@ -66,3 +66,52 @@ async fn an_adopted_host_at_the_level_stays_up_until_its_idle_period() {
     daemon.rpc().await.call("_acpmux/kill", json!({"sessionId": session})).await;
     assert!(kept, "a host at the level was ended before its idle period");
 }
+
+/// Claude Code honours the per-turn pause only under a server-side flag of its own, off by
+/// default, and reads `promptSuggestions` once, at `initialize`. So a start for another agent's
+/// message asks for no suggestions at all, and the next start for the person's own prompt asks
+/// for them again (`hub/host_level.rs` `start_params`).
+#[tokio::test]
+async fn a_start_for_an_agents_message_asks_for_no_suggestions_and_a_persons_does() {
+    let log = std::env::temp_dir().join(format!("amd-hlinit-log-{}", std::process::id()));
+    let _ = std::fs::remove_file(&log);
+    let mut daemon =
+        Daemon::claude_router("hlinit", &[("FAKE_CLAUDE_INIT_LOG", log.to_str().unwrap())]);
+    daemon.sigterm();
+    let config_path = daemon.home.join("config.json");
+    let mut config: Value = serde_json::from_slice(&std::fs::read(&config_path).unwrap()).unwrap();
+    config["agentInbox"] = json!(false);
+    std::fs::write(&config_path, config.to_string()).unwrap();
+    daemon.env.push(("ACPMUX_IDLE_CHILD_SECS".into(), "1".into()));
+    daemon.start();
+    let session = new_session(&daemon).await;
+    let prompt =
+        |text: &str| json!({"sessionId": session, "prompt": [{"type": "text", "text": text}]});
+    let mut message = prompt("from an agent");
+    message["_meta"] = json!({"acpmux": {"provenance": {
+        "kind": "agent_message", "from": "acp:other", "fromName": "other",
+        "to": format!("acp:{session}"), "msgId": "m-1", "threadId": "t-1"}}});
+    let answer = daemon.rpc().await.call("session/prompt", message).await;
+    assert_eq!(answer["stopReason"], "end_turn", "the agent's message was not answered: {answer}");
+    let harness = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    // It hibernates; the person's prompt starts it again.
+    let slept = gone_within(harness, Duration::from_secs(20));
+    let answer = daemon.rpc().await.call("session/prompt", prompt("the person")).await;
+    let woken = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    let all = std::fs::read_to_string(&log).unwrap_or_default();
+    daemon.rpc().await.call("_acpmux/kill", json!({"sessionId": session})).await;
+    let _ = std::fs::remove_file(&log);
+    assert_eq!(answer["stopReason"], "end_turn", "the person's prompt was not answered: {answer}");
+    assert!(slept, "the idle agent did not hibernate");
+    assert_ne!(woken, harness, "the person's prompt was not answered by a new harness");
+    // The chat's own processes only: a title or model probe starts one of its own.
+    let asked = |pid: i64| {
+        all.lines().find_map(|l| l.strip_prefix(&format!("init {pid} "))).map(str::to_owned)
+    };
+    assert_eq!(
+        asked(harness).as_deref(),
+        Some("false"),
+        "the agent's start asked for suggestions: {all:?}"
+    );
+    assert_eq!(asked(woken).as_deref(), Some("true"), "the person's start asked for none: {all:?}");
+}
