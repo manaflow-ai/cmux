@@ -2,7 +2,60 @@
 // Fixture states of Settings > Models (ModelsCard.tsx) as the app's `cmux.settings.models.state`
 // answers them (cmux-tui/docs/model-connections.md), and the mock host's answer to the card's gestures.
 import { isClaudeToken } from "../../agent-session/shared/claudeSetupToken";
-import type { ModelConnection, ModelsRun, ModelsState } from "./ops";
+import type { ModelConnection, ModelProviderInfo, ModelsRun, ModelsState } from "./ops";
+
+/** acpmux's provider catalog as `cmux.settings.models.state` lists it (cmux-tui `acpmux::providers`). */
+const provider = (
+  id: string,
+  label: string,
+  group: ModelProviderInfo["group"],
+  console: string | null,
+  families: string[],
+  extra: Partial<ModelProviderInfo> = {},
+): ModelProviderInfo => ({
+  id,
+  label,
+  group,
+  console,
+  fields: [],
+  families,
+  protocols: [],
+  checked: true,
+  servesCloud: families.length > 0,
+  unavailable: null,
+  ...extra,
+});
+const all = ["claude", "codex", "opencode"];
+const custom = { fields: ["base-url" as const], protocols: ["anthropic", "anthropic-bearer", "responses"], servesCloud: true };
+const signInOnly = { checked: false, servesCloud: false, unavailable: "providers.sign_in_only" };
+export const mockProviders: ModelProviderInfo[] = [
+  provider("supergrok", "SuperGrok", "subscription", "https://grok.com/plans", [], signInOnly),
+  provider("github-copilot", "GitHub Copilot", "subscription", "https://github.com/settings/copilot", [], signInOnly),
+  provider("opencode-go", "OpenCode Go", "subscription", "https://opencode.ai/auth", ["opencode"], { checked: false }),
+  provider("glm", "GLM Coding Plan", "subscription", "https://z.ai/manage-apikey/apikey-list", all),
+  provider("ollama-cloud", "Ollama Cloud", "subscription", "https://ollama.com/settings/keys", all),
+  provider("kimi-code", "Kimi Code", "subscription", "https://www.kimi.com/code", all),
+  provider("morph", "Morph", "subscription", "https://morphllm.com/dashboard/api-keys", all),
+  provider("anthropic", "Anthropic", "api-key", "https://console.anthropic.com/settings/keys", ["claude", "opencode"]),
+  provider("openai", "OpenAI", "api-key", "https://platform.openai.com/api-keys", ["codex", "opencode"]),
+  provider("openrouter", "OpenRouter", "api-key", "https://openrouter.ai/settings/keys", all),
+  provider("google", "Google", "api-key", "https://aistudio.google.com/app/apikey", ["opencode"]),
+  provider("xai", "xAI", "api-key", "https://console.x.ai", ["codex", "opencode"]),
+  provider("baseten", "Baseten", "api-key", "https://app.baseten.co/settings/api_keys", all),
+  provider("vercel", "Vercel AI Gateway", "api-key", "https://vercel.com/account/settings", ["claude", "opencode"]),
+  provider("nvidia", "NVIDIA", "api-key", "https://build.nvidia.com/settings/api-keys", ["opencode"], { checked: false }),
+  provider("fireworks", "Fireworks", "api-key", "https://app.fireworks.ai/settings/users/api-keys", all),
+  provider("bedrock", "Amazon Bedrock", "api-key", "https://console.aws.amazon.com/bedrock/home", ["claude", "opencode"], {
+    fields: ["region"],
+  }),
+  provider("meta", "Meta", "api-key", "https://dev.meta.ai", all),
+  provider("ramp", "Ramp Router", "api-key", "https://app.router.com", ["claude", "codex"]),
+  provider("together", "Together", "api-key", "https://api.together.ai/settings/api-keys", ["opencode"]),
+  provider("deepinfra", "DeepInfra", "api-key", "https://deepinfra.com/dash/api_keys", all),
+  provider("cloudflare", "Cloudflare AI Gateway", "custom", "https://dash.cloudflare.com", [], custom),
+  provider("neon", "Neon AI Gateway", "custom", "https://console.neon.tech", [], custom),
+  provider("custom", "Custom endpoint", "custom", null, [], custom),
+];
 
 const codexLogin: ModelConnection = {
   id: "codex-login",
@@ -71,7 +124,7 @@ const openrouterKey: ModelConnection = {
   signedIn: true,
   enabled: false,
   defaultFor: [],
-  // Only Anthropic and OpenAI keys reach Cloud chats (acpmux connections.rs `serves_cloud`).
+  // An OpenRouter key an acpmux before its provider catalog kept: Cloud chats could not use it.
   servesCloud: false,
 };
 
@@ -80,6 +133,7 @@ const empty: ModelsState = {
   organization: { team: null, canEdit: false, keys: [] },
   members: null,
   chatgpt: { attempt: null, error: null },
+  providers: mockProviders,
 };
 
 const macLogins: ModelsState = {
@@ -98,6 +152,7 @@ const macLogins: ModelsState = {
   },
   members: { ownConnections: true, chooseRunout: false, canEdit: true },
   chatgpt: { attempt: null, error: null },
+  providers: mockProviders,
 };
 
 /** Settings > Cloud's states (CloudModelsCard.tsx): only this Mac's CLI logins (healthy here, nothing
@@ -179,20 +234,29 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
     }
     case "addKey": {
       if (!run.key.trim()) throw new Error("a key is required");
-      const provider = KEY_PROVIDERS[run.provider];
+      const info = (state.providers ?? mockProviders).find((entry) => entry.id === run.provider);
+      if (!info || info.unavailable) throw new Error("no key is taken for this provider");
+      if (info.fields.includes("base-url") && !run.baseUrl?.startsWith("https://")) throw new Error("an https base URL is required");
+      if (info.fields.includes("region") && !run.region?.trim()) throw new Error("a region is required");
+      // A named endpoint serves the agents its protocol speaks.
+      const families = info.fields.includes("base-url")
+        ? run.protocol === "responses"
+          ? ["codex"]
+          : ["claude"]
+        : [...(KEY_PROVIDERS[run.provider]?.families ?? info.families)];
       // The key itself never lands in the state: the app keeps it in the Keychain.
       const added: ModelConnection = {
         id: nextId(`${run.provider}-key`, connections),
         kind: "api-key",
         provider: run.provider,
-        families: [...provider.families],
-        label: run.label?.trim() || provider.label,
+        families,
+        label: run.label?.trim() || KEY_PROVIDERS[run.provider]?.label || `${info.label} API key`,
         email: null,
         plan: null,
         signedIn: true,
         enabled: true,
         defaultFor: [],
-        servesCloud: run.provider === "anthropic" || run.provider === "openai",
+        servesCloud: info.servesCloud,
       };
       return personal({ connections: [...connections, added] });
     }
@@ -213,11 +277,11 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
   }
 }
 
-/** acpmux's API-key providers (connections.rs `PROVIDERS`): the label and families each serves. */
-const KEY_PROVIDERS: Record<ModelConnection["provider"], { label: string; families: readonly string[] }> = {
+/** The labels and families acpmux gives the first five key providers' routes (connections.rs). */
+const KEY_PROVIDERS: Partial<Record<ModelConnection["provider"], { label: string; families: readonly string[] }>> = {
   anthropic: { label: "Anthropic API key", families: ["claude"] },
   openai: { label: "OpenAI API key", families: ["codex"] },
-  openrouter: { label: "OpenRouter API key", families: ["claude", "codex"] },
+  openrouter: { label: "OpenRouter API key", families: ["claude", "codex", "opencode"] },
   google: { label: "Google AI API key", families: ["gemini"] },
   xai: { label: "xAI API key", families: ["codex"] },
 };

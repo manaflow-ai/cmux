@@ -94,7 +94,71 @@ test("the search narrows the sheet's ways in", async () => {
   const choices = [...sheet()!.querySelectorAll<HTMLElement>("[data-models-choice]")].map(
     (c) => c.dataset.modelsChoice,
   );
-  expect(choices).toEqual(["openrouter"]);
+  expect(choices).toEqual(["openrouter", "ramp"]);
+});
+
+test("every provider of acpmux's catalog is a way in, and each asks for what its key needs", async () => {
+  const rendered = await render(mockModels.empty);
+  await click(action(card(rendered), "add")!);
+  const groups = (id: string) =>
+    [...sheet()!.querySelectorAll<HTMLElement>(`[data-models-group="${id}"] [data-models-choice]`)].map(
+      (choice) => choice.dataset.modelsChoice,
+    );
+  expect(groups("subscriptions")).toEqual([
+    "chatgpt",
+    "claude",
+    "supergrok",
+    "github-copilot",
+    "opencode-go",
+    "glm",
+    "ollama-cloud",
+    "kimi-code",
+    "morph",
+  ]);
+  expect(groups("keys")).toContain("bedrock");
+  expect(groups("keys")).toHaveLength(14);
+  expect(groups("custom")).toEqual(["cloudflare", "neon", "custom"]);
+
+  // A sign-in-only subscription says why it takes no key.
+  await click(sheet()!.querySelector('[data-models-choice="github-copilot"]')!);
+  expect(sheet()!.querySelector('[data-models-way="unavailable"]')?.textContent).toContain("GitHub Copilot");
+  expect(sheet()!.querySelector('input[type="password"]')).toBeNull();
+  await click(sheet()!.querySelector('[data-models-action="back"]')!);
+
+  // A named endpoint takes its base URL and protocol; the key is checked before it is kept.
+  await click(sheet()!.querySelector('[data-models-choice="custom"]')!);
+  const form = sheet()!.querySelector<HTMLFormElement>('[data-models-key-form="custom"]')!;
+  expect(form.querySelector('[data-models-field="base-url"]')).not.toBeNull();
+  await changeValue(form.querySelector<HTMLInputElement>('input[type="password"]')!, "sk-gw-0123456789");
+  expect(action(form, "addKey")!.disabled).toBe(true);
+  await changeValue(form.querySelector<HTMLInputElement>('[data-models-field="base-url"]')!, "https://gw.example.com/v1");
+  await click(action(form, "addKey")!);
+  expect(rendered.provider.modelRuns).toEqual([
+    {
+      action: "addKey",
+      provider: "custom",
+      key: "sk-gw-0123456789",
+      baseUrl: "https://gw.example.com/v1",
+      protocol: "anthropic",
+    },
+  ]);
+  expect(connectionIds(rendered)).toEqual(["custom-key"]);
+  expect(document.body.innerHTML).not.toContain("sk-gw-0123456789");
+});
+
+test("Amazon Bedrock takes its AWS Region with the key", async () => {
+  const rendered = await render(mockModels.empty);
+  await click(action(card(rendered), "add")!);
+  await click(sheet()!.querySelector('[data-models-choice="bedrock"]')!);
+  const form = sheet()!.querySelector<HTMLFormElement>('[data-models-key-form="bedrock"]')!;
+  expect(form.textContent).toContain("cmux checks the key with Amazon Bedrock before it keeps it.");
+  await changeValue(form.querySelector<HTMLInputElement>('input[type="password"]')!, "ABSKbedrock0123456789");
+  expect(action(form, "addKey")!.disabled).toBe(true);
+  await changeValue(form.querySelector<HTMLInputElement>('[data-models-field="region"]')!, "us-west-2");
+  await click(action(form, "addKey")!);
+  expect(rendered.provider.modelRuns).toEqual([
+    { action: "addKey", provider: "bedrock", key: "ABSKbedrock0123456789", region: "us-west-2" },
+  ]);
 });
 
 test("cmux://settings/models/add opens on Add a Connection", async () => {
@@ -185,8 +249,8 @@ test("the mock refuses what acpmux refuses and names new routes as acpmux does",
   const keyed = runMockModels(state, { action: "addKey", provider: "openrouter", key: "sk-or-1" });
   expect(keyed.personal.connections.at(-1)).toMatchObject({
     id: "openrouter-key-2",
-    families: ["claude", "codex"],
-    servesCloud: false,
+    families: ["claude", "codex", "opencode"],
+    servesCloud: true,
   });
   const tokened = runMockModels(state, { action: "addClaudeToken", token: "sk-ant-oat01-x" });
   expect(tokened.personal.connections.at(-1)).toMatchObject({ id: "claude-token-2", label: "Claude Code token" });

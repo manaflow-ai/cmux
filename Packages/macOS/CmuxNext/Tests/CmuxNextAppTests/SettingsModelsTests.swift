@@ -25,6 +25,8 @@ import Testing
         let signedInPlan = OSAllocatedUnfairLock(initialState: false)
         /// `chatgpt.wait` fails: acpmux's error name, or "" for a daemon that does not answer.
         let waitFailure = OSAllocatedUnfairLock<String?>(initialState: nil)
+        /// The connections answer lists acpmux's provider catalog (cmux#48428).
+        let catalog = OSAllocatedUnfairLock(initialState: false)
     }
 
     struct NoAnswer: Error {}
@@ -50,7 +52,19 @@ import Testing
         var written: [Bool] = []
     }
 
-    nonisolated static func connections(plan: Bool, spread: Bool = true) -> Data {
+    nonisolated static let catalog = """
+    ,"providers":[
+      {"id":"openrouter","label":"OpenRouter","group":"api-key","console":"https://openrouter.ai/settings/keys","fields":[],
+       "families":["claude","codex","opencode"],"protocols":[],"checked":true,"serves_cloud":true,"unavailable":null},
+      {"id":"custom","label":"Custom endpoint","group":"custom","console":null,"fields":["base-url"],
+       "families":[],"protocols":["anthropic","anthropic-bearer","responses"],"checked":true,"serves_cloud":true,"unavailable":null},
+      {"id":"github-copilot","label":"GitHub Copilot","group":"subscription","console":"javascript:alert(1)","fields":[],
+       "families":[],"protocols":[],"checked":false,"serves_cloud":false,"unavailable":"providers.sign_in_only"},
+      {"id":"Bad Id","label":"x","group":"api-key"}
+    ]
+    """
+
+    nonisolated static func connections(plan: Bool, spread: Bool = true, catalog: Bool = false) -> Data {
         let chatgpt = plan ? """
           ,{"id":"chatgpt-1","kind":"chatgpt-plan","provider":"openai","families":["codex"],"label":"ChatGPT","email":"a@b.c",
             "plan":"pro","signed_in":true,"enabled":true,"default_for":[],"serves_cloud":true}
@@ -62,7 +76,7 @@ import Testing
           {"id":"claude-login","kind":"claude-login","provider":"anthropic","families":["claude"],"label":"Claude","email":"c@d.e",
            "plan":null,"signed_in":false,"enabled":false,"default_for":["claude"],"serves_cloud":false},
           {"id":"weird","kind":"not-a-kind","families":[]}\(chatgpt)
-        ],"spread":\(spread),"order_explicit":false}
+        ],"spread":\(spread),"order_explicit":false\(catalog ? Self.catalog : "")}
         """.utf8)
     }
 
@@ -88,13 +102,14 @@ import Testing
                 daemon.calls.withLock { $0.append(Call(method: method.rawValue, params: flat)) }
                 switch method {
                 case .connections, .connectionsSpreadSet, .connectionsOrderSet:
-                    return Self.connections(plan: daemon.signedInPlan.withLock { $0 }, spread: flat["on"].map { $0 == "true" } ?? true)
+                    return Self.connections(plan: daemon.signedInPlan.withLock { $0 }, spread: flat["on"].map { $0 == "true" } ?? true,
+                                            catalog: daemon.catalog.withLock { $0 })
                 case .claudeTokenAdd:
                     if daemon.refuseKeyAdd.withLock({ $0 }) { throw AcpmuxRPCError(code: -32602, name: "connections.bad_secret", message: "refused") }
                     return Self.claudeToken
                 case .connectionsKeyAdd:
                     if daemon.refuseKeyAdd.withLock({ $0 }) { throw AcpmuxRPCError(code: -32602, name: "connections.bad_secret", message: "refused") }
-                    return Self.connections(plan: false)
+                    return Self.connections(plan: false, catalog: daemon.catalog.withLock { $0 })
                 case .chatgptBegin:
                     return Data(#"{"attempt":"att-1","url":"\#(daemon.beginURL.withLock { $0 })"}"#.utf8)
                 case .chatgptWait:
@@ -173,6 +188,33 @@ import Testing
         #expect(!daemon.calls.withLock { $0 }.contains { $0.params.values.contains { $0.contains("THE-RAW-KEY") } })
         #expect(!models.state.compactText.contains("THE-RAW-KEY"))
         #expect(keys.deleted.withLock { $0 }.isEmpty)
+    }
+
+    /// acpmux's provider catalog (cmux#48428) is what Add a Connection lists and what a key may be stored for: a named
+    /// endpoint's base URL and protocol reach acpmux beside the reference (it checks them and the key), a sign-in-only
+    /// provider or one outside the catalog never reaches the Keychain, and a malformed row or a non-https console is dropped.
+    @Test func theProviderCatalogListsAndGatesWhatAKeyIsStoredFor() async throws {
+        let daemon = Daemon()
+        daemon.catalog.withLock { $0 = true }
+        let keys = Keys()
+        let models = make(daemon: daemon, keys: keys)
+        let state = await models.loadedState()
+        let listed = try #require(state["providers"]?.arrayValue)
+        #expect(listed.compactMap { $0["id"]?.stringValue } == ["openrouter", "custom", "github-copilot"])
+        #expect(listed[0]["servesCloud"] == .bool(true) && listed[0]["console"] == .string("https://openrouter.ai/settings/keys"))
+        #expect(listed[2]["console"] == .null && listed[2]["unavailable"] == .string("providers.sign_in_only"))
+
+        _ = try await models.run(["action": "addKey", "provider": "custom", "key": "sk-gw-0123456789", "baseUrl": " https://gw.example.com/v1 ",
+                                  "protocol": "responses", "region": ""], context: click)
+        let add = try #require(daemon.calls.withLock { $0 }.first { $0.method == "_acpmux/connections/key.add" })
+        #expect(add.params == ["provider": "custom", "secret": "keychain:cmux-model-key/custom-test", "baseUrl": "https://gw.example.com/v1",
+                               "protocol": "responses"])
+        for provider in ["github-copilot", "xai", "Bad Id"] {
+            await #expect(throws: PageError.self) {
+                _ = try await models.run(["action": "addKey", "provider": .string(provider), "key": "sk-0123456789"], context: click)
+            }
+        }
+        #expect(keys.stored.withLock { $0 }.count == 1)
     }
 
     @Test func aRefusedKeyAddTakesTheKeychainItemBackOut() async throws {
