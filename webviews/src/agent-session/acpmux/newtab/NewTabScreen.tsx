@@ -147,6 +147,8 @@ import { newTabIconColumnArm } from "./iconColumn.experiment";
 import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
 import { reportInputReadyWhenFocused } from "./inputReady";
+import { MachineJoinLine } from "../MachineJoinLine";
+import { holdSendForJoin, useMachineJoinState } from "../machineJoin";
 import { rememberNewChatPlace } from "../lastNewChatPlace";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
@@ -652,6 +654,8 @@ export function NewTabScreen(props: Props) {
   // The input card, which a file drag rings (composer/DropOverlay.tsx).
   const dropLandingTarget = () => fieldElement()?.closest(".nt-box") ?? null;
   const submitNow = useRef((_beside?: boolean) => {});
+  // The join a Not added yet row started for this new chat (machineJoin.ts): its line, and a held send.
+  const machineJoin = useMachineJoinState();
   /// Set while the send a finished dictation session waited for goes (submit, below).
   const dictationEnded = useRef(false);
   /// Starts the chat on `harness` with the draft as it is now (`model`: the chip's pick). Setup's
@@ -786,6 +790,10 @@ export function NewTabScreen(props: Props) {
   const [starting, setStarting] = useState<string>();
   const requestChat = (...args: Parameters<NewTabScreenActions["onAsk"]>) => {
     if (asking.current) return;
+    // The picked machine is still being set up (Not added yet, machineJoin.ts): the prompt stays in
+    // the field, the line under the box says it sends when the machine is ready, and Return runs
+    // again then, to that machine.
+    if (holdSendForJoin(() => submitNow.current())) return;
     const request = ++askCount.current;
     asking.current = request;
     setStartError(undefined);
@@ -2566,6 +2574,12 @@ export function NewTabScreen(props: Props) {
             {pickers}
           </div>
         )}
+        {/* A machine picked from Not added yet being set up (machineJoin.ts): one line under the box. */}
+        <MachineJoinLine
+          join={machineJoin.join}
+          onSignIn={() => props.onConnect?.("cloudSignIn")}
+          onAddMachine={() => props.onConnect?.("addMachine")}
+        />
       </div>
     </PromptFocusProvider>
   );

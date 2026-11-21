@@ -1,6 +1,6 @@
 import { acpmuxPerf } from "./perf";
 import { useLocationShortcut } from "./composerControls";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, useEffectEvent } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { Popover } from "../../ui/Popover";
@@ -44,6 +44,18 @@ import {
   type OffloadReasons,
 } from "./environments";
 import type { PeerLinkDetail } from "./linkState";
+import {
+  arrivedMachine,
+  endJoin,
+  joinNotListed,
+  joinPicked,
+  refreshJoinCandidates,
+  splitCandidates,
+  startJoin,
+  useMachineJoinState,
+  type JoinCandidate,
+  type MachineJoinState,
+} from "./machineJoin";
 import type { UnavailableGroup } from "./environmentPickerModel";
 import { FolderPopover } from "./FolderPopover";
 import { GitHubMark } from "./GitHubIcons";
@@ -102,6 +114,12 @@ import { useMachineCard } from "./MachineCard";
 ///   machines, Austin 2026-11-12), every machine behind Machines….
 /// A started chat always has the one combined control (its machine and its one move).
 export type StripLayout = "where-machine" | "where-machine-always" | "cloud-toggle" | "combined";
+
+/// After a join reports in: when acpmux's machine list is read again (ms after it), and how long the
+/// chat waits for the machine to show there before the line says it is not listed.
+/// The gaps before each read (500 ms, then 1.5, 3, 6, 12 and 24 s after the join reported in).
+const JOIN_LIST_READS_MS = [500, 1_000, 1_500, 3_000, 6_000, 12_000];
+const JOIN_LIST_DEADLINE_MS = 45_000;
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 type Session = AcpmuxSnapshot["sessions"][number];
@@ -198,6 +216,9 @@ export function ComposerContext({
   unavailableExpanded,
   cloudStartOut = false,
   github: githubSeam,
+  machineJoin: machineJoinSeam,
+  onJoinMachine = (candidate) => void startJoin(candidate),
+  joinOtherExpanded,
 }: {
   summary?: Summary;
   sessions?: readonly Session[];
@@ -324,6 +345,13 @@ export function ComposerContext({
   cloudEnvironment?: CloudEnvironmentControl;
   /// Gallery seam: how the Environment chip's drop-up draws its rows (`list` ships).
   cloudEnvironmentDropUp?: CloudEnvironmentDropUp;
+  /// Gallery seam: the machines not added yet and the join this page runs (machineJoin.ts); the
+  /// page's own store when omitted.
+  machineJoin?: MachineJoinState;
+  /// Gallery seam: a "Not added yet" row picked; the store's join by default.
+  onJoinMachine?(candidate: JoinCandidate): void;
+  /// Gallery seam: "Other machines on your network" starts open.
+  joinOtherExpanded?: boolean;
   /// Gallery seam: how the machine lists show the machines acpmux cannot reach (`collapsed` ships),
   /// and whether that group starts open.
   unavailableGroup?: UnavailableGroup;
@@ -351,6 +379,13 @@ export function ComposerContext({
   const pageGitHub = useGitHubPicker();
   const github = githubSeam ?? pageGitHub;
   const shownMachines = cloudMachines ?? accountMachines;
+  // Door A: the machines this Mac reaches and has not added, and the join a row's click started.
+  const pageJoin = useMachineJoinState();
+  const joinState = machineJoinSeam ?? pageJoin;
+  const joinRows = useMemo(
+    () => (newChat ? splitCandidates(joinState.candidates) : undefined),
+    [newChat, joinState.candidates],
+  );
   // The page's own acpmux by name: this Mac, or the machine a remote route reaches (chatMachine.ts).
   const ownName = ownMachineName(summary, localName, peerKinds, route);
   // Every machine acpmux lists (`_acpmux/status` peers) and every host its chats ran on, with each
@@ -407,12 +442,21 @@ export function ComposerContext({
     accountAsked.current = true;
     void refreshCloudMachines();
   }, [readsCloudAccount]);
+  // A new chat's machine list also reads the machines not added yet (`_acpmux/machine_candidates`).
+  const readsJoinRows = newChat && !machineJoinSeam;
+  const refreshPeersAndJoins =
+    readsJoinRows || onRefreshPeers
+      ? () => {
+          onRefreshPeers?.();
+          if (readsJoinRows) void refreshJoinCandidates();
+        }
+      : undefined;
   const onRefreshMachines = readsCloudAccount
     ? () => {
-        onRefreshPeers?.();
+        refreshPeersAndJoins?.();
         void refreshCloudMachines();
       }
-    : onRefreshPeers;
+    : refreshPeersAndJoins;
   // The plain Computer menu lists them in the picker's sections and order (environments.ts), one
   // line each; a machine a chat cannot start on yet says its state on a second line.
   const loadWarnings = showMachineLoadWarnings ?? composerSettings.showMachineLoadWarnings;
@@ -588,11 +632,41 @@ export function ComposerContext({
             environmentReady(computer),
         )
       : undefined;
-  const arrive = useRef<(id: string) => void>(() => undefined);
+  // A Cloud machine a pick waited for, or a machine a join set up (`joinId`), is the chat's now.
+  const arrive = useRef<(id: string, joinId?: string) => void>(() => undefined);
   const arrivedId = arrived?.id;
   useEffect(() => {
     if (arrivedId) arrive.current(arrivedId);
   }, [arrivedId]);
+  // A machine picked from Not added yet is the chat's pick while it is set up: the control names it
+  // ("gcp-3 · Setting up"), and once acpmux lists it ready the chat moves there and a held send goes.
+  const join = newChat ? joinState.join : undefined;
+  const joinArrived = arrivedMachine(join, computers, environmentReady);
+  const joinArrivedId = joinArrived?.id;
+  const joinId = join?.joinId;
+  useEffect(() => {
+    if (joinArrivedId && joinId) arrive.current(joinArrivedId, joinId);
+  }, [joinArrivedId, joinId]);
+  // Joined, not listed yet: acpmux's machine list is read again a few times (one-shot timers, no
+  // polling), and after JOIN_LIST_DEADLINE_MS the line says it is not listed, with Try Again.
+  const joinedId = join?.phase === "joined" && !joinArrivedId ? join.joinId : undefined;
+  const readPeers = useEffectEvent(() => onRefreshPeers?.());
+  useEffect(() => {
+    if (!joinedId) return;
+    // One timer at a time: each read schedules the next; the last gap ends at the deadline.
+    const gaps = [...JOIN_LIST_READS_MS, JOIN_LIST_DEADLINE_MS - JOIN_LIST_READS_MS.reduce((a, b) => a + b, 0)];
+    let step = 0;
+    let timer = setTimeout(function tick() {
+      step += 1;
+      if (step === gaps.length) {
+        joinNotListed(joinedId);
+        return;
+      }
+      readPeers();
+      timer = setTimeout(tick, gaps[step]);
+    }, gaps[0]);
+    return () => clearTimeout(timer);
+  }, [joinedId]);
   const readOnly = started || onProject === undefined;
   const sandboxPicked = runMode?.mode === "sandboxed" && !started && !readOnly;
   const cloudPicked = runMode?.mode === "cloud" && !started && !readOnly;
@@ -691,7 +765,8 @@ export function ComposerContext({
     }
     return machine !== undefined;
   };
-  const pickComputer = (id: string) => {
+  /// `keepJoin`: the pick is the join's own arrival, so it does not end the join.
+  const pickComputer = (id: string, keepJoin = false) => {
     if (!readOnly && id !== selectedComputer) {
       // Another machine (a Cloud one too): a folder panel's answer or failure for the last one no
       // longer applies.
@@ -701,6 +776,9 @@ export function ComposerContext({
     if (pickCloudMachine(id)) return;
     onCloudMachinePicked?.(undefined);
     if (waiting) setWaiting(undefined);
+    // Another machine picked while one is set up for the chat: the chat no longer waits for it (the
+    // join itself goes on in acpmux).
+    if (join && !keepJoin) endJoin();
     if (!readOnly && id !== selectedComputer) {
       // Folders are the machine's: another machine starts with none.
       if (extraFolders?.draft && extraFolders.draft.machine !== id) extraFolders.onChange(undefined);
@@ -710,14 +788,29 @@ export function ComposerContext({
       else onComputer?.(id);
     }
   };
-  arrive.current = (id) => {
+  arrive.current = (id, arrivedJoin) => {
     setWaiting(undefined);
-    pickComputer(id);
+    pickComputer(id, arrivedJoin !== undefined);
+    // The pick is in; a held send goes on the next frame, once the chat's machine is this one.
+    if (arrivedJoin !== undefined) joinPicked(arrivedJoin);
+  };
+  // A row picked from Not added yet: the join starts, and the machine is the chat's pick from this
+  // click on (the strip names it as being set up); the folder list is that machine's, so none yet.
+  const pickJoin = (candidate: JoinCandidate) => {
+    if (readOnly) return;
+    folderPicks.current += 1;
+    setBrowseError(undefined);
+    onCloudMachinePicked?.(undefined);
+    if (waiting) setWaiting(undefined);
+    if (extraFolders?.draft) extraFolders.onChange(undefined);
+    onJoinMachine(candidate);
   };
   // The machine control's name: the machine a Cloud pick waits for, as starting, else the current one.
   const waitingName = waiting
     ? `${waiting.name} · ${t(waitFailed ? "switch.failedShort" : "composer.envStarting")}`
-    : undefined;
+    : join
+      ? `${join.candidate.name} · ${t(join.phase === "failed" ? "switch.failedShort" : "composer.joinSettingUp")}`
+      : undefined;
   // A started chat's picker lists only where it runs and its move (EnvironmentPicker `offload`).
   const offload: OffloadKind | undefined = started && environments && onOffload ? offloads[0] : undefined;
   // Its Move to… targets, beside or instead of that one move.
@@ -870,6 +963,9 @@ export function ComposerContext({
     ...(runMode && !started && !readOnly ? { runMode } : {}),
     closeOnTrustAsk,
     ...(environmentFace ? { faceStyle: environmentFace } : {}),
+    // A new chat's machine list: Not added yet, after the machines a chat can use.
+    ...(newChat && !readOnly && joinRows ? { joinCandidates: joinRows, onJoin: pickJoin } : {}),
+    ...(joinOtherExpanded ? { joinOtherExpanded } : {}),
   };
   // Where it runs: Cloud (the person's machine or a new one, or one picked in Machines…), Sandboxed, another
   // machine (the person's own, SSH), or this Mac. Each machine sits under where it runs, so the Where
@@ -902,7 +998,10 @@ export function ComposerContext({
   const folderDetail =
     folderState === "cloudFresh" && startedCloudFolder === undefined ? t(FOLDERLESS_CLOUD_LABELS.detail) : undefined;
   // A saved environment on this Mac is This Mac's; one on an SSH machine is Other devices'.
-  const offMac = !cloudSide && !sandboxPicked && (pickedOff || (savedPick !== undefined && savedPick.kind !== "local"));
+  const offMac =
+    !cloudSide &&
+    !sandboxPicked &&
+    (pickedOff || join !== undefined || (savedPick !== undefined && savedPick.kind !== "local"));
   const whereName = sandboxPicked
     ? t("composer.sandboxed")
     : cloudSide
@@ -941,7 +1040,7 @@ export function ComposerContext({
   // machine chip). This Mac, where the machine chip shows it, is this Mac's own name; Cloud with no
   // machine picked says Cloud (Send reuses the person's machine or makes one, so no New machine shows;
   // Leo, 2026-11-04).
-  const localMachine = currentComputer?.kind === "local" && !savedPick && !waiting;
+  const localMachine = currentComputer?.kind === "local" && !savedPick && !waiting && !join;
   const machineValue =
     cloudPicked && cloudWorksOn
       ? cloudWorksOn
@@ -953,7 +1052,7 @@ export function ComposerContext({
             ? (ownName ?? t("composer.thisMac"))
             : placeName;
   const machineLive =
-    cloudPicked || sandboxPicked || savedPick || waiting || (layout === "where-machine" && localMachine)
+    cloudPicked || sandboxPicked || savedPick || waiting || join || (layout === "where-machine" && localMachine)
       ? undefined
       : currentComputer
         ? environmentReady(currentComputer)
@@ -964,7 +1063,7 @@ export function ComposerContext({
       ? currentComputer.state
       : undefined;
   const machineFace =
-    waiting && waitingName && !cloudPicked ? (
+    (waiting || join) && waitingName && !cloudPicked ? (
       <LocationFace icon={<ServerIcon />} value={waitingName} chevron />
     ) : (
       <LocationFace

@@ -1,0 +1,107 @@
+/* MachineJoinLine.tsx: the one line under a new chat's composer while a machine picked from "Not
+   added yet" is set up. Borderless, flat tonal fills only. It opens by its own height (a grid row
+   from 0fr to 1fr) on the house settle, so the composer moves with it in one transition; motion off
+   or Reduce Motion shows it at once. The seconds change in place: the text is tabular, so the line
+   never shifts as they count. */
+.acpmux-join-fold {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation: acpmux-join-open var(--cmux-motion-settle, 180ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1))
+    both;
+}
+.acpmux-join-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+@keyframes acpmux-join-open {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+:root:is([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"])
+  .acpmux-join-fold {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-join-fold {
+    animation: none;
+  }
+}
+.acpmux-join-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  margin-top: var(--ds-space-1);
+  padding: 0 4px 0 var(--cv-inset, 12px);
+  box-sizing: border-box;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-join-line[data-look="tray"] {
+  border-radius: var(--acpmux-composer-radius, 12px);
+  background: color-mix(in srgb, var(--agent-text) 5%, transparent);
+}
+.acpmux-join-line[data-phase="failed"] .acpmux-join-text {
+  color: var(--agent-text);
+}
+.acpmux-join-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-join-action {
+  flex: none;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--agent-muted);
+  font: inherit;
+  cursor: default;
+}
+.acpmux-join-action[data-primary] {
+  color: var(--agent-text);
+}
+/* A held button changes only its fill (design/pressed-state.md). */
+.acpmux-join-action:hover {
+  background: var(--acpmux-composer-hover, color-mix(in srgb, var(--agent-text) 10%, transparent));
+}
+.acpmux-join-action:active {
+  background: color-mix(in srgb, var(--agent-text) 18%, transparent);
+}
+.acpmux-join-action:focus-visible {
+  outline: var(--cmux-focus-ring-width) solid var(--agent-text);
+  outline-offset: 1px;
+}
+.acpmux-join-steps {
+  display: inline-flex;
+  flex: none;
+  gap: var(--ds-space-1);
+  margin-right: var(--ds-space-1);
+  /* A status dot, sized as the machine list's live dot is (composerLocation.css). */
+  --acpmux-join-step-size: 6px;
+}
+.acpmux-join-step {
+  width: var(--acpmux-join-step-size);
+  height: var(--acpmux-join-step-size);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--agent-text) 18%, transparent);
+}
+.acpmux-join-step[data-done] {
+  background: var(--agent-muted);
+}
+.acpmux-join-step[data-current] {
+  background: var(--agent-text);
+}
