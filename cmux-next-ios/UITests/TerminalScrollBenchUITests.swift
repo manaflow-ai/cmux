@@ -4,9 +4,11 @@ import XCTest
 /// ones. this claude code cli is often slow to scroll up and down from ios."
 /// The terminal demo's `scrollbench` phase flings the same scrollback up and
 /// down on a bare shell, then while a mock of Claude Code's inline screen
-/// redraws below it, then with its clear-and-reprint too, and reports each
-/// case's frame intervals. Scrolling under the agent's redraws keeps the bare
-/// shell's pace: p95 within 1.5 frames of the bare case.
+/// redraws below it, then with its clear-and-reprint too, then a mock of its
+/// full-screen mode (the drag is the wheel; each report redraws the screen,
+/// 30 ms after it leaves the phone), and reports each case's frame intervals.
+/// Scrolling under the agent's redraws keeps the bare shell's pace: p95
+/// within 1.5 frames of the bare case.
 final class TerminalScrollBenchUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = true
@@ -18,14 +20,14 @@ final class TerminalScrollBenchUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
-                                "-CmuxMobileTerminalDemoPhases", "scrollbench"]
+                                "-CmuxMobileTerminalDemoPhases", "scrollbench", "-cmux-mobile-term-rtt-ms", "30"]
         app.launch()
         defer { app.terminate() }
 
         let probe = app.staticTexts["debug.terminal-demo"]
         XCTAssertTrue(probe.waitForExistence(timeout: 30), "the terminal demo's step label\n\(app.debugDescription)")
         var demo = ""
-        let deadline = Date().addingTimeInterval(180)
+        let deadline = Date().addingTimeInterval(240)
         while Date() < deadline, !demo.hasPrefix("scrollbench done") {
             RunLoop.current.run(until: Date().addingTimeInterval(0.5))
             demo = probe.label
@@ -42,10 +44,12 @@ final class TerminalScrollBenchUITests: XCTestCase {
         // 1.5 frames at the simulator's rate: a case that misses frames the
         // bare shell does not is slower than it.
         let frame = 1000.0 / 120
-        for name in ["claude-inline", "claude-inline-reprint"] {
+        for name in ["claude-inline", "claude-inline-reprint", "claude-full"] {
             let value = try XCTUnwrap(p95[name], demo)
             XCTAssertLessThanOrEqual(value, max(bare, frame) + frame * 0.5, "\(name): p95 \(value) ms against the bare shell's \(bare) ms")
         }
+        // The full-screen flings reached the app as wheel reports.
+        XCTAssertGreaterThan(Self.values(demo, "wheel")["claude-full"] ?? 0, 0, "claude-full: the flings scrolled the app (\(demo))")
     }
 
     /// `bench NAME frames=.. p50=.. p95=..` parts of the demo's label: NAME to the key's value.

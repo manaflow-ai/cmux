@@ -51,7 +51,19 @@ public final class MockTerminalSession: TerminalSession {
         /// rows, the transcript, and its input box on the last rows with the
         /// cursor in it.
         case agent
+        /// `claudefull`: Claude Code's full-screen mode, scrolled by the
+        /// wheel (it asks for the mouse), with a live spinner row.
+        case agentFull
     }
+
+    /// DEBUG bench: the wheel reports `claudefull` has taken, and the rows
+    /// they scrolled its transcript.
+    public private(set) var wheelReports = 0
+    public private(set) var wheelRows = 0
+    /// `claudefull`'s transcript and how many rows it is scrolled up.
+    private var fullTranscript: [String] = []
+    private var fullOffset = 0
+    private var fullTick = 0
 
     /// `playsIntro`: run `ls -la`, `git log` and a build when the session starts.
     public init(clock: any Clock<Duration> = ContinuousClock(), playsIntro: Bool = true, roundTrip: Duration = .zero,
@@ -118,6 +130,7 @@ public final class MockTerminalSession: TerminalSession {
             write(vim.render(columns: columns, rows: rows))
             program = .vim(vim)
         case .agent: drawAgent()
+        case .agentFull: drawFull()
         }
     }
 
@@ -162,8 +175,11 @@ public final class MockTerminalSession: TerminalSession {
             program = .vim(vim)
         case .agent:
             replay += "\u{1B}[?1049h" + agentScreen()
+        case .agentFull:
+            replay += "\u{1B}[?1049h\u{1B}[H\u{1B}[2J" + Self.htopMouse
         }
         handler?(.output(Data(replay.utf8)))
+        if case .agentFull = program { drawFull() }
     }
 
     public func stop() {
@@ -244,7 +260,7 @@ public final class MockTerminalSession: TerminalSession {
             if let key = MockKey.parse(escapeBuffer) {
                 escapeBuffer.removeAll()
                 handle(key)
-            } else if escapeBuffer.count > 8 {
+            } else if escapeBuffer.count > 32 {
                 escapeBuffer.removeAll()
             }
             return
@@ -264,6 +280,18 @@ public final class MockTerminalSession: TerminalSession {
                 program = .vim(vim)
             }
         case .agent: if key == .control("c") || key == .escape { exitProgram() }
+        case .agentFull:
+            if key == .control("c") || key == .escape { return exitProgram() }
+            if case .wheel(let up) = key {
+                // Claude Code scrolls its transcript three rows a report.
+                let bottom = max(0, fullTranscript.count - fullRows)
+                let next = min(bottom, max(0, fullOffset + (up ? 3 : -3)))
+                wheelReports += 1
+                wheelRows += abs(next - fullOffset)
+                guard next != fullOffset else { return }
+                fullOffset = next
+                drawFull()
+            }
         }
     }
 
@@ -378,6 +406,36 @@ public final class MockTerminalSession: TerminalSession {
             handler?(.output(Data(Self.htopMouse.utf8)))
             startHtopTicker()
             return
+        case "claudefull":
+            // claudefull [MS=50]: Claude Code CLI's full-screen mode (Leo,
+            // 2026-11-21: "this claude code cli is often slow to scroll up
+            // and down from ios"). On the alternate screen, it reports the
+            // mouse: a drag on the phone is wheel reports, each one redraws
+            // the transcript three rows on, and every MS ms the spinner row
+            // is redrawn (a transcript row every third tick). Ctrl-C quits.
+            busy = false
+            program = .agentFull
+            setAlternate(true, program: "claude")
+            handler?(.output(Data(Self.htopMouse.utf8)))
+            fullTranscript = (1...400).map(Self.fullRow)
+            fullOffset = 0
+            fullTick = 0
+            drawFull()
+            let delay = max(8, parts.count > 1 ? Int(parts[1]) ?? 50 : 50)
+            tasks.append(Task { [weak self] in
+                while !Task.isCancelled {
+                    do { try await self?.pause(delay) } catch { return }
+                    guard let self, case .agentFull = self.program else { return }
+                    self.fullTick += 1
+                    if self.fullTick % 3 == 0 {
+                        self.fullTranscript.append(Self.fullRow(self.fullTranscript.count + 1))
+                        // Scrolled up, the view keeps its rows.
+                        if self.fullOffset > 0 { self.fullOffset += 1 } else { self.drawFull(); continue }
+                    }
+                    self.write(self.fullSpinner())
+                }
+            })
+            return
         case "claude":
             busy = false
             program = .agent
@@ -453,6 +511,42 @@ public final class MockTerminalSession: TerminalSession {
         }
     }
 
+    // MARK: claudefull
+
+    /// The transcript's rows on screen: below the 3-row header, above the
+    /// spinner row, a blank and the 3-row input box.
+    private var fullRows: Int { max(1, rows - 8) }
+
+    private static func fullRow(_ index: Int) -> String {
+        index % 5 == 0
+            ? "\u{1B}[32m\u{23FA}\u{1B}[0m \u{1B}[1mUpdate\u{1B}[0m(Sources/File\(index).swift) answer row \(index)"
+            : "  \u{23BF} transcript row \(index) " + String(repeating: "lorem ", count: 1 + index % 9)
+    }
+
+    private func fullSpinner() -> String {
+        let spinner = ["\u{00B7}", "\u{2722}", "\u{2733}", "\u{2736}", "\u{273B}", "\u{273D}"]
+        return "\u{1B}[\(rows - 4);1H\u{1B}[2K\u{1B}[33m\(spinner[fullTick % spinner.count])\u{1B}[0m Thinking\u{2026} (\(fullTick / 20)s \u{00B7} \u{2191} \(fullTick * 37) tokens)"
+            + "\u{1B}[\(rows - 1);5H"
+    }
+
+    /// The whole screen, as Claude Code's full-screen renderer redraws it.
+    private func drawFull() {
+        let rule = String(repeating: "\u{2500}", count: max(10, min(80, columns - 2)))
+        var out = "\u{1B}[H"
+        out += "\u{1B}[1;1H\u{1B}[2K\u{256D}\(rule)\u{256E}"
+        out += "\u{1B}[2;1H\u{1B}[2K\u{2502} \u{1B}[33m\u{273B}\u{1B}[0m Claude Code (mock)  ~/cmux-next"
+        out += "\u{1B}[3;1H\u{1B}[2K\u{2570}\(rule)\u{256F}"
+        let end = fullTranscript.count - fullOffset
+        let start = max(0, end - fullRows)
+        for (index, line) in fullTranscript[start..<end].enumerated() {
+            out += "\u{1B}[\(4 + index);1H\u{1B}[2K" + line
+        }
+        out += "\u{1B}[\(rows - 2);1H\u{1B}[2K\u{256D}\(rule)\u{256E}"
+        out += "\u{1B}[\(rows - 1);1H\u{1B}[2K\u{2502} > "
+        out += "\u{1B}[\(rows);1H\u{1B}[2K\u{2570}\(rule)\u{256F}"
+        write(out + fullSpinner())
+    }
+
     // MARK: htop
 
     /// The agent program's screen at the current grid: its header box on
@@ -503,6 +597,8 @@ public final class MockTerminalSession: TerminalSession {
 enum MockKey: Equatable {
     case char(Character), text(String), control(Character)
     case enter, backspace, tab, escape, up, down, left, right, f10, other
+    /// An SGR wheel report (`ESC [ < 64;x;y M` up, 65 down).
+    case wheel(up: Bool)
 
     init(byte: UInt8) {
         switch byte {
@@ -520,6 +616,16 @@ enum MockKey: Equatable {
         guard bytes.first == 0x1B else { return .other }
         if bytes.count == 1 { return nil }
         if bytes[1] != 0x5B, bytes[1] != 0x4F { return .escape }
+        if bytes.count >= 3, bytes[1] == 0x5B, bytes[2] == 0x3C {
+            // SGR mouse: ESC [ < button ; x ; y M|m.
+            guard let last = bytes.last, last == 0x4D || last == 0x6D else { return nil }
+            let fields = String(decoding: bytes[3..<(bytes.count - 1)], as: UTF8.self).split(separator: ";")
+            switch fields.first.flatMap({ Int($0) }) {
+            case 64: return .wheel(up: true)
+            case 65: return .wheel(up: false)
+            default: return .other
+            }
+        }
         guard bytes.count >= 3, let last = bytes.last, (0x40...0x7E).contains(last) || bytes.count > 2 && bytes[1] == 0x4F else { return nil }
         switch last {
         case 0x41: return .up

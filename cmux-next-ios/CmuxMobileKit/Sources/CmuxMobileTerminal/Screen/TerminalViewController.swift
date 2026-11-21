@@ -3189,6 +3189,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
 
+    /// DEBUG demo: a fling over a full-screen app, as the wheel (T-SCROLL-12).
+    func tuiFling(velocity: CGFloat) {
+        tuiScroll.demoFling(velocityY: velocity)
+    }
+
     /// DEBUG demo: a decelerating fling with UIScrollView's normal rate, driven
     /// per display frame through the same delegate path as a finger fling.
     func fling(velocity: CGFloat) {

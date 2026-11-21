@@ -229,6 +229,8 @@ final class TerminalDemoDriver {
             ("bare", nil),
             ("claude-inline", "claudeinline 50"),
             ("claude-inline-reprint", "claudeinline 50 20"),
+            // Full screen: the drag is the wheel (T-SCROLL-12), not the page.
+            ("claude-full", "claudefull 50"),
         ]
         model.composerText = "stream 600 1"
         model.send()
@@ -240,17 +242,29 @@ final class TerminalDemoDriver {
                 model.send()
                 await wait(3)
             }
-            model.scrollToBottom()
+            let full = name == "claude-full"
+            if !full { model.scrollToBottom() }
             await wait(1)
+            let mock = model.session as? MockTerminalSession
+            let reports = mock?.wheelReports ?? 0, rows = mock?.wheelRows ?? 0
             let sampler = FrameSampler()
             sampler.start()
             for _ in 0..<3 {
-                model.controller?.fling(velocity: -5000)
-                await wait(1.6)
-                model.controller?.fling(velocity: 5000)
+                if full {
+                    model.controller?.tuiFling(velocity: 3000)
+                    await wait(1.6)
+                    model.controller?.tuiFling(velocity: -3000)
+                } else {
+                    model.controller?.fling(velocity: -5000)
+                    await wait(1.6)
+                    model.controller?.fling(velocity: 5000)
+                }
                 await wait(1.6)
             }
-            let line = "bench \(name) " + sampler.stop()
+            var line = "bench \(name) " + sampler.stop()
+            if full, let mock {
+                line += " wheel=\(mock.wheelReports - reports) wheelrows=\(mock.wheelRows - rows)"
+            }
             mark(line)
             results.append(line)
             model.demoNote = results.joined(separator: " | ")

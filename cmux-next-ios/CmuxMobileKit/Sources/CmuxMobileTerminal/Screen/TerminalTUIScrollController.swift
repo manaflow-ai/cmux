@@ -108,6 +108,16 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
         if fling.isFinished { endLink() }
     }
 
+    /// DEBUG demo: a fling of `velocityY` (points per second, positive
+    /// scrolls toward older content) from the surface's middle, through the
+    /// same momentum and wheel path as a finger's.
+    func demoFling(velocityY: CGFloat) {
+        guard let surface, isEnabled(), let fling = TerminalTUIMomentum(velocityY: velocityY) else { return }
+        stopMomentum()
+        anchor = CGPoint(x: surface.bounds.midX, y: surface.bounds.midY)
+        startMomentum(fling)
+    }
+
     /// A touch, a new drag or leaving the app stops a fling (its end goes out once).
     func stopMomentum() {
         if var fling = momentum {
