@@ -44,7 +44,7 @@ async fn session_alias_routes_with_the_same_case_prefix_and_separator_rules() {
         &hub,
         "lanevm-7",
         "0199aaaa-1111",
-        "gcp-codex-lane-1",
+        "ruby-long",
         "idle",
         Some("Ruby dot startup-speedups"),
     );

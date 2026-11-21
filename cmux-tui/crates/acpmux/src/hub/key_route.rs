@@ -186,14 +186,15 @@ impl Hub {
             let at = if legacy_exact || crate::session_handle::matches(handle, id, rest) {
                 Some((false, Step::Exact))
             } else {
-                crate::name_match::step(name, rest)
-                    .map(|at| (false, at))
-                    .or_else(|| {
-                        alias.and_then(|alias| {
-                            crate::name_match::step(alias, rest).map(|at| (false, at))
-                        })
-                    })
-                    .or_else(|| crate::name_match::short_step(name, rest).map(|at| (true, at)))
+                [
+                    crate::name_match::step(name, rest),
+                    alias.and_then(|alias| crate::name_match::step(alias, rest)),
+                ]
+                .into_iter()
+                .flatten()
+                .min()
+                .map(|at| (false, at))
+                .or_else(|| crate::name_match::short_step(name, rest).map(|at| (true, at)))
             };
             if let Some(at) = at {
                 found.push((
@@ -280,8 +281,13 @@ impl Hub {
                 {
                     return Some(0);
                 }
-                let at = crate::name_match::step(name, key)
-                    .or_else(|| alias.and_then(|alias| crate::name_match::step(alias, key)));
+                let at = [
+                    crate::name_match::step(name, key),
+                    alias.and_then(|alias| crate::name_match::step(alias, key)),
+                ]
+                .into_iter()
+                .flatten()
+                .min();
                 if at == Some(Step::Case) {
                     Some(1)
                 } else if here && at == Some(Step::Prefix) {
