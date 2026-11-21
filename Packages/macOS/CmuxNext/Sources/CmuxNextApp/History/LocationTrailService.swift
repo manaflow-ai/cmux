@@ -8,6 +8,7 @@ import CmuxNextHistory
 import CmuxNextHistoryDaemon
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWindowRules
 import Foundation
 import Observation
 import CmuxNextFocus
@@ -39,6 +40,10 @@ final class LocationTrailService {
     /// More listeners (each window's titlebar Back / Forward buttons): token to handler.
     private var observers: [Int: () -> Void] = [:]
     private var nextObserver = 0
+    /// Strict tab history (Go Back One Tab, Go to Recent Tab; `+TabHistory`): every settled tab, apart from the trail.
+    var tabHistory = TabHistory()
+    /// The tab the active window settled on last.
+    var currentTab: TabHistory.Visit?
 
     /// Adds a listener for every trail change (also scope changes: re-read `canNavigate`); returns
     /// the token for ``removeObserver(_:)``.
@@ -126,6 +131,7 @@ final class LocationTrailService {
             pageHistoryDidChange()
             return
         }
+        recordTab(location)
         let recorded: Bool
         let time = now(), scope = stepScope
         if let jump = jumpNotedAt, time.timeIntervalSince(jump) < Self.jumpWindow, location.key != trail.current?.location.key {

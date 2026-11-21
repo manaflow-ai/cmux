@@ -24,6 +24,14 @@ enum HistoryHandlers {
                 guard services.locationTrail.navigate(direction) else { throw ActionFailure.noTarget(nowhere()) }
             })
         }
+        // Strict tab history (`history::actions` tab walks; no default shortcut).
+        for walk in table?.tabWalks ?? [] {
+            registry.bind(ActionID(rawValue: walk.action), run: { _ in
+                guard services.locationTrail.stepTab(walk.step, scope: walk.scope) else {
+                    throw ActionFailure.noTarget(HistoryAppStrings.nothingBack)
+                }
+            })
+        }
         // A row of the Back / Forward button list (history.md 4.2a): the trail index it shows.
         registry.bind("history.goTo", run: { invocation in
             guard let index = invocation["index"]?.intValue, services.locationTrail.go(toIndex: index) else {

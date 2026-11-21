@@ -4,6 +4,8 @@
 
 use serde::Serialize;
 
+use crate::tab_history::{TabScope, TabStep};
+
 /// A walk of the location trail.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,6 +33,16 @@ pub struct Walk {
     pub nowhere: Nowhere,
 }
 
+/// One strict tab history action ([`crate::tab_history`]): Rex's Go Back One
+/// Tab and Go to Recent Tab, in any workspace or only in this one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TabWalk {
+    pub action: &'static str,
+    pub step: TabStep,
+    pub scope: TabScope,
+}
+
 /// A history palette page.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -54,6 +66,8 @@ pub struct PageAction {
 #[serde(rename_all = "camelCase")]
 pub struct Actions {
     pub walks: Vec<Walk>,
+    /// The strict tab history actions (no default shortcut: opt in).
+    pub tab_walks: Vec<TabWalk>,
     pub pages: Vec<PageAction>,
     /// The actions that open the History page.
     pub history_page: Vec<&'static str>,
@@ -77,6 +91,20 @@ pub fn actions() -> Actions {
                 action: "focusHistoryLast",
                 direction: Direction::Last,
                 nowhere: Nowhere::NothingLast,
+            },
+        ],
+        tab_walks: vec![
+            TabWalk { action: "focusTabBack", step: TabStep::Back, scope: TabScope::Any },
+            TabWalk {
+                action: "focusTabBackInWorkspace",
+                step: TabStep::Back,
+                scope: TabScope::Workspace,
+            },
+            TabWalk { action: "focusTabRecent", step: TabStep::Recent, scope: TabScope::Any },
+            TabWalk {
+                action: "focusTabRecentInWorkspace",
+                step: TabStep::Recent,
+                scope: TabScope::Workspace,
             },
         ],
         pages: vec![
