@@ -9,6 +9,8 @@
 
   // One theme per appearance; each one's colors are appearance.themeEdits of that theme.
   "appearance.theme": "light:Builtin Light,dark:Builtin Dark",
+  // cmux's own window, sidebar and pages follow the terminal theme, not the person's App Theme.
+  "appearance.appTheme": "followTerminal",
   "appearance.themeEdits": {
     "Builtin Light/background": "#f5fafc",
     "Builtin Light/foreground": "#171c1e",
