@@ -15,8 +15,9 @@ public final class AgentPaneShownChatsWait {
     /// Runs its body once a page drew its first frame (`AgentPaneModel.whenPainted`).
     public typealias WhenPainted = (@escaping () -> Void) -> Void
 
-    /// The longest a page that never reports its paint holds the spare.
-    // timeout: only how long a new tab holds its spare pane for a page that never reports its paint; the page still opens and loads, nothing is cut off
+    /// The longest a page that never reports its paint holds the spare: the launch's spare, and a refill's make
+    /// that found the page loading (`AgentPaneSpareRefiller` asks about it again then).
+    // timeout: only how long a new tab holds its spare pane, or a refill its next spare, for a page that never reports its paint; the page still opens and loads, nothing is cut off
     public static let deadline: Duration = .seconds(3)
 
     /// Stands in for the pages `holds` is given (tests).

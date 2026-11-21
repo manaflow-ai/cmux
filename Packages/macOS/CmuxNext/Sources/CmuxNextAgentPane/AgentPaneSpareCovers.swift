@@ -37,4 +37,14 @@ public final class AgentPaneSpareCovers {
         generations[ObjectIdentifier(view)] = nil
         view.redraw.newTabFrameCaptureChanged = nil
     }
+
+    /// The pool drops `pages` (memory pressure, the last window closing, the size rule's release): each one's
+    /// capture counts no more, and the page leaves its window and closes.
+    public func discard(_ pages: [AgentPaneView]) {
+        for page in pages {
+            forget(page)
+            page.removeFromSuperview()
+            page.close()
+        }
+    }
 }

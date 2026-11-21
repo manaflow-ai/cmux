@@ -17,8 +17,9 @@ import Testing
 /// finds no page. The pool keeps one page. That second chat builds its own page, and the pool's next page is not
 /// made while that page has not drawn.
 ///
-/// No test polls: each waits for the pool's own events (a page was made, the refill's counts changed). A limit on
-/// the wall clock only ends a test that fails. The refill's 250 ms and its frame are the app's own.
+/// No wait of this suite polls: each waits for the pool's own events (a page was made, the refill's counts
+/// changed). A limit on the wall clock only ends a test that fails. The refill's 250 ms and its frame are the app's
+/// own. The shared setup does poll (the app and its focused pane, as each sibling suite gets them).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"),
                   .closesItsWindows)
 struct ChatSpareRefillTests {

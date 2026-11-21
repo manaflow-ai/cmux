@@ -8,7 +8,8 @@ import Foundation
 extension AgentPaneView {
     /// `debug.agent_pane readiness`: whether the page drew a transcript and a composer, and (with
     /// `waitForAnimations`, up to 1 s) whether its menus finished animating. `open_waits` is the host's
-    /// count of waits for another process before this open's first paint (``AgentPaneOpenWaits``).
+    /// count of waits for another process before this open's first paint (``AgentPaneOpenWaits``); an
+    /// error reply has it too, because the count needs no answer of the page.
     public func debugReadiness(pane: String, waitForAnimations: Bool = false) async -> JSONValue {
         let script = """
         const bodyText = (document.body?.innerText || '').trim();
@@ -42,15 +43,19 @@ extension AgentPaneView {
                   let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
                   let value = JSONValue(foundation: object),
                   case .object(var members) = value else {
-                return .object(["pane": .string(pane), "error": .string("the page returned no readiness JSON")])
+                return .object(["pane": .string(pane), "error": .string("the page returned no readiness JSON"), "open_waits": openWaitsValue])
             }
             members["pane"] = .string(pane)
-            members["open_waits"] = .object(["count": .number(Double(model.openWaits.count)),
-                                             "steps": .array(model.openWaits.steps.map { .string($0.rawValue) })])
+            members["open_waits"] = openWaitsValue
             return .object(members)
         } catch {
-            return .object(["pane": .string(pane), "error": .string(String(describing: error))])
+            return .object(["pane": .string(pane), "error": .string(String(describing: error)), "open_waits": openWaitsValue])
         }
+    }
+
+    /// `open_waits` of the readiness reply: the count and the steps it sums.
+    private var openWaitsValue: JSONValue {
+        .object(["count": .number(Double(model.openWaits.count)), "steps": .array(model.openWaits.steps.map { .string($0.rawValue) })])
     }
 
     /// `debug.agent_pane inspector`: calls the page bridge that Show ACP Inspector calls

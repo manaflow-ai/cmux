@@ -5,12 +5,23 @@ import Testing
 /// A chat's open is judged by a count, not a time (decision 2026-11-16): the waits for another
 /// process between the moment the tab gets its page and the page's first paint of the chat
 /// (``AgentPaneOpenWaits``). The target is 0 for a chat whose kept tail a connected page draws and
-/// 1 at most on a connected page, whatever the chat's length. A page made for the tab runs every
-/// wait in a row, which is what a person sees as a pane with no content.
+/// 1 at most on a connected page, whatever the chat's length. A page made for the tab that reads
+/// the chat from acpmux runs every wait in a row, which is what a person sees as a pane with no
+/// content.
 ///
 /// These tests play the page's part by its reports to the host; no page loads. They pin the count
-/// the host gives each report (its model of the waits; it observes none of them). The count of a
-/// real page's open is the bench's (`open_waits` in `debug.agent_pane readiness`).
+/// the host gives each report (its model of the waits; it observes none of them). `open_waits` in
+/// the readiness reply is this same model, fed by a real page's reports; what the page asked
+/// acpmux is in `acp_log`.
+///
+/// Two limits of the model, which no test here covers. A page that shows the chat's copy from the
+/// last launch reports its paint before its handshake; its count is 0 with no steps, so 0 is the
+/// target only for an adopted page. And `connected` counts when its report came before the paint's
+/// report, also when the paint did not wait for it (the page made for the tab with a kept tail
+/// reads 3 below, because the test's page sends no `pane.clientReady`; a real one can read 5).
+///
+/// The last 2 tests pin the seam only (the 3 call sites and the type's rules); they are no proof
+/// of the product's open path.
 @MainActor @Suite(.serialized)
 struct ChatOpenWaitsTests {
     /// The page's part of an open, by its reports: a page that never asked for its handshake asks;
@@ -52,7 +63,7 @@ struct ChatOpenWaitsTests {
         let view = try await Self.chatOnTheConnectedPage()
         try await Self.draws(view, keptTail: false)
         #expect(view.model.openWaits.steps == [.attached])
-        #expect(view.model.openWaits.count <= 1)
+        #expect(view.model.openWaits.count == 1)
     }
 
     /// What the two targets are measured against: the page made for a tab, with no page to adopt.
