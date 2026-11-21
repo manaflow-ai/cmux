@@ -198,7 +198,7 @@ public final class AutomationsPage {
         do {
             let cloud = rows.contains { $0.target == .cloud && $0.runs.contains { $0.id == run.id } }
             let data = try await cli(["automation", "logs", run.id] + (cloud ? ["--target", "cloud"] : []))
-            let text = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["log"] as? String ?? ""
+            let text = Self.logText(from: data)
             shownLog = (run.id, Self.tail(text))
         } catch {
             shownLog = (run.id, (error as? AutomationsPageHost.SourceError)?.description ?? String(describing: error))
@@ -219,9 +219,13 @@ public final class AutomationsPage {
     }
 
     /// The last 40 lines of a log, so a long one never floods the page.
-    static func tail(_ text: String, lines: Int = 40) -> String {
+    nonisolated static func tail(_ text: String, lines: Int = 40) -> String {
         let all = text.split(separator: "\n", omittingEmptySubsequences: false)
         return all.suffix(lines).joined(separator: "\n").trimmingCharacters(in: .newlines)
+    }
+
+    private nonisolated static func logText(from data: Data) -> String {
+        ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["log"] as? String ?? ""
     }
 
     /// Saves the form: a new automation or the edit. Keeps the form open with the CLI's words
@@ -233,13 +237,17 @@ public final class AutomationsPage {
         do {
             let data = try await cli(draft.arguments)
             actionError = nil
-            let id = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["id"] as? String
+            let id = Self.id(from: data)
             self.draft = nil
             await reload(now: now)
             if let id = id ?? draft.editing { selection = id }
         } catch {
             actionError = (error as? AutomationsPageHost.SourceError)?.description ?? String(describing: error)
         }
+    }
+
+    private nonisolated static func id(from data: Data) -> String? {
+        ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["id"] as? String
     }
 }
 

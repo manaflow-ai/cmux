@@ -118,7 +118,7 @@ public struct CmuxRemoteComputerUsePolicy: Equatable, Sendable {
 
     /// The `computer-use-config` object: the PolicyConfig plus `cursorMotion` (the engine ignores
     /// keys it does not know; cmux Remote's worker reads it for the cursor).
-    var config: CmuxNextDaemon.JSONValue? {
+    nonisolated var config: CmuxNextDaemon.JSONValue? {
         guard let object = try? JSONDecoder().decode(CmuxNextDaemon.JSONValue.self, from: policy),
               case .object(var fields) = object else { return nil }
         fields["cursorMotion"] = .object(["enabled": .bool(cursorAnimates), "speed": .number(cursorSpeed)])
@@ -241,7 +241,7 @@ extension CmuxRemoteService {
         _ = try? await call("request", .object(["permission": .string(permission)]))
     }
 
-    static func object(_ value: CmuxNextDaemon.JSONValue) -> [String: Any]? {
+    nonisolated static func object(_ value: CmuxNextDaemon.JSONValue) -> [String: Any]? {
         guard let data = try? JSONEncoder().encode(value) else { return nil }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }

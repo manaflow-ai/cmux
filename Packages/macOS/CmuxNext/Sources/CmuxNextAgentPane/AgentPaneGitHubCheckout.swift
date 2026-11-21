@@ -157,12 +157,18 @@ public import Foundation
         guard folder.hasPrefix("/"), !folder.contains("\0"), await Self.isFolder(folder),
               let remotes = await git(["-C", folder, "config", "--get-regexp", "^remote\\..*\\.url$"], nil, [:], Self.readTimeout),
               remotes.status == 0,
-              remotes.stdout.split(separator: "\n").contains(where: { line in
-                  line.split(separator: " ", maxSplits: 1).last.map { Self.gitHubRepository(ofRemote: String($0)) == repo.lowercased() } ?? false
-              }),
+              Self.remoteOutputContainsRepository(remotes.stdout, repo: repo),
               let top = await git(["-C", folder, "rev-parse", "--show-toplevel"], nil, [:], Self.readTimeout), top.status == 0 else { return nil }
         let path = top.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         return path.hasPrefix("/") ? path : nil
+    }
+
+    nonisolated static func remoteOutputContainsRepository(_ output: Data, repo: String) -> Bool {
+        output.split(separator: UInt8(ascii: "\n")).contains { line in
+            line.split(separator: UInt8(ascii: " "), maxSplits: 1).last.map {
+                gitHubRepository(ofRemote: String(decoding: $0, as: UTF8.self)) == repo.lowercased()
+            } ?? false
+        }
     }
 
     /// `owner/name`, lowercased, of a github.com remote URL (`https://github.com/o/n(.git)`, `git@github.com:o/n(.git)`,

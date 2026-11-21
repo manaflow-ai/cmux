@@ -222,7 +222,7 @@ public final class SettingsMcpServers: PageProvider {
     }
 
     /// The `servers` of a list answer: the whole output, or its last line when something printed before it.
-    static func rows(_ data: Data) -> [Row]? {
+    nonisolated static func rows(_ data: Data) -> [Row]? {
         let last = String(data: data, encoding: .utf8)?.split(separator: "\n").last.map { Data($0.utf8) } ?? Data()
         guard let value = (try? JSONValue.parse(data)) ?? (try? JSONValue.parse(last)),
               let servers = value["servers"]?.arrayValue else { return nil }
@@ -236,7 +236,7 @@ public final class SettingsMcpServers: PageProvider {
     }
 
     /// The CLI's refusal from a failed run's last line; nil when it succeeded.
-    static func refusal(_ reply: (Int32, Data, Data)) -> String? {
+    nonisolated static func refusal(_ reply: (Int32, Data, Data)) -> String? {
         guard reply.0 != 0 else { return nil }
         let last = String(data: reply.1, encoding: .utf8)?.split(separator: "\n").last.map(String.init) ?? ""
         return (try? JSONValue.parse(Data(last.utf8)))?["why"]?.stringValue ?? ""

@@ -50,7 +50,7 @@ public extension AgentToolsAgent {
     /// The installed agents of a `cmux --json setup mcp` report (stdout, also of a failed run):
     /// `terminals` gets cmux's tools in cmux, `failed` could not be read, any other state is
     /// ready. An agent not installed is left out. Nil for no report.
-    static func agents(setupReport data: Data) -> [AgentToolsAgent]? {
+    nonisolated static func agents(setupReport data: Data) -> [AgentToolsAgent]? {
         guard let body = report(data), let clients = body["clients"] as? [[String: Any]] else { return nil }
         return clients.compactMap { client in
             guard client["installed"] as? Bool == true, let id = client["id"] as? String else { return nil }
@@ -67,11 +67,11 @@ public extension AgentToolsAgent {
 
     /// The report's `manual.commands`: the lines a person runs themselves to use cmux's tools in
     /// agents started outside cmux (cmux never runs them). Empty for none or no report.
-    static func manualCommands(setupReport data: Data) -> [String] {
+    nonisolated static func manualCommands(setupReport data: Data) -> [String] {
         (report(data)?["manual"] as? [String: Any])?["commands"] as? [String] ?? []
     }
 
-    private static func report(_ data: Data) -> [String: Any]? {
+    private nonisolated static func report(_ data: Data) -> [String: Any]? {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         return object["clients"] == nil ? (object["details"] as? [String: Any]) ?? object : object
     }
@@ -121,7 +121,7 @@ public struct AgentToolsReport: Sendable, Equatable {
 extension AgentToolsRemoval {
     /// From `cmux setup mcp --remove ID`'s report: `changed` or `ok` removed it (or there was
     /// none); `needs_user` kept it, with the text that says why.
-    public init(removeReport data: Data) {
+    public nonisolated init(removeReport data: Data) {
         guard let report = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             self = .failed
             return
