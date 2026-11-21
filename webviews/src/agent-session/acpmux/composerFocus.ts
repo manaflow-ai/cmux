@@ -46,6 +46,13 @@ export function shouldBlurComposerOnPress(target: Node | null, active: Element |
 const COMPOSER_CHROME =
   ".acpmux-composer-box, .acpmux-composer-strip, .acpmux-composer-foot, .acpmux-menu.acpmux-composer-plus, .acpmux-composer-list-layer";
 
+/// Whether a press landed in the composer's box (the prompt, its + and Send): a press that puts the
+/// keyboard in the prompt. The rows around the box keep the prompt's focus but do not place it.
+function pressInComposerBox(target: Node | null): boolean {
+  const element = target?.nodeType === 1 ? (target as Element) : (target?.parentElement ?? null);
+  return element?.closest(".acpmux-composer-box") != null;
+}
+
 function blurActiveComposer(): void {
   const active = document.activeElement;
   if (active?.closest(".acpmux-composer-box")) (active as HTMLElement).blur();
@@ -122,12 +129,15 @@ export function useComposerKeyboard(focusComposer: () => boolean, page: PageClie
       if (idleForComposer(document)) latest.current();
     };
     let pressedAt = Number.NEGATIVE_INFINITY;
+    /// The last press was in the composer's box: the reader put the keyboard in the prompt.
+    let pressedComposer = false;
     let settling: ReturnType<typeof setTimeout> | undefined;
     const onPress = (event: PointerEvent) => {
       pressedAt = performance.now();
       clearTimeout(settling);
       settling = undefined;
       const target = event.target && "nodeType" in event.target ? (event.target as Node) : null;
+      pressedComposer = pressInComposerBox(target);
       const active = document.activeElement;
       if (shouldBlurComposerOnPress(target, active)) {
         (active as HTMLElement).blur();
@@ -146,8 +156,19 @@ export function useComposerKeyboard(focusComposer: () => boolean, page: PageClie
     /// would take the keyboard back from the pane that has it now, whose own late claim then took
     /// it back again (two chats side by side traded focus every 120 ms, never going still;
     /// agent-pane.subagent-split-pair).
+    ///
+    /// Within a press's window the press decided where the keyboard goes, so the activation claims
+    /// nothing, with one exception (#48590): a press in the composer put the keyboard there, and a
+    /// window blur that came with the click (the Chromium page window's key bounce: the cmux window
+    /// takes the keys back, the focus model grants the page again) released it in onWindowBlur. The
+    /// activation after the bounce gives it back at once: the prompt's own selection is the one the
+    /// click set. Dropped too, the click left nothing focused, so no caret until another click or a
+    /// key.
     const claimOnActivation = () => {
-      if (performance.now() - pressedAt < PRESS_WINDOW_MS) return;
+      if (performance.now() - pressedAt < PRESS_WINDOW_MS) {
+        if (pressedComposer) claimIfIdle();
+        return;
+      }
       clearTimeout(settling);
       settling = setTimeout(() => {
         settling = undefined;
