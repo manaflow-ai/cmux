@@ -27,7 +27,10 @@
 # progress (pin-cmux-tui.sh run-progress): a build failed on its last retry attempt, or a job queued with no runner
 # past CMUX_TUI_TREE_RUNNER_STALL_SECONDS (default 900), is "not building" too. Otherwise it waits up to
 # CMUX_TUI_TREE_CLIENT_WAIT_SECONDS (default 2700), checking every
-# CMUX_TUI_TREE_CLIENT_POLL_SECONDS (default 20).
+# CMUX_TUI_TREE_CLIENT_POLL_SECONDS (default 20). CMUX_TUI_TREE_CLIENT_WAIT_SECONDS=0
+# looks once (the tree, then each candidate's manifest) and exits 1 on a miss
+# without reading any runs list: app-bundle-cmux-tui-client.sh then bundles the
+# newest published tree instead of waiting (RFD 0021, row 1).
 #
 # Usage: await-tree-client.sh <tree key> <candidate commit>...
 # Env: CMUX_TUI_PIN_BASE (default https://files.cmux.com/cmux-tui), GH_TOKEN
@@ -47,9 +50,11 @@ base="${CMUX_TUI_PIN_BASE:-https://files.cmux.com/cmux-tui}"
 wait_seconds="${CMUX_TUI_TREE_CLIENT_WAIT_SECONDS:-2700}"
 poll_seconds="${CMUX_TUI_TREE_CLIENT_POLL_SECONDS:-20}"
 check_seconds="${CMUX_TUI_TREE_CLIENT_RUN_CHECK_SECONDS:-300}"
-for value in "$wait_seconds" "$poll_seconds" "$check_seconds"; do
+[[ "$wait_seconds" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_CLIENT_WAIT_SECONDS must be whole seconds" >&2; exit 2; }
+for value in "$poll_seconds" "$check_seconds"; do
   [[ "$value" =~ ^[1-9][0-9]*$ ]] || { echo "error: the CMUX_TUI_TREE_CLIENT_*_SECONDS values must be positive whole seconds" >&2; exit 2; }
 done
+wait_seconds=$((10#$wait_seconds))
 
 # 0 when <commit>'s manifest answers 200 (a complete transfer), 1 otherwise.
 manifest_exists() {
@@ -79,6 +84,10 @@ while :; do
       exit 0
     fi
   done
+  if (( wait_seconds == 0 )); then
+    echo "tree $key is not published and no candidate manifest is uploaded (looked once)" >&2
+    exit 1
+  fi
   elapsed=$(( $(date +%s) - started ))
   if (( elapsed >= next_check )); then
     next_check=$(( elapsed + check_seconds ))

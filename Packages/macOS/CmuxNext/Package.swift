@@ -191,7 +191,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 3c41717f227faf8c22f88a83dd35d9464fa1a4b8e1fa959cbc06bd44ed9356d9
+// app-ffi-pin-checksum: 82e592de26bd72b55fc7e5fc4e421f92a3b5d3d87417eaf9170b3b2a39901656
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -257,7 +257,9 @@ let uiLayerPreviewTargets: [Target] = [
 // before the next launch can start: about 500 ms for a 100 MB executable, 20 ms
 // for a stub (a pool M4 Pro, Dock launches). A framework nobody links stays scanned.
 // The live code build (docs/cmux-next/live-code.md) interposes symbols of the one
-// image it links, so it keeps the static link.
+// image it links, so it keeps the static link; its xcodebuild settings skip the app's
+// Embed Frameworks copy of CmuxNextApp, which a static link does not make
+// (scripts/live-code/lib/xcodebuild-args.sh).
 let appLinksStatically = Context.environment["CMUX_LIVE_CODE_BUILD"] == "1"
 
 /// The framework's link, outside live code builds: it exports only the C
@@ -897,6 +899,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextDesignTokens",
                 "CmuxNextIcons",
+                .product(name: "CmuxChiefList", package: "CmuxChiefList"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
             ],
@@ -962,6 +965,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextHomeEngineTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextDesign",
                 "CmuxNextDictation",
@@ -987,6 +991,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemon",
                 "CmuxNextHomeEngine",
                 "CmuxNextRemote",
+                .product(name: "CmuxChiefList", package: "CmuxChiefList"),
             ],
             resources: [
                 .process("Resources"),
@@ -1148,6 +1153,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextAgentIntegrations",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextPages",
                 "CmuxNextSettings",
@@ -1274,6 +1280,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // Screenshots pane and the Files pane both read folders through it.
         .target(
             name: "CmuxNextFiles",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -2877,6 +2886,8 @@ let package = Package(
         // Vendored from manaflow-ai/cmux-cua at CMUX_CUA_PINNED_SHA (scripts/cmux_agent_cursor_vendor.py).
         .package(path: "../../Shared/CmuxAgentCursor"),
         .package(path: "../../Shared/CmuxHomeCore"),
+        // The one Chief list rule, shared with the iPhone's Home.
+        .package(path: "../../Shared/CmuxChiefList"),
         .package(path: "../../Shared/CmuxFeedPushCore"),
         .package(path: "../../Shared/CmuxHomeRender"),
         // Agent questions: one harness-neutral model (plans/cmux-next/agent-questions.md).
