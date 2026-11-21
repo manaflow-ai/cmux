@@ -31,7 +31,6 @@ FAILURES = []
 # cmux-tui-pin-*), which holds only the R2 upload credentials.
 ARTIFACT_JOBS = {
     "cmux-tui-artifacts.yml": ["publish", "publish-windows", "publish-tree", "publish-tree-tested", "point-feat-channel", "mark-tree-commits"],
-    "dogfood-artifact-publish.yml": ["publish"],
 }
 ARTIFACT_SECRETS = {
     "CF_R2_ACCESS_KEY_ID",
