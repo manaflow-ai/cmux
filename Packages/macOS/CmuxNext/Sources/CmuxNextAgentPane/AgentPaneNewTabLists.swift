@@ -84,6 +84,17 @@ extension NativeNewTabModel {
         list.model = self
     }
 
+    /// Creates a native page with the kept palette list and the host's asynchronous favicon source.
+    public convenience init(page: AgentPaneNewTab, actions: NativeNewTabActions, list: NativeNewTabList,
+                             chats: [AgentPaneDeviceChat] = [], faviconRevision: NativeNewTabModel.FaviconRevision?,
+                             faviconPage: NativeNewTabModel.FaviconPage?) {
+        var shown = page
+        let show = list.show(in: &shown)
+        self.init(page: shown, actions: actions, paletteActions: show, paletteRefresh: list.use, chats: chats,
+                  faviconRevision: faviconRevision, faviconPage: faviconPage)
+        list.model = self
+    }
+
     /// Cmd-T adopted this prepared page (``adopt(page:actions:paletteActions:paletteRefresh:chats:)``), with the asks
     /// of `list` as ``init(page:actions:list:chats:)`` takes them.
     ///
