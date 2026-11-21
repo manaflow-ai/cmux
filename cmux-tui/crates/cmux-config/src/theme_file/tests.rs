@@ -437,6 +437,69 @@ fn with_no_theme_file_nothing_changes() {
     assert!(state.theme_file().is_none());
 }
 
+#[test]
+fn a_theme_file_sets_the_chat_typography_and_its_faces_resolve_against_the_themes_folder() {
+    let folder = Path::new("/tmp/cmux-config/themes");
+    let text = r#"{
+        "agentPane.display.font.uiFamily": "Pack Sans, system-ui",
+        "agentPane.display.font.proseFamily": "Pack Serif",
+        "agentPane.display.code.family": "Pack Mono",
+        "agentPane.display.code.scale": 0.8,
+        "agentPane.display.font.faces": {
+            "Pack Sans": "file:../fonts/PackSans.woff2",
+            "Pack Serif:italic": "file:/Library/Fonts/PackSerif-Italic.otf"
+        }
+    }"#;
+    let file = ThemeFile::read(
+        "pack",
+        Some(Ok(text)),
+        &json!({}),
+        Some(folder),
+        Schema::embedded(),
+        &Domains::default(),
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(
+        file.keys(),
+        [
+            "agentPane.display.code.family",
+            "agentPane.display.code.scale",
+            "agentPane.display.font.faces",
+            "agentPane.display.font.proseFamily",
+            "agentPane.display.font.uiFamily",
+        ]
+    );
+    let applied = file.applied(&json!({}), &none());
+    assert_eq!(
+        at(&applied, "agentPane.display.font.faces"),
+        Some(&json!({
+            "Pack Sans": "file:/tmp/cmux-config/fonts/PackSans.woff2",
+            "Pack Serif:italic": "file:/Library/Fonts/PackSerif-Italic.otf"
+        }))
+    );
+    // Missing files: the check names each face; the read never stats them.
+    let faces = file.face_diagnostics();
+    assert_eq!(
+        faces.iter().map(|d| d.path.as_str()).collect::<Vec<_>>(),
+        [
+            "agentPane.display.font.faces.Pack Sans",
+            "agentPane.display.font.faces.Pack Serif:italic"
+        ]
+    );
+    assert!(faces[0].display().starts_with("themes/pack.json: "), "{}", faces[0].display());
+}
+
+#[test]
+fn a_theme_file_still_refuses_chat_keys_that_are_no_look() {
+    let file =
+        overlay(r#"{ "agentPane.display.font.size": 15, "agentPane.display.minimap": "off" }"#);
+    assert_eq!(file.keys(), ["agentPane.display.font.size"]);
+    assert_eq!(
+        file.diagnostics.iter().map(|d| d.path.as_str()).collect::<Vec<_>>(),
+        ["agentPane.display.minimap"]
+    );
+}
+
 /// #44894: a key the person changed in Settings while the theme file sets it
 /// (`appearance.themeFileExceptions`) keeps the person's value; the file still
 /// applies everywhere else, as the Mac app's `ThemeFileOverlay` does.
@@ -475,4 +538,23 @@ fn the_settings_owner_keeps_the_keys_changed_over_the_theme_file() {
     let file = overlay(r#"{ "appearance.themeFileExceptions": ["appearance.accent"] }"#);
     assert!(file.keys().is_empty(), "{:?}", file.keys());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `appearance.cornerFlush` (Leo, 2026-11-18: the gooey look "we have as a
+/// toggle maybe"): a theme file picks the corner treatment and keeps it; a
+/// value that is no corner is refused with the choices.
+#[test]
+fn a_theme_file_keeps_the_corner_treatment() {
+    let row = Schema::embedded().row("appearance.cornerFlush").expect("the cornerFlush row");
+    assert!(is_look(row), "appearance.cornerFlush is a look setting");
+    assert_eq!(row.default, Some(json!("flush")), "no goo by default");
+    let file = overlay(r#"{ "appearance": { "cornerFlush": "flush-goo" } }"#);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(file.keys(), vec!["appearance.cornerFlush"]);
+    let root = file.applied(&json!({"appearance": {"cornerFlush": "off"}}), &none());
+    assert_eq!(at(&root, "appearance.cornerFlush"), Some(&json!("flush-goo")));
+    let bad = overlay(r#"{ "appearance.cornerFlush": "goo" }"#);
+    assert!(bad.keys().is_empty());
+    assert!(bad.diagnostics.iter().any(|d| d.path == "appearance.cornerFlush"
+        && d.message.starts_with("expected one of")));
 }
