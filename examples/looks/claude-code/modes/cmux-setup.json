@@ -14,5 +14,8 @@
       "target": "newTabInCurrentPane",
       "args": "--permission-mode plan"
     }
-  }
+  },
+  "screenshots": [
+    "preview.png"
+  ]
 }

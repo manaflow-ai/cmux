@@ -5,5 +5,8 @@
   "description": "Ask a question alongside the focused chat with Command-Semicolon.",
   "version": "1.0.0",
   "license": "MIT",
-  "cmuxProfile": 1
+  "cmuxProfile": 1,
+  "screenshots": [
+    "preview.png"
+  ]
 }

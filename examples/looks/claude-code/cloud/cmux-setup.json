@@ -10,9 +10,12 @@
     "claude-code-teleport": {
       "type": "agent",
       "agent": "claude",
-      "title": "Resume Claude Cloud Session in CLI\u2026",
+      "title": "Resume Claude Cloud Session in CLI…",
       "target": "newTabInCurrentPane",
       "args": "--teleport"
     }
-  }
+  },
+  "screenshots": [
+    "preview.png"
+  ]
 }

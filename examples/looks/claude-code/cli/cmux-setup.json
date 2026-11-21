@@ -16,9 +16,12 @@
     "claude-code-resume": {
       "type": "agent",
       "agent": "claude",
-      "title": "Resume Claude Code CLI Session\u2026",
+      "title": "Resume Claude Code CLI Session…",
       "target": "newTabInCurrentPane",
       "args": "--resume"
     }
-  }
+  },
+  "screenshots": [
+    "preview.png"
+  ]
 }

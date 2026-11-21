@@ -5,5 +5,8 @@
   "description": "Open the model picker with Option-P or Command-Shift-I or the attachment and command menu with Command-J then A.",
   "version": "1.0.0",
   "license": "MIT",
-  "cmuxProfile": 1
+  "cmuxProfile": 1,
+  "screenshots": [
+    "preview.png"
+  ]
 }
