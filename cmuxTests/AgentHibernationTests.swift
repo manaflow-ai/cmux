@@ -818,6 +818,7 @@ struct AgentHibernationTests {
             (.codebuddy, launch("codebuddy", "/usr/local/bin/codebuddy", cwd: cwd)),
             (.factory, launch("factory", "/usr/local/bin/droid", cwd: cwd)),
             (.qoder, launch("qoder", "/usr/local/bin/qodercli", cwd: cwd)),
+            (.qwen, launch("qwen", "/usr/local/bin/qwen", cwd: cwd)),
         ]
 
         for (kind, launchCommand) in launchCommands {

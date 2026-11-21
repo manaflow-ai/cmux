@@ -47,7 +47,7 @@ struct AgentResumeWorkingDirectoryTests {
                 launchWorkingDirectory: "/Users/x/repo"
             ) == "/Users/x/repo"
         )
-        for kind in ["gemini", "cursor", "grok", "pi", "omp", "qoder"] {
+        for kind in ["gemini", "cursor", "grok", "pi", "omp", "qoder", "qwen"] {
             #expect(AgentResumeWorkingDirectory().cwdNamespacing(forKind: kind) == .byDirectory)
             #expect(
                 AgentResumeWorkingDirectory().resolve(

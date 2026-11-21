@@ -44,6 +44,49 @@ extension SocketListenerAcceptPolicyTests {
         )
     }
 
+    func testQwenResumeCommandPreservesSafeFlagsAndDropsSessionSelectors() throws {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .qwen,
+            sessionId: "qwen-session-abc",
+            workingDirectory: "/tmp/qwen repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "qwen",
+                executablePath: "/Users/example/.npm/bin/qwen",
+                arguments: [
+                    "/Users/example/.npm/bin/qwen",
+                    "--model",
+                    "qwen3-coder-plus",
+                    "--approval-mode",
+                    "yolo",
+                    "--yolo",
+                    "--resume",
+                    "old-session",
+                    "--continue",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/tmp/qwen repo",
+                environment: [
+                    "QWEN_HOME": "/tmp/qwen home",
+                    "OPENAI_API_KEY": "secret"
+                ],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
+        XCTAssertTrue(resumeCommand.contains("cd -- '/tmp/qwen repo'"), resumeCommand)
+        XCTAssertTrue(resumeCommand.contains("QWEN_HOME=/tmp/qwen home"), resumeCommand)
+        XCTAssertTrue(resumeCommand.contains("/Users/example/.npm/bin/qwen"), resumeCommand)
+        XCTAssertTrue(resumeCommand.contains("'--resume' 'qwen-session-abc'"), resumeCommand)
+        XCTAssertTrue(resumeCommand.contains("'--model' 'qwen3-coder-plus'"), resumeCommand)
+        XCTAssertTrue(resumeCommand.contains("'--approval-mode' 'yolo'"), resumeCommand)
+        XCTAssertTrue(resumeCommand.contains("'--yolo'"), resumeCommand)
+        XCTAssertFalse(resumeCommand.contains("secret"), resumeCommand)
+        XCTAssertFalse(resumeCommand.contains("old-session"), resumeCommand)
+        XCTAssertFalse(resumeCommand.contains("initial prompt"), resumeCommand)
+    }
+
     func testAntigravityResumeCommandUsesConversationAndDropsStartupSelectors() throws {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .antigravity,

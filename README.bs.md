@@ -287,7 +287,7 @@ cmux hooks setup codex
 cmux hooks setup --agent opencode
 ```
 
-`cmux hooks setup` instalira podržane agente koje može pronaći i ispisuje sažetak za preskočene agente. Podržane integracije nastavka uključuju Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory i Qoder. Claude Code obrađuje cmux Claude wrapper kada je Claude integracija omogućena u Postavkama.
+`cmux hooks setup` instalira podržane agente koje može pronaći i ispisuje sažetak za preskočene agente. Podržane integracije nastavka uključuju Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder i Qwen Code. Claude Code obrađuje cmux Claude wrapper kada je Claude integracija omogućena u Postavkama.
 
 Napredni korisnici i integracije mogu vezati prilagođenu komandu za nastavak na trenutni terminal surface. To je korisno za alate s vlastitim trajnim stanjem, poput tmux sesija ili prilagođenih agent CLI alata:
 

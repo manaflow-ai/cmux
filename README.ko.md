@@ -287,7 +287,7 @@ cmux hooks setup codex
 cmux hooks setup --agent opencode
 ```
 
-`cmux hooks setup`은 찾을 수 있는 지원 에이전트를 설치하고 건너뛴 에이전트에 대한 요약을 출력합니다. 지원되는 resume 통합에는 Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder가 포함됩니다. Claude Code는 설정에서 Claude 통합이 활성화된 경우 cmux의 Claude 래퍼가 처리합니다.
+`cmux hooks setup`은 찾을 수 있는 지원 에이전트를 설치하고 건너뛴 에이전트에 대한 요약을 출력합니다. 지원되는 resume 통합에는 Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder, Qwen Code가 포함됩니다. Claude Code는 설정에서 Claude 통합이 활성화된 경우 cmux의 Claude 래퍼가 처리합니다.
 
 고급 사용자와 통합은 현재 터미널 surface에 사용자 지정 resume 명령을 연결할 수 있습니다. tmux 세션이나 사용자 지정 에이전트 CLI처럼 자체 영구 상태가 있는 도구에 유용합니다:
 

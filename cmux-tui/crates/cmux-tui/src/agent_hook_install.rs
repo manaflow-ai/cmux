@@ -52,6 +52,9 @@ const COMMAND_HOOK_TIMEOUT_SECONDS: u64 = 5;
 /// so the installer writes the cap instead of the generic 5s.
 const CODEX_SESSION_END_TIMEOUT_SECONDS: u64 = 3;
 const GEMINI_HOOK_TIMEOUT_MILLISECONDS: u64 = 5_000;
+/// Qwen Code reads command-hook `timeout` in milliseconds (its runner passes the
+/// value straight to a timer), so write 5000 rather than the seconds constant.
+const QWEN_HOOK_TIMEOUT_MILLISECONDS: u64 = 5_000;
 const HERMES_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const HERMES_COMMAND_OUTPUT_BYTES: u64 = 4 * 1024 * 1024;
 
@@ -198,6 +201,16 @@ const COPILOT_EVENTS: &[&str] =
 const CODEBUDDY_EVENTS: &[&str] = COPILOT_EVENTS;
 const FACTORY_EVENTS: &[&str] = COPILOT_EVENTS;
 const QODER_EVENTS: &[&str] = &["SessionStart", "Stop", "SessionEnd", "PreToolUse"];
+const QWEN_EVENTS: &[&str] = &[
+    "SessionStart",
+    "UserPromptSubmit",
+    "Notification",
+    "Stop",
+    "StopFailure",
+    "SessionEnd",
+    "PreToolUse",
+    "PermissionRequest",
+];
 const KIMI_EVENTS: &[&str] = &[
     "SessionStart",
     "UserPromptSubmit",
@@ -388,6 +401,15 @@ const PROVIDERS: &[Provider] = &[
         override_relative_path: "settings.json",
         format: Format::Nested { timeout: COMMAND_HOOK_TIMEOUT_SECONDS, asynchronous: false },
         events: QODER_EVENTS,
+    },
+    Provider {
+        id: "qwen",
+        binary: "qwen",
+        default_path: ".qwen/settings.json",
+        override_env: Some("QWEN_HOME"),
+        override_relative_path: "settings.json",
+        format: Format::Nested { timeout: QWEN_HOOK_TIMEOUT_MILLISECONDS, asynchronous: false },
+        events: QWEN_EVENTS,
     },
     Provider {
         id: "kimi",
@@ -3946,6 +3968,7 @@ mod tests {
             "codebuddy",
             "factory",
             "qoder",
+            "qwen",
             "kimi",
         ];
         for provider in expected {

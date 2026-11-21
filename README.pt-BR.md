@@ -293,7 +293,7 @@ cmux hooks setup --agent opencode
 `cmux hooks setup` instala os agentes compatíveis que encontra e imprime um resumo
 dos agentes ignorados. As integrações de retomada compatíveis incluem Claude Code, Codex,
 Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy,
-Factory e Qoder. O Claude Code é tratado pelo wrapper Claude do cmux quando a integração
+Factory, Qoder e Qwen Code. O Claude Code é tratado pelo wrapper Claude do cmux quando a integração
 com o Claude está ativada nas Configurações.
 
 Usuários avançados e integrações podem associar um comando personalizado de retomada à

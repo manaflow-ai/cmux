@@ -287,7 +287,7 @@ cmux hooks setup codex
 cmux hooks setup --agent opencode
 ```
 
-`cmux hooks setup` installerer støttede agenter den finner, og skriver ut et sammendrag for agenter som hoppes over. Støttede resume-integrasjoner inkluderer Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory og Qoder. Claude Code håndteres av cmux Claude-wrapperen når Claude-integrasjon er aktivert i Innstillinger.
+`cmux hooks setup` installerer støttede agenter den finner, og skriver ut et sammendrag for agenter som hoppes over. Støttede resume-integrasjoner inkluderer Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder og Qwen Code. Claude Code håndteres av cmux Claude-wrapperen når Claude-integrasjon er aktivert i Innstillinger.
 
 Avanserte brukere og integrasjoner kan knytte en egendefinert gjenopptakskommando til gjeldende terminal-surface. Dette er nyttig for verktøy med egen varig tilstand, som tmux-sesjoner eller egendefinerte agent-CLI-er:
 

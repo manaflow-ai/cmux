@@ -287,7 +287,7 @@ cmux hooks setup codex
 cmux hooks setup --agent opencode
 ```
 
-`cmux hooks setup` ដំឡើង agent ដែលត្រូវបានគាំទ្រដែលវាអាចរកឃើញ និងបោះពុម្ពសេចក្ដីសង្ខេបសម្រាប់ agent ដែលត្រូវបានរំលង។ ការរួមបញ្ចូលការបន្តដំណើរការវិញ (resume) ដែលត្រូវបានគាំទ្ររួមមាន Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory និង Qoder។ Claude Code ត្រូវបានដោះស្រាយដោយ cmux Claude wrapper នៅពេលដែលការរួមបញ្ចូល Claude ត្រូវបានបើកនៅក្នុង Settings។
+`cmux hooks setup` ដំឡើង agent ដែលត្រូវបានគាំទ្រដែលវាអាចរកឃើញ និងបោះពុម្ពសេចក្ដីសង្ខេបសម្រាប់ agent ដែលត្រូវបានរំលង។ ការរួមបញ្ចូលការបន្តដំណើរការវិញ (resume) ដែលត្រូវបានគាំទ្ររួមមាន Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder និង Qwen Code។ Claude Code ត្រូវបានដោះស្រាយដោយ cmux Claude wrapper នៅពេលដែលការរួមបញ្ចូល Claude ត្រូវបានបើកនៅក្នុង Settings។
 
 អ្នកប្រើកម្រិតខ្ពស់ និងការរួមបញ្ចូលអាចភ្ជាប់ពាក្យបញ្ជាបន្តដំណើរការវិញ (resume) ផ្ទាល់ខ្លួនទៅ surface terminal បច្ចុប្បន្ន។ វាមានប្រយោជន៍សម្រាប់ឧបករណ៍ដែលមានស្ថានភាពស្ថិតស្ថេរផ្ទាល់ខ្លួន ដូចជា session tmux ឬ agent CLI ផ្ទាល់ខ្លួន៖
 

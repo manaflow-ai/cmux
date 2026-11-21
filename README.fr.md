@@ -294,7 +294,7 @@ cmux hooks setup --agent opencode
 `cmux hooks setup` installe les agents pris en charge qu'il trouve et affiche un résumé
 des agents ignorés. Les intégrations de reprise prises en charge incluent Claude Code, Codex,
 Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy,
-Factory et Qoder. Claude Code est géré par le wrapper Claude de cmux lorsque l'intégration
+Factory, Qoder et Qwen Code. Claude Code est géré par le wrapper Claude de cmux lorsque l'intégration
 Claude est activée dans les Paramètres.
 
 Les utilisateurs avancés et les intégrations peuvent associer une commande de reprise personnalisée à la

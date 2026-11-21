@@ -287,7 +287,7 @@ cmux hooks setup codex
 cmux hooks setup --agent opencode
 ```
 
-`cmux hooks setup` 會安裝它能找到的受支援 agent，並為略過的 agent 列印摘要。受支援的還原整合包括 Claude Code、Codex、Grok、OpenCode、Pi、Amp、Cursor CLI、Gemini、Rovo Dev、Copilot、CodeBuddy、Factory 和 Qoder。當在設定中啟用了 Claude 整合時，Claude Code 由 cmux Claude wrapper 處理。
+`cmux hooks setup` 會安裝它能找到的受支援 agent，並為略過的 agent 列印摘要。受支援的還原整合包括 Claude Code、Codex、Grok、OpenCode、Pi、Amp、Cursor CLI、Gemini、Rovo Dev、Copilot、CodeBuddy、Factory、Qoder 和 Qwen Code。當在設定中啟用了 Claude 整合時，Claude Code 由 cmux Claude wrapper 處理。
 
 進階使用者和整合可以把自訂還原指令繫結到目前的終端機 surface。這適用於 tmux 工作階段或自訂 agent CLI 等擁有持久狀態的工具：
 

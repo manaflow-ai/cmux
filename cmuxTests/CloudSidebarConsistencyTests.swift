@@ -241,6 +241,7 @@ struct CloudSidebarConsistencyTests {
             "gemini": "AgentIcons/Gemini", "kiro": "AgentIcons/Kiro",
             "copilot": "AgentIcons/Copilot", "codebuddy": "AgentIcons/CodeBuddy",
             "factory": "AgentIcons/Factory", "qoder": "AgentIcons/Qoder",
+            "qwen": "AgentIcons/Qwen",
             "kimi": "AgentIcons/Kimi", "ollama": "AgentIcons/Ollama"
         ]
         for (provider, asset) in expected {

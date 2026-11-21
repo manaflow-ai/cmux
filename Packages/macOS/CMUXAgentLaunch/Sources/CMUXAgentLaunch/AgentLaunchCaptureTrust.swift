@@ -37,6 +37,7 @@ public enum AgentLaunchCaptureTrust {
         "opencode": ["opencode", "omo", "omx", "omc"],
         "pi": ["pi", "omp"],
         "qoder": ["qodercli", "qoder"],
+        "qwen": ["qwen", "qwen-code"],
         "rovodev": ["rovodev", "rovo", "rovo-dev"],
     ]
 
@@ -157,6 +158,9 @@ public enum AgentLaunchCaptureTrust {
             }) {
                 descriptors.insert("campfire")
             }
+            if arguments.dropFirst().contains(where: { Self.isQwenScriptEntrypoint($0) }) {
+                descriptors.insert("qwen")
+            }
             return descriptors
         }
 
@@ -189,5 +193,34 @@ public enum AgentLaunchCaptureTrust {
             return nil
         }
         return URL(fileURLWithPath: value).lastPathComponent.lowercased()
+    }
+
+    /// True when a script-host argv element is the Qwen Code CLI entrypoint
+    /// (`node …/@qwen-code/qwen-code/dist/cli.js`). Shared by capture trust and the
+    /// resume builder so a Node-hosted launch is recognized and replayed with its
+    /// runtime and entrypoint kept together.
+    static func isQwenScriptEntrypoint(_ value: String) -> Bool {
+        let lowered = value.replacingOccurrences(of: "\\", with: "/").lowercased()
+        return lowered.contains("@qwen-code/qwen-code")
+            || lowered.contains("/qwen-code/")
+            || processBasename(value) == "qwen"
+    }
+
+    /// Splits a script-host Qwen argv into a runtime prefix (runtime + any leading
+    /// runtime-only options + the entrypoint) and the remaining agent options, so the
+    /// runtime and entrypoint stay together on replay. The entrypoint may sit after
+    /// leading runtime options (`node --use-system-ca …/cli.js`), mirroring the trust
+    /// check that matches it at any post-executable position. Returns nil when the
+    /// executable is not a script host or no Qwen entrypoint is present.
+    static func qwenScriptHostSplit(executable: String, tail: [String]) -> (prefix: [String], rest: [String])? {
+        let hostBases: Set<String> = ["node", "bun", "deno", "tsx", "ts-node"]
+        let base = URL(fileURLWithPath: executable).lastPathComponent.lowercased()
+        guard hostBases.contains(base),
+              let entryIndex = tail.firstIndex(where: { isQwenScriptEntrypoint($0) }) else {
+            return nil
+        }
+        let prefix = [executable] + Array(tail[0...entryIndex])
+        let rest = Array(tail[(entryIndex + 1)...])
+        return (prefix, rest)
     }
 }

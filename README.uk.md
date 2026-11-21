@@ -287,7 +287,7 @@ cmux hooks setup codex
 cmux hooks setup --agent opencode
 ```
 
-`cmux hooks setup` встановлює підтримувані агенти, які може знайти, та друкує підсумок для пропущених агентів. Підтримувані інтеграції відновлення включають Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory та Qoder. Claude Code обробляється обгорткою cmux Claude, коли інтеграцію Claude увімкнено в Налаштуваннях.
+`cmux hooks setup` встановлює підтримувані агенти, які може знайти, та друкує підсумок для пропущених агентів. Підтримувані інтеграції відновлення включають Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder та Qwen Code. Claude Code обробляється обгорткою cmux Claude, коли інтеграцію Claude увімкнено в Налаштуваннях.
 
 Досвідчені користувачі та інтеграції можуть прив'язати власну команду відновлення до поточної terminal surface. Це корисно для інструментів із власним тривалим станом, наприклад сесій tmux або власних agent CLI:
 

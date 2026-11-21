@@ -244,6 +244,22 @@ extension CMUXCLI {
             feedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
+            name: "qwen", displayName: "Qwen Code", statusKey: "qwen",
+            configDir: ".qwen", configFile: "settings.json", configDirEnvOverride: "QWEN_HOME",
+            createConfigDirIfMissing: true,
+            sessionStoreSuffix: "qwen", disableEnvVar: "CMUX_QWEN_HOOKS_DISABLED",
+            hookMarker: "cmux hooks qwen", format: .nested(timeoutMs: 5000),
+            events: [
+                .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
+                .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
+                .init(agentEvent: "Notification", cmuxSubcommand: "notification"),
+                .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
+                .init(agentEvent: "StopFailure", cmuxSubcommand: "notification"),
+                .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
+            ],
+            feedHookEvents: ["PreToolUse"]
+        ),
+        AgentHookDef(
             name: "kimi", displayName: "Kimi Code", statusKey: "kimi",
             configDir: KimiConfigLocationResolver.kimiCodeConfigDirectory,
             configFile: KimiConfigLocationResolver.configFileName,

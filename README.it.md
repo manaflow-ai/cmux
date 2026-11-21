@@ -294,7 +294,7 @@ cmux hooks setup --agent opencode
 `cmux hooks setup` installa gli agent supportati che trova e stampa un riepilogo
 degli agent saltati. Le integrazioni di ripristino supportate includono Claude Code, Codex,
 Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy,
-Factory e Qoder. Claude Code è gestito dal wrapper Claude di cmux quando l'integrazione
+Factory, Qoder e Qwen Code. Claude Code è gestito dal wrapper Claude di cmux quando l'integrazione
 Claude è abilitata nelle Impostazioni.
 
 Utenti avanzati e integrazioni possono associare un comando di ripristino personalizzato alla

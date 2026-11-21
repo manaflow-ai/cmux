@@ -550,6 +550,8 @@ public struct AgentResumeArgv: Sendable, Equatable {
             return withOption("factory", executable: "droid", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "qoder":
             return withOption("qoder", executable: "qodercli", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+        case "qwen":
+            return qwenResumeArgv(sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "kimi":
             return withOption("kimi", executable: "kimi", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "muse":
@@ -590,6 +592,23 @@ public struct AgentResumeArgv: Sendable, Equatable {
             return nil
         }
         return ["claude", "--resume", sessionId] + preserved
+    }
+
+    /// Builds the Qwen resume argv. A Node-hosted capture (`node …/cli.js …`) must keep
+    /// the runtime and the Qwen entrypoint together, otherwise resume would replay
+    /// `node --resume <id>` and never launch the CLI.
+    private func qwenResumeArgv(
+        sessionId: String,
+        executablePath: String?,
+        arguments: [String]
+    ) -> [String]? {
+        let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "qwen")
+        if let split = AgentLaunchCaptureTrust.qwenScriptHostSplit(executable: parts.executable, tail: parts.tail) {
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "qwen", args: split.rest) else { return nil }
+            return split.prefix + ["--resume", sessionId] + preserved
+        }
+        guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "qwen", args: parts.tail) else { return nil }
+        return [parts.executable, "--resume", sessionId] + preserved
     }
 
     private func withOption(

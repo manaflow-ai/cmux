@@ -823,8 +823,8 @@ struct AgentHookDeliveryQueueTests {
         let agents = [
             "claude", "codex", "grok", "opencode", "pi", "omp", "campfire",
             "amp", "cursor", "gemini", "kiro", "antigravity", "rovodev",
-            "hermes-agent", "copilot", "codebuddy", "factory", "qoder", "kimi",
-            "future-agent",
+            "hermes-agent", "copilot", "codebuddy", "factory", "qoder", "qwen",
+            "kimi", "future-agent",
         ]
         let subcommands = [
             "session-start", "prompt-submit", "stop", "notification",

@@ -509,6 +509,7 @@ struct CmuxVaultAgentRegistry: Sendable {
             CmuxVaultAgentRegistration.builtInGrok,
             CmuxVaultAgentRegistration.builtInKimi,
             CmuxVaultAgentRegistration.builtInMuse,
+            CmuxVaultAgentRegistration.builtInQwen,
             CmuxVaultAgentRegistration.builtInHermes,
         ]
         for path in configPaths(homeDirectory: homeDirectory, workingDirectory: workingDirectory, environment: environment, fileManager: fileManager) {

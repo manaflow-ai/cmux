@@ -360,6 +360,141 @@ extension AgentLaunchSanitizer {
         ]
     )
 
+    // Qwen Code is a gemini-cli fork with Claude-compatible hooks. It resumes a
+    // persisted session with `qwen --resume <id>`; sessions are namespaced by the
+    // launch cwd (~/.qwen/projects/<encoded-cwd>/), so the restore cd's there.
+    static let qwenPolicy = Policy(
+        valueOptions: [
+            "--add-dir",
+            "--advisor",
+            "--allowed-mcp-server-names",
+            "--allowed-tools",
+            "--append-system-prompt",
+            "--approval-mode",
+            "--auth-type",
+            "--channel",
+            "--core-tools",
+            "--disable-mcp-server",
+            "--disabled-slash-commands",
+            "--exclude-tools",
+            "--extensions",
+            "-e",
+            "--fallback-model",
+            "--include-directories",
+            "--max-session-turns",
+            "--max-subagent-depth",
+            "--max-tool-calls",
+            "--max-wall-time",
+            "--mcp-config",
+            "--model",
+            "-m",
+            "--openai-api-key",
+            "--openai-base-url",
+            "--openai-logging-dir",
+            "--output-style",
+            "--prompt-interactive",
+            "-i",
+            "--proxy",
+            "--resume",
+            "-r",
+            "--sandbox",
+            "-s",
+            "--sandbox-image",
+            "--session-id",
+            "--system-prompt",
+            "--worktree"
+        ],
+        optionalValueOptions: [
+            "--resume",
+            "-r",
+            "--sandbox",
+            "-s",
+            "--worktree"
+        ],
+        booleanOptions: [
+            "--bare",
+            "--chat-recording",
+            "--continue",
+            "-c",
+            "--debug",
+            "-d",
+            "--experimental-lsp",
+            "--fork-session",
+            "--insecure",
+            "--openai-logging",
+            "--restore-ask-user-question",
+            "--safe-mode",
+            "--screen-reader",
+            "--yolo",
+            "-y"
+        ],
+        variadicOptions: [
+            "--add-dir",
+            "--allowed-mcp-server-names",
+            "--allowed-tools",
+            "--core-tools",
+            "--disable-mcp-server",
+            "--disabled-slash-commands",
+            "--exclude-tools",
+            "--extensions",
+            "-e",
+            "--include-directories"
+        ],
+        nonRestorableCommands: [
+            "agents",
+            "attach",
+            "autofix-pr",
+            "auth",
+            "batch",
+            "board",
+            "channel",
+            "daemon",
+            "extensions",
+            "hooks",
+            "mcp",
+            "memory",
+            "review",
+            "sandbox",
+            "serve",
+            "sessions",
+            "update"
+        ],
+        droppedOptions: [
+            "--continue",
+            "-c",
+            "--fork-session",
+            "--openai-api-key",
+            "--prompt-interactive",
+            "-i",
+            "--resume",
+            "-r",
+            "--session-id",
+            "--worktree"
+        ],
+        droppedOptionPrefixes: [
+            "--openai-api-key=",
+            "--prompt-interactive=",
+            "--resume=",
+            "--session-id=",
+            "--worktree="
+        ],
+        rejectOptions: [
+            "--acp",
+            "--include-partial-messages",
+            "--input-file",
+            "--input-format",
+            "--json-fd",
+            "--json-file",
+            "--json-schema",
+            "--list-extensions",
+            "-l",
+            "--output-format",
+            "-o",
+            "--prompt",
+            "-p"
+        ]
+    )
+
     // kiro-cli flag widths for session restore. `--resume` / `-r` are boolean
     // (resume the previous conversation from the current directory; they take
     // no value), so they live in droppedOptions only — dropping them must not
