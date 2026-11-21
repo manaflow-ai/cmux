@@ -7376,6 +7376,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // the chat it switches to, until that chat is drawn. Until then the page has not drawn what it is.
   const [adoptingSession, setAdoptingSession] = useState<string>();
   const [restoredTailSession, setRestoredTailSession] = useState<string>();
+  // The restored tail's rows of a chat kept while running (`watchRestoredTail`), while they are what the pane holds:
+  // they cannot draw it working. Over the last launch's copy, which draws it working (its live line at the bottom),
+  // they are not the chat read: the copy handed over to them at the handshake dropped the live line until the open
+  // drew the chat a frame or two later (first-load-after-restart MODE=native-ready RUNNING=1, "bottom row
+  // thinking-live replaced by activity-483"). The copy stays for the open's own frame instead.
+  const [restoredRunning, setRestoredRunning] = useState<AcpmuxSnapshot>();
   // A New Tab page is what it is from its first render: its frame draws before the handshake
   // (cx-0rpl.10), and the host shows no loading mark over it. A chat the handshake named is what it
   // is once acpmux attached it: before, the page drew an empty transcript with stand-in chips, and
@@ -7408,6 +7414,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       keepsLastFrame: showsChatSnapshot(),
       chatRead:
         clientSnapshot.chatRead === true &&
+        clientSnapshot !== restoredRunning &&
         clientSnapshot.sessionId !== undefined &&
         adoptionDrawn &&
         (draftSettled === clientSnapshot.sessionId || draftWaitOver === clientSnapshot.sessionId),
@@ -7527,7 +7534,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   useEffect(() => {
     const selection = sessionSelectionToken.current;
     const adoption = adoptionTicket.current;
-    return watchRestoredTail((next) => {
+    return watchRestoredTail((next, keptRunning) => {
       if (
         handshakenRef.current ||
         selection !== sessionSelectionToken.current ||
@@ -7540,6 +7547,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       snapshotRef.current = next;
       setSnapshot(next);
       setRestoredTailSession(next.sessionId);
+      setRestoredRunning(keptRunning ? next : undefined);
       setContextKnown(true);
     });
   }, []);
