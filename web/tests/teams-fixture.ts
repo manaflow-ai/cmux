@@ -498,10 +498,12 @@ export class MemoryTeamSeatQueue implements TeamSeatQueue {
   async withTeamLock<T>(stackTeamId: string, work: () => Promise<T>): Promise<T | typeof TEAM_SEATS_BUSY> {
     if (this.locked.has(stackTeamId)) return TEAM_SEATS_BUSY;
     this.locked.add(stackTeamId);
+    this.events.push(`lock:${stackTeamId}`);
     try {
       return await work();
     } finally {
       this.locked.delete(stackTeamId);
+      this.events.push(`unlock:${stackTeamId}`);
     }
   }
 
