@@ -81,6 +81,9 @@ final class MacScreenRdConnection: BrowserStreamConnection, @unchecked Sendable 
         rd.rbInput(json: String(decoding: input, as: UTF8.self))
     }
 
+    /// The phone shows one desktop: no media lane to hand between tabs.
+    func setVisible(_ visible: Bool) {}
+
     func requestKeyframe() { rd.requestKeyframe() }
     func noteDecode(micros: UInt32) { rd.noteDecode(decodeUs: micros) }
     func nowMicros() -> UInt64 { rd.nowUs() }
@@ -94,7 +97,10 @@ final class MacScreenRdConnection: BrowserStreamConnection, @unchecked Sendable 
         stats.framesLost = raw.framesLost
         stats.clockOffsetMicros = raw.clockOffsetUs
         stats.clockRTTMicros = raw.clockRttUs
+        stats.videoTrack = raw.videoTrack
         stats.videoCarrier = raw.videoCarrier
+        stats.trackFramesDropped = raw.trackFramesDropped
+        stats.trackPacketsRecovered = raw.trackPacketsRecovered
         return stats
     }
 

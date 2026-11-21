@@ -664,8 +664,11 @@ fn rb_input_events(json: &str, size: Option<(u32, u32)>) -> Vec<InputEvent> {
     let number = |name| event.get(name).and_then(Value::as_f64).filter(|v| v.is_finite());
     match event.get("e").and_then(Value::as_str) {
         Some("pointer") => {
-            let (Some((w, h)), Some(x), Some(y)) = (size, number("x"), number("y")) else { return Vec::new() };
-            let pixel = |v: f64, side: u32| (v.clamp(0.0, 1.0) * f64::from(side.saturating_sub(1))).round() as i32;
+            let (Some((w, h)), Some(x), Some(y)) = (size, number("x"), number("y")) else {
+                return Vec::new();
+            };
+            let pixel =
+                |v: f64, side: u32| (v.clamp(0.0, 1.0) * f64::from(side.saturating_sub(1))).round() as i32;
             let at = InputEvent::Pointer { x: pixel(x, w), y: pixel(y, h) };
             match event.get("kind").and_then(Value::as_str) {
                 Some("down") => vec![at, InputEvent::Button { button: 0, down: true }],
@@ -864,7 +867,10 @@ mod tests {
             rb_input_events(&touch("down", 0.5, 0.5), size),
             vec![InputEvent::Pointer { x: 960, y: 540 }, InputEvent::Button { button: 0, down: true }]
         );
-        assert_eq!(rb_input_events(&touch("move", 1.5, -1.0), size), vec![InputEvent::Pointer { x: 1919, y: 0 }]);
+        assert_eq!(
+            rb_input_events(&touch("move", 1.5, -1.0), size),
+            vec![InputEvent::Pointer { x: 1919, y: 0 }]
+        );
         assert_eq!(
             rb_input_events(&touch("up", 0.0, 1.0), size),
             vec![InputEvent::Pointer { x: 0, y: 1079 }, InputEvent::Button { button: 0, down: false }]
@@ -878,10 +884,22 @@ mod tests {
         let key = |code: &str, down: bool| {
             format!(r#"{{"e":"key","code":"{code}","key":"{code}","text":"","down":{down}}}"#)
         };
-        assert_eq!(rb_input_events(&key("Enter", true), None), vec![InputEvent::Key { usage: 0x28, down: true }]);
-        assert_eq!(rb_input_events(&key("Backspace", false), None), vec![InputEvent::Key { usage: 0x2A, down: false }]);
-        assert_eq!(rb_input_events(&key("KeyZ", true), None), vec![InputEvent::Key { usage: 0x1D, down: true }]);
-        assert_eq!(rb_input_events(&key("Digit0", true), None), vec![InputEvent::Key { usage: 0x27, down: true }]);
+        assert_eq!(
+            rb_input_events(&key("Enter", true), None),
+            vec![InputEvent::Key { usage: 0x28, down: true }]
+        );
+        assert_eq!(
+            rb_input_events(&key("Backspace", false), None),
+            vec![InputEvent::Key { usage: 0x2A, down: false }]
+        );
+        assert_eq!(
+            rb_input_events(&key("KeyZ", true), None),
+            vec![InputEvent::Key { usage: 0x1D, down: true }]
+        );
+        assert_eq!(
+            rb_input_events(&key("Digit0", true), None),
+            vec![InputEvent::Key { usage: 0x27, down: true }]
+        );
         assert_eq!(
             rb_input_events(r#"{"e":"ime_commit","text":"héllo","replacement":null}"#, None),
             vec![InputEvent::Text("héllo".into())]

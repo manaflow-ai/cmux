@@ -314,6 +314,8 @@ public final class ScreenSharingService {
 
     /// The tap waiting for the list (nil: none). Its row shows it is connecting.
     public private(set) var pendingSelection: PendingSelection?
+    /// The last screen link's Mac (lowercased id) and its `cmux.rd/1` session: its next connect streams so.
+    @ObservationIgnored private var linkRd: (hostID: String, target: MacScreenRdTarget)?
 
     /// The list changed or was read: keep it for the next showing and carry out a tap made on a
     /// Mac from the last list. A Mac gone from the read list says so.
@@ -357,9 +359,12 @@ public final class ScreenSharingService {
     /// A screen link (`cmux://mac-screen?device=…`): the device `id` connects with `scope` once the
     /// account's list is read; a device the list doesn't hold says so (the not-found alert), and
     /// one that can't be shared now says why, as a tap on it in the list would. `name` (the link's
-    /// label) only names the alert until the list does.
-    public func open(deviceID id: String, name: String?, scope: SessionScope) {
+    /// label) only names the alert until the list does. The session streams over `cmux.rd/1`
+    /// (the joined Mac's share host refuses WebRTC), on `display` (a `CGDirectDisplayID`; nil:
+    /// the main display), with control only when `scope` is `.full`.
+    public func open(deviceID id: String, name: String?, scope: SessionScope, display: String? = nil) {
         let id = id.lowercased()
+        linkRd = (id, MacScreenRdTarget(displayID: display.flatMap { UInt32($0) }, control: scope == .full))
         let listedName = (discovery == .listed ? macs : preferences.lastMacs(for: configuration.accountID))
             .first { $0.id.lowercased() == id }?.name
         let hostName = listedName ?? name ?? String(localized: "That Mac")
@@ -418,6 +423,10 @@ public final class ScreenSharingService {
             }
             prepareViewer(viewer)
             self.viewer = viewer
+        }
+        if let link = linkRd, link.hostID == mac.id.lowercased() {
+            linkRd = nil
+            viewer.rd = link.target
         }
         viewer.request(scope)
         return viewer
