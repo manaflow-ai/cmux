@@ -211,12 +211,6 @@
   "cmux-next-shim-cpp.yml": {
    "shim-downloads-cpp": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
   },
-  "cmux-next-size-budget.yml": {
-   "plan": "its outputs feed later jobs; a skipped run leaves them empty; needed by size-budget, web-base, web-head: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.action, github.event.changes), not only the tree",
-   "web-base": "its outputs feed later jobs; a skipped run leaves them empty; needed by size-budget: a skip would skip them or read as no verdict; checks out ${{ needs.plan.outputs.base }}, not the run's commit",
-   "web-head": "its outputs feed later jobs; a skipped run leaves them empty; needed by size-budget: a skip would skip them or read as no verdict",
-   "size-budget": "reads pull request metadata or the base (github.event.pull_request.body), not only the tree"
-  },
   "cmux-next-terminal.yml": {
    "rust-terminal-linux": "new on feat-cmux-next after this map's 52-PR replay: no runs measured yet, so a receipt write is not shown to pay; wire it in a later slice once its pull-request minutes are known",
    "swift-terminal-linux": "new on feat-cmux-next after this map's 52-PR replay: no runs measured yet, so a receipt write is not shown to pay; wire it in a later slice once its pull-request minutes are known",
@@ -347,7 +341,6 @@
    "ci": "calls a reusable workflow: no step here can record its pass",
    "cmux-next-guards": "calls a reusable workflow: no step here can record its pass",
    "cmux-next-pr-autofix": "calls a reusable workflow: no step here can record its pass",
-   "cmux-next-size-budget": "calls a reusable workflow: no step here can record its pass",
    "pr-checks": "calls a reusable workflow: no step here can record its pass",
    "rust-workspaces": "calls a reusable workflow: no step here can record its pass",
    "web-validation": "calls a reusable workflow: no step here can record its pass"
@@ -447,6 +440,10 @@
   },
   "r2-upload-tests.yml": {
    "r2-upload-tests": "publish, release, deploy, live or cloud work (by its name)"
+  },
+  "pr-router.yml": {
+   "route": "its outputs feed later jobs; a skipped run leaves them empty",
+   "size-budget": "calls a reusable workflow: no step here can record its pass"
   },
   "relay-tls.yml": {
    "diagnostic-presentation": "below break-even: 1 runs, 4 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves",
