@@ -12,6 +12,7 @@
 #   scripts/cmux-next/cloud-dev-stack.sh journey --tag T [-- JOURNEY ARGS]
 #   scripts/cmux-next/cloud-dev-stack.sh logs --tag T [-n LINES]
 #   scripts/cmux-next/cloud-dev-stack.sh touch --tag T        # count as activity (keeps an idle stack up)
+#   scripts/cmux-next/cloud-dev-stack.sh stop --tag T         # stop its workerd now; its next request wakes it
 #   scripts/cmux-next/cloud-dev-stack.sh down --tag T         # stop, delete the stack, its credentials and branches
 #   scripts/cmux-next/cloud-dev-stack.sh gc                   # clean up after stacks the VM reaped
 #
@@ -37,9 +38,15 @@
 # Credentials go from pscale straight into the VM over SSH stdin, mode 0600 there; nothing is printed or
 # written on this Mac.
 #
-# Lifetime: the VM stops a stack after 2 h with no request and no up/touch (--idle-min, or
-# CMUX_WDEV_IDLE_SECS on the VM), and 12 h after its last `up` in any case. A reaped stack keeps only its
-# registry entry; the next up/down/gc from any Mac deletes its credentials and branch.
+# Lifetime: as long as a dogfooded build may use it. Every stack port goes through the VM's router
+# (cloud-dev-stack/router.mjs), which counts each request as activity. After 2 h with no request and no
+# up/touch (--idle-min, or CMUX_WDEV_IDLE_SECS on the VM) the stack's workerd stops, keeping its files, Durable
+# Object data, credentials and ports; its next request wakes it (the router holds that request until the stack
+# answers, about 6 s measured). The VM keeps at most 16 running: a start or wake that does not fit stops the least
+# recently used running stack. A stack is released 7 days after its last `up` (CMUX_WDEV_RETAIN_SECS), or
+# earlier when the VM keeps more than 48 stopped ones or runs short of disk (least recently used first); a
+# released stack keeps only its registry entry, and the next up/down/gc from any Mac deletes its credentials and
+# branch. Its database credentials live 8 days, past the retention.
 #
 # Host: CMUX_DEV_STACK_HOST (default cmux-dev-backend-1, hq's dev-backend VM; any tailnet Linux host with
 # sudo, systemd and Tailscale Serve works) or --host. The VM side is scripts/cmux-next/cloud-dev-stack/vm_stack.py.
@@ -47,6 +54,7 @@
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 helper="$root/scripts/cmux-next/cloud-dev-stack/vm_stack.py"
+router="$root/scripts/cmux-next/cloud-dev-stack/router.mjs"
 HOST="${CMUX_DEV_STACK_HOST:-cmux-dev-backend-1}"
 VM_USER="${CMUX_DEV_STACK_USER:-ubuntu}"
 BASE="${CMUX_DEV_STACK_BASE:-/srv/cmux-dev/wrangler}"
@@ -55,7 +63,7 @@ PG_DB="${CMUX_DEV_STACK_PG_DB:-cmux-next-deprecated}"   # PlanetScale Postgres `
 MYSQL_DB="${CMUX_DEV_STACK_MYSQL_DB:-cmux-next-vitess}"
 PS_ORG=cmux
 DEV_BRANCH=development
-CRED_TTL=14h   # outlives the 12 h cap; an up keeps a credential only while it does (vm_stack.py cred_fresh)
+CRED_TTL=192h  # outlives the 7 d retention; an up keeps a credential only while it does (vm_stack.py cred_fresh)
 SYNC_PATHS=(backend libs clients/ts workers/cmux-vm/sdk cmux-next-ios/backend workers/device-hub)
 
 usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
@@ -79,7 +87,7 @@ while [ $# -gt 0 ]; do
     *) die "unknown argument $1 (journey arguments go after --)" ;;
   esac
 done
-case "$cmd" in up|down|journey|logs|touch|url) [ -n "$tag" ] || die "--tag NAME is required" ;; esac
+case "$cmd" in up|down|journey|logs|touch|url|stop) [ -n "$tag" ] || die "--tag NAME is required" ;; esac
 case "$tag" in *[!a-z0-9-]*|-*) die "--tag NAME: lowercase letters, digits and -" ;; esac
 case "$lines" in ""|*[!0-9]*) die "-n LINES: a number" ;; esac
 case "$idle_min" in ""|*[!0-9]*) die "--idle-min N: minutes" ;; esac
@@ -94,14 +102,16 @@ ps() { pscale "$@" --org "$PS_ORG" --format json; }
 ensure_helper() {
   "${SSH[@]}" true 2>/dev/null || die "cannot reach $VM_USER@$HOST over SSH (tailnet). hq: scripts/dev-backend.sh vm-status wakes a stopped VM."
   local want have
-  want="$(shasum -a 256 "$helper" | cut -d' ' -f1)"
-  have="$("${SSH[@]}" "sha256sum $BASE/bin/vm_stack.py 2>/dev/null | cut -d' ' -f1" || true)"
+  want="$(cat "$helper" "$router" | shasum -a 256 | cut -d' ' -f1)"
+  have="$("${SSH[@]}" "cat $BASE/bin/vm_stack.py $BASE/bin/router.mjs 2>/dev/null | sha256sum | cut -d' ' -f1" || true)"
   if [ "$want" != "$have" ]; then
     "${SSH[@]}" "mkdir -p -m 700 $BASE/bin"
-    # A per-caller name: two ups at once both see an old copy and both install it.
-    local tmp="vm_stack.py.new.$$.$RANDOM"
-    scp -q -o BatchMode=yes "$helper" "$VM_USER@$HOST:$BASE/bin/$tmp"
-    "${SSH[@]}" "mv -f $BASE/bin/$tmp $BASE/bin/vm_stack.py"
+    # Per-caller names: two ups at once both see an old copy and both install it. The router moves first:
+    # the new helper's install restarts it.
+    local tmp="new.$$.$RANDOM"
+    scp -q -o BatchMode=yes "$router" "$VM_USER@$HOST:$BASE/bin/router.mjs.$tmp"
+    scp -q -o BatchMode=yes "$helper" "$VM_USER@$HOST:$BASE/bin/vm_stack.py.$tmp"
+    "${SSH[@]}" "mv -f $BASE/bin/router.mjs.$tmp $BASE/bin/router.mjs && mv -f $BASE/bin/vm_stack.py.$tmp $BASE/bin/vm_stack.py"
     vm install >/dev/null
   fi
 }
@@ -131,7 +141,7 @@ migration_kinds() {  # prints pg and/or mysql when this branch changes that data
 
 stack_entry() { vm status --tag "$tag" | json "s=d['stacks']; print(json.dumps(s[0] if s else {}))"; }
 
-cred_fresh() {  # cred_fresh KIND MODE: the VM holds a credential of that mode that outlives this up's 12 h cap
+cred_fresh() {  # cred_fresh KIND MODE: the VM holds a credential of that mode that outlives the stack's retention (8 d)
   vm cred-fresh --tag "$tag" --kind "$1" --mode "$2" | json "sys.exit(0 if d['fresh'] else 1)"
 }
 
@@ -278,7 +288,8 @@ case "$cmd" in
     echo "Hub:     $hub_url   (workers/device-hub)"
     if [ -n "$platform" ]; then echo "Platform: in the same workerd session, as the API's PLATFORM binding"; fi
     echo "Journey: scripts/cmux-next/cloud-dev-stack.sh journey --tag $tag"
-    echo "Stop:    scripts/cmux-next/cloud-dev-stack.sh down --tag $tag   (else the VM stops it after $(( idle_min > 0 ? idle_min : 120 )) min without a request)"
+    echo "Lifetime: idle $(( idle_min > 0 ? idle_min : 120 )) min stops it, its next request wakes it; released $(json "print(d.get('retain_days') or 7)" <<<"$out") d after this up"
+    echo "Delete:  scripts/cmux-next/cloud-dev-stack.sh down --tag $tag"
     if [ "$journey" = 1 ]; then run_journey "$url" "${journey_args[@]+"${journey_args[@]}"}"; fi
     ;;
   status)
@@ -286,7 +297,7 @@ case "$cmd" in
     vm status ${tag:+--tag "$tag"} | python3 -c "
 import json,sys
 d=json.load(sys.stdin); c=d['capacity']
-print(f\"host: MemAvailable {c['mem_available_gib']} GiB (floor {c['min_mem_gib']}), disk free {c['disk_free_gib']} GiB (floor {c['min_disk_gib']}), stacks {c['stacks_running']}/{c['max_stacks']}, classic registrations {c['classic_registered']}\")
+print(f\"host: MemAvailable {c['mem_available_gib']} GiB (floor {c['min_mem_gib']}), disk free {c['disk_free_gib']} GiB (floor {c['min_disk_gib']}), running {c['stacks_running']}/{c['max_stacks']}, stopped {c.get('stacks_stopped', 0)}/{c.get('max_kept', '-')}, classic registrations {c['classic_registered']}\")
 for s in d['stacks']:
     db=', '.join(f\"{k}:{v['mode']}:{v['database']}/{v['branch']}\" for k,v in s['db'].items())
     print(f\"{s['tag']:<24} {s['state']:<8} {s['url'] or '-':<52} idle {s['idle_min']}/{s['idle_limit_min']} min  mem {s['mem_mib'] or '-'} MiB  {s['commit'] or ''}{' dirty' if s['dirty'] else ''}  {db}  {s['reason'] or ''}\")"
@@ -297,12 +308,14 @@ for s in d['stacks']:
     run_journey "$url" "${journey_args[@]+"${journey_args[@]}"}"
     ;;
   url)
-    url="$(stack_entry | json "u=d.get('urls') or {'api': d.get('url')}; print(u.get('$service') or '' if d.get('state') == 'running' else '')")"
-    [ -n "$url" ] || { echo "no running stack $tag (cloud-dev-stack.sh up --tag $tag first)" >&2; exit 3; }
+    # A stopped stack counts: its next request wakes it.
+    url="$(stack_entry | json "u=d.get('urls') or {'api': d.get('url')}; print(u.get('$service') or '' if d.get('state') in ('running', 'stopped') else '')")"
+    [ -n "$url" ] || { echo "no stack $tag (cloud-dev-stack.sh up --tag $tag first)" >&2; exit 3; }
     echo "$url"
     ;;
   logs) vm logs --tag "$tag" -n "$lines" ;;
   touch) vm touch --tag "$tag" ;;
+  stop) ensure_helper; vm stop --tag "$tag" ;;
   down)
     ensure_helper
     echo "== down $tag"

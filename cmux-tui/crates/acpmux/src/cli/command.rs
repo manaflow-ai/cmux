@@ -29,6 +29,26 @@ pub struct Cli {
     pub command: Option<Command>,
 }
 
+/// Whether the engine accepts this root command name or alias.
+pub fn owns_word(word: &str) -> bool {
+    use clap::CommandFactory as _;
+    Cli::command().find_subcommand(word).is_some() || matches!(word, "stop" | "--skill" | "--guide")
+}
+
+#[cfg(test)]
+mod agent_front_door_tests {
+    use super::owns_word;
+
+    #[test]
+    fn engine_root_aliases_share_the_command_grammar() {
+        for word in ["ls", "list-sessions", "grep", "prompt", "session", "pending", "bg", "notices"]
+        {
+            assert!(owns_word(word), "missing engine word {word}");
+        }
+        assert!(!owns_word("not-a-command"));
+    }
+}
+
 /// Clap derives the canonical-name lookup; these are the additional root spellings it accepts.
 pub(super) mod aliases {
     macro_rules! root_aliases {
@@ -60,6 +80,7 @@ pub(super) mod aliases {
         KILL => ["kill-session"],
         RENAME => ["rename-session"],
         SHUTDOWN => ["kill-server"],
+        SEARCH => ["grep"],
     }
 }
 
@@ -201,6 +222,7 @@ pub enum Command {
         limit: usize,
     },
     /// Search prompts and replies in every session here and on this machine's peers.
+    #[command(aliases = aliases::SEARCH)]
     Search {
         /// Words to find together in one prompt or reply, in any case or order.
         #[arg(required = true)]
