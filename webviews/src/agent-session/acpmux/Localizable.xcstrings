@@ -196479,6 +196479,570 @@
         }
       }
     },
+    "header.searchChats": {
+      "comment": "Agent pane chat header: tooltip and accessible name of the search chip that opens the command palette's chats page.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البحث في الدردشات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pretraži chatove"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søg i chats"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats durchsuchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search Chats"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar chats"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher dans les chats"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerca nelle chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットを検索"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វែងរកការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 검색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søk i chatter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szukaj czatów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pesquisar chats"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск чатов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ค้นหาแชต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbetlerde ara"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пошук чатів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tìm kiếm cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索对话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜尋對話"
+          }
+        }
+      }
+    },
+    "header.glassChats": {
+      "comment": "Agent pane chat header: subtitle under the workspace name, how many chats it has. {count} is the number as the reader's language writes it (1,204); its plural form follows {n}.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} دردشة"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "دردشة واحدة ({count})"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "دردشتان ({count})"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} دردشات"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} دردشة"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} دردشة"
+                }
+              }
+            }
+          }
+        },
+        "bs": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} chat"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} chata"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} chatova"
+                }
+              }
+            }
+          }
+        },
+        "da": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} chat"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} chats"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} Chat"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} Chats"
+                }
+              }
+            }
+          }
+        },
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} chat"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} chats"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} chat"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} de chats"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} chats"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} chat"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} de chats"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} chats"
+                }
+              }
+            }
+          }
+        },
+        "it": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} chat"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} di chat"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} chat"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} 件のチャット"
+                }
+              }
+            }
+          }
+        },
+        "km": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} ការជជែក"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "채팅 {count}개"
+                }
+              }
+            }
+          }
+        },
+        "nb": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} chat"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} chatter"
+                }
+              }
+            }
+          }
+        },
+        "pl": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} czat"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} czaty"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} czatów"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} czatu"
+                }
+              }
+            }
+          }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} chat"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} de chats"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} chats"
+                }
+              }
+            }
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} чат"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} чата"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} чатов"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} чата"
+                }
+              }
+            }
+          }
+        },
+        "th": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} แชต"
+                }
+              }
+            }
+          }
+        },
+        "tr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} sohbet"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} sohbet"
+                }
+              }
+            }
+          }
+        },
+        "uk": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} чат"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} чати"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} чатів"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} чату"
+                }
+              }
+            }
+          }
+        },
+        "vi": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} cuộc trò chuyện"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} 个对话"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{count} 個對話"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "header.terminal": {
       "comment": "Agent pane chat header",
       "extractionState": "manual",
@@ -433175,127 +433739,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتحقق cmux من الرمز قبل حفظه"
+            "value": "يتحقق cmux من الرمز قبل حفظه. يبقى الرمز في سلسلة مفاتيح هذا الـ Mac، ولا تحصل عليه أجهزة Cloud إلا لتشغيل محادثتك."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux provjerava token prije nego što ga sačuva"
+            "value": "cmux provjerava token prije nego što ga sačuva. Token ostaje u privjesku ključeva ovog Maca; Cloud mašine ga dobijaju samo da pokrenu tvoj chat."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux tjekker tokenet, før det gemmes"
+            "value": "cmux tjekker tokenet, før det gemmes. Tokenet bliver i denne Macs nøglering; Cloud-maskiner får det kun for at køre din chat."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux prüft das Token, bevor es gespeichert wird"
+            "value": "cmux prüft das Token, bevor es gespeichert wird. Das Token bleibt im Schlüsselbund dieses Macs; Cloud-Maschinen erhalten es nur, um deinen Chat auszuführen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux checks the token before saving it"
+            "value": "cmux checks the token before saving it. It stays in this Mac's Keychain; Cloud machines get it only to run your chat."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux comprueba el token antes de guardarlo"
+            "value": "cmux comprueba el token antes de guardarlo. El token se queda en el llavero de este Mac; las máquinas de Cloud solo lo reciben para ejecutar tu chat."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux vérifie le jeton avant de l’enregistrer"
+            "value": "cmux vérifie le jeton avant de l’enregistrer. Le jeton reste dans le trousseau de ce Mac ; les machines Cloud ne le reçoivent que pour exécuter votre conversation."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux verifica il token prima di salvarlo"
+            "value": "cmux verifica il token prima di salvarlo. Il token resta nel portachiavi di questo Mac; le macchine Cloud lo ricevono solo per eseguire la tua chat."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux は保存する前にトークンを確認します"
+            "value": "cmux は保存する前にトークンを確認します。トークンはこの Mac のキーチェーンに保存され、Cloud マシンにはチャットを実行するときだけ渡されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux ពិនិត្យ token មុនពេលរក្សាទុក"
+            "value": "cmux ពិនិត្យ token មុនពេលរក្សាទុក។ ថូខឹននៅក្នុង Keychain នៃ Mac នេះ ហើយម៉ាស៊ីន Cloud ទទួលបានវាតែដើម្បីដំណើរការការជជែករបស់អ្នកប៉ុណ្ណោះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 저장하기 전에 토큰을 확인합니다"
+            "value": "cmux가 저장하기 전에 토큰을 확인합니다. 토큰은 이 Mac의 키체인에 보관되며, Cloud 머신은 채팅을 실행할 때만 받습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux sjekker tokenet før det lagres"
+            "value": "cmux sjekker tokenet før det lagres. Tokenet blir i nøkkelringen på denne Macen; Cloud-maskiner får det bare for å kjøre chatten din."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux sprawdza token przed zapisaniem"
+            "value": "cmux sprawdza token przed zapisaniem. Token zostaje w pęku kluczy tego Maca; maszyny Cloud dostają go tylko po to, by uruchomić Twój czat."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O cmux verifica o token antes de salvá-lo"
+            "value": "O cmux verifica o token antes de salvá-lo. O token fica nas Chaves deste Mac; as máquinas do Cloud só o recebem para executar seu chat."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux проверяет токен перед сохранением"
+            "value": "cmux проверяет токен перед сохранением. Токен остаётся в связке ключей этого Mac; машины Cloud получают его только для запуска вашего чата."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux ตรวจสอบโทเค็นก่อนบันทึก"
+            "value": "cmux ตรวจสอบโทเค็นก่อนบันทึก โทเค็นจะอยู่ในพวงกุญแจของ Mac เครื่องนี้ และเครื่อง Cloud จะได้รับเฉพาะตอนเรียกใช้แชทของคุณเท่านั้น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux token'ı kaydetmeden önce denetler"
+            "value": "cmux token'ı kaydetmeden önce denetler. Token bu Mac'in Anahtar Zinciri'nde kalır; Cloud makineleri onu yalnızca sohbetinizi çalıştırmak için alır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux перевіряє токен перед збереженням"
+            "value": "cmux перевіряє токен перед збереженням. Токен залишається у в’язці ключів цього Mac; машини Cloud отримують його лише для запуску вашого чату."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux kiểm tra token trước khi lưu"
+            "value": "cmux kiểm tra token trước khi lưu. Token nằm trong Chuỗi khóa của máy Mac này; máy Cloud chỉ nhận nó để chạy cuộc trò chuyện của bạn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 会在保存前检查令牌"
+            "value": "cmux 会在保存前检查令牌。令牌保存在这台 Mac 的钥匙串中；Cloud 机器只在运行你的聊天时才会拿到它。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 會在儲存前檢查權杖"
+            "value": "cmux 會在儲存前檢查權杖。權杖保存在這台 Mac 的鑰匙圈中；Cloud 機器只在執行你的聊天時才會取得它。"
           }
         }
       }

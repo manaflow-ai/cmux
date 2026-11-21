@@ -36,10 +36,9 @@ const BRIEF_LIST: usize = 3;
 const BRIEF_FIELD: usize = 120;
 
 /// The instruction the server gives with the tool.
-pub(super) const STEER: &str = "Before you change files another agent may be working on, or when \
-you wonder who owns an area, call who_else (with the files, a topic, or nothing for what you \
-edited) instead of digging through git log, plans or PR lists: it lists the live sessions on every \
-harness and machine that touch them, with their branch and pull request.";
+pub(super) const STEER: &str = "Before changing files another agent may be working on, or to \
+learn who owns an area, call who_else (files, topic, or nothing) instead of digging through git \
+log or PR lists.";
 
 pub(super) fn tool() -> Value {
     json!({
