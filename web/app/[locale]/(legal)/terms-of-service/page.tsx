@@ -310,8 +310,11 @@ export default async function TermsOfServicePage() {
         The cmux notetaker records the audio and the chat of the meetings that
         you send it to, or that match the calendar rules you turn on (on Webex
         it receives the chat but cannot post in it), and makes a transcript and
-        notes.
-        While it is in a meeting, the notetaker also reads the live transcript
+        notes. It uses the US rules or the EU/UK rules for each meeting, as the
+        Privacy Policy says: under the EU/UK rules it records only after its
+        notice is in the meeting chat, and it leaves when a participant cannot
+        get the notice.
+        While it records in a meeting, the notetaker also reads the live transcript
         and the meeting chat, to obey &ldquo;cmux pause&rdquo; and &ldquo;cmux
         leave&rdquo; from any participant, to answer questions typed to it, and
         to pass on requests for work.
@@ -328,9 +331,12 @@ export default async function TermsOfServicePage() {
         objected and the law requires that participant&rsquo;s consent. You
         must not hide, remove, or change the notices that the notetaker posts,
         and you must tell participants who cannot see them, such as people who
-        join by phone. On Google Meet, Zoom, and Microsoft Teams, you must check
-        that the chat notice appeared. On Webex the notetaker cannot post a
-        notice, so you must tell every participant before the recording starts
+        join by phone (under the US rules, cmux tells you in Slack when it finds
+        a participant who joined by phone). On Google Meet, Zoom, and Microsoft
+        Teams, you must check that the chat notice appeared. On Webex the
+        notetaker cannot post a notice, so it joins only internal meetings of
+        your team under the US rules, and you must tell every participant
+        before the recording starts
         that cmux is an AI notetaker from Manaflow that records the audio and
         the chat and makes a transcript and notes, that the audio is deleted within 24 hours
         after the meeting and the transcript and notes are kept with no set
