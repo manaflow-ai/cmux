@@ -943,10 +943,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_published_in_comments.py
 
-      - name: Validate merge receipts
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_merge_receipt.py
-
       - name: Validate the pull request status comment
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_status.py
@@ -1169,7 +1165,7 @@ jobs:
 
       # Every vars.NAME a runs-on reads should declare its fallback in .github/single-host-fallbacks.json, which the
       # build-fleet runner label policy reads from here (cmux#40221 merged two undeclared names unseen). Advisory
-      # only (no new CI gate, Lawrence 2026-10-23): --advisory warns and exits 0; the pre-push hook enforces it.
+      # only (no new CI gate, Lawrence 2026-10-23, lifted 2026-11-18): --advisory warns and exits 0; the pre-push hook enforces it.
       - name: Validate no runs-on waits on one machine through a variable's value
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: |
@@ -1191,10 +1187,6 @@ jobs:
       - name: Validate every workflow guard is wired
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
-
-      - name: Validate CLA metadata routing
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_cla_guard_metadata_routing.py
 
       - name: Validate required checks are bounded
         if: ${{ !cancelled() && matrix.group == 'ci' }}

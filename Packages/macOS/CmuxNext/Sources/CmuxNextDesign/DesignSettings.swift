@@ -143,6 +143,9 @@ public final class DesignSettings {
     /// `appearance.agentGlow`: the backdrop answers the agents (``BackdropAgentGlow``). Off by
     /// default: it changes the default look. The App's ``agentGlow`` reader starts and stops with it.
     public var agentGlowEnabled = false
+    /// `appearance.previousGlass`: web pages draw the glass numbers from before the one glass system
+    /// (``WebTheme/glassLevels`` is `previous`). Off by default.
+    public var previousGlass = false
     /// What every window's backdrop shows of the agents now; ``BackdropAgentGlow/calm`` while
     /// ``agentGlowEnabled`` is off. Each window backdrop observes it (``BackdropAgentGlowView``).
     public var agentGlow = BackdropAgentGlow.calm
@@ -333,6 +336,12 @@ public final class DesignSettings {
     /// ``Metrics/titleAreaShadeScale``); a change repaints, as the contrast does.
     public var titleAreaTone: TitleAreaTone = .oneColor {
         didSet { if titleAreaTone != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
+    /// `appearance.cornerFlush`: how the selected tab meets the content card (``CornerFlush``); nil while the key is
+    /// unset, so the default (`flush`, no goo) draws only over the stock chrome (``CornerFlush/current``). A Debug
+    /// Settings pick of `chrome.cornerFlush` still overrides it. A change repaints, as the tone does.
+    public var cornerFlush: CornerFlush? {
+        didSet { if cornerFlush != oldValue { ThemeScope.app.store.repaintAll() } }
     }
     /// `appearance.focusIndicator`: what marks the focused pane.
     public var focusIndicator: FocusIndicator = .tabs

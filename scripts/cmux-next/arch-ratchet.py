@@ -74,8 +74,8 @@ When a count drops, it passes, and prints `lower plans/cmux-next/arch-ratchet.js
 scripts/cmux-next/arch-ratchet.py --update` with the rows the pushed json leaves stale, judged over the
 range (none when the push carries an `--update` measured after the drop; see
 stale_rows for the one case it can still name wrongly). An internal error prints a warning and lets the
-push through (fail open). Never runs
-under GitHub Actions (Lawrence 2026-10-23: no new CI gates, nothing that slows pushes). Its cost is the files
+push through (fail open). Never runs under GitHub Actions (Lawrence 2026-10-23: no new CI gates and nothing that slows
+pushes; the CI part was lifted 2026-11-18). Its cost is the files
 it reads: the changed files, and for a type lookup the declaring and mentioning files, each analyzed once per
 content (arch_counts.FactsCache); the report prints the count. Measured 2026-10-23 at load 50-70 (method v3,
 before the v4 observer count): an 80-file cross-package move about 2 s warm, 8 s on the first run after
@@ -103,7 +103,8 @@ ran the installer (a `wt` mirror, a lane VM, whose `git push` goes through lane-
 landed on feat-cmux-next: 60 "base red" arch fixes in the 7 days to 2026-11-05, each a lane moving another PR's
 App lines out (#35386 took back +26 from #35294, pushed from a lane VM; the ratchet refuses that commit in 7 s).
 The fleet's global pre-push hook (leo-workspace tools/git-hooks/pre-push) runs `--pre-push` for a push to
-manaflow-ai/cmux when the clone has no cmux pre-push hook of its own. Still no CI job (Lawrence 2026-10-23).
+manaflow-ai/cmux when the clone has no cmux pre-push hook of its own. Still no CI job (Lawrence 2026-10-23,
+since lifted).
 """
 
 from __future__ import annotations
