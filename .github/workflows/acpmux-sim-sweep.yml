@@ -9,11 +9,10 @@ name: acpmux simulation sweep
 # feat-cmux-next that touch acpmux run it too.
 #
 # Pull requests no longer run this sweep (an advisory check nothing read, ci-time-map cut, 2026-11-21): the per-change
-# run in cmux-tui-spec.yml (acpmux-sim) covers a pull request; the push and the schedule keep the full sweep.
+# run in cmux-tui-spec.yml (acpmux-sim) covers a pull request; the push to feat-cmux-next keeps the full sweep. (Its schedule was dropped: a schedule fires only from main's copy of this file,
+# and main has none, so it never fired.)
 
 on:
-  schedule:
-    - cron: "17 7 * * *"
   push:
     branches:
       - feat-cmux-next
