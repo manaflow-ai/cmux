@@ -5,7 +5,7 @@ name: base coalesce
 #
 #   coalesce:
 #     uses: ./.github/workflows/base-coalesce.yml
-#     with: { key: cmux-next-guards, hold_minutes: 30, off: ${{ vars.NEXT_GUARDS_COALESCE == '0' }} }
+#     with: { key: cmux-next-guards, hold_minutes: 30, no_coalesce: ${{ vars.NEXT_GUARDS_COALESCE == '0' }} }
 #
 # and gives each of its other top-level jobs `needs: coalesce` and
 # `if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && (its own condition) }}`.
@@ -37,7 +37,7 @@ on:
         description: the window; the checks run at most once per window on the tip
         type: number
         default: 30
-      off:
+      no_coalesce:
         description: no coalescing; every push runs (the caller passes its vars switch)
         type: boolean
         default: false
@@ -65,7 +65,7 @@ jobs:
     env:
       KEY: ${{ inputs.key }}
       HOLD_MINUTES: ${{ inputs.hold_minutes }}
-      ON: ${{ !inputs.off && '1' || '0' }}
+      ON: ${{ !inputs.no_coalesce && '1' || '0' }}
     steps:
       - name: Name this push's window
         id: window
