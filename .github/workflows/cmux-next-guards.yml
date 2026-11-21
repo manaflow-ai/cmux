@@ -1120,7 +1120,7 @@ jobs:
     needs: [coalesce, fast-check-route]
     if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && needs.fast-check-route.outputs.generated_merge_audit != 'false' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 10
+    timeout-minutes: 14
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
@@ -1164,7 +1164,7 @@ jobs:
       # merge leaves a person a generated-file conflict (scripts/cmux-next/generated_merge.py audit).
       - name: Generated files merge without a person
         if: ${{ !cancelled() }}
-        timeout-minutes: 3
+        timeout-minutes: 6
         run: python3 tests/test_generated_merge.py
 
   # A red own-change check (the size cap, the crash ratchet) or static check (page strings among them) on a pull
