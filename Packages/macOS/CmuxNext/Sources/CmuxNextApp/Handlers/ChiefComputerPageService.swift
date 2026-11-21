@@ -62,7 +62,7 @@ final class ChiefComputerPageService: InternalPageProvider {
         let route = HomeChiefComputerRoute(agent: { [weak services] in services.flatMap { computerKey($0, conversation) } },
                                            send: ChiefComputerControlClient.feeding(service.hostedChief.brainRoute, into: services.cloud.computerControl))
         let pointer = MachinePointer()
-        return .init(paid: { [weak services] in HomeChiefComputer.planAllows(paysForCloud: services?.machines.cloudLimits?.paysForCloud) },
+        return .init(paid: { [weak services] in HomeChiefComputer.planAllows(planId: services?.machines.cloudLimits?.planId) },
                      chief: { [weak service] in service?.chiefName(of: id) ?? HomeStrings.chiefName },
                      status: { [weak services] in
                          if let services, let machine = attachedMachine(services, conversation) { return machineStatus(services, machine) }
@@ -303,7 +303,7 @@ final class ChiefComputerPageService: InternalPageProvider {
         let service = services.home
         let id = ConversationID(conversation)
         view.computer.source = Self.source(services: services, conversation: conversation)
-        view.paid = { [weak services] in HomeChiefComputer.planAllows(paysForCloud: services?.machines.cloudLimits?.paysForCloud) }
+        view.paid = { [weak services] in HomeChiefComputer.planAllows(planId: services?.machines.cloudLimits?.planId) }
         view.cloudChief = { [weak services] in services?.home.cloudChiefs.chief(for: conversation) != nil }
         view.onProvision = { [weak services] in  // a Cloud Chief: a normal Cloud machine under its name
             guard let services else { throw CancellationError() }

@@ -15,27 +15,58 @@ import type { Principal } from "@cmux/ownership"
 const FRESH_MS = 60_000
 /** A platform that did not answer is asked again only after this long, so the profile's status polls do not hammer it. */
 export const FAILED_FRESH_MS = 10_000
-/** The platform's last word per object: `paid` from an answer, or null when it did not answer (unknown, never entitled). */
-const answers = new WeakMap<object, { team: string; at: number; paid: boolean | null }>()
+/** The platform's last word per object: the plan id from an answer, or null when it did not answer (unknown, never entitled). */
+const answers = new WeakMap<object, { team: string; at: number; plan: string | null }>()
 
-/** Whether owner `owner`'s personal team has a Cloud plan; a Chief with no known owner has none. Never throws. */
-export const ownerEntitled = async (b: ChiefBrainDO, owner: string | null): Promise<boolean> => {
-  if (!owner) return false
+/**
+ * The plans whose owners get a Chief's own Cloud computer (Lawrence, 2026-11-20: "only people with cmux next plus,
+ * cmux next pro, or cmux next max can access these cloud computers"): Plus (plan id `go`), Pro, Max, and Founders,
+ * which is Pro sold early at the same limits (domains/cloud-plan.ts PAID_PLAN_LIMITS). `stub_default` is the stub
+ * plan of development, staging and test only. Team and any other plan get no computer.
+ */
+export const COMPUTER_PLANS: ReadonlySet<string> = new Set(["go", "pro", "max", "founders", "stub_default"])
+
+/** The stub plan id when the stub rule gives `team` one (development, staging and test only), else null. */
+const stubPlan = (b: ChiefBrainDO, team: string): string | null =>
+  planFor(b.doEnv.ENVIRONMENT, team, parseAllowedTeams(b.doEnv.CLOUD_ALLOWED_TEAMS))?.plan_id ?? null
+
+/**
+ * Owner `owner`'s personal team's Cloud plan id ("none" for no plan), or null when the platform did not answer and no
+ * stub plan applies; a Chief with no known owner has none. Never throws.
+ */
+export const ownerPlan = async (b: ChiefBrainDO, owner: string | null): Promise<string | null> => {
+  if (!owner) return "none"
   const env = b.doEnv
   const team = personalTeamIdFor(owner)
   const now = Date.now()
   // The stub rule (development, staging and test only) is read each time; a failure is cached as unknown, never as paid.
-  const stub = () => planFor(env.ENVIRONMENT, team, parseAllowedTeams(env.CLOUD_ALLOWED_TEAMS)) !== null
+  const withStub = (plan: string | null): string | null => (plan !== null && plan !== "none" ? plan : (stubPlan(b, team) ?? plan))
   const cached = answers.get(b.sql)
-  if (cached && cached.team === team && now - cached.at < (cached.paid === null ? FAILED_FRESH_MS : FRESH_MS)) return cached.paid === null ? stub() : cached.paid
+  if (cached && cached.team === team && now - cached.at < (cached.plan === null ? FAILED_FRESH_MS : FRESH_MS)) return withStub(cached.plan)
   const principal: Principal = { identity: `session:${owner}`, kind: "session", user: owner }
   const reply = await platformCloud(env.CLOUD_DO, team).readOp(team, principal, "cloud.plan.get", {}).catch(() => null)
   const planId = reply?.ok ? (reply.value as { plan_id?: unknown } | null)?.plan_id : undefined
-  const paid = (typeof planId === "string" && planId !== "none") || stub()
+  const plan = reply?.ok ? (typeof planId === "string" && planId !== "" ? planId : "none") : null
   // An answer is kept FRESH_MS; an unreachable platform is kept as unknown for FAILED_FRESH_MS, then asked again.
-  answers.set(b.sql, { team, at: now, paid: reply?.ok ? paid : null })
-  return paid
+  answers.set(b.sql, { team, at: now, plan })
+  return withStub(plan)
 }
+
+/** Whether owner `owner`'s personal team has a Cloud plan (sandboxes); a Chief with no known owner has none. Never throws. */
+export const ownerEntitled = async (b: ChiefBrainDO, owner: string | null): Promise<boolean> => {
+  const plan = await ownerPlan(b, owner)
+  return plan !== null && plan !== "none"
+}
+
+/** Whether owner `owner` may have and use a Chief's own Cloud computer: a plan in COMPUTER_PLANS. Never throws. */
+export const ownerComputerEntitled = async (b: ChiefBrainDO, owner: string | null): Promise<boolean> =>
+  computerPlanAllowed(await ownerPlan(b, owner))
+
+/** Whether plan id `plan` (null: unknown) gives a Chief's own computer. */
+export const computerPlanAllowed = (plan: string | null): boolean => plan !== null && COMPUTER_PLANS.has(plan)
+
+/** A Chief's computer refused to an owner whose plan is not Plus, Pro or Max (the Cloud machines' code and details). */
+export const COMPUTER_PLAN_REQUIRED = () => ({ status: 403 as const, code: "cloud.plan.required", error: "a Chief's computer needs cmux NEXT Plus, Pro or Max", details: planRequiredDetails() })
 
 /** The refusal of a sandbox or a computer without a Cloud plan (the Cloud machines' code and details). */
 export const PLAN_REQUIRED = () => ({ status: 403, json: { code: "cloud.plan.required", error: "cloud.plan.required: your own computer and sandboxes need a cmux Cloud plan; ask the person to upgrade", details: planRequiredDetails() } })

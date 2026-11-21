@@ -7,7 +7,7 @@ import type { Env } from "../env.ts"
 import { execAs, grant, LINUX_USERS, revokeGrant, revokeIdentity } from "./sandbox-access.ts"
 import { fileVerb, snapshotVerb, snapsOf, takeSnapshot } from "./sandbox-files.ts"
 import { computerActing, computerOf, computerUsedAt, computerVerb, controlOf, forgetComputer, humanHasControl, humanHasControlRefusal, humanInput, ownerShot, runInput, SCREEN, setControl, type Control } from "./sandbox-computer.ts"
-import { ownerEntitled, PLAN_REQUIRED } from "./sandbox-plan.ts"
+import { COMPUTER_PLAN_REQUIRED, ownerComputerEntitled, ownerEntitled, PLAN_REQUIRED } from "./sandbox-plan.ts"
 import { costOf, GROW_FS, GUEST_SIZE, guestOf, hasSize, planOf, resourcesOf, sizeOf, toFreestyle, type Guest, type Resources, type Size } from "./sandbox-size.ts"
 
 /**
@@ -335,8 +335,13 @@ export async function ccSandbox(b: ChiefBrainDO, agent: string, raw: unknown, le
     if (req.action === "list") return { status: 200, json: { vms: await live(b), max: capOf(b, agent), plan: planOf(env) } }
     if (req.action === "cap") return { status: 200, json: { cap: capOf(b, agent), live: (await live(b)).length, plan: planOf(env) } }
     // Sandboxes and a computer are cmux Cloud: the owner's plan first (sandbox-plan.ts).
-    const paid = req.action === "create" || req.action === "fork" || (req.action === "computer" && req.op === "setup")
+    const paid = req.action === "create" || req.action === "fork"
     if (paid && !(await ownerEntitled(b, owner))) return PLAN_REQUIRED()
+    // The Chief's own computer, every verb on it (setup, screenshot, click, ...): Plus, Pro or Max only.
+    if (req.action === "computer" && !(await ownerComputerEntitled(b, owner))) {
+      const r = COMPUTER_PLAN_REQUIRED()
+      return { status: r.status, json: { code: r.code, error: r.error, details: r.details } }
+    }
     if (req.action === "create") return await create(b, agent, owner, req)
     if (SNAP_ACTIONS.includes(String(req.action))) return await snapshotVerb(b, String(req.action), req)
     if (!VM_ACTIONS.includes(String(req.action))) return { status: 400, json: { error: `action must be ${ACTIONS}` } }
@@ -470,7 +475,7 @@ export const ccSandboxPurge = async (b: ChiefBrainDO): Promise<{ deleted: number
  */
 export const ccComputerStatus = async (b: ChiefBrainDO, agent: string, owner: string): Promise<{ used: boolean; entitled: boolean; acting?: boolean; provisioning?: boolean; provision_error?: string; computer: { id: string; state: string; name: string | null } | null; screen: typeof SCREEN; control: Control }> => {
   const used = computerUsedAt(b) !== null
-  const entitled = await ownerEntitled(b, owner)
+  const entitled = await ownerComputerEntitled(b, owner)
   const c = computerOf(b)
   const p = provisionOf(b)
   if (!c) return { used, entitled, computer: null, screen: SCREEN, control: controlOf(b), ...(provisioning(b) ? { provisioning: true } : p?.error ? { provision_error: p.error } : {}) }
@@ -529,7 +534,7 @@ export const ccComputerProvisionStart = async (b: ChiefBrainDO, agent: string, o
       const o = await own(b, agent, have.id)
       if (!("status" in o)) return release({ status: 200, computer: { id: have.id, state: o.vm.state } })
     }
-    if (!(await ownerEntitled(b, owner))) return release({ status: 403, code: "cloud.plan.required", error: "a Chief's computer needs a cmux Cloud plan" })
+    if (!(await ownerComputerEntitled(b, owner))) return release(COMPUTER_PLAN_REQUIRED())
     if (humanHasControl(b)) return release({ status: 409, code: "computer.human_has_control", error: "you are using the Chief's computer" })
   } catch (e) {
     throw release(e)
@@ -553,7 +558,7 @@ export const ccComputerProvision = async (b: ChiefBrainDO, agent: string, owner:
     const o = await own(b, agent, have.id)
     if (!("status" in o)) return { status: 200, computer: { id: have.id, state: o.vm.state } }
   }
-  if (!(await ownerEntitled(b, owner))) return { status: 403, code: "cloud.plan.required", error: "a Chief's computer needs a cmux Cloud plan" }
+  if (!(await ownerComputerEntitled(b, owner))) return COMPUTER_PLAN_REQUIRED()
   if (humanHasControl(b)) return { status: 409, code: "computer.human_has_control", error: "you are using the Chief's computer" }
   // The sandbox made here, until its desktop is set up: one whose setup failed is deleted, so a retry makes a new one
   // instead of leaving a billed VM per attempt (and filling the Chief's sandbox cap).

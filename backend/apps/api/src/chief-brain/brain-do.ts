@@ -36,6 +36,7 @@ import { chiefJobWake, type ChiefJob, type JobDelivery } from "../chief-brain-cc
 import { jobsSendDue, jobsStore, type StoreOp } from "../chief-brain-cc/jobs-store.ts"
 import { upstashSender } from "../chief-brain-cc/jobs-upstash.ts"
 import { githubCall, githubDump, type GithubHost, githubPoll, type GithubStatus, githubTurn } from "../chief-brain-cc/github.ts"
+import { ownerComputerEntitled } from "../chief-brain-cc/sandbox-plan.ts"
 import { ccSandbox, ccSandboxPurge, ccComputerControl, ccComputerProvisionStart, ccComputerInput, ccComputerStatus, ccComputerScreen, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
 import { releaseLocalComputer, reserveLocalComputer } from "../chief-brain-cc/local-computer.ts"
 import type { MemoryExport } from "../chief-durable/durable-do.ts"
@@ -625,6 +626,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
   /** The Chief's computer for its owner (chief-brain-cc/sandbox-computer.ts), on its `<agent>/sandboxes` object only. */
   async ccComputerStatus(agent: string, owner: string): Promise<Awaited<ReturnType<typeof ccComputerStatus>>> {
     return ccComputerStatus(this, agent, owner)
+  }
+
+  /** Whether `owner`'s plan gives a Chief's own computer (Plus, Pro or Max; sandbox-plan.ts COMPUTER_PLANS). */
+  async ccComputerEntitled(owner: string): Promise<boolean> {
+    return ownerComputerEntitled(this, owner)
   }
 
   /** The owner takes the Chief's computer over or hands it back (the control lease, sandbox-computer.ts). */

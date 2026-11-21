@@ -25,6 +25,10 @@ import Testing
         #expect(HomeChiefComputer.planAllows(paysForCloud: nil))
         #expect(HomeChiefComputer.planAllows(paysForCloud: true))
         #expect(!HomeChiefComputer.planAllows(paysForCloud: false))
+        // Only Plus (`go`), Pro, Max and Founders get a Chief's computer; Team and free do not.
+        for plan in ["go", "pro", "max", "founders", "Pro"] { #expect(HomeChiefComputer.planAllows(planId: plan), "\(plan)") }
+        for plan in ["team", "free", "enterprise"] { #expect(!HomeChiefComputer.planAllows(planId: plan), "\(plan)") }
+        #expect(HomeChiefComputer.planAllows(planId: nil))
     }
 
     @Test func freestyleStatesMapToTheSectionsStates() {
