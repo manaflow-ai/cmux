@@ -26,26 +26,38 @@ const PROVIDER_NAME: Record<CloudCredentialsProvider, () => string> = {
   generic: () => t("settingsPage.cloudCredentials.generic"),
 };
 
-function CopyRow({ title, value, id }: { title: string; value: string; id: string }) {
+/** Copy, then "Copied" until the pointer or focus leaves the button: the label answers the click
+ * without a timer. */
+function CopyButton({ value, id }: { value: string; id: string }) {
   const [copied, setCopied] = useState(false);
+  return (
+    <Button
+      type="button"
+      className="button"
+      data-credentials-copy={id}
+      onClick={() => {
+        void navigator.clipboard?.writeText(value).then(() => setCopied(true));
+      }}
+      onPointerLeave={() => setCopied(false)}
+      onBlur={() => setCopied(false)}
+    >
+      {copied ? t("settingsPage.cloudCredentials.copied") : t("settingsPage.cloudCredentials.copy")}
+    </Button>
+  );
+}
+
+function CopyRow({ title, value, id }: { title: string; value: string; id: string }) {
   return (
     <div className="row" data-credentials-url={id}>
       <div className="row-main">
-        <div className="row-label">
+        <div className="row-label min-w-0">
           <div className="row-title">{title}</div>
-          <div className="row-help select-text break-all" data-credentials-value="">
+          {/* Wraps instead of an ellipsis: the discovery and JWKS URLs differ only at their ends. */}
+          <div className="row-help select-text break-all whitespace-normal" data-credentials-value="">
             <code className="font-mono">{value}</code>
           </div>
         </div>
-        <Button
-          className="button"
-          data-credentials-copy={id}
-          onClick={() => {
-            void navigator.clipboard?.writeText(value).then(() => setCopied(true));
-          }}
-        >
-          {copied ? t("settingsPage.cloudCredentials.copied") : t("settingsPage.cloudCredentials.copy")}
-        </Button>
+        <CopyButton value={value} id={id} />
       </div>
     </div>
   );
@@ -59,10 +71,13 @@ function ProviderSteps({ provider, info }: { provider: CloudCredentialsProvider;
       <p className="m-0 text-detail text-muted">{t(`settingsPage.cloudCredentials.${provider}.help`)}</p>
       {setupSteps(provider, info).map((step) => (
         <div key={step.where} className="min-w-0" data-credentials-step={step.where}>
-          <div className="row-title">
-            {step.where === "cloud"
-              ? t("settingsPage.cloudCredentials.inYourCloud")
-              : t("settingsPage.cloudCredentials.onTheMachine")}
+          <div className="flex items-center justify-between gap-2">
+            <div className="row-title">
+              {step.where === "cloud"
+                ? t("settingsPage.cloudCredentials.inYourCloud")
+                : t("settingsPage.cloudCredentials.onTheMachine")}
+            </div>
+            <CopyButton value={step.code} id={`${provider}-${step.where}`} />
           </div>
           <pre className="m-0 mt-1 max-w-full overflow-x-auto rounded-md border border-solid border-edge p-2 font-mono text-detail text-fg select-text">
             <code>{step.code}</code>
@@ -112,7 +127,20 @@ export function CloudCredentialsBody({
         <div className="rows" data-credentials-layout="rows">
           {CLOUD_CREDENTIALS_PROVIDERS.map((p) => (
             <div className="row min-w-0" key={p} data-credentials-provider={p}>
-              <Disclosure label={PROVIDER_NAME[p]()}>
+              {/* The trigger spans the row and ends in a chevron that turns when it opens: the shared
+                  Disclosure draws none, so a closed row would read as plain text. */}
+              <Disclosure
+                className="[&>.ui-disclosure-trigger]:w-full [&>.ui-disclosure-trigger]:text-start"
+                label={
+                  <span className="flex w-full items-center justify-between gap-2">
+                    <span>{PROVIDER_NAME[p]()}</span>
+                    <span
+                      aria-hidden="true"
+                      className="size-[7px] -translate-y-px rotate-45 border-r-[1.5px] border-b-[1.5px] border-current opacity-60 transition-transform in-[[aria-expanded=true]]:rotate-[225deg]"
+                    />
+                  </span>
+                }
+              >
                 <ProviderSteps provider={p} info={info} />
               </Disclosure>
             </div>
@@ -153,16 +181,10 @@ export function CloudCredentialsView({
         <div className="row" data-credentials-error={state.error ?? ""}>
           <div className="row-main">
             <span className="row-label">
-              <span className="row-help">{t("settingsPage.cloudCredentials.error")}</span>
+              <span className="row-help text-danger!">{t("settingsPage.cloudCredentials.error")}</span>
             </span>
             <span className="row-control">
-              <Button
-                type="button"
-                className="button"
-                disabled={busy}
-                data-credentials-refresh=""
-                onClick={onRefresh}
-              >
+              <Button type="button" className="button" disabled={busy} data-credentials-refresh="" onClick={onRefresh}>
                 {t("settingsPage.cloudCredentials.refresh")}
               </Button>
             </span>
