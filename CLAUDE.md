@@ -67,7 +67,8 @@ Full loop: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md) and
 - **A change to the Mac or iOS app is done when the person can open it**: the report ends with the dev build
   link, the fleet simulator evidence and the iPhone install result
   ([finishing a task](skills/cmux-dev-workflow/references/finishing-a-task.md)). A docs-only change gives the
-  file path instead.
+  file path instead. `cmux-next-ios/scripts/review.sh` points both apps at the tag's own backend stack by
+  default (`--backend dev` for the shared dev Workers).
 
 ## CI, review and merge
 
