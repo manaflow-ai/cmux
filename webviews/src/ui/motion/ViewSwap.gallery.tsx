@@ -40,6 +40,11 @@ export default componentEntry<SwapDemoProps>({
     },
     fade: { note: `Fade in over ${MOTION_MS.micro} ms.`, props: { look: "fade" }, play: swapAndClick },
     sweep: { note: "Shown at once; an accent band crosses it once.", props: { look: "sweep" }, play: swapAndClick },
+    brush: {
+      note: `A brush stroke paints the new panel in from its side: a soft mask sweep with an accent stroke on its edge (${MOTION_MS.large} ms); clickable at once.`,
+      props: { look: "brush" },
+      play: swapAndClick,
+    },
     wipe: {
       note: `A slanted edge reveals it over ${MOTION_MS.standard} ms.`,
       props: { look: "wipe" },

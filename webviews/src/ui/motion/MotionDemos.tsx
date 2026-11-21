@@ -131,7 +131,7 @@ export function SwapDemo({ look }: SwapDemoProps) {
   );
 }
 
-export type HoverDemoProps = { timing: "blink" | "scale" | "slow" | "press-dip" };
+export type HoverDemoProps = { timing: "blink" | "scale" | "trail" | "ease" | "slow" | "press-dip" };
 
 /** Rows with a hover fill on their own button and an ellipsis revealed on the row's hover. */
 export function HoverDemo({ timing }: HoverDemoProps) {

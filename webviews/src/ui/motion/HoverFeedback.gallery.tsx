@@ -26,6 +26,16 @@ export default componentEntry<HoverDemoProps>({
       props: { timing: "scale" },
       play: openMenu,
     },
+    trail: {
+      note: `Fill in at once under the pointer, out over ${MOTION_MS.micro} ms; no press.`,
+      props: { timing: "trail" },
+      play: openMenu,
+    },
+    ease: {
+      note: `Fill in over ${MOTION_MS.quick} ms, out over ${MOTION_MS.standard} ms; no press.`,
+      props: { timing: "ease" },
+      play: openMenu,
+    },
     blink: { note: "Before: appears and disappears in one frame.", props: { timing: "blink" }, play: openMenu },
     slow: { note: `Everything at ${MOTION_MS.standard} ms.`, props: { timing: "slow" }, play: openMenu },
     "press-dip": { note: "Rejected: a dip and shrink on the press.", props: { timing: "press-dip" }, play: openMenu },

@@ -74,6 +74,11 @@ import { trayLatestLook } from "../agent-session/acpmux/subagents/trayLatest.exp
 import { doneReportLook } from "../agent-session/acpmux/subagents/doneReport.experiment";
 import { traySurfaceLook } from "../agent-session/acpmux/subagents/traySurface.experiment";
 import { chatSwitchMotion } from "../agent-session/acpmux/chatSwitch.experiment";
+import {
+  hoverFade,
+  panelSwapLook,
+  selectionPillTravel,
+} from "../agent-session/acpmux/session-info/selectionMotion.experiment";
 import { liveBackground } from "../ui/liveBackground/liveBackground.experiment";
 import { composerPlusCommands } from "../agent-session/acpmux/composerPlusCommands.experiment";
 import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLook.experiment";
@@ -183,6 +188,9 @@ export const EXPERIMENTS: readonly Experiment[] = [
   doneReportLook,
   traySurfaceLook,
   chatSwitchMotion,
+  selectionPillTravel,
+  panelSwapLook,
+  hoverFade,
   liveBackground,
   composerPlusCommands,
   promptSuggestionLook,

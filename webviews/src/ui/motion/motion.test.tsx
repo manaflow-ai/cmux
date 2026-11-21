@@ -6,7 +6,7 @@ import { JSDOM } from "jsdom";
 import { MOTION_EASE_OUT, MOTION_MS, MOTION_SPRING } from "../../motion/scale.generated";
 import { DepthLayer } from "./DepthLayer";
 import { motionMode } from "./motionMode";
-import { SlidingIndicator } from "./SlidingIndicator";
+import { SlidingIndicator, travelFrames } from "./SlidingIndicator";
 import { swapFrames, ViewSwap } from "./ViewSwap";
 import { settleReact } from "../../../test/support/domTeardown";
 
@@ -398,4 +398,37 @@ test("a parallax layer mounted while the page is hidden starts leaning when the 
   move();
   expect(layer.style.getPropertyValue("--ui-depth-x")).toBe("1.000");
   expect(layer.style.getPropertyValue("--ui-depth-y")).toBe("1.000");
+});
+
+test("the brush swap moves only its mask and its stroke, from the side it is told", () => {
+  const forward = swapFrames("brush", "forward");
+  const back = swapFrames("brush", "back");
+  for (const frame of forward.content!)
+    for (const key of Object.keys(frame))
+      expect(
+        key
+          .replace(/^Webkit/, "")
+          .toLowerCase()
+          .startsWith("mask"),
+      ).toBe(true);
+  for (const frame of forward.band!) expect(Object.keys(frame)).toEqual(["transform"]);
+  expect(forward.content![0]!.maskPosition).toBe("100% 0%");
+  expect(forward.content![1]!.maskPosition).toBe("0% 0%");
+  expect(back.content![0]!.maskPosition).toBe("0% 0%");
+  expect(forward.band![0]!.transform).toBe("translateX(-100%)");
+  expect(back.band![0]!.transform).toBe("translateX(200%)");
+});
+
+test("each indicator travel ends on its target and never passes it", () => {
+  const from = { x: 0, y: 0, w: 40, h: 20 };
+  const target = { x: 100, y: 0, w: 60, h: 20 };
+  const resting = "translate(100px, 0px) scale(1, 1)";
+  const stretch = travelFrames("stretch", from, target);
+  expect(stretch.at(-1)!.transform).toBe(resting);
+  // The middle frame spans both items: from the old left edge to the new right edge, no further.
+  expect(stretch[1]!.transform).toBe(`translate(0px, 0px) scale(${160 / 60}, 1)`);
+  const fade = travelFrames("fade", from, target);
+  expect(fade.map((frame) => frame.opacity)).toEqual([1, 0, 0, 1]);
+  expect(fade.at(-1)!.transform).toBe(resting);
+  expect(travelFrames("spring", from, target).at(-1)!.transform).toBe("translate(100px, 0px)");
 });
