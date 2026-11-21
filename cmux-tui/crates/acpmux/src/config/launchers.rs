@@ -296,7 +296,7 @@ fn native_install_in(home: &std::path::Path, bin: &str) -> Option<String> {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::{user_program_in, which_in};
+    use super::which_in;
     use std::os::unix::fs::PermissionsExt as _;
 
     /// A `claude` the shell could not run (no execute bit) earlier on PATH does not hide the one it
@@ -384,8 +384,10 @@ mod cache_tests {
     /// `cmux-ci`: the send relay's bare `lane-gh` is found there (gcp-agent-lane-13, 2026-11-21:
     /// "cannot run the send relay \"lane-gh\""). PATH still wins, and a path or a missing name
     /// comes back as given.
+    #[cfg(unix)]
     #[test]
     fn a_bare_relay_program_is_found_in_the_home_bins_the_daemon_path_lacks() {
+        use std::os::unix::fs::PermissionsExt as _;
         let home = tempfile::tempdir().unwrap();
         let on_path = tempfile::tempdir().unwrap();
         let exe = |p: &std::path::Path| {
