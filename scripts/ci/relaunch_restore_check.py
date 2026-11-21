@@ -38,7 +38,8 @@ Two halves, one file:
   only bound to its tab; where the build serves `debug.agent_pane` (a DEV build; a NIGHTLY's release router
   drops `debug.*`), the shown page must also report a live event (`liveEvent`, as bench_relaunch_reconnect.py
   reads it). `first-run` (the #36274 case) stays out of the default until cmux#36306 (its fix) lands. Each round prints
-  `L5-ROUND {json}` (quit_ms: quit asked to process gone; quit_to_usable_ms: quit asked to the end of the
+  `L5-ROUND {json}` (quit_ms: quit asked to process gone; quit_marks: the quit's own `quit.*` marks, ms after
+  quit.requested, when this check launched the quitting app; quit_to_usable_ms: quit asked to the end of the
   poll that found it usable, the budgeted number; ready_ms: to the start of that poll, a lower bound), and the
   run prints `L5 {json}` with the verdict. Exit 0 only when every round restored everything within budget.
 
@@ -352,6 +353,42 @@ def state(inst: Instance, topo: dict | None = None) -> dict:
 
 # ---- the check ------------------------------------------------------------------------------
 
+# The launch-marks pipe of each app this check started, by pid, kept open past its launch: the app streams its
+# quit's marks (`quit.requested` through `quit.replied`, QuitCoordinator) to the same pipe, read after it exits.
+MARKS_FDS: dict[int, int] = {}
+
+
+def quit_marks(text: str) -> dict[str, int]:
+    """The `quit.*` marks in a marks stream (`<name> <ms>` lines), in ms after `quit.requested`, in order;
+    empty without that mark."""
+    marks: dict[str, float] = {}
+    for line in text.splitlines():
+        name, _, ms = line.rpartition(" ")
+        if name.startswith("quit."):
+            try:
+                marks.setdefault(name, float(ms))
+            except ValueError:
+                pass
+    start = marks.get("quit.requested")
+    return {} if start is None else {k: round(v - start) for k, v in sorted(marks.items(), key=lambda kv: kv[1])}
+
+
+def read_ended(fd: int | None) -> str:
+    """What an ended app wrote to its marks pipe and nobody read yet; closes the pipe."""
+    if fd is None:
+        return ""
+    text = b""
+    try:
+        os.set_blocking(fd, True)  # the writer is gone: read to the end
+        while chunk := os.read(fd, 1 << 16):
+            text += chunk
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+    return text.decode(errors="replace")
+
+
 def launch(app: Path, env: dict, out_log: Path) -> tuple[subprocess.Popen, int, int]:
     """The app with the run's environment and a fresh launch-marks pipe, as fresh_home_launch_smoke.run starts it."""
     import fresh_home_launch_smoke as smoke
@@ -364,6 +401,7 @@ def launch(app: Path, env: dict, out_log: Path) -> tuple[subprocess.Popen, int, 
                                    stderr=subprocess.STDOUT, pass_fds=(marks_write,), start_new_session=True)
     os.close(marks_write)
     os.set_blocking(marks_read, False)
+    MARKS_FDS[process.pid] = marks_read
     return process, marks_read, marks_write
 
 
@@ -486,6 +524,7 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
         row["failures"] = [failed]
         safe_print("L5-ROUND " + json.dumps(row, default=str), flush=True)
         return row, process
+    quitting_fd = MARKS_FDS.pop(process.pid, None)
     asked = time.monotonic()
     reply = call(inst.sock, "action.run", {"action": "quitKeepSessions"}, timeout=10)
     row["quit_reply"] = reply.get("error") or "ok"
@@ -498,6 +537,10 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
         process.wait(timeout=10)
     gone = time.monotonic()
     row.setdefault("quit_ms", round((gone - asked) * 1000))
+    # Where the quit went, for an app this check started: each `quit.*` mark, ms after quit.requested.
+    # No `quit.engines_stopped` means the quit deadline ended the process inside CefShutdown.
+    if marks_of_quit := quit_marks(read_ended(quitting_fd)):
+        row["quit_marks"] = marks_of_quit
     # The daemon must have kept the terminal's process through the quit.
     try:
         os.kill(made["terminal_pid"], 0)
@@ -550,8 +593,7 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
             row["ready_ms"] = round((polled - asked) * 1000)
             break
         time.sleep(POLL_S)
-    drain()
-    os.close(marks_read)
+    drain()  # the pipe stays open (MARKS_FDS): the next round reads this process's quit marks from it
     row["marks"] = marks
     row["front_after"] = front(inst.topology())
     row["usable"] = ok
