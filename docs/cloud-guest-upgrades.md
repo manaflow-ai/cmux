@@ -174,3 +174,7 @@ guest too broken to exec into. Plan for this outcome in every contract change:
    working, not after.
 5. **Stop the cost.** Idle machines that cannot be served still bill. Stop
    them with the owner's consent.
+
+## Remote state on the reserved filesystem
+
+From the helper that fixes https://github.com/manaflow-ai/cmux/issues/18466, `cmux-tui-state-mount ensure` moves `~/.local/state/cmux/remote` to the state filesystem and binds it back over that path, so the daemon can start with the root disk full. A rollback to an older helper leaves the bind live until the next reboot. After that reboot the older helper does not bind, so the daemon creates a new remote identity on the root filesystem, and previously enrolled devices enroll again. Upgrading again binds the reserved copy, whose identity wins over anything written to the root filesystem in between.
