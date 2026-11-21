@@ -86,9 +86,9 @@ fn the_apps_identity_names_its_build() {
 }
 
 #[test]
-fn ps_start_times_read_as_dates() {
-    assert_eq!(start_date("Mon Nov 16 14:55:03 2026\n").as_deref(), Some("2026-11-16"));
-    assert_eq!(start_date("Sat Nov  1 09:00:00 2026").as_deref(), Some("2026-11-01"));
-    assert_eq!(start_date(""), None);
-    assert_eq!(start_date("Mon Foo 16 14:55:03 2026"), None);
+fn start_times_read_as_local_dates() {
+    // Noon UTC is the same calendar day in every zone within 11 hours of it.
+    let date = local_date(1_794_916_800).unwrap();
+    assert_eq!(date.len(), 10);
+    assert!(date.starts_with("2026-11-1"), "{date}");
 }

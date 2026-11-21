@@ -7,7 +7,7 @@
 //! (`system.identify`'s `build`, the app's `CFBundleVersion`), it says so once and goes on. It warns
 //! only: it never refuses, never relaunches, and stays quiet outside human output (`--json`).
 //!
-//! The date is when the running process started (`ps -o lstart=` of the pid `identify` reports),
+//! The date is when the running process started (the kernel's start time of the pid `identify` reports),
 //! which every app version answers, old ones included.
 
 use std::os::unix::net::UnixStream;
@@ -118,16 +118,17 @@ fn compare_part(lhs: &str, rhs: &str) -> std::cmp::Ordering {
     lhs.cmp(rhs)
 }
 
-/// `ps -o lstart=`'s `Mon Nov 16 14:55:03 2026` as `2026-11-16`.
-pub(super) fn start_date(lstart: &str) -> Option<String> {
-    let words: Vec<&str> = lstart.split_whitespace().collect();
-    let [_, month, day, _time, year] = words.as_slice() else { return None };
-    const MONTHS: [&str; 12] =
-        ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    let month = MONTHS.iter().position(|name| name == month)? + 1;
-    let day: u32 = day.parse().ok()?;
-    let year: u32 = year.parse().ok().filter(|year| (1970..=9999).contains(year))?;
-    (1..=31).contains(&day).then(|| format!("{year:04}-{month:02}-{day:02}"))
+/// Unix seconds as the local date `YYYY-MM-DD`.
+pub(super) fn local_date(seconds: i64) -> Option<String> {
+    let time = libc::time_t::try_from(seconds).ok()?;
+    // SAFETY: an all-zero `tm` is a valid out-buffer.
+    let mut parts: libc::tm = unsafe { std::mem::zeroed() };
+    // SAFETY: both pointers are valid for the call.
+    let done = unsafe { libc::localtime_r(&raw const time, &raw mut parts) };
+    if done.is_null() {
+        return None;
+    }
+    Some(format!("{:04}-{:02}-{:02}", parts.tm_year + 1900, parts.tm_mon + 1, parts.tm_mday))
 }
 
 static CHECKED: AtomicBool = AtomicBool::new(false);
@@ -147,7 +148,7 @@ pub(super) fn warn_if_stale(global: &GlobalArgs, socket: &Path) {
         return;
     };
     let Some(running) = RunningApp::from_identity(&identity) else { return };
-    // Only a differing build costs the `ps`.
+    // Only a differing build reads the start time.
     if !is_newer(&installed.build, &running.build) {
         return;
     }
@@ -169,15 +170,26 @@ fn installed_build() -> Option<InstalledApp> {
     crate::app_identity::bundle_build(&exe)
 }
 
+/// When process `pid` started, as a local date. Read from the kernel (no process scan); other
+/// systems leave the date out of the line.
+#[cfg(target_os = "macos")]
 fn process_start_date(pid: u32) -> Option<String> {
-    let output = std::process::Command::new("/bin/ps")
-        .args(["-o", "lstart=", "-p", &pid.to_string()])
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .output()
-        .ok()
-        .filter(|output| output.status.success())?;
-    start_date(&String::from_utf8_lossy(&output.stdout))
+    let pid = i32::try_from(pid).ok()?;
+    // SAFETY: an all-zero proc_bsdinfo is a valid out-buffer.
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = i32::try_from(size_of::<libc::proc_bsdinfo>()).ok()?;
+    // SAFETY: the out-buffer is valid for `size` bytes.
+    let read =
+        unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size) };
+    if read != size {
+        return None;
+    }
+    local_date(i64::try_from(info.pbi_start_tvsec).ok()?)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn process_start_date(_pid: u32) -> Option<String> {
+    None
 }
 
 #[cfg(test)]
