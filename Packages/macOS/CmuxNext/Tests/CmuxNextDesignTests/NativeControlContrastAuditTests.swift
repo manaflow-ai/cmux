@@ -28,7 +28,7 @@ import CmuxNextDesignTokens
 ///
 /// With `CONTRAST_AUDIT_OUT` set the suite writes every reading as a Markdown table
 /// (`native-control-contrast.md`) there; with `CMUX_CONTRAST_ALL_THEMES=1` it reads every bundled
-/// theme instead of the spread; with `CMUX_CONTRAST_PRINT_FAILING=1` it prints every failing reading.
+/// theme instead of the spread. Each run prints the three worst readings of every failing control.
 @MainActor @Suite(.serialized, .closesItsWindows) struct NativeControlContrastAuditTests {
     /// The spread: the default pair, the high-chroma and mid-tone themes that broke chrome before
     /// (Hot Dog Stand, Grass, Blue Dolphin), and common light and dark terminal themes.
@@ -112,8 +112,9 @@ import CmuxNextDesignTokens
         for key in Set(known.keys).subtracting(worst.keys).sorted() where !all {
             print("native-control-contrast: baseline line no longer found, drop it: \(key)")
         }
-        if ProcessInfo.processInfo.environment["CMUX_CONTRAST_PRINT_FAILING"] == "1" {
-            for reading in failing.sorted(by: { ($0.control, $0.ratio) < ($1.control, $1.ratio) }) {
+        // The three worst readings of each failing control and state, to show where a fix is owed.
+        for (_, group) in Dictionary(grouping: failing, by: \.key).sorted(by: { $0.key < $1.key }) {
+            for reading in group.sorted(by: { $0.ratio < $1.ratio }).prefix(3) {
                 print("native-control-contrast failing: " + Self.line(reading))
             }
         }
