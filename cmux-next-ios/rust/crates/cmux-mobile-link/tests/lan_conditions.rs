@@ -8,6 +8,10 @@
 //!   rides the UDP shaper's internet path.
 //! - `lan` (after): the phone dials the Mac's LAN mesh straight through the UDP shaper's own (LAN)
 //!   path. It uses no signaling, token, ICE or relay.
+//! - `race` (after, as the app runs it): `lan` and `relayed` at once; the first link up wins.
+//! - `race-dead-lan` (after, off the Wi-Fi or with Local Network denied): the race, with the LAN
+//!   address a black hole (a socket that never answers, the worst case: a denial that fails fast
+//!   is quicker), so what it costs over `relayed` is the race's own cost.
 //!
 //! Per profile and run (seed = run + `NETCOND_SEED_BASE`), each path gives:
 //! - `connect_ms`: from the dial's start to the link being up. For `relayed` this includes the
@@ -29,6 +33,8 @@
 //!
 //! Env:
 //! - `NETCOND_PROFILES` (default `lan,internet-down-lan-up`)
+//! - `NETCOND_PATHS` (default `relayed,lan,race,race-dead-lan`)
+//! - `NETCOND_FALLBACK` (profiles that also run `fallback`; default `lan`)
 //! - `NETCOND_RUNS` (default 5)
 //! - `NETCOND_ECHOES` (default 20)
 //! - `NETCOND_SEED_BASE` (default 0)
@@ -220,15 +226,10 @@ async fn dial_relayed(mac: &Mac, radio: &Radio) -> Option<Up> {
     timeout(WAIT, attempt).await.ok().flatten()
 }
 
-async fn dial_lan(mac: &Mac, radio: &Radio) -> Option<Up> {
+async fn dial_lan(mac: &Mac, address: SocketAddr) -> Option<Up> {
     let timeline = Timeline::default();
-    let attempt = lan::connect(
-        &mac.phone_lan,
-        &mac.lan_entry,
-        vec![radio.udp.addr()],
-        LinkConfig::default(),
-        &timeline,
-    );
+    let attempt =
+        lan::connect(&mac.phone_lan, &mac.lan_entry, vec![address], LinkConfig::default(), &timeline);
     let (connected, _) = timeout(WAIT, attempt).await.ok()?.ok()?;
     Some(Up { connected, _signaling: None })
 }
@@ -283,11 +284,17 @@ async fn cold(profile: &LinkProfile, path: &str, run: u64, seed: u64, echo_count
     if matches!(profile.disruption, Some(Disruption::InternetDown)) {
         radio.internet_down();
     }
+    // A LAN address nothing answers (bound, never read): the Mac out of reach.
+    let hole = std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("black hole");
+    let hole_addr = hole.local_addr().expect("black hole address");
     let started = Instant::now();
     let up = match path {
-        "lan" => dial_lan(&mac, &radio).await,
+        "lan" => dial_lan(&mac, radio.udp.addr()).await,
+        "race" => first_up(dial_lan(&mac, radio.udp.addr()), dial_relayed(&mac, &radio)).await,
+        "race-dead-lan" => first_up(dial_lan(&mac, hole_addr), dial_relayed(&mac, &radio)).await,
         _ => dial_relayed(&mac, &radio).await,
     };
+    drop(hole);
     let connect = up.as_ref().map(|_| ms(started));
     emit(profile, path, "connected", Some(if up.is_some() { 1.0 } else { 0.0 }), run, seed);
     emit(profile, path, "connect_ms", connect, run, seed);
@@ -312,7 +319,7 @@ async fn fallback(profile: &LinkProfile, path: &str, run: u64, seed: u64) {
     let lte_profile = ProfileFile::builtin().get("lte").cloned().expect("lte profile");
     let lte = Radio::start(&mac, &lte_profile, seed, &trace).await;
     let up = match path {
-        "lan" => first_up(dial_lan(&mac, &wifi), dial_relayed(&mac, &wifi)).await,
+        "lan" => first_up(dial_lan(&mac, wifi.udp.addr()), dial_relayed(&mac, &wifi)).await,
         _ => dial_relayed(&mac, &wifi).await,
     };
     let Some(up) = up else {
@@ -328,21 +335,7 @@ async fn fallback(profile: &LinkProfile, path: &str, run: u64, seed: u64) {
     let left = Instant::now();
     wifi.leave();
     let again = match path {
-        "lan" => {
-            let lan_on_lte = async {
-                let timeline = Timeline::default();
-                let attempt = lan::connect(
-                    &mac.phone_lan,
-                    &mac.lan_entry,
-                    vec![wifi.udp.addr()],
-                    LinkConfig::default(),
-                    &timeline,
-                );
-                let (connected, _) = timeout(WAIT, attempt).await.ok()?.ok()?;
-                Some(Up { connected, _signaling: None })
-            };
-            first_up(lan_on_lte, dial_relayed(&mac, &lte)).await
-        }
+        "lan" => first_up(dial_lan(&mac, wifi.udp.addr()), dial_relayed(&mac, &lte)).await,
         _ => dial_relayed(&mac, &lte).await,
     };
     let value = match again {
@@ -360,13 +353,15 @@ async fn lan_conditions() {
     let runs = env_u64("NETCOND_RUNS", 5);
     let echo_count = env_u64("NETCOND_ECHOES", 20);
     let seed_base = env_u64("NETCOND_SEED_BASE", 0);
+    let paths = env_list("NETCOND_PATHS", "relayed,lan,race,race-dead-lan");
+    let fallbacks = env_list("NETCOND_FALLBACK", "lan");
     for name in env_list("NETCOND_PROFILES", "lan,internet-down-lan-up") {
         let profile = file.get(&name).cloned().unwrap_or_else(|| panic!("no link profile {name}"));
         for run in 0..runs {
             let seed = run + seed_base;
-            for path in ["relayed", "lan"] {
+            for path in &paths {
                 cold(&profile, path, run, seed, echo_count).await;
-                if profile.disruption.is_none() {
+                if fallbacks.contains(&name) && matches!(path.as_str(), "relayed" | "lan") {
                     fallback(&profile, path, run, seed).await;
                 }
             }

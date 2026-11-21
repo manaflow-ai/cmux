@@ -178,6 +178,10 @@ public final class SettingsStore {
     /// Settings → Transport → Align Keepalives (off by default): every keepalive goes out on
     /// one 10 s beat. Read by the dial and by the app's timers (`KeepaliveBeat`) through the same key.
     public var alignKeepalives: Bool { didSet { save(alignKeepalives, "alignKeepalives") } }
+    /// Settings → Transport → Direct on Wi-Fi (on by default): talk to a Mac directly when the
+    /// phone and the Mac share a network. Off: always the relay. Read at each dial
+    /// (`FFIMacLinkDialer`) through the same key.
+    public var lanDirect: Bool { didSet { save(lanDirect, "lanDirect") } }
     /// Settings → Transport → Agent CLI Screen Changes (off by default): agent CLI terminals
     /// come as cell deltas (`agent-cli-hybrid-v1`). Read at each terminal attach.
     public var agentCLIHybrid: Bool { didSet { save(agentCLIHybrid, "agentCLIHybrid") } }
@@ -231,6 +235,7 @@ public final class SettingsStore {
         // Saved now: the dial reads this key, and the earlier switch is retired below.
         defaults.set(ultra.rawValue, forKey: "cmuxMobile.settings.ultra")
         alignKeepalives = bool("alignKeepalives", false)
+        lanDirect = bool("lanDirect", true)
         agentCLIHybrid = bool("agentCLIHybrid", false)
         // The earlier three switches: Finished off reads as "Only when I'm needed".
         let level = string("notifyLevel").flatMap(NotificationLevel.init(rawValue:))

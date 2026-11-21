@@ -891,4 +891,79 @@ mod tests {
         host.remove("phone-1").await;
         assert!(dial(&phone, &mac, vec![target], &timeline).await.is_err());
     }
+
+    /// Someone on the LAN who recorded an enrolled phone's packets (its
+    /// handshake and data) and sends them again gets nothing: the Mac answers
+    /// no replayed datagram and opens no link for it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_replayed_session_gets_no_answer_and_no_link() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::UdpSocket;
+        let host = LanHost::start(LanIdentity::generate(), 0, None, true).await.unwrap();
+        let phone = LanIdentity::generate();
+        let reply =
+            host.enroll("phone-1", &LanEnrollRequest { phone_key: phone.public_b64() }).await.unwrap();
+        let mac = LanMac::from_reply(&reply).unwrap();
+        let target: SocketAddr = (Ipv4Addr::LOCALHOST, host.port()).into();
+
+        // A tap between phone and Mac that keeps a copy of every phone datagram.
+        let front = Arc::new(UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap());
+        let back = Arc::new(UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap());
+        back.connect(target).await.unwrap();
+        let recorded = Arc::new(std::sync::Mutex::new(Vec::<Vec<u8>>::new()));
+        let phone_addr = Arc::new(std::sync::Mutex::new(None::<SocketAddr>));
+        let tap_up = {
+            let (front, back, recorded, phone_addr) =
+                (Arc::clone(&front), Arc::clone(&back), Arc::clone(&recorded), Arc::clone(&phone_addr));
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 65536];
+                while let Ok((n, from)) = front.recv_from(&mut buf).await {
+                    *phone_addr.lock().unwrap() = Some(from);
+                    recorded.lock().unwrap().push(buf[..n].to_vec());
+                    let _ = back.send(&buf[..n]).await;
+                }
+            })
+        };
+        let tap_down = {
+            let (front, back, phone_addr) = (Arc::clone(&front), Arc::clone(&back), Arc::clone(&phone_addr));
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 65536];
+                while let Ok(n) = back.recv(&mut buf).await {
+                    let to = *phone_addr.lock().unwrap();
+                    if let Some(to) = to {
+                        let _ = front.send_to(&buf[..n], to).await;
+                    }
+                }
+            })
+        };
+
+        let timeline = crate::Timeline::default();
+        let dialed = dial(&phone, &mac, vec![front.local_addr().unwrap()], &timeline).await.unwrap();
+        let mut accepted =
+            tokio::time::timeout(Duration::from_secs(5), host.accept()).await.unwrap().unwrap();
+        let mut phone_stream = dialed.dialed.stream;
+        phone_stream.write_all(b"ping").await.unwrap();
+        let mut buf = [0u8; 4];
+        accepted.dialed.stream.read_exact(&mut buf).await.unwrap();
+        assert_eq!(&buf, b"ping");
+        tap_up.abort();
+        tap_down.abort();
+        let packets = recorded.lock().unwrap().clone();
+        assert!(packets.len() >= 2, "the tap saw the handshake and data ({} datagrams)", packets.len());
+        // Wait out the input lane's own accept, so the next `accept` can only
+        // be a replayed link.
+        drop(accepted);
+
+        // The replay, from a socket of its own, as an attacker on the LAN would.
+        let replayer = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        replayer.connect(target).await.unwrap();
+        for packet in &packets {
+            replayer.send(packet).await.unwrap();
+        }
+        let mut answer = vec![0u8; 65536];
+        let answered = tokio::time::timeout(Duration::from_secs(2), replayer.recv(&mut answer)).await;
+        assert!(answered.is_err(), "the Mac answered a replayed datagram");
+        let link = tokio::time::timeout(Duration::from_secs(1), host.accept()).await;
+        assert!(link.is_err(), "the Mac opened a link for a replayed session");
+    }
 }
