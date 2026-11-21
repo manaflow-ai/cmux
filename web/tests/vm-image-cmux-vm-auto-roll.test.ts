@@ -473,8 +473,14 @@ describe("auto-roll workflows", () => {
       const runsOn = roll.jobs[job]!["runs-on"]!;
       expect(runsOn).not.toContain("vars.LINUX_RUNNER");
       expect(runsOn).toMatch(/\|\| fromJSON\(vars\.RUNNER_POOLS\)\.linux_4 }}$/);
-      expect(runsOn).toContain("vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 ||");
     }
+    // The read-only control jobs may overflow to linux_8.
+    for (const job of ["platform-readiness", "plan", "promote"]) {
+      expect(roll.jobs[job]!["runs-on"]!).toContain("vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 ||");
+    }
+    // report holds a write token, so it reads only the ephemeral_only linux_4 pool, never linux_8,
+    // whose owned GCP label persistent runners carry (#49007, tests/test_ci_ephemeral_pool_readers.py).
+    expect(roll.jobs["report"]!["runs-on"]!).not.toContain("linux_8");
     const bake = load("cloud-vm-image-bake.yml") as unknown as { jobs: Record<string, { "runs-on"?: string }> };
     expect(bake.jobs["bake"]!["runs-on"]).toContain("vars.LINUX_RUNNER");
   });
