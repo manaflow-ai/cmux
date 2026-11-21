@@ -20,6 +20,7 @@ extension MobileWorkspacePreview {
             lastActivityAt: remote.lastActivityAt.map { Date(timeIntervalSince1970: $0) },
             hasUnread: remote.hasUnread ?? false,
             unreadCount: remote.unreadCount,
+            taskStatus: remote.taskStatus.flatMap(MobileWorkspaceTaskStatus.init(rawValue:)),
             terminals: remote.terminals.map { terminal in
                 MobileTerminalPreview(remote: terminal)
             },

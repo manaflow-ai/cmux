@@ -50,6 +50,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         /// sidebar badge shows). `nil` on Macs old enough not to emit it (the
         /// row then falls back to the boolean dot).
         public let unreadCount: Int?
+        /// The Mac sidebar's completion lane, when workspace status is visible.
+        public let taskStatus: String?
         /// Terminals belonging to this workspace.
         public let terminals: [Terminal]
         /// All workspace surfaces. `nil` when an older Mac omits the field.
@@ -73,6 +75,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case lastActivityAt = "last_activity_at"
             case hasUnread = "has_unread"
             case unreadCount = "unread_count"
+            case taskStatus = "task_status"
             case terminals
             case surfaces
             case simulators
@@ -97,6 +100,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             lastActivityAt: Double?,
             hasUnread: Bool?,
             unreadCount: Int? = nil,
+            taskStatus: String? = nil,
             terminals: [Terminal],
             surfaces: [Surface]? = nil,
             simulators: [MobileSimulatorPanelDescriptor] = []
@@ -116,6 +120,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             self.lastActivityAt = lastActivityAt
             self.hasUnread = hasUnread
             self.unreadCount = unreadCount
+            self.taskStatus = taskStatus
             self.terminals = terminals
             self.surfaces = surfaces
             self.simulators = simulators
@@ -139,6 +144,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             lastActivityAt = try container.decodeIfPresent(Double.self, forKey: .lastActivityAt)
             hasUnread = try container.decodeIfPresent(Bool.self, forKey: .hasUnread)
             unreadCount = try container.decodeIfPresent(Int.self, forKey: .unreadCount)
+            taskStatus = try container.decodeIfPresent(String.self, forKey: .taskStatus)
             terminals = try container.decode([Terminal].self, forKey: .terminals)
             surfaces = try container.decodeIfPresent([Surface].self, forKey: .surfaces)
             simulators = try container.decodeIfPresent(
