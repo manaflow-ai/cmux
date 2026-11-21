@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import type { AcpmuxRow, PromptImage } from "../model";
+import { SENT_IMAGE } from "../transcriptSelectors";
 import { primeSentImages } from "./imageEntries";
 import { ImageViewerContext } from "./imageViewerContext";
 import { PresentationContext } from "./presentationContextModel";
@@ -86,7 +87,7 @@ function GalleryPrimedLate({ images }: Props) {
 /// The capture moment of `pasted-echo-first`: the priming above landed and the image drew in its
 /// slot, not the placeholder the 300 ms timer leaves while it waits.
 const primed: Play = ({ waitFor, document }) =>
-  waitFor(() => document.querySelector("img.cv-user__image") && !document.querySelector(".cv-user__image-placeholder"));
+  waitFor(() => document.querySelector(SENT_IMAGE) && !document.querySelector(".cv-user__image-placeholder"));
 
 function GallerySentImages({
   images,
