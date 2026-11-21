@@ -103,7 +103,7 @@
 # Tests: python3 ios/tests/test_cnx_review.py
 set -euo pipefail
 
-usage() { sed -n '2,94p' "$0"; }
+usage() { awk 'NR > 1 && /^#/ { print; next } NR > 1 { exit }' "$0"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -220,12 +220,15 @@ review_stack_backend() {
   # derives them from BACKEND_URL; the receipt must show the phone's mobile service is the stack's.
   BACKEND_MOBILE_URL="$("$stack" url --tag "$SLUG" --service mobile 2>/dev/null | awk 'NF { line = $0 } END { print line }')" || BACKEND_MOBILE_URL=""
   BACKEND_REPORT="$BACKEND_URL (this tag's stack: API, mobile Worker and device hub$1)"
-  # Its public origin, when it has one, is the phone's: it works away from the tailnet too.
+  # Its public origin, when it has one, is the phone's: it works away from the tailnet too. With none (every public
+  # slot is held), the phone takes the tailnet origin too, and the report says so.
   pub="$("$stack" url --tag "$SLUG" --public 2>/dev/null | awk 'NF { line = $0 } END { print line }')" || pub=""
   if [[ -n "$pub" ]]; then
     BACKEND_PHONE_URL="$(mac_py backend-check "$pub")" || { echo "review.sh: --backend tag-stack: the stack's public URL $pub is not a tag stack origin" >&2; return 1; }
     BACKEND_PHONE_MOBILE_URL="$("$stack" url --tag "$SLUG" --public --service mobile 2>/dev/null | awk 'NF { line = $0 } END { print line }')" || BACKEND_PHONE_MOBILE_URL=""
     BACKEND_REPORT="$BACKEND_REPORT; the phone: $BACKEND_PHONE_URL (its public origin)"
+  else
+    BACKEND_REPORT="$BACKEND_REPORT; the phone: tailnet only (no free public slot: off the tailnet it cannot reach the stack)"
   fi
 }
 
@@ -235,14 +238,24 @@ review_start_stack() {
   [[ $BACKEND_DEFAULT -eq 1 ]] || return 0
   local stack
   stack="$(review_stack_cmd)"
-  STACK_UP_LOG="${TAG_STATE:-${TMPDIR:-/tmp}}/stack-up.log"
+  STACK_UP_LOG="${TAG_STATE:-${TMPDIR:-/tmp}}/stack-up.$$.log"  # this run's own: another run of the tag has its own
   mkdir -p "$(dirname "$STACK_UP_LOG")"
   if [[ ! -x "$stack" ]]; then
     echo "no $stack in this checkout" >"$STACK_UP_LOG"
     return 0
   fi
   echo "==> this tag's backend stack: $stack up --tag $SLUG (beside the builds; --backend dev skips it)"
-  ( "$stack" up --tag "$SLUG" </dev/null >"$STACK_UP_LOG" 2>&1 ) &
+  # Another up of this tag (a second hand-off, or the leftover up of an interrupted one) holds the VM's lock for
+  # the tag: wait for it (up to about 10 min), then up again with this checkout.
+  (
+    local tries=0
+    while :; do
+      "$stack" up --tag "$SLUG" </dev/null >"$STACK_UP_LOG" 2>&1 && exit 0
+      grep -q "another up of this tag" "$STACK_UP_LOG" 2>/dev/null && [[ $tries -lt 20 ]] || exit 1
+      tries=$((tries + 1))
+      sleep 30
+    done
+  ) &
   STACK_UP_PID=$!
 }
 
@@ -266,7 +279,8 @@ review_await_backend() {
     fi
     why="$(tail -n 1 "$STACK_UP_LOG.why" 2>/dev/null)"
   fi
-  [[ -n "$why" ]] || why="$(grep -v '^[[:space:]]*$' "$STACK_UP_LOG" 2>/dev/null | tail -n 1)"
+  # An up that printed nothing leaves no reason in its log: never an error of its own under set -e (pipefail).
+  [[ -n "$why" ]] || why="$({ grep -v '^[[:space:]]*$' "$STACK_UP_LOG" 2>/dev/null || true; } | tail -n 1)"
   why="${why#review.sh: }"
   BACKEND_URL="" BACKEND_MOBILE_URL="" BACKEND_PHONE_URL="" BACKEND_PHONE_MOBILE_URL=""
   BACKEND_REPORT="shared dev Workers (FALLBACK: this tag's stack did not come up: ${why:-up exited $rc}; log $STACK_UP_LOG; --backend dev skips the stack)"

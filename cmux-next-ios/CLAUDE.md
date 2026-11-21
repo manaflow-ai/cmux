@@ -37,7 +37,9 @@ cmux-next-ios/scripts/review.sh --tag <task-slug> [--target-worker <simulator wo
 `scripts/cmux-next/cloud-dev-stack.sh up --tag <task-slug>` beside the fleet builds, then:
 - the Mac app gets the stack's tailnet origin (`backend.json`);
 - the phone gets its public origin, `https://api.s<N>.wdev.cmux.dev`, which works off the tailnet
-  behind the authenticating gateway. Its readiness receipt must name the stack's mobile Worker.
+  behind the authenticating gateway. Its readiness receipt must name the stack's mobile Worker. When
+  every public slot is held, the phone gets the tailnet origin too, and the `Backend:` line says
+  "tailnet only".
 
 The report's `Backend:` line names both. An `up` that fails falls back to the shared dev Workers,
 with the reason on that line. `--backend dev` keeps the shared dev Workers and touches no stack.

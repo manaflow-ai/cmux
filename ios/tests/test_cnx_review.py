@@ -479,6 +479,17 @@ class BackendTests(unittest.TestCase):
         self.assertIn('URL=\n', r.stdout, r.stderr)
         self.assertIn('is not a tailnet origin', r.stdout)
 
+    def test_an_up_that_fails_silently_still_falls_back(self):
+        r, _ = self.default('case "$*" in up*) exit 1 ;; *) exit 0 ;; esac\n')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("did not come up: up exited 1", r.stdout)
+
+    def test_a_stack_with_no_public_slot_says_the_phone_is_tailnet_only(self):
+        r, _ = self.default(f'case "$*" in up*) exit 0 ;; *--public*) echo "stack has no public origin" >&2; exit 3 ;; *) echo {self.STACK} ;; esac\n')
+        self.assertIn('PHONE=\n', r.stdout, r.stderr)
+        self.assertIn(f'LAUNCH={self.STACK}\n', r.stdout)
+        self.assertIn('the phone: tailnet only (no free public slot', r.stdout)
+
     def test_backend_dev_touches_no_stack(self):
         r, calls = self.default(f'echo {self.STACK}\n', arg='dev')
         self.assertEqual(calls, '', 'no up, no url')
