@@ -214,13 +214,13 @@ async function run(browser, name, scenario) {
 
 /// A look folder: its theme file's colors over `base`, its chat display settings and its stylesheet.
 function readLook(dir, themeName) {
-  const setup = JSON.parse(fs.readFileSync(path.join(dir, "cmux-setup.json"), "utf8"));
+  // cmux-setup.json and theme files are JSONC: whole-line comments only in the looks this reads.
+  const jsonc = (file) => JSON.parse(fs.readFileSync(file, "utf8").replace(/^\s*\/\/.*$/gm, ""));
+  const setup = jsonc(path.join(dir, "cmux-setup.json"));
   const settings = setup.settings ?? {};
   const name = themeName ?? settings["appearance.themeFile"];
   if (!name) throw new Error(`${dir}: the look selects no theme file; pass --look-theme`);
-  // Theme files are JSONC: whole-line comments only in the looks this reads.
-  const themeText = fs.readFileSync(path.join(dir, "themes", `${name}.json`), "utf8");
-  const theme = JSON.parse(themeText.replace(/^\s*\/\/.*$/gm, ""));
+  const theme = jsonc(path.join(dir, "themes", `${name}.json`));
   const hex = (value) => {
     const match = typeof value === "string" && /^#([0-9a-fA-F]{6})$/.exec(value);
     if (!match) return undefined;

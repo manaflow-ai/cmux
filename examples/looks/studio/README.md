@@ -35,10 +35,11 @@ cmux setup remove manaflow-ai/studio-look
 Studio's source is its own repo, [manaflow-ai/cmux-studio-look](https://github.com/manaflow-ai/cmux-studio-look): install from it and change it there.
 This folder is a copy that cmux's tests check: its setup, themes, stylesheet and view are the repo's.
 
-`cmux setup install` refuses a setup with a key the running build does not know, so this version
-installs on a build that has `sidebar.nav` (cmux#46508), `appearance.selection` (cmux#46516),
-`agentPane.composerLook` and `agentPane.emptyChatComposerPosition` (cmux#46738),
-`sidebar.settleFinished` (cmux#46872) and `sidebar.drawnMenus` (cmux#46879).
+`cmux setup install` refuses a setup with a key the running build does not know, so the keys still in
+review sit in this folder as comments naming their pull request: `sidebar.nav` (cmux#46508),
+`appearance.selection` (cmux#46516), `agentPane.composerLook` and
+`agentPane.emptyChatComposerPosition` (cmux#46738) and `sidebar.drawnMenus` (cmux#46879). Uncomment
+each once its pull request lands. `sidebar.settleFinished` (cmux#46872) has landed and is on.
 
 ## Variants
 
