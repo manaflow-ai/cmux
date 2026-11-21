@@ -259,7 +259,7 @@ final class NewTabInputCoordinator {
             // or (the app not active yet) the shown agent page's window.
             if let page = Self.chromiumPageWindow(in: window) {
                 if keyboard?.drops(keyFor: page) == true { return }
-                Self.chromiumAgentPane(under: page, in: window)?.judge(held, eventWindow: page)
+                AgentPaneView.showing(chromiumPageWindow: page, in: window)?.judge(held, eventWindow: page)
                 return page.sendEvent(event)
             }
             if keyboard?.drops(keyFor: window.firstResponder) == true { return }
@@ -277,20 +277,8 @@ final class NewTabInputCoordinator {
         if let key = NSApp.keyWindow, key !== window, key.parent === window { return key }
         guard window.firstResponder === window || window.firstResponder == nil else { return nil }
         return window.childWindows?.first { child in
-            child.isVisible && chromiumAgentPane(under: child, in: window)?.isShownToPerson == true
+            child.isVisible && AgentPaneView.showing(chromiumPageWindow: child, in: window)?.isShownToPerson == true
         }
-    }
-
-    /// The agent pane in `window` whose Chromium page shows in `page` (its child window).
-    private static func chromiumAgentPane(under page: NSWindow, in window: NSWindow) -> AgentPaneView? {
-        let center = CGPoint(x: page.frame.midX, y: page.frame.midY)
-        var stack: [NSView] = window.contentView.map { [$0] } ?? []
-        while let view = stack.popLast() {
-            if let pane = view as? AgentPaneView, let content = pane.chromiumPage?.contentView, let host = content.window,
-               host.convertToScreen(content.convert(content.bounds, to: nil)).contains(center) { return pane }
-            stack.append(contentsOf: view.subviews)
-        }
-        return nil
     }
 
     private func install(_ entry: Entry, in window: NSWindow) {
