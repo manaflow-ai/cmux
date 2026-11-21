@@ -336,6 +336,7 @@ pub use paging::{
 pub use spawn::expand_env_value;
 pub mod approvers;
 mod former_names;
+mod harness_key;
 pub(crate) mod key_route;
 pub mod mac_approvers;
 pub mod no_session;
