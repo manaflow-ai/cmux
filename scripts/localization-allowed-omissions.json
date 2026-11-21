@@ -2512,6 +2512,15 @@
     "class": "brand",
     "source": "cmux Pro"
   },
+  "settings.app.agentUsageParts.model": {
+    "source": "Model",
+    "identityLocales": {
+      "bs": "Model is the standard Bosnian noun for an AI model and shares the English spelling; a translated entry is still required.",
+      "da": "Model is the standard Danish noun for an AI model and shares the English spelling; a translated entry is still required.",
+      "pl": "Model is the standard Polish noun for an AI model and shares the English spelling; a translated entry is still required.",
+      "tr": "Model is the standard Turkish noun for an AI model and shares the English spelling; a translated entry is still required."
+    }
+  },
   "settings.app.markdownFontFamily.placeholder": {
     "source": "System",
     "identityLocales": {

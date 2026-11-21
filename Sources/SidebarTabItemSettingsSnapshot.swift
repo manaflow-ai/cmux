@@ -46,6 +46,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     var usesLastSegmentPath: Bool { branchDirectory.usesLastSegmentPath }
     var showsSSH: Bool { details.showSSH }
 
+    /// Reads the sidebar row settings from `defaults`, resolving each detail
+    /// toggle against "Hide All Details".
     init(
         defaults: UserDefaults = .standard,
         sidebarFontSize: CGFloat = GhosttyConfig.defaultSidebarFontSize,
@@ -96,6 +98,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
             showLog: details.showLog,
             showProgress: details.showProgress,
             showAgentUsage: details.showAgentUsage,
+            agentUsageParts: details.agentUsageParts,
             showBranchDirectory: details.showBranchDirectory,
             showPullRequests: details.showPullRequests,
             showPorts: details.showPorts,

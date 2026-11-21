@@ -179,7 +179,7 @@ struct SidebarWorkspaceSnapshotFactory {
                     || workspace.remoteConnectionState == .disconnected),
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: workspace.latestConversationMessage,
-            // `SidebarAgentUsageFormatter()` reads `Locale.current`, so it is
+            // `SidebarAgentUsageFormatter` reads `Locale.current`, so it is
             // built only when usage is actually shown; this runs for every row
             // on every sidebar rebuild. Decorates `statusEntries.rows` rather
             // than the unpartitioned list so compact status still folds the
@@ -187,7 +187,7 @@ struct SidebarWorkspaceSnapshotFactory {
             // carry no usage text because they are no longer rows.
             metadataEntries: detailVisibility.showsMetadata
                 ? (detailVisibility.showsAgentUsage
-                    ? SidebarAgentUsageFormatter().decorate(
+                    ? SidebarAgentUsageFormatter(strings: .localized, shownParts: detailVisibility.agentUsageParts).decorate(
                         statusEntries.rows,
                         usageByStatusKey: workspace.sidebarMetadata.agentUsageByStatusKey
                     )
