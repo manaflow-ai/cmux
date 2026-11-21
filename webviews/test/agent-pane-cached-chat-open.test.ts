@@ -377,8 +377,28 @@ test("an attach retried after the kept tail's frame painted does not wait for an
   };
   const attachesOfA = () =>
     daemon.sent.filter((message) => message.method === "_acpmux/attach" && message.params?.sessionId === A).length;
+  // Each reply the daemon hands the client, by request id.
+  const answered = new Set<unknown>();
+  /// Waits for the daemon's answer to chat A's `nth` attach since `from`, then one task so the client's
+  /// handling of it runs.
+  const answerOfA = async (from: number, nth: number, what: string) => {
+    const asked = () =>
+      daemon.sent.filter((message) => message.method === "_acpmux/attach" && message.params?.sessionId === A)[
+        from + nth - 1
+      ];
+    for (let turn = 0; !answered.has(asked()?.id ?? Symbol()); turn++) {
+      if (turn > 1000) throw new Error(`${what} was never answered`);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
   try {
     await client.select(B);
+    const deliver = daemon.onmessage;
+    daemon.onmessage = (message) => {
+      answered.add((JSON.parse(message.data) as { id?: unknown }).id);
+      deliver?.(message);
+    };
     daemon.hold = A;
     const before = attachesOfA();
     const back = client.select(A);
@@ -388,10 +408,10 @@ test("an attach retried after the kept tail's frame painted does not wait for an
     const rows = client as unknown as { sessions: { sessionId: string; peer?: string }[] };
     rows.sessions = rows.sessions.map((row) => (row.sessionId === A ? { ...row, peer: "mac-two" } : row));
     daemon.release();
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await answerOfA(before, 1, "the first attach of chat A");
     // The kept tail's frame paints: the first reply is read, and the retry goes out and answers.
     paint();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await answerOfA(before, 2, "the retried attach of chat A");
     expect(attachesOfA()).toBe(before + 2);
     // The retry's page is in without another frame.
     expect(client.sessionEvents().map((event) => event.seq)).toEqual([900, 901, 902, 903]);
