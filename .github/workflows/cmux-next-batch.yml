@@ -17,6 +17,12 @@ name: cmux-next batch queue
 #   build     (dispatch by batch) submits the fleet build from a mini, which
 #             is on the tailnet the build controller trusts
 
+# A newer event on the same pull request replaces its older debounce run. Push and dispatch runs each get a
+# group of their own, so a push never replaces a waiting batch (the batch job keeps its own one-at-a-time group).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 run-name: ${{ github.event_name == 'workflow_dispatch' && format('{0} {1}', inputs.mode, inputs.nonce) || format('debounce {0}', github.event.pull_request.number || github.sha) }}
 
 on:
