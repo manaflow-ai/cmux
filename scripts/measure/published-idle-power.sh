@@ -18,6 +18,8 @@ done
 cd "$(git rev-parse --show-toplevel)"
 mkdir -p artifacts
 out="$(mktemp -d "$PWD/artifacts/published-idle.XXXXXX")"
+# Pack whatever the run wrote (a failed run's partial report too), then always remove the scratch folder.
+trap 'tar -czf "artifacts/published-idle-$label.tgz" -C "$out" . 2>/dev/null || true; rm -rf "$out"' EXIT
 python3 - "$bundle" "$pid" "$label" "$seconds" "$out" <<'PY'
 import datetime
 import json
@@ -107,4 +109,3 @@ print('IDLE-RESULT ' + json.dumps(result), flush=True)
 if not valid:
     raise SystemExit('Invalid measurement: process membership changed or counters became unreadable')
 PY
-tar -czf "artifacts/published-idle-$label.tgz" -C "$out" .
