@@ -170,7 +170,7 @@ impl Hub {
     /// Surge admission is a preview: Settings > Experimental > Labs > Show Preview Features
     /// (`labs.previewFeatures`), off by default, read at each eligible message so the switch
     /// applies to the next one. Off, every message takes the path it took before the surge inbox.
-    fn surge_inbox_on(&self) -> bool {
+    pub(super) fn surge_inbox_on(&self) -> bool {
         if let Some(on) = *self.surge_inbox.lock().unwrap_or_else(|e| e.into_inner()) {
             return on;
         }
@@ -261,6 +261,7 @@ impl Hub {
             at: now,
             text,
             details: provenance.and_then(|p| p.get("details")).cloned(),
+            fire: fire_notice(notice.as_ref()),
             tool_notice: notice,
             surge_held: true,
             noticed: true,
