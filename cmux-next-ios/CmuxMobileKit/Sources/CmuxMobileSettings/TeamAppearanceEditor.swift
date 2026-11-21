@@ -170,12 +170,13 @@ public struct TeamAppearanceEditor: View {
                         .fill(color.token)
                         .frame(width: 32, height: 32)
                         .padding(3)
-                        // The wash rings the swatch, inside the selection ring.
-                        .cmuxMobilePressBackground(Color.clear, in: .circle)
                         .overlay {
                             Circle().strokeBorder(theme.colors.label, lineWidth: 3).opacity(selected ? 1 : 0)
                         }
                         .frame(width: 44, height: 44)
+                        // The wash is a 44 pt disc around the selection ring, so a selected
+                        // swatch shows its press too.
+                        .cmuxMobilePressBackground(Color.clear, in: .circle)
                         .contentShape(.circle)
                 }
                 .buttonStyle(.cmuxPressFillInLabel)
@@ -205,11 +206,11 @@ public struct TeamAppearanceEditor: View {
             .frame(width: 32, height: 32)
             .clipShape(.circle)
             .padding(3)
-            .cmuxMobilePressBackground(Color.clear, in: .circle)
             .overlay {
                 Circle().strokeBorder(theme.colors.label, lineWidth: 3).opacity(selected ? 1 : 0)
             }
             .frame(width: 44, height: 44)
+            .cmuxMobilePressBackground(Color.clear, in: .circle)
             .contentShape(.circle)
         }
         .buttonStyle(.cmuxPressFillInLabel)
