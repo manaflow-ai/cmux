@@ -9,9 +9,6 @@
   }
  },
  "deny": {
-  "acpmux-sim-sweep.yml": {
-   "sweep": "matrix: a job-level skip cannot see one leg's receipt"
-  },
   "agent-brands.yml": {
    "drift": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for",
    "swift-test": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
