@@ -333,6 +333,7 @@ const handleComputerControl = async (request: Request, env: Env, agent: string, 
   const sandboxes = sandboxesOf(env, agent)
   // Driving the computer is for Plus, Pro and Max (sandbox-plan.ts COMPUTER_PLANS); hand_back and provision (which
   // answers its own refusal) are not gated here.
+  if (path === "computer/control" && body.action !== "take_over" && body.action !== "hand_back" && body.action !== "provision") return fail({ status: 400, code: "validation.invalid", message: "action must be take_over, hand_back or provision" })
   const ungated = path === "computer/control" && (body.action === "hand_back" || body.action === "provision")
   if (!ungated && !(await sandboxes.ccComputerEntitled(p.user!))) return computerPlanRefused()
   if (path === "computer/control") {
@@ -345,8 +346,7 @@ const handleComputerControl = async (request: Request, env: Env, agent: string, 
       if (r.status === 202) return Response.json({ ok: true, value: { provisioning: true } }, { status: 202, headers: NO_STORE })
       return fail({ status: r.status, code: r.code, message: r.error })
     }
-    if (body.action !== "take_over" && body.action !== "hand_back") return fail({ status: 400, code: "validation.invalid", message: "action must be take_over, hand_back or provision" })
-    const r = await sandboxes.ccComputerControl(agent, body.action)
+    const r = await sandboxes.ccComputerControl(agent, body.action as "take_over" | "hand_back")
     return r.status === 200 ? ok({ control: r.control }) : fail({ status: r.status, code: r.code, message: r.error })
   }
   const r = await sandboxes.ccComputerInput(agent, body)
