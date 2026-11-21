@@ -118,6 +118,14 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(shed.parse_ls_remote(text), {"feature": "abc", "a/b": "def"})
 
 
+class QueueReadTests(unittest.TestCase):
+    def test_dense_window_skips_the_sweep(self):
+        start = dt.datetime(2026, 11, 19, tzinfo=dt.timezone.utc)
+        gh = shed.GitHub(REPO, "token")
+        gh.queued_total = lambda lo, hi: shed.LIST_CAP + 1
+        self.assertEqual(gh.queued_runs(start, start + dt.timedelta(seconds=1)), ([], 1))
+
+
 class WorkflowTests(unittest.TestCase):
     def setUp(self):
         self.doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
