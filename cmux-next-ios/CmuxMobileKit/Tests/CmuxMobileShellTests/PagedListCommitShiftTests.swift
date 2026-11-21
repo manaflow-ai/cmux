@@ -24,8 +24,9 @@ import UIKit
         let seen: Seen
         /// A plain view holding the list's host. A transform on it moves the list on screen with no
         /// layout pass and no safe-area change (SwiftUI and the window put back a transform on the
-        /// collection or the root view, steps 797372f0 and 93049c31; moving its frame moves the
-        /// list's bottom edge, which the list explains as a keyboard's, step 69902ff8).
+        /// collection or the root view, steps 797372f0 and 93049c31; moving it under a safe area
+        /// changes the list's insets, which the list explains as an edge's move, steps 69902ff8 and
+        /// d25910e3: so it sits clear of them).
         let container: UIView
     }
 
@@ -50,7 +51,9 @@ import UIKit
         container.addSubview(hosting.view)
         hosting.didMove(toParent: root)
         window.rootViewController = root
-        container.frame = window.bounds
+        // In the middle of the window, clear of its safe areas: a move of the holder changes no
+        // inset, so nothing explains it as an edge's or a keyboard's move.
+        container.frame = CGRect(x: 0, y: 200, width: window.bounds.width, height: 420)
         hosting.view.frame = container.bounds
         window.makeKeyAndVisible()
         let found = try #require(drain { () -> UICollectionView? in
