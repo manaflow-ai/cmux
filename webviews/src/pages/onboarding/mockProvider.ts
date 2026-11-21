@@ -88,6 +88,9 @@ export class MockOnboardingProvider implements PageClient {
           computerUse: {
             ...computerUse,
             allGranted,
+            // The mock's Allow is the person's: the last grant shows the done view.
+            finished: allGranted,
+            confirmsCapture: computerUse.confirmsCapture || input.pane === "screenRecording",
             comebacks: computerUse.comebacks + 1,
             rows: rows.map((row) => (row === next ? { ...row, control: "allowPrimary" as const } : row)),
           },

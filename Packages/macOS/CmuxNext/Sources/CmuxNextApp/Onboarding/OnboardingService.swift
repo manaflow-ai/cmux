@@ -144,6 +144,20 @@ final class OnboardingService {
         }
     }
 
+    /// The guided Computer Use window (`palette.computerUse.setup` and the two Grant actions, which
+    /// Settings' Grant Access runs too): every entry opens it, as the earlier app did, never System
+    /// Settings by itself. `pane`: a Grant action's grant, whose Allow starts in the window once the
+    /// grants are read (System Settings opens with the drag panel docked to it), only on the
+    /// person's own run. `byPerson` false (an agent's `cmux action run`): the window comes forward
+    /// without the keys, bounces the Dock icon while another app is active, and starts nothing:
+    /// Computer Use is never turned on, and System Settings never opens, without the person's Allow.
+    func showComputerUse(allowing pane: ComputerUsePermissionPane? = nil, byPerson: Bool) {
+        computerUseSetup.recheck()
+        presenter.show(step: .computerUse, quietly: !byPerson) { model, _ in
+            if let pane, byPerson { model.computerUse.allowOnceKnown(pane) }
+        }
+    }
+
     /// First-run routing only, once per app channel (an upgrade is no first run). Never when ``AppEnvironment/skipsOnboarding``
     /// (showcase, capture builds): their captures are fresh homes, and the page over Home parks the workspace their seed fills.
     func showHistoryAtFirstRun(isFirstRun: Bool, defaults: UserDefaults = .standard) {

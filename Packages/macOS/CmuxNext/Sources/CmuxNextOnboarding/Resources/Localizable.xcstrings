@@ -10192,6 +10192,32 @@
         }
       }
     },
+    "onboarding.computerUse.panel.turnOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Then turn it on."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "ثم شغّله."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Zatim ga uključite."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Slå den derefter til."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Schalte es dann ein."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Después, actívalo."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Puis activez-le."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Poi attivalo."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "次に、オンにしてください。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "បន្ទាប់មក បើកវា។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "그런 다음 켜세요."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Slå den deretter på."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Następnie go włącz."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Depois, ative-o."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Затем включите его."}},
+        "th": {"stringUnit": {"state": "translated", "value": "จากนั้นเปิดใช้งาน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Ardından açın."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Потім увімкніть його."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Sau đó bật nó lên."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "然后将其打开。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "然後將其開啟。"}}
+      }
+    },
     "onboarding.agents.title": {
       "extractionState": "manual",
       "localizations": {
