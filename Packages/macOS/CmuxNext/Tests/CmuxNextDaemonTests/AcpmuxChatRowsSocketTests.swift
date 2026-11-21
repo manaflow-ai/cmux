@@ -21,8 +21,10 @@ private final class Handles: Sendable {
 }
 
 /// A host on a real socket to a daemon of this test process.
-private func socketHost(_ daemon: ChatDaemonSocket, handles: Handles, receiver: ChatRowsReceiver) -> AcpmuxChatRowsHost {
-    let host = AcpmuxChatRowsHost(socketPath: daemon.path, deliver: receiver.deliver, makeClient: handles.make, connector: .socket)
+private func socketHost(_ daemon: ChatDaemonSocket, handles: Handles, receiver: ChatRowsReceiver,
+                       ackWait: TimeInterval = AcpmuxChatRowsHost.ackWait) -> AcpmuxChatRowsHost {
+    let host = AcpmuxChatRowsHost(socketPath: daemon.path, deliver: receiver.deliver, makeClient: handles.make,
+                                  connector: .socket, ackWait: ackWait)
     receiver.attach(host)
     return host
 }
@@ -44,7 +46,7 @@ struct AcpmuxChatRowsSocketTests {
         let handles = Handles()
         let receiver = ChatRowsReceiver()
         receiver.hold(true)
-        let host = socketHost(daemon, handles: handles, receiver: receiver)
+        let host = socketHost(daemon, handles: handles, receiver: receiver, ackWait: 60)
         #expect(await host.open(sid: "rows.1", request: ChatWire.open) == .success("rows.1"))
         #expect(await eventually { !receiver.batches.isEmpty })
         try await Task.sleep(for: .milliseconds(200))

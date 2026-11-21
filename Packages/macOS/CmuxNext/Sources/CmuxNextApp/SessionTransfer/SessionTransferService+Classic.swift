@@ -36,7 +36,7 @@ extension SessionTransferService {
               let sourceSurface = object["id"]?.stringValue ?? object["ref"]?.stringValue else { return nil }
         let type = object["type"]?.stringValue ?? ""
         guard type == "terminal" || type == "pty" else { return nil }
-        let binding = object["resume_binding"]?.objectValue
+        let binding = (object["resume_binding"] ?? object["resumeBinding"])?.objectValue
         // Classic keeps the agent's session id inside its resume command
         // (`claude --resume <id>`, `codex resume <id>`).
         let harness = binding?["kind"]?.stringValue.flatMap { ["claude", "codex"].contains($0) ? $0 : nil }

@@ -153,7 +153,12 @@ nonisolated final class PresenceDaemon: @unchecked Sendable {  // the fd is writ
                 buffer.removeSubrange(buffer.startIndex...newline)
                 guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any], let id = object["id"] else { continue }
                 recorded.withLock { $0.append(line) }
-                let data: [String: Any] = object["cmd"] as? String == "identify" ? identity : [:]
+                let data: [String: Any]
+                switch object["cmd"] as? String {
+                case "identify": data = identity
+                case "agent-session-start": data = ["session": "test-session"]
+                default: data = [:]
+                }
                 guard var reply = try? JSONSerialization.data(withJSONObject: ["id": id, "ok": true, "data": data]) else { continue }
                 reply.append(0x0A)
                 _ = reply.withUnsafeBytes { send(client, $0.baseAddress, reply.count, 0) }
