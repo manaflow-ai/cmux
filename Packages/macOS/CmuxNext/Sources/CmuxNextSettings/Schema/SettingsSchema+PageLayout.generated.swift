@@ -34,6 +34,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case chiefPet
         /// The density tiles, preview and custom density editor (plans/cmux-next/density-DESIGN.md).
         case density
+        /// General's first card (David Beyer, 2026-11-20: Settings was overwhelming and had no sidebar font size he could find): one Text Size for the sidebar, tabs, menus and chat (appearance.metrics.chromeFontSize) and the density beside it (appearance.density), in the picker the Set Up cmux card draws too (webviews ui/TextSizePicker).
+        case textSize
         /// What this Mac has that cmux can bring over (CmuxNextImportCards), every card found.
         case importSuggestions
         /// Every release channel's recent builds, with the one this Mac runs (Settings > Updates).
@@ -149,7 +151,7 @@ extension SettingsSchema {
         case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
         case .editor: ["fileEditor.importEditorSettings"]
         case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
-        case .home: ["chief.importMemories", "diagnostics.viewHangReport"]
+        case .home: ["diagnostics.viewHangReport"]
         case .keyboard: ["keybindings.open", "palette.searchShortcuts"]
         case .notifications: ["toasts.showHidden"]
         case .accounts: ["accounts.refresh", "palette.mobileConnect"]

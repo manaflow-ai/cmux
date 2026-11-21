@@ -52,7 +52,7 @@ import { startedTasks, startsTask, TASK_LINE } from "./taskLines";
 import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
-import { turnCallParts, turnCopyParts } from "./turnCopy";
+import { turnCopyParts, turnCallParts } from "./turnCopy";
 import { turnEndActions } from "./turnEndActions.experiment";
 import { turnWork } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
@@ -62,12 +62,11 @@ import { SILENT_MS } from "./thinkingModel";
 import {
   BACKGROUND_TURN,
   backgroundTurnRowId,
-  endsDrawingRows,
   foldBackgroundTurns,
   foldedBackgroundIds,
-  foldsBackground,
   hiddenInBackground,
   openBackgroundTurns,
+  endsDrawingRows,
 } from "./backgroundTurns";
 import {
   foldMessageRuns,
@@ -1512,14 +1511,21 @@ const isWork = (row: AcpmuxRow) =>
 /// Explicit phases select the final answer and footer; older, unphased turns fall back to their
 /// last takeaway or nonempty reply after the final tool call. Earlier substantive replies stay
 /// visible independently, even when the provider labels them commentary.
+/// A turn the agent ran on its own can start before the prompt's turn's result is written (acpmux
+/// clears the turn, then waits before it writes `turn_result`), so its rows sit among the prompt's
+/// turn's. Its reply is never that turn's answer, nor its calls work after the answer: the turn's
+/// own reply drew as a folded note under the background turn's words (transcript-oddities.md T3).
 function answerAt(rows: readonly AcpmuxRow[]): number {
+  const own = rows.some((row) => row.inBackground === undefined && isReply(row));
+  const others = (row: AcpmuxRow) => own && row.inBackground !== undefined;
   if (rows.some((row) => row.kind === "assistant" && row.assistantPhase !== undefined)) {
-    for (let at = rows.length - 1; at >= 0; at -= 1) if (isFinalAnswer(rows[at]!)) return at;
+    for (let at = rows.length - 1; at >= 0; at -= 1) if (!others(rows[at]!) && isFinalAnswer(rows[at]!)) return at;
     return -1;
   }
   let stepped = false;
   for (let at = rows.length - 1; at >= 0; at -= 1) {
     const row = rows[at]!;
+    if (others(row)) continue;
     if (isReply(row) && (isTakeaway(row) || !stepped)) return at;
     if (isWork(row)) stepped = true;
   }
@@ -2806,7 +2812,7 @@ function withoutDrafts(row: AcpmuxRow): AcpmuxRow[] {
 /// is doing now ("Thinking" before any output, the call in flight) and the turn's time, which ticks
 /// until the turn ends, so the bottom of a running chat always moves. It keeps one id from the
 /// Thinking line the prompt opened (LIVE_THINKING), so its row never leaves and comes back. Each
-/// finished run of calls stays in sight until the turn ends (``codexRuns``).
+/// finished call stays in sight on its own line until the turn ends (``codexRuns``, live-turn-work `open`).
 /// The client's empty "typing" placeholder gives way to it.
 /// With `sessionStatus` and a todo list, the list sits under the work and the activity line under
 /// it takes the status's place (cx-ncc.102, Claude Code desktop's in-session status).
@@ -2860,11 +2866,13 @@ function shapeLiveTurn(
   // (a parallel `cp` while the agent messages others) leaves its run for the line too.
   const named = last ? lineCall(drawn, last) : undefined;
   // Consecutive calls form a run; every commentary paragraph ends it, regardless of length.
-  // The `line` experiment hides finished runs, while the default `runs` leaves their closed lines.
-  const lineOnly = experimentArm(liveTurnWork) === "line";
+  // The default `open` keeps each finished call on its own line until the turn ends, `runs` folds
+  // each finished run into its closed line, and `line` hides finished runs (liveTurnWork.experiment.ts).
+  const arm = experimentArm(liveTurnWork);
+  const lineOnly = arm === "line";
   // A call still running before the latest run keeps its own row.
   const carried = lineOnly ? undefined : runningBeforeLastRun(drawn);
-  const rows = codexRuns(drawn, named?.tool.id, lineOnly, carried);
+  const rows = codexRuns(drawn, named?.tool.id, lineOnly, carried, arm === "open");
   // The status ticks on this computer's clock, from the live turn's start moved onto it. A resumed
   // turn can still open with an older prompt, so the prompt's time (`user.at`) is only the fallback.
   // A notice that set the agent going again after it had replied (a background task's end, another
@@ -3360,8 +3368,11 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
 }
 
 /// The drawn states of one Codex-style run, each its own version offset so a memoized row redraws
-/// on every change between them (App.tsx compares versions): 1 the live latest run, 2 an earlier
-/// run, 3 an ended turn's open fold, 4 an earlier run whose running command the live line holds.
+/// on every change between them (App.tsx compares versions): 0 a run kept on its own row, 1 the live
+/// latest run, 2 an earlier run, 3 an ended turn's open fold, 4 an earlier run whose running command
+/// the live line holds. Under live-turn-work `open` states 1, 2 and 4 draw unfolded (`foldRun`
+/// false): the arm is read once per page (experiments/experiment.ts), so a row never moves between
+/// the folded and the unfolded copy of one state.
 const RUN_STATES = 5;
 /// How long a running turn's thought that opens its run streams before it draws (`codexRuns`): a
 /// few chunks, so its row never lands in the frame its run and the turn's Working line do.
@@ -3380,6 +3391,9 @@ const OPEN_RUN_STATES = 2;
 /// With `lineOnly` a finished run of the stretch still running draws no row: the live line is its
 /// work (liveTurnWork). A stretch that already ended with its summary keeps its runs, as it draws
 /// once the chat stops working, so that end moves nothing (liveLineTakesFooterSlot.test.ts).
+/// With `open` (liveTurnWork `open`) no run of the stretch still running folds: each keeps its calls
+/// on their own lines (`foldRun` false), so a steer or a reply that ends a run changes nothing drawn
+/// above it, and the work folds once, when the turn ends (`shapeTurn`). An ended stretch folds as above.
 /// The calls still running in every run but the last one (`shapeLiveTurn`): a merge that joins such
 /// a run to the latest must not hand them to the live line, which names only one call.
 function runningBeforeLastRun(rows: readonly AcpmuxRow[]): Set<string> | undefined {
@@ -3399,7 +3413,9 @@ function runningBeforeLastRun(rows: readonly AcpmuxRow[]): Set<string> | undefin
 /// the turn on every record (bench/live-turn-rows.bench.ts: 28 ms a record at 10,000 records). An
 /// earlier run is a function of its row and of whether the live line names one of its calls, so the
 /// rows made for it are kept while both hold. `named`: the named call, when it is one of the row's.
-type EarlierRun = { named: string | undefined; out: AcpmuxRow[] };
+/// `fold`: whether its rows fold (`foldRun`), false for a run of the stretch still running under
+/// live-turn-work `open`.
+type EarlierRun = { named: string | undefined; fold: boolean; out: AcpmuxRow[] };
 const earlierRuns = new WeakMap<AcpmuxRow, EarlierRun>();
 /// The rows `codexRuns` makes of a run that keeps its own row (a change waiting for its permission,
 /// a call that keeps its row while it runs), by that row.
@@ -3415,10 +3431,10 @@ function namedIn(row: AcpmuxRow, named: string | undefined): string | undefined 
 
 /// An earlier run's rows (`codexRuns`): what it draws of `row`'s calls, without the ones that have
 /// nothing to show yet and the one the live line names.
-function earlierRun(row: AcpmuxRow, named: string | undefined): AcpmuxRow[] {
+function earlierRun(row: AcpmuxRow, named: string | undefined, fold = true): AcpmuxRow[] {
   const own = namedIn(row, named);
   const kept = earlierRuns.get(row);
-  if (kept && kept.named === own) return kept.out;
+  if (kept && kept.named === own && kept.fold === fold) return kept.out;
   const out = withoutDrafts(row).flatMap((drawn) => {
     const items = drawn.items ?? [];
     const shown = own === undefined ? items : items.filter((item) => item.tool?.id !== own);
@@ -3427,19 +3443,25 @@ function earlierRun(row: AcpmuxRow, named: string | undefined): AcpmuxRow[] {
     // differs from every other state of the run (`RUN_STATES`).
     const lined = shown.length !== items.length;
     return [
-      { ...drawn, items: shown, settled: true, foldRun: true, version: row.version * RUN_STATES + (lined ? 4 : 2) },
+      { ...drawn, items: shown, settled: true, foldRun: fold, version: row.version * RUN_STATES + (lined ? 4 : 2) },
     ];
   });
-  earlierRuns.set(row, { named: own, out });
+  earlierRuns.set(row, { named: own, fold, out });
   return out;
 }
 
-function codexRuns(rows: AcpmuxRow[], named?: string, lineOnly = false, carried?: ReadonlySet<string>): AcpmuxRow[] {
+function codexRuns(
+  rows: AcpmuxRow[],
+  named?: string,
+  lineOnly = false,
+  carried?: ReadonlySet<string>,
+  open = false,
+): AcpmuxRow[] {
   // A started chats' card after the run is not a step: the run before it is still in flight.
   let latest = rows.length - 1;
   while (latest > 0 && rows[latest]!.kind === STARTED_SESSIONS) latest -= 1;
   let ended = -1;
-  if (lineOnly)
+  if (lineOnly || open)
     for (let at = rows.length - 1; at >= 0 && ended < 0; at -= 1) if (rows[at]!.kind === "turnSummary") ended = at;
   // One pass that pushes, not a `flatMap`: a running turn of thousands of rows is shaped on every
   // record, and a one-row array for each of them was most of what the pass made.
@@ -3457,8 +3479,10 @@ function codexRuns(rows: AcpmuxRow[], named?: string, lineOnly = false, carried?
       return [own];
     }
     if (lineOnly && index > ended) return [];
+    // Under `open` a run of the stretch still running keeps every call on its own line.
+    const fold = !open || index <= ended;
     // An earlier run draws no call that has nothing to show yet; its row comes with its input.
-    if (index !== latest) return earlierRun(row, named);
+    if (index !== latest) return earlierRun(row, named, fold);
     // The latest run: what is happening now leaves it for the live line, so the run holds only
     // finished steps and never grows a stack of live rows (Leo 2026-10-20: "rows pile up instead
     // of replacing each other").
@@ -3494,7 +3518,7 @@ function codexRuns(rows: AcpmuxRow[], named?: string, lineOnly = false, carried?
     if (!items.length) return [];
     // Whether it shows its thought is the row's own (its text and its chunks' times, not the
     // clock), so the version it has says it: state 1 either way, never an ended fold's 3.
-    return [{ ...row, items, settled: true, foldRun: true, version: row.version * RUN_STATES + 1 }];
+    return [{ ...row, items, settled: true, foldRun: fold, version: row.version * RUN_STATES + 1 }];
   };
   const out: AcpmuxRow[] = [];
   for (let index = 0; index < rows.length; index += 1) {
