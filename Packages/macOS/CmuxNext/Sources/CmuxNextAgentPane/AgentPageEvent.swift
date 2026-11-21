@@ -96,7 +96,7 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
 
     /// A batch of the host socket's frames, or its close (``AgentPaneTransport``, bridgeSocket.ts).
     public static func transport(_ event: AgentPaneTransportEvent) -> AgentPageEvent {
-        AgentPageEvent(kind: "transport", value: JSONValue(foundation: event.object) ?? .null)
+        AgentPageEvent(kind: "transport", value: event.value)
     }
 
     /// A newly listening port on the Cloud machine running this chat.

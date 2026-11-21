@@ -28,8 +28,10 @@ import CmuxNextCompat
         onChange?()
     }
 
-    /// It or an ancestor was hidden: the pane's chat rows host stops handing batches at once.
-    /// Every other owner reads visibility again on a change, and a hidden pane is a no-op for them.
+    /// It or an ancestor was hidden: the pane's chat rows host stops handing batches at once, and
+    /// the pacer tells the transport, so the socket holds the stream within its hidden bound from
+    /// here (``AgentPaneFramePacer/onHiddenChange``). Every other owner reads visibility again on a
+    /// change, and a hidden pane is a no-op for them.
     override func viewDidHide() {
         super.viewDidHide()
         onChange?()
