@@ -190,7 +190,8 @@ public final class MacScreenPane {
         let deliver: @Sendable (RemoteDecodedFrame) -> Void = { [weak self] frame in
             presenter.present(frame)
             // The stats and the first picture, without a main-actor hop per frame.
-            guard counter.tick(frame: frame.frame, decodedAtNanos: frame.decodedAtNanos) else { return }
+            guard counter.tick(frame: frame.frame, releasedAtNanos: frame.releasedAtNanos,
+                                     decodedAtNanos: frame.decodedAtNanos) else { return }
             Task { @MainActor [weak self] in self?.framesShown(counter) }
         }
         let pipeline = RemoteDecodePipeline(source: transport, deliver: deliver, presented: { counter.shown($0) })
@@ -258,14 +259,17 @@ public final class MacScreenPane {
         hideTimer.cancel()
         guard !visible else { return }
         visible = true
-        if let hub = model.hub {
-            // A device's tab asks the hub when shown with a scope waiting
-            // (opened by a person with View or Control, or hidden past its grace mid-session).
-            if hub.phase == .idle, let scope = hub.resumeScope {
-                hub.resumeScope = nil
-                hub.request(scope)
-            }
-        }
+        // A device's tab asks the hub when shown with a scope waiting
+        // (opened by a person with View or Control, or hidden past its grace mid-session).
+        requestWaitingScope()
+    }
+
+    /// A device's tab with a scope waiting asks the hub now, shown or not: a tab
+    /// opened in the background with `--autoconnect` connects before it is selected.
+    public func requestWaitingScope() {
+        guard let hub = model.hub, hub.phase == .idle, let scope = hub.resumeScope else { return }
+        hub.resumeScope = nil
+        hub.request(scope)
     }
 
     /// The tab is hidden: the stream stays for `hiddenGrace`, then ends
