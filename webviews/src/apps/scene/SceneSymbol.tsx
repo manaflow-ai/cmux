@@ -68,12 +68,9 @@ const SYMBOLS: Record<string, string> = {
   sparkles: "task.ai",
   rectangle: "workspace",
   "rectangle.inset.filled": "workspace",
-  "chevron.right": "disclosure.collapsed",
   house: "home",
   timer: "time.waiting",
   bell: "notification",
-  gearshape: "settings",
-  magnifyingglass: "search",
   "chart.bar": "agent.activity",
   star: "bookmark",
   "star.fill": "bookmark.active",
@@ -84,8 +81,6 @@ const SYMBOLS: Record<string, string> = {
   "pause.fill": "media.pause",
   "list.bullet": "view.list",
   "square.grid.2x2": "view.grid",
-  "bubble.left": "agent.chat",
-  "arrow.clockwise": "action.reload",
 };
 
 export function appSceneIcon(value: unknown): string {
