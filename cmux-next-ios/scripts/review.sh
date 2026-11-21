@@ -255,7 +255,7 @@ review_start_stack() {
       tries=$((tries + 1))
       sleep 30
     done
-  ) &
+  ) </dev/null >/dev/null 2>&1 &  # never holds review.sh's output open (a `| tee` of a run that died early)
   STACK_UP_PID=$!
 }
 
