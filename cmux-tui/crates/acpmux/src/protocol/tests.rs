@@ -36,7 +36,7 @@ fn protocol_ir_is_current() {
 /// Adding a peer field must update both surfaces, including future outage metadata.
 #[test]
 fn peer_state_schema_documents_every_wire_field() {
-    let schema: serde_json::Value = serde_json::from_str(crate::schema::SCHEMA).unwrap();
+    let schema: serde_json::Value = serde_json::from_str(&crate::schema::SCHEMA.inflate()).unwrap();
     let documented = schema["notifications"]["_acpmux/peer_state_changed"]["params"]
         .as_object()
         .unwrap()
