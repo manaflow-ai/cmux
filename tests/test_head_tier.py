@@ -207,7 +207,7 @@ def draft_tier_condition(event_name: str, keep_labeled: bool = False) -> str:
         f"github.event_name != '{event_name}'",
         "github.event.pull_request.draft != true",
         "contains(github.event.pull_request.labels.*.name, 'full-ci')",
-        "vars.CI_DRAFT_CHEAP_TIER == '0'",
+        "(vars.CI_DRAFT_CHEAP_TIER || '1') == '0'",
     ]
     if keep_labeled:
         parts.insert(1, "github.event.action == 'labeled'")
