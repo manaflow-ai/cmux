@@ -1,0 +1,12 @@
+cmux-ci: step 0123456789abcdef01234567 (light, key 20261118T190632238Z-hover-sweep-5f6a67fc-package-test-lane)
+HS host aws-m4pro-3 chip="Apple M4 Pro" macOS 26.1
+HS sha 11399c86fd575caef5eb0a5aacf2d8cfca60c253 ffi pinned runs 3
+::group::swift build --build-tests -c release Packages/macOS/CmuxNext
+::endgroup::
+hover-card sweep bench: macOS Version 26.1 (Build 25B78), 96000 pointer moves over 60 rows: p50 250 ns, p95 625 ns, p99 1042 ns, max 41000 ns (sink 0)
+hover-card sweep bench: macOS Version 26.1 (Build 25B78), 96000 pointer moves over 60 rows: p50 250 ns, p95 625 ns, p99 1042 ns, max 41000 ns (sink 0)
+✔ Test nanosecondsPerPointerMove() passed after 0.412 seconds.
+hover-card sweep bench: macOS Version 26.1 (Build 25B78), 96000 pointer moves over 60 rows: p50 291 ns, p95 667 ns, p99 1125 ns, max 38500 ns (sink 0)
+✔ Test nanosecondsPerPointerMove() passed after 0.405 seconds.
+hover-card sweep bench: macOS Version 26.1 (Build 25B78), 96000 pointer moves over 60 rows: p50 208 ns, p95 583 ns, p99 1000 ns, max 52000 ns (sink 0)
+✔ Test nanosecondsPerPointerMove() passed after 0.398 seconds.

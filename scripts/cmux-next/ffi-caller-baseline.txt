@@ -18,18 +18,6 @@ cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_record_fro
 # Held until the stage-0 launch window (launch-stage0-window lane) calls it: launch record v2 adds the
 # window list read ahead of that Swift caller.
 cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_record_windows
-cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_card_machine_init
-cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_card_reduce
-cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_card_room
-cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_duration_from_seconds
-cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_edge_gap
-cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_escape_geometry
-cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_escape_zone
-cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_intent_call
-cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_intent_init
-cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_is_aimed_at
-cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_row_band
-cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_timing
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_animates
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_fade_seconds
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_ffi_abi_version

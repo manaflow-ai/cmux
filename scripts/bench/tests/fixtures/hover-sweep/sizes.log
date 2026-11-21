@@ -1,0 +1,9 @@
+HS host aws-m4pro-3 chip="Apple M4 Pro" macOS 26.1
+hover-card sweep bench: macOS Version 26.1 (Build 25B78), 96000 pointer moves over 6 rows: p50 218 ns, p95 583 ns, p99 1042 ns, max 41000 ns (sink 0)
+hover-card sweep bench: macOS Version 26.1 (Build 25B78), 96000 pointer moves over 60 rows: p50 260 ns, p95 625 ns, p99 1042 ns, max 41000 ns (sink 0)
+hover-card sweep bench: macOS Version 26.1 (Build 25B78), 96000 pointer moves over 600 rows: p50 301 ns, p95 708 ns, p99 1042 ns, max 41000 ns (sink 0)
+✔ Test nanosecondsPerPointerMove() passed after 1.2 seconds.
+hover-card sweep bench: macOS Version 26.1 (Build 25B78), 96000 pointer moves over 6 rows: p50 228 ns, p95 583 ns, p99 1042 ns, max 41000 ns (sink 0)
+hover-card sweep bench: macOS Version 26.1 (Build 25B78), 96000 pointer moves over 60 rows: p50 270 ns, p95 625 ns, p99 1042 ns, max 41000 ns (sink 0)
+hover-card sweep bench: macOS Version 26.1 (Build 25B78), 96000 pointer moves over 600 rows: p50 311 ns, p95 708 ns, p99 1042 ns, max 41000 ns (sink 0)
+✔ Test nanosecondsPerPointerMove() passed after 1.2 seconds.

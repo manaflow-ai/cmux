@@ -1,9 +1,12 @@
+import CCmuxMotionFFI
 public import CmuxNextDesignTokens
 public import Foundation
 
 /// Hover card timing for the sidebar's workspace cards, the tab cards and every other native hover
-/// card. The numbers are Chrome's and live in one place, `HoverIntentTiming.cardDelay` and
-/// `.cardReshow` (HoverIntent.swift, with the Chromium files and constants they come from).
+/// card. The numbers are Chrome's and live in one place, cmux-motion's hover timing
+/// (cmux-tui/crates/cmux-motion/src/hover/timing.rs), read through `cmux_hover_timing`
+/// (`HoverIntentTiming.cardDelay` and `.cardReshow`; HoverIntent.swift has the Chromium files
+/// and constants they come from).
 /// History: 1300 ms (2026-10-14), 250 ms (2026-10-18, msg 1754), Chrome's 1300 ms (2026-10-28,
 /// msg 15729), 400 ms with a rest shortcut (Leo 2026-11-01), and Chrome's exactly again with no
 /// shortcut (Lawrence 2026-11-15, msg 32286: "need more delay (copy chrome's delay exactly ...)
@@ -24,7 +27,13 @@ public nonisolated struct HoverCardTiming {
     /// 0.2 s) restarted it on every row, so the card trailed the pointer and its text doubled
     /// mid-crossfade (Lawrence 2026-10-28, msg 15501: "card animation needs to be better, if i
     /// move across it very fast"). A deliberate move to the next row comes later and glides.
-    public static let sweepInterval: Duration = .milliseconds(150) // hover-timing: animation choice, not a show or hide delay
+    public static let sweepInterval = Duration(hoverNanoseconds: HoverIntentTiming.rustTable.card_sweep_interval)
+    /// How long a pinned card (Show Resource Usage) stays without a dismissal: its lifetime, not a
+    /// hover delay.
+    public static let pinLifetime = Duration(hoverNanoseconds: HoverIntentTiming.rustTable.card_pin_lifetime)
+    /// How long a target with no delay waits when content moves it under a still pointer (a scroll,
+    /// rows reflowing): only a moving pointer gets the instant card.
+    public static let stillPointerDelay = Duration(hoverNanoseconds: HoverIntentTiming.rustTable.card_still_pointer_delay)
 }
 
 extension DesignSettings {
