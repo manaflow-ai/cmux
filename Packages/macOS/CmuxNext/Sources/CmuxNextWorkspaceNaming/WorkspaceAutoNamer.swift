@@ -258,7 +258,7 @@ public final class WorkspaceAutoNamer {
     /// Returns the focused tab used by both planning and application so a
     /// queued rename cannot cross a focus, tab-session, or title change.
     private func focusedFront(_ workspace: WorkspaceModel) -> TabModel? {
-        SidebarMapping.shared.faceTabs(workspace, selectedTab: { [selection] pane in selection(workspace, pane) }).front
+        SidebarMapping.shared.frontTab(workspace, selectedTab: { [selection] pane in selection(workspace, pane) })
     }
 
     private func submission(for candidate: Rename) -> Submission {

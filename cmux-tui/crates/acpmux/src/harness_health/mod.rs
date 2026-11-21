@@ -178,8 +178,10 @@ pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
         // cards and `cmux harness login muse`.
         "muse" => "muse login",
         "opencode" => "opencode auth login",
-        "unii" => "unii login",
+        // The bundled CLI's own sign-in: a clean Mac has no `unii` (first-run finding 2).
+        "unii" => crate::uniichat_endpoint::LOGIN,
         "hermes" => "hermes model",
+        "openclaw" => "openclaw onboard",
         _ => return None,
     })
 }
@@ -274,9 +276,9 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
             found.signed_in().then(|| (Auth::SignedIn, Some(found.sources.join(", "))))
         }
         // UniiChat (the bundled `uniichat-agent`): the token `unii login`
-        // keeps for the server the harness env names (UNII_URL, UNII_HOME).
+        // (or `cmux harness login unii`) keeps for the server the harness env names (UNII_URL, UNII_HOME).
         "unii" => {
-            use crate::cli::uniichat_agent::{Endpoint, Options};
+            use crate::uniichat_endpoint::{Endpoint, Options};
             let env = |key: &str| s.env.get(key).filter(|v| !v.is_empty()).cloned();
             let endpoint = Endpoint::resolve(
                 &Options::default(),
@@ -293,7 +295,7 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
                 Err(why) => (Auth::SignedOut, Some(why)),
             })
         }
-        // Gemini, OpenCode, Pi, Cursor, Copilot, Grok and Muse: their login files and keys.
+        // Gemini, OpenCode, Pi, Cursor, Copilot, Grok, Muse and Antigravity: their login files and keys.
         family => {
             let env = crate::login_env::effective_for(Some(family), &s.env);
             agent_files::file_auth(family, &program, &env)
@@ -395,7 +397,7 @@ pub fn keychain_sign_in(id: &str, profile: &crate::config::HarnessProfile) -> Op
 /// when it says the provider had no capacity or the connection dropped: a transport error is
 /// never a sign-in state (`turn_errors::says_unreachable`, as `recovery::auth_kind`).
 fn auth_failure(output: &str) -> Auth {
-    if crate::hub::turn_errors::says_unreachable(output) {
+    if crate::turn_errors::says_unreachable(output) {
         Auth::Unknown
     } else if crate::claude_auth::is_expired_credential(output) {
         Auth::Expired
@@ -505,6 +507,10 @@ impl HealthService {
                 {
                     row.update = None;
                 }
+                // A copy saved before this binary's version rules (a dev build's
+                // placeholder `0.0.0-next` read as older than a release) says
+                // outdated by this binary's comparison only.
+                row.outdated = matches!((&row.latest, &row.version), (Some(l), Some(v)) if probe::is_newer(l, v));
             }
             self.replace_rows(rows);
         }
@@ -790,6 +796,13 @@ mod tests {
     #[test]
     fn muse_signs_in_with_the_official_cli() {
         assert_eq!(super::builtin_login("muse"), Some("muse login"));
+    }
+
+    /// UniiChat signs in through the CLI cmux bundles (first-run finding 2): a clean Mac has
+    /// no `unii`, and every Sign In (picker, Harnesses page, Settings) types this line.
+    #[test]
+    fn unii_signs_in_with_the_bundled_cli() {
+        assert_eq!(super::builtin_login("unii"), Some("cmux harness login unii"));
     }
 
     #[test]

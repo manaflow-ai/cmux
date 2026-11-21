@@ -2,6 +2,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -51,13 +52,9 @@ const { SUBAGENTS } = await import("../src/agent-session/acpmux/subagents/subage
 const { childView } = await import("../src/agent-session/acpmux/subagents/subagentRows");
 const { SubagentNavContext } = await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
 
-afterAll(() => {
+afterAll(async () => {
   setPaneLanguage("en");
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const group: AcpmuxRow = {

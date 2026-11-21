@@ -76,6 +76,20 @@ const TARGETLESS: &[&str] = &[
     "api-key-revoke",
     "move",
     "bring-back",
+    "transfer-local",
+    "team-sessions",
+    "team-session",
+    "copy-session-link",
+    "follow",
+    "unfollow",
+    "reassign",
+    "archive-session",
+    "show-team-section",
+    "team-members",
+    "group-members",
+    "group-member-set",
+    "group-member-remove",
+    "move-to-machine",
     "sign-in",
     "sign-out",
     "diagnostics",
@@ -104,11 +118,11 @@ fn every_verb_has_both_languages_and_a_target_when_it_names_a_machine() {
 }
 
 #[test]
-fn destructive_verbs_show_confirm_in_the_list_and_their_help() {
+fn destructive_verbs_show_yes_in_the_list_and_their_help() {
     let destructive = GROUPS
         .iter()
         .flat_map(|group| group.verbs)
-        .filter(|verb| verb.usage.contains("--confirm"))
+        .filter(|verb| verb.usage.contains("--yes"))
         .map(|verb| verb.name)
         .collect::<BTreeSet<_>>();
     assert_eq!(
@@ -124,18 +138,16 @@ fn destructive_verbs_show_confirm_in_the_list_and_their_help() {
     let text = overview(false);
     for name in &destructive {
         let row = text.lines().find(|line| line.starts_with(&format!("  {name} "))).unwrap();
-        assert!(row.ends_with("(--confirm)"), "{row}");
+        assert!(row.ends_with("(--yes)"), "{row}");
         let help = verb_help(name, false).unwrap();
-        assert!(help.contains("--confirm"), "{help}");
+        assert!(help.contains("--yes") && !help.contains("--confirm"), "{help}");
     }
 }
 
 #[test]
 fn verb_help_is_that_verb_only() {
     let help = verb_help("kill-machine", false).expect("kill-machine help");
-    assert!(
-        help.starts_with("usage: cmux vm kill-machine --target machine:MACHINE_ID --confirm\n")
-    );
+    assert!(help.starts_with("usage: cmux vm kill-machine --target vm:VM_ID --yes\n"));
     assert!(help.contains("cmux action describe cloud kill-machine --json"));
     assert!(!help.contains("list-machines"), "{help}");
     let japanese = verb_help("kill-machine", true).expect("kill-machine ja help");
@@ -145,10 +157,7 @@ fn verb_help_is_that_verb_only() {
 
 #[test]
 fn exec_usage_is_the_parse_error_text() {
-    assert_eq!(
-        usage("exec").as_deref(),
-        Some("cmux vm exec --target machine:MACHINE_ID --command COMMAND")
-    );
+    assert_eq!(usage("exec").as_deref(), Some("cmux vm exec --target vm:VM_ID --command COMMAND"));
 }
 
 /// `command` split as a shell would, for the single quotes the quick start uses.
@@ -179,14 +188,18 @@ fn quick_start_commands_parse() {
                     && !line.contains('<')
                     && !line.contains(" | ")
             })
-            // These run in this CLI, not through the app's catalog; `cloud env` lines parse in
+            // These (secrets, client sessions, team keys) run in this CLI, not through the app's catalog; `cloud env` lines parse in
             // `cloud_environment.rs` (`the_help_env_lines_parse`).
-            .filter(|line| !line.contains("secret") && !line.contains("client-session"))
+            .filter(|line| {
+                !line.contains("secret")
+                    && !line.contains("client-session")
+                    && !line.contains("team-keys")
+            })
             .filter(|line| !line.starts_with("cmux vm env "))
             .collect::<Vec<_>>();
-        // Two `cmux chat --on vm:` lines, the `cmux chat send` follow-up and seven machine lines,
+        // Two `cmux chat --on vm:` lines, the `cmux chat send` follow-up and eight machine lines,
         // most of them short verbs, and `vm new`. No line is a `vm start-chat` or `vm chat`.
-        assert_eq!(commands.len(), 10, "{commands:?}");
+        assert_eq!(commands.len(), 11, "{commands:?}");
         assert!(commands[0].starts_with("cmux chat --on vm:"), "the chat leads: {commands:?}");
         assert!(!text.contains("vm start-chat") && !text.contains("vm chat"), "{text}");
         for command in commands {
@@ -288,7 +301,9 @@ fn start_chat_help_is_its_usage_and_its_examples_parse() {
         .map(str::trim)
         .filter(|line| line.starts_with("cmux cloud start-chat "))
         .collect::<Vec<_>>();
-    assert_eq!(examples.len(), 3, "{examples:?}");
+    // The fourth: the composer's picks (cmux#46701: --effort and --no-folder parse too).
+    assert_eq!(examples.len(), 4, "{examples:?}");
+    assert!(examples.iter().any(|line| line.contains("--effort") && line.contains("--no-folder")));
     for example in examples {
         let words =
             shell_words(example).into_iter().skip(3).filter(|w| w != "--json").collect::<Vec<_>>();
@@ -344,7 +359,11 @@ fn every_usage_flag_is_a_catalog_argument_and_back() {
                     return Some("path".to_owned());
                 }
                 let flag = word.strip_prefix("--")?;
-                (!["target", "focus", "arg"].contains(&flag)).then(|| camel(flag))
+                // `--yes` reaches the app as its `--confirm` (vm.rs `yes_as_confirm`).
+                let flag = if flag == "yes" { "confirm" } else { flag };
+                // `--focus` and `--no-focus` set the request's `focus` (app.rs `run_action`), not an
+                // argument the app takes.
+                (!["target", "focus", "no-focus", "arg"].contains(&flag)).then(|| camel(flag))
             })
             .collect::<BTreeSet<_>>();
         assert_eq!(flags, args, "{}: usage {:?}", verb.name, verb.usage);
@@ -368,6 +387,6 @@ fn verbs_cloud_refuses_are_marked_in_the_list_and_their_help() {
     }
     let help = verb_help("firewall-delete", false).unwrap();
     assert!(help.starts_with("Cloud does not offer this yet"), "{help}");
-    assert!(help.contains("--confirm"), "{help}");
+    assert!(help.contains("--yes"), "{help}");
     assert!(!verb_help("kill-machine", false).unwrap().contains("does not offer"));
 }

@@ -434,6 +434,28 @@ fn timed_out_attach_closes_transport_and_removes_local_mirror() {
     assert!(closed.load(Ordering::Acquire));
 }
 
+/// A timed-out attach closes the connection because something failed, so
+/// the connection records why: the app then reports a lost session instead
+/// of taking the closed event stream for a clean end and exiting 0.
+#[test]
+fn a_timed_out_attach_records_why_it_closed_the_transport() {
+    let closed = Arc::new(AtomicBool::new(false));
+    let session = test_session(Box::new(CloseTrackingWriter { closed: closed.clone() }));
+
+    let error = session
+        .try_ensure_surface_with_kind(7, SurfaceKind::Pty, None)
+        .err()
+        .expect("silent attach must time out");
+
+    assert!(matches!(
+        error.downcast_ref::<RemoteRequestError>(),
+        Some(RemoteRequestError::Timeout)
+    ));
+    assert!(closed.load(Ordering::Acquire));
+    let reason = session.transport_disconnect_reason();
+    assert!(reason.as_deref().is_some_and(|reason| reason.contains("attach")), "{reason:?}");
+}
+
 #[cfg(unix)]
 #[test]
 fn eof_cancels_a_pending_request_without_waiting_for_the_request_timeout() {

@@ -72,11 +72,14 @@ on:
       - cmux-next media
       - cmux-next PR autofix
       - cmux-next CEF shim C++ tests
+      - cmux-next car guards
       - cmux-next
+      - cmux-rd Windows host
       - cmux-tui artifacts
       - cmux-tui
       - IROH v2
       - nightly-next launch smoke
+      - macOS cross-compile parity
       - Relay TLS system trust
       - reload-build
       - SSH remote daemon
@@ -125,11 +128,14 @@ env:
     .github/workflows/cmux-next-media.yml
     .github/workflows/cmux-next-pr-autofix.yml
     .github/workflows/cmux-next-shim-cpp.yml
+    .github/workflows/cmux-next-car-guards.yml
     .github/workflows/cmux-next.yml
+    .github/workflows/cmux-rd-windows.yml
     .github/workflows/cmux-tui-artifacts.yml
     .github/workflows/cmux-tui.yml
     .github/workflows/iroh-v2.yml
     .github/workflows/nightly-next-launch-smoke.yml
+    .github/workflows/macos-cross-parity.yml
     .github/workflows/relay-tls.yml
     .github/workflows/reload-build.yml
     .github/workflows/remote-daemon.yml
@@ -153,7 +159,7 @@ jobs:
     # immediately when that run has no owned job, so this cannot strand a
     # dedicated build behind a stale variable gate.
     if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event.workflow_run.path == '.github/workflows/ci.yml' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event.workflow_run.event) || github.event.workflow_run.path == '.github/workflows/test-ios.yml' && github.event.workflow_run.event == 'workflow_dispatch' || github.event.workflow_run.path == '.github/workflows/iroh-release-gate.yml' && github.event.workflow_run.event == 'workflow_dispatch' || github.event.workflow_run.path != '.github/workflows/nightly.yml' && github.event.workflow_run.path != '.github/workflows/ios-screenshots.yml' && contains(fromJSON('["pull_request","pull_request_target","push","schedule","workflow_dispatch"]'), github.event.workflow_run.event) || github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml' && github.event.workflow_run.event == 'workflow_dispatch' || github.event.workflow_run.path == '.github/workflows/nightly.yml' && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'schedule') && (github.event.workflow_run.head_branch == 'main' && startsWith(vars.CI_SEED_TRUSTED_POOL, 'glaeda-trusted-') && startsWith(vars.CI_NIGHTLY_TRUSTED_RUNNER, 'glaeda-runner-') || github.event.workflow_run.head_branch == 'nightly-next' && github.event.workflow_run.event == 'push')) && github.event.workflow_run.head_repository.full_name == github.repository && (github.event_name != 'workflow_run' || github.event.action != 'completed' || github.event.workflow_run.conclusion == 'failure')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: polls the Actions API; keeps CI's Linux pool free; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: polls the Actions API; keeps CI's Linux pool free; CI_TRUSTED_RUNNER picks the Blacksmith size
     # A sweeper adopts runs for 300 minutes and gives a rescue 25 more to
     # settle (SWEEP_SECONDS, RESCUE_GRACE_SECONDS). A single run's watch is
     # at most 150 minutes plus the same grace (JOB_TIMEOUT_SECONDS).

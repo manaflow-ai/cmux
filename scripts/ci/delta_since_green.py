@@ -40,6 +40,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
+# ci.yml copies this script with deadline_http.py beside it and runs it with -I, which leaves its own
+# directory off sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
+
 # Commits on the head's first-parent chain examined for a green head.
 MAX_CHAIN = 8
 # Commits fetched behind the head and main to find the merge base and check
@@ -128,12 +133,22 @@ class Git:
         fail the delta does not apply, and the reason carries git's stderr.
         """
         attempts = ((object_filter, *args), args)
+        # A filtered fetch marks the remote a promisor before it transfers
+        # anything. When it then fails (git 2.56.1 in a shallow, non-partial
+        # clone: "BUG: builtin/pack-objects.c: should_include_obj"), that mark
+        # stays and the plain retry fails the same way, so drop what the
+        # attempt added before retrying.
+        keys = [f"remote.{self.remote}.promisor", f"remote.{self.remote}.partialclonefilter"]
+        added = [key for key in keys if not self.succeeds("config", "--local", "--get", key)]
         for index, attempt in enumerate(attempts):
             try:
                 self.run("fetch", "--quiet", "--no-tags", "--no-write-fetch-head", *attempt)
                 return
             except subprocess.CalledProcessError as error:
                 stderr = " ".join((error.stderr or "").split())[-300:] or f"exit {error.returncode}"
+                if index == 0:
+                    for key in added:
+                        self.succeeds("config", "--local", "--unset-all", key)
                 if index + 1 < len(attempts):
                     self.notes.append(f"fetch {' '.join(args[:1])} with {object_filter} failed ({stderr}); retried without it")
                 else:
@@ -341,8 +356,9 @@ def github_verdicts(repository: str, token: str, api_url: str, number: int, base
         left = 30.0 if deadline is None else min(30.0, deadline - time.monotonic())
         if left <= 0:
             raise Skip(f"reading CI verdicts would start past the {BUDGET_SECONDS} s budget")
-        with urllib.request.urlopen(request, timeout=left) as response:
-            return json.load(response)
+        # The whole call ends within LEFT, a trickled answer included (deadline_http).
+        _, payload, _ = deadline_http.request(request, left, raise_errors=True)
+        return json.loads(payload)
 
     def lookup(oids: list[str]) -> dict[str, Optional[str]]:
         owner, _, name = repository.partition("/")

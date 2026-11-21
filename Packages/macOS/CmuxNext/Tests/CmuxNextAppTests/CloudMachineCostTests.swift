@@ -66,11 +66,6 @@ private typealias SidebarStrings = CmuxNextSidebar.Strings
         #expect(cost.runningSince == nil)
         #expect(cost.estimatedCostUsd(now: Self.now) == nil)
         #expect(cost.usage(now: Self.now, locale: Self.enUS) == SidebarStrings.costRateWhenRunning("$0.26"))
-
-        let fields = CloudHandlers.costFields(Self.machine(.paused), now: Self.now)
-        #expect(fields["hourly_rate_usd"] == .double(0.2645))
-        #expect(fields["running_since"] == nil)
-        #expect(fields["estimated_cost_usd"] == nil)
     }
 
     @Test func aMachineWithNoCostFactsHasNoCostLine() {
@@ -146,9 +141,12 @@ private typealias SidebarStrings = CmuxNextSidebar.Strings
             == SidebarStrings.statusConnected)
     }
 
-    /// `cloud machine-status` answers agents with the cost fields.
+    /// `cloud machine-status` answers agents with the cost fields (cmux-cloud-handlers has the rounding cases).
     @Test func machineStatusFieldsCarryTheCost() {
-        let fields = CloudHandlers.costFields(Self.machine(.running), now: Self.now)
+        let services = MachineIconTests.services()
+        let session = MachineIconTests.cloudMachine(services, id: "vm-cost")
+        session.machine = Self.machine(.running)
+        let fields = CloudHandlers.status(session, CloudMachineStats(state: "running"), now: Self.now).fields
         #expect(fields["hourly_rate_usd"] == .double(0.2645))
         #expect(fields["running_since"] == .string(Self.now.addingTimeInterval(-8_040).ISO8601Format()))
         #expect(fields["estimated_cost_usd"] == .double(0.5907))

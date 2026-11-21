@@ -12,7 +12,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.palette.prefix.tabs", "Tabs Prefix"),
-                help: SettingsText.keyed("settings.palette.prefix.help", "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."),
+                help: SettingsText.keyed("settings.palette.prefix.help", "Typed into an empty query, this character enters the scope."),
                 kind: .choice([
                     SettingChoice("@", "@"),
                     SettingChoice("#", "#"),
@@ -42,7 +42,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.palette.prefix.workspaces", "Workspaces Prefix"),
-                help: SettingsText.keyed("settings.palette.prefix.help", "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."),
+                help: SettingsText.keyed("settings.palette.prefix.help", "Typed into an empty query, this character enters the scope."),
                 kind: .choice([
                     SettingChoice("@", "@"),
                     SettingChoice("#", "#"),
@@ -72,7 +72,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.palette.prefix.commands", "Commands Prefix"),
-                help: SettingsText.keyed("settings.palette.prefix.help", "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."),
+                help: SettingsText.keyed("settings.palette.prefix.help", "Typed into an empty query, this character enters the scope."),
                 kind: .choice([
                     SettingChoice("@", "@"),
                     SettingChoice("#", "#"),
@@ -102,7 +102,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.palette.prefix.settings", "Settings Prefix"),
-                help: SettingsText.keyed("settings.palette.prefix.help", "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."),
+                help: SettingsText.keyed("settings.palette.prefix.help", "Typed into an empty query, this character enters the scope."),
                 kind: .choice([
                     SettingChoice("@", "@"),
                     SettingChoice("#", "#"),
@@ -132,7 +132,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.palette.prefix.scopes", "Scope List Prefix"),
-                help: SettingsText.keyed("settings.palette.prefix.help", "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."),
+                help: SettingsText.keyed("settings.palette.prefix.help", "Typed into an empty query, this character enters the scope."),
                 kind: .choice([
                     SettingChoice("@", "@"),
                     SettingChoice("#", "#"),
@@ -162,7 +162,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.palette.aliases", "Command Aliases"),
-                help: SettingsText.keyed("settings.palette.aliases.help", "A word that names a command by its action id (\"vs\": \"splitRight\"). Typing the whole word in the command palette puts that command first."),
+                help: SettingsText.keyed("settings.palette.aliases.help", "A word for a command, such as \"vs\": \"splitRight\"."),
                 kind: .stringMap,
                 default: PaletteRankingSetting.aliasesDefault,
                 keywords: ["palette", "alias", "shortcut", "command"]
@@ -182,7 +182,7 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.palette.searchHistory", "Remember Palette Searches"),
-                help: SettingsText.keyed("settings.palette.searchHistory.help", "The row you pick for what you typed comes first the next time you type it, and rows you use often rank higher. Off, the palette records nothing and ranks by match and sidebar order only."),
+                help: SettingsText.keyed("settings.palette.searchHistory.help", "Rows you pick and use often rank higher. Off records nothing."),
                 kind: .toggle,
                 default: .bool(PaletteRankingSetting.searchHistoryDefault),
                 keywords: ["palette", "search", "history", "memory", "recent", "frecency", "ranking"]

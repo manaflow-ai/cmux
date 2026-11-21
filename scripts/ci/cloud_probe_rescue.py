@@ -100,13 +100,21 @@ def workflow_supports_reroute(api: object, run: Mapping[str, object]) -> bool:
         data = api.request("GET", f"/contents/{WORKFLOW_PATH}?ref={sha}")
         content = base64.b64decode(str((data or {}).get("content") or "").replace("\n", "")).decode()
         document = yaml.safe_load(content)
+        # tests/workflow_jobs.py reads the runs-on; a checkout without it cannot check the route and retries nothing.
+        tests = str(Path(__file__).resolve().parents[2] / "tests")
+        if tests not in sys.path:
+            sys.path.append(tests)
+        workflow_jobs = importlib.import_module("workflow_jobs")
     except Exception:
         return False
     jobs = document.get("jobs") if isinstance(document, Mapping) else None
     watch = jobs.get("watch") if isinstance(jobs, Mapping) else None
-    runs_on = watch.get("runs-on") if isinstance(watch, Mapping) else None
-    if not isinstance(runs_on, str):
+    if not isinstance(watch, Mapping):
         return False
+    items = workflow_jobs.runs_on_items(watch)
+    if len(items) != 1 or not isinstance(items[0], str):
+        return False
+    runs_on = items[0]
     normalized = re.sub(r"[\s'\"]", "", runs_on)
     expected = (f"github.run_attempt==1&&{WATCH_LABELS[0]}||"
                 f"github.run_attempt==2&&{WATCH_LABELS[1]}||{WATCH_LABELS[2]}")

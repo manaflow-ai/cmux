@@ -18,6 +18,7 @@ import {
 import { needsYouItems, type NeedsYouItem } from "../src/agent-session/acpmux/needsYou/model";
 import { NeedsYouPanel, type NeedsYouActions } from "../src/agent-session/acpmux/needsYou/NeedsYou";
 import { useNeedsYou } from "../src/agent-session/acpmux/needsYou/useNeedsYou";
+import { settleReact } from "./support/domTeardown";
 
 const pushed = [
   {
@@ -63,6 +64,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

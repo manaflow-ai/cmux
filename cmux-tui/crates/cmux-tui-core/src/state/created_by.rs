@@ -188,40 +188,20 @@ pub(crate) fn descends_from(
     Ok(false)
 }
 
-/// `extra.created_by` of the workspace `key`: its kind, its creator's
-/// public id while that workspace lives, and its agent session.
-pub(crate) fn snapshot(connection: &Connection, key: &str) -> anyhow::Result<Option<Value>> {
-    let row = connection
-        .query_row(
-            "SELECT kind, creator_key, session FROM workspace_created_by WHERE workspace_key = ?1",
-            [key],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                ))
-            },
-        )
-        .optional()?;
-    let Some((kind, creator, session)) = row else { return Ok(None) };
+/// `extra.created_by` of a workspace: its kind, its creator's public id while that workspace
+/// lives (`creator`), and its agent session. `state/workspace_extras.rs` reads the rows.
+pub(crate) fn snapshot_value(
+    kind: String,
+    creator: Option<String>,
+    session: Option<String>,
+) -> Value {
     let mut value = Map::new();
     value.insert("kind".into(), json!(kind));
     if let Some(creator) = creator {
-        let id = connection
-            .query_row(
-                "SELECT public_id FROM resource_workspaces
-                 WHERE workspace_key = ?1 AND deleted_revision IS NULL",
-                [creator.as_str()],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?;
-        if let Some(id) = id {
-            value.insert("workspace".into(), json!(id));
-        }
+        value.insert("workspace".into(), json!(creator));
     }
     if let Some(session) = session {
         value.insert("session".into(), json!(session));
     }
-    Ok(Some(Value::Object(value)))
+    Value::Object(value)
 }

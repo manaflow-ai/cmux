@@ -1,0 +1,20 @@
+{
+  "app": {
+    "id": 15368,
+    "slug": "github-actions"
+  },
+  "check_suite": {
+    "id": 116905339115
+  },
+  "completed_at": "2026-11-12T06:58:04Z",
+  "conclusion": "failure",
+  "details_url": "https://github.com/manaflow-ai/cmux/actions/runs/43171396634/job/131026209923",
+  "external_id": "f75fb2e3-3da0-59e3-9211-1fa3cec30d7c",
+  "head_sha": "8e9574276379d4faeaa11c5c6bbc2ce228d32e90",
+  "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/43171396634/job/131026209923",
+  "id": 131026209923,
+  "name": "web / Web tests (2/4)",
+  "started_at": "2026-11-12T06:56:54Z",
+  "status": "completed",
+  "url": "https://api.github.com/repos/manaflow-ai/cmux/check-runs/131026209923"
+}

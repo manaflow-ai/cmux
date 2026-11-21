@@ -9,6 +9,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ContextRing } from "../src/agent-session/acpmux/ComposerPickers";
+import { settleReact } from "./support/domTeardown";
+import { compactingUsage } from "../src/agent-session/acpmux/usageStats";
+import { translate } from "../src/agent-session/acpmux/i18n";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -34,6 +37,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -85,8 +89,25 @@ test("before usage is known the ring is the inert track alone", async () => {
   // Off but not `disabled`: its right-click menu still has to open (UsageRingMenu), so a click is inert.
   const button = container.querySelector<HTMLButtonElement>(".acpmux-context-ring")!;
   expect(button.getAttribute("aria-disabled")).toBe("true");
+  expect(button.getAttribute("title")).toContain(translate("status.notReported"));
+  expect(button.getAttribute("aria-label")).not.toContain("0%");
   await act(async () => button.click());
   expect(button.getAttribute("aria-expanded")).toBe("false");
   // No caption in the shipped look.
   expect(container.querySelector(".acpmux-context-caption")).toBeNull();
+});
+
+test("a reopened chat's saved usage lights the context ring before any live usage update", async () => {
+  const usage = compactingUsage(undefined, {
+    autocompact: "capped",
+    autocompactCap: 400_000,
+    contextTokens: 160_000,
+    contextWindow: 1_000_000,
+    updatedAt: 1,
+  });
+  const { container, used } = await ring(usage?.used, usage?.size);
+  const button = container.querySelector<HTMLButtonElement>(".acpmux-context-ring")!;
+  expect(used).toBeDefined();
+  expect(button.getAttribute("aria-disabled")).toBeNull();
+  expect(button.getAttribute("aria-label")).toBe(translate("picker.context", { percent: 40 }));
 });

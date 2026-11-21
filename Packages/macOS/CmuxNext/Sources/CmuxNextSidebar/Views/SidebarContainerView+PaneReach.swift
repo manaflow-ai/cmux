@@ -19,10 +19,15 @@ extension SidebarContainerView {
     public var paneReach: CGFloat { model.style == .rail || isFloatOverlay || model.isFloating ? 0 : Self.paneReach }
 
     /// Keeps the curved-card edge line in the titlebar band, above the card: the row-to-card gap
-    /// stays plain sidebar background, and flat styles keep the full-height line. `rootY` is in the
-    /// container's superview coordinates, which is also where the main-pane card frame is reported.
+    /// stays plain sidebar background, and flat styles keep the full-height line. A shaded chrome
+    /// (`appearance.sidebarSurface` separate, as in Two-Tone) keeps it full height too: the card's
+    /// edge on a faint shade does not read as the seam (Leo 2026-11-12: "in two-tone mode, it, like,
+    /// the one between the sidebar and the transcript disappears"). `rootY` is in the container's
+    /// superview coordinates, which is also where the main-pane card frame is reported.
     public func updateResizeLine(cardMaxY rootY: CGFloat) {
-        guard Metrics.mainPaneCurved else {
+        // Full height unless the card's edge is the seam (``Metrics/cardEdgeIsSidebarSeam``: the default folder tab
+        // keeps the line) and the chrome is unshaded (#41935: a separate sidebar surface keeps it too).
+        guard Metrics.cardEdgeIsSidebarSeam, DesignSettings.shared.sidebarSurface != .separate else {
             handle.lineMinY = 0
             return
         }
@@ -30,12 +35,15 @@ extension SidebarContainerView {
         handle.lineMinY = handle.convert(CGPoint(x: 0, y: rootY), from: root).y
     }
 
-    /// The sidebar's on-screen share of its width, 0 to 1: its animated frame over the user's width
-    /// (the window's toolbar band opens in step with it, cx-uxdr).
+    /// The sidebar's on-screen share of its width, 0 to 1: its animated width over the user's width
+    /// (the window's toolbar band opens in step with it, cx-uxdr). Read from the width constraint,
+    /// which the slide sets each frame and a resize drag sets to the dragged width, not from the
+    /// laid-out frame: Auto Layout rounds the frame to whole pixels, so a drag's fractional width
+    /// read the share just under 1 and moved the band's toggle, Back and Forward by a pixel (#48495).
     public var onScreenShare: CGFloat {
         let width = model.width
         guard width > 0 else { return model.isHidden ? 0 : 1 }
-        return min(1, max(0, frame.width / width))
+        return min(1, max(0, widthConstraint.constant / width))
     }
 
     /// The container's frame in `view`'s coordinates (the window's for nil), widened by the visible

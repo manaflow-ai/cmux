@@ -10,6 +10,8 @@ fn env(dir: &Path, claude_cli: Option<PathBuf>) -> Env {
         claude_config_dir: None,
         codex_home: None,
         xdg_config_home: None,
+        pi_dir: None,
+        gemini_home: None,
         exe: PathBuf::from("/opt/cmux/bin/acpmux"),
         args: vec!["acpmux-mcp".to_owned()],
         acpmux_home: None,
@@ -433,7 +435,7 @@ fn a_racing_writer_whose_text_fails_the_render_keeps_its_bytes() {
             }
         };
         let linking = link_json(&env, App::ClaudeDesktop);
-        let render = |text: &str| render_json(&path, text, &linking);
+        let render = |text: &str| render_json(&path, SERVERS_KEY, text, &linking);
         let e = write::edit_file_raced(&path, None, render, &mut claude).unwrap_err();
         assert!(format!("{e:#}").contains("is not JSON"), "{e:#}");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), half, "by rename: {by_rename}");
@@ -454,6 +456,8 @@ fn an_app_that_is_not_here_is_not_linked() {
         claude_config_dir: None,
         codex_home: None,
         xdg_config_home: None,
+        pi_dir: None,
+        gemini_home: None,
         exe: PathBuf::from("/opt/acpmux"),
         args: vec!["acpmux-mcp".to_owned()],
         acpmux_home: None,
@@ -537,4 +541,220 @@ fn claude_code_without_its_cli_names_the_command_to_run() {
     assert_eq!(row.state, State::NotLinked);
     let note = row.note.unwrap();
     assert!(note.contains("claude mcp add-json --scope user cmux"), "{note}");
+}
+
+/// Make `app` installed in the scratch home: its config folder exists.
+fn install(env: &Env, app: App) {
+    let dir = match app {
+        App::Pi => env.home.join(".pi/agent"),
+        _ => env.config_path(app).parent().unwrap().to_path_buf(),
+    };
+    std::fs::create_dir_all(dir).unwrap();
+}
+
+#[test]
+fn an_app_whose_config_folder_is_missing_is_not_installed_and_left_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = env(dir.path(), None);
+    for app in [App::OpenCode, App::GeminiCli, App::QwenCode, App::Pi] {
+        let row = link(&env, app, false);
+        assert_eq!(row.state, State::NotInstalled, "{app:?}");
+        assert!(!env.config_path(app).exists(), "{app:?}");
+    }
+}
+
+#[test]
+fn opencode_gets_a_local_server_with_one_command_array_beside_the_persons_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = env(dir.path(), None);
+    install(&env, App::OpenCode);
+    let path = env.config_path(App::OpenCode);
+    assert!(path.ends_with(".config/opencode/opencode.json"));
+    std::fs::write(
+        &path,
+        r#"{"theme": "tokyonight", "mcp": {"zeta": {"type": "remote", "url": "https://x"}}, "model": "opencode-go/deepseek-v4-pro"}"#,
+    )
+    .unwrap();
+    assert_eq!(status(&env, App::OpenCode).state, State::NotLinked);
+    assert_eq!(link(&env, App::OpenCode, false).state, State::Linked);
+    let text = std::fs::read_to_string(&path).unwrap();
+    let doc: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(
+        doc["mcp"]["cmux"],
+        json!({
+            "type": "local",
+            "command": ["/opt/cmux/bin/acpmux", "acpmux-mcp"],
+            "environment": {GUEST_ENV: "opencode"},
+            "enabled": true,
+        })
+    );
+    assert_eq!(doc["mcp"]["zeta"]["url"], "https://x");
+    // The person's key order stays: theme, mcp, model; their server first.
+    let order: Vec<usize> = ["\"theme\"", "\"mcp\"", "\"zeta\"", "\"cmux\"", "\"model\""]
+        .map(|k| text.find(k).unwrap())
+        .to_vec();
+    assert!(order.windows(2).all(|w| w[0] < w[1]), "{text}");
+    assert_eq!(status(&env, App::OpenCode).state, State::Linked);
+    assert_eq!(link(&env, App::OpenCode, false).note.as_deref(), Some("already linked"));
+    // Another binary's entry of ours is stale.
+    let mut moved = env.clone();
+    moved.exe = PathBuf::from("/elsewhere/acpmux");
+    assert_eq!(status(&moved, App::OpenCode).state, State::Stale);
+    assert_eq!(unlink(&env, App::OpenCode, false).state, State::NotLinked);
+    let doc: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert!(doc["mcp"].get("cmux").is_none());
+    assert_eq!(doc["mcp"]["zeta"]["type"], "remote");
+}
+
+#[test]
+fn an_opencode_server_named_cmux_that_cmux_did_not_write_is_left_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = env(dir.path(), None);
+    install(&env, App::OpenCode);
+    let path = env.config_path(App::OpenCode);
+    let theirs = r#"{"mcp": {"cmux": {"type": "local", "command": ["my-cmux"]}}}"#;
+    std::fs::write(&path, theirs).unwrap();
+    assert_eq!(status(&env, App::OpenCode).state, State::Foreign);
+    assert_eq!(link(&env, App::OpenCode, false).state, State::Foreign);
+    assert_eq!(unlink(&env, App::OpenCode, false).state, State::Foreign);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), theirs);
+}
+
+#[test]
+fn gemini_cli_and_qwen_code_get_mcp_servers_without_claudes_type() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = env(dir.path(), None);
+    for (app, file, id) in [
+        (App::GeminiCli, ".gemini/settings.json", "gemini"),
+        (App::QwenCode, ".qwen/settings.json", "qwen"),
+    ] {
+        install(&env, app);
+        let path = env.config_path(app);
+        assert!(path.ends_with(file));
+        std::fs::write(&path, r#"{"selectedAuthType": "oauth-personal"}"#).unwrap();
+        assert_eq!(link(&env, app, false).state, State::Linked, "{app:?}");
+        let doc: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            doc["mcpServers"]["cmux"],
+            json!({
+                "command": "/opt/cmux/bin/acpmux",
+                "args": ["acpmux-mcp"],
+                "env": {GUEST_ENV: id},
+            })
+        );
+        assert_eq!(doc["selectedAuthType"], "oauth-personal");
+        assert_eq!(status(&env, app).state, State::Linked);
+        assert_eq!(unlink(&env, app, false).state, State::NotLinked);
+    }
+}
+
+#[test]
+fn pi_gets_a_skill_that_runs_this_cli_as_a_guest() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut env = env(dir.path(), None);
+    let me = crate::self_command::SelfCommand::new(
+        PathBuf::from("/Applications/cmux NEXT.app/Contents/Resources/bin/cmux"),
+        vec!["acp".into()],
+    );
+    env.args = me.args_lossy(&["acpmux-mcp"]);
+    env.exe = me.exe;
+    install(&env, App::Pi);
+    let path = env.config_path(App::Pi);
+    assert!(path.ends_with(".pi/agent/skills/cmux/SKILL.md"));
+    assert_eq!(status(&env, App::Pi).state, State::NotLinked);
+    assert_eq!(link(&env, App::Pi, true).note.as_deref(), Some("would link"));
+    assert!(!path.exists());
+    assert_eq!(link(&env, App::Pi, false).state, State::Linked);
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.starts_with("---\nname: cmux\ndescription: "), "{text}");
+    // The binary under its prefix, quoted, as a guest; never the MCP server subcommand.
+    assert!(
+        text.contains("    ACPMUX_MCP_GUEST=pi '/Applications/cmux NEXT.app/Contents/Resources/bin/cmux' acp\n"),
+        "{text}"
+    );
+    assert!(!text.contains("acpmux-mcp"));
+    assert!(text.contains("send --no-wait --from pi -- NAME"));
+    assert_eq!(status(&env, App::Pi).state, State::Linked);
+    // Another acpmux home: stale, and relinked.
+    env.acpmux_home = Some(PathBuf::from("/tmp/other-home"));
+    assert_eq!(status(&env, App::Pi).state, State::Stale);
+    assert_eq!(link(&env, App::Pi, false).state, State::Linked);
+    assert!(std::fs::read_to_string(&path).unwrap().contains("ACPMUX_HOME=/tmp/other-home"));
+    assert_eq!(unlink(&env, App::Pi, false).state, State::NotLinked);
+    assert!(!path.exists());
+    assert!(!path.parent().unwrap().exists());
+}
+
+#[test]
+fn a_cmux_skill_in_pi_that_cmux_did_not_write_is_left_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut env = env(dir.path(), None);
+    env.pi_dir = Some(dir.path().join("pi-home"));
+    install(&env, App::Pi);
+    std::fs::create_dir_all(dir.path().join("pi-home")).unwrap();
+    let path = env.config_path(App::Pi);
+    assert!(path.starts_with(dir.path().join("pi-home")));
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "---\nname: cmux\n---\nmine\n").unwrap();
+    assert_eq!(status(&env, App::Pi).state, State::Foreign);
+    assert_eq!(link(&env, App::Pi, false).state, State::Foreign);
+    assert_eq!(unlink(&env, App::Pi, false).state, State::Foreign);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "---\nname: cmux\n---\nmine\n");
+}
+
+/// Every harness family acpmux runs by name (`acpmux --help`: Claude Code, Codex, OpenCode, pi,
+/// Gemini) can be linked, so a chat started outside cmux in any of them reaches the others.
+#[test]
+fn every_harness_family_acpmux_runs_can_be_linked() {
+    for family in ["claude", "codex", "opencode", "pi", "gemini"] {
+        assert!(App::ALL.iter().any(|a| a.id().starts_with(family)), "{family} has no link");
+    }
+}
+
+#[test]
+fn gemini_cli_reads_its_own_home_when_one_is_set() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut env = env(dir.path(), None);
+    env.gemini_home = Some(dir.path().join("gemini-home"));
+    assert_eq!(
+        env.config_path(App::GeminiCli),
+        dir.path().join("gemini-home/.gemini/settings.json")
+    );
+    install(&env, App::GeminiCli);
+    assert_eq!(link(&env, App::GeminiCli, false).state, State::Linked);
+    assert!(!dir.path().join(".gemini/settings.json").exists());
+}
+
+#[test]
+fn pi_unlink_never_deletes_a_skill_that_is_not_cmuxs() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = env(dir.path(), None);
+    install(&env, App::Pi);
+    assert_eq!(link(&env, App::Pi, false).state, State::Linked);
+    // Replaced by the person's own after status read cmux's: remove_entry judges what it moved.
+    let path = env.config_path(App::Pi);
+    std::fs::write(&path, "---\nname: cmux\n---\nmine\n").unwrap();
+    let e = remove_entry(&env, App::Pi).unwrap_err();
+    assert!(e.downcast_ref::<ForeignEntry>().is_some(), "{e:#}");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "---\nname: cmux\n---\nmine\n");
+    let left: Vec<_> = std::fs::read_dir(path.parent().unwrap()).unwrap().collect();
+    assert_eq!(left.len(), 1, "only SKILL.md stays");
+    // Gone already: nothing to do.
+    std::fs::remove_file(&path).unwrap();
+    assert!(remove_entry(&env, App::Pi).is_ok());
+}
+
+#[test]
+fn a_pi_skill_that_only_mentions_the_guest_variable_is_not_cmuxs() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = env(dir.path(), None);
+    install(&env, App::Pi);
+    let path = env.config_path(App::Pi);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let theirs = "---\nname: cmux\n---\nRun with ACPMUX_MCP_GUEST=pi set.\n";
+    std::fs::write(&path, theirs).unwrap();
+    assert_eq!(status(&env, App::Pi).state, State::Foreign);
+    assert_eq!(link(&env, App::Pi, false).state, State::Foreign);
+    assert_eq!(unlink(&env, App::Pi, false).state, State::Foreign);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), theirs);
 }

@@ -1214,3 +1214,115 @@ fn pairing_request_resources_require_a_trusted_local_connection() {
     assert_eq!(listed["result"].as_array().unwrap().len(), 1);
     assert_eq!(listed["result"][0]["code"], challenge.code);
 }
+
+/// A journal stream that resumes behind the head catches up on a database
+/// reader, then moves to the shared ring. A record the ring publishes while
+/// the stream reads its last database page must still reach the stream at
+/// once: the stream must not take the ring's epoch after that publication
+/// and then wait for the next one, which a quiet session may never make.
+#[test]
+fn session_journal_stream_delivers_a_record_published_while_it_moves_to_the_ring() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-journal-ring-switch-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let mux =
+        Mux::open_persistent("journal-ring-switch", SurfaceOptions::default(), &root).unwrap();
+    assert!(mux.shared_journal_enabled(), "a persistent session fans out from the shared ring");
+    let created = crate::resource_router::handle_resource_message(
+        &mux,
+        &resource_request(
+            "ring-switch-create",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "name":"before",
+                "initial_content":"empty",
+            }),
+            Some("ring-switch-create"),
+        ),
+    )
+    .unwrap();
+    let workspace_id = created["result"]["value"]["workspace_id"].as_str().unwrap().to_string();
+
+    // At the switch, commit one more record and wait until the ring has
+    // published it, as a commit racing the last database page would.
+    let switched = Arc::new(AtomicBool::new(false));
+    *mux.journal_stream_before_ring_switch.lock().unwrap() = Some(Arc::new({
+        let mux = Arc::downgrade(&mux);
+        let switched = switched.clone();
+        move || {
+            if switched.swap(true, Ordering::SeqCst) {
+                return;
+            }
+            let mux = mux.upgrade().unwrap();
+            let kernel = mux.shared_journal_handle();
+            let epoch = kernel.epoch();
+            crate::resource_router::handle_resource_message(
+                &mux,
+                &resource_request(
+                    "ring-switch-rename",
+                    "workspace.rename",
+                    json!({
+                        "machine":"current",
+                        "session":"current",
+                        "workspace":workspace_id,
+                        "name":"published during the switch",
+                    }),
+                    Some("ring-switch-rename"),
+                ),
+            )
+            .unwrap();
+            let published = kernel.wait_until(epoch, Some(Instant::now() + Duration::from_secs(5)));
+            assert_ne!(published, epoch, "the ring did not publish the rename");
+        }
+    }));
+
+    let (writer, outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let open = resource_request(
+        "ring-switch-open",
+        "session.journal.subscribe",
+        json!({
+            "machine":"current",
+            "session":"current",
+            "stream_id":"stream_00000000000000000000000000000061",
+            "start":"beginning",
+            "filter":journal_subscription_filter(
+                JournalSensitivity::Sensitive,
+                json!({"kinds":["workspace.*"]}),
+            ),
+        }),
+        None,
+    );
+    assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
+    assert_eq!(pop_json(&outbound)["ok"], true);
+    let replayed = pop_json(&outbound);
+    assert_eq!(replayed["item"]["kind"], "workspace.create");
+    // No commit follows the rename: the stream must deliver it by itself.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let delivered = loop {
+        if let Some(message) = outbound.try_pop() {
+            break Some(serde_json::from_str::<Value>(&message).unwrap());
+        }
+        if Instant::now() >= deadline {
+            break None;
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    };
+    *mux.journal_stream_before_ring_switch.lock().unwrap() = None;
+    assert!(switched.load(Ordering::SeqCst), "the stream never moved to the shared ring");
+    let delivered = delivered.expect(
+        "the stream missed the record the ring published while it moved there, and waits for \
+         the next commit",
+    );
+    assert_eq!(delivered["item"]["kind"], "workspace.rename");
+
+    assert!(disconnect_client(&mux, client, false));
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}

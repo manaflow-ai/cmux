@@ -189,7 +189,7 @@ const OTHER_TERMINAL: &str = "000000000000000000000000c4ea7e02";
 /// for the session lock while it held the creating-input lock, and a key behind it waited too.
 fn hold_session_behind_a_creating_input_reader(mux: &Arc<Mux>, hold: &dyn Fn()) {
     let generation =
-        mux.begin_creating_input(CREATING_TERMINAL).expect("no live terminal has the id");
+        mux.begin_creating_input(CREATING_TERMINAL, 1).expect("no live terminal has the id");
     let mut reader = None;
     mux.with_state(|_| {
         let asking = mux.clone();

@@ -141,7 +141,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "agentChat.copyAcpmuxSessionFile",
         group: GROUP,
-        title: t("ActionCatalog", "action.agentChat.copyAcpmuxSessionFile", "Copy acpmux Session File"),
+        title: t("ActionCatalog", "action.agentChat.copyAcpmuxSessionFile", "Copy cmux Session File"),
         keywords: &["agent", "chat", "acpmux", "session", "session.json", "json", "record", "copy"],
         category: "agents",
         symbol: "curlybraces",

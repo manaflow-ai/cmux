@@ -114,6 +114,10 @@ struct Raw {
     optional_scoped_session_params: BTreeMap<String, BTreeSet<String>>,
     source_scoped: BTreeSet<String>,
     gesture_rules: BTreeMap<String, GestureRule>,
+    // Required, as the lists above: a file without the click rule does not
+    // parse, and a policy that did not parse denies every frame.
+    click_only: BTreeSet<String>,
+    click_window_ms: u64,
     non_trusting_levels: BTreeSet<String>,
     setting_methods: BTreeSet<String>,
     known_params: BTreeMap<String, KnownParams>,
@@ -161,6 +165,16 @@ pub struct Policy {
     /// Methods that copy a session into a new one the pane controls.
     pub source_scoped: BTreeSet<String>,
     pub gesture_rules: BTreeMap<String, GestureRule>,
+    /// The answer methods (the Swift host's `AcpmuxPaneMethods.answerAllowed`):
+    /// when a frame of one needs a gesture, only a click grants it, never a
+    /// gesture that typing left ([`crate::gesture::Gesture`]). The check
+    /// refuses such a frame for any other gesture ([`crate::check::check_frame`]).
+    pub click_only: BTreeSet<String>,
+    /// How old the click may be, in milliseconds, when the host calls it a
+    /// click (the Swift host's `AgentPaneUserGestures.answerWindow`). The
+    /// host keeps the clock: this crate has none. 0 (a policy that did not
+    /// parse): no click is fresh.
+    pub click_window_ms: u64,
     /// Local `acp.trust.set` levels that do not trust (no gesture).
     pub non_trusting_levels: BTreeSet<String>,
     /// The methods that set a mode or an option (P1).
@@ -210,6 +224,8 @@ pub fn policy() -> &'static Policy {
             optional_scoped_session_params: raw.optional_scoped_session_params,
             source_scoped: raw.source_scoped,
             gesture_rules: raw.gesture_rules,
+            click_only: raw.click_only,
+            click_window_ms: raw.click_window_ms,
             non_trusting_levels: raw.non_trusting_levels,
             setting_methods: raw.setting_methods,
             known_params: raw.known_params,

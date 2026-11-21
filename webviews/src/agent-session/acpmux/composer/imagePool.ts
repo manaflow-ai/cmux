@@ -108,6 +108,26 @@ export function thumbnailOffThread(image: { mimeType: string; data: string }): P
   return run({ kind: "thumb", image }) as Promise<Thumb | undefined>;
 }
 
+/// How long a picture's decode may hold what shows it (`decoded`).
+const DECODE_WAIT_MS = 100;
+
+/// Answers once `url`'s picture is decoded, so an `<img>` of it paints in its first frame instead of
+/// one frame empty; at once where the engine cannot decode ahead (a test's DOM), and after
+/// DECODE_WAIT_MS at most.
+export function decoded(url: string): Promise<void> {
+  if (typeof Image === "undefined" || typeof Image.prototype.decode !== "function") return Promise.resolve();
+  const image = new Image();
+  image.src = url;
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    image.decode().catch(() => {}),
+    // timeout: a decode that never answers must not hold its chip; cleared when the decode answers.
+    new Promise<void>((resolve) => {
+      deadline = setTimeout(resolve, DECODE_WAIT_MS);
+    }),
+  ]).finally(() => clearTimeout(deadline));
+}
+
 /// Thumbnails made with their image's preview, by the chip's id, so its chip draws one at once
 /// instead of decoding the image again. The newest few are kept.
 const thumbs = new Map<string, Thumb>();

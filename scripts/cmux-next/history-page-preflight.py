@@ -27,6 +27,8 @@ Steps:
 Exit 0 only when every check passed and nothing of the bundle is left.
 """
 import json, os, pwd, shutil, signal, socket, sqlite3, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 TAG, APP, OUT = sys.argv[1], sys.argv[2], sys.argv[3]
 BINARY = os.path.join(APP, "Contents/MacOS/cmux DEV")
@@ -155,7 +157,7 @@ def teardown(app):
     try:
         app.wait(timeout=30)
     except subprocess.TimeoutExpired:
-        print("app did not quit in 30s; SIGKILL pid %d" % app.pid, flush=True)
+        safe_print("app did not quit in 30s; SIGKILL pid %d" % app.pid, flush=True)
         os.kill(app.pid, signal.SIGKILL)
     subprocess.run([ACPMUX, "daemon", "shutdown", "--end-agents"], env={**os.environ, "ACPMUX_HOME": ACPMUX_HOME,
                    "ACPMUX_SOCKET": os.path.join(ACPMUX_HOME, "acpmux.sock")}, capture_output=True, timeout=30)
@@ -179,7 +181,7 @@ def teardown(app):
         ps = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
         left = [l for l in ps.splitlines() if (APP + "/") in l and "history-preflight" not in l]
         note("leftovers-after-router", lines=left)
-    print("leftovers of this bundle: %d" % len(left), flush=True)
+    safe_print("leftovers of this bundle: %d" % len(left), flush=True)
     return not left
 
 

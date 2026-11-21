@@ -1,5 +1,6 @@
 import CmuxNextDesign
 @testable import CmuxNextSettings
+import Foundation
 import Testing
 
 /// Custom densities in cmux.json (`appearance.customDensities`, `appearance.customDensity`) and
@@ -82,5 +83,68 @@ struct CustomDensitySettingTests {
         #expect(second.id == "my-tight-2" && second.basedOn == "cozy")
         #expect(CustomDensitiesSetting.uniqueID(for: "Compact", existing: []) == "compact-2", "never a built-in's id")
         #expect(CustomDensitiesSetting.uniqueID(for: "日本", existing: []) == "custom")
+    }
+
+    @Test func webPresetCopiesKeepTheNativeTokens() throws {
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Fixtures/density-web-exports.json")
+        let exports = try JSONDecoder().decode([JSONValue].self, from: Data(contentsOf: fixture))
+        #expect(exports.count == DensityPreset.allCases.count)
+        for (json, preset) in zip(exports, DensityPreset.allCases) {
+            let copy = try #require(CustomDensitiesSetting.density(from: json))
+            let snapshot = Self.parse(["customDensities": .array([json]), "customDensity": .string(copy.id)])
+            #expect(snapshot.diagnostics.isEmpty)
+            #expect(snapshot.selectedDensity.tokens == preset.tokens.tokens)
+            #expect(abs(snapshot.selectedDensity.bodySize - preset.tokens.bodySize) < 0.000_001)
+            let copiedTitle = try #require(snapshot.selectedDensity.fontToken("tabTitleSize"))
+            let presetTitle = try #require(preset.tokens.fontToken("tabTitleSize"))
+            #expect(abs(copiedTitle - presetTitle) < 0.000_001)
+        }
+    }
+
+    @MainActor @Test func webExactSizeEditsReachTheNativeRowsAndTabs() throws {
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Fixtures/density-web-edited.json")
+        let json = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: fixture))
+        let copy = try #require(CustomDensitiesSetting.density(from: json))
+        let snapshot = Self.parse(["customDensities": .array([json]), "customDensity": .string(copy.id)])
+        DensityTokens.$scoped.withValue(snapshot.selectedDensity) {
+            let sidebar = SidebarRowTokens(density: .compact, textSize: .standard, base: SidebarRowTokens.current.base)
+            #expect(sidebar.listRowHeight == 40)
+            #expect(sidebar.listRowCornerRadius == 3)
+            #expect(Metrics.tabHeight == 38)
+            #expect(Metrics.chromeTabCornerRadius == 3)
+            #expect(Metrics.tabIconSize == 20)
+            #expect(Metrics.tabContentLeadingInset == 10.5)
+        }
+    }
+
+    @MainActor @Test func presetCopiesAndEditedRowsKeepTheLiveIconInset() {
+        for preset in DensityPreset.allCases {
+            let copy = CustomDensitiesSetting.duplicate(preset.tokens, name: "My density", existing: [])
+            let original = DensityTokens.$scoped.withValue(preset.tokens) { Metrics.tabContentLeadingInset }
+            let copied = DensityTokens.$scoped.withValue(copy) { Metrics.tabContentLeadingInset }
+            #expect(copied == original, "\(preset): duplicating a preset preserves its icon inset")
+        }
+        var edited = CustomDensitiesSetting.duplicate(DensityPreset.compact.tokens, name: "My density", existing: [])
+        edited.tokens["tabHeight"] = 40
+        edited.tokens["tabIconSize"] = 20
+        DensityTokens.$scoped.withValue(edited) {
+            #expect(Metrics.tabContentLeadingInset == 11.5)
+        }
+        edited.tokens["tabIconLeading"] = 13
+        DensityTokens.$scoped.withValue(edited) {
+            #expect(Metrics.tabContentLeadingInset == 13, "a custom explicit inset keeps its value")
+            let store = TunableStore.shared
+            let tunable = ChromeTunables.tabContentLeadingInset
+            store.activate(file: nil)
+            store.register([tunable.descriptor])
+            let previous = store.override(tunable.key)
+            defer { store.set(tunable.key, previous) }
+            store.set(tunable.key, .number(5))
+            #expect(Metrics.tabContentLeadingInset == 5, "the Chrome override wins over a custom inset")
+        }
     }
 }

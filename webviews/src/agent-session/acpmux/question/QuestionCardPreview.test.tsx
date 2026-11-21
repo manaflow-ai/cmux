@@ -12,6 +12,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { AgentQuestion } from "./model";
 import { QuestionCard } from "./QuestionCard";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const FIXTURE = fileURLToPath(
   new URL(
@@ -30,6 +31,7 @@ const GLOBALS = ["window", "document", "navigator", "Node", "HTMLElement", "Elem
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

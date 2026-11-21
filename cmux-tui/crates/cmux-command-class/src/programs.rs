@@ -17,7 +17,7 @@ pub(crate) fn sed(tail: &[&str]) -> Classification {
     let mut j = 0;
     let mut only_positional = false;
     while let Some(&word) = tail.get(j) {
-        j += 1;
+        j = j.saturating_add(1);
         if only_positional || !is_flag(word) {
             if scripts.is_empty() {
                 scripts.push(word);
@@ -38,12 +38,12 @@ pub(crate) fn sed(tail: &[&str]) -> Classification {
                 _ => {}
             }
             if value.is_none() && matches!(name, "expression" | "file" | "line-length") {
-                j += 1;
+                j = j.saturating_add(1);
             }
         } else {
             let cluster = word.get(1..).unwrap_or_default();
             for (at, c) in cluster.char_indices() {
-                let rest = cluster.get(at + c.len_utf8()..).unwrap_or_default();
+                let rest = cluster.get(at.saturating_add(c.len_utf8())..).unwrap_or_default();
                 match c {
                     // `-i` takes the rest of the cluster as a backup suffix.
                     'i' => {
@@ -52,8 +52,9 @@ pub(crate) fn sed(tail: &[&str]) -> Classification {
                     }
                     'e' | 'f' | 'l' => {
                         let value = if rest.is_empty() {
-                            j += 1;
-                            tail.get(j - 1).copied()
+                            let next = tail.get(j).copied();
+                            j = j.saturating_add(1);
+                            next
                         } else {
                             Some(rest)
                         };
@@ -99,6 +100,11 @@ impl SedParser {
         self.chars.get(self.pos).copied()
     }
 
+    /// Moves `pos` on by `n` chars. It may pass the end, where `peek` sees nothing.
+    fn advance(&mut self, n: usize) {
+        self.pos = self.pos.saturating_add(n);
+    }
+
     fn raise(&mut self, class: CommandClass, reason: &'static str) {
         if self.best.is_none_or(|(best, _)| class > best) {
             self.best = Some((class, reason));
@@ -107,7 +113,7 @@ impl SedParser {
 
     fn skip_blanks(&mut self) {
         while self.peek().is_some_and(|c| c == ' ' || c == '\t') {
-            self.pos += 1;
+            self.advance(1);
         }
     }
 
@@ -115,7 +121,7 @@ impl SedParser {
     fn rest_of_line(&mut self) -> String {
         let start = self.pos;
         while self.peek().is_some_and(|c| c != '\n') {
-            self.pos += 1;
+            self.advance(1);
         }
         self.chars
             .get(start..self.pos)
@@ -129,7 +135,7 @@ impl SedParser {
     fn program(&mut self) -> Option<()> {
         loop {
             while self.peek().is_some_and(|c| c.is_whitespace() || c == ';') {
-                self.pos += 1;
+                self.advance(1);
             }
             let Some(c) = self.peek() else {
                 return Some(());
@@ -141,13 +147,13 @@ impl SedParser {
             self.address()?;
             self.skip_blanks();
             if self.peek() == Some(',') {
-                self.pos += 1;
+                self.advance(1);
                 self.skip_blanks();
                 self.address()?;
             }
             self.skip_blanks();
             while self.peek() == Some('!') {
-                self.pos += 1;
+                self.advance(1);
                 self.skip_blanks();
             }
             self.command()?;
@@ -157,21 +163,21 @@ impl SedParser {
     fn address(&mut self) -> Option<()> {
         match self.peek() {
             Some(c) if c.is_ascii_digit() || c == '+' || c == '~' => {
-                self.pos += 1;
+                self.advance(1);
                 while self.peek().is_some_and(|c| c.is_ascii_digit() || c == '~') {
-                    self.pos += 1;
+                    self.advance(1);
                 }
             }
-            Some('$') => self.pos += 1,
+            Some('$') => self.advance(1),
             Some('/') => {
-                self.pos += 1;
+                self.advance(1);
                 self.delimited('/')?;
                 self.regex_flags();
             }
             Some('\\') => {
-                self.pos += 1;
+                self.advance(1);
                 let delimiter = self.peek()?;
-                self.pos += 1;
+                self.advance(1);
                 self.delimited(delimiter)?;
                 self.regex_flags();
             }
@@ -182,7 +188,7 @@ impl SedParser {
 
     fn regex_flags(&mut self) {
         while matches!(self.peek(), Some('I' | 'M')) {
-            self.pos += 1;
+            self.advance(1);
         }
     }
 
@@ -190,9 +196,9 @@ impl SedParser {
     fn delimited(&mut self, delimiter: char) -> Option<()> {
         loop {
             let c = self.peek()?;
-            self.pos += 1;
+            self.advance(1);
             if c == '\\' {
-                self.pos += 1;
+                self.advance(1);
             } else if c == delimiter {
                 return Some(());
             }
@@ -201,19 +207,19 @@ impl SedParser {
 
     fn command(&mut self) -> Option<()> {
         let c = self.peek()?;
-        self.pos += 1;
+        self.advance(1);
         match c {
             '{' | '}' | '=' | 'd' | 'D' | 'g' | 'G' | 'h' | 'H' | 'n' | 'N' | 'p' | 'P' | 'x'
             | 'z' | 'F' => {}
             'l' | 'L' | 'q' | 'Q' => {
                 self.skip_blanks();
                 while self.peek().is_some_and(|c| c.is_ascii_digit()) {
-                    self.pos += 1;
+                    self.advance(1);
                 }
             }
             ':' | 'b' | 't' | 'T' | 'v' => {
                 while self.peek().is_some_and(|c| !matches!(c, ';' | '\n' | '}')) {
-                    self.pos += 1;
+                    self.advance(1);
                 }
             }
             // Text up to an unescaped newline; a file to read.
@@ -226,7 +232,7 @@ impl SedParser {
             's' => self.substitute()?,
             'y' => {
                 let delimiter = self.peek()?;
-                self.pos += 1;
+                self.advance(1);
                 self.delimited(delimiter)?;
                 self.delimited(delimiter)?;
             }
@@ -237,9 +243,9 @@ impl SedParser {
 
     fn text(&mut self) {
         while let Some(c) = self.peek() {
-            self.pos += 1;
+            self.advance(1);
             match c {
-                '\\' => self.pos += 1,
+                '\\' => self.advance(1),
                 '\n' => return,
                 _ => {}
             }
@@ -255,20 +261,20 @@ impl SedParser {
 
     fn substitute(&mut self) -> Option<()> {
         let delimiter = self.peek()?;
-        self.pos += 1;
+        self.advance(1);
         self.delimited(delimiter)?;
         self.delimited(delimiter)?;
         while let Some(flag) = self.peek() {
             match flag {
                 ';' | '\n' | '}' => return Some(()),
-                'g' | 'p' | 'i' | 'I' | 'm' | 'M' | ' ' | '\t' => self.pos += 1,
-                _ if flag.is_ascii_digit() => self.pos += 1,
+                'g' | 'p' | 'i' | 'I' | 'm' | 'M' | ' ' | '\t' => self.advance(1),
+                _ if flag.is_ascii_digit() => self.advance(1),
                 'e' => {
-                    self.pos += 1;
+                    self.advance(1);
                     self.raise(Machine, "sed s///e");
                 }
                 'w' => {
-                    self.pos += 1;
+                    self.advance(1);
                     self.write_file("sed s///w");
                     return Some(());
                 }
@@ -289,12 +295,12 @@ pub(crate) fn awk(name: &str, tail: &[&str]) -> Classification {
             "-f" | "--file" | "-E" | "--exec" | "-i" | "--include" | "-l" | "--load" => {
                 return Classification::new(Machine, format!("{name} -f"));
             }
-            "-F" | "-v" | "--assign" | "--field-separator" => j += 2,
+            "-F" | "-v" | "--assign" | "--field-separator" => j = j.saturating_add(2),
             "--" => {
-                j += 1;
+                j = j.saturating_add(1);
                 break;
             }
-            _ if is_flag(word) => j += 1,
+            _ if is_flag(word) => j = j.saturating_add(1),
             _ => break,
         }
     }
@@ -319,7 +325,7 @@ fn awk_program(program: &str) -> Option<(CommandClass, &'static str)> {
     let bytes = code.as_bytes();
     let pipe = bytes.iter().enumerate().any(|(at, &b)| {
         b == b'|'
-            && bytes.get(at + 1) != Some(&b'|')
+            && at.checked_add(1).and_then(|next| bytes.get(next)) != Some(&b'|')
             && at.checked_sub(1).and_then(|prev| bytes.get(prev)) != Some(&b'|')
     });
     if pipe {
@@ -339,34 +345,34 @@ fn awk_code(program: &str) -> Option<String> {
     let mut code = String::new();
     let mut i = 0;
     while let Some(&c) = chars.get(i) {
-        i += 1;
+        i = i.saturating_add(1);
         match c {
             '"' => {
                 let start = i;
                 loop {
                     match chars.get(i)? {
-                        '\\' => i += 2,
+                        '\\' => i = i.saturating_add(2),
                         '"' => break,
-                        _ => i += 1,
+                        _ => i = i.saturating_add(1),
                     }
                 }
                 let text: String = chars.get(start..i).unwrap_or_default().iter().collect();
-                i += 1;
+                i = i.saturating_add(1);
                 code.push_str(if is_sink(&text) { "@" } else { "\"\"" });
             }
             '/' if starts_regex(&code) => {
                 let mut in_class = false;
                 loop {
                     match chars.get(i)? {
-                        '\\' => i += 1,
+                        '\\' => i = i.saturating_add(1),
                         '[' => in_class = true,
                         ']' => in_class = false,
                         '/' if !in_class => break,
                         _ => {}
                     }
-                    i += 1;
+                    i = i.saturating_add(1);
                 }
-                i += 1;
+                i = i.saturating_add(1);
                 code.push_str("//");
             }
             _ => code.push(c),
@@ -396,11 +402,11 @@ fn awk_prints_into_file(code: &str) -> bool {
         let rest = statement.get(at..).unwrap_or_default();
         rest.char_indices().any(|(i, c)| match c {
             '(' => {
-                depth += 1;
+                depth = depth.saturating_add(1);
                 false
             }
             ')' => {
-                depth -= 1;
+                depth = depth.saturating_sub(1);
                 false
             }
             '>' if depth <= 0 => !rest
@@ -421,7 +427,7 @@ fn find_word(text: &str, word: &str) -> Option<usize> {
         let before =
             text.get(..at).unwrap_or_default().chars().next_back().is_none_or(|c| !is_name(c));
         let after = text
-            .get(at + word.len()..)
+            .get(at.saturating_add(word.len())..)
             .unwrap_or_default()
             .chars()
             .next()

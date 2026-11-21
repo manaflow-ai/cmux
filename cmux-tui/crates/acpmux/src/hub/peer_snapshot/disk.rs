@@ -19,11 +19,11 @@ pub(super) type Key = (String, String);
 pub(super) type Writer = fn(&Path, &[u8]) -> Result<()>;
 
 /// An id longer than this is not kept: its hex name must fit a file name (255 bytes) with the
-/// temporary suffix `config::write_atomic` gives it, `.tmp-<u32 pid>-<u64 counter>` (36 bytes).
+/// temporary suffix `config::write_atomic` gives it, `.tmp-<u32 pid>` (15 bytes).
 const ID_BYTES: usize = 100;
 /// The longest temporary suffix `config::write_atomic` puts in place of `.json`.
 #[cfg(test)]
-const TMP_SUFFIX_BYTES: usize = ".tmp-".len() + 10 + "-".len() + 20;
+const TMP_SUFFIX_BYTES: usize = ".tmp-".len() + 10;
 const EXT: &str = "json";
 
 #[derive(Default, Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
@@ -38,9 +38,20 @@ pub(super) struct Head {
     pub last_seq: u64,
     /// The highest seq the peer was seen at for this copy (its pages' `lastSeq`, its records).
     pub host_last_seq: u64,
+    /// The seq from which the copy saw every record: a copy started past a gap starts it
+    /// again; a bound that cuts the oldest records does not (`open_delivery.rs` `whole`).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub since: u64,
     pub captured_at: u64,
     pub from_start: bool,
     pub summary: Value,
+    /// The prompt before the retained run. Optional so older files still open unchanged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn_opener: Option<Value>,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 pub(super) fn record_bytes(v: &Value) -> u64 {
@@ -140,8 +151,13 @@ fn open(path: &Path) -> Result<Option<std::fs::File>> {
 }
 
 fn head_of(line: &str, key: &Key) -> Result<Head> {
-    let head: Head = serde_json::from_str(line).context("the head line does not parse")?;
+    let mut head: Head = serde_json::from_str(line).context("the head line does not parse")?;
     anyhow::ensure!(head.peer == key.0 && head.session_id == key.1, "another session's copy");
+    head.turn_opener = head.turn_opener.filter(|r| {
+        super::starts_turn(r)
+            && super::of_session(r, key)
+            && seq_of(r).is_some_and(|s| s < head.first_seq)
+    });
     Ok(head)
 }
 
@@ -245,8 +261,11 @@ pub(super) fn remove(path: &Path) -> std::io::Result<()> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(e),
     };
-    let gone =
-        if meta.is_dir() { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) };
+    let gone = if meta.is_dir() {
+        crate::home_fs::remove_dir_all(path)
+    } else {
+        crate::home_fs::remove_file(path)
+    };
     match gone {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         other => other,
