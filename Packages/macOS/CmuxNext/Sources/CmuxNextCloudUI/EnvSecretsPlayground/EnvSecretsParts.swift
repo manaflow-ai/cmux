@@ -162,4 +162,33 @@ struct EnvAuditTable: View {
         }
     }
 }
+/// The agent request card's "where to keep it" choice (``EnvRequestScopeChoice``), the same in every direction.
+struct EnvRequestScopePicker: View {
+    @Bindable var model: EnvSecretsPlaygroundModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(model.requestScopeChoices) { choice in  // visible-only: the three scopes
+                Button { model.requestScope = choice.scope } label: {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: choice.scope == model.requestScope ? "largecircle.fill.circle" : "circle")
+                            .foregroundStyle(choice.scope == model.requestScope ? Color.accentColor : EnvInk.tertiary)
+                        VStack(alignment: .leading, spacing: 1) {
+                            HStack(spacing: 6) {
+                                EnvScopeTag(scope: choice.scope, strong: choice.scope == model.requestScope)
+                                if choice.needsAdminTouchID {
+                                    Image(systemName: "touchid").font(.system(size: TypeScale.caption)).foregroundStyle(EnvInk.warning)
+                                }
+                            }
+                            Text(choice.note).font(.system(size: TypeScale.caption)).foregroundStyle(EnvInk.secondary)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.cmuxPressFill)
+            }
+        }
+    }
+}
 #endif
