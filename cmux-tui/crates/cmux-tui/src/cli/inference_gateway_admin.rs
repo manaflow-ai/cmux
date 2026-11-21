@@ -195,11 +195,20 @@ pub(super) async fn run(common: &Common, verb: &Verb) -> (Value, i32) {
     (answer, if ok { 0 } else { 1 })
 }
 
-/// The status or mode answer, scoped: `{ok, scope, gateway}` or the API's error object.
+/// The agents a gateway in mode `gateway` that is online serves now: Claude and Codex (the agents the edge routes
+/// through it, `cmux inference route`'s `team_gateway` / `owner_gateway`); none for any other state.
+pub(super) const GATEWAY_SERVES: [&str; 2] = ["claude", "codex"];
+
+/// The status or mode answer, scoped: `{ok, scope, gateway, serves}` or the API's error object. `serves` is what the
+/// app's Cloud start gate counts (CmuxNextCloud `CloudSetup`, hq#15762): a team in gateway mode whose gateway is
+/// online serves its members' Cloud chats with no connection of their own.
 pub(super) fn status_answer(personal: bool, body: &Value) -> Value {
     match body.get("gateway") {
         Some(gateway) if body.get("ok").and_then(Value::as_bool) == Some(true) => {
-            json!({"ok": true, "scope": if personal { "personal" } else { "team" }, "gateway": gateway})
+            let up = gateway.get("mode").and_then(Value::as_str) == Some("gateway")
+                && gateway.get("online").and_then(Value::as_bool) == Some(true);
+            let serves: &[&str] = if up { &GATEWAY_SERVES } else { &[] };
+            json!({"ok": true, "scope": if personal { "personal" } else { "team" }, "gateway": gateway, "serves": serves})
         }
         _ => api_error(body),
     }
