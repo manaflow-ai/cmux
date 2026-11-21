@@ -2795,6 +2795,7 @@ impl Hub {
         kept: log_deferral::Kept,
         notify: bool,
     ) -> (EventRecord, bool) {
+        let started = std::time::Instant::now();
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
         // Record a harmless mux receipt instead of ambiguous completion metadata.
@@ -2828,6 +2829,7 @@ impl Hub {
         }
         // A stub goes in without the record's recovery mark (`restore_writer.rs`).
         let stub = matches!(kept, log_deferral::Kept::Stub(_)) && !fenced;
+        let appending = std::time::Instant::now();
         let appended = match kept {
             // A fenced record keeps its receipt.
             log_deferral::Kept::Stub(msg) if !fenced => self.store.append(
@@ -2836,6 +2838,7 @@ impl Hub {
             ),
             _ => self.store.append(&session.id, &record),
         };
+        let store_time = appending.elapsed();
         let stored = match appended {
             Ok(()) => true,
             Err(e) => {
@@ -2985,6 +2988,7 @@ impl Hub {
                 self.events.send_row(session, event)
             };
         }
+        crate::gauges::record_writes().note(store_time, started.elapsed());
         (record, stored)
     }
 
