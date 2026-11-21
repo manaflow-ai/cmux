@@ -306,6 +306,10 @@
     "CI_DEPLOY_SKIP_FLEET": {
       "fallback": "an off switch, not a host: unset sends every Cloud VM image roll job to cmux-gcp-deploy-jit-x64, one-job JIT VMs gha-runners makes on demand (cap 4, one kept warm; never one host); `1` restores the roll's earlier labels (cmux-gcp-lane-build-x64 on plan attempt 1, RUNNER_POOLS linux_4 or linux_8, vars.LINUX_RUNNER for the bake)",
       "after_minutes": 10
+    },
+    "CI_OVERFLOW_LINUX": {
+      "fallback": "CI v2's Linux overflow switch (cmuxterm-hq docs/design/ci-v2.md, Overflow and failure), not a host: unset, a same-repository pull request job asks for its scheduler-granted label cmux-<run_id>-<attempt>-linux, one JIT VM per job from the GCP pool (hq runner_pool.py scheduler_plan); set, it names the Blacksmith Linux label new jobs take instead. The design's watchdog sets it when the scheduler misses the Linux SLO for 3 minutes; until that watchdog lands (hq#13994) it is set by hand: gh variable set CI_OVERFLOW_LINUX -b blacksmith-4vcpu-ubuntu-2404.",
+      "after_minutes": 3
     }
   },
   "nightly_workflow_marker": "nightly",
