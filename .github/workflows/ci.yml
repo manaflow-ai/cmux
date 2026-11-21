@@ -313,6 +313,14 @@ jobs:
           MERGE_SHA: ${{ github.sha }}
           # Empty unless the delta step found a green head to diff from.
           DELTA_BASE_SHA: ${{ steps.delta.outputs.base_sha }}
+          # A draft pull request whose head only merged the base into a head
+          # that passed (the delta step found it) routes nothing: a draft does
+          # not land, its own changes passed at that head, and the base's
+          # changes run on the base push. Over 11-13..19 heads that only merged
+          # the base were 37% of PR runner-minutes, and ci.yml a quarter of
+          # those (docs in cmuxterm-hq: docs/ci/idle-pr-heads-2026-11-21.md).
+          # full-ci routes as usual; CI_DRAFT_BASE_MERGE_SKIP=0 turns it off.
+          DRAFT_BASE_MERGE: ${{ github.event.pull_request.draft == true && steps.delta.outputs.base_sha != '' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && (vars.CI_DRAFT_BASE_MERGE_SKIP || '1') != '0' }}
         run: |
           set -euo pipefail
           emit_all_areas() {
@@ -340,6 +348,11 @@ jobs:
             # reads "what changed since the green head".
             if [ -n "${DELTA_BASE_SHA:-}" ]; then
               BASE_SHA="$DELTA_BASE_SHA"
+            fi
+            # A draft's base merge on a green head: an empty diff, so nothing routes.
+            if [ "${DRAFT_BASE_MERGE:-}" = "true" ]; then
+              echo "Draft pull request whose head only merged the base into a green head; routing nothing (full-ci runs it)."
+              BASE_SHA="$MERGE_SHA"
             fi
             # Keep both sides of renames visible to path-based guard routing.
             # A guarded file moved into docs/ must still run its owning checks.

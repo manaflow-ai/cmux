@@ -23,7 +23,7 @@
    (--acpmux-menu-hover) is a clear text wash, never a mix into the base: the menus sit on host glass
    (design/surface-materials.md), where an opaque row drew a solid slab, and on an opaque menu the 14%
    wash reads as the row did before. */
-.acpmux-shell,.ui-positioner{--acpmux-base:var(--agent-accent-text,Canvas);--acpmux-composer-bg:color-mix(in srgb,var(--agent-text) 13%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-edge:color-mix(in srgb,var(--agent-text) 22%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-placeholder:color-mix(in srgb,var(--agent-text) 34%,var(--acpmux-base));--acpmux-composer-dim:color-mix(in srgb,var(--agent-text) 56%,var(--acpmux-base));--acpmux-menu-bg:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));--acpmux-menu-hover:color-mix(in srgb,var(--agent-text) 14%,transparent);--acpmux-composer-hover:color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-pill-fill:var(--ds-surface-inset);--acpmux-pill-hover:color-mix(in srgb,var(--agent-text) 11%,transparent);--acpmux-pill-open:color-mix(in srgb,var(--agent-text) 16%,transparent);--acpmux-pill-press:color-mix(in srgb,var(--agent-text) 22%,transparent);--acpmux-pill-edge:color-mix(in srgb,var(--agent-text) 24%,transparent);--acpmux-composer-tray:color-mix(in srgb,var(--agent-text) 9%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-warning:var(--agent-status-warning);--acpmux-send-off-fg:color-mix(in srgb,var(--agent-text) 45%,transparent);--agent-border-strong:var(--acpmux-composer-edge);--ui-popup-edge:var(--acpmux-composer-edge)}
+.acpmux-shell,.ui-positioner{--acpmux-base:var(--agent-accent-text,Canvas);--acpmux-composer-bg:color-mix(in srgb,var(--agent-text) 13%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-edge:color-mix(in srgb,var(--agent-text) 22%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-placeholder:color-mix(in srgb,var(--agent-text) 34%,var(--acpmux-base));--acpmux-composer-dim:var(--cmux-text-secondary,color-mix(in srgb,var(--agent-text) 56%,var(--acpmux-base)));--acpmux-menu-bg:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));--acpmux-menu-hover:color-mix(in srgb,var(--agent-text) 14%,transparent);--acpmux-composer-hover:color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-pill-fill:var(--ds-surface-inset);--acpmux-pill-hover:color-mix(in srgb,var(--agent-text) 11%,transparent);--acpmux-pill-open:color-mix(in srgb,var(--agent-text) 16%,transparent);--acpmux-pill-press:color-mix(in srgb,var(--agent-text) 22%,transparent);--acpmux-pill-edge:color-mix(in srgb,var(--agent-text) 24%,transparent);--acpmux-composer-tray:color-mix(in srgb,var(--agent-text) 9%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-warning:var(--agent-status-warning);--acpmux-send-off-fg:color-mix(in srgb,var(--agent-text) 45%,transparent);--agent-border-strong:var(--acpmux-composer-edge);--ui-popup-edge:var(--acpmux-composer-edge)}
 /* One edge color in the pane (user 2026-11-20: "ensure all border colors are the same"): a card's, a tool row's, a file chip's and a menu's edge is the composer's, --acpmux-composer-edge, not a step of its own (the strong border was the text at 22% over clear, the popup edge at 12%). The aliases resolve here, at the pane's edge; a part inside the composer stack reads --acpmux-composer-edge itself, so it lifts with the stack on focus (composerStates.css). Dividers inside a card or a menu keep --agent-border. test/composer-one-edge.test.ts. */
 /* The shared popup surface (ui/popupSurface.css) takes the pane's ink; every popup, nested submenus included, is the liquid glass (.ui-glass), whose plain and Reduce Transparency fill is the popup surface (--surface-popup, the host's --cmux-popup-surface, else the pane's menu color). */
 .acpmux-shell,.ui-positioner{--surface-popup:var(--cmux-popup-surface,var(--acpmux-menu-bg))}
@@ -108,7 +108,8 @@
 .acpmux-context{flex:none}
 .acpmux-context-ring{flex:none;display:grid;place-items:center;width:22px;height:22px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted)}
 .acpmux-context-ring svg{width:12px;height:12px}
-.acpmux-context-ring:disabled,.acpmux-context-ring[aria-disabled="true"]{background:none;color:var(--agent-muted);opacity:.5}
+/* Disabled ("Context window · Not reported"): the tertiary tier at full opacity, as every page's disabled controls (pageBase.css); the muted ink at half opacity read 1.4:1 (control-contrast audit). */
+.acpmux-context-ring:disabled,.acpmux-context-ring[aria-disabled="true"]{background:none;color:var(--cmux-text-tertiary,var(--agent-muted));opacity:1}
 .acpmux-context-ring:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 /* The `percent` look of the context ring (experiment context-ring-look, not shipped): the percent used as a caption beside the ring. */
 .acpmux-context:has(.acpmux-context-caption){display:inline-flex;align-items:center}
@@ -234,15 +235,20 @@
 /* The `/` and `@` lists' layer (backdropLayer.tsx): out of the composer box's glass, on the box's place and size, so the list's own rules below place it as inside the box. Only the list takes presses. */
 .acpmux-composer-list-layer{position:absolute;pointer-events:none}
 .acpmux-composer-list-layer>*{pointer-events:auto}
-.acpmux-slash-menu{--popup-scroll-cap:296px;position:absolute;bottom:calc(100% + 6px);left:0;right:0;z-index:3;max-height:min(296px,50vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);font-size:13px;transform-origin:bottom}
+/* In its layer a list takes the box's corner (--composer-list-radius), padded so its rows' corners are concentric with it, and no more height than the room on its side of the box (--composer-list-room); below the box when only that side has room (data-side, listPlacement.ts). David Beyer 2026-11-20: New Tab's / list ran over the screen's edge in 8 px corners on a 20 px box. */
+.acpmux-composer-list-layer>.acpmux-slash-menu{--composer-list-gap:6px;--composer-list-r:var(--composer-list-radius,var(--ui-popup-radius));--ui-popup-padding:max(4px,calc(var(--composer-list-r) * 6 / 20),calc(var(--composer-list-r) - var(--ui-row-height) / 2));--ui-row-radius:max(4px,min(calc(var(--composer-list-r) - var(--ui-popup-padding)),calc(var(--ui-row-height) / 2)));border-radius:var(--composer-list-r);max-height:min(var(--popup-scroll-cap),var(--composer-list-room,50vh))}
+.acpmux-composer-list-layer[data-side="below"]>.acpmux-slash-menu{bottom:auto;top:calc(100% + var(--composer-list-gap));transform-origin:top}
+.acpmux-slash-menu{--popup-scroll-cap:296px;position:absolute;bottom:calc(100% + 6px);left:0;right:0;z-index:3;max-height:min(296px,50vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);font-size:var(--text-control);letter-spacing:var(--text-control--letter-spacing,normal);-webkit-font-smoothing:antialiased;transform-origin:bottom}
 .acpmux-slash-row{display:flex;align-items:center;gap:var(--cmux-menu-icon-gap);min-height:var(--ui-row-height);height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);white-space:nowrap}
 .acpmux-slash-active{background:var(--acpmux-menu-hover)}
 .acpmux-slash-menu .ui-listbox-row[aria-selected="true"]{background:var(--acpmux-menu-hover)}
-.acpmux-slash-name{flex:none;color:var(--agent-text)}
+.acpmux-slash-name{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--agent-text)}
 .acpmux-slash-name mark{background:none;color:inherit;font-weight:600}
-.acpmux-slash-hint{flex:none;color:var(--acpmux-composer-dim);font-style:italic}
-.acpmux-slash-source{flex:none;color:var(--acpmux-composer-dim);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
-.acpmux-slash-description{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
+.acpmux-slash-hint{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
+/* Where a row comes from (cmux, Skill, Prompt, an extension) closes the row, quiet, in plain case. */
+.acpmux-slash-source{flex:none;order:1;margin-left:auto;padding-left:var(--ds-space-2,8px);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing,normal)}
+/* No base width: what a command does takes only the room its name and arguments leave, so it is cut first. */
+.acpmux-slash-description{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
 /* The @ picker's rows (MentionMenu.tsx): the kind's icon, then a long chat title gives way to its place last. */
 .acpmux-mention-row{width:100%;box-sizing:border-box;margin:0;border:0;background:none;color:inherit;font:inherit;text-align:left;-webkit-appearance:none;appearance:none}
 .acpmux-mention-row.acpmux-slash-active{background:var(--acpmux-menu-hover)}
@@ -264,7 +270,7 @@
 .acpmux-emoji-menu.is-strip .acpmux-emoji-row{width:var(--ds-control-primary);height:var(--ds-control-primary);padding:0;justify-content:center}
 .acpmux-emoji-menu.is-strip .acpmux-emoji-glyph{width:auto;font-size:var(--text-heading)}
 .acpmux-emoji-strip-code{height:var(--ds-control-compact);padding:0 var(--ds-space-2);display:flex;align-items:center;color:var(--acpmux-composer-dim);font-size:var(--text-caption);white-space:nowrap}
-.acpmux-slash-empty{padding:0 14px;height:40px;display:flex;align-items:center;color:var(--acpmux-composer-dim);border-radius:8px}
+.acpmux-slash-empty{padding:0 var(--ui-row-padding-inline);height:var(--ui-row-height);display:flex;align-items:center;color:var(--acpmux-composer-dim);border-radius:var(--ui-row-radius)}
 .acpmux-import-input{display:none}
 /* New tab page (NewTabPage.tsx, #16620): one field with a Terminal | Browser | Agent switch
    that Tab cycles, each option with its shortcut, over the recent sessions. Same surfaces
@@ -844,7 +850,8 @@ button.acpmux-edited-file:hover{background:var(--ds-surface-hover)}
 .acpmux-start-failure-details:not([open]),.acpmux-start-failure-details:not([open])>summary{display:inline}
 /* Agent question card (question/QuestionCard.tsx), after the Claude app's (Leo 2026-10-19; restyled 2026-11-05 after "kind of ugly"): a "Needs your input" small-radius rect (no capsule: agent-pane-no-capsules) tinted with the mark, holding the Needs you dot over a rounded card whose header strip is the question in regular weight; radio (or checkbox) rows with a regular label and a muted description; Other types inline in a quiet field; Skip and Submit with outlined keycaps (esc, ⌘ ↩) at the bottom right, as the permission card's. The app's gray language otherwise: the highlighted row is a soft fill, Submit is the text color inverted. Previews sit beside the list and wrap under it when narrow. appearance.borders none drops the edge (--acpmux-question-edge). */
 /* Needs your input: one mark for a chat that waits on the user, on every surface (the question card's pill, the Needs you dot, badge and pill, the sidebar and Chief dock marks, the status lines). It is the theme's attention colour, which the app sends as --agent-warning (AgentPaneTheme.swift, tokens.attention), the same Palette.attention the native sidebar, tabs and priority rows draw; never the accent, which a grey-accent theme turns into the idle grey. test/needs-input-mark-color.test.ts reads every surface. */
-:root,.acpmux-shell,.ui-positioner{--acpmux-needs-you-mark:var(--agent-warning,var(--agent-accent,var(--agent-text)))}
+/* The needs-you mark holds 3:1 (a mark's tier); words in it lean 35% toward the text ink, the strongest ink on every ground, so they read as text (test/control-contrast-N.test.ts: the pill's words read 2.7:1). */
+:root,.acpmux-shell,.ui-positioner{--acpmux-needs-you-mark:var(--agent-warning,var(--agent-accent,var(--agent-text)));--acpmux-needs-you-ink:color-mix(in srgb,var(--acpmux-needs-you-mark) 65%,var(--agent-text))}
 .acpmux-shell,.ui-positioner{--acpmux-question-bg:color-mix(in srgb,var(--agent-text) 5%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-question-strip:color-mix(in srgb,var(--agent-text) 8%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-question-edge:color-mix(in srgb,var(--agent-text) 12%,transparent);--acpmux-question-hover:color-mix(in srgb,var(--agent-text) 5%,transparent);--acpmux-question-highlight:color-mix(in srgb,var(--agent-text) 8%,transparent);--acpmux-question-input:var(--acpmux-needs-you-mark)}
 :root[data-borders=none] .acpmux-shell{--acpmux-question-edge:transparent}
 .acpmux-question-ask{display:flex;flex-direction:column;align-items:flex-start;gap:var(--ds-space-2);min-width:0}
@@ -1073,7 +1080,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-display-row output { min-width: 44px; text-align: end; font-variant-numeric: tabular-nums; color: var(--agent-muted); }
 .acpmux-display-row input[type="range"] { width: 100%; margin: 0; accent-color: var(--agent-muted); }
 .acpmux-display-row select, .acpmux-display-row input[type="text"] { grid-column: 2 / -1; min-width: 0; font: inherit; color: inherit; background: var(--agent-input-bg, transparent); border: 1px solid var(--agent-border, transparent); border-radius: 6px; padding: 3px 6px; }
-.acpmux-display-check { grid-template-columns: auto 1fr; }
+.acpmux-display-check { grid-template-columns: minmax(0, 1fr) auto; }
 .acpmux-display-reset { justify-self: end; font: inherit; color: var(--agent-muted); background: none; border: 0; padding: 2px 4px; border-radius: 6px; }
 .acpmux-display-reset:hover { background: var(--ds-surface-hover); }
 .acpmux-trust-ask[data-asking]{color:var(--agent-text);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-accent) 45%,transparent)}.acpmux-trust-ask-action.acpmux-trust-ask-primary{background:color-mix(in srgb,var(--agent-accent) 14%,transparent);font-weight:500}.acpmux-trust-ask-action.acpmux-trust-ask-primary:hover{background:color-mix(in srgb,var(--agent-accent) 22%,transparent)}

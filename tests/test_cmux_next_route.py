@@ -2068,8 +2068,9 @@ class HotAwareWorkflows(unittest.TestCase):
         guards = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text(encoding="utf-8"))
         self.assertNotIn("hot-route", guards["jobs"])
         job = guards["jobs"]["tooling-tests"]
-        self.assertNotIn("needs", job)
-        self.assertEqual(job["if"], "${{ !cancelled() }}")
+        # The window gate (base-coalesce.yml); no placement job.
+        self.assertEqual(job["needs"], "coalesce")
+        self.assertEqual(job["if"], "${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}")
         self.assertTrue(job["runs-on"].endswith("|| 'cmux-linux' }}"), job["runs-on"])
         self.assertNotIn("mini_runner", job["runs-on"])
         self.assertNotIn("macos", job["runs-on"])

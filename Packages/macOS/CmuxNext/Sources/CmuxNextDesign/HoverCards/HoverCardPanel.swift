@@ -344,8 +344,10 @@ final class HoverCardPanel: NSPanel {
         motion.entryVector(for: placement)
     }
 
-    /// The key the content crossfade runs under.
-    static let crossfadeKey = "hoverCard.crossfade"
+    /// The key the content crossfade runs under: `kCATransition`, where Core Animation files every
+    /// transition whatever key it is added with. Under its own key ("hoverCard.crossfade") a sweep's
+    /// `removeAnimation(forKey:)` found nothing and the last move's crossfade ran on under the next card.
+    static let crossfadeKey = kCATransition
 
     /// The card's next content fades over its last frame (the body is reused, so its text,
     /// thumbnail and size change in place this turn). Only the content crossfades: the glass,
