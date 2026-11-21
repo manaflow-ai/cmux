@@ -43,14 +43,14 @@ fn this_macs_sharing_session_sits_with_share_this_mac() {
     }
 }
 
-/// `cmux tab new-mac-screen --device NAME [--scope view|full]`: an agent's or the CLI's open of the
+/// `cmux tab new-mac-screen --device NAME [--scope view|full] [--autoconnect]`: an agent's or the CLI's open of the
 /// person's own device starts viewing at once, View Only unless it asks for Full Control (Leo,
 /// 2026-11-17: "why should it get held only be aperson's click? i dont like that").
 #[test]
 fn screen_sharing_takes_an_optional_view_or_full_scope() {
     let open = find("macScreen.open").expect("Screen Sharing");
     let names: Vec<_> = open.arguments.iter().map(|a| a.name).collect();
-    assert_eq!(names, ["device", "scope"]);
+    assert_eq!(names, ["device", "scope", "autoconnect"]);
     let scope = open.arguments.iter().find(|a| a.name == "scope").expect("scope");
     assert!(!scope.required, "a missing scope asks for View Only");
     let cmux_action_catalog::model::ArgKind::Enumeration(cases) = scope.kind else {
