@@ -284,6 +284,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
     private var scrollMeter = ScrollMeter()
     /// G-04: in-app frame intervals (`-CmuxMobileFrameLog`).
+    #if DEBUG
+    /// cmux#48951: wheel report -> Mac output -> present (`TerminalScrollBench`).
+    let rttLog = TerminalScrollRTT()
+    #endif
     private lazy var frameLog: TerminalFrameLog = {
         let log = TerminalFrameLog(surfaceName: model.title, frameDuration: 1.0 / Double(max(60, UIScreen.main.maximumFramesPerSecond)))
         log.phaseProvider = { [weak self] in
@@ -789,6 +793,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         surface.onPresent = { [weak self] in
             guard let self else { return }
             self.measured("present") { self.surfacePresented() }
+            #if DEBUG
+            self.rttLog.presented()
+            #endif
         }
         surface.onFocusChange = { [weak self] focused in
             guard let self else { return }
@@ -879,6 +886,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         registerEdgeEffectScrollView()
         #if DEBUG
         frameLog.start()
+        TerminalScrollBench.install(self)
         #endif
         startBlankWatch()
         // Back on screen (a tab switch, the grid): output that arrived while
@@ -1496,6 +1504,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             pacer.arrived(at: CACurrentMediaTime())
             #if DEBUG
             if TerminalFrameLog.isEnabled { frameLog.outputArrived() }
+            rttLog.outputArrived(bytes: data.count)
             #endif
             // Per chunk: queue the bytes and nothing else. Parsing, the row
             // shift and the artifact scan happen once per display frame.
@@ -3626,6 +3635,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         // The rows move under a selection: it would point at other text.
         tuiScroll.dragBegan = { [weak self] in self?.tuiSelection.clear() }
+        #if DEBUG
+        tuiScroll.wheelSent = { [weak self] in self?.rttLog.wheelSent() }
+        #endif
         tuiScroll.install(in: tuiClip, surface: surface, tap: tuiTap)
     }
 

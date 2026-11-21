@@ -19,6 +19,8 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
     var selectionOwns: (UITouch?) -> Bool = { _ in false }
     /// A drag began scrolling the app (its content moves under any selection).
     var dragBegan: () -> Void = {}
+    /// DEBUG: a wheel report went to the surface (cmux#48951's round trip).
+    var wheelSent: () -> Void = {}
 
     private weak var surface: TerminalSurfaceView?
     private(set) var pan: UIPanGestureRecognizer?
@@ -87,6 +89,7 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
         guard let wheel, let surface, isEnabled() else { return }
         surface.scrollWheel(at: anchor, deltaY: wheel.dy, momentum: wheel.momentum)
         tapClick.scrolled(at: CACurrentMediaTime())
+        wheelSent()
     }
 
     private func startMomentum(_ fling: TerminalTUIMomentum) {
