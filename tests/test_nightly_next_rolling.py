@@ -579,6 +579,42 @@ class SlotCapTests(unittest.TestCase):
                 go, reason = self.decide([(run(2, 15, head_sha=HEAD), jobs)], 2)
                 self.assertFalse(go, reason)
 
+    def test_cap_2_does_not_displace_a_pending_head_retry(self):
+        retry = run(2, 6, head_sha=HEAD, event="workflow_dispatch", display_title="Retry nightly-next (1 of 2)")
+        for phase, jobs in (("building", ONE_BUILDING), ("notarizing", ONE_FINISHING)):
+            with self.subTest(phase=phase):
+                go, reason = self.decide([(run(1, 20, head_sha=HEAD), jobs), (retry, ONE_PENDING)], 2)
+                self.assertFalse(go, reason)
+
+    def test_a_lone_head_retry_yields_only_after_its_build_starts(self):
+        retry = run(2, 1, head_sha=HEAD, event="workflow_dispatch", display_title="Retry nightly-next (1 of 2)")
+        for slots in (1, 2):
+            for stage, jobs, want in (("no jobs", [], False), ("setup", SET_UP, False),
+                                      ("queued", one_job("queued"), False), ("pending", ONE_PENDING, False),
+                                      ("running", ONE_BUILDING, True)):
+                with self.subTest(slots=slots, stage=stage):
+                    go, reason = self.decide([(retry, jobs)], slots)
+                    self.assertEqual(go, want, reason)
+
+    def test_split_job_group_does_not_gain_a_second_signer_slot(self):
+        jobs = [*BUILDING, {**job("nightly-next-one", "completed"), "conclusion": "skipped"}]
+        go, reason = self.decide([(run(1, 20, head_sha=HEAD), jobs)], 2)
+        self.assertFalse(go, reason)
+
+    def test_watch_and_tick_recognize_both_generations_of_loop_jobs(self):
+        loop = run(1, 20, head_sha=HEAD)
+        for host in (None, "cmux15", "ultra1"):
+            setup = [] if host is None else [job("pick-nightly-next-signer", "completed", 10, "linux")]
+            for status in ("pending", "in_progress", "completed"):
+                with self.subTest(host=host, status=status):
+                    jobs = setup + one_job(status)
+                    if host and status != "pending":
+                        jobs[-1]["runner_name"] = f"{host}-glaeda"
+                    self.assertEqual(rolling.watch.run_holds_group(loop, jobs, NOW), status != "completed")
+                    for slots in (1, 2):
+                        go, reason = self.decide([(loop, jobs)], slots)
+                        self.assertEqual(go, status == "completed" or (slots == 2 and status == "in_progress"), reason)
+
     def test_cap_2_a_run_pending_with_no_job_yet_waits(self):
         go, reason = self.decide([(run(1, 25, head_sha="c" * 40), ONE_BUILDING),
                                   (run(2, 15, status="pending", head_sha=HEAD), [])], 2)
@@ -603,7 +639,8 @@ class SlotCapTests(unittest.TestCase):
         self.assertFalse(go, reason)
 
     def test_slots_from_the_variable(self):
-        for value, want in (("", 1), (None, 1), ("1", 1), ("2", 2), (" 2 ", 2), ("0", 1), ("-3", 1), ("two", 1)):
+        for value, want in (("", 1), (None, 1), ("1", 1), ("2", 2), (" 2 ", 2), ("0", 1), ("-3", 1), ("two", 1),
+                            ("20", 2)):
             with self.subTest(value=value):
                 self.assertEqual(rolling.slots_from(value), want)
 

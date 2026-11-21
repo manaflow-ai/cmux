@@ -55,10 +55,11 @@ deltas 4.3, uploads 4.8), so with one slot a landing just after a build starts r
 with two, about 37 min while landings are more than about 16 min apart. NIGHTLY_NEXT_SLOTS (--slots; the tick passes
 vars.NIGHTLY_NEXT_SLOTS, default 1) is the cap: the rule promotes while fewer than that many open loop runs hold a
 slot (run_holds_group, minus leaving_slot, minus a finishing holder while no more loop runs are open than slots) AND
-none of them waits for one (pending_at_slot: its nightly-next-one has not started). Never a second pending run, so
+none of them waits for one or uses the split workflow's shared group. Never a second pending run, so
 GitHub never replaces a pending job and nothing is cancelled; PROMOTION_RACE_MINUTES still spaces two starts so two
-picks don't see the same free Mac. A cap of 1 is exactly the one-slot rule above, and the rollback. The holder test
-reads jobs by name (nightly-next-one), so it covers every per-host group.
+picks don't see the same free Mac. A cap of 1 restores the one-slot admission rule above. Its early handoff at
+notarization serializes execution only when both jobs use the legacy shared group. The holder test reads jobs by
+name (nightly-next-one), so it covers both the legacy and per-host groups.
 
 A dispatch for one commit (a person, or the feed watch's starvation guard) never
 reaches this rule: the tick runs it only when its `sha` input is empty.
@@ -133,6 +134,7 @@ FINISH_STEPS = ("Ask main's nightly-next tick at notarization", "Notarize app ti
 # How many loop runs may hold a slot at once (NIGHTLY_NEXT_SLOTS; the tick passes vars.NIGHTLY_NEXT_SLOTS). 1 is the
 # one-slot rule and the rollback; 2 is one build per signer Mac (design hq#17011).
 SLOTS = 1
+MAX_SLOTS = 2
 
 
 def leaving_slot(jobs: list[dict]) -> bool:
@@ -160,18 +162,15 @@ def finishing(jobs: list[dict]) -> bool:
     return False
 
 
-def pending_at_slot(jobs: list[dict]) -> bool:
-    """Whether a holding run's nightly-next-one has not started: absent (its set-up still runs, or the run pends with
-    no job yet), queued, pending or waiting. Such a run may wait on a slot's group (nightly-next-one-push-<host>),
-    where a second promoted run's job would replace it. A skipped nightly-next-one (the split jobs) is not one."""
-    one = next((job for job in jobs if job.get("name") == ONE_JOB), None)
-    return one is None or one.get("status") not in ("in_progress", "completed")
+def can_share_slot_capacity(jobs: list[dict]) -> bool:
+    """Only a started one-job build is eligible for parallel admission, not setup, a waiter or split jobs."""
+    return any(job.get("name") == ONE_JOB and job.get("status") == "in_progress" for job in jobs)
 
 
 def slots_from(value) -> int:
-    """NIGHTLY_NEXT_SLOTS as a cap of at least 1; unset, empty or unreadable is 1 (the one-slot rule)."""
+    """Clamp to the signer pool's capacity; unset or unreadable keeps the one-slot rule."""
     try:
-        return max(1, int(str(value).strip()))
+        return min(MAX_SLOTS, max(1, int(str(value).strip())))
     except (TypeError, ValueError):
         return SLOTS
 
@@ -239,23 +238,14 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
     let every tick after a cmux-tui tree stall promote again (2026-10-29 04:25-04:30: three
     starts in four minutes, five builds in flight on contended runners); now the newest start
     must be a window old too. A started build is never cancelled."""
-    slots = max(1, int(slots))
+    slots = slots_from(slots)
     if not head:
         return True, "nightly-next is unreadable; asking as before"
-    # Every open loop run, counted before the retry_of filter below: a retry of the head pending at the slot is
-    # still a job GitHub would replace, so it keeps a finishing holder holding (review of 4cf338e7c740).
     every_open = {run.get("id") for run in [*head_runs, *(starts or [])]
                   if run.get("status") != "completed" and watch.holds_push_group(run)}
-    if oldest_waiting is not None:
-        # A retry of nightly-next's own head while a newer commit waits rebuilds a commit that already
-        # failed, and it leaves the build slot only when a newer push arrives (feat-cmux-next's
-        # resolve-leave-build-slot.sh). Waiting for it meant no newer push ever came: 19-41 min per
-        # retry (runs 43395284047, 43440656795; tick 43440928169). It is neither a holder nor a start.
-        # A retry of an older commit (nightly-next already moved past it) and every push still hold.
-        head_runs = [run for run in head_runs if not retry_of(run, head)]
-        starts = [run for run in starts or [] if not retry_of(run, head)]
+    timed_starts = [run for run in starts or [] if oldest_waiting is None or not retry_of(run, head)]
     building = ""
-    since_start = youngest_start(now, starts or [], promotions, promotion_minutes)
+    since_start = youngest_start(now, timed_starts, promotions, promotion_minutes)
     if since_start is not None and since_start < PROMOTION_RACE_MINUTES:
         building = f"a build started {since_start * 60:.0f} s ago"
     for run in promotions if not building else []:
@@ -282,31 +272,30 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
             except (KeyError, TypeError, ValueError):
                 pass
             open_runs.append(run)
-        busy = []
+        busy_count = 0
         for run in open_runs:
             jobs = jobs_of(run)
+            if (oldest_waiting is not None and len(every_open) == 1 and retry_of(run, head)
+                    and any(job.get("name") in (ONE_JOB, "build-nightly-app") and job.get("status") == "in_progress"
+                            for job in jobs)):
+                continue
             # A finishing holder lets ONE run be promoted: only while no more loop runs are open than there are
             # slots (a retry of the head included; with one slot, no other loop run) and the holder still builds
             # nightly-next's head. A head past it means a promotion went through whose push run may not be listed
             # yet. A second promotion would get GitHub to replace the first one's pending nightly-next-one (a
             # cancelled nightly).
-            alone = (len(every_open | {run.get("id")}) <= slots and len(open_runs) <= slots
-                     and (run.get("head_sha") or "").lower() == head.lower())
+            may_handoff = (len(every_open) <= slots and (run.get("head_sha") or "").lower() == head.lower())
             if (watch.run_holds_group(run, jobs, now) and not leaving_slot(jobs)
-                    and not (alone and finishing(jobs))):
-                busy.append((run, pending_at_slot(jobs)))
-                if len(busy) >= slots:
+                    and not (may_handoff and finishing(jobs))):
+                busy_count += 1
+                if busy_count >= slots or not can_share_slot_capacity(jobs):
+                    building = (f"nightly-next run {run.get('html_url', run.get('id'))} is building "
+                                f"{(run.get('head_sha') or head)[:12]}")
+                    if busy_count < slots:
+                        building += " (the slot may be shared or pending; a second pending run would replace it)"
                     break
-        # Promote while fewer than `slots` loop runs hold a slot and none of them waits for one: a run whose
-        # nightly-next-one has not started may pend on a slot's group, and a promotion beside it could pend on the
-        # same group, where GitHub replaces (cancels) the first. With one slot any busy run already waits, so this
-        # is the rule from before NIGHTLY_NEXT_SLOTS.
-        holder = next((run for run, waits in busy if waits), None) if len(busy) < slots else busy[0][0]
-        if holder is not None:
-            building = (f"nightly-next run {holder.get('html_url', holder.get('id'))} is building "
-                        f"{(holder.get('head_sha') or head)[:12]}")
-            if len(busy) < slots:
-                building += f" (waiting for a slot of {slots}; a second pending run would replace it)"
+        if busy_count and not building:
+            return True, f"{busy_count} of {slots} nightly-next slots busy; promoting the newest buildable commit now"
     if not building:
         return True, f"nothing is building nightly-next ({head[:12]}); promoting the newest buildable commit now"
     if oldest_waiting is None:
@@ -501,7 +490,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--tip", required=True, help="the feat-cmux-next commit the tick checked out")
     parser.add_argument("--window-minutes", type=float, default=WINDOW_MINUTES)
     parser.add_argument("--slots", default=os.environ.get("NIGHTLY_NEXT_SLOTS", ""),
-                        help="loop runs that may hold a slot at once (default $NIGHTLY_NEXT_SLOTS, else 1)")
+                        help="signer slots (1 or 2; default $NIGHTLY_NEXT_SLOTS, else 1)")
     args = parser.parse_args(argv)
     slots = slots_from(args.slots)
     go, reason = evaluate(dt.datetime.now(dt.timezone.utc), args.repo, args.tip, window_minutes=args.window_minutes,
