@@ -161,15 +161,6 @@
         ]
       }
     },
-    ".github/workflows/classic-frozen-guard.yml": {
-      "classic-frozen": {
-        "why": "judges every changed path against its list, so any path can be an input",
-        "suggested_inputs": [
-          ".github/classic-frozen.txt",
-          "scripts/ci/classic_frozen_guard.py"
-        ]
-      }
-    },
     ".github/workflows/cmux-next-batch.yml": {
       "debounce": {
         "why": "a router: it reads the diff (or the pull request) to decide which other jobs run, so it runs on every pull request",
@@ -485,10 +476,6 @@
         "suggested_inputs": [
           ".github/workflows/pr-red-checks-comment.yml"
         ]
-      },
-      "signing-runner-variables": {
-        "why": "reads repository variables (vars.MACOS_RUNNER_26), not the tree; seconds on the smallest runner",
-        "suggested_inputs": []
       }
     },
     ".github/workflows/cmux-next-pr-autofix-closed-cancel.yml": {
@@ -704,12 +691,6 @@
       }
     },
     ".github/workflows/cmux-tui-spec.yml": {
-      "api-compat": {
-        "why": "routed by its workflow's own job (needs.changes.outputs.run in its if:), which no input map declares yet; it counts as runs-always until its inputs are declared",
-        "suggested_inputs": [
-          ".github/actions/setup-cmux-tui-rust/"
-        ]
-      },
       "changes": {
         "why": "a router: it reads the diff (or the pull request) to decide which other jobs run, so it runs on every pull request",
         "suggested_inputs": [
@@ -756,68 +737,6 @@
         ],
         "suggested_inputs_more": 9
       },
-      "clippy": {
-        "why": "routed by its workflow's own job (needs.changes.outputs.run in its if:), which no input map declares yet; it counts as runs-always until its inputs are declared",
-        "suggested_inputs": [
-          ".github/actions/runner-cargo-home/",
-          ".github/actions/setup-cmux-tui-rust/",
-          ".github/scripts/cmux-tui-clippy-changed.py",
-          ".github/scripts/cmux-tui-fmt-changed.py",
-          ".github/scripts/test_cmux_tui_clippy_changed.py",
-          "cmux-tui/",
-          "cmux-tui/Cargo.lock",
-          "cmux-tui/Cargo.toml",
-          "cmux-tui/bindings/zig/build.zig.zon",
-          "cmux-tui/build-support/notices/toolchains/toolchains.json",
-          "cmux-tui/crates/",
-          "cmux-tui/crates/acpmux-core/",
-          "cmux-tui/crates/acpmux/",
-          "cmux-tui/crates/acpmux/src/",
-          "cmux-tui/crates/cmux-host/",
-          "cmux-tui/crates/cmux-json/",
-          "cmux-tui/crates/cmux-json/src/lib.rs",
-          "cmux-tui/crates/cmux-server/",
-          "cmux-tui/crates/cmux-server/src/lib.rs",
-          "cmux-tui/crates/ghostty-vt/src/lib.rs",
-          "cmux-tui/rust-toolchain.toml",
-          "plans/cmux-next/rust-panic-free.md",
-          "scripts/ci/cargo_test_verdict.py",
-          "scripts/ci/git_tree.py",
-          "scripts/ci/init-submodule.sh",
-          "scripts/ci/machine-channel-warm-target.sh",
-          "scripts/ci/test_reds.py",
-          "scripts/cmux-next/",
-          "scripts/cmux-next/cargo-locks.py",
-          "scripts/cmux-next/run-v2-gates.sh",
-          "scripts/cmux-next/rust-panic-baseline.json",
-          "scripts/cmux-next/rust_panic_ratchet.py",
-          "scripts/cmux-next/v2-gates.d/",
-          "scripts/cmux-next/v2-gates.d/pr03d.gates",
-          "scripts/install-zig-ci.sh",
-          "skills/cmux-computer-use/SKILL.md",
-          "tests/test_cargo_test_verdict.py"
-        ]
-      },
-      "inventory": {
-        "why": "routed by its workflow's own job (needs.changes.outputs.run in its if:), which no input map declares yet; it counts as runs-always until its inputs are declared",
-        "suggested_inputs": [
-          "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy+Fields.generated.swift",
-          "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy.swift",
-          "cmux-tui/bindings/",
-          "cmux-tui/bindings/codegen/generate.py",
-          "cmux-tui/bindings/codegen/tests/",
-          "cmux-tui/scripts/check-resource-api-boundary.py",
-          "cmux-tui/scripts/check-sdk-schema.py",
-          "cmux-tui/scripts/check-spec-inventory.py",
-          "cmux-tui/scripts/machine-join.test.sh",
-          "cmux-tui/scripts/test_check_resource_api_boundary.py",
-          "cmux-tui/scripts/test_check_sdk_schema.py",
-          "cmux-tui/scripts/test_check_spec_inventory.py",
-          "cmux-tui/scripts/test_frontend_docs.py",
-          "cmux-tui/spec/sdk-schema.json",
-          "scripts/cmux-next/gen-phone-lane-fields.py"
-        ]
-      },
       "router-replay": {
         "why": "routed by its workflow's own job (needs.changes.outputs.router_changed in its if:), which no input map declares yet; it counts as runs-always until its inputs are declared",
         "suggested_inputs": [
@@ -829,16 +748,6 @@
           "scripts/ci/",
           "scripts/ci/affected-jobs.json",
           "scripts/ci/affected_jobs_replay.py"
-        ]
-      },
-      "rustfmt": {
-        "why": "routed by its workflow's own job (needs.changes.outputs.run in its if:), which no input map declares yet; it counts as runs-always until its inputs are declared",
-        "suggested_inputs": [
-          ".github/actions/setup-cmux-tui-rust/",
-          ".github/scripts/cmux-tui-fmt-changed.py",
-          ".github/scripts/test_cmux_tui_fmt_changed.py",
-          "cmux-tui/Cargo.toml",
-          "cmux-tui/rustfmt.toml"
         ]
       }
     },
@@ -1148,6 +1057,12 @@
       }
     },
     ".github/workflows/pr-router.yml": {
+      "pipeline": {
+        "why": "undeclared: runs on every pull request until its inputs are declared (added by job_inputs.py fix)",
+        "suggested_inputs": [
+          ".github/workflows/pr-pipeline.yml"
+        ]
+      },
       "route": {
         "why": "a router: it reads the diff (or the pull request) to decide which other jobs run, so it runs on every pull request",
         "suggested_inputs": [
@@ -1234,142 +1149,10 @@
         "suggested_inputs_more": 378
       }
     },
-    ".github/workflows/rust-workspaces.yml": {
-      "plan": {
-        "why": "a router: it reads the diff (or the pull request) to decide which other jobs run, so it runs on every pull request",
-        "suggested_inputs": [
-          ".github/actions/runner-cargo-home/action.yml",
-          ".github/actions/runner-cargo-home/runner-cargo-home.sh",
-          ".github/actions/setup-cmux-tui-rust/",
-          ".github/actions/setup-cmux-tui-rust/action.yml",
-          ".github/rust-workspaces.toml",
-          ".github/scripts/rust-workspaces.py",
-          ".github/scripts/test_rust_workspaces.py",
-          "cmux-tui/rust-toolchain.toml",
-          "scripts/cmux-next/cargo-locks.py"
-        ]
-      },
-      "receipt": {
-        "why": "reads the pull request body's CI-Receipt: line, not the tree",
-        "suggested_inputs": []
-      },
-      "summary": {
-        "why": "a roll-up: it judges the results of jobs that are routed themselves; its cost is one small runner",
-        "suggested_inputs": [
-          ".github/",
-          ".github/CODEOWNERS",
-          ".github/ISSUE_TEMPLATE/bug_report.yml",
-          ".github/ISSUE_TEMPLATE/config.yml",
-          ".github/ISSUE_TEMPLATE/feature_request.yml",
-          ".github/actionlint.yaml",
-          ".github/actions/",
-          ".github/checkout-lean.json",
-          ".github/cloud-backend-paths.json",
-          ".github/cloud-machine-count-probe/request",
-          ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
-          ".github/defaults-call-owners.json",
-          ".github/design-surfaces.json",
-          ".github/gateway-e2e/request",
-          ".github/github-token-budget.json",
-          ".github/ios-review-gate-devices.json",
-          ".github/labels.json",
-          ".github/language-boundaries.toml",
-          ".github/nightly-known-bad.json",
-          ".github/nightly-step-coverage.json",
-          ".github/post-merge-checks.json",
-          ".github/pull_request_template.md",
-          ".github/release-thanks.json",
-          ".github/review-bot-rules/user-facing-errors.md",
-          ".github/review-fabric-policy.json",
-          ".github/runners.json",
-          ".github/rust-workspaces.toml",
-          ".github/single-host-fallbacks.json",
-          ".github/swift-warning-budget.tsv",
-          ".github/warm-sources.json",
-          ".github/workflows/",
-          ".github/workflows/ci-guards.yml",
-          ".github/workflows/ci-macos.yml",
-          ".github/workflows/ci-web.yml",
-          ".github/workflows/ci.yml",
-          ".github/workflows/web-validation.yml",
-          ".greptile/rules.md",
-          "Native/DiffSidecar/",
-          "Packages/",
-          "Packages/iOS/"
-        ],
-        "suggested_inputs_more": 150
-      },
-      "workspace": {
-        "why": "routed by its workflow's own job (needs.plan.outputs.jobs in its if:), which no input map declares yet; it counts as runs-always until its inputs are declared",
-        "suggested_inputs": [
-          ".github/actions/runner-cargo-home/action.yml",
-          ".github/actions/runner-cargo-home/runner-cargo-home.sh",
-          ".github/actions/setup-cmux-tui-rust/",
-          ".github/actions/setup-cmux-tui-rust/action.yml",
-          ".github/rust-workspaces.toml",
-          ".github/scripts/rust-workspaces.py",
-          ".github/scripts/test_rust_workspaces.py",
-          "cmux-tui/bindings/zig/build.zig.zon",
-          "cmux-tui/build-support/notices/toolchains/toolchains.json",
-          "cmux-tui/rust-toolchain.toml",
-          "scripts/ci/init-submodule.sh",
-          "scripts/cmux-next/cargo-locks.py",
-          "scripts/install-zig-ci.sh"
-        ]
-      }
-    },
     ".github/workflows/thunderdome-label.yml": {
       "label": {
         "why": "reads the pull request's metadata (title, body, labels, size, base), not a fixed set of paths",
         "suggested_inputs": []
-      }
-    },
-    ".github/workflows/web-validation.yml": {
-      "web-validation": {
-        "why": "a roll-up: it judges the results of jobs that are routed themselves; its cost is one small runner",
-        "suggested_inputs": [
-          ".cargo/",
-          ".claude/",
-          ".github/",
-          ".github/CODEOWNERS",
-          ".github/ISSUE_TEMPLATE/bug_report.yml",
-          ".github/ISSUE_TEMPLATE/config.yml",
-          ".github/ISSUE_TEMPLATE/feature_request.yml",
-          ".github/actionlint.yaml",
-          ".github/actions/",
-          ".github/actions/pr-media-publish/action.yml",
-          ".github/actions/pr-media-publish/canary.png",
-          ".github/actions/runner-cargo-home/",
-          ".github/actions/setup-cmux-tui-rust/",
-          ".github/actions/tree-result/",
-          ".github/actions/tree-result/action.yml",
-          ".github/checkout-lean.json",
-          ".github/cloud-backend-paths.json",
-          ".github/cloud-machine-count-probe/request",
-          ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
-          ".github/defaults-call-owners.json",
-          ".github/design-surfaces.json",
-          ".github/gateway-e2e/request",
-          ".github/github-token-budget.json",
-          ".github/ios-review-gate-devices.json",
-          ".github/labels.json",
-          ".github/language-boundaries.toml",
-          ".github/nightly-known-bad.json",
-          ".github/nightly-step-coverage.json",
-          ".github/post-merge-checks.json",
-          ".github/pull_request_template.md",
-          ".github/release-thanks.json",
-          ".github/review-bot-rules/user-facing-errors.md",
-          ".github/review-fabric-policy.json",
-          ".github/review-fabric.md",
-          ".github/runners.json",
-          ".github/rust-workspaces.toml",
-          ".github/scripts/",
-          ".github/scripts/review_fabric.py",
-          ".github/single-host-fallbacks.json",
-          ".github/swift-warning-budget.tsv"
-        ],
-        "suggested_inputs_more": 716
       }
     }
   }

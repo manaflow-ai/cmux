@@ -60,8 +60,8 @@ Full loop: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md) and
   backend data or local state, nor nightly's or stable's, and never reuses NIGHTLY's sign-in. The pre-push
   gate's "Build spaces" and "Dev build state is its own" checks enforce it:
   [dev build spaces](skills/cmux-dev-workflow/references/dev-build-spaces.md).
-- **Never add CI gates, perf-gate rows, CI jobs or CI tests** (Lawrence, 2026-10-23: "not to add gates/tests in
-  CI, but you have to run them yourself"). Each fix still gets a regression test you run yourself on the fleet.
+- **Agents may add CI gates, perf-gate rows, CI jobs and CI tests** (Aziz 2026-11-18 lifted the "no new CI" rule;
+  perf runs still never block a push, merge or nightly). Each fix still gets a regression test you run on the fleet.
 - **Nightlies never use Blacksmith, run on one signing Mac, and nobody cancels them** (Lawrence, 2026-10-30
   and 2026-11-04): [landing](docs/ci/landing.md#ci-runners-and-nightlies).
 - **A change to the Mac or iOS app is done when the person can open it**: the report ends with the dev build
