@@ -100,6 +100,17 @@ extension AcpmuxHub {
         // (nothing else rebinds then; a link that is down makes `onStall` a no-op and its own
         // reconnect binds the next channel).
         guard connection === stale || connection == nil, let onStall else { return }
+        // A read that is only slow behind a prompt or mutation on a healthy channel is left to its
+        // own deadline: replacing the channel would cut that work off. A closed channel has
+        // nothing left to lose.
+        if why == "stalled", await stale.hasWritesInFlight {
+            log.info("acpmux read \(method, privacy: .public) slow behind a write: not recovering")
+            return
+        }
+        if let recovering {
+            await recovering.value
+            return
+        }
         log.info("acpmux channel \(why, privacy: .public) on \(method, privacy: .public): recovering")
         ConnectivityTelemetry.shared.record(.hub, "channel_recover", outcome: .failure,
                                             fields: ["why": .text(why), "method": .text(method)])
