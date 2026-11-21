@@ -303,10 +303,6 @@
    "rustfmt": "reads pull request metadata or the base (github.base_ref, github.event.before, github.event.pull_request.base.sha), not only the tree",
    "clippy": "reads pull request metadata or the base (github.event.before), not only the tree"
   },
-  "cmux-tui-windows-check.yml": {
-   "route": "its outputs feed later jobs; a skipped run leaves them empty; needed by windows-gnu-check: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.labels), not only the tree",
-   "windows-gnu-check": "reuses a green on its own input tree, a finer key than the whole tree (cmux#46962, .github/actions/tree-result)"
-  },
   "cmux-vm-clients.yml": {
    "rust": "reads pull request metadata or the base (github.base_ref), not only the tree",
    "sdk": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
