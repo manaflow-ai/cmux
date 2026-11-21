@@ -362,7 +362,8 @@ jobs:
                 core.warning(`Could not look for a duplicate nightly run; building: ${error.message}`);
               }
             }
-            let shouldBuild = !seedOnly && !alreadyPublished && !duplicateOfRun && (buildOnly || !isMainRef || forceBuild || nightlySha !== headSha);
+            let shouldBuild = !seedOnly && !alreadyPublished && (buildOnly || !isMainRef || forceBuild || nightlySha !== headSha);
+            if (duplicateOfRun) shouldBuild = false;
             // The six-hour schedule only warms caches downstream, and keeps
             // its eligibility outputs as they are so that routing still works.
             // It is named here because the build-input check below leaves it
