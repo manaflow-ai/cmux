@@ -1,4 +1,4 @@
-import { createFileRoute, Link, redirect } from "@tanstack/react-router"
+import { createFileRoute, Link, redirect, useLocation } from "@tanstack/react-router"
 import { useEffect, useRef } from "react"
 import { useLoad } from "../../lib/hooks"
 import { integrationAppHandoff, integrationCompletionRequest, integrationConfigureLink, integrationReturnLink } from "../../lib/integration-callback"
@@ -30,19 +30,20 @@ export const Route = createFileRoute("/integrations/callback")({
  * does not start on its own (autoSignInHref's loop guard).
  */
 function SignInToFinish() {
-  const here = typeof window === "undefined" ? null : { pathname: window.location.pathname, search: window.location.search }
+  // The router's location renders the same link on the server and during hydration; the browser's
+  // own URL is read only after mount, for the automatic start.
+  const here = useLocation({ select: (location) => `${location.pathname}${location.searchStr}` })
   useEffect(() => {
-    if (!here) return
     let storage: Storage | null = null
     try {
       storage = window.sessionStorage
     } catch {}
-    const href = autoSignInHref(false, here, storage)
+    const href = autoSignInHref(false, { pathname: window.location.pathname, search: window.location.search }, storage)
     if (href) window.location.replace(href)
   }, [])
   return (
     <p>
-      <a href={signInHref(here ? `${here.pathname}${here.search}` : "/integrations")}>Sign in with cmux</a> as the person who started this connection to finish it.
+      <a href={signInHref(here)}>Sign in with cmux</a> as the person who started this connection to finish it.
     </p>
   )
 }
