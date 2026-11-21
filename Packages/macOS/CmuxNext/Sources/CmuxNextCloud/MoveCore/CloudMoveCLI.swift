@@ -6,6 +6,13 @@ public import Foundation
 /// JSON answer line (cmux-cloud-start-core `moves::cli`, ops `cloud_move_cli_*`); this only runs the
 /// process, with any credential on stdin, never in argv.
 public nonisolated struct CloudMoveCLI: Sendable {
+    /// Projection receipt validated by Rust; bytes are logical size, not downloaded bytes.
+    public struct ProjectionDetails: Sendable, Equatable, Codable {
+        public var files: Int64
+        public var bytes: Int64
+        public var mountMs: Int64
+    }
+
     /// One CLI's answer line, as Rust read it.
     public struct Answer: Sendable, Equatable, Codable {
         public var ok: Bool
@@ -37,6 +44,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var remoteRoot: String?
         /// A copy past its limits sent a first pass: the files it left on this Mac; nil for a whole copy.
         public var leftOnMac: Int64?
+        public var projection: ProjectionDetails?
         /// `link start-chat plan`'s `cloud.size.locked`: the sizes and the upgrade the platform named (``CloudSizeLocked``).
         public var sizeLocked: JSONValue?
         /// `link start-chat plan`'s `seed_refused` for a machine smaller than the size asked (`machine.too_small`): its name.

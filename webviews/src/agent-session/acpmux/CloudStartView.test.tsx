@@ -8,6 +8,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
 import { CloudStartView } from "./CloudStartView";
+import { projectedFolderDetails } from "./projectedFolderDetails.experiment";
+import { experimentArm } from "../../experiments/experiment";
 import { startupChecklist } from "./cloudStartViewModel";
 import cloudStartGallery from "./CloudStartView.gallery";
 import type { CloudStartProgress } from "./cloudStartProgress";
@@ -740,4 +742,25 @@ test("every failed start offers a way on in the card: the folder, a new Cloud ch
     ),
   );
   expect(container.querySelector(".acpmux-cloud-start__way-on")).toBeNull();
+});
+
+test("projection details are off by default and opt in without changing fallback", () => {
+  expect(experimentArm(projectedFolderDetails, { overrides: {}, stored: {} })).toBe("off");
+  globalThis.cmuxExperiments = { "projected-folder-details": "off" };
+  const start: CloudStartProgress = {
+    key: "projection",
+    task: "Inspect files",
+    state: "starting",
+    step: "opening",
+    folder: "paint",
+    clone: { state: "done", phase: "complete", projection: { files: 42, bytes: 1024, mountMs: 940 } },
+  };
+  const detail = () => startupChecklist(start).find((row) => row.id === "clone")?.detail;
+  expect(detail()).toBeUndefined();
+  globalThis.cmuxExperiments = { "projected-folder-details": "on" };
+  expect(detail()).toContain("Projected");
+  expect(detail()).toContain("42");
+  expect(detail()).toContain("940");
+  start.clone = { state: "done", phase: "complete", fallback: "not_git" };
+  expect(detail()).toContain("Copying the folder instead");
 });

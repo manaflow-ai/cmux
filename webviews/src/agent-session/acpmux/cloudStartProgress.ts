@@ -228,6 +228,8 @@ export type CloudStartupOperation = {
   /// A very large folder's first pass: how many files stayed on this Mac (`left_on_mac`), so the card
   /// does not read a partial copy as complete. Absent when nothing was left.
   leftOnMac?: number;
+  /** Manifest totals, not resident or transferred bytes. */
+  projection?: { files: number; bytes: number; mountMs: number };
   progress?: {
     receivedBytes?: number;
     objects?: number;
@@ -504,6 +506,13 @@ function operation(value: unknown): CloudStartupOperation | undefined {
   const fallback = line(record.fallback, 80);
   const installUrl = httpsUrl(record.installUrl ?? record.install_url);
   const leftOnMac = filesLeftOnMac(record);
+  const receipt = asRecord(record.projection);
+  const validCount = (value: unknown): value is number =>
+    typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+  const projection =
+    state === "done" && receipt && validCount(receipt.files) && validCount(receipt.bytes) && validCount(receipt.mountMs)
+      ? { files: receipt.files, bytes: receipt.bytes, mountMs: receipt.mountMs }
+      : undefined;
   return {
     state,
     ...(startedAt !== undefined && { startedAt }),
@@ -513,6 +522,7 @@ function operation(value: unknown): CloudStartupOperation | undefined {
     ...(fallback && { fallback }),
     ...(installUrl && { installUrl }),
     ...(leftOnMac !== undefined && { leftOnMac }),
+    ...(projection && { projection }),
     ...(progress && Object.keys(progress).length > 0 && { progress }),
   };
 }

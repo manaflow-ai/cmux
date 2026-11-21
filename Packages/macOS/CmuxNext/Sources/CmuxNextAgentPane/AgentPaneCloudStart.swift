@@ -377,12 +377,17 @@ extension AgentPaneCloudStart {
                                     environmentId: String? = nil, setupState: String? = nil, setupStatus: String? = nil,
                                     setupStartedAt: Double? = nil, setupFinishedAt: Double? = nil,
                                     setupError: String? = nil, setupHasScript: Bool? = nil,
-                                    cloneProgress: SeedProgress? = nil, leftOnMac: Int64? = nil, to view: AgentPaneView) {
+                                    cloneProgress: SeedProgress? = nil, leftOnMac: Int64? = nil, projection: CloudMoveCLI.ProjectionDetails? = nil, to view: AgentPaneView) {
         var value: [String: JSONValue] = ["key": .string(key), "step": .string(step)]
         if let folder { value["folder"] = .string(folder) }
         if let machine { value["machine"] = .string(machine) }
         if let size { value["size"] = .string(size) }
         var cloneFields: [String: JSONValue] = [:]
+        if let projection {
+            cloneFields["projection"] = .object(["files": .number(Double(projection.files)),
+                                                  "bytes": .number(Double(projection.bytes)),
+                                                  "mountMs": .number(Double(projection.mountMs))])
+        }
         if let cloneState { cloneFields["state"] = .string(cloneState) }
         if let clonePhase { cloneFields["phase"] = .string(clonePhase) }
         if let cloneStartedAt { cloneFields["startedAt"] = .number(cloneStartedAt) }

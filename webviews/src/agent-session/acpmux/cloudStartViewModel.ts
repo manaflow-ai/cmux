@@ -4,6 +4,8 @@ import {
   type CloudStartupOperation,
   type CloudStartupSetup,
 } from "./cloudStartProgress";
+import { experimentArm } from "../../experiments/experiment";
+import { projectedFolderDetails } from "./projectedFolderDetails.experiment";
 import { fileSizeLabel } from "./fileAttachmentModel";
 import { paneLanguage, type StringKey, type Translate } from "./i18n";
 
@@ -85,6 +87,14 @@ function copyInstead(fallback: string, t: Translate): string {
 
 function cloneDetail(operation: CloudStartupOperation | undefined, t: Translate, language: string): string | undefined {
   if (!operation) return undefined;
+  if (operation.projection && experimentArm(projectedFolderDetails) === "on") {
+    const { files, bytes, mountMs } = operation.projection;
+    return t("cloudStartup.projectionDetails", {
+      files: files.toLocaleString(language),
+      size: fileSizeLabel(bytes, language) ?? "",
+      ms: mountMs.toLocaleString(language),
+    });
+  }
   const progress = operation.progress;
   const size = (bytes: number | undefined) => fileSizeLabel(bytes, language);
   const parts: (string | undefined)[] = [];
@@ -132,6 +142,7 @@ const DEFAULT_STARTUP_STRINGS: Record<string, string> = {
   "cloudStartup.setup": "Run setup script",
   "cloudStartup.setupHint": "Add a setup script to install dependencies and configure your environment.",
   "cloudStartup.cached": "cached",
+  "cloudStartup.projectionDetails": "Projected · Files: {files} · Logical size: {size} · Mount: {ms} ms",
   "cloudStartup.harness": "Started {harness}",
   "cloudStartup.harnessStarting": "Starting {harness}",
   "cloudStartup.copyInstead": "Copying the folder instead",

@@ -576,3 +576,33 @@ fn a_copy_answer_carries_its_bytes_and_what_it_left_on_this_mac() {
         (&json!("machine.too_small"), &json!(5), &json!("cloud-chats"))
     );
 }
+
+#[test]
+fn projection_receipts_cross_the_app_bridge_without_claiming_downloaded_bytes() {
+    let receipt = json!({"ok":true,"mode":"projected","projected":{
+        "files":1100000,"bytes":114890375168_u64,"mount_ms":940,"at":"/work/project"}});
+    let read = |value: &Value| parse(&output(&value.to_string(), "", 0)).0;
+    let answer = read(&receipt);
+    assert_eq!(
+        answer.projection,
+        Some(ProjectionDetails { files: 1100000, bytes: 114890375168, mount_ms: 940 })
+    );
+    assert_eq!(serde_json::to_value(&answer).unwrap()["projection"]["mountMs"], 940);
+    for value in [
+        json!({"ok":true,"mode":"copy","projected":receipt["projected"]}),
+        json!({"ok":false,"mode":"projected","projected":receipt["projected"]}),
+        json!({"ok":true,"copied":false,"seed_phase":"cached"}),
+    ] {
+        assert!(read(&value).projection.is_none());
+    }
+    for key in ["files", "bytes", "mount_ms"] {
+        for bad in [json!(-1), json!(1.5), json!("940"), Value::Null, json!(9007199254740992_u64)] {
+            let mut value = receipt.clone();
+            value["projected"][key] = bad;
+            assert!(read(&value).projection.is_none(), "{value}");
+        }
+    }
+    let empty =
+        json!({"ok":true,"mode":"projected","projected":{"files":0,"bytes":0,"mount_ms":0}});
+    assert!(read(&empty).projection.is_some());
+}

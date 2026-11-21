@@ -167,7 +167,7 @@ struct CloudStartChat {
                 report(.init(name: "folder", folder: folderName, machine: name, size: size,
                              cloneState: copy.0.seedState, clonePhase: copy.0.seedPhase,
                              cloneStartedAt: copy.0.seedStartedAt, cloneFinishedAt: copy.0.seedFinishedAt,
-                             start: .init(environmentId: plan.environmentId, setup: plan.setup), leftOnMac: copy.0.leftOnMac))
+                             start: .init(environmentId: plan.environmentId, setup: plan.setup), leftOnMac: copy.0.leftOnMac, projection: copy.0.projection))
                 guard copy.0.ok else { throw await CloudMoveFolder.orGone(CloudMoveFailure.syncing(copy.0, machine: name, retry: again), root: folder.root) }
                 timeline?.mark("copy")
                 return copy

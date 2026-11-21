@@ -1,6 +1,138 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cloudStartup.projectionDetails": {
+      "comment": "Opt-in projection receipt. Size is logical manifest size, not downloaded bytes. Labeled counts do not vary with number.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projected · Files: {files} · Logical size: {size} · Mount: {ms} ms"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مجلد مُسقط · الملفات: {files} · الحجم المنطقي: {size} · التركيب: {ms} مللي ثانية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projektovano · Datoteke: {files} · Logička veličina: {size} · Montiranje: {ms} ms"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projiceret · Filer: {files} · Logisk størrelse: {size} · Montering: {ms} ms"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projiziert · Dateien: {files} · Logische Größe: {size} · Einbinden: {ms} ms"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proyectado · Archivos: {files} · Tamaño lógico: {size} · Montaje: {ms} ms"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projeté · Fichiers : {files} · Taille logique : {size} · Montage : {ms} ms"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proiettato · File: {files} · Dimensione logica: {size} · Montaggio: {ms} ms"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "投影済み · ファイル数: {files} · 論理サイズ: {size} · マウント: {ms} ms"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានបញ្ចាំង · ឯកសារ៖ {files} · ទំហំឡូជីខល៖ {size} · ការម៉ោន៖ {ms} ms"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "투영됨 · 파일: {files} · 논리 크기: {size} · 마운트: {ms} ms"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projisert · Filer: {files} · Logisk størrelse: {size} · Montering: {ms} ms"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projekcja · Pliki: {files} · Rozmiar logiczny: {size} · Montowanie: {ms} ms"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projetado · Arquivos: {files} · Tamanho lógico: {size} · Montagem: {ms} ms"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проекция · Файлы: {files} · Логический размер: {size} · Монтирование: {ms} мс"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ฉายโฟลเดอร์แล้ว · ไฟล์: {files} · ขนาดเชิงตรรกะ: {size} · เมานต์: {ms} มิลลิวินาที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yansıtıldı · Dosyalar: {files} · Mantıksal boyut: {size} · Bağlama: {ms} ms"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проєкція · Файли: {files} · Логічний розмір: {size} · Монтування: {ms} мс"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã chiếu · Tệp: {files} · Kích thước lôgic: {size} · Gắn kết: {ms} ms"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已投影 · 文件数：{files} · 逻辑大小：{size} · 挂载：{ms} 毫秒"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已投影 · 檔案數：{files} · 邏輯大小：{size} · 掛載：{ms} 毫秒"
+          }
+        }
+      }
+    },
     "error.subsessionsFull": {
       "comment": "Agent pane: why a plan build or sub-session start was refused (after 'The plan was not built:'): the chat already runs its limit of sub-sessions",
       "extractionState": "manual",

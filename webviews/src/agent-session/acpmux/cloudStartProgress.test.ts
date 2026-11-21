@@ -482,3 +482,19 @@ test("a failed start's way on: the folder, a new Cloud chat, Retry, or This Mac;
   expect(cloudStartWayOn(failed("cloud_start_failed", { retryable: true }))).toEqual([]);
   expect(cloudStartWayOn({ key: "k", task: "t", state: "starting" })).toEqual([]);
 });
+
+test("projection receipt stays with its start and malformed or failed receipts are ignored", () => {
+  const projection = { files: 1100000, bytes: 114890375168, mountMs: 940 };
+  const pushed = (clone: unknown, key = "k-1") => cloudStartPushed(begun(), { key, step: "folder", clone })!;
+  const projected = pushed({ state: "done", projection });
+  expect(projected.clone?.projection).toEqual(projection);
+  expect(cloudStartPushed(projected, { key: "k-1", step: "opening" })?.clone?.projection).toEqual(projection);
+  expect(pushed({ state: "done", projection }, "other").clone).toBeUndefined();
+  expect(pushed({ state: "failed", projection }).clone?.projection).toBeUndefined();
+  for (const key of ["files", "bytes", "mountMs"]) {
+    for (const value of [-1, 1.5, Infinity, "4", null, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(pushed({ state: "done", projection: { ...projection, [key]: value } }).clone?.projection).toBeUndefined();
+    }
+  }
+  expect(pushed({ state: "done", phase: "copy" }).clone?.projection).toBeUndefined();
+});

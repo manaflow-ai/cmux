@@ -72,12 +72,37 @@ pub struct Answer {
     /// A copy past its limits sent a first pass: the files it left on this Mac (`skipped_counts.left_on_mac`,
     /// at the top or in its `copy` summary). None for a copy sent whole.
     pub left_on_mac: Option<u64>,
+    /// Successful projection manifest totals, not bytes fetched or resident on the machine.
+    pub projection: Option<ProjectionDetails>,
     /// `link start-chat plan`'s `cloud.size.locked`: `{needed, allowed, upgrade_plan}` as the platform named them
     /// (`upgrade_plan` `"nothing"`: no plan lifts it).
     pub size_locked: Option<Value>,
     /// `link start-chat plan`'s `seed_refused` for a machine too small for the folder (`machine.too_small`): the
     /// machine's name, for "more than <machine> has room for".
     pub machine_title: Option<String>,
+}
+
+/// Observed totals from the projection mount; omitted on fallback, retries without a receipt, or bad data.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectionDetails {
+    pub files: u64,
+    pub bytes: u64,
+    pub mount_ms: u64,
+}
+
+fn projection_details(object: &Map<String, Value>) -> Option<ProjectionDetails> {
+    if boolean(object, "ok") != Some(true) || object.get("mode")?.as_str()? != "projected" {
+        return None;
+    }
+    let receipt = object.get("projected")?;
+    // Every number crosses the JSON bridge: reject values it cannot represent exactly.
+    let count = |key: &str| receipt.get(key)?.as_u64().filter(|n| *n <= 9_007_199_254_740_991);
+    Some(ProjectionDetails {
+        files: count("files")?,
+        bytes: count("bytes")?,
+        mount_ms: count("mount_ms")?,
+    })
 }
 
 impl Answer {
@@ -176,6 +201,7 @@ pub fn parse(output: &Output) -> (Answer, Option<Map<String, Value>>) {
         retry_after_s: object.get("retry_after_s").and_then(Value::as_u64),
         copy_bytes: object.get("copy_bytes").and_then(Value::as_u64),
         left_on_mac: left_on_mac(&object),
+        projection: projection_details(&object),
         size_locked: object.get("size_locked").filter(|size| size.is_object()).cloned(),
         machine_title: string(&object, "machine_title"),
     };
