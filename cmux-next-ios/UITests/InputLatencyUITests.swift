@@ -82,7 +82,7 @@ final class InputLatencyUITests: XCTestCase {
             XCTAssertTrue(send.waitForExistence(timeout: 5), "the chat's Send button\n\(app.debugDescription)")
             send.tap()
             RunLoop.current.run(until: Date().addingTimeInterval(1))
-            if !field.hasKeyboardFocus { field.tap() }
+            field.tap()
         }
         _ = waitFor(app, timeout: 10) { ($0["chat_send_visible"] as? [String: Any]).flatMap { $0["n"] as? Int } ?? 0 >= 5 }
         report("chat", app)
