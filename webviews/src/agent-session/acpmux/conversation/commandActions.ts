@@ -151,17 +151,20 @@ const RUNS_INSIDE = /\$\(|`|[<>]\(/;
 
 /// The step that names the command (shellSteps.ts `mainStep`) and whether steps follow it. A
 /// step that is only an assignment names the command its `$(…)` runs: `K=$(pin.sh key | tail -1)`
-/// ran pin.sh. `vars` holds what the assignments before it name (`V=$(ls *.mov)`: `*.mov`).
+/// ran pin.sh. `vars` holds what the assignments before it name (`V=$(ls *.mov)`: `*.mov`), a hint
+/// only; `values` holds the ones whose value the line itself spells out (`F=docs/a.md`), whole.
 function mainStep(command: string): {
   step: string;
   more: boolean;
   vars: Map<string, string[]>;
+  values: Map<string, string>;
   bodies: string[];
   loops: Loop[];
 } {
   let { step, more, before, bodies, loops } = workingStep(command);
   const vars = new Map<string, string[]>();
-  for (const earlier of before) if (isAssignmentOnly(earlier)) assigned(earlier, vars);
+  const values = new Map<string, string>();
+  for (const earlier of before) if (isAssignmentOnly(earlier)) assigned(earlier, vars, values);
   for (let depth = 0; depth < 4 && isAssignmentOnly(step); depth += 1) {
     const inner = shellWords(step).flatMap((word) => (word === "|" ? [] : (substitutions(word.raw) ?? [])))[0];
     if (!inner) break;
@@ -171,17 +174,19 @@ function mainStep(command: string): {
     more ||= found.more;
     bodies = found.bodies;
   }
-  return { step, more, vars, bodies, loops };
+  return { step, more, vars, values, bodies, loops };
 }
 
 /// The files an assignment's value names: a path (`F=a/b.json`), or the paths the command in its
-/// `$(…)` names (`V=$(ls "…/0/"*.mov)`).
-function assigned(step: string, vars: Map<string, string[]>) {
+/// `$(…)` names (`V=$(ls "…/0/"*.mov)`). Only a value typed out in full is a known value: what a
+/// `$(…)` prints is not the files it names (`F=$(cat pointer.txt)` holds what pointer.txt says).
+function assigned(step: string, vars: Map<string, string[]>, values: Map<string, string>) {
   for (const word of shellWords(step)) {
     if (word === "|") continue;
     const at = word.text.indexOf("=");
     const name = word.text.slice(0, at);
     const inner = substitutions(word.raw)?.[0];
+    values.delete(name);
     if (inner !== undefined) {
       const first = stages(workingStep(inner).step)[0];
       const args = first ? unwrap(first.words.map((part) => part.text)).slice(1) : [];
@@ -189,6 +194,8 @@ function assigned(step: string, vars: Map<string, string[]>) {
     } else {
       const value = word.text.slice(at + 1);
       if (isPathlike(value)) vars.set(name, [baseName(value)]);
+      // `F=$HOME/a`, `F=*.md`, `F=\`…\``: the shell's to fill in, not the line's.
+      if (value && !/[$`*?[]/.test(word.raw.slice(word.raw.indexOf("=") + 1))) values.set(name, value);
     }
   }
 }
@@ -1025,7 +1032,7 @@ function fromTo(key: StringKey, args: string[]): Act | undefined {
 
 /// What a command did, from the table; undefined for anything it does not list.
 export function commandAction(command: string): CommandAction | undefined {
-  const { step, more, loops, vars } = mainStep(command);
+  const { step, more, loops, values } = mainStep(command);
   // The first stage names the step only when nothing else in it changes anything: no write to a
   // file, no code run inside a word, and only stages after it that trim what it printed (`curl … |
   // bash` ran what it fetched and `cat a | tee b` wrote b, so those read as their line).
@@ -1044,36 +1051,106 @@ export function commandAction(command: string): CommandAction | undefined {
   if (!rule) return undefined;
   // Each argument as typed, for the variables it reads: `'$x'` in single quotes is no variable.
   const raws = first.words.slice(first.words.length - args.length).map((word) => word.raw);
-  const act = expanded(rule, args, raws, loops, vars);
+  const act = expanded(rule, args, raws, loops, values);
   const loop = act !== undefined && loops.some((each) => each.name !== undefined);
   return act && { ...act, ...(more ? { more } : {}), ...(loop ? { loop } : {}) };
 }
 
-/// `$name` and `${name}` in a word.
+/// `$name` and `${name}` in a label's text: a name the step could not read, as `expandWord` leaves it.
 const VARIABLE = /\$\{?([A-Za-z_]\w*)\}?/g;
+
+/// A word as the shell reads it: unquoted, each `$name` and `${name}` outside single quotes and
+/// not after a backslash filled in by `value` (left as `$name` when it gives none). A `${…}` that
+/// is more than a name (`${F:-x}`, `${#F}`, `${F%.md}`) is in `odd`: the line cannot say what it
+/// expands to, so it is left whole as `$F`, never cut to a `${F` ("Read a.md:-x}").
+function expandWord(
+  raw: string,
+  value: (name: string) => string | undefined = () => undefined,
+): { text: string; names: string[]; odd: string[] } {
+  let text = "";
+  const names: string[] = [];
+  const odd: string[] = [];
+  let quoted = false;
+  for (let i = 0; i < raw.length; i += 1) {
+    const c = raw[i]!;
+    if (c === "\\" && i + 1 < raw.length) {
+      const next = raw[i + 1]!;
+      // Inside double quotes a backslash escapes only `$`, a backtick, `"`, `\` and a newline.
+      if (!quoted || '$`"\\\n'.includes(next)) {
+        text += next;
+        i += 1;
+        continue;
+      }
+    } else if (c === "'" && !quoted) {
+      const end = raw.indexOf("'", i + 1);
+      const stop = end < 0 ? raw.length : end;
+      text += raw.slice(i + 1, stop);
+      i = stop;
+      continue;
+    } else if (c === '"') {
+      quoted = !quoted;
+      continue;
+    } else if (c === "$" && raw[i + 1] === "{") {
+      const close = raw.indexOf("}", i + 2);
+      const inside = raw.slice(i + 2, close < 0 ? raw.length : close);
+      const name = /^[#!]?([A-Za-z_]\w*)/.exec(inside)?.[1];
+      if (name) {
+        const plain = inside === name;
+        (plain ? names : odd).push(name);
+        text += (plain ? value(name) : undefined) ?? `$${name}`;
+        i = close < 0 ? raw.length : close;
+        continue;
+      }
+    } else if (c === "$") {
+      const name = /^[A-Za-z_]\w*/.exec(raw.slice(i + 1))?.[0];
+      if (name) {
+        names.push(name);
+        text += value(name) ?? `$${name}`;
+        i += name.length;
+        continue;
+      }
+    }
+    text += c;
+  }
+  return { text, names, odd };
+}
+
+/// A read whose files include one it cannot name reads as its count: "Read 1 file", "Read 3 files".
+const countedRead = (files: string[]): Act =>
+  files.length === 1
+    ? { key: "tools.read.one", files }
+    : { key: "tools.read.other", values: { n: files.length }, files };
+
+const isCountedRead = (act: Act) => act.key === "tools.read.one" || act.key === "tools.read.other";
 
 /// What a rule names once the variables in its words read as their values: a loop's (`for f in a.md
 /// b.md; do git show main:$f; done` read 2 files, "Read 2 files (a.md, b.md)"), or a value an
-/// assignment before the step named (`F=a/b.json; cat "$F"`). A variable it cannot read (set from a
-/// `$(…)`, a loop over a glob, from the environment) leaves the row unnamed, so a label never shows
-/// a `$f` (Leo, 2026-11-21, on "Read $f": "this is not a good enough tool call heading that we have
-/// derived"); the call's description or its line names it instead (`commandSaid`).
+/// assignment before the step typed out (`F=a/b.json; cat "$F"`). A variable it cannot read (set from
+/// a `$(…)`, a loop over a glob, from the environment, a `${F:-x}`) leaves the row unnamed, so a
+/// label never shows a `$f` (Leo, 2026-11-21, on "Read $f": "this is not a good enough tool call
+/// heading that we have derived"); the call's description or its line names it instead (`commandSaid`).
 function expanded(
   rule: Rule,
   args: string[],
   raws: readonly string[],
   loops: readonly Loop[],
-  vars: ReadonlyMap<string, string[]>,
+  values: ReadonlyMap<string, string>,
 ): Act | undefined {
-  const reads = raws.map((raw) => [...raw.replace(/'[^']*'/g, "").matchAll(VARIABLE)].map((match) => match[1]!));
+  const parsed = raws.map((raw) => expandWord(raw));
+  const reads = parsed.map((each) => [...each.names, ...each.odd]);
   const names = new Set(reads.flat());
   if (names.size === 0) return rule(args);
+  const odd = new Set(parsed.flatMap((each) => each.odd));
   const fixed = new Map<string, string>();
   // A name this step cannot read (`H=$(…)`, a glob loop's): fine where the label never shows it
   // (`--match-head-commit $H`), never where it does ("Read $f").
   const unread = new Set<string>();
   let loop: { name: string; values: string[] } | undefined;
   for (const name of names) {
+    if (odd.has(name)) {
+      unread.add(name);
+      continue;
+    }
     // The innermost loop of that name is the one its step reads.
     const bound = [...loops].reverse().find((each) => each.name === name);
     if (bound) {
@@ -1082,15 +1159,13 @@ function expanded(
       else loop = { name, values: bound.values };
       continue;
     }
-    const value = vars.get(name);
-    if (value?.length === 1) fixed.set(name, value[0]!);
+    const value = values.get(name);
+    if (value !== undefined) fixed.set(name, value);
     else unread.add(name);
   }
   const fill = (pass?: string) =>
     args.map((arg, at) =>
-      reads[at]!.length
-        ? arg.replace(VARIABLE, (whole, name: string) => (name === loop?.name ? pass! : (fixed.get(name) ?? whole)))
-        : arg,
+      reads[at]!.length ? expandWord(raws[at]!, (name) => (name === loop?.name ? pass : fixed.get(name))).text : arg,
     );
   const hides = (text: string) => [...text.matchAll(VARIABLE)].some((match) => unread.has(match[1]!));
   const shown = (act: Act | undefined): Act | undefined => {
@@ -1101,15 +1176,18 @@ function expanded(
     const loopName = [...unread].some((name) => loops.some((each) => each.name === name));
     const reads = act.key === "command.read" || act.key === "command.readFiles";
     if (loopName || !reads || !act.files?.length) return undefined;
-    return act.files.length === 1
-      ? { key: "tools.read.one", files: act.files }
-      : { key: "tools.read.other", values: { n: act.files.length }, files: act.files };
+    return countedRead(act.files);
   };
   if (!loop) return shown(rule(fill()));
   const acts = loop.values.map((value) => shown(rule(fill(value))));
   if (acts.some((act) => act === undefined)) return undefined;
   const all = acts as Act[];
-  if (all.every((act) => act.files?.length)) return read([...new Set(all.flatMap((act) => act.files!))]);
+  if (all.every((act) => act.files?.length)) {
+    const files = [...new Set(all.flatMap((act) => act.files!))];
+    // A pass that read a file it could not name (`cat "$f" "$OUT"`) keeps the whole loop a count:
+    // its names never come back as a file ("Read 3 files (a.md, $OUT, b.md)").
+    return all.some(isCountedRead) ? countedRead(files) : read(files);
+  }
   // Every pass did the same thing (`for i in 1 2 3; do git status; done`): it reads once.
   const one = JSON.stringify({ key: all[0]!.key, values: all[0]!.values });
   return all.every((act) => JSON.stringify({ key: act.key, values: act.values }) === one) ? all[0] : undefined;

@@ -8,6 +8,7 @@ import { expect, test } from "bun:test";
 import { translatorFor } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { toolLabel } from "../toolPaths";
+import { commandAction } from "./commandActions";
 
 const t = translatorFor("en");
 let next = 0;
@@ -80,4 +81,37 @@ test("a harness title that kept a shell variable reads as its command", () => {
   // Codex parses `cat $f` in a loop as a read of "$f".
   const codex = tool(`for f in a.md b.md; do cat $f; done`, { title: "Read $f", kind: "read" });
   expect(label(codex)).toBe("Read 2 files (a.md, b.md)");
+});
+
+test("what follows a loop's done counts: a pipe that runs it or a write is no read", () => {
+  for (const command of [
+    `for f in a.sh b.sh; do cat "$f"; done | sh`,
+    `for f in a.md b.md; do cat "$f"; done > combined.md`,
+  ])
+    expect(label(tool(command))).not.toMatch(/^Read /);
+  // A stage that only trims what the loop printed still leaves it a read.
+  expect(label(tool(`for f in a.md b.md; do cat "$f"; done | head -40`))).toBe("Read 2 files (a.md, b.md)");
+});
+
+test("a value from a $(…) is no known value", () => {
+  // `$F` holds whatever pointer.txt says, not pointer.txt.
+  expect(label(tool(`F=$(cat pointer.txt); cat "$F"`))).toBe("Read 1 file");
+  expect(label(tool(`F=$(cat pointer.txt); cat "$F"`))).not.toContain("pointer.txt");
+  // A value typed out keeps its folder for the hover.
+  expect(commandAction(`F=docs/notes.md; cat "$F"`)?.files).toEqual(["docs/notes.md"]);
+});
+
+test("a ${…} that is more than a name, and an escaped $, are never cut into a name", () => {
+  for (const command of [`F=a.md; cat "\${F:-fallback.md}"`, `F=a.md; cat "\${F%.md}.txt"`]) {
+    const read = label(tool(command));
+    expect(read).not.toContain("a.md:-");
+    expect(read).not.toContain("}");
+    expect(read).not.toMatch(/\$/);
+  }
+  // `\$F` is the text `$F`, not the variable.
+  expect(label(tool(`F=a.md; cat "\\$F"`))).not.toContain("a.md");
+});
+
+test("loop passes that read a file they cannot name keep the loop a count", () => {
+  expect(label(tool(`for f in a.md b.md; do cat "$f" "$OUT"; done`))).toBe("Read 3 files");
 });

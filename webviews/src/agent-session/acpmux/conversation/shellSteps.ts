@@ -44,20 +44,33 @@ export function loopSteps(command: string, open: Loop[] = []): { steps: string[]
   const steps: string[] = [];
   const loops: Loop[][] = [];
   const stack = [...open];
+  // Where each loop this call opened began in `steps`, innermost last.
+  const starts: number[] = [];
   for (const step of rawSteps(command)) {
     let text = step.trim();
     const header = FOR_HEADER.exec(text);
-    if (!header && OTHER_LOOP.test(text)) stack.push({});
+    if (!header && OTHER_LOOP.test(text)) {
+      stack.push({});
+      starts.push(steps.length);
+    }
     while (KEYWORD_PREFIX.test(text)) text = text.replace(KEYWORD_PREFIX, "").trim();
     if (header) {
       const words = shellWords(header[2]!).filter((word): word is Word => word !== "|");
       const plain = words.every((word) => !/[$`*?[]/.test(word.raw));
       stack.push({ name: header[1]!, values: plain ? words.map((word) => word.text) : undefined });
+      starts.push(steps.length);
       continue;
     }
-    // `done < list.txt`, `done | head`: the loop ends there; what follows only feeds or trims it.
+    // The loop ends at `done`. What follows it applies to every step inside: `done | sh` runs what
+    // they printed and `done > out` writes it, so each step carries it on to the same checks a
+    // pipeline or a write gets (`cat "$f" | sh` is no read); `done | head` only trims it.
     if (/^done(?:\s|$)/.test(text)) {
-      if (stack.length > open.length) stack.pop();
+      if (stack.length > open.length) {
+        stack.pop();
+        const from = starts.pop() ?? steps.length;
+        const after = text.slice(4).trim();
+        if (after) for (let at = from; at < steps.length; at += 1) steps[at] = `${steps[at]} ${after}`;
+      }
       continue;
     }
     if (!text || KEYWORD_ALONE.test(text) || HEADER.test(text)) continue;
