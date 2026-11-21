@@ -617,23 +617,18 @@ fn write_lines(bytes: &mut Vec<u8>, text: &str) -> usize {
 
 /// The modes that do not move the cursor, as a terminal starts without them.
 fn mode_bytes(modes: &Modes) -> Vec<u8> {
-    let mut bytes = Vec::new();
-    let mut set = |on: bool, sequence: &str| {
-        if on {
-            bytes.extend_from_slice(sequence.as_bytes());
-        }
-    };
-    set(!modes.cursor_visible, "\x1b[?25l");
-    set(modes.cursor_keys, "\x1b[?1h");
-    set(modes.keypad, "\x1b=");
-    set(modes.insert, "\x1b[4h");
-    set(!modes.wrap, "\x1b[?7l");
-    if let Some(mouse) = modes.mouse {
-        bytes.extend_from_slice(format!("\x1b[?{mouse}h").as_bytes());
-    }
-    set(modes.mouse_sgr, "\x1b[?1006h");
-    set(modes.mouse_utf8, "\x1b[?1005h");
-    bytes
+    let mouse = modes.mouse.map(|mouse| format!("\x1b[?{mouse}h"));
+    let sequences = [
+        (!modes.cursor_visible, "\x1b[?25l"),
+        (modes.cursor_keys, "\x1b[?1h"),
+        (modes.keypad, "\x1b="),
+        (modes.insert, "\x1b[4h"),
+        (!modes.wrap, "\x1b[?7l"),
+        (mouse.is_some(), mouse.as_deref().unwrap_or_default()),
+        (modes.mouse_sgr, "\x1b[?1006h"),
+        (modes.mouse_utf8, "\x1b[?1005h"),
+    ];
+    sequences.iter().filter(|(on, _)| *on).flat_map(|(_, sequence)| sequence.bytes()).collect()
 }
 
 /// Puts the terminal's modes back when the attach ends. `now` is the pane's
