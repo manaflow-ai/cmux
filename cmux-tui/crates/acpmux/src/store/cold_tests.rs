@@ -160,6 +160,28 @@ fn archive_round_trip_is_byte_identical() {
 }
 
 #[test]
+fn history_search_reads_a_cold_chat_without_thawing_it() {
+    let (_home, store) = Home::new();
+    closed(&store, "c");
+    chat(&store, "c", 3);
+    let query = crate::session_search::Query::from_params(&json!({"query": "flaky test"})).unwrap();
+    let search = || {
+        crate::session_search::search_messages(
+            &store,
+            "c",
+            &query,
+            crate::session_search::TextView::Conversation,
+        )
+        .unwrap()
+    };
+    let warm = search();
+    assert!(warm.hits.len() >= 3);
+    archive(&store, "c");
+    assert_eq!(search().hits, warm.hits);
+    assert!(store.is_cold("c"));
+}
+
+#[test]
 fn a_cold_chat_lists_without_its_archive_being_read() {
     let (_home, store) = Home::new();
     closed(&store, "c");

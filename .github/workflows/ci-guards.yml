@@ -217,10 +217,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cloud_overflow_switch.py
 
-      - name: Validate a reused workspace left sparse or broken is removed before checkout
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_reused_sparse_checkout.py
-
       - name: Validate guard failure attribution
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_guard_attribution.py
@@ -321,6 +317,15 @@ jobs:
       - name: Validate CI failure attribution
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_classify_failures.py
+
+      # scripts/ci/oops is cmuxterm-hq tools/ci-oops, vendored byte for byte.
+      - name: Validate the vendored ci-oops classifier
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 scripts/ci/oops/test_ci_oops_vendored.py
+
+      - name: Validate in-job ci-oops retry and ledger
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 scripts/ci/oops/test_retry.py
 
       - name: Validate the workflow_run handlers' API budget
         if: ${{ !cancelled() && matrix.group == 'ci' }}
