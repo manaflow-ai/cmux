@@ -92,10 +92,9 @@ fn room_value(
     // `created-by-detail-v1`: who made the space, only when an agent or a script said so.
     if let Some(created_by) =
         super::created_by::made_by(connection, super::created_by::Made::Room, &profile.id)?
+        && let Some(object) = value.as_object_mut()
     {
-        if let Some(object) = value.as_object_mut() {
-            object.insert("created_by".into(), created_by);
-        }
+        object.insert("created_by".into(), created_by);
     }
     Ok(value)
 }
