@@ -1460,6 +1460,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextHomeEngineTests",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextDictation",
