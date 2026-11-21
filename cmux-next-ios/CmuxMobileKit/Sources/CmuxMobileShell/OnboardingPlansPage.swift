@@ -38,6 +38,11 @@ struct OnboardingPlansPage: View {
                             .padding(.top, 14)
                             .accessibilityIdentifier("setup.plans.status")
                     }
+                    if dynamicTypeSize.isAccessibilitySize {
+                        // Accessibility sizes: the button scrolls with the page, so a pinned
+                        // footer never squeezes the plans into a sliver.
+                        actions.padding(.top, 24)
+                    }
                     legal.padding(.top, 32)
                 }
                 .padding(.horizontal, theme.metrics.sideMargin)
@@ -49,11 +54,13 @@ struct OnboardingPlansPage: View {
             .scrollBounceBehavior(.basedOnSize)
             // On the scroll view only: an identifier on the whole page replaces its buttons' own.
             .accessibilityIdentifier("setup.plans")
-            actions
-                .frame(maxWidth: 560)
-                .padding(.horizontal, theme.metrics.sideMargin)
-                .padding(.top, 8)
-                .padding(.bottom, 12)
+            if !dynamicTypeSize.isAccessibilitySize {
+                actions
+                    .frame(maxWidth: 560)
+                    .padding(.horizontal, theme.metrics.sideMargin)
+                    .padding(.top, 8)
+                    .padding(.bottom, 12)
+            }
         }
         .background(theme.colors.bg.color.ignoresSafeArea())
         .toolbar {
