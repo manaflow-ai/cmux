@@ -79,6 +79,61 @@ extension PaneLayoutCommitTests {
         #expect(hosts[Self.left]?.showsLateGround == false, "the ground stays after the surface reported")
     }
 
+    /// A producer that needs longer than the commit's bound (a Chromium page that lays out at a size it took ahead, with
+    /// no resize fence: its frame at that size shows some refreshes after its layout) asks the change to wait for it,
+    /// and the change waits past its own bound of 3 ticks, then shows at the first tick after the report, with no pane
+    /// on its ground. Without that, the zoom of a 4x2 layout showed the page's old frame beside its backdrop for up to 3
+    /// refreshes while its pane grew (films of `pane-perf --film --page-resize-work-ms=30`, cmux20-bench, 2026-11-21).
+    @Test func aSurfaceThatAsksForMoreTicksIsWaitedForPastTheBound() throws {
+        let harness = Harness(Self.pair, focused: Self.left, holds: false, surfaces: true)
+        defer { harness.window.closeAfterTest() }
+        Self.rest(harness)
+        let screen = try #require(harness.screen)
+        let style = harness.root.context.style
+        let old = Rest(harness.model.screens, in: screen, style: style)
+        let left = try #require(harness.provider.surface(Self.left))
+        left.commitWaitTicks = 6
+
+        harness.model.apply(screens: Self.pairSplit(.horizontal))
+        let new = Rest(harness.model.screens, in: screen, style: style)
+        harness.root.syncWithModel()
+        for tick in 1...5 {
+            #expect(harness.root.advanceFrame(PaneMotionBench.frameBudget), "tick \(tick): the change stopped waiting for a surface that asked for 6")
+            #expect(old.isShown(by: Self.shown(screen)), "tick \(tick): the new layout showed before the surface that asked for 6 ticks reported")
+        }
+        left.report()
+        #expect(!harness.root.advanceFrame(PaneMotionBench.frameBudget), "frames run on after the change showed")
+        #expect(new.isShown(by: Self.shown(screen)), "the first frame tick after the report does not show the new layout")
+        #expect(screen.lateSurfaceCommits == 0 && harness.root.context.hosts[Self.left]?.showsLateGround == false,
+                "a surface that reported inside the ticks it asked for counts as late")
+    }
+
+    /// A producer that asked for more ticks and does not report: the change shows at the bound it asked for, never later,
+    /// and that pane shows its ground, as at the commit's own bound.
+    @Test func aSurfaceThatAsksForMoreTicksIsLateAtItsOwnBound() throws {
+        let harness = Harness(Self.pair, focused: Self.left, holds: false, surfaces: true)
+        defer { harness.window.closeAfterTest() }
+        Self.rest(harness)
+        let screen = try #require(harness.screen)
+        let style = harness.root.context.style
+        let old = Rest(harness.model.screens, in: screen, style: style)
+        let left = try #require(harness.provider.surface(Self.left))
+        left.commitWaitTicks = 6
+
+        harness.model.apply(screens: Self.pairSplit(.horizontal))
+        let new = Rest(harness.model.screens, in: screen, style: style)
+        harness.root.syncWithModel()
+        for tick in 1...6 {
+            #expect(harness.root.advanceFrame(PaneMotionBench.frameBudget), "tick \(tick): the change stopped asking for frames inside the 6 ticks asked for")
+            #expect(old.isShown(by: Self.shown(screen)), "tick \(tick): the new layout showed inside the 6 ticks asked for")
+        }
+        #expect(!harness.root.advanceFrame(PaneMotionBench.frameBudget), "a frame tick is asked for after the change showed at the bound asked for")
+        #expect(new.isShown(by: Self.shown(screen)), "the change did not show at the tick after the 6 ticks asked for")
+        #expect(harness.root.context.hosts[Self.left]?.showsLateGround == true, "the late pane does not show its ground")
+        left.report()
+        #expect(harness.root.context.hosts[Self.left]?.showsLateGround == false, "the ground stays after the surface reported")
+    }
+
     /// A pane that shows its ground for a late producer, whose producer then goes (its view hides): the next change
     /// that resizes the pane asks no producer and waits for none, and the pane shows its content again with that
     /// change. The ground never stays for a producer that is no longer there.
