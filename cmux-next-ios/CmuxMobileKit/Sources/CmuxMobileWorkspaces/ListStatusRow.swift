@@ -3,6 +3,10 @@ import CmuxMobileDesign
 import CmuxSpinner
 import SwiftUI
 
+/// A list's link and refresh state as words. A dropped link is shown as ``State/chip`` floating
+/// over the list (``ConnectionChip``), never as this row: a row pushes every other row down
+/// (Leo, 2026-11-21: "stop layout shifting"). The row stays for the recovery gallery's history.
+///
 /// The quiet line at the top of a list whose rows stay on screen while it reads again: updating,
 /// reconnecting to the Mac (a blip the list rides out on its own), or showing the rows read last
 /// (the Mac stayed unreachable). Never an alert, never a raw timeout (Leo 2026-11-21). Picked
@@ -44,6 +48,21 @@ public struct ListStatusRow: View {
         .listRowBackground(Color.clear)
         .accessibilityElement(children: .combine)
         .animation(.easeInOut(duration: 0.2), value: state)
+    }
+}
+public extension ListStatusRow.State {
+    /// One or two words for ``ConnectionChip``; the sentence is its VoiceOver label.
+    var chip: ConnectionChip.Content {
+        switch self {
+        case .updating:
+            .init(word: String(localized: "Updating"), symbol: nil, sentence: String(localized: "Updating…"))
+        case .reconnecting:
+            .init(word: String(localized: "Reconnecting"), symbol: nil,
+                  sentence: String(localized: "Reconnecting to your Mac…"))
+        case .stale:
+            .init(word: String(localized: "Mac offline"), symbol: "wifi.exclamationmark",
+                  sentence: String(localized: "Can't reach your Mac. Showing chats from earlier."))
+        }
     }
 }
 #endif
