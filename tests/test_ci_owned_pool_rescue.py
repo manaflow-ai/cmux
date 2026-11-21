@@ -10232,11 +10232,11 @@ class StallMove(unittest.TestCase):
     name: cmux-next macOS placement
     runs-on: ubuntu-latest
     env:
-      PR_RESCUE_DISPATCH: ${{ steps.rescue-dispatch.outputs.eligible }}
+      dispatch_rescue_runner: ${{ steps.rescue-dispatch.outputs.runner }}
   cmux-scheme-compile:
     name: cmux app scheme compile (Debug)
     needs: macos-placement
-    runs-on: ${{ needs.macos-placement.outputs.retry_runner }}
+    runs-on: ${{ needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.dispatch_rescue_runner || vars.CI_SIDE_LANE_RUNNER }}
 """
         starts, logs = [], []
         def scan():
@@ -10256,11 +10256,8 @@ class StallMove(unittest.TestCase):
             self.assertEqual(scan(), 0)
         jobs[1] = scheme
         api.snapshot = room_snapshot(running=20)
-        self.assertEqual(scan(), 0)
-        api.snapshot = lambda seconds: None
-        self.assertEqual(scan(), 0)
-        api.snapshot = room_snapshot()
         self.assertEqual(scan(), 1, logs)
+        self.assertTrue(any("past the owned wait bound" in line for line in logs), logs)
         target, stalls, plan = starts.pop()
         self.assertEqual(plan.job_id, placement["id"])
         with unittest.mock.patch.object(api, "rerun_job") as rerun:

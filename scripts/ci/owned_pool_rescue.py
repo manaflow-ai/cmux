@@ -4213,6 +4213,7 @@ class PlacementRerun:
     # The workflow jobs whose runs-on reads the placement's light_jobs on the attempt the placement ran
     # (LIGHT_RERUN_CLAUSE): the jobs a placement re-run can move to an idle light side runner (light_wait()).
     light_readers: frozenset[str] = frozenset()
+    dispatch_rescue_readers: frozenset[str] = frozenset()
 
     def keys(self, job: Mapping[str, Any]) -> set[str]:
         name = str(job.get("name") or "")
@@ -4311,8 +4312,9 @@ def placement_rerun(workflow_text: str | None, jobs: Sequence[Mapping[str, Any]]
             f"{placement_job} and the {len(below)} jobs that need it ({route_proof})"
     light = frozenset(key for key in below if any(
         name == key for name in LIGHT_RERUN_CLAUSE.findall(str(spec[key].get("runs-on") or ""))))
+    dispatch = frozenset(key for key in below if DISPATCH_RESCUE_ROUTE in str(spec[key].get("runs-on") or ""))
     return PlacementRerun(int(found[0]["id"]), frozenset(below), patterns, placement_key, placement_job,
-                          light_readers=light), \
+                          light_readers=light, dispatch_rescue_readers=dispatch), \
         f"{placement_job} and the {len(below)} jobs that need it"
 
 
@@ -6240,6 +6242,10 @@ def stall_pull_only(switch: str | None) -> bool:
     return (switch or "").strip() == "pr-rescue"
 
 
+DISPATCH_RESCUE_ROUTE = ("needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && "
+                         "needs.macos-placement.outputs.dispatch_rescue_runner")
+
+
 def dispatch_stall_route(client: GitHub, run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]],
                          stalls: Sequence[Stall], log: Callable[[str], None]) -> tuple[bool, PlacementRerun | None]:
     """Check the workflow at this run's head. Older eligible heads reroute failed jobs directly.
@@ -6253,10 +6259,11 @@ def dispatch_stall_route(client: GitHub, run: Mapping[str, Any], jobs: Sequence[
         log(f"[run {run.get('id')}] {STALL_MOVE}: could not read {CMUX_NEXT_WORKFLOW_PATH} at {head[:12]} ({error}); "
             "next scan")
         return False, None
-    if "PR_RESCUE_DISPATCH: ${{ steps.rescue-dispatch.outputs.eligible }}" in (text or ""):
+    if "dispatch_rescue_runner: ${{ steps.rescue-dispatch.outputs.runner }}" in (text or ""):
         plan, why = placement_rerun(text, jobs, attempt=int(run["run_attempt"]))
         actor = (run.get("triggering_actor") or {}).get("login")
         if int(run["run_attempt"]) > 1 and actor not in RESCUE_ACTORS:
+            log(f"[run {run.get('id')}] {STALL_MOVE} leaves a person's re-run on its chosen route")
             return False, None
         placement = next((job for job in jobs if plan and job.get("id") == plan.job_id), {})
         # The eligibility step is skipped on push-origin, named and uncached dispatches. The
@@ -6265,10 +6272,9 @@ def dispatch_stall_route(client: GitHub, run: Mapping[str, Any], jobs: Sequence[
                        and step.get("conclusion") == "success" for step in placement.get("steps") or ())
         started = parse_time(placement.get("started_at"))
         began = parse_time(run.get("run_started_at"))
-        movable = {"swift-canary", "release-compile", "cmux-scheme-compile", "daemon-test"}
         waiting = {stall.job_id for stall in stalls}
         if (plan is None or not verified or started is None or began is None or started < began
-                or any(not plan.keys(job) <= movable for job in jobs if job_key(job) in waiting)
+                or any(not plan.keys(job) <= plan.dispatch_rescue_readers for job in jobs if job_key(job) in waiting)
                 or any(failover_loses(job, plan) for job in jobs)):
             log(f"[run {run.get('id')}] {STALL_MOVE} leaves it: no safe PR dispatch placement re-run ({why})")
             return False, None
@@ -6498,7 +6504,7 @@ def stall_receipt(target: Target, why: str, log: Callable[[str], None],
     pull = f"of PR #{target.pr_number} " if target.pr_number else ""
     action = (f"re-running {placement.placement_job} and its dependents" if placement else
               "re-running its failed and cancelled jobs")
-    destination = "fresh measured placement" if placement else where or stall_destination(target)
+    destination = "the configured macos_26 pool on a fresh placement" if placement else where or stall_destination(target)
     line = (f"run {target.run_id} attempt {target.attempt} {pull}at {target.head_sha[:12]}: "
             f"cancelled and {action} because {why}; {destination}")
 
@@ -6967,22 +6973,11 @@ def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime
         wanted = max(1, moved_jobs(jobs))
         if owned is not None and destination is None:
             full = owned_verdict(owned, stalls, snapshot, at, wanted, recent)
-        elif placement is not None:
-            # The cascade can place on either measured macOS 26 label. A missing pool entry or
-            # missing counts cannot demonstrate capacity, even if the other label is full.
-            pools = snapshot.get("pools", {}) if snapshot else {}
-            sources = {stall.label for stall in stalls}
-            room = any(isinstance(pools.get(label), Mapping) and {"running", "queued"} <= pools[label].keys()
-                       and not simple_pool_picker.blacksmith_dead(snapshot, label, at)
-                       and not stall_room(snapshot, at, wanted, recent, label)
-                       and not deeper_queue(snapshot, sources, label)
-                       for label in simple_pool_picker.BLACKSMITH if label.endswith("-macos-26"))
-            full = "" if room else "no measured Blacksmith macOS 26 destination has room"
         else:
             full = next((why for why in (stall_room(snapshot, at, wanted, recent, label) for label in destination)
                          if why), "") or next((why for why in (deeper_queue(
                              snapshot, {stall.label for stall in stalls}, label) for label in destination) if why), "")
-        if full and past and placement is None:
+        if full and past:
             log(f"[run {run_id}] {name}: {past}, past the owned wait bound ({OWNED_WAIT_BOUND_SECONDS // 60} min), "
                 f"so it moves though {full}")
         elif full:
