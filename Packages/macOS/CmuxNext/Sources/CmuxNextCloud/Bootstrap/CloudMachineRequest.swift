@@ -3,10 +3,9 @@ public import CmuxNextWakeups
 import Darwin
 public import Foundation
 
-/// What `cloud new-machine` asked for beyond the plan's default machine, in one call:
-/// `cmux cloud new-machine --persistent --size medium --name lane-vm-1 --bootstrap lane
-/// --bootstrap-script tools/lane-vm-bootstrap` (leo-workspace machines/lane-vms.md). A bare
-/// New Cloud Machine (palette, menu, a plain CLI run) is ``isDefault`` and takes the old path.
+/// The settings a create no person started reads: whether it asks first
+/// (`cloud.agentsStartWithoutAsking` off) and whether the new machine idle-pauses
+/// (`labs.pauseAgentMachines`, the Mac pause/resume experiment).
 public struct CloudMachineCreatePolicy: Sendable {
     public var asksFirst: Bool
     public var pauseAgentMachines: Bool
@@ -17,6 +16,10 @@ public struct CloudMachineCreatePolicy: Sendable {
     }
 }
 
+/// What `cloud new-machine` asked for beyond the plan's default machine, in one call:
+/// `cmux cloud new-machine --persistent --size medium --name lane-vm-1 --bootstrap lane
+/// --bootstrap-script tools/lane-vm-bootstrap` (leo-workspace machines/lane-vms.md). A bare
+/// New Cloud Machine (palette, menu, a plain CLI run) is ``isDefault`` and takes the old path.
 public struct CloudMachineRequest: Equatable, Sendable {
     /// The first supported idle-pause interval for the Mac pause/resume experiment.
     /// The server accepts only the values in ``CloudMachine/idlePauseChoices``.
@@ -113,12 +116,13 @@ public struct CloudMachineRequest: Equatable, Sendable {
 
     public var isDefault: Bool { name == nil && size == nil && !persistent && bootstrapPath == nil && machineConfigPath == nil && repo == nil }
 
-    /// The idle policy a new machine receives. The experiment is opt-in and only
-    /// applies to nonpersistent machines; persistent machines retain their explicit
-    /// no-idle-pause contract.
-    public func idlePauseMinutes(pauseAgentMachines: Bool) -> Int? {
+    /// The idle pause a new machine is given, nil to leave the server's. A persistent machine is
+    /// never idle-paused (0). The Mac pause/resume experiment (`labs.pauseAgentMachines`, opt-in)
+    /// gives a nonpersistent machine an agent started the 15-minute pause; a person's create keeps
+    /// the server's default.
+    public func idlePauseMinutes(startedByPerson: Bool, pauseAgentMachines: Bool) -> Int? {
         if persistent { return 0 }
-        return pauseAgentMachines ? Self.experimentIdlePauseMinutes : nil
+        return pauseAgentMachines && !startedByPerson ? Self.experimentIdlePauseMinutes : nil
     }
 
     /// The create takes the plain path (the New Cloud Workspace dialog, or the bare create). One with an

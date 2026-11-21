@@ -104,9 +104,14 @@ struct CloudNewMachineTests {
     }
 
     @Test func pauseExperimentOnlyOptsInNonpersistentMachines() {
-        #expect(CloudMachineRequest().idlePauseMinutes(pauseAgentMachines: false) == nil)
-        #expect(CloudMachineRequest().idlePauseMinutes(pauseAgentMachines: true) == CloudMachineRequest.experimentIdlePauseMinutes)
-        #expect(CloudMachineRequest(persistent: true).idlePauseMinutes(pauseAgentMachines: true) == 0)
+        #expect(CloudMachineRequest().idlePauseMinutes(startedByPerson: false, pauseAgentMachines: false) == nil)
+        #expect(CloudMachineRequest().idlePauseMinutes(startedByPerson: false, pauseAgentMachines: true) == CloudMachineRequest.experimentIdlePauseMinutes)
+        #expect(CloudMachine.idlePauseChoices.contains(CloudMachineRequest.experimentIdlePauseMinutes))
+        // A person's own create keeps the server's idle pause; the toggle names agent machines.
+        #expect(CloudMachineRequest().idlePauseMinutes(startedByPerson: true, pauseAgentMachines: true) == nil)
+        // Persistent stays never-paused either way.
+        #expect(CloudMachineRequest(persistent: true).idlePauseMinutes(startedByPerson: false, pauseAgentMachines: true) == 0)
+        #expect(CloudMachineRequest(persistent: true).idlePauseMinutes(startedByPerson: true, pauseAgentMachines: false) == 0)
     }
 
     @Test func aLaneBootstrapNeedsItsScriptAndAName() {
