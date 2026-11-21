@@ -181,7 +181,7 @@
         },
         {
           "key": "labs.hostsSidebar",
-          "note": "Rex-style Hosts section in the sidebar. It projects the Machines page catalog, including Add Host and per-machine terminal actions. Off by default until the sidebar surface is ready.",
+          "note": "A Hosts section in the sidebar. It projects the Machines page catalog, including Add Host and per-machine terminal actions. Off by default until the sidebar surface is ready.",
           "title": {
             "key": "settings.labs.hostsSidebar",
             "text": "Hosts Sidebar"

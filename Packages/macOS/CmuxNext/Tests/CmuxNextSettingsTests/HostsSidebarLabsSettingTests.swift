@@ -1,7 +1,7 @@
 import CmuxNextSettings
 import Testing
 
-/// `labs.hostsSidebar` keeps the Hosts projection opt-in until the person enables the Rex-style
+/// `labs.hostsSidebar` keeps the Hosts projection opt-in until the person enables the
 /// sidebar surface. The parser and Settings row must agree on the same default and path.
 struct HostsSidebarLabsSettingTests {
     @Test func offByDefault() throws {
