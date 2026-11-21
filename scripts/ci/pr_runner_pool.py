@@ -2259,6 +2259,76 @@ QUEUE_SNAPSHOT_RUN_KEYS = frozenset({"id", "head_branch", "repository_id", "head
 QUEUE_SNAPSHOT_MAX_FUTURE_SECONDS = 5
 
 
+# An approved group too large for rows (cmux-fleet-linux: about 3,676 registrations on 2026-11-21, over the
+# 2,000-row cap and the 48 KiB variable) is published as `runner_group_tallies`: for each exact (os, labels) set,
+# how many runners are idle, busy and offline. Placement reads only those fields of such a runner. The required
+# mini group stays rows, since placement uses each mini's runner names (tests/test_ci_runner_census_tallies.py).
+RUNNER_TALLY_KEYS = frozenset({"os", "labels", "idle", "busy", "offline"})
+RUNNER_TALLY_MAX_SETS = 200
+RUNNER_TALLY_MAX_LABELS = 64
+RUNNER_TALLY_MAX_RUNNERS = 20_000
+
+
+def runner_tallies_problem(tallies: Any) -> str:
+    """Why a document's runner_group_tallies is unusable, or "" (an absent value is usable: no tallies)."""
+    if tallies is None:
+        return ""
+    if not isinstance(tallies, dict):
+        return "tallies are not an object"
+    for group, sets in tallies.items():
+        if group not in APPROVED_RUNNER_GROUPS or group == RUNNER_GROUP:
+            return f"no tallies for group {group!r}"
+        if not isinstance(sets, list) or len(sets) > RUNNER_TALLY_MAX_SETS:
+            return f"{group}: tallies are not a bounded list"
+        seen: set[tuple[str, frozenset[str]]] = set()
+        total = 0
+        for entry in sets:
+            if not isinstance(entry, dict) or set(entry) != RUNNER_TALLY_KEYS:
+                return f"{group}: a tally has other fields"
+            labels = entry["labels"]
+            if (not isinstance(entry["os"], str) or not entry["os"] or not isinstance(labels, list)
+                    or not labels or len(labels) > RUNNER_TALLY_MAX_LABELS
+                    or not all(isinstance(label, str) and label for label in labels)
+                    or len(set(labels)) != len(labels)):
+                return f"{group}: a tally's os or labels are malformed"
+            identity = (entry["os"], frozenset(labels))
+            if identity in seen:
+                return f"{group}: a label set is tallied twice"
+            seen.add(identity)
+            counts = [entry[key] for key in ("idle", "busy", "offline")]
+            if any(type(count) is not int or count < 0 for count in counts):
+                return f"{group}: a tally count is not a whole number"
+            total += sum(counts)
+        if total > RUNNER_TALLY_MAX_RUNNERS:
+            return f"{group}: more than {RUNNER_TALLY_MAX_RUNNERS} runners tallied"
+    return ""
+
+
+def census_runners(document: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """Every runner of a validated census as registration rows: the listed ones, then each tallied group's.
+
+    A group with tallies is read from its tallies only; rows it also carries are for older readers. A tallied
+    runner has a name unique in the document and never a mini's (runner_member() is ""), and id 0 (no
+    registration to name)."""
+    tallies = document.get("runner_group_tallies") or {}
+    rows: list[Mapping[str, Any]] = [*document["repository_runners"]]
+    for group, runners in document["runner_groups"].items():
+        if group not in tallies:
+            rows.extend(runners)
+    for group, sets in tallies.items():
+        for index, entry in enumerate(sets):
+            labels = [{"name": label} for label in entry["labels"]]
+            states = (("online", False, entry["idle"]), ("online", True, entry["busy"]),
+                      ("offline", False, entry["offline"]))
+            serial = 0
+            for status, busy, count in states:
+                for _ in range(count):
+                    serial += 1
+                    rows.append({"id": 0, "name": f"{group}-tally-{index}-{serial}", "os": entry["os"],
+                                 "status": status, "busy": busy, "labels": labels})
+    return rows
+
+
 def runner_state(repository: str, *, raw: str | None = None,
                  now: dt.datetime | None = None) -> Mapping[str, Any] | None:
     """A complete, fresh registration census, or None to retain the live API path.
@@ -2318,6 +2388,8 @@ def _runner_state_document(repository: str, *, max_age_seconds: float,
         counts = doc.get("scale_sets", {})
         if (not isinstance(counts, dict) or any(not isinstance(label, str)
                 or type(count) is not int or count < 0 for label, count in counts.items())):
+            return None
+        if runner_tallies_problem(doc.get("runner_group_tallies")):
             return None
         return doc
     except (ValueError, TypeError, OSError, EOFError, OverflowError, zlib.error):
@@ -2614,8 +2686,7 @@ class GitHub:
         document = runner_state(self.repo) if use_state else None
         if document is not None:
             print("Runner state: trusted repository document (no runner API requests)", file=sys.stderr)
-            return [*document["repository_runners"],
-                    *(runner for runners in document["runner_groups"].values() for runner in runners)]
+            return census_runners(document)
         found = ({runner.get("id"): runner for runner in self._runner_pages(f"/repos/{self.repo}/actions/runners")}
                  if include_repository else {})
         self._keep_reserve()
