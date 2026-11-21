@@ -147,8 +147,9 @@ await requireBrowserLane("glass-material.test.ts", async () => {
   test("an opaque window keeps the card's tint and blur (the transcript under it, not art)", async () => {
     const page = await open("dark", {});
     const { fill, backdrop } = await look(page);
-    // The popover level's dark tint (design-scale glass popover darkTint 70: 64 broke the legibility floor).
-    expect(fill).toBeCloseTo(0.7, 2);
+    // The popover level's dark tint (design-scale glass popover darkTint 72: 64 broke the legibility
+    // floor, and 70 left the prompt's code at 4.48:1 over a white page).
+    expect(fill).toBeCloseTo(0.72, 2);
     expect(backdrop).toContain("blur(24px)");
     // One saturation (design/glass-system.md): the opaque window's card frosts at the level's 1.6 too.
     expect(backdrop).toContain("saturate(1.6)");

@@ -37,7 +37,8 @@ does. Native glass (the window, sidebar, native menus, the native tooltip) is no
    (they scroll, rule 7) and the hairline ring alone. Never opaque (the glass rule's 90% cap); off
    and Reduce Transparency draw the opaque surface as for every `.ui-glass`.
 3. **Five levels, one saturation (1.6), light and dark apart.** Dark glass reads denser at the same
-   alpha, so each level runs a few points clearer in dark.
+   alpha, so a level runs a few points clearer in dark where the legibility floor (rule 5) allows: the
+   menu does; the chrome and the popover hold the light side's tint.
 4. **One edge.** The host's hairline ring (`--glass-edge`, the card rim; transparent with borders
    off) plus one lit hairline on top (`--cmux-tone-light` at 60% light, 24% dark). No second
    border. The specular sheen belongs to the one hero surface, the composer (`.ui-glass-material`).
@@ -76,7 +77,7 @@ PR (cmux#46104's head); after is what ships with it.
 | Level | Used by | Before | After (light / dark) | Backdrop before | Backdrop after |
 | --- | --- | --- | --- | --- | --- |
 | chrome | bars and panes docked on the page where no native glass is under it | 60% | 62% / 62% | `blur(20px) saturate(1.4)` | `blur(20px) saturate(1.6)` |
-| popover | glass in the page that floats but is not a popup: composer, Session Info, running tray, side tabs, viewers | 70% (50% over art) | 72% / 70% (50% over art) | `blur(24px) saturate(1.25)` | `blur(24px) saturate(1.6)` |
+| popover | glass in the page that floats but is not a popup: composer, Session Info, running tray, side tabs, viewers | 70% (50% over art) | 72% / 72% (50% over art) | `blur(24px) saturate(1.25)` | `blur(24px) saturate(1.6)` |
 | menu | every popup and hover card (`--ds-glass-menu-*`, `--ds-transient-web-*`) | 78% | 80% / 72% | `blur(32px) saturate(1.6)` | unchanged |
 | chip | tooltips, the find pill, chips | host contrast-fitted, floor 60% | unchanged | `blur(24px) saturate(1.6)` | unchanged |
 | scrim | behind sheets and dialogs | native `Scrim` (`--cmux-scrim`) | unchanged | none | none |
@@ -86,9 +87,10 @@ PR (cmux#46104's head); after is what ships with it.
 
 The chrome's dark tint is 62%, not 55%: at 55% the chrome bar's title fell to 3.8:1 over a white page
 in dark (and the onboarding import cards, on the chrome level, to 3.5:1), so by rule 5 the tint went
-up to the light side's. The popover's dark tint is 70%, not the research note's 64%: at 64% the composer's prompt fell under
-4.5:1 over a white page in the dark theme (`webviews/test/composer-glass.test.ts`), so by rule 5 the
-tint went up and the text stayed.
+up to the light side's. The popover's dark tint is 72%, not the research note's 64%: at 64% the composer's prompt fell under
+4.5:1 over a white page in the dark theme (`webviews/test/composer-glass.test.ts`), and at 70% the
+prompt's code (the editor's 8% text fill under inline code and a code block) read 4.48:1 there
+(the audit, cmux#48174), so by rule 5 the tint went up to the light side's and the text stayed: 4.67:1.
 
 Not changed, on purpose:
 - **chip** keeps the native tooltip's numbers (24 px, a 60% floor that the host raises until text
@@ -160,15 +162,15 @@ surface takes after this change.
 | History cookie backups sheet; icon picker pills | bare `.ui-glass` chrome | chrome | 62% / 62%, 1.6 |
 | Agent composer card (`composerStates.css`) | popover tint 70% / 50%, 24 px 1.25 (1.8 over art), specular rim, docked: no underlay | popover, hero | 72% / 70%, one saturation |
 | Composer strip, queued prompts band, goal strip, pending asks, hat questions, running tray, tray tuck | the composer's stack tint | popover | follow the composer |
-| New Tab composer box; legacy new-tab box | popover 70%, 24 px | popover | 72% / 70%, 1.6 |
-| Session Info (`sessionInfo.css`) | popover 70% / 50%, host glass, page blurs in place | popover | 72% / 70%, 1.6 |
+| New Tab composer box; legacy new-tab box | popover 70%, 24 px | popover | 72%, 1.6 |
+| Session Info (`sessionInfo.css`) | popover 70% / 50%, host glass, page blurs in place | popover | 72%, 1.6 |
 | Session Info outputs edges | surface at 58/82/90% with 5/8/12 px | 8 | none (a fade) |
 | Summary popover | chrome via `.ui-glass-floats`, page blurs in place | popover | chrome numbers now 62% / 62%, 1.6; level name is a follow-up |
-| Workflow side tab; thread minimap card; image viewer; chat gallery | popover 70%, 24 px | popover | 72% / 70%, 1.6 |
+| Workflow side tab; thread minimap card; image viewer; chat gallery | popover 70%, 24 px | popover | 72%, 1.6 |
 | PDF viewer, paste view, tool visual card | chrome plus 70% underlay | popover | 62% / 62% over 40% underlay |
-| Jump to latest, jump up, since-divider pill, needs-you pill | page background at a private 72% (clear over art), fisheye lens | popover | the popover level (72% / 70%) and its blur (the since pill took the chrome blur); the fisheye stays its own mode |
+| Jump to latest, jump up, since-divider pill, needs-you pill | page background at a private 72% (clear over art), fisheye lens | popover | the popover level (72%) and its blur (the since pill took the chrome blur); the fisheye stays its own mode |
 | Selection reply pill | surface at 90%, `blur(6px) saturate(1.4)` | chip, 5 | saturation now the one 1.6; 90% kept (its contrast test) |
-| Chief dock rail and cards | text 7-8% over surface at a private 64%, chrome blur | popover | the popover level (72% / 70%) and its blur, no text wash, the one edge, the glass's secondary ink |
+| Chief dock rail and cards | text 7-8% over surface at a private 64%, chrome blur | popover | the popover level (72%) and its blur, no text wash, the one edge, the glass's secondary ink |
 | Changelog lightbox, Home channels lightbox | surface at 60% / 72% plus chrome blur | scrim | follow-up: the scrim level |
 | Files sidebar scrim | 38% black plus `blur(2px)` | scrim | none (allowlisted softening) |
 | Diff hunk pill, Stage-all bar | text at 4% plus 20 px blur, underlay | chip | follow-up |
