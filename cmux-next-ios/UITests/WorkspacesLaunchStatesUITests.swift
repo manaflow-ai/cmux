@@ -51,6 +51,19 @@ final class WorkspacesLaunchStatesUITests: XCTestCase {
         attach(app, "first-launch-handoff")
     }
 
+    /// The same with a Mac line (an online Mac not dialed): the list's own placeholder rows,
+    /// below the line, take over from the page's. The video is the evidence.
+    @MainActor
+    func testFirstLaunchHandOffWithMacLinesKeepsThePlaceholders() {
+        let app = launch("retry-first-launch-handoff-lines")
+        defer { app.terminate() }
+        XCTAssertTrue(app.descendants(matching: .any)["workspaces.loading"].waitForExistence(timeout: 30),
+                      "first-launch placeholders\n\(app.debugDescription)")
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "workspace.row.")).firstMatch.waitForExistence(timeout: 30),
+                      "the rows arrive\n\(app.debugDescription)")
+        attach(app, "first-launch-handoff-lines")
+    }
+
     @MainActor
     func testFirstLaunchOfflineSaysItWaits() {
         let app = launch("retry-first-launch-offline")

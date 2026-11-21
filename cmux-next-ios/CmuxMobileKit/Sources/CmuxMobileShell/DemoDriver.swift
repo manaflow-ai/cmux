@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-first-launch-handoff", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-first-launch-handoff", "retry-first-launch-handoff-lines", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -65,6 +65,7 @@ struct DemoDriver {
             shell.store.isOffline = name != "retry-first-launch"
             shell.store.teamDataState = name == "retry-first-launch-failed" ? .failed : .loading
         case "retry-first-launch-handoff": await firstLaunchHandOff()
+        case "retry-first-launch-handoff-lines": await firstLaunchHandOff(lines: true)
         case "retry-refresh-failed":
             shell.tab = .workspaces
             shell.store.teamDataState = .failed
@@ -363,9 +364,13 @@ struct DemoDriver {
 
     /// A cold launch, phase by phase: the team loads (no Macs, no rows), then the team
     /// arrives and its Macs' lists are still dialing, then the rows arrive.
-    private func firstLaunchHandOff() async {
+    /// With `lines`, every Mac is online and only the first dials: the others show a Mac line
+    /// (not connected), and the list draws its own placeholder rows below them.
+    private func firstLaunchHandOff(lines: Bool = false) async {
         let store = shell.store
-        let teams = store.teams
+        let allTeams = store.teams
+        let teams = lines ? allTeams.map { var team = $0; team.macs = team.macs.map { var mac = $0; mac.isOnline = true; return mac }; return team } : allTeams
+        let dialed = lines ? Array(teams.flatMap(\.macs).prefix(1)) : teams.flatMap(\.macs)
         let workspaces = store.workspaces
         shell.tab = .workspaces
         store.workspaces = []
@@ -374,7 +379,7 @@ struct DemoDriver {
         store.teamDataState = .loading
         await pause(2.0)
         store.tracksMacData = true
-        for mac in teams.flatMap(\.macs) {
+        for mac in dialed {
             store.macConnection[mac.id] = .connecting
             store.handleMacData(.connecting, macID: mac.id)
         }
@@ -382,7 +387,7 @@ struct DemoDriver {
         store.teamDataState = .loaded
         await pause(2.0)
         store.workspaces = workspaces
-        for mac in teams.flatMap(\.macs) {
+        for mac in dialed {
             store.macConnection[mac.id] = .connected
             store.handleMacData(.received(count: workspaces.filter { $0.macID == mac.id }.count), macID: mac.id)
         }
