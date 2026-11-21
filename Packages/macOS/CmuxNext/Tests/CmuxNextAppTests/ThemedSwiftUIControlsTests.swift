@@ -2,8 +2,10 @@ import AppKit
 @testable import CmuxNextAccounts
 @testable import CmuxNextApps
 @testable import CmuxNextBookmarks
-import CmuxNextDesign
+@testable import CmuxNextDesign
+import CmuxNextDesignTokens
 import CmuxNextTestSupport
+import CmuxTheme
 import SwiftUI
 import Testing
 
@@ -59,6 +61,65 @@ import Testing
             #expect(ThemedOverlayColorsTests.same(bezel, scope.perform { Palette.selectionFill }))
             #expect(popup.titleOfSelectedItem == "Bookmarks Bar", "the binding's choice is selected")
         }
+    }
+
+    /// a1273 (user 2026-11-20, "more/remove are not very visible"): the bubble's More… and Remove were stock SwiftUI
+    /// buttons, which draw AppKit's bezel and label (no fill on the glass, a dimmed gray title) instead of the theme, and
+    /// read as disabled next to Done. Each is a cmux dialog button now: a theme fill that reads as a button, its title at
+    /// least 4.5:1 over the fill on the menu glass whatever page shows through it (white or black), light and dark.
+    @Test(arguments: [false, true])
+    func theBookmarkBubblesButtonsReadAsButtons(dark: Bool) throws {
+        let input = dark ? ThemeInput(background: ThemeRGB(hex: 0x1E1E1E), foreground: ThemeRGB(hex: 0xE6E6E6))
+            : ThemeInput(background: ThemeRGB(hex: 0xFFFFFF), foreground: ThemeRGB(hex: 0x1D1D1F))
+        let scope = ThemeScope(level: .room)
+        scope.setOverride(ThemeSpec(dark ? "Bubble Dark" : "Bubble Light"), input: input, animated: false)
+        let model = BookmarkEditModel(isNew: false, title: "Docs", folder: "bar", folders: [
+            BookmarkFolderChoice(id: "bar", title: "Bookmarks Bar", depth: 0),
+        ])
+        let hosting = NSHostingView(rootView: BookmarkEditView(model: model))
+        let card = Glass.makeMenuPanel(content: hosting)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 320), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = card
+        scope.root(card)
+        card.layoutSubtreeIfNeeded()
+        hosting.layoutSubtreeIfNeeded()
+
+        let tokens = scope.tokens
+        // The menu glass (its tint at the menu level, then the theme veil) over the brightest and darkest page.
+        let tint = tokens.glassTint.withAlpha(min(1, tokens.glassTint.alpha * GlassLevel.menu.tintStrength))
+        let veil = tokens.surfaceBackground.withAlpha(Double(GlassMenuMaterial.veil))
+        let pages = [ThemeRGB(red: 1, green: 1, blue: 1), ThemeRGB(red: 0, green: 0, blue: 0)]
+            .map { veil.composited(over: tint.composited(over: $0)) }
+
+        let buttons = Self.all(CmuxDialogButtonView.self, in: hosting)
+        #expect(Set(buttons.map(\.button.title)) == [BookmarkStrings.more, BookmarkStrings.remove, BookmarkStrings.done],
+                "More…, Remove and Done are cmux dialog buttons, not stock ones: \(buttons.map(\.button.title))")
+        for button in buttons {
+            let name = button.button.title
+            #expect(button.alphaValue == 1, "\(name) is enabled, not dimmed")
+            let fill = try #require(button.layer?.backgroundColor.flatMap { NSColor(cgColor: $0) }.flatMap(Self.rgb))
+            #expect(fill.alpha > 0.05, "\(name) has a fill that reads as a button: \(fill)")
+            let title = button.attributedTitle
+            let ink = try #require((title.length > 0 ? title.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor : nil).flatMap(Self.rgb))
+            for page in pages {
+                let under = fill.composited(over: page)
+                #expect(ink.contrast(with: under) >= 4.5, "\(name): \(ink.contrast(with: under)):1 on \(under)")
+            }
+            // A click at the button's middle goes to the SwiftUI button that runs the action, never to the face that
+            // draws it (a face that took the click would swallow it: the bubble's buttons would do nothing).
+            let root = try #require(window.contentView)
+            let middle = root.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), from: button)
+            let hit = root.hitTest(root.superview.map { root.convert(middle, to: $0) } ?? middle)
+            #expect(hit != nil && hit !== button && !(hit is CmuxDialogButtonView), "\(name)'s click reaches SwiftUI: \(String(describing: hit))")
+        }
+    }
+
+    private static func rgb(_ color: NSColor) -> ThemeRGB? {
+        guard let srgb = color.usingColorSpace(.sRGB) else { return nil }
+        return ThemeRGB(red: srgb.redComponent, green: srgb.greenComponent, blue: srgb.blueComponent, alpha: srgb.alphaComponent)
     }
 
     @Test func accountsRefreshSpinnerDrawsTheTheme() throws {

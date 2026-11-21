@@ -272,127 +272,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings."
+            "value": "Claude Code and Codex in cmux’s terminals and agent chats get cmux’s tools, Computer Use included. cmux never changes your agents’ own settings."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تحصل الوكلاء التي تشغّلها في cmux على أدوات cmux، بما فيها Computer Use: ‏Claude Code وCodex في طرفيات cmux ومحادثات الوكلاء. لا يغيّر cmux أبدًا الإعدادات الخاصة بوكلائك."
+            "value": "يحصل Claude Code وCodex في طرفيات cmux ومحادثات الوكلاء على أدوات cmux، بما فيها Computer Use. لا يغيّر cmux أبدًا الإعدادات الخاصة بوكلائك."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenti koje pokreneš u cmuxu dobijaju cmux alate, uključujući Computer Use: Claude Code i Codex u cmux terminalima i agentskim razgovorima. cmux nikad ne mijenja vlastite postavke tvojih agenata."
+            "value": "Claude Code i Codex u cmux terminalima i agentskim razgovorima dobijaju cmux alate, uključujući Computer Use. cmux nikad ne mijenja vlastite postavke tvojih agenata."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenter, du starter i cmux, får cmux’ værktøjer, Computer Use inklusive: Claude Code og Codex i cmux’ terminaler og agentchats. cmux ændrer aldrig dine agenters egne indstillinger."
+            "value": "Claude Code og Codex i cmux’ terminaler og agentchats får cmux’ værktøjer, Computer Use inklusive. cmux ændrer aldrig dine agenters egne indstillinger."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenten, die du in cmux startest, bekommen die Werkzeuge von cmux, Computer Use eingeschlossen: Claude Code und Codex in den Terminals und Agent-Chats von cmux. cmux ändert nie die eigenen Einstellungen deiner Agenten."
+            "value": "Claude Code und Codex in cmux-Terminals und Agent-Chats bekommen die cmux-Werkzeuge, Computer Use eingeschlossen. cmux ändert nie die Einstellungen deiner Agenten."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los agentes que inicias en cmux reciben las herramientas de cmux, Computer Use incluido: Claude Code y Codex en las terminales y los chats de agentes de cmux. cmux nunca cambia los ajustes propios de tus agentes."
+            "value": "Claude Code y Codex en terminales y chats de cmux reciben sus herramientas, Computer Use incluido. cmux nunca cambia los ajustes de tus agentes."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les agents que vous lancez dans cmux reçoivent les outils de cmux, Computer Use compris : Claude Code et Codex dans les terminaux et les discussions d’agents de cmux. cmux ne modifie jamais les réglages propres de vos agents."
+            "value": "Claude Code et Codex dans les terminaux et les discussions d’agents de cmux reçoivent les outils de cmux, Computer Use compris. cmux ne modifie jamais les réglages de vos agents."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gli agenti che avvii in cmux ricevono gli strumenti di cmux, Computer Use incluso: Claude Code e Codex nei terminali e nelle chat degli agenti di cmux. cmux non cambia mai le impostazioni proprie dei tuoi agenti."
+            "value": "Claude Code e Codex nei terminali e nelle chat degli agenti di cmux ricevono gli strumenti di cmux, Computer Use incluso. cmux non cambia mai le impostazioni dei tuoi agenti."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux で起動したエージェントは、Computer Use を含む cmux のツールを使えます。対象は cmux のターミナルとエージェントチャットの Claude Code と Codex です。cmux がエージェント自身の設定を変更することはありません。"
+            "value": "cmux のターミナルとエージェントチャットの Claude Code と Codex は、Computer Use を含む cmux のツールを使えます。cmux がエージェント自身の設定を変更することはありません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្នាក់ងារដែលអ្នកចាប់ផ្ដើមក្នុង cmux ទទួលបានឧបករណ៍ cmux រួមទាំង Computer Use៖ Claude Code និង Codex ក្នុងស្ថានីយ និងការជជែកភ្នាក់ងាររបស់ cmux។ cmux មិនដែលផ្លាស់ប្ដូរការកំណត់ផ្ទាល់ខ្លួនរបស់ភ្នាក់ងារអ្នកទេ។"
+            "value": "Claude Code និង Codex ក្នុងស្ថានីយ និងការជជែកភ្នាក់ងាររបស់ cmux ទទួលបានឧបករណ៍ cmux រួមទាំង Computer Use។ cmux មិនដែលផ្លាស់ប្ដូរការកំណត់ផ្ទាល់ខ្លួនរបស់ភ្នាក់ងារអ្នកទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux에서 시작한 에이전트는 Computer Use를 포함한 cmux 도구를 사용합니다. cmux 터미널과 에이전트 채팅의 Claude Code와 Codex가 해당됩니다. cmux는 에이전트 자체 설정을 절대 바꾸지 않습니다."
+            "value": "cmux 터미널과 에이전트 채팅의 Claude Code와 Codex는 Computer Use를 포함한 cmux 도구를 사용합니다. cmux는 에이전트 자체 설정을 절대 바꾸지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenter du starter i cmux, får cmux-verktøyene, Computer Use inkludert: Claude Code og Codex i cmux-terminaler og agentsamtaler. cmux endrer aldri agentenes egne innstillinger."
+            "value": "Claude Code og Codex i cmux-terminaler og agentsamtaler får cmux-verktøyene, Computer Use inkludert. cmux endrer aldri agentenes egne innstillinger."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenci uruchamiani w cmux dostają narzędzia cmux, w tym Computer Use: Claude Code i Codex w terminalach i czatach agentów cmux. cmux nigdy nie zmienia własnych ustawień Twoich agentów."
+            "value": "Claude Code i Codex w terminalach i czatach agentów cmux dostają narzędzia cmux, w tym Computer Use. cmux nigdy nie zmienia własnych ustawień Twoich agentów."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Os agentes que você inicia no cmux recebem as ferramentas do cmux, incluindo o Computer Use: Claude Code e Codex nos terminais e chats de agentes do cmux. O cmux nunca altera as configurações dos seus agentes."
+            "value": "Claude Code e Codex nos terminais e chats de agentes do cmux recebem as ferramentas do cmux, incluindo o Computer Use. O cmux nunca altera as configurações dos seus agentes."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Агенты, которых вы запускаете в cmux, получают инструменты cmux, включая Computer Use: Claude Code и Codex в терминалах и чатах агентов cmux. cmux никогда не меняет собственные настройки ваших агентов."
+            "value": "Claude Code и Codex в терминалах и чатах агентов cmux получают инструменты cmux, включая Computer Use. cmux никогда не меняет собственные настройки ваших агентов."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เอเจนต์ที่คุณเริ่มใน cmux จะได้เครื่องมือของ cmux รวมถึง Computer Use ได้แก่ Claude Code และ Codex ในเทอร์มินัลและแชตเอเจนต์ของ cmux cmux ไม่เปลี่ยนการตั้งค่าของเอเจนต์คุณเลย"
+            "value": "Claude Code และ Codex ในเทอร์มินัลและแชตเอเจนต์ของ cmux จะได้เครื่องมือของ cmux รวมถึง Computer Use cmux ไม่เปลี่ยนการตั้งค่าของเอเจนต์คุณเลย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux’ta başlattığın ajanlar, Computer Use dahil cmux araçlarını alır: cmux terminallerindeki ve ajan sohbetlerindeki Claude Code ve Codex. cmux ajanlarının kendi ayarlarını asla değiştirmez."
+            "value": "cmux terminallerindeki ve ajan sohbetlerindeki Claude Code ve Codex, Computer Use dahil cmux araçlarını alır. cmux ajanlarının kendi ayarlarını asla değiştirmez."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Агенти, яких ви запускаєте в cmux, отримують інструменти cmux, зокрема Computer Use: Claude Code і Codex у терміналах і чатах агентів cmux. cmux ніколи не змінює власні налаштування ваших агентів."
+            "value": "Claude Code і Codex у терміналах і чатах агентів cmux отримують інструменти cmux, зокрема Computer Use. cmux ніколи не змінює власні налаштування ваших агентів."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Các tác tử bạn khởi chạy trong cmux nhận công cụ của cmux, gồm cả Computer Use: Claude Code và Codex trong terminal và cuộc trò chuyện tác tử của cmux. cmux không bao giờ thay đổi cài đặt riêng của các tác tử của bạn."
+            "value": "Claude Code và Codex trong terminal và cuộc trò chuyện tác tử của cmux nhận công cụ của cmux, gồm cả Computer Use. cmux không bao giờ thay đổi cài đặt riêng của các tác tử của bạn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你在 cmux 中启动的智能体会获得 cmux 的工具（包括 Computer Use）：即 cmux 终端和智能体聊天中的 Claude Code 与 Codex。cmux 绝不会更改你的智能体自己的设置。"
+            "value": "cmux 终端和智能体聊天中的 Claude Code 与 Codex 会获得 cmux 的工具（包括 Computer Use）。cmux 绝不会更改你的智能体自己的设置。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "你在 cmux 中啟動的智慧代理會取得 cmux 的工具（包括 Computer Use）：即 cmux 終端機與代理聊天中的 Claude Code 和 Codex。cmux 絕不會更改你的智慧代理本身的設定。"
+            "value": "cmux 終端機與代理聊天中的 Claude Code 和 Codex 會取得 cmux 的工具（包括 Computer Use）。cmux 絕不會更改你的智慧代理本身的設定。"
           }
         }
       }
@@ -11020,6 +11020,137 @@
         }
       }
     },
+    "onboarding.kind.extensions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extensions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拡張機能"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الامتدادات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekstenzije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Udvidelser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erweiterungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Extensiones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Extensions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estensioni"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីបន្ថែម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "확장 프로그램"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utvidelser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozszerzenia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Extensões"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Расширения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่วนขยาย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uzantılar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розширення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tiện ích mở rộng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "扩展"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "延伸功能"
+          }
+        }
+      }
+    },
     "onboarding.kind.openTabs": {
       "extractionState": "manual",
       "localizations": {
@@ -13911,6 +14042,1986 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "លាក់ព័ត៌មានលម្អិត"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.title": {
+      "comment": "Window title of a new person's one setup screen (cmux#48416).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make cmux Yours"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxを自分好みに"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اجعل cmux خاصًا بك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prilagodite cmux"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gør cmux til dit eget"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mach cmux zu deinem"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Haz cmux a tu medida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personnalisez cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rendi cmux tuo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធ្វើឲ្យ cmux ជារបស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux를 내 스타일로"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gjør cmux til ditt eget"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostosuj cmux do siebie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deixe o cmux do seu jeito"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройте cmux под себя"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทำให้ cmux เป็นแบบของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux'u Kendinize Göre Ayarlayın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Налаштуйте cmux під себе"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tùy chỉnh cmux theo ý bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打造你的 cmux"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打造你的 cmux"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.body": {
+      "comment": "Make cmux Yours: the sentence under the title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Three quick choices. You can change any of them later in Settings."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3つの簡単な選択です。どれも後から設定で変更できます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ثلاثة اختيارات سريعة. يمكنك تغيير أي منها لاحقًا في الإعدادات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tri brza izbora. Svaki možete kasnije promijeniti u Postavkama."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tre hurtige valg. Du kan ændre dem alle senere i Indstillinger."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drei kurze Entscheidungen. Du kannst jede später in den Einstellungen ändern."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tres elecciones rápidas. Puedes cambiar cualquiera más tarde en Ajustes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trois choix rapides. Vous pourrez tous les modifier plus tard dans les Réglages."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tre scelte veloci. Puoi cambiarle in qualsiasi momento nelle Impostazioni."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជម្រើសរហ័សបី។ អ្នកអាចផ្លាស់ប្តូរវានៅពេលក្រោយក្នុងការកំណត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "간단한 세 가지 선택입니다. 나중에 설정에서 언제든 바꿀 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tre raske valg. Du kan endre alle senere i Innstillinger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trzy szybkie wybory. Każdy możesz później zmienić w Ustawieniach."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Três escolhas rápidas. Você pode mudar qualquer uma depois em Ajustes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Три быстрых выбора. Любой из них можно изменить позже в настройках."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวเลือกสั้นๆ สามข้อ คุณเปลี่ยนได้ภายหลังในการตั้งค่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Üç hızlı seçim. Hepsini daha sonra Ayarlar'dan değiştirebilirsiniz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Три швидкі вибори. Будь-який можна змінити пізніше в налаштуваннях."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ba lựa chọn nhanh. Bạn có thể thay đổi bất kỳ lúc nào trong Cài đặt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "三个快速选择。之后都可以在设置中更改。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "三個快速選擇。之後都可以在設定中更改。"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.work.label": {
+      "comment": "Make cmux Yours: heading over the choice between working agents first or terminal first.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How do you want to work?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "どのように使いますか？"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كيف تريد أن تعمل؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kako želite raditi?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvordan vil du arbejde?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie möchtest du arbeiten?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Cómo quieres trabajar?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comment souhaitez-vous travailler ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come vuoi lavorare?"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តើអ្នកចង់ធ្វើការបែបណា?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "어떻게 작업하시겠어요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvordan vil du jobbe?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jak chcesz pracować?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Como você quer trabalhar?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как вы хотите работать?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คุณอยากทำงานแบบไหน?"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nasıl çalışmak istersiniz?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Як ви хочете працювати?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bạn muốn làm việc theo cách nào?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你想怎样工作？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你想怎麼工作？"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.work.gui": {
+      "comment": "Make cmux Yours: the recommended way of working, agents and apps first.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents First"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント中心"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوكلاء أولًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prvo agenti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter først"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten zuerst"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentes primero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents d’abord"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prima gli agenti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារមុន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 우선"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter først"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najpierw agenci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentes primeiro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сначала агенты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เน้นเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önce ajanlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спершу агенти"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ưu tiên agent"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体优先"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理優先"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.work.gui.detail": {
+      "comment": "Make cmux Yours: what Agents First means. ⌘T is the New Tab shortcut.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats, browsers and terminals side by side. ⌘T starts a new chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャット、ブラウザ、ターミナルを並べて使えます。⌘Tで新しいチャットを開始。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المحادثات والمتصفحات والطرفيات جنبًا إلى جنب. ‏⌘T يبدأ محادثة جديدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razgovori, preglednici i terminali jedni pored drugih. ⌘T pokreće novi razgovor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats, browsere og terminaler side om side. ⌘T starter en ny chat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats, Browser und Terminals nebeneinander. ⌘T startet einen neuen Chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats, navegadores y terminales lado a lado. ⌘T inicia un chat nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discussions, navigateurs et terminaux côte à côte. ⌘T lance une nouvelle discussion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat, browser e terminali fianco a fianco. ⌘T avvia una nuova chat."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែក កម្មវិធីរុករក និងទែមីណាល់នៅជាប់គ្នា។ ⌘T ចាប់ផ្ដើមការជជែកថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅, 브라우저, 터미널을 나란히. ⌘T로 새 채팅을 시작합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatter, nettlesere og terminaler side om side. ⌘T starter en ny chat."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czaty, przeglądarki i terminale obok siebie. ⌘T rozpoczyna nowy czat."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats, navegadores e terminais lado a lado. ⌘T inicia um novo chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чаты, браузеры и терминалы рядом. ⌘T начинает новый чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชท เบราว์เซอร์ และเทอร์มินัลอยู่เคียงกัน ⌘T เริ่มแชทใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbetler, tarayıcılar ve terminaller yan yana. ⌘T yeni bir sohbet başlatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чати, браузери й термінали поруч. ⌘T починає новий чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trò chuyện, trình duyệt và terminal cạnh nhau. ⌘T bắt đầu cuộc trò chuyện mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天、浏览器和终端并排使用。⌘T 开始新聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天、瀏覽器和終端機並排使用。⌘T 開始新聊天。"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.work.terminal": {
+      "comment": "Make cmux Yours: working terminal first.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal First"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル中心"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الطرفية أولًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prvo terminal"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal først"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal zuerst"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal primero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal d’abord"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prima il terminale"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់មុន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 우선"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal først"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najpierw terminal"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal primeiro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сначала терминал"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เน้นเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önce terminal"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спершу термінал"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ưu tiên terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端优先"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機優先"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.work.terminal.detail": {
+      "comment": "Make cmux Yours: what Terminal First means. ⌘T is the New Tab shortcut.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘T opens a terminal. Start agents from your shell."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘Tでターミナルを開きます。エージェントはシェルから起動します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‏⌘T يفتح طرفية. شغّل الوكلاء من الصدفة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘T otvara terminal. Pokrećite agente iz svoje ljuske."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘T åbner en terminal. Start agenter fra din shell."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘T öffnet ein Terminal. Starte Agenten aus deiner Shell."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘T abre una terminal. Inicia agentes desde tu shell."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘T ouvre un terminal. Lancez les agents depuis votre shell."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘T apre un terminale. Avvia gli agenti dalla tua shell."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘T បើកទែមីណាល់។ ចាប់ផ្ដើមភ្នាក់ងារពី shell របស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘T로 터미널을 엽니다. 에이전트는 셸에서 시작하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘T åpner en terminal. Start agenter fra skallet ditt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘T otwiera terminal. Uruchamiaj agentów z powłoki."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘T abre um terminal. Inicie agentes pelo seu shell."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘T открывает терминал. Запускайте агентов из оболочки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘T เปิดเทอร์มินัล เริ่มเอเจนต์จากเชลล์ของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘T bir terminal açar. Ajanları kabuğunuzdan başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘T відкриває термінал. Запускайте агентів з оболонки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘T mở terminal. Khởi chạy agent từ shell của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘T 打开终端。从 shell 启动智能体。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘T 打開終端機。從 shell 啟動代理。"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.recommended": {
+      "comment": "Make cmux Yours: badge on the recommended choice.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recommended"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "おすすめ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موصى به"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preporučeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anbefalet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empfohlen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recomendado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recommandé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consigliato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានណែនាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추천"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anbefalt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zalecane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recomendado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рекомендуется"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แนะนำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önerilen"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рекомендовано"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đề xuất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推荐"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推薦"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.density.label": {
+      "comment": "Make cmux Yours: heading over the density choice (how tightly the interface is spaced).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Density"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密度"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الكثافة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gustoća"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tæthed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dichte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Densidad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Densité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Densità"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដង់ស៊ីតេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "밀도"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tetthet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gęstość"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Densidade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плотность"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความหนาแน่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yoğunluk"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Щільність"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mật độ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密度"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.density.compact": {
+      "comment": "Make cmux Yours: density choice, tight spacing.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compact"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンパクト"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مضغوطة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompaktno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompakt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompakt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compacta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compacte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compatta"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្រួម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "좁게"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompakt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompaktowa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compacta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Компактная"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กะทัดรัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sıkı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Компактна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gọn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "紧凑"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "緊湊"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.density.standard": {
+      "comment": "Make cmux Yours: density choice, the default spacing.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قياسية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estándar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្តង់ដារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardowa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стандартная"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มาตรฐาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standart"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стандартна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiêu chuẩn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标准"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.density.comfortable": {
+      "comment": "Make cmux Yours: density choice, roomier spacing.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comfortable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゆったり"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مريحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prostrano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Luftig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Großzügig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amplia"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confortable"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comoda"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធូរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "넓게"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Romslig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przestronna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confortável"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Свободная"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สบายตา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rahat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Простора"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thoáng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "宽松"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "寬鬆"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.background.label": {
+      "comment": "Make cmux Yours: heading over the window background choice.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozadina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baggrund"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hintergrund"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fondo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrière-plan"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sfondo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទៃខាងក្រោយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배경"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bakgrunn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tło"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fundo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фон"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arka plan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тло"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hình nền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.background.none": {
+      "comment": "Make cmux Yours: no window background.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "なし"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بلا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bez"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keiner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ninguno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuno"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มี"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Немає"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.background.shuffle": {
+      "comment": "Make cmux Yours: a background that shows a different built-in painting each day.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shuffle Paintings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "絵画をシャッフル"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل اللوحات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Miješaj slike"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bland malerier"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemälde mischen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar cuadros"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Peintures aléatoires"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dipinti a rotazione"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្លាស់ប្តូរគំនូរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그림 섞기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bland malerier"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Losowe obrazy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar pinturas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Случайные картины"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สุ่มภาพวาด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabloları karıştır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Випадкові картини"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tranh ngẫu nhiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "随机名画"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隨機名畫"
           }
         }
       }

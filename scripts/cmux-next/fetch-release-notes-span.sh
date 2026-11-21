@@ -51,10 +51,22 @@ else
   [[ -n "$tag" ]] || exit 0
   since="refs/tags/$tag^{commit}"
 fi
+# The span is whole when <since> and the head share history AND no commit between them is a shallow boundary.
+# A shared merge base alone is not enough: a branch merged into the span can still be cut off mid-way, and its
+# cut commit then reads as a root that adds every file in the tree. Build 4485813982701 shipped all 425
+# highlight files ever written that way (depth 300 against a 318-commit span; the real span added 2).
+span_complete() {
+  git merge-base "$since" "$head" >/dev/null 2>&1 || return 1
+  local shallow span
+  shallow="$(git rev-parse --git-path shallow)"
+  [[ -s "$shallow" ]] || return 0
+  span="$(git rev-list "$since..$head")"  # whole, before grep: an early grep -q exit would SIGPIPE it under pipefail
+  ! grep -qxFf "$shallow" <<< "$span"
+}
 for ((i = 0; i < rounds; i++)); do
-  git merge-base "$since" "$head" >/dev/null 2>&1 && exit 0
+  span_complete && exit 0
   net_retry "deepen the release notes span" git fetch --no-tags --filter=blob:none --deepen="$step" "$remote" "${refspecs[@]}"
 done
-git merge-base "$since" "$head" >/dev/null 2>&1 && exit 0
-echo "${tag:-$since_sha} and $head share no history within the bounded depth; unshallowing the head" >&2
+span_complete && exit 0
+echo "the span from ${tag:-$since_sha} to $head is not whole within the bounded depth; unshallowing the head" >&2
 net_retry "unshallow the release notes head" git fetch --no-tags --filter=blob:none --unshallow "$remote" "${refspecs[@]}"

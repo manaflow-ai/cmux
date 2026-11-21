@@ -166,6 +166,114 @@ class ReportTests(unittest.TestCase):
             self.assertFalse(any(e.startswith('latency') for e in errors))
             self.assertIn('window: no repeat ran', errors)
 
+    def test_iphone_sim_host_stop_removes_its_set_and_two_macs_are_refused(self):
+        with tempfile.TemporaryDirectory() as name:
+            state = Path(name)
+            env = {**os.environ, "EVAL_STATE": str(state), "EVAL_ROOT": str(HERE.parents[2]), "EVAL_BIN": str(state)}
+            script = str(HERE / "targets/iphone-sim.sh")
+            # Nothing made yet (the harness's exit trap before any view): a no-op that succeeds.
+            subprocess.run(["bash", script, "host-stop"], env=env, check=True, capture_output=True)
+            sims = Path(tempfile.mkdtemp(prefix="iphsim.", dir="/tmp"))
+            (state / "sims").write_text(f"{sims}\n")
+            (state / "udid").write_text("UDID\n")
+            subprocess.run(["bash", script, "host-stop"], env=env, check=True, capture_output=True)
+            self.assertFalse(sims.exists())
+            self.assertFalse((state / "sims").exists() or (state / "udid").exists())
+            for var in ("EVAL_BIND", "EVAL_PEER"):
+                for verb in ("build", "host-start", "latency-view"):
+                    done = subprocess.run(["bash", script, verb, "key", "1", str(state / "raw")],
+                                          env={**env, var: "100.64.0.1"}, capture_output=True, text=True)
+                    self.assertEqual(done.returncode, 1)
+                    self.assertIn("one Mac only", done.stderr)
+
+    def test_iphone_sim_report_keeps_presented_and_decoded_and_needs_no_window(self):
+        app = {"g2g_ms": {"n": 190, "p50": 61.5, "p95": 80.0},
+               "decoded_g2g_ms": {"n": 190, "p50": 48.0, "p95": 66.0},
+               "decode_to_present_ms": {"n": 190, "p50": 13.5, "p95": 17.0},
+               "lost": 10, "decoded_not_presented": 2, "rtt_ms": 2, "jitter_buffer_ms": 5, "decode_ms_mean": 1.5,
+               "present_clock": None}
+        # Both renderers' clocks reach results.json, so one harness compares them.
+        clocks = {"key": {"renderer": "RTCMTLVideoView", "presented": "Metal presentedTime ...", "hook_problem": None,
+                          "presents": 900, "presented_time": 900, "handler_time": 0},
+                  "pointer": {"renderer": "AVSampleBufferDisplayLayer", "presented": "targetTimestamp ...",
+                              "hook_problem": None, "display_link_ticks": 1800, "tick_ms_min": 16.6, "tick_ms_max": 16.8}}
+        with tempfile.TemporaryDirectory() as name:
+            folder, state = Path(name), Path(name) / "state"
+            state.mkdir()
+            (folder / "latency-only").touch()
+            env = {**os.environ, "EVAL_STATE": str(state), "EVAL_ROOT": str(HERE.parents[2]), "EVAL_BIN": str(state)}
+            caps = subprocess.run(["bash", str(HERE / "targets/iphone-sim.sh"), "caps"], env=env, check=True,
+                                  capture_output=True, text=True).stdout.strip()
+            self.assertEqual(caps, "latency-only")
+            for kind in ("key", "pointer"):
+                raw = state / f"latency-{kind}.raw"
+                raw.write_text("app noise\niphonesim: " + json.dumps({**app, "present_clock": clocks[kind]}) + "\n")
+                subprocess.run(["bash", str(HERE / "targets/iphone-sim.sh"), "latency-report", kind, str(raw),
+                                str(folder / f"latency-{kind}.json")], env=env, check=True)
+            report.target("iphone-sim", folder, folder / "target.json")
+            target = json.loads((folder / "target.json").read_text())
+            self.assertTrue(target["ok"], target["errors"])
+            self.assertEqual(target["latency"]["key"], {"p50_ms": 61.5, "p95_ms": 80.0, "n": 190, "lost": 10})
+            present = target["split"]["key"]["present"]
+            self.assertEqual(present["decoded_ms"], {"n": 190, "p50": 48.0, "p95": 66.0})
+            self.assertEqual(present["decode_to_present_ms"]["p50"], 13.5)
+            self.assertEqual(present["decoded_not_presented"], 2)
+            for kind in ("key", "pointer"):
+                self.assertEqual(target["split"][kind]["present"]["clock"], clocks[kind])
+            self.assertEqual(target["split"]["key"]["transport_ms"], 6.0)
+            results = folder / "results.json"
+            results.write_text(json.dumps({"targets": {"iphone-sim": target}}))
+            report.summary(results, folder / "summary.md", None)
+            self.assertIn("48.0 ms (66.0 ms) / 61.5 ms (80.0 ms) / 13.5 ms (17.0 ms)", (folder / "summary.md").read_text())
+
+
+class ExternalContenderTests(unittest.TestCase):
+    def test_readback_numbers_and_null_for_missing(self):
+        records = [{"type": "first_frame", "ms": 412.0}]
+        records += [{"type": "key", "g2g_ms": float(v)} for v in range(1, 21)] + [{"type": "key", "lost": True}]
+        records += [{"type": "second", "bytes": 125_000, "frames": 30, "duration_ms": 1000} for _ in range(4)]
+        records += [{"type": "cpu", "side": "host", "pct": 55.5}, {"type": "meta", "codec": "h264"}]
+        numbers = report.readback_numbers(records)
+        self.assertEqual(numbers["key"], {"p50_ms": 10.0, "p95_ms": 19.0, "n": 20, "lost": 1})
+        self.assertEqual(numbers["motion_kbps"], 1000.0)
+        self.assertEqual(numbers["motion_fps"], 30.0)
+        self.assertEqual(numbers["first_frame_ms"], 412.0)
+        self.assertEqual(numbers["host_cpu_pct"], 55.5)
+        self.assertIsNone(numbers["viewer_cpu_pct"])
+        self.assertEqual(numbers["meta"], {"codec": "h264"})
+        # One second without a byte count leaves kbps unmeasured instead of low.
+        records.append({"type": "second", "frames": 30, "duration_ms": 1000})
+        self.assertIsNone(report.readback_numbers(records)["motion_kbps"])
+        self.assertEqual(report.readback_numbers([])["key"], {"p50_ms": None, "p95_ms": None, "n": None, "lost": None})
+
+    def test_external_runs_fresh_host_per_take_and_reports_medians(self):
+        with tempfile.TemporaryDirectory() as name:
+            folder = Path(name)
+            starts = folder / "starts"
+            host = f'echo started >> {starts}; touch "$EVAL_STATE/host-ready"; exec sleep 60'
+            viewer = ('python3 -c \'import json,os; t=int(os.environ["EVAL_TAKE"]); '
+                      'f=open(os.environ["EVAL_READBACK"],"w"); '
+                      '[f.write(json.dumps({"type":"key","g2g_ms":10*t+i})+"\\n") for i in range(5)]; '
+                      'f.write(json.dumps({"type":"second","bytes":1000*t,"frames":10*t})+"\\n"); '
+                      'f.write(json.dumps({"type":"first_frame","ms":100*t})+"\\n")\'')
+            out = folder / "out.json"
+            result = report.external("x", out, host, viewer, None, 3, 10, 30, folder / "keep")
+            self.assertTrue(result["ok"], result["errors"])
+            self.assertEqual(starts.read_text().count("started"), 3)
+            self.assertEqual(result["latency"]["key"]["p50_ms"], 22.0)
+            self.assertEqual(result["motion"], {"kbps": 16.0, "fps": 20.0})
+            self.assertEqual(result["extra"]["first_frame_ms"], 200.0)
+            self.assertEqual(len(result["extra"]["takes"]), 3)
+            self.assertTrue((folder / "keep" / "take-3" / "readback.jsonl").exists())
+            self.assertEqual(json.loads(out.read_text())["latency"]["key"]["n"], 5)
+
+    def test_external_host_never_ready_is_an_error_not_a_number(self):
+        with tempfile.TemporaryDirectory() as name:
+            out = Path(name) / "out.json"
+            result = report.external("x", out, "exit 3", "true", None, 1, 5, 5, None)
+            self.assertFalse(result["ok"])
+            self.assertTrue(any("host not ready" in e for e in result["errors"]))
+            self.assertIsNone(result["latency"]["key"]["p50_ms"])
 
 
 
