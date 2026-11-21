@@ -153,6 +153,11 @@ public struct LinkMachine: Sendable {
             if wasBackgrounded, isActive {
                 return dial(attempt: 1, closing: true)
             }
+            // A quiet dial left from before the background may sit on a dead
+            // path: start it over, as `.connecting` does above.
+            if wasBackgrounded, phase == .macOffline, offlineDial != nil {
+                return [.close] + offlineDialNow(restarting: true)
+            }
             return handle(.foreground)
         case .target(let next):
             let sameMac = next?.macID == target?.macID
@@ -242,7 +247,8 @@ public struct LinkMachine: Sendable {
             // dial timeout (25 s) and then a backoff step after the network
             // was back (iOS reliability matrix, network_back_during_inflight_dial).
             case .connecting(_, let attempt): return dial(attempt: attempt, closing: false)
-            case .macOffline: return offlineDialNow()
+            // Same for a quiet dial in flight on the dead path.
+            case .macOffline: return offlineDialNow(restarting: true)
             default: return []
             }
         case .retryDue(let gen):
@@ -290,9 +296,10 @@ public struct LinkMachine: Sendable {
     }
 
     /// A quiet dial now (the app came forward, the network or the Mac's
-    /// signaling changed), unless one is in flight; its backoff starts over.
-    private mutating func offlineDialNow() -> [Effect] {
-        guard offlineDial == nil, !isBackgrounded else { return [] }
+    /// signaling changed), unless one is in flight and `restarting` is false
+    /// (a network change or a resume restarts it); its backoff starts over.
+    private mutating func offlineDialNow(restarting: Bool = false) -> [Effect] {
+        guard restarting || offlineDial == nil, !isBackgrounded else { return [] }
         offlineAttempts = 0
         return quietDial()
     }

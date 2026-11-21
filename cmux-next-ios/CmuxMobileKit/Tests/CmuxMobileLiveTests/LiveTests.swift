@@ -83,6 +83,24 @@ import Testing
         #expect(machine.handle(.dialFailed(generation: machine.generation, reason: "offline")) == [])
     }
 
+    /// A quiet dial in flight on a dead path is started over when the network
+    /// changes or the app comes back, not left to its 25 s timeout.
+    @Test func aQuietDialInFlightRestartsOnNetworkChangeAndResume() {
+        var machine = LinkMachine(transport: .webRTC)
+        var offline = mac
+        offline.isOnline = false
+        #expect(machine.handle(.target(offline)) == [.dial(generation: 2, macID: "m1", transport: .webRTC)])
+        #expect(machine.handle(.networkChanged) == [.dial(generation: 3, macID: "m1", transport: .webRTC)])
+        // The old dial's late failure is ignored.
+        #expect(machine.handle(.dialFailed(generation: 2, reason: "timed out")) == [])
+        #expect(machine.isDialing)
+        _ = machine.handle(.background)
+        #expect(machine.handle(.resume) == [.close, .dial(generation: 4, macID: "m1", transport: .webRTC)])
+        #expect(machine.phase == .macOffline)
+        // A plain foreground with a dial in flight leaves it alone.
+        #expect(machine.handle(.foreground) == [])
+    }
+
     @Test func failuresBackOffAndRetry() {
         var machine = LinkMachine(transport: .webRTC)
         _ = machine.handle(.target(mac))
