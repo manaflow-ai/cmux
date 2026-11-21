@@ -90,6 +90,12 @@ public final class MacScreenSession {
 
     /// The display to show in the next session (nil: the host's main display).
     @ObservationIgnored var wantedDisplay: Int?
+    /// The display a run's screen link names (a CGDirectDisplayID): every session asks for it
+    /// until the person picks a display.
+    @ObservationIgnored public var linkedDisplay: UInt32?
+    /// Set when the host's answer lists its display ids and `linkedDisplay` is not one (the run is over): the host
+    /// shows its main display. An older host lists no ids, so nothing is said.
+    public private(set) var linkedDisplayGone = false
     /// This session's connect start, first frame and recent round trips (`mac_screen.state`;
     /// not observed: nothing on screen follows them).
     @ObservationIgnored var timings = MacScreenConnectTimings()
@@ -211,6 +217,10 @@ public final class MacScreenSession {
                     logger.info("cmux rd: answer received (\(answer.candidates.count, privacy: .public) candidates)")
                     reach(.link)
                     if !answer.displays.isEmpty { onStreamDisplays?(answer.displays, answer.currentDisplay ?? 0) }
+                    if let linked = linkedDisplay {
+                        let gone = answer.lacksDisplay(linked)
+                        if linkedDisplayGone != gone { linkedDisplayGone = gone }
+                    }
                     answered(answer)
                 case let .candidate(candidate) where candidate.sdpMid == "cmux-rd":
                     process.send(["candidate": candidate.candidate])
@@ -264,6 +274,7 @@ public final class MacScreenSession {
                 offer.maxFps = wish.maxFps
                 offer.display = wantedDisplay
                 offer.encodeProfile = encodeProfile
+                offer.displayID = wantedDisplay == nil ? linkedDisplay : nil
                 stats.targetFps = wish.maxFps
                 pendingAnswer = { [weak self] answer in self?.sendAnswer(answer, sessionID: sessionID, servers: servers, to: process) }
                 // The signaling socket opens on its own task: the offer waits for its `hello`.
@@ -497,6 +508,8 @@ public final class MacScreenSession {
 
     public func selectDisplay(_ index: Int) {
         wantedDisplay = index
+        linkedDisplay = nil
+        linkedDisplayGone = false
         guard phase == .connected || phase == .connecting else { return }
         restart()
     }
@@ -558,6 +571,19 @@ nonisolated enum MacScreenUnixStream {
             },
             close: { connection.cancel() }
         )
+    }
+}
+
+extension MacScreenSession {
+    /// A fixture state for the viewer gallery (`AAMacScreenViewerGalleryTests`): the session reads as `phase` with
+    /// no process or network, so the pane draws the card or the picture that state shows.
+    func showPreviewState(phase: Phase, failureCause: FailureCause? = nil, linkConnected: Bool = false,
+                          frameSize: CGSize = .zero, stalled: Bool = false) {
+        self.phase = phase
+        self.failureCause = failureCause
+        self.linkConnected = linkConnected
+        self.frameSize = frameSize
+        isStalled = stalled
     }
 }
 
