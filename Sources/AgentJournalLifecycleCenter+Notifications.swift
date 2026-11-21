@@ -84,10 +84,13 @@ extension AgentJournalLifecycleCenter {
     }
 
     @MainActor
-    static func notificationAdmission(_ draft: AgentJournalEventDraft) -> AgentNotificationDelivery? {
+    static func notificationAdmission(
+        _ draft: AgentJournalEventDraft,
+        defaults: UserDefaults = .standard
+    ) -> AgentNotificationDelivery? {
         guard let notification = draft.attention?.notification,
               notificationTarget(draft) != nil else { return nil }
-        let delivery = AgentNotificationDelivery()
+        let delivery = AgentNotificationDelivery(defaults: defaults)
         guard delivery.allows(category: AgentNotifyCategory(rawValue: notification.category), pending: draft.pendingWork) else {
             notificationDiagnostic(draft, reason: "preference-filtered")
             return nil
