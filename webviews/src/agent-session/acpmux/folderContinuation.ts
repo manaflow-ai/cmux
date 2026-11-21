@@ -13,13 +13,19 @@ export class FolderContinuation {
     copyText(sessionId: string): void;
     select(sessionId: string): Promise<boolean>;
     clearFolder(): void;
+    /// Ends a session this run started but no longer owns, so none runs with no tab.
+    discard?(sessionId: string): void;
   }): Promise<void> {
     if (this.pending) return;
     this.pending = true;
     const generation = this.generation;
     try {
       const sessionId = await actions.start();
-      if (!sessionId || generation !== this.generation || !actions.current()) return;
+      if (!sessionId) return;
+      if (generation !== this.generation || !actions.current()) {
+        actions.discard?.(sessionId);
+        return;
+      }
       // Copy only. The source draft, attachments, and pending reads remain owned by their chat.
       actions.copyText(sessionId);
       if ((await actions.select(sessionId)) && generation === this.generation && actions.current())

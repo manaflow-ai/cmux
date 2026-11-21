@@ -68,7 +68,8 @@ which `docs/cloud-guest-upgrades.md` requires of every long-lived child:
 | Host crash | The daemon restarts it with `Backoff` (200 ms to 30 s; reset after 30 s healthy). The host restarts a crashed worker the same way. |
 | Daemon handoff (`shutdown-daemon`, upgrade) | The host keeps running and keeps serving. The new daemon adopts it within the host's adoption grace (60 s), else the host exits, so no host outlives every daemon. |
 | New cmux build (another host build) | An idle host is replaced at once (`drain`, exit, start the new copy). A busy host (a Screen Sharing session) stays, with `upgrade: "pending"`; it reports `idle` when the session ends, and the daemon replaces it then. A session is never cut to upgrade. |
-| macOS "Quit & Reopen" after a grant | The host answers the quit with a worker restart and cancels it; the host and its supervisor link stay. The app rechecks its own TCC state when it becomes active. A copy that LaunchServices opens without the daemon exits at once. |
+| The person quits cmux Remote (Activity Monitor, `quit app`, logout) | The host sends the daemon a `quit` event, ends its workers and exits. On that event the daemon writes a stop intent (`stop-intent.json` in the remote state folder, cmux-supervise-core `intent`) before the host stops, so nothing starts it again: not the restart after its exit, not the next daemon start, not a request (an agent's, the app's hourly anchor) and not the app sending the same switches at launch. Status reads `unavailable` with the reason. Only an explicit start clears the intent: `cmux remote-host restart`, or the person turning a feature on. An intent file that cannot be read counts as a stop. |
+| macOS "Quit & Reopen" after a grant (the quit sent by System Settings) | The host answers the quit with a worker restart and cancels it; the host and its supervisor link stay. The app rechecks its own TCC state when it becomes active. A copy that LaunchServices opens without the daemon exits at once. |
 | Feature off (both) | The daemon stops the host (EOF on its supervisor link). |
 
 The adoption record (`host.json`, 0600 in a 0700 directory) holds the host's
@@ -156,12 +157,14 @@ Every control exists in the command palette, the CLI and MCP:
 | Refresh permissions | cmux Remote: Refresh Permissions | `cmux remote-host refresh` | `remote_refresh` |
 | Restart a worker | cmux Remote: Restart Computer Use / Restart Screen Sharing | `cmux remote-host restart computer-use\|screen-sharing` | `remote_restart` |
 | Share This Mac | Mac Screen: Share This Mac / Stop Sharing This Mac | `cmux remote-host share on\|off` (on uses the app's `remote.confirm` sheet; off uses the app path first, with worker fallback when unattached) | `remote_share` |
+| Share another Mac of yours, confirmed on the device you are at (the target admits it only from a same-account machine its owner granted; until the approval can be delivered there, the answer is `share.needs_same_account_control`) | | `cmux remote-host share on --device DEVICE` | `remote_share` with `device` |
+| Which grant a Mac lacks, its pane opened there, and whether Screen Sharing or Remote Management lets an agent click it | | `cmux remote-host grants [--device DEVICE] [--open]` | |
 | A viewer's access | Mac Screen: Set Device Access… | `cmux remote-host access <device> none\|ask\|view\|full` | `remote_set_access` |
 | Stop the current session | Mac Screen: Stop Current Session | `cmux remote-host stop` (app canonical action first; worker fallback only when app transport is absent) | `remote_stop_session` |
 | Stop the current session directly in the attached app | Mac Screen: Stop Sharing | `cmux action run macScreen.stopSharing` | app action (no worker round-trip) |
 | End sharing when cmux quits (`remote.endSharingOnQuit`, default off) | Settings | `cmux settings set remote.endSharingOnQuit` | `settings_set` (refused: user-only) |
 | Ultra Connection Mode (`remote.ultra`: `off`, `auto` (the default) or `always`. Auto sends no repair data on a clean link and Reed-Solomon repair data from the first lost packet, within about one round trip, until the link is clean again; on a metered network the repair bytes stay within the data bytes. Always sends it on every datagram, about 2-3x the bytes. The peer agrees inside the tunnel to send it too, so both directions are protected; `CMUX_WG_ULTRA` overrides it) | Settings | `cmux settings set remote.ultra always` | `settings_set` (refused: user-only) |
-| Computer Use driver (`computerUse.driver`, default `upstream`: Computer Use runs in cmux Remote; `legacy` keeps the cmux-cua 0.8.12 helper) | Settings | `cmux settings set computerUse.driver` | `settings_set` (refused: user-only) |
+| Computer Use mode (`computerUse.mode`, default `fullAccess`; Computer Use always runs in the cmux Remote worker, [computer-use/README.md](computer-use/README.md)) | Settings → Computer Use | `cmux settings set computerUse.mode` | `settings_set` (refused: user-only) |
 
 The two stop paths are intentionally distinct. `cmux remote-host stop` routes
 through the app's canonical stop action when app transport is available, then

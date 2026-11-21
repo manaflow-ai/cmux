@@ -6,7 +6,7 @@ import Foundation
 import Testing
 
 /// What ONE change in ONE workspace costs an observer that joins every workspace's items, in a session of 60 workspaces
-/// and in the person's 826 (`CMUX_TEST_SESSION_SIZES=real`): the items its work visits (``ObservationWork``), never
+/// and in one of 826 (`CMUX_TEST_SESSION_SIZES=real`): the items its work visits (``ObservationWork``), never
 /// only how many observers woke.
 ///
 /// Why a count of the work: ``LargeSessionObservationTests`` counts wakes, and each of these observers passes it (one

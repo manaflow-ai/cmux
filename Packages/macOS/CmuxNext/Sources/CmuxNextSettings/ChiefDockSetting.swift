@@ -11,7 +11,7 @@
 ///   workspace, as in Messages) or `seeThroughBar` (its message box alone, which grows into it).
 /// - `home.chiefPanel.seesScreen`: opening the floating Chief gives it one look at the screen; on when unset.
 /// - `home.chiefDock.openBeside`: a workspace, tab or subagent link clicked in the Chief opens its workspace with the
-///   Chief floating over it; on when unset.
+///   Chief floating over it; off when unset, so a link opens only its target (cmux#45889).
 public nonisolated struct ChiefDockSetting {
     public nonisolated init() {}
 

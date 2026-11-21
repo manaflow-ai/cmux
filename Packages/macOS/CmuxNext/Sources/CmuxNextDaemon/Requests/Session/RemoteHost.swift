@@ -25,6 +25,8 @@ public struct RemoteHostCallRequest: DaemonRequest {
 }
 
 /// `remote-host-config`: the person's switches, from this verified app. Nil leaves one as it is.
+/// `appPermissions` alone (no switch) only reports this app's own grants: the daemon keeps them in
+/// memory for `remote-host-status` `app.permissions` and saves, starts and stops nothing.
 public struct RemoteHostConfigRequest: DaemonRequest {
     public typealias Response = JSONValue
     public static let command = "remote-host-config"
@@ -32,10 +34,57 @@ public struct RemoteHostConfigRequest: DaemonRequest {
     public var computerUse: Bool?
     public var screenSharing: Bool?
     public var headless: Bool?
+    public var appPermissions: AppPermissions?
 
-    public init(computerUse: Bool? = nil, screenSharing: Bool? = nil, headless: Bool? = nil) {
+    /// This app's own Screen Recording and Accessibility: the grants that matter in a build
+    /// without cmux Remote (Release and NIGHTLY), where the app captures the screen itself.
+    public struct AppPermissions: Encodable, Sendable, Equatable {
+        public var screenRecording: Bool?
+        public var accessibility: Bool?
+
+        public init(screenRecording: Bool?, accessibility: Bool?) {
+            self.screenRecording = screenRecording
+            self.accessibility = accessibility
+        }
+    }
+
+    public init(computerUse: Bool? = nil, screenSharing: Bool? = nil, headless: Bool? = nil,
+                appPermissions: AppPermissions? = nil) {
         self.computerUse = computerUse
         self.screenSharing = screenSharing
         self.headless = headless
+        self.appPermissions = appPermissions
+    }
+}
+
+/// `computer-use-config {config}`: the person's Computer Use policy (`PolicyConfig` JSON), from this
+/// verified app. On macOS the daemon hands it to cmux Remote's Computer Use worker.
+public struct ComputerUseConfigRequest: DaemonRequest {
+    public typealias Response = JSONValue
+    public static let command = "computer-use-config"
+    public static var requiredCapability: String? { DaemonCapability.computerUse.rawValue }
+    public var config: JSONValue
+
+    public init(config: JSONValue) {
+        self.config = config
+    }
+}
+
+/// `computer-use-approvals {action, app_id?}`: list, forget, always, never or revoke_sessions.
+public struct ComputerUseApprovalsRequest: DaemonRequest {
+    public typealias Response = JSONValue
+    public static let command = "computer-use-approvals"
+    public static var requiredCapability: String? { DaemonCapability.computerUse.rawValue }
+    public var action: String
+    public var appID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case action
+        case appID = "app_id"
+    }
+
+    public init(action: String, appID: String? = nil) {
+        self.action = action
+        self.appID = appID
     }
 }

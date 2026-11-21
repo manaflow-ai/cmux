@@ -36,8 +36,7 @@ extension AgentPaneView {
                 "host_s": .number(CACurrentMediaTime()),
             ])
             guard let text = result as? String,
-                  let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
-                  case .object(var members)? = JSONValue(foundation: object) else {
+                  var members = await Self.resizeProbeMembers(text) else {
                 return .object(["pane": .string(pane), "error": .string("the page returned no resize_probe JSON")])
             }
             members["pane"] = .string(pane)
@@ -46,6 +45,14 @@ extension AgentPaneView {
         } catch {
             return .object(["pane": .string(pane), "error": .string(String(describing: error))])
         }
+    }
+
+    /// The members of the page's resize_probe reply, decoded off the main actor: a `read` carries up to 20,000
+    /// frames, so its JSON is not small.
+    @concurrent nonisolated private static func resizeProbeMembers(_ text: String) async -> [String: JSONValue]? {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
+              case .object(let members)? = JSONValue(foundation: object) else { return nil }
+        return members
     }
 }
 #endif

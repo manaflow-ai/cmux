@@ -12,7 +12,8 @@ import Testing
 /// the sidebar's rows round exactly as the tabs do.
 @MainActor struct TabSplitButtonLookTests {
     @Test func theSplitControlIsATabsHeightAndCorner() {
-        #expect(NewTabButtonView.splitCornerRadius == Metrics.tabCornerRadius)
+        // Lucas 2026-11-15: the tab's ratio on the +'s own short side, one shape at every density.
+        #expect(NewTabButtonView.splitCornerRadius == Metrics.buttonCornerRadius(proportionalTo: min(TitlebarBandButton.side, Metrics.tabHeight)))
         #expect(NewTabButtonView.frameHeight(split: true, side: 22, tabHeight: 30) == 30, "the split + is a tab's height")
         #expect(NewTabButtonView.frameHeight(split: false, side: 22, tabHeight: 30) == 22, "other looks keep the square")
     }

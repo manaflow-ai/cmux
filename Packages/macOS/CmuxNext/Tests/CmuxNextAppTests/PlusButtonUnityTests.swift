@@ -63,7 +63,8 @@ import Testing
         tab.isHovered = true
         #expect(tab.look.fillLayer.backgroundColor != nil, "a lone tab + shows the hover plate")
         #expect(tab.look.fillLayer.maskedCorners == PlusButtonLook.allCorners)
-        #expect(tab.look.fillLayer.cornerRadius == Metrics.tabCornerRadius, "a tab's corner")
+        // Rounded by its own side at the tabs' ratio (Lucas 2026-11-15: one shape at every density).
+        #expect(tab.look.fillLayer.cornerRadius == Metrics.buttonCornerRadius(proportionalTo: 24), "the tabs' ratio on its side")
 
         let sidebar = SidebarView(model: SidebarModel(), design: DesignSettings())
         let look = try #require(sidebar.newButton.plusLook)

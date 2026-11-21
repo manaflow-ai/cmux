@@ -39,7 +39,7 @@ extension TerminalSession {
 
     func filePasteFailed() {
         guard !isClosed, surfaceView.window != nil else { return }
-        let spec = CmuxDialogSpec(
+        let spec = CmuxDialogSpec(usesTransientMaterial: true,
             title: String(localized: "terminal.filePaste.failed.title", defaultValue: "Couldn’t paste the file", table: "TerminalFilePaste", bundle: .module),
             lines: [String(localized: "terminal.filePaste.failed.message", defaultValue: "The upload could not be confirmed. Check the terminal before pasting again.", table: "TerminalFilePaste", bundle: .module)],
             buttons: [.init(id: "ok", title: String(localized: "terminal.filePaste.failed.dismiss", defaultValue: "Close", table: "TerminalFilePaste", bundle: .module), role: .cancel)])

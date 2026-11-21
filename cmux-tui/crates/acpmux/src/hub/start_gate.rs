@@ -278,12 +278,15 @@ impl Hub {
         if pick("peer").is_some_and(|p| !p.is_empty()) {
             return Ok(());
         }
+        let adopted =
+            crate::adopt::AdoptRequest::from_meta(meta).ok().flatten().and_then(|a| a.harness);
+        let harness = pick("harness").or(adopted);
+        // As the handler does next (`rediscover.rs`): a harness installed since the catalog
+        // loaded is checked here too, never skipped as not startable and then started.
+        self.rediscover_head(harness.as_deref(), pick("preset").as_deref()).await;
         let (family, target, bridge, start) = {
             let cfg = self.config.read().await;
             let Some(start) = StartMode::of(params, &cfg) else { return Ok(()) };
-            let adopted =
-                crate::adopt::AdoptRequest::from_meta(meta).ok().flatten().and_then(|a| a.harness);
-            let harness = pick("harness").or(adopted);
             let cwd = params.get("cwd").and_then(Value::as_str).map(std::path::Path::new);
             match self.resolve_new(
                 &cfg,

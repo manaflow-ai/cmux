@@ -261,10 +261,8 @@ impl Hub {
     /// `peer`'s link back and ready, listing `rows` again: what a finished handshake leaves.
     #[cfg(test)]
     pub(crate) fn seed_peer_back(&self, peer: &crate::peer::Peer, rows: Vec<Value>) {
-        use crate::peer::PeerNotice;
         peer.connected.store(true, std::sync::atomic::Ordering::SeqCst);
-        self.apply_peer_notice(&peer.name, peer.generation, PeerNotice::sessions_from_values(rows));
-        self.apply_peer_notice(&peer.name, peer.generation, PeerNotice::Connected);
+        self.seed_peer_listed(peer, rows);
     }
 
     /// The refusal for `PEER/name` when PEER is a peer that is down and

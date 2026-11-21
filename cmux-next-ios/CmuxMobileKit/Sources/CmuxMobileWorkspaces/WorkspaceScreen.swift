@@ -110,6 +110,10 @@ public struct WorkspaceScreen: View {
             #if DEBUG
             .onChange(of: director.serial) { run(director.command) }
             #endif
+            // The page is one container element that holds its own identifier: on the bare
+            // content the identifier went to every element inside, and the agent tab's
+            // composer field read `workspace.<id>` instead of `chat.composer.field`.
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("workspace.\(source.workspaceID)")
             // New Agent Chat With…: the Mac's agents and models.
             .sheet(isPresented: Binding(get: { source.choosingAgent }, set: { source.choosingAgent = $0 })) {

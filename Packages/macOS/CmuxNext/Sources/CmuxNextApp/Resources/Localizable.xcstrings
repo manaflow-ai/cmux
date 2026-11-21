@@ -4471,91 +4471,91 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux restarted after a problem. Your windows and terminals are back."
+            "value": "cmux restarted after a problem."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "問題が発生したため cmux を再起動しました。ウインドウとターミナルは元に戻っています。"
+            "value": "問題が発生したため cmux を再起動しました。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "أُعيد تشغيل cmux بعد حدوث مشكلة. عادت نوافذك ومحطاتك الطرفية."
+            "value": "أُعيد تشغيل cmux بعد حدوث مشكلة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux je ponovo pokrenut nakon problema. Vaši prozori i terminali su vraćeni."
+            "value": "cmux je ponovo pokrenut nakon problema."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux blev genstartet efter et problem. Dine vinduer og terminaler er tilbage."
+            "value": "cmux blev genstartet efter et problem."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux wurde nach einem Problem neu gestartet. Ihre Fenster und Terminals sind wieder da."
+            "value": "cmux wurde nach einem Problem neu gestartet."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux se ha reiniciado tras un problema. Tus ventanas y terminales se han restaurado."
+            "value": "cmux se ha reiniciado tras un problema."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux a redémarré après un problème. Vos fenêtres et terminaux sont de retour."
+            "value": "cmux a redémarré après un problème."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux è stato riavviato dopo un problema. Le finestre e i terminali sono stati ripristinati."
+            "value": "cmux è stato riavviato dopo un problema."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux បានចាប់ផ្ដើមឡើងវិញបន្ទាប់ពីមានបញ្ហា។ បង្អួច និងទែមីណាល់របស់អ្នកបានត្រឡប់មកវិញ។"
+            "value": "cmux បានចាប់ផ្ដើមឡើងវិញបន្ទាប់ពីមានបញ្ហា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "문제가 발생하여 cmux가 다시 시작되었습니다. 창과 터미널이 복원되었습니다."
+            "value": "문제가 발생하여 cmux가 다시 시작되었습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux ble startet på nytt etter et problem. Vinduene og terminalene dine er tilbake."
+            "value": "cmux ble startet på nytt etter et problem."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux uruchomił się ponownie po problemie. Okna i terminale zostały przywrócone."
+            "value": "cmux uruchomił się ponownie po problemie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O cmux foi reiniciado após um problema. Suas janelas e terminais estão de volta."
+            "value": "O cmux foi reiniciado após um problema."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux перезапущен после сбоя. Окна и терминалы восстановлены."
+            "value": "cmux перезапущен после сбоя."
           }
         },
         "th": {
@@ -4567,31 +4567,31 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux bir sorundan sonra yeniden başlatıldı. Pencereleriniz ve terminalleriniz geri geldi."
+            "value": "cmux bir sorundan sonra yeniden başlatıldı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux перезапущено після збою. Вікна й термінали відновлено."
+            "value": "cmux перезапущено після збою."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux đã khởi động lại sau khi gặp sự cố. Cửa sổ và terminal của bạn đã được khôi phục."
+            "value": "cmux đã khởi động lại sau khi gặp sự cố."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 在出现问题后已重新启动。你的窗口和终端已恢复。"
+            "value": "cmux 在出现问题后已重新启动。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 在發生問題後已重新啟動。你的視窗和終端機已恢復。"
+            "value": "cmux 在發生問題後已重新啟動。"
           }
         }
       }
