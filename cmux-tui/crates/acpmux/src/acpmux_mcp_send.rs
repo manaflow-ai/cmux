@@ -902,6 +902,11 @@ async fn settle(
     let delivery = queued.get("deliveryId").and_then(Value::as_str).unwrap_or_default().to_owned();
     let wait_ms = u64::try_from(wait.as_millis()).unwrap_or(u64::MAX);
     let ask = json!({"deliveryId": delivery, "waitMs": wait_ms});
+    // The mesh relay's note of a class it carried in the text (`server/mesh_send.rs`).
+    let notes: Vec<(&str, Value)> = ["classInline", "note"]
+        .into_iter()
+        .filter_map(|key| queued.get(key).map(|v| (key, v.clone())))
+        .collect();
     let status = daemon.request(method::MUX_SEND_STATUS, ask).await.unwrap_or(queued);
     let state = status.get("status").and_then(Value::as_str).unwrap_or("queued").to_owned();
     let accepted = status.get("accepted").cloned().unwrap_or(Value::Null);
@@ -913,11 +918,8 @@ async fn settle(
         status.get("error").and_then(Value::as_str).unwrap_or("delivery failed").to_owned()
     });
     let mut row = target.row(!refused, &state, error);
-    // The mesh relay's note of a class it carried in the text (`server/mesh_send.rs`).
-    for key in ["classInline", "note"] {
-        if let Some(v) = queued.get(key) {
-            row.set(key, v.clone());
-        }
+    for (key, v) in notes {
+        row.set(key, v);
     }
     row.set("promptId", json!(prompt.id));
     row.set("deliveryId", json!(delivery));
