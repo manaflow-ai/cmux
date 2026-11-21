@@ -7,8 +7,8 @@ import AppKit
 /// hand tune the values"). The Sidebar Row Tuner (`debug.sidebarRowTuner`) shows exactly these, live; Debug Settings
 /// lists them under Sidebar Rows.
 ///
-/// Every number is a ``ComputedTunable``: with no override it is the value the density, the text size and the type
-/// scale derive (the expression lives once, in its `derive`), so a tuned value never freezes the other densities.
+/// Every number is a ``ComputedTunable``: with no override it is the value the density (its own token when it sets one:
+/// the Density Playground's `sidebar*` keys, ``DensityTokenCatalog``), the text size and the type scale derive (the expression lives once, in its `derive`), so a tuned value never freezes the other densities.
 /// In Release the store is inert and every read is its derived default.
 public nonisolated struct SidebarRowTuning {
     public nonisolated init() {}
@@ -26,7 +26,7 @@ public nonisolated struct SidebarRowTuning {
     public static let rowGap = ComputedTunable(
         "sidebarRows.rowGap", section, "Row gap",
         help: "The gap between two rows, list and bands; two lit fills keep it between them.",
-        range: 0...12, code: "SidebarRowTuning.rowGap") { Metrics.space1 }
+        range: 0...12, code: "SidebarRowTuning.rowGap") { Metrics.densityToken("sidebarRowGap") ?? Metrics.space1 }
     /// The gap between a row's fill and the sidebar's edges.
     public static let outerInset = ComputedTunable(
         "sidebarRows.outerInset", section, "Fill to sidebar edge",
@@ -44,18 +44,20 @@ public nonisolated struct SidebarRowTuning {
     public static let cornerRadius = ComputedTunable(
         "sidebarRows.cornerRadius", section, "Fill corner radius",
         help: "The corner radius of every row fill: hover, selection, Home and the pinned rows.",
-        range: 0...20, code: "SidebarRowTuning.cornerRadius") { Metrics.tabCornerRadius }
+        range: 0...20, code: "SidebarRowTuning.cornerRadius") { Metrics.densityToken("sidebarCornerRadius") ?? Metrics.tabCornerRadius }
     /// The gap between two sections of the list.
     public static let sectionGap = ComputedTunable(
         "sidebarRows.sectionGap", section, "Section gap",
         help: "The room between two sections of the list (a heading and the rows above it).",
-        range: 0...32, code: "SidebarRowTuning.sectionGap") { SidebarDensityTokens.isComfortable ? Metrics.space5 : Metrics.space4 }
+        range: 0...32, code: "SidebarRowTuning.sectionGap") {
+            Metrics.densityToken("sidebarSectionGap") ?? (SidebarDensityTokens.isComfortable ? Metrics.space5 : Metrics.space4)
+        }
 
     /// The gap between two bands above the list (Home and the pinned rows).
     public static let bandGap = ComputedTunable(
         "sidebarRows.bandGap", section, "Home to pinned gap",
         help: "The extra room between two bands above the list: Home, then the pinned rows.",
-        range: 0...16, code: "SidebarRowTuning.bandGap") { Metrics.space2 }
+        range: 0...16, code: "SidebarRowTuning.bandGap") { Metrics.densityToken("sidebarBandGap") ?? Metrics.space2 }
 
     // MARK: Leading glyph
 
@@ -120,7 +122,9 @@ public nonisolated struct SidebarRowTuning {
     public static let headingSize = ComputedTunable(
         "sidebarRows.headingSize", section, "Heading size",
         help: "A section or list heading's point size (Workspaces, Pinned, a computer's name, a group's name).",
-        range: 9...20, step: 0.5, code: "SidebarRowTuning.headingSize") { SidebarStyle.derivedHeaderFont.pointSize }
+        range: 9...20, step: 0.5, code: "SidebarRowTuning.headingSize") {
+            Metrics.densityToken("sidebarHeadingSize") ?? SidebarStyle.derivedHeaderFont.pointSize
+        }
     /// A section or list heading's weight.
     public static let headingWeight = Tunable<SidebarTunedWeight>.choice(
         "sidebarRows.headingWeight", section, "Heading weight",
@@ -132,7 +136,7 @@ public nonisolated struct SidebarRowTuning {
     public static let statusDot = ComputedTunable(
         "sidebarRows.statusDot", section, "Status dot size",
         help: "Every status dot's diameter: unread, needs you, done.",
-        range: 4...14, code: "SidebarRowTuning.statusDot") { Metrics.space4 }
+        range: 4...14, code: "SidebarRowTuning.statusDot") { Metrics.densityToken("sidebarStatusDot") ?? Metrics.space4 }
 
     /// The numbers, in the tuner's order.
     static var computed: [ComputedTunable] {

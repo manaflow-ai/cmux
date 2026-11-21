@@ -87,7 +87,7 @@ pub(crate) fn read(dir: &Path, id: &str) -> Option<Record> {
 pub(crate) fn remove_if(dir: &Path, id: &str, pid: u32) {
     let Some(file) = path(dir, id) else { return };
     if read(dir, id).is_none_or(|record| record.pid == pid) {
-        let _ = std::fs::remove_file(file);
+        let _ = crate::home_fs::remove_file(file);
     }
 }
 
@@ -102,7 +102,7 @@ pub(crate) fn live(dir: &Path, alive: impl Fn(&Record) -> bool) -> Vec<Record> {
             Some(record) if record.session_id == id && alive(&record) => found.push(record),
             // Dead, unreadable, or naming another session: never adopted.
             _ => {
-                let _ = std::fs::remove_file(entry.path());
+                let _ = crate::home_fs::remove_file(entry.path());
             }
         }
     }

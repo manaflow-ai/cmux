@@ -408,7 +408,8 @@ test("a keyboard jump hands focus to the composer instead of losing it with the 
 // one too many); its `on` arm stacks Jump up on it as before (#40326).
 test("Jump up draws only under its on arm; off, Jump to latest stands alone", async () => {
   const draw = async (arm: "on" | "off" | undefined) => {
-    if (arm) globalThis.cmuxExperiments = { "jump-up": arm };
+    // The pair look: `single`, the default, draws no Jump up under either arm.
+    if (arm) globalThis.cmuxExperiments = { "jump-up": arm, "jump-pair-look": "frosted" };
     const root = createRoot(dom.window.document.getElementById("root")!);
     try {
       await act(async () =>

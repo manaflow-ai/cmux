@@ -19,6 +19,16 @@
 # Usage: sign-cef.sh <app> <identity>
 #   identity "-" signs ad hoc without the hardened runtime.
 # Env: CMUX_TIMESTAMP=none skips the secure timestamp for a real identity.
+#   CMUX_CEF_REUSE_FRAMEWORK=<Chromium Embedded Framework.framework> from an
+#   earlier signed build (the nightly passes the one the feed serves): when it
+#   holds the same code signed the same way as the framework just signed here,
+#   it takes that framework's place. A fresh signature differs in every build
+#   (the signing time and Apple's time stamp sit in its CMS blob), so the 270 MB
+#   framework changed in every update and every Sparkle delta had to diff it.
+#   Reused, its bytes stay the same until the Chromium engine itself changes,
+#   and BinaryDelta leaves it out of the delta (Lawrence, relayed by Leo: "if
+#   chromium version doesn't change, update doesnt have to include chromium
+#   parts"). Anything that differs keeps the fresh signature.
 # Does nothing and exits 0 when the app embeds no CEF framework.
 set -euo pipefail
 
@@ -52,10 +62,82 @@ cat > "$jit" <<'ENT'
 </plist>
 ENT
 
+# fingerprint <code>: what `codesign -d` shows of each architecture's signature
+# but the signing time, time stamp and CMS size. The CodeDirectory hashes cover
+# the code, Info.plist, sealed resources, requirements and flags, so two equal
+# fingerprints are the same code signed by the same signer the same way.
+fingerprint() {
+  local code="$1" bin="$1" arch
+  if [[ -d "$code" ]]; then bin="$code/Versions/A/$(basename "$code" .framework)"; fi
+  for arch in $(lipo -archs "$bin" 2>/dev/null || true); do
+    echo "arch $arch"
+    { codesign -d -vvv --arch "$arch" "$code" 2>&1 || true; } |
+      grep -E '^(Identifier|Format|CodeDirectory|CandidateCDHash|CDHash|Authority|TeamIdentifier|Runtime Version|Sealed Resources|Internal requirements)' || true
+  done
+}
+# framework_fingerprint <framework>: its file list, then the fingerprints of the
+# framework and of each library in it.
+framework_fingerprint() {
+  local lib
+  (cd "$1" && find . | LC_ALL=C sort)
+  fingerprint "$1"
+  for lib in "$1/Versions/A/Libraries/"*.dylib; do
+    if [[ -f "$lib" ]]; then echo "library ${lib##*/}"; fingerprint "$lib"; fi
+  done
+}
+# not_reusable <signed here> <earlier copy> <its fingerprint here>: prints why
+# the earlier copy may not take the place of the signature made here, or nothing.
+not_reusable() {
+  if [[ ! -e "$2" ]]; then
+    echo "it is missing"
+  elif [[ "$3" != *CDHash=* ]]; then
+    echo "the copy signed here shows no CDHash"
+  elif [[ "$3" != "$4" ]]; then
+    echo "it holds other code or another signature"
+  elif [[ "$identity" != "-" && "${CMUX_TIMESTAMP:-}" != "none" ]] &&
+    ! { codesign -d -vvv "$2" 2>&1 || true; } | grep -q '^Timestamp='; then
+    echo "it has no secure time stamp"
+  elif ! codesign --verify --strict "$2" >/dev/null 2>&1; then
+    echo "its signature does not verify"
+  fi
+}
+reuse="${CMUX_CEF_REUSE_FRAMEWORK:-}"
+[[ -n "$reuse" && -d "$reuse" ]] || reuse=""
+
 for lib in "$framework/Versions/A/Libraries/"*.dylib; do
-  [[ -f "$lib" ]] && "$sign_tool" "${flags[@]}" "$lib"
+  [[ -f "$lib" ]] || continue
+  "$sign_tool" "${flags[@]}" "$lib"
+  # The framework seals each library's whole file, signature included, so a
+  # library's fresh time stamp alone would change the framework's CDHash (two
+  # nightly-next builds with one engine pin, 2026-11-17). Same code, same
+  # signer: the earlier build's signed library, byte for byte.
+  if [[ -n "$reuse" ]]; then
+    earlier="$reuse/Versions/A/Libraries/${lib##*/}"
+    why="$(not_reusable "$lib" "$earlier" "$(fingerprint "$lib")" "$(fingerprint "$earlier" 2>/dev/null || true)")"
+    if [[ -z "$why" ]]; then cp -p "$earlier" "$lib"; fi
+  fi
 done
 "$sign_tool" "${flags[@]}" "$framework"
+
+if [[ -n "$reuse" ]]; then
+  why="$(not_reusable "$framework" "$reuse" "$(framework_fingerprint "$framework")" "$(framework_fingerprint "$reuse")")"
+  if [[ -z "$why" ]]; then
+    staged="$frameworks/.cef-reuse"
+    rm -rf "$staged"
+    mkdir "$staged"
+    ditto "$reuse" "$staged/${framework##*/}"
+    if codesign --verify --strict "$staged/${framework##*/}"; then
+      rm -rf "$framework"
+      mv "$staged/${framework##*/}" "$framework"
+      echo "sign-cef: reused the signed Chromium framework of $reuse (same code, same signer)"
+    else
+      why="its copy does not verify"
+    fi
+    rm -rf "$staged"
+  fi
+  if [[ -n "$why" ]]; then echo "sign-cef: kept the fresh Chromium framework signature; $reuse: $why"; fi
+fi
+
 if [[ -f "$frameworks/libcmux_cef_shim.dylib" ]]; then
   "$sign_tool" "${flags[@]}" "$frameworks/libcmux_cef_shim.dylib"
 fi

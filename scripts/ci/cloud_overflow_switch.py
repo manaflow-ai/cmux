@@ -39,8 +39,8 @@ elsewhere is left alone. Nothing here touches the lane switches
 never changes, only where overflow goes.
 
 Signing jobs read their runner from the variables in
-signing_runner_variables.EPHEMERAL_RUNNER_VARIABLES (LINUX_RUNNER,
-MACOS_RUNNER_26), which must only ever name an ephemeral runner (rule 7 of
+signing_runner_variables.EPHEMERAL_RUNNER_VARIABLES (MACOS_RUNNER_26;
+LINUX_RUNNER left it on 2026-11-19), which must only ever name an ephemeral runner (rule 7 of
 tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py). The switch
 never writes anything else to one: MACOS_RUNNER_26 has no owned failover (its
 jobs wait for Blacksmith), an override that names a reused machine for one is

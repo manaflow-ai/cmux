@@ -350,8 +350,8 @@ test("focus in the card keeps it; Escape there or focus leaving rail and card cl
 test("the rail never outgrows a short transcript", async () => {
   const { railHeight, RAIL_HEIGHTS } = await import("../src/agent-session/acpmux/threadMinimap/model");
   // 60 prompts in an 820 px window over a 200 px transcript: the rail fits the transcript, less the
-  // mask's 18 px bands and 4 px past each.
-  expect(railHeight(60, 820, 200)).toBe(200 - 22 - 22);
+  // mask's 18 px top band and 4 px past each end (the foot has no band since 2026-11-17).
+  expect(railHeight(60, 820, 200)).toBe(200 - 22 - 4);
   // Not measured yet: the window caps it alone.
   expect(railHeight(60, 820, 0)).toBe(railHeight(60, 820));
   // The visible transcript band no longer controls the rail's initial height.
@@ -370,11 +370,12 @@ test("the rail is never taller than 480 px, whatever the prompt count or the pan
   for (const band of [1, 24, 50, 1000]) expect(railHeight(1000, 1000, 1000, 1000, band)).toBe(480);
 });
 
-test("the rail keeps one tick pitch at every prompt count, as tall as its ticks up to 480 px, at one top", async () => {
+test("the rail keeps one tick pitch at every prompt count, as tall as its ticks up to 480 px, on one middle", async () => {
   // Leo, 2026-11-05, on a rail whose ticks sat 20 px apart in a fixed 480 px box: "the rail, ok keep it at
   // this max size, but don't reduce the density. y'all reduced the density". The ticks go back to the
-  // 10 px pitch in a rail as tall as they are, and it never shifts as it grows ("i just don't like it
-  // when the thing shifts").
+  // 10 px pitch in a rail as tall as they are. Its middle is the view's middle at every count (Lucas,
+  // 2026-11-17: "always vertically aligned, and is on the vertical center of the screen"), so it grows
+  // at both ends and its middle never shifts.
   const drawn: { count: number; pitch: number; height: number; top: number }[] = [];
   for (const count of [3, 13, 24, 100]) {
     const view = await mount(count);
@@ -394,7 +395,8 @@ test("the rail keeps one tick pitch at every prompt count, as tall as its ticks 
   expect(drawn.map(({ count, pitch, height }) => ({ count, pitch, height }))).toEqual(
     [3, 13, 24, 100].map((count) => ({ count, pitch: 10, height: Math.min(count * 10, 480) })),
   );
-  expect(new Set(drawn.map(({ top }) => top)).size).toBe(1);
+  const middles = drawn.map(({ top, height }) => top + height / 2);
+  expect(Math.max(...middles) - Math.min(...middles)).toBeLessThanOrEqual(1);
 });
 
 test("wheel browsing belongs to the rail and is not snapped back by transcript scrolling", async () => {
