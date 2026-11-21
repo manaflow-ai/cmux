@@ -17,7 +17,8 @@
 //! - a network change made before the watch is forwarded still reaches the link;
 //! - the link's own socket answers its state, and a wait by the caller's deadline;
 //! - a network change while a heartbeat probe is already blocked shortens that probe;
-//! - every failed redial, a gone session too, is the reason the link reports.
+//! - every failed redial, a gone session too, is the reason the link reports;
+//! - a first connect whose link open never resolves fails at the attempt timeout.
 //!
 //! Run (from `cmux-tui/`): `cargo test -p cmux-remote --test redial_budget_e2e`.
 
@@ -33,7 +34,7 @@ use cmux_remote::connection::{
     ClientConnection, ClientConnectionConfig, ConnectionError, ReconnectGroupSource,
     ReconnectPolicy,
 };
-use cmux_remote::crypto::{ClientAuthMode, NetworkPeer, StaticIdentity};
+use cmux_remote::crypto::{ClientAuthMode, CryptoError, NetworkPeer, StaticIdentity};
 use cmux_remote::daemon::{DaemonSessionPolicy, InboundLink, RemoteDaemon};
 use cmux_remote::identity::AuthDatabase;
 use cmux_remote::link::{FrameLink, LinkError};
@@ -301,6 +302,31 @@ async fn harness_leased(
     reader: bool,
     resume_lease: Duration,
 ) -> Harness {
+    let (dir, group, expected) = test_group(resume_lease);
+    let source = discovery.then(|| {
+        Arc::new(TestSource {
+            group: group.clone(),
+            hang: AtomicBool::new(false),
+            calls: AtomicUsize::new(0),
+        })
+    });
+    let client = ClientConnection::connect_with_reconnect_groups(
+        group.clone(),
+        client_config(expected, reconnect),
+        source.clone().map(|source| source as Arc<dyn ReconnectGroupSource>),
+    )
+    .await
+    .unwrap();
+    if reader {
+        let reader = client.clone();
+        tokio::spawn(async move { while let Ok(Some(_)) = reader.receive().await {} });
+    }
+    Harness { _dir: dir, group, source, client }
+}
+
+/// The daemon, behind a carrier the test drives; `resume_lease` is how long the daemon keeps a
+/// disconnected session for a reconnect.
+fn test_group(resume_lease: Duration) -> (TempDir, Arc<TestGroup>, [u8; 32]) {
     let dir = TempDir::new().unwrap();
     let auth = AuthDatabase::load_or_create(dir.path(), "redial-budget", false).unwrap();
     let (daemon, mut accepted) = RemoteDaemon::with_policy(
@@ -326,34 +352,20 @@ async fn harness_leased(
         links: Mutex::new(Vec::new()),
         dials: Mutex::new(Vec::new()),
     });
-    let source = discovery.then(|| {
-        Arc::new(TestSource {
-            group: group.clone(),
-            hang: AtomicBool::new(false),
-            calls: AtomicUsize::new(0),
-        })
-    });
-    let client = ClientConnection::connect_with_reconnect_groups(
-        group.clone(),
-        ClientConnectionConfig {
-            identity: StaticIdentity::generate().unwrap(),
-            expected_daemon: Some(expected),
-            auth: ClientAuthMode::Carrier,
-            device_name: "redial-budget".into(),
-            session: SessionId([7; 16]),
-            lane_policy: LanePolicy::Single,
-            limits: SessionLimits::default(),
-            reconnect,
-        },
-        source.clone().map(|source| source as Arc<dyn ReconnectGroupSource>),
-    )
-    .await
-    .unwrap();
-    if reader {
-        let reader = client.clone();
-        tokio::spawn(async move { while let Ok(Some(_)) = reader.receive().await {} });
+    (dir, group, expected)
+}
+
+fn client_config(expected: [u8; 32], reconnect: ReconnectPolicy) -> ClientConnectionConfig {
+    ClientConnectionConfig {
+        identity: StaticIdentity::generate().unwrap(),
+        expected_daemon: Some(expected),
+        auth: ClientAuthMode::Carrier,
+        device_name: "redial-budget".into(),
+        session: SessionId([7; 16]),
+        lane_policy: LanePolicy::Single,
+        limits: SessionLimits::default(),
+        reconnect,
     }
-    Harness { _dir: dir, group, source, client }
 }
 
 /// The link's states as they change, with the time of each, for a failure message.
@@ -760,4 +772,31 @@ async fn a_gone_session_replaces_the_last_transport_failure() {
         reason.as_deref().is_some_and(|reason| reason.contains("no longer has")),
         "the link still reports {reason:?} (was {transport:?})"
     );
+}
+
+/// The first connect's link open counts toward the attempt deadline, as every later step of the
+/// setup does: a carrier whose open never resolves (a TCP dial with no timeout of its own) fails
+/// the connect after `attempt_timeout` instead of hanging it forever (cmux#38335 review F4).
+#[tokio::test(start_paused = true)]
+async fn a_first_connect_whose_open_hangs_fails_at_the_attempt_timeout() {
+    let (_dir, group, expected) = test_group(Duration::from_secs(600));
+    group.hang.store(true, Ordering::Release);
+    let reconnect = policy();
+    let start = Instant::now();
+    let connect = ClientConnection::connect(group.clone(), client_config(expected, reconnect));
+    let result = tokio::time::timeout(reconnect.attempt_timeout * 4, connect)
+        .await
+        .expect("the first connect hung on a link open that never resolves");
+    let error = result.err().expect("a connect whose link never opened succeeded");
+    let took = start.elapsed();
+    assert!(
+        matches!(error, ConnectionError::Crypto(CryptoError::HandshakeTimeout { .. })),
+        "the connect failed with {error:?}, not the attempt timeout"
+    );
+    assert!(
+        took <= reconnect.attempt_timeout + Duration::from_millis(100),
+        "the connect failed after {took:?}, past its {:?} attempt timeout",
+        reconnect.attempt_timeout
+    );
+    assert_eq!(group.dials_since(start), 1, "the first connect dials once");
 }

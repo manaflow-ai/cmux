@@ -68,6 +68,9 @@ impl LinkGroup for SpacedGroup {
     fn evidence(&self) -> &CarrierEvidence {
         self.0.evidence()
     }
+    fn open_wait_until(&self, request: &LinkRequest) -> Option<tokio::time::Instant> {
+        self.0.open_wait_until(request)
+    }
     async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
         Ok(Box::new(Spaced(self.0.open(request).await?)))
     }
