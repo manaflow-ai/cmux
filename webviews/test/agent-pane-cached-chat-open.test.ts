@@ -320,12 +320,24 @@ test("the attach reply of a switch back renders after the kept tail's frame pain
   scope.cancelAnimationFrame = (frame: number) => frames.delete(frame);
   try {
     await client.select(B);
+    // Each reply the daemon hands the client, by request id.
+    const answered = new Set<unknown>();
+    const deliver = daemon.onmessage;
+    daemon.onmessage = (message) => {
+      answered.add((JSON.parse(message.data) as { id?: unknown }).id);
+      deliver?.(message);
+    };
+    const attachOfA = () =>
+      daemon.sent.find((message) => message.method === "_acpmux/attach" && message.params?.sessionId === A);
     const back = client.select(A);
-    // The daemon has answered (each reply is a microtask); no frame has painted yet.
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(daemon.sent.some((message) => message.method === "_acpmux/attach" && message.params?.sessionId === A)).toBe(
-      true,
-    );
+    // Wait for the daemon's answer to that attach, then one task so the client's handling of it runs;
+    // no frame has painted yet.
+    for (let turn = 0; !answered.has(attachOfA()?.id ?? Symbol()); turn++) {
+      if (turn > 1000) throw new Error("the attach of chat A was never answered");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(attachOfA()).toBeDefined();
     expect(text(last())).toContain("Turn one done.");
     expect(client.sessionEvents().map((event) => event.seq)).toEqual([1, 2, 3, 4]);
     // The kept tail's frame paints; then the reply's page renders.
