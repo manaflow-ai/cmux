@@ -171,6 +171,28 @@
           ]
         },
         {
+          "key": "updates.autoRollback",
+          "note": "After a relaunch into a new build, cmux checks chat, the model picker and terminals once (`cmux app health`). Off: a failed check offers Go Back on the notice card. On: cmux goes back to the kept build by itself (Leo 2026-11-21: \"we ought to have good recovery and bisecting either automatically or agents being able to just say actually let's go back\").",
+          "title": {
+            "key": "settings.updates.autoRollback",
+            "text": "Go Back Automatically When an Update Breaks"
+          },
+          "help": {
+            "key": "settings.updates.autoRollback.help",
+            "text": "When chat, the model picker or terminals fail after an update, restart into the previous version without asking."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "update",
+            "rollback",
+            "go back",
+            "previous version",
+            "health",
+            "broken"
+          ]
+        },
+        {
           "key": "updates.meteredNetwork",
           "note": "What automatic downloads do on a metered link.",
           "title": {
