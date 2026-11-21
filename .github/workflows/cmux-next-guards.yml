@@ -391,7 +391,7 @@ jobs:
       # of hits still run in full; CI_SAME_TREE_REUSE=0 turns it off. Any failure here runs the job.
       - name: Same-tree keys
         id: same-tree-keys
-        if: ${{ vars.CI_SAME_TREE_REUSE != '0' }}
+        if: ${{ (vars.CI_SAME_TREE_REUSE || '1') != '0' }}
         continue-on-error: true
         timeout-minutes: 2
         env:
