@@ -35,6 +35,7 @@ extension ShortcutAction {
         case .goToWorkspace: return "Go to Workspace…"
         case .commandPalette: return String(localized: "menu.file.commandPalette", defaultValue: "Command Palette…")
         case .agentInbox: return String(localized: "shortcut.agentInbox.label", defaultValue: "Show Agent Inbox")
+        case .findTmuxWindow: return String(localized: "shortcut.findTmuxWindow.label", defaultValue: "Find tmux Window…")
         case .openChief: return String(localized: "shortcut.openChief.label", defaultValue: "Open Chief")
         case .commandPaletteNext: return "Command Palette: Next"
         case .commandPalettePrevious: return "Command Palette: Previous"

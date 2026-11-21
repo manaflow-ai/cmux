@@ -125,6 +125,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.commandPalette`
 - `shortcuts.bindings.commandPaletteNext`
 - `shortcuts.bindings.commandPalettePrevious`
+- `shortcuts.bindings.findTmuxWindow`
 - `shortcuts.bindings.openChief`
 
 ## Notifications

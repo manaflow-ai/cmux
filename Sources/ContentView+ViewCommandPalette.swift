@@ -55,6 +55,16 @@ extension ContentView {
                 when: { _ in CmuxFeatureFlags.shared.isAgentInboxQuickViewEnabled }
             ),
             CommandPaletteCommandContribution(
+                commandId: "palette.findTmuxWindow",
+                title: constant(String(localized: "shortcut.findTmuxWindow.label", defaultValue: "Find tmux Window…")),
+                subtitle: constant(String(localized: "remoteTmux.findWindow.command.subtitle", defaultValue: "Remote tmux")),
+                keywords: ["tmux", "find", "window", "pane", "search", "history", "scrollback", "grep", "find-window"],
+                // Find-window replaces the palette itself and takes over its focus target;
+                // dismissing after the run would close the panel it just opened.
+                dismissOnRun: false,
+                when: { _ in AppDelegate.shared?.hasRemoteTmuxFindWindowCandidates == true }
+            ),
+            CommandPaletteCommandContribution(
                 commandId: "palette.openChief",
                 title: constant(String(localized: "command.openChief.title", defaultValue: "Open Chief")),
                 subtitle: constant(String(localized: "command.openChief.subtitle", defaultValue: "Chief")),
@@ -171,6 +181,12 @@ extension ContentView {
         }
         registry.register(commandId: "palette.showAgentInbox") {
             AppDelegate.shared?.requestAgentInbox(source: "commandPalette.showAgentInbox")
+        }
+        registry.register(commandId: "palette.findTmuxWindow") {
+            AppDelegate.shared?.requestRemoteTmuxFindWindow(
+                preferredWindow: observedWindow,
+                source: "commandPalette.findTmuxWindow"
+            )
         }
         registry.register(commandId: "palette.openChief") {
             if AppDelegate.shared?.openChiefHome(preferredWindow: observedWindow, source: "commandPalette.openChief") != true {
