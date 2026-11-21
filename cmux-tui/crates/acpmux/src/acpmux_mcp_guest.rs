@@ -94,7 +94,7 @@ fn new_tool() -> Value {
             "properties": {
                 "prompt": {"type": "string", "description": "The task, self-contained: the session has none of this chat's context."},
                 "harness": {"type": "string", "description": "claude or codex, optionally with a model (claude/opus, codex/gpt-5.5). Default: claude."},
-                "machine": {"type": "string", "description": "A machine from machines, or auto for the one with the most room. Default: as acpmux new places it."},
+                "machine": {"type": "string", "description": "A machine from machines, or auto for the one with the most room. Default: as cmux agent new places it."},
                 "folder": {"type": "string", "description": "The folder to work in, on that machine. Default: a scratch folder there."},
                 "name": {"type": "string", "description": "A short readable name, 2 to 5 words (spaces become -). Default: made from the app's name."},
                 "showInCmux": {"type": "boolean", "description": "Also open it in cmux NEXT's sidebar on this Mac now (default false)."}
