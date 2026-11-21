@@ -168,7 +168,8 @@ impl Hub {
         // A harness whose ACP server refuses per-session servers (OpenClaw's bridge) gets none:
         // its `session/new` would fail whole.
         let servers = if crate::agent_tools::takes_session_mcp(&meta.harness, profile) {
-            servers
+            // A harness that scrubs its MCP children's env (Hermes) gets the routing env inline.
+            crate::agent_tools::with_routing_env(servers, &meta.harness, profile, &profile.env)
         } else {
             json!([])
         };
