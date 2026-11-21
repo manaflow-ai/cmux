@@ -2727,6 +2727,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         static let minimumSidebarWidth = FilePreviewPDFSizing.minimumSidebarWidth
         static let maximumSidebarWidth = FilePreviewPDFSizing.maximumSidebarWidth
         static let floatingChromeHeight: CGFloat = 40
+        static let floatingChromeInset: CGFloat = 10
         static let floatingControlsWidth: CGFloat = 394
         static let floatingChromeCornerRadius: CGFloat = 20
     }
@@ -2742,6 +2743,10 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     private let outlinePlaceholder = NSTextField(wrappingLabelWithString: "")
     private let sidebarChromeHost = FilePreviewPDFChromeHostingView(rootView: AnyView(EmptyView()))
     private let zoomChromeHost = FilePreviewPDFChromeHostingView(rootView: AnyView(EmptyView()))
+    private lazy var zoomChromeTrailingConstraint = zoomChromeHost.trailingAnchor.constraint(
+        equalTo: chromeHost.trailingAnchor,
+        constant: -Metrics.floatingChromeInset
+    )
     private let titleLabel = NSTextField(labelWithString: "")
     private let pageLabel = NSTextField(labelWithString: "")
     private weak var panel: FilePreviewPanel?
@@ -3020,6 +3025,12 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
             name: .filePreviewPDFChromeStyleDidChange,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(preferredScrollerStyleChanged),
+            name: NSScroller.preferredScrollerStyleDidChangeNotification,
+            object: nil
+        )
         registerFocusEndpoint()
     }
 
@@ -3213,7 +3224,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
             sidebarChromeHost.heightAnchor.constraint(equalToConstant: Metrics.floatingChromeHeight),
 
             zoomChromeHost.topAnchor.constraint(equalTo: chromeHost.topAnchor, constant: 10),
-            zoomChromeHost.trailingAnchor.constraint(equalTo: chromeHost.trailingAnchor, constant: -10),
+            zoomChromeTrailingConstraint,
             zoomWidthConstraint,
             zoomChromeHost.heightAnchor.constraint(equalToConstant: Metrics.floatingChromeHeight),
 
@@ -3234,7 +3245,22 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         if chromeHost.frame != contentFrame {
             chromeHost.frame = contentFrame
         }
+        let trailingConstant = -(Metrics.floatingChromeInset + legacyVerticalScrollerWidth())
+        if zoomChromeTrailingConstraint.constant != trailingConstant {
+            zoomChromeTrailingConstraint.constant = trailingConstant
+        }
         chromeHost.needsLayout = true
+    }
+
+    /// Legacy scrollers stay on screen beside the content, so the trailing chrome must clear them.
+    private func legacyVerticalScrollerWidth() -> CGFloat {
+        guard let scrollView = pdfScrollView(),
+              scrollView.scrollerStyle == .legacy,
+              scrollView.hasVerticalScroller else { return 0 }
+        return NSScroller.scrollerWidth(
+            for: scrollView.verticalScroller?.controlSize ?? .regular,
+            scrollerStyle: .legacy
+        )
     }
 
     private func updateChromeRootViews() {
@@ -3346,6 +3372,11 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         )
         guard !suppressPDFPageChangeNotifications else { return }
         updatePageControls()
+    }
+
+    @objc private func preferredScrollerStyleChanged() {
+        // Layout runs after PDFKit's scroll view has adopted the new style.
+        needsLayout = true
     }
 
     @objc private func pdfChromeStyleChanged() {
