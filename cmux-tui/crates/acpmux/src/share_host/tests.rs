@@ -909,6 +909,11 @@ fn rd_identity(size: u64, mtime: i64) -> super::linux::Identity {
     super::linux::Identity { size, mtime, mtime_nsec: 0, inode: 7 }
 }
 
+/// A stand-in cmux-rd identity.
+fn rd_identity(size: u64, mtime: i64) -> super::linux::Identity {
+    super::linux::Identity { size, mtime, mtime_nsec: 0, inode: 7 }
+}
+
 #[test]
 fn the_host_is_set_up_once_per_join_and_cmux_rd_build() {
     use super::linux;
