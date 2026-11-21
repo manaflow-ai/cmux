@@ -1,7 +1,7 @@
 //! Restore reaches the daemon only for this pane's session and durable evidence IDs.
 use cmux_agent_pane_policy::Refusal;
 use cmux_agent_pane_policy::check::{Checked, FrameState, PaneScope, check_frame};
-use cmux_agent_pane_policy::gesture::PermissionOptions;
+use cmux_agent_pane_policy::gesture::{Gesture, PermissionOptions};
 use serde_json::{Map, Value, json};
 
 struct Scope;
@@ -27,6 +27,7 @@ fn check(params: Value) -> Checked {
             remote_wire: false,
             scope: &Scope,
             options: &PermissionOptions::default(),
+            gesture: Gesture::None,
         },
     )
 }
