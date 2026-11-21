@@ -47,4 +47,12 @@ extension PersonalGateway {
     /// (``CloudAgentCredential``) and never this gateway: waiting for it only delayed the start, by up to its whole
     /// 10 s deadline while it came up (the production chat probe, 2026-11-15 to 22: 124 of 406 starts, about 2.4 s each).
     public nonisolated static func turnNeedsIt(credential: String?) -> Bool { credential == nil }
+
+    /// ``onlineBeside(within:)`` for a start whose model route may not use this gateway: `servedElsewhere` (the
+    /// route's ``CloudSetup/Choice/servedWithoutMacGateway``) is asked first, and when it says yes the start waits for
+    /// no gateway (true at once). A chat on its own connection or the organization's key never needed it, yet a
+    /// gateway that could not come up held such a start for its whole deadline.
+    public func onlineBeside(within deadline: Duration, unless servedElsewhere: @escaping @MainActor @Sendable () async -> Bool) -> CloudStartBeside<Bool> {
+        CloudStartBeside { [self] in await servedElsewhere() ? true : await ensureOnline(within: deadline) }
+    }
 }
