@@ -375,6 +375,11 @@ try:
                 detail["new_visible_windows"] = new
                 changed = changed and bool(new)
             if name == "file":
+                # Does this host's panel service give a live panel at all? (cmux answers a chooser with cancel when its
+                # panel comes back dead: MadeAheadOpenPanel.panel() nil.) Same app, a panel shown and cancelled.
+                rpc("debug.key", {"key": "escape"})
+                time.sleep(0.5)  # test harness: any sheet closes
+                detail["host_panel_probe"] = rpc("debug.open_panel_bench", {"mode": "fresh"}, timeout=90)
                 detail["input_events"] = page_eval("JSON.stringify(window.__file)", page_tab).get("value")
                 detail["user_activation"] = page_eval("navigator.userActivation && navigator.userActivation.hasBeenActive", page_tab).get("value")
             row(changed, f"prompts.{name}", detail)
