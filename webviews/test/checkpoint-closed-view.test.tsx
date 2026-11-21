@@ -32,6 +32,14 @@ afterAll(async () => {
   await teardownDom(saved, { window: dom.window });
 });
 
+/// Yields one task at a time until `ready` holds, so the test waits for the value it asserts on next.
+const until = async (ready: () => boolean) => {
+  for (let turn = 0; !ready(); turn++) {
+    if (turn > 1000) throw new Error("the awaited state never came");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+};
+
 test("a closed checkpoint review renders the pane once for a chat switch", async () => {
   const { createRoot } = await import("react-dom/client");
   const { useCheckpoints } = await import("../src/agent-session/acpmux/checkpoints/controller");
@@ -62,11 +70,12 @@ test("a closed checkpoint review renders the pane once for a chat switch", async
   const root: Root = createRoot(document.getElementById("root")!);
   try {
     await act(async () => root.render(<Probe sessionId="chat-a" />));
-    await act(() => new Promise((resolve) => setTimeout(resolve, 5)));
+    await act(() => until(() => supported));
     expect(supported).toBe(true);
     const before = renders;
+    // The client moves to chat B (`client.select`) in the switch's own effect, synchronously, so the
+    // act that commits the switch also flushes any render that move causes.
     await act(async () => root.render(<Probe sessionId="chat-b" />));
-    await act(() => new Promise((resolve) => setTimeout(resolve, 5)));
     // The switch's own render, and none for the client moving to chat B.
     expect(renders - before).toBe(1);
     expect(supported).toBe(true);
