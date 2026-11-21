@@ -31,6 +31,7 @@ impl Hub {
             return self
                 .resolve_exact(rest)
                 .or_else(|| self.resolve_short_here(rest))
+                .or_else(|| self.resolve_former_here(rest))
                 .unwrap_or(found);
         }
         found
