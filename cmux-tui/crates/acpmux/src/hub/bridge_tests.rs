@@ -1103,6 +1103,14 @@ async fn a_desktop_chat_the_rate_limit_stopped_holds_its_messages_and_sends_them
 
     // Two more messages while it is held: neither reaches the app now.
     let (second, second_accepted) = send("p-two", "second report");
+    // The order they came is the order the hold took them: two sends spawned at once race to it.
+    for _ in 0..200 {
+        if second_accepted.lock().unwrap().is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(second_accepted.lock().unwrap().is_some(), "the second is held within 2 s");
     let (third, _) = send("p-three", "third report");
     tokio::time::sleep(Duration::from_millis(400)).await;
     assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 1, "held, not sent into the app");
@@ -1118,7 +1126,10 @@ async fn a_desktop_chat_the_rate_limit_stopped_holds_its_messages_and_sends_them
     assert!(sent.starts_with(hold::CONTINUE_LINE), "{sent}");
     assert_eq!(sent.matches("second report").count(), 1, "{sent}");
     assert_eq!(sent.matches("third report").count(), 1, "{sent}");
-    assert!(sent.find("second report") < sent.find("third report"), "in the order they came");
+    assert!(
+        sent.find("second report") < sent.find("third report"),
+        "in the order they came: {sent}"
+    );
     let events = hub.store.events(&session.id, 0, usize::MAX).unwrap();
     assert!(events.iter().any(|e| e.kind == "rate_limit_lifted"));
     let done =
