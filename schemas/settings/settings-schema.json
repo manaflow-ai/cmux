@@ -1430,6 +1430,7 @@
           "text" : "Agents"
         },
         "trail" : [
+          "agentCustomization",
           "agentTools",
           "harnesses",
           "agentHarnesses",

@@ -128,7 +128,6 @@ enum AppActions {
         RemoteGroupHandlers.bind(into: registry, context: context)
         SidebarScreenIntentActions.bindViewScreen(into: registry) { [weak services] in services?.windows.active.map { window in (sections: window.sidebar.model.sections, handle: { @MainActor intent in window.sidebar.handle(intent) }) } }
         ChiefMoveHandlers.bind(into: registry, context: context)
-        ChiefMemoryImportHandlers.bind(into: registry, context: context)
         RemoteBrowserPages.bind(into: registry, context: context)
         ResourceHandlers.bind(into: registry, context: context)
         LinkHandlers.bind(into: registry, context: context)
