@@ -63,13 +63,14 @@ button.acpmux-question-submit text 1.69
 button.acpmux-replay-button icon 1.10
 button.acpmux-replay-speed text 3.21
 button.acpmux-send icon 1.75
-button.acpmux-send.acpmux-cancel icon 2.27
+button.acpmux-send.acpmux-cancel icon 2.19
 button.acpmux-send.acpmux-send-ready icon 1.85
 button.acpmux-send.nt-send icon 2.04
 button.acpmux-session-info-fold icon 1.85
 button.acpmux-session-info-fold text 1.85
 button.acpmux-session-info-fold.acpmux-session-info-more text 1.85
-button.acpmux-session-info-fold.acpmux-workflow-finished__fold text 4.25
+button.acpmux-session-info-fold.acpmux-workflow-finished__fold icon 1.81
+button.acpmux-session-info-fold.acpmux-workflow-finished__fold text 2.73
 button.acpmux-session-info-icon-button icon 2.19
 button.acpmux-session-info-row.acpmux-session-info-row--button icon 1.85
 button.acpmux-session-info-task__open icon 1.85
@@ -109,7 +110,7 @@ button.cst-row icon 1.66
 button.cu-segment-button.cu-window text 1.70
 button.cv-agent-pair__toggle text 3.54
 button.cv-agent-tag text 2.57
-button.cv-agentmsg__toggle text 2.75
+button.cv-agentmsg__toggle text 1.85
 button.cv-card-copy__button icon 1.66
 button.cv-chip.is-path icon 2.88
 button.cv-chip.is-path text 3.63
@@ -167,6 +168,7 @@ button.cv-worked__open text 4.10
 button.diff-pill-button icon 1.38
 button.ds-button.ds-destructive text 1.95
 button.feed-add icon 1.79
+button.gh-button.gh-button--primary text 4.10
 button.gh-ci-pip icon 1.43
 button.gh-file-row text 4.26
 button.gh-fold text 4.37
