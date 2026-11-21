@@ -204,6 +204,25 @@ extension SettingsSchemaSamples {
                 .array([.number(1)]),
             ]
         ),
+        "domain:hosts": SampleSet(
+            accept: [
+                .array([]),
+                .array([.object(["label": .string("studio"), "endpoints": .array([.string("studio.local"), .string("ssh://leo@100.64.0.7:2222")]), "icon": .string("desktopcomputer")])]),
+                .array([.object(["label": .string("a"), "endpoint": .string("leo@a")]), .object(["label": .string("b"), "endpoint": .string("b"), "id": .string("b1")])]),
+            ],
+            refuse: [
+                .string("studio"), .array([.object(["endpoints": .array([.string("a")])])]),
+                .array([.object(["label": .string(" "), "endpoints": .array([.string("a")])])]),
+                .array([.object(["label": .string("a"), "endpoints": .array([])])]),
+                .array([.object(["label": .string("a"), "endpoint": .string("a"), "endpoints": .array([.string("a")])])]),
+                .array([.object(["label": .string("a"), "endpoints": .array([.string("http://a")])])]),
+                .array([.object(["label": .string("a"), "endpoints": .array([.string("-oProxyCommand=x")])])]),
+                .array([.object(["label": .string("a"), "endpoints": .array([.string("a b")])])]),
+                .array([.object(["label": .string("a"), "endpoints": .array([.string("a")]), "icon": .number(1)])]),
+                .array([.object(["label": .string("a"), "endpoint": .string("a")]), .object(["label": .string("A"), "endpoint": .string("b")])]),
+                .array([.number(1)]),
+            ]
+        ),
         "domain:backdrop_selection": SampleSet(
             accept: [
                 .string("none"), .string("daily"), .string("desktop"), .string("david-death-of-marat"),
@@ -311,24 +330,6 @@ extension SettingsSchemaSamples {
                 .object(["midnight": .string("desktop")]), .object(["07:00": .string("daily")]),
                 .object(["07:00": .string("folder:/Users/Shared/Wallpapers")]),
                 .object(["07:00": .string("__not_a_backdrop__")]), .object(["07:00": .number(1)]),
-            ]
-        ),
-        "domain:backdrop_memory": SampleSet(
-            accept: [
-                .object([:]),
-                .object(["rotate": .string("folder:/Users/Shared/Wallpapers"), "folder": .string("folder:/Users/Shared/Wallpapers"), "off": .string("file:/Users/Shared/Harbor.png")]),
-                .object(["rotate": .string("daily"), "folder": .string("folder:/Users/Shared/Wallpapers"), "off": .string("none")]),
-                .object(["off": .string("munch-scream")]),
-                .object(["off": .string("system:/System/Library/Desktop Pictures/Sonoma.heic")]),
-            ],
-            refuse: [
-                .string("folder:/Users/Shared/Wallpapers"), .array([]), .object(["rotate": .string("munch-scream")]),
-                .object(["rotate": .string("appearance")]), .object(["folder": .string("daily")]),
-                .object(["folder": .string("folder:/")]), .object(["folder": .string("folder:relative")]),
-                .object(["off": .string("daily")]), .object(["off": .string("schedule")]),
-                .object(["off": .string("folder:/Users/Shared/Wallpapers")]),
-                .object(["off": .string("__not_a_backdrop__")]), .object(["light": .string("munch-scream")]),
-                .object(["rotate": .number(1)]),
             ]
         ),
         "domain:backdrop_location": SampleSet(

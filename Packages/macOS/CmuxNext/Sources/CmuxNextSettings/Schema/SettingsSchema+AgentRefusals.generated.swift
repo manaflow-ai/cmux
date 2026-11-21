@@ -4,8 +4,8 @@
 extension SettingsSchema {
     /// Keys an agent may not set or reset, with the reason.
     public static let agentRefusedKeys: [String: AgentRefusal] = [
-        // The live-tree preview changes how the person's shared editing workflow is presented; only the person turns it on.
-        "labs.liveTree": .userOnly,
+        // On, opening the floating Chief gives it a look at the person's screen; only the person turns it on.
+        "home.chiefPanel.seesScreen": .userOnly,
         // What leaves the machine: a device proof to the Cloud service (cx-ds09i).
         "freeModel.enabled": .privacy,
         // The Cloud toggle copies the person's folder off this Mac to a paid machine: theirs to set.
@@ -96,8 +96,6 @@ extension SettingsSchema {
         "labs.machineJoin": .network,
         // On, a live code build loads Swift patches into the running app: only the person turns that on.
         "labs.liveCode": .userOnly,
-        // On, Settings edits the MCP servers, skills and commands in Claude Code's and Codex's own config files: only the person turns that on.
-        "labs.agentCustomization": .userOnly,
         // Whether cmux's own pages open developer tools, which read and change their live content: the person's call.
         "developerTools.appPages": .userOnly,
         // Whether the person's Command Palette lists the debug commands: the person's call.
@@ -166,6 +164,8 @@ extension SettingsSchema {
         "agents.trust.autoTrust": .userOnly, "agents.trust.projectRoots": .userOnly, "agents.trust.ownOrgs": .userOnly,
         // Which hosts an ssh:// link from another app connects to without asking: only the person trusts a host, so a page or an agent cannot add one and skip the confirmation.
         "ssh.linkAllowedHosts": .network,
+        // Which computers cmux dials over ssh and checks from the sidebar: the person declares a host, so an agent cannot point cmux at an address of its choosing.
+        "machines.hosts": .network,
         "phone.keepAwake": .userOnly,
         // Workspace names leave this Mac for the Cloud service: only the person turns it on.
         "phone.cloudReplica": .privacy, "phone.cloudDesktop": .privacy,
