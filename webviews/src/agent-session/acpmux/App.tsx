@@ -435,6 +435,7 @@ import {
   offersCompact,
   resumeThrough,
   answerThrough,
+  cardAnswerInFlight,
   CHAT_CHANGED,
   type TurnActions,
   CONTINUE_PROMPT,
@@ -1368,7 +1369,7 @@ function answerNextStep(question: HatQuestion, label: string, asker: string | un
   claimAnswer(key, label);
   setAnswerState(key, { sending: label });
   return answerThrough(callNative)(text).then(
-    () => setAnswerState(key, {}),
+    () => setAnswerState(key, { sent: label }),
     (error: unknown) => {
       setAnswerState(key, { failed: true });
       throw error;
@@ -6935,6 +6936,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // A prompt kept as its own failed row or in the transcript stays there; one a harness switch
           // handed back is in the composer already.
           if (keptInChat(error) || (error as { handedBack?: unknown } | null)?.handedBack === true) return;
+          // A card's answer stays with its card, which says it was not sent (turnActions.ts).
+          if (cardAnswerInFlight(text)) return;
           if (composerHandle.current) composerHandle.current.restore(text, attachments);
           else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
         },
@@ -8476,6 +8479,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
     );
     const restorePrompt = (text: string, attachments: ComposerAttachment[]) => {
+      // A card's answer stays with its card, which says it was not sent (turnActions.ts).
+      if (cardAnswerInFlight(text)) return;
       if (composerHandle.current) composerHandle.current.restore(text, attachments);
       else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
     };

@@ -1,5 +1,6 @@
 import React, { memo, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Keycap } from "../Keycap";
+import { Icon } from "../icons/Icon";
 import { useT } from "../i18n";
 import { inlineText } from "../question/inlineText";
 import { answerPrompt, type NextStepAsk } from "./nextStepAsk";
@@ -29,8 +30,13 @@ export const NextStepCard = memo(function NextStepCard({
   answerKey,
   asker,
   className,
+  answeredLook = "pressed",
 }: {
   ask: NextStepAsk;
+  /// How a clicked answer shows until the transcript reads it (the gallery compares them): the
+  /// answers row with the picked one filled and checked and the rest quiet (shipped), one checked
+  /// line in their place, or the folded answered card.
+  answeredLook?: "pressed" | "line" | "folded";
   className?: string;
   /// The answer a later prompt picked, or once `superseded`, what the person said after the card.
   answer?: string;
@@ -55,11 +61,19 @@ export const NextStepCard = memo(function NextStepCard({
     () => (answerKey ? answerState(answerKey) : own),
     () => own,
   );
-  const { sending, failed = false } = answerKey ? shared : own;
+  const { sending, sent, failed = false } = answerKey ? shared : own;
   const update = (state: AnswerState) => (answerKey ? setAnswerState(answerKey, state) : setOwn(state));
   const primary = useRef<HTMLButtonElement>(null);
   // A recap alone has no answer to send, so it leaves ⌘↩ to the composer.
-  const settled = answer !== undefined || superseded;
+  // A click shows its answer in place at once, while it goes and once it went, until the transcript
+  // reads the person's prompt (`answer`): no button comes back in between (Leo, 2026-11-19: "plus
+  // it's not instant yet").
+  const clicked = sending ?? sent;
+  const picked = answer ?? clicked;
+  // A click's answer stays in the card's own box, the picked button filled with a check and the
+  // rest quiet, so nothing moves (`answeredLook`); the transcript's answer folds it, as before.
+  const inPlace = answer === undefined && !superseded && clicked !== undefined && answeredLook !== "folded";
+  const settled = picked !== undefined || superseded;
   const pending = !settled && onAnswer !== undefined && ask.options.length > 0;
   useEffect(() => {
     if (!pending || !registerKey) return;
@@ -68,17 +82,53 @@ export const NextStepCard = memo(function NextStepCard({
   const recap = ask.recap ? <p className="acpmux-next-step__recap">{inlineText(ask.recap)}</p> : null;
   // A wrap-up with nothing to decide (wrapUp.ts): the recap alone, in the same box.
   if (!ask.question) return recap ? <div className="acpmux-next-step acpmux-next-step--recap">{recap}</div> : null;
+  // An answer the card made up (Yes, Not now) reads in the pane's words.
+  const made = ask.options.find((option) => option.key && option.label === picked)?.key;
+  if (inPlace) {
+    const label = made ? t(made) : inlineText(clicked);
+    return (
+      <fieldset
+        className={`acpmux-next-step acpmux-next-step--picked${className ? ` ${className}` : ""}`}
+        data-answered-look={answeredLook}
+        aria-label={ask.question}
+      >
+        {recap}
+        <p className="acpmux-next-step__question">{inlineText(ask.question)}</p>
+        {ask.detail && <p className="acpmux-next-step__detail">{inlineText(ask.detail)}</p>}
+        <span className="acpmux-hidden-label">{t("question.answered")}</span>
+        {answeredLook === "line" ? (
+          <p className="acpmux-next-step__picked-line">
+            <Icon name="status.check" size={12} />
+            {label}
+          </p>
+        ) : (
+          <div className="acpmux-next-step__answers">
+            {ask.options.map((option) =>
+              option.label === clicked ? (
+                <span key={option.label} className="acpmux-next-step__answer is-primary is-picked">
+                  <Icon name="status.check" size={12} />
+                  {label}
+                </span>
+              ) : (
+                <span key={option.label} className="acpmux-next-step__answer is-unpicked" aria-hidden="true">
+                  {option.key ? t(option.key) : inlineText(option.label)}
+                </span>
+              ),
+            )}
+          </div>
+        )}
+      </fieldset>
+    );
+  }
   if (settled) {
-    // An answer the card made up (Yes, Not now) reads in the pane's words.
-    const made = ask.options.find((option) => option.key && option.label === answer)?.key;
     return (
       <div className="acpmux-question-answered acpmux-next-step acpmux-next-step--answered">
         {recap}
         <span className="acpmux-hidden-label">{t("question.answered")}</span>
         <div className="acpmux-question-answered-item">
           <span className="acpmux-question-answered-prompt">{inlineText(ask.question)}</span>
-          {answer !== undefined && (
-            <span className="acpmux-question-answered-answer">{made ? t(made) : inlineText(answer)}</span>
+          {picked !== undefined && (
+            <span className="acpmux-question-answered-answer">{made ? t(made) : inlineText(picked)}</span>
           )}
         </div>
       </div>
@@ -91,7 +141,7 @@ export const NextStepCard = memo(function NextStepCard({
     // The answer goes as a reply to the ask: the question quoted with who asked, then the answer
     // (nextStepAsk.ts `answerPrompt`), so the bubble shows what it answers.
     void onAnswer(answerPrompt(ask.question, label, asker)).then(
-      () => update({}),
+      () => update({ sent: label }),
       () => update({ failed: true }),
     );
   };

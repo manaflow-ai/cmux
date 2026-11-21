@@ -180,14 +180,32 @@ export const CHAT_CHANGED = "chat changed"; // l10n-allow: an error code for the
 /// answer twice.
 export const answerThrough =
   (callNative: (method: string, params: Record<string, unknown>) => Promise<unknown>) =>
-  (text: string): Promise<void> =>
-    callNative("chat.send", { text }).then(
-      () => undefined,
+  (text: string): Promise<void> => {
+    answersInFlight.set(text, (answersInFlight.get(text) ?? 0) + 1);
+    const done = () => {
+      const left = (answersInFlight.get(text) ?? 1) - 1;
+      if (left > 0) answersInFlight.set(text, left);
+      else answersInFlight.delete(text);
+    };
+    return callNative("chat.send", { text }).then(
+      () => done(),
       (error: unknown) => {
+        done();
         if ((error as { taken?: unknown } | null)?.taken === true) return;
         throw error;
       },
     );
+  };
+
+/// The answers a card's click has on their way (`answerThrough`), by text. A refused send gives a
+/// typed prompt back to the composer; a card's answer stays with its card, which says it was not
+/// sent and keeps its buttons, and never lands in the composer as a quote waiting for Send (Leo,
+/// 2026-11-19, on a click that left "> Claude Code: [trust] ..." in his composer: "plus it's not
+/// instant yet").
+const answersInFlight = new Map<string, number>();
+
+/// Whether `text` is a card's answer on its way, which a refused send keeps out of the composer.
+export const cardAnswerInFlight = (text: string): boolean => answersInFlight.has(text);
 
 /// The prompt Compact sends: the harness's own slash command (Claude Code's and Codex's).
 /// l10n-allow: a command to the agent, not UI

@@ -109,3 +109,24 @@
   letter-spacing: var(--text-body--letter-spacing);
   line-height: var(--text-body--line-height);
 }
+/* A clicked answer, until the transcript reads it (NextStepCard.tsx `answeredLook`): the same box at
+   the same size, the picked answer filled with a check and the others quiet, so nothing moves when
+   the click lands (Leo, 2026-11-19: "plus it's not instant yet"). */
+.acpmux-next-step--picked .acpmux-next-step__answer.is-unpicked {
+  background: transparent;
+  color: var(--agent-muted);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-question-edge);
+}
+.acpmux-next-step--picked .acpmux-next-step__answer.is-picked:hover {
+  opacity: 1;
+}
+.acpmux-next-step__picked-line {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2, 8px);
+  min-height: var(--ds-control-primary, 32px);
+  margin: 0;
+  padding-top: var(--ds-space-1, 4px);
+  color: var(--agent-text);
+  overflow-wrap: anywhere;
+}
