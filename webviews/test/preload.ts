@@ -6,7 +6,11 @@
 const scope = globalThis as Record<string, unknown>;
 const hadDocument = "document" in scope;
 if (!hadDocument) scope.document = {};
-await import("@base-ui/utils/useIsoLayoutEffect");
+// @base-ui/utils is a dependency of @base-ui/react, not of this package: resolve the copy Base UI
+// itself loads, which a bare specifier finds only when the install happens to hoist it.
+await import(
+  Bun.resolveSync("@base-ui/utils/useIsoLayoutEffect", Bun.resolveSync("@base-ui/react/tooltip", import.meta.path))
+);
 if (!hadDocument) delete scope.document;
 export {};
 
