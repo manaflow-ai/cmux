@@ -189,6 +189,10 @@
     "class": "format",
     "source": "%1$@: %2$@"
   },
+  "machineStorage.line": {
+    "class": "format",
+    "source": "%1$@: %2$@"
+  },
   "sidebar.restoring.details": {
     "source": "Details",
     "identityLocales": {

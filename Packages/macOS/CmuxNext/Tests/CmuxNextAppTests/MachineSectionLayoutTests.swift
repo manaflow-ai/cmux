@@ -314,10 +314,10 @@ import Testing
     @Test func aRowsMenuIsTheRegistrysNewWorkspaceRow() {
         let registry = ActionRegistry.standard()
         let down = MachineSectionRow(id: "h1", name: "build-host", isConnected: false, isLocal: false)
-        let menu = MachineSectionHostView.menu("row", row: down, registry: registry)
+        let menu = down.menu("row", registry: registry)
         #expect(menu?.items.map(\.title) == [MachineSectionRow.newWorkspaceTitle])
         #expect(menu?.items.first?.isEnabled == false)
-        #expect(MachineSectionHostView.menu("joined", row: down, registry: registry) == nil, "only a joined machine has the joined menu")
+        #expect(down.menu("joined", registry: registry) == nil, "only a joined machine has the joined menu")
     }
 
     /// While the section is hidden the page hears nothing; showing it sends the newest snapshot once.
