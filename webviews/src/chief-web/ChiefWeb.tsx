@@ -25,6 +25,10 @@ export interface ChiefWebProps {
   storage?: Storage;
   loginApi?: MachineLoginApi;
   openSocket?: (url: string, protocols: string[]) => SocketLike;
+  /** Loads the transcript's chunk (loadChiefTranscript; tests and the gallery hand in a failing one). */
+  loadTranscript?: () => Promise<TranscriptModule>;
+  /** Reloads the page when Retry's load fails too (tests hand in a spy). */
+  reloadPage?: () => void;
 }
 
 const signIn = () => location.assign(location.pathname);
@@ -44,6 +48,11 @@ export function loadChiefTranscript(): Promise<TranscriptModule> {
   });
   return transcriptChunk;
 }
+
+/** Tries to load the transcript's chunk again after a failed load: 1 s, 2 s, 4 s ... up to 30 s apart. */
+const CHUNK_RETRY_FIRST_MS = 1_000;
+const CHUNK_RETRY_MAX_MS = 30_000;
+const reloadWindow = () => window.location.reload();
 
 function browserStorage(): Storage {
   try {
@@ -67,7 +76,14 @@ function browserStorage(): Storage {
   }
 }
 
-export function ChiefWeb({ api = chiefApi, loginApi = machineLoginApi, storage, openSocket }: ChiefWebProps) {
+export function ChiefWeb({
+  api = chiefApi,
+  loginApi = machineLoginApi,
+  storage,
+  openSocket,
+  loadTranscript = loadChiefTranscript,
+  reloadPage = reloadWindow,
+}: ChiefWebProps) {
   const t = useT();
   const [identity, setIdentity] = useState<ChiefIdentity>();
   const [failed, setFailed] = useState<"expired" | "offline" | "inaccessible">();
@@ -132,6 +148,8 @@ export function ChiefWeb({ api = chiefApi, loginApi = machineLoginApi, storage, 
           loginApi={loginApi}
           storage={saved}
           openSocket={openSocket}
+          loadTranscript={loadTranscript}
+          reloadPage={reloadPage}
         />
       ) : (
         <>
@@ -171,12 +189,16 @@ function ChiefChat({
   loginApi,
   storage,
   openSocket,
+  loadTranscript,
+  reloadPage,
 }: {
   identity: ChiefIdentity;
   api: ChiefApi;
   loginApi: MachineLoginApi;
   storage: Storage;
   openSocket?: ChiefWebProps["openSocket"];
+  loadTranscript: () => Promise<TranscriptModule>;
+  reloadPage: () => void;
 }) {
   const t = useT();
   const [transcript] = useState(() => new ChiefTranscript());
@@ -185,22 +207,43 @@ function ChiefChat({
   const [loginRun, setLoginRun] = useState<string>();
   const [expanded, setExpanded] = useState(() => new Set<string>());
   // The transcript's chunk loads beside the ticket and the socket, so it is in before the first rows.
+  // A failed load (a dropped connection) says so with Retry and keeps trying on its own, 1 s, 2 s, 4 s
+  // ... up to 30 s apart, as the guest page does. The browser may keep a failed module fetch for the
+  // page's life, so a Retry that fails again reloads the page.
   const [view, setView] = useState<TranscriptModule>();
-  const hasRows = rows.length > 0;
+  const [loadFailed, setLoadFailed] = useState(false);
+  const retryLoad = useRef<(() => void) | undefined>(undefined);
   useEffect(() => {
-    if (view) return;
-    let live = true;
-    void loadChiefTranscript().then(
-      (chunk) => {
-        if (live) setView(chunk);
-      },
-      () => {},
-    );
-    return () => {
-      live = false;
+    let stopped = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
+    const load = (delay: number, byRetry = false) => {
+      clearTimeout(retry);
+      retry = undefined;
+      const mine = ++attempt;
+      void loadTranscript().then(
+        (chunk) => {
+          if (stopped) return;
+          setLoadFailed(false);
+          setView(() => chunk);
+        },
+        () => {
+          // Only the newest attempt schedules the next one.
+          if (stopped || mine !== attempt) return;
+          if (byRetry) return reloadPage();
+          setLoadFailed(true);
+          retry = setTimeout(() => load(Math.min(delay * 2, CHUNK_RETRY_MAX_MS)), delay);
+        },
+      );
     };
-    // A failed load tries again when the first rows arrive.
-  }, [view, hasRows]);
+    retryLoad.current = () => load(CHUNK_RETRY_FIRST_MS, true);
+    load(CHUNK_RETRY_FIRST_MS);
+    return () => {
+      stopped = true;
+      clearTimeout(retry);
+      retryLoad.current = undefined;
+    };
+  }, [loadTranscript, reloadPage]);
   const [confirmed, setConfirmed] = useState(() => new Set<string>());
   const prompts = useMemo(
     () => new GuestPrompts(`chief:${identity.chiefId}:${identity.mainConversationId}`, storage),
@@ -288,7 +331,18 @@ function ChiefChat({
               setExpanded={setExpanded}
               working={working}
             />
-          ) : null
+          ) : loadFailed ? (
+            <div className="chief-web__empty" role="alert">
+              <p>{t("guest.live.loadFailed")}</p>
+              <button className="chief-web__action" onClick={() => retryLoad.current?.()}>
+                {t("retry.action")}
+              </button>
+            </div>
+          ) : (
+            <div className="chief-web__empty">
+              <Spinner size={20} />
+            </div>
+          )
         ) : (
           <div className="chief-web__empty">
             <h2>{t("chiefWeb.empty")}</h2>

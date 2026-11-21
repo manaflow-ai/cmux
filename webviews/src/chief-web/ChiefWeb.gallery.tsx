@@ -159,6 +159,10 @@ export default componentEntry<ChiefWebProps>({
     empty: { props: fixture("empty") },
     streaming: { props: fixture("streaming") },
     reconnecting: { props: fixture("reconnecting") },
+    "transcript-load-failed": {
+      props: { ...fixture(), loadTranscript: () => Promise.reject(new Error("offline")), reloadPage: () => {} },
+      note: "The transcript's chunk could not load (a dropped connection): the page says so with Retry, and keeps trying.",
+    },
     "machine-claude": {
       props: fixture("signin-claude"),
       note: "Selected: one quiet run-scoped sign-in card above the composer.",
