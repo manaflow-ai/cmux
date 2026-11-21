@@ -18969,127 +18969,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "- Start a Claude Code agent to fix the failing tests in my repo\n- What are my agents working on right now?\n- Open localhost:3000 in a browser and tell me what's broken\n- Run three Codex agents on these issues, each in its own workspace"
+            "value": "- Send three Codex agents off on these issues, each in its own workspace\n- What are my agents working on? Which ones need me?\n- Make everything more compact\n- Set my background to one of my own pictures\n- Open localhost:3000 and tell me what's broken"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "- شغّل وكيل Claude Code لإصلاح الاختبارات الفاشلة في مستودعي\n- على ماذا يعمل وكلائي الآن؟\n- افتح localhost:3000 في متصفح وأخبرني بما هو معطّل\n- شغّل ثلاثة وكلاء Codex على هذه المشكلات، كل منهم في مساحة عمل خاصة به"
+            "value": "- أرسل ثلاثة وكلاء Codex للعمل على هذه المشكلات، كل منهم في مساحة عمل خاصة به\n- على ماذا يعمل وكلائي؟ أيهم يحتاج إليّ؟\n- اجعل كل شيء أكثر إحكامًا\n- اجعل خلفيتي إحدى صوري\n- افتح localhost:3000 وأخبرني بما هو معطّل"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "- Pokreni Claude Code agenta da popravi neuspjele testove u mom repozitoriju\n- Na čemu moji agenti trenutno rade?\n- Otvori localhost:3000 u pregledniku i reci mi šta ne radi\n- Pokreni tri Codex agenta na ovim problemima, svakog u svom radnom prostoru"
+            "value": "- Pošalji tri Codex agenta na ove probleme, svakog u vlastiti radni prostor\n- Na čemu rade moji agenti? Kojima sam potreban?\n- Učini sve kompaktnijim\n- Postavi jednu od mojih slika kao pozadinu\n- Otvori localhost:3000 i reci mi šta ne radi"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "- Start en Claude Code-agent, der retter de fejlende tests i mit repo\n- Hvad arbejder mine agenter på lige nu?\n- Åbn localhost:3000 i en browser, og fortæl mig, hvad der er galt\n- Kør tre Codex-agenter på disse issues, hver i sit eget arbejdsområde"
+            "value": "- Send tre Codex-agenter af sted på disse issues, hver i sit eget arbejdsområde\n- Hvad arbejder mine agenter på? Hvilke har brug for mig?\n- Gør det hele mere kompakt\n- Brug et af mine egne billeder som baggrund\n- Åbn localhost:3000 og fortæl mig, hvad der er i stykker"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "- Starte einen Claude Code-Agenten, der die fehlschlagenden Tests in meinem Repo behebt\n- Woran arbeiten meine Agenten gerade?\n- Öffne localhost:3000 in einem Browser und sag mir, was kaputt ist\n- Setze drei Codex-Agenten auf diese Issues an, jeden in seinem eigenen Workspace"
+            "value": "- Schick drei Codex-Agenten auf diese Issues los, jeden in einem eigenen Workspace\n- Woran arbeiten meine Agenten? Welche brauchen mich?\n- Mach alles kompakter\n- Nimm eines meiner eigenen Bilder als Hintergrund\n- Öffne localhost:3000 und sag mir, was kaputt ist"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "- Inicia un agente de Claude Code para arreglar las pruebas que fallan en mi repo\n- ¿En qué están trabajando mis agentes ahora mismo?\n- Abre localhost:3000 en un navegador y dime qué está roto\n- Ejecuta tres agentes de Codex con estas incidencias, cada uno en su propio espacio de trabajo"
+            "value": "- Envía tres agentes de Codex a estos issues, cada uno en su propio espacio de trabajo\n- ¿En qué trabajan mis agentes? ¿Cuáles me necesitan?\n- Haz todo más compacto\n- Pon una de mis imágenes como fondo\n- Abre localhost:3000 y dime qué está roto"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "- Lance un agent Claude Code pour corriger les tests qui échouent dans mon dépôt\n- Sur quoi travaillent mes agents en ce moment ?\n- Ouvre localhost:3000 dans un navigateur et dis-moi ce qui ne va pas\n- Lance trois agents Codex sur ces tickets, chacun dans son propre espace de travail"
+            "value": "- Envoie trois agents Codex sur ces tickets, chacun dans son propre espace de travail\n- Sur quoi travaillent mes agents ? Lesquels ont besoin de moi ?\n- Rends tout plus compact\n- Mets l’une de mes images en fond\n- Ouvre localhost:3000 et dis-moi ce qui ne marche pas"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "- Avvia un agente Claude Code per correggere i test che falliscono nel mio repo\n- Su cosa stanno lavorando i miei agenti adesso?\n- Apri localhost:3000 in un browser e dimmi cosa non funziona\n- Esegui tre agenti Codex su queste issue, ognuno nel proprio spazio di lavoro"
+            "value": "- Manda tre agenti Codex su queste issue, ognuno nel proprio spazio di lavoro\n- Su cosa lavorano i miei agenti? Quali hanno bisogno di me?\n- Rendi tutto più compatto\n- Usa una delle mie immagini come sfondo\n- Apri localhost:3000 e dimmi cosa non funziona"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "- Claude Code エージェントを起動して、リポジトリの失敗しているテストを直して\n- いまエージェントたちは何をしている？\n- localhost:3000 をブラウザで開いて、どこが壊れているか教えて\n- この Issue に Codex エージェントを 3 つ、それぞれ別のワークスペースで走らせて"
+            "value": "- この 3 つの issue に Codex エージェントを 1 つずつ送り出して。それぞれ専用のワークスペースで\n- エージェントたちは何をしている？対応が必要なのはどれ？\n- 全体をもっとコンパクトにして\n- 背景を自分の写真にして\n- localhost:3000 を開いて、どこが壊れているか教えて"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "- ចាប់ផ្ដើមភ្នាក់ងារ Claude Code ដើម្បីជួសជុលតេស្តដែលបរាជ័យក្នុង repo របស់ខ្ញុំ\n- តើភ្នាក់ងាររបស់ខ្ញុំកំពុងធ្វើអ្វីឥឡូវនេះ?\n- បើក localhost:3000 ក្នុងកម្មវិធីរុករក ហើយប្រាប់ខ្ញុំថាអ្វីខូច\n- ដំណើរការភ្នាក់ងារ Codex បីលើបញ្ហាទាំងនេះ ម្នាក់ៗក្នុងកន្លែងធ្វើការរបស់ខ្លួន"
+            "value": "- បញ្ជូនភ្នាក់ងារ Codex បីទៅលើបញ្ហាទាំងនេះ ម្នាក់ៗក្នុងកន្លែងធ្វើការផ្ទាល់ខ្លួន\n- តើភ្នាក់ងាររបស់ខ្ញុំកំពុងធ្វើអ្វី? មួយណាត្រូវការខ្ញុំ?\n- ធ្វើឱ្យអ្វីៗបង្រួមជាងនេះ\n- ដាក់រូបភាពមួយរបស់ខ្ញុំជាផ្ទៃខាងក្រោយ\n- បើក localhost:3000 ហើយប្រាប់ខ្ញុំពីអ្វីដែលខូច"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "- Claude Code 에이전트를 시작해서 내 저장소의 실패하는 테스트를 고쳐 줘\n- 지금 내 에이전트들은 무슨 작업을 하고 있어?\n- 브라우저에서 localhost:3000을 열고 무엇이 망가졌는지 알려 줘\n- 이 이슈들에 Codex 에이전트 세 개를 각자 별도 워크스페이스에서 실행해 줘"
+            "value": "- 이 이슈들에 Codex 에이전트 세 개를 보내 줘. 각자 전용 워크스페이스에서\n- 내 에이전트들은 뭘 하고 있어? 내가 봐야 할 건 뭐야?\n- 전체를 더 촘촘하게 해 줘\n- 내 사진 하나를 배경으로 설정해 줘\n- localhost:3000을 열고 뭐가 고장 났는지 알려 줘"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "- Start en Claude Code-agent som fikser testene som feiler i repoet mitt\n- Hva jobber agentene mine med akkurat nå?\n- Åpne localhost:3000 i en nettleser og fortell meg hva som er galt\n- Kjør tre Codex-agenter på disse sakene, hver i sitt eget arbeidsområde"
+            "value": "- Send tre Codex-agenter av gårde på disse sakene, hver i sitt eget arbeidsområde\n- Hva jobber agentene mine med? Hvilke trenger meg?\n- Gjør alt mer kompakt\n- Bruk et av mine egne bilder som bakgrunn\n- Åpne localhost:3000 og fortell meg hva som er galt"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "- Uruchom agenta Claude Code, który naprawi nieprzechodzące testy w moim repozytorium\n- Nad czym teraz pracują moi agenci?\n- Otwórz localhost:3000 w przeglądarce i powiedz mi, co nie działa\n- Uruchom trzech agentów Codex do tych zgłoszeń, każdego w osobnej przestrzeni roboczej"
+            "value": "- Wyślij trzech agentów Codex do tych zgłoszeń, każdego we własnym obszarze roboczym\n- Nad czym pracują moi agenci? Którzy mnie potrzebują?\n- Zrób wszystko bardziej kompaktowe\n- Ustaw jedno z moich zdjęć jako tło\n- Otwórz localhost:3000 i powiedz mi, co nie działa"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "- Inicie um agente do Claude Code para corrigir os testes que estão falhando no meu repositório\n- No que meus agentes estão trabalhando agora?\n- Abra localhost:3000 em um navegador e me diga o que está quebrado\n- Rode três agentes do Codex nessas issues, cada um em seu próprio espaço de trabalho"
+            "value": "- Envie três agentes do Codex para estas issues, cada um em seu próprio espaço de trabalho\n- No que meus agentes estão trabalhando? Quais precisam de mim?\n- Deixe tudo mais compacto\n- Use uma das minhas imagens como fundo\n- Abra localhost:3000 e me diga o que está quebrado"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "- Запусти агента Claude Code, чтобы починить падающие тесты в моём репозитории\n- Над чем сейчас работают мои агенты?\n- Открой localhost:3000 в браузере и скажи, что сломано\n- Запусти трёх агентов Codex по этим задачам, каждого в своём рабочем пространстве"
+            "value": "- Отправь трёх агентов Codex на эти задачи, каждого в своё рабочее пространство\n- Над чем работают мои агенты? Кому нужна моя помощь?\n- Сделай всё компактнее\n- Поставь одну из моих фотографий на фон\n- Открой localhost:3000 и скажи, что сломано"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "- เริ่มเอเจนต์ Claude Code เพื่อแก้เทสต์ที่ล้มเหลวใน repo ของฉัน\n- ตอนนี้เอเจนต์ของฉันกำลังทำอะไรอยู่?\n- เปิด localhost:3000 ในเบราว์เซอร์แล้วบอกฉันว่าอะไรเสีย\n- รันเอเจนต์ Codex สามตัวกับ issue เหล่านี้ แต่ละตัวในเวิร์กสเปซของตัวเอง"
+            "value": "- ส่งเอเจนต์ Codex สามตัวไปทำ issue เหล่านี้ แต่ละตัวในเวิร์กสเปซของตัวเอง\n- เอเจนต์ของฉันกำลังทำอะไรอยู่ ตัวไหนต้องการฉัน\n- ทำให้ทุกอย่างกะทัดรัดขึ้น\n- ตั้งรูปของฉันเองเป็นพื้นหลัง\n- เปิด localhost:3000 แล้วบอกว่าอะไรเสีย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "- Depomdaki başarısız testleri düzeltmesi için bir Claude Code ajanı başlat\n- Ajanlarım şu anda ne üzerinde çalışıyor?\n- localhost:3000'i bir tarayıcıda aç ve neyin bozuk olduğunu söyle\n- Bu sorunlar için her biri kendi çalışma alanında üç Codex ajanı çalıştır"
+            "value": "- Bu sorunlara üç Codex ajanı gönder, her biri kendi çalışma alanında\n- Ajanlarım ne üzerinde çalışıyor? Hangilerinin bana ihtiyacı var?\n- Her şeyi daha sıkı yap\n- Kendi resimlerimden birini arka plan yap\n- localhost:3000'i aç ve neyin bozuk olduğunu söyle"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "- Запусти агента Claude Code, щоб виправити тести, що падають, у моєму репозиторії\n- Над чим зараз працюють мої агенти?\n- Відкрий localhost:3000 у браузері й скажи, що зламано\n- Запусти трьох агентів Codex на ці задачі, кожного у власному робочому просторі"
+            "value": "- Відправ трьох агентів Codex на ці задачі, кожного у власний робочий простір\n- Над чим працюють мої агенти? Кому потрібна моя допомога?\n- Зроби все компактнішим\n- Постав одне з моїх зображень на фон\n- Відкрий localhost:3000 і скажи, що зламано"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "- Khởi động một tác tử Claude Code để sửa các bài kiểm thử đang lỗi trong repo của tôi\n- Các tác tử của tôi đang làm gì lúc này?\n- Mở localhost:3000 trong trình duyệt và cho tôi biết cái gì bị hỏng\n- Chạy ba tác tử Codex cho các issue này, mỗi tác tử trong không gian làm việc riêng"
+            "value": "- Gửi ba tác nhân Codex xử lý các issue này, mỗi cái trong không gian làm việc riêng\n- Các tác nhân của tôi đang làm gì? Cái nào cần tôi?\n- Làm mọi thứ gọn hơn\n- Đặt một ảnh của tôi làm hình nền\n- Mở localhost:3000 và cho tôi biết chỗ nào bị lỗi"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "- 启动一个 Claude Code 代理，修复我仓库里失败的测试\n- 我的代理们现在在做什么？\n- 在浏览器中打开 localhost:3000，告诉我哪里坏了\n- 针对这些 issue 运行三个 Codex 代理，每个都在自己的工作区里"
+            "value": "- 派三个 Codex 智能体处理这些 issue，每个在自己的工作区里\n- 我的智能体都在做什么？哪些需要我？\n- 把一切都调得更紧凑\n- 把我自己的一张图片设为背景\n- 打开 localhost:3000，告诉我哪里坏了"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "- 啟動一個 Claude Code 代理，修好我儲存庫裡失敗的測試\n- 我的代理們現在在做什麼？\n- 在瀏覽器中開啟 localhost:3000，告訴我哪裡壞了\n- 針對這些 issue 執行三個 Codex 代理，每個都在自己的工作區裡"
+            "value": "- 派三個 Codex 代理處理這些 issue，每個在自己的工作區裡\n- 我的代理都在做什麼？哪些需要我？\n- 把一切都調得更緊湊\n- 把我自己的一張圖片設為背景\n- 開啟 localhost:3000，告訴我哪裡壞了"
           }
         }
       }
@@ -19893,127 +19893,127 @@
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "إليك ما يمكنني فعله لك:\n- **تشغيل وكلاء البرمجة**: Claude Code وCodex وغيرها، كل منها في مساحة عمل خاصة به\n- **متابعتهم**: ما يعمل عليه كل واحد، وما انتهى منها، وما يحتاج إليك\n- **فحص صفحات الويب**: فتح صفحة في المتصفح وإخبارك بما هو معطّل\n- **إعداد cmux بطريقتك**: مساحات العمل والتخطيطات والسمات والإعدادات\n\nأخبرني فقط بما تريد إنجازه."
+            "value" : "إليك لمحة عما يمكنني فعله:\n- **إرسال الوكلاء**: تشغيل Claude Code وCodex وغيرها، كل منها في مساحة عمل خاصة به\n- **مراقبة مساحات عملك**: ما يفعله كل وكيل، وما انتهى منها، وما يحتاج إليك\n- **تغيير إعداداتك**: الكثافة والاختصارات وما تفتحه علامة التبويب الجديدة، وأي شيء في الإعدادات\n- **تعيين خلفيتك**: لوحة مدمجة أو إحدى صورك\n- **ترتيب مساحات عملك**: فتح مساحات العمل وعلامات التبويب وتقسيمها وإعادة تسميتها وترتيبها\n- **فحص صفحات الويب**: فتح صفحة في المتصفح وإخبارك بما هو معطّل\n\nأخبرني فقط بما تريد إنجازه."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Evo šta mogu uraditi za vas:\n- **Pokrenuti agente za kodiranje**: Claude Code, Codex i druge, svaki u vlastitom radnom prostoru\n- **Pratiti ih**: na čemu svaki radi, koji su gotovi i kojima ste potrebni\n- **Provjeriti web stranice**: otvoriti stranicu u pregledniku i reći vam šta ne radi\n- **Podesiti cmux po vašem**: radni prostori, rasporedi, teme i postavke\n\nSamo mi recite šta želite uraditi."
+            "value" : "Evo dijela onoga što mogu uraditi:\n- **Poslati agente na posao**: pokrenuti Claude Code, Codex i druge, svaki u vlastitom radnom prostoru\n- **Pratiti vaše radne prostore**: šta svaki agent radi, koji su gotovi i kojima ste potrebni\n- **Promijeniti postavke**: gustoća, prečice, šta otvara nova kartica, bilo šta u Postavkama\n- **Postaviti pozadinu**: ugrađena slika ili jedna od vaših fotografija\n- **Urediti radne prostore**: otvoriti, podijeliti, preimenovati i srediti radne prostore i kartice\n- **Provjeriti web stranice**: otvoriti stranicu u pregledniku i reći vam šta ne radi\n\nSamo mi recite šta želite uraditi."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Det her kan jeg gøre for dig:\n- **Starte kodeagenter**: Claude Code, Codex og andre, hver i sit eget arbejdsområde\n- **Holde styr på dem**: hvad hver enkelt arbejder på, hvilke der er færdige, og hvilke der har brug for dig\n- **Tjekke websider**: åbne en side i browseren og fortælle dig, hvad der er i stykker\n- **Indrette cmux, som du vil have det**: arbejdsområder, layouts, temaer og indstillinger\n\nFortæl mig bare, hvad du vil have gjort."
+            "value" : "Her er et glimt af, hvad jeg kan:\n- **Sende agenter af sted**: starte Claude Code, Codex og andre, hver i sit eget arbejdsområde\n- **Holde øje med dine arbejdsområder**: hvad hver agent laver, hvilke der er færdige, og hvilke der har brug for dig\n- **Ændre dine indstillinger**: tæthed, genveje, hvad en ny fane åbner, alt i Indstillinger\n- **Vælge din baggrund**: et indbygget maleri eller et af dine egne billeder\n- **Organisere dine arbejdsområder**: åbne, opdele, omdøbe og rydde op i arbejdsområder og faner\n- **Tjekke websider**: åbne en side i browseren og fortælle dig, hvad der er i stykker\n\nFortæl mig bare, hvad du vil have gjort."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Das kann ich für dich tun:\n- **Coding-Agenten starten**: Claude Code, Codex und andere, jeder in einem eigenen Workspace\n- **Den Überblick behalten**: woran jeder arbeitet, welche fertig sind und welche dich brauchen\n- **Webseiten prüfen**: eine Seite im Browser öffnen und dir sagen, was kaputt ist\n- **cmux nach deinem Geschmack einrichten**: Workspaces, Layouts, Themes und Einstellungen\n\nSag mir einfach, was erledigt werden soll."
+            "value" : "Ein kleiner Einblick, was ich kann:\n- **Agenten losschicken**: Claude Code, Codex und andere starten, jeder in einem eigenen Workspace\n- **Deine Workspaces im Blick behalten**: was jeder Agent tut, welche fertig sind und welche dich brauchen\n- **Einstellungen ändern**: Dichte, Kurzbefehle, was ein neuer Tab öffnet, alles in den Einstellungen\n- **Hintergrund festlegen**: ein eingebautes Gemälde oder eines deiner eigenen Bilder\n- **Workspaces ordnen**: Workspaces und Tabs öffnen, teilen, umbenennen und aufräumen\n- **Webseiten prüfen**: eine Seite im Browser öffnen und dir sagen, was kaputt ist\n\nSag mir einfach, was erledigt werden soll."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Here's what I can do for you:\n- **Start coding agents**: Claude Code, Codex and others, each in a workspace of its own\n- **Keep track of them**: what each one is working on, which are done and which need you\n- **Check web pages**: open a page in the browser and tell you what's broken\n- **Set up cmux your way**: workspaces, layouts, themes and settings\n\nJust tell me what you want done."
+            "value" : "Here's a glimpse of what I can do:\n- **Send off agents**: start Claude Code, Codex and others, each in a workspace of its own\n- **Watch your workspaces**: what each agent is doing, which are done and which need you\n- **Change your settings**: density, shortcuts, what a new tab opens, anything in Settings\n- **Set your background**: a built-in painting or one of your own pictures\n- **Arrange your workspaces**: open, split, rename and tidy workspaces and tabs\n- **Check web pages**: open a page in the browser and tell you what's broken\n\nJust tell me what you want done."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Esto es lo que puedo hacer por ti:\n- **Iniciar agentes de programación**: Claude Code, Codex y otros, cada uno en su propio espacio de trabajo\n- **Seguirles la pista**: en qué trabaja cada uno, cuáles terminaron y cuáles te necesitan\n- **Revisar páginas web**: abrir una página en el navegador y decirte qué está roto\n- **Configurar cmux a tu manera**: espacios de trabajo, diseños, temas y ajustes\n\nSolo dime qué quieres hacer."
+            "value" : "Un vistazo a lo que puedo hacer:\n- **Enviar agentes**: iniciar Claude Code, Codex y otros, cada uno en su propio espacio de trabajo\n- **Vigilar tus espacios de trabajo**: qué hace cada agente, cuáles terminaron y cuáles te necesitan\n- **Cambiar tus ajustes**: densidad, atajos, qué abre una pestaña nueva, cualquier cosa de Ajustes\n- **Poner tu fondo**: una pintura incluida o una de tus propias imágenes\n- **Organizar tus espacios de trabajo**: abrir, dividir, renombrar y ordenar espacios de trabajo y pestañas\n- **Revisar páginas web**: abrir una página en el navegador y decirte qué está roto\n\nSolo dime qué quieres hacer."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Voici ce que je peux faire pour vous :\n- **Lancer des agents de code** : Claude Code, Codex et d’autres, chacun dans son propre espace de travail\n- **Les suivre** : ce sur quoi chacun travaille, lesquels ont terminé et lesquels ont besoin de vous\n- **Vérifier des pages web** : ouvrir une page dans le navigateur et vous dire ce qui ne marche pas\n- **Configurer cmux à votre façon** : espaces de travail, dispositions, thèmes et réglages\n\nDites-moi simplement ce que vous voulez faire."
+            "value" : "Un aperçu de ce que je sais faire :\n- **Envoyer des agents**: lancer Claude Code, Codex et d’autres, chacun dans son propre espace de travail\n- **Surveiller vos espaces de travail**: ce que fait chaque agent, lesquels ont terminé et lesquels ont besoin de vous\n- **Modifier vos réglages**: densité, raccourcis, ce qu’ouvre un nouvel onglet, tout ce qui est dans Réglages\n- **Choisir votre fond**: une peinture intégrée ou l’une de vos propres images\n- **Organiser vos espaces de travail**: ouvrir, diviser, renommer et ranger espaces de travail et onglets\n- **Vérifier des pages web**: ouvrir une page dans le navigateur et vous dire ce qui ne marche pas\n\nDites-moi simplement ce que vous voulez faire."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ecco cosa posso fare per te:\n- **Avviare agenti di programmazione**: Claude Code, Codex e altri, ognuno nel proprio spazio di lavoro\n- **Tenerli d’occhio**: su cosa lavora ciascuno, quali hanno finito e quali hanno bisogno di te\n- **Controllare pagine web**: aprire una pagina nel browser e dirti cosa non funziona\n- **Configurare cmux come preferisci**: spazi di lavoro, layout, temi e impostazioni\n\nDimmi solo cosa vuoi fare."
+            "value" : "Ecco un assaggio di cosa posso fare:\n- **Mandare agenti al lavoro**: avviare Claude Code, Codex e altri, ognuno nel proprio spazio di lavoro\n- **Tenere d’occhio i tuoi spazi di lavoro**: cosa fa ciascun agente, quali hanno finito e quali hanno bisogno di te\n- **Cambiare le impostazioni**: densità, scorciatoie, cosa apre una nuova scheda, qualsiasi cosa nelle Impostazioni\n- **Impostare lo sfondo**: un dipinto incluso o una delle tue immagini\n- **Sistemare i tuoi spazi di lavoro**: aprire, dividere, rinominare e riordinare spazi di lavoro e schede\n- **Controllare pagine web**: aprire una pagina nel browser e dirti cosa non funziona\n\nDimmi solo cosa vuoi fare."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "私にできること:\n- **コーディングエージェントを起動**：Claude Code、Codex など。それぞれ専用のワークスペースで\n- **進み具合を把握**：各エージェントの作業内容、完了したもの、あなたの対応が必要なもの\n- **Web ページを確認**：ブラウザでページを開き、どこが壊れているかお伝えします\n- **cmux をあなた好みに設定**：ワークスペース、レイアウト、テーマ、設定\n\nやりたいことを伝えてください。"
+            "value" : "私にできることを少しご紹介します:\n- **エージェントを送り出す**：Claude Code、Codex などを、それぞれ専用のワークスペースで起動\n- **ワークスペースを見守る**：各エージェントの作業内容、完了したもの、あなたの対応が必要なもの\n- **設定を変更**：密度、ショートカット、新しいタブで開くものなど、設定のすべて\n- **背景を設定**：内蔵の絵画や、あなた自身の写真\n- **ワークスペースを整理**：ワークスペースやタブを開く、分割する、名前を変える、片付ける\n- **Web ページを確認**：ブラウザでページを開き、どこが壊れているかお伝えします\n\nやりたいことを伝えてください。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "នេះជាអ្វីដែលខ្ញុំអាចធ្វើបានសម្រាប់អ្នក៖\n- **ចាប់ផ្ដើមភ្នាក់ងារសរសេរកូដ**: Claude Code, Codex និងផ្សេងទៀត ម្នាក់ៗក្នុងកន្លែងធ្វើការផ្ទាល់ខ្លួន\n- **តាមដានពួកវា**: អ្វីដែលម្នាក់ៗកំពុងធ្វើ អ្វីដែលបានរួចរាល់ និងអ្វីដែលត្រូវការអ្នក\n- **ពិនិត្យទំព័របណ្ដាញ**: បើកទំព័រក្នុងកម្មវិធីរុករក ហើយប្រាប់អ្នកពីអ្វីដែលខូច\n- **រៀបចំ cmux តាមចិត្តអ្នក**: កន្លែងធ្វើការ ប្លង់ ស្បែក និងការកំណត់\n\nគ្រាន់តែប្រាប់ខ្ញុំពីអ្វីដែលអ្នកចង់ធ្វើ។"
+            "value" : "នេះជាការមើលបន្តិចពីអ្វីដែលខ្ញុំអាចធ្វើបាន៖\n- **បញ្ជូនភ្នាក់ងារ**: ចាប់ផ្ដើម Claude Code, Codex និងផ្សេងទៀត ម្នាក់ៗក្នុងកន្លែងធ្វើការផ្ទាល់ខ្លួន\n- **តាមដានកន្លែងធ្វើការរបស់អ្នក**: អ្វីដែលភ្នាក់ងារម្នាក់ៗកំពុងធ្វើ អ្វីដែលរួចរាល់ និងអ្វីដែលត្រូវការអ្នក\n- **ប្ដូរការកំណត់របស់អ្នក**: ដង់ស៊ីតេ ផ្លូវកាត់ អ្វីដែលផ្ទាំងថ្មីបើក និងអ្វីៗក្នុងការកំណត់\n- **កំណត់ផ្ទៃខាងក្រោយរបស់អ្នក**: គំនូរដែលមានស្រាប់ ឬរូបភាពផ្ទាល់ខ្លួនរបស់អ្នក\n- **រៀបចំកន្លែងធ្វើការរបស់អ្នក**: បើក បំបែក ប្ដូរឈ្មោះ និងរៀបចំកន្លែងធ្វើការ និងផ្ទាំង\n- **ពិនិត្យទំព័របណ្ដាញ**: បើកទំព័រក្នុងកម្មវិធីរុករក ហើយប្រាប់អ្នកពីអ្វីដែលខូច\n\nគ្រាន់តែប្រាប់ខ្ញុំពីអ្វីដែលអ្នកចង់ធ្វើ។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "제가 도와드릴 수 있는 일:\n- **코딩 에이전트 시작**: Claude Code, Codex 등을 각자 전용 워크스페이스에서\n- **진행 상황 파악**: 각 에이전트가 하는 일, 끝난 것, 확인이 필요한 것\n- **웹 페이지 확인**: 브라우저에서 페이지를 열고 무엇이 고장 났는지 알려 드립니다\n- **cmux를 원하는 대로 설정**: 워크스페이스, 레이아웃, 테마, 설정\n\n원하는 일을 말씀만 해 주세요."
+            "value" : "제가 할 수 있는 일을 살짝 보여 드릴게요:\n- **에이전트 보내기**: Claude Code, Codex 등을 각자 전용 워크스페이스에서 시작\n- **워크스페이스 지켜보기**: 각 에이전트가 하는 일, 끝난 것, 확인이 필요한 것\n- **설정 변경**: 밀도, 단축키, 새 탭에서 여는 것 등 설정의 모든 것\n- **배경 설정**: 기본 제공 그림이나 직접 고른 사진\n- **워크스페이스 정리**: 워크스페이스와 탭을 열고, 분할하고, 이름을 바꾸고, 정리\n- **웹 페이지 확인**: 브라우저에서 페이지를 열고 무엇이 고장 났는지 알려 드립니다\n\n원하는 일을 말씀만 해 주세요."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dette kan jeg gjøre for deg:\n- **Starte kodeagenter**: Claude Code, Codex og andre, hver i sitt eget arbeidsområde\n- **Holde oversikt over dem**: hva hver av dem jobber med, hvilke som er ferdige, og hvilke som trenger deg\n- **Sjekke nettsider**: åpne en side i nettleseren og fortelle deg hva som er galt\n- **Sette opp cmux slik du vil**: arbeidsområder, oppsett, temaer og innstillinger\n\nBare si hva du vil ha gjort."
+            "value" : "Her er et glimt av hva jeg kan gjøre:\n- **Sende av gårde agenter**: starte Claude Code, Codex og andre, hver i sitt eget arbeidsområde\n- **Følge med på arbeidsområdene dine**: hva hver agent gjør, hvilke som er ferdige, og hvilke som trenger deg\n- **Endre innstillingene dine**: tetthet, snarveier, hva en ny fane åpner, alt i Innstillinger\n- **Velge bakgrunn**: et innebygd maleri eller et av dine egne bilder\n- **Ordne arbeidsområdene dine**: åpne, dele, gi nytt navn til og rydde i arbeidsområder og faner\n- **Sjekke nettsider**: åpne en side i nettleseren og fortelle deg hva som er galt\n\nBare si hva du vil ha gjort."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Oto, co mogę dla Ciebie zrobić:\n- **Uruchamiać agentów do kodowania**: Claude Code, Codex i inne, każdy we własnym obszarze roboczym\n- **Śledzić ich pracę**: nad czym pracuje każdy z nich, którzy skończyli, a którzy Cię potrzebują\n- **Sprawdzać strony internetowe**: otworzyć stronę w przeglądarce i powiedzieć Ci, co nie działa\n- **Skonfigurować cmux po Twojemu**: obszary robocze, układy, motywy i ustawienia\n\nPo prostu powiedz mi, co chcesz zrobić."
+            "value" : "Oto przedsmak tego, co potrafię:\n- **Wysyłać agentów do pracy**: uruchamiać Claude Code, Codex i inne, każdy we własnym obszarze roboczym\n- **Pilnować Twoich obszarów roboczych**: co robi każdy agent, którzy skończyli, a którzy Cię potrzebują\n- **Zmieniać ustawienia**: gęstość, skróty, co otwiera nowa karta, wszystko w Ustawieniach\n- **Ustawiać tło**: wbudowany obraz lub jedno z Twoich zdjęć\n- **Porządkować obszary robocze**: otwierać, dzielić, zmieniać nazwy i porządkować obszary robocze i karty\n- **Sprawdzać strony internetowe**: otworzyć stronę w przeglądarce i powiedzieć Ci, co nie działa\n\nPo prostu powiedz mi, co chcesz zrobić."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Veja o que posso fazer por você:\n- **Iniciar agentes de programação**: Claude Code, Codex e outros, cada um em seu próprio espaço de trabalho\n- **Acompanhar os agentes**: no que cada um está trabalhando, quais terminaram e quais precisam de você\n- **Verificar páginas da web**: abrir uma página no navegador e dizer o que está quebrado\n- **Configurar o cmux do seu jeito**: espaços de trabalho, layouts, temas e ajustes\n\nÉ só me dizer o que você quer fazer."
+            "value" : "Uma amostra do que posso fazer:\n- **Enviar agentes**: iniciar Claude Code, Codex e outros, cada um em seu próprio espaço de trabalho\n- **Acompanhar seus espaços de trabalho**: o que cada agente está fazendo, quais terminaram e quais precisam de você\n- **Mudar seus ajustes**: densidade, atalhos, o que uma nova aba abre, qualquer coisa em Ajustes\n- **Definir seu fundo**: uma pintura incluída ou uma das suas próprias imagens\n- **Organizar seus espaços de trabalho**: abrir, dividir, renomear e arrumar espaços de trabalho e abas\n- **Verificar páginas da web**: abrir uma página no navegador e dizer o que está quebrado\n\nÉ só me dizer o que você quer fazer."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Вот что я могу для вас сделать:\n- **Запускать агентов для кода**: Claude Code, Codex и другие, каждый в своём рабочем пространстве\n- **Следить за ними**: над чем работает каждый, кто уже закончил и кому нужна ваша помощь\n- **Проверять веб-страницы**: открыть страницу в браузере и рассказать, что сломано\n- **Настроить cmux под вас**: рабочие пространства, раскладки, темы и настройки\n\nПросто скажите, что нужно сделать."
+            "value" : "Вот немного из того, что я умею:\n- **Отправлять агентов в работу**: запускать Claude Code, Codex и другие, каждый в своём рабочем пространстве\n- **Следить за рабочими пространствами**: что делает каждый агент, кто уже закончил и кому нужна ваша помощь\n- **Менять настройки**: плотность, сочетания клавиш, что открывает новая вкладка, всё в Настройках\n- **Ставить фон**: встроенную картину или одну из ваших фотографий\n- **Упорядочивать рабочие пространства**: открывать, разделять, переименовывать и прибирать рабочие пространства и вкладки\n- **Проверять веб-страницы**: открыть страницу в браузере и рассказать, что сломано\n\nПросто скажите, что нужно сделать."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "สิ่งที่ฉันทำให้คุณได้:\n- **เริ่มเอเจนต์เขียนโค้ด**: Claude Code, Codex และอื่นๆ แต่ละตัวอยู่ในเวิร์กสเปซของตัวเอง\n- **ติดตามความคืบหน้า**: แต่ละตัวกำลังทำอะไร ตัวไหนเสร็จแล้ว และตัวไหนต้องการคุณ\n- **ตรวจสอบหน้าเว็บ**: เปิดหน้าเว็บในเบราว์เซอร์และบอกคุณว่าอะไรเสีย\n- **ตั้งค่า cmux ในแบบของคุณ**: เวิร์กสเปซ เลย์เอาต์ ธีม และการตั้งค่า\n\nแค่บอกฉันว่าคุณต้องการให้ทำอะไร"
+            "value" : "ตัวอย่างสิ่งที่ฉันทำได้:\n- **ส่งเอเจนต์ไปทำงาน**: เริ่ม Claude Code, Codex และอื่นๆ แต่ละตัวอยู่ในเวิร์กสเปซของตัวเอง\n- **ดูแลเวิร์กสเปซของคุณ**: เอเจนต์แต่ละตัวกำลังทำอะไร ตัวไหนเสร็จแล้ว และตัวไหนต้องการคุณ\n- **เปลี่ยนการตั้งค่า**: ความหนาแน่น ปุ่มลัด สิ่งที่แท็บใหม่เปิด และทุกอย่างในการตั้งค่า\n- **ตั้งพื้นหลัง**: ภาพวาดที่มีให้ในตัวหรือรูปภาพของคุณเอง\n- **จัดเวิร์กสเปซของคุณ**: เปิด แบ่ง เปลี่ยนชื่อ และจัดระเบียบเวิร์กสเปซและแท็บ\n- **ตรวจสอบหน้าเว็บ**: เปิดหน้าเว็บในเบราว์เซอร์และบอกคุณว่าอะไรเสีย\n\nแค่บอกฉันว่าคุณต้องการให้ทำอะไร"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sizin için yapabileceklerim:\n- **Kodlama ajanları başlatmak**: Claude Code, Codex ve diğerleri, her biri kendi çalışma alanında\n- **Onları takip etmek**: her birinin ne üzerinde çalıştığı, hangilerinin bittiği ve hangilerinin size ihtiyaç duyduğu\n- **Web sayfalarını kontrol etmek**: tarayıcıda bir sayfa açıp neyin bozuk olduğunu söylemek\n- **cmux'u istediğiniz gibi ayarlamak**: çalışma alanları, düzenler, temalar ve ayarlar\n\nNe yapılmasını istediğinizi söylemeniz yeterli."
+            "value" : "Yapabileceklerimden küçük bir örnek:\n- **Ajanları işe göndermek**: Claude Code, Codex ve diğerlerini her biri kendi çalışma alanında başlatmak\n- **Çalışma alanlarınızı izlemek**: her ajanın ne yaptığı, hangilerinin bittiği ve hangilerinin size ihtiyaç duyduğu\n- **Ayarlarınızı değiştirmek**: yoğunluk, kısayollar, yeni sekmenin ne açtığı, Ayarlar'daki her şey\n- **Arka planınızı ayarlamak**: yerleşik bir tablo ya da kendi resimlerinizden biri\n- **Çalışma alanlarınızı düzenlemek**: çalışma alanlarını ve sekmeleri açmak, bölmek, yeniden adlandırmak ve toplamak\n- **Web sayfalarını kontrol etmek**: tarayıcıda bir sayfa açıp neyin bozuk olduğunu söylemek\n\nNe yapılmasını istediğinizi söylemeniz yeterli."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ось що я можу для вас зробити:\n- **Запускати агентів для коду**: Claude Code, Codex та інші, кожен у власному робочому просторі\n- **Стежити за ними**: над чим працює кожен, хто вже закінчив і кому потрібна ваша допомога\n- **Перевіряти вебсторінки**: відкрити сторінку в браузері й сказати, що зламано\n- **Налаштувати cmux під вас**: робочі простори, розкладки, теми та налаштування\n\nПросто скажіть, що потрібно зробити."
+            "value" : "Ось трохи з того, що я вмію:\n- **Відправляти агентів у роботу**: запускати Claude Code, Codex та інші, кожен у власному робочому просторі\n- **Стежити за робочими просторами**: що робить кожен агент, хто вже закінчив і кому потрібна ваша допомога\n- **Змінювати налаштування**: щільність, гарячі клавіші, що відкриває нова вкладка, усе в Налаштуваннях\n- **Ставити фон**: вбудовану картину або одне з ваших зображень\n- **Упорядковувати робочі простори**: відкривати, розділяти, перейменовувати й прибирати робочі простори та вкладки\n- **Перевіряти вебсторінки**: відкрити сторінку в браузері й розповісти, що зламано\n\nПросто скажіть, що потрібно зробити."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Đây là những gì tôi có thể làm cho bạn:\n- **Khởi chạy agent lập trình**: Claude Code, Codex và các agent khác, mỗi agent trong một workspace riêng\n- **Theo dõi chúng**: mỗi agent đang làm gì, agent nào đã xong và agent nào cần bạn\n- **Kiểm tra trang web**: mở một trang trong trình duyệt và cho bạn biết chỗ nào bị lỗi\n- **Thiết lập cmux theo ý bạn**: workspace, bố cục, chủ đề và cài đặt\n\nChỉ cần cho tôi biết bạn muốn làm gì."
+            "value" : "Đây là một chút về những gì tôi có thể làm:\n- **Gửi tác nhân đi làm việc**: khởi chạy Claude Code, Codex và các tác nhân khác, mỗi cái trong không gian làm việc riêng\n- **Theo dõi không gian làm việc**: mỗi tác nhân đang làm gì, cái nào đã xong và cái nào cần bạn\n- **Thay đổi cài đặt**: mật độ, phím tắt, tab mới mở gì, mọi thứ trong Cài đặt\n- **Đặt hình nền**: một bức tranh có sẵn hoặc một ảnh của riêng bạn\n- **Sắp xếp không gian làm việc**: mở, chia, đổi tên và dọn dẹp không gian làm việc và tab\n- **Kiểm tra trang web**: mở một trang trong trình duyệt và cho bạn biết chỗ nào bị lỗi\n\nChỉ cần nói cho tôi biết bạn muốn làm gì."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "我能为你做这些：\n- **启动编程智能体**：Claude Code、Codex 等，每个都在自己的工作区中\n- **跟进它们**：每个智能体在做什么、哪些已完成、哪些需要你处理\n- **检查网页**：在浏览器中打开页面，告诉你哪里出了问题\n- **按你的喜好设置 cmux**：工作区、布局、主题和设置\n\n告诉我你想做什么就行。"
+            "value" : "先带你看看我能做些什么：\n- **派出智能体**：启动 Claude Code、Codex 等，每个都在自己的工作区里\n- **照看你的工作区**：每个智能体在做什么、哪些已完成、哪些需要你\n- **修改设置**：密度、快捷键、新标签页打开什么，设置里的一切\n- **设置背景**：内置名画或你自己的图片\n- **整理工作区**：打开、拆分、重命名和整理工作区与标签页\n- **检查网页**：在浏览器中打开页面并告诉你哪里坏了\n\n告诉我你想做什么就行。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "我能為你做這些：\n- **啟動程式設計代理**：Claude Code、Codex 等，每個都在自己的工作區中\n- **追蹤它們**：每個代理在做什麼、哪些已完成、哪些需要你處理\n- **檢查網頁**：在瀏覽器中開啟頁面，告訴你哪裡出了問題\n- **依你的喜好設定 cmux**：工作區、版面配置、主題和設定\n\n告訴我你想做什麼就好。"
+            "value" : "先帶你看看我能做些什麼：\n- **派出代理**：啟動 Claude Code、Codex 等，每個都在自己的工作區裡\n- **照看你的工作區**：每個代理在做什麼、哪些已完成、哪些需要你\n- **修改設定**：密度、快速鍵、新分頁開啟什麼，設定裡的一切\n- **設定背景**：內建名畫或你自己的圖片\n- **整理工作區**：開啟、分割、重新命名和整理工作區與分頁\n- **檢查網頁**：在瀏覽器中開啟頁面並告訴你哪裡壞了\n\n告訴我你想做什麼就行。"
           }
         }
       }

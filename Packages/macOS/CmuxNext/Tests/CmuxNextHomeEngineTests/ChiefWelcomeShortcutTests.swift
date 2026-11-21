@@ -35,8 +35,8 @@ struct ChiefWelcomeShortcutTests {
         #expect(!text.contains(ChiefWelcome.helloText))
         #expect(goTo.lowerBound < palette.lowerBound && palette.lowerBound < newTab.lowerBound)
         #expect(newTab.lowerBound < examples.lowerBound && examples.lowerBound < ask.lowerBound)
-        // What Chief can do (4), the two shortcuts and the four examples.
-        #expect(text.components(separatedBy: "\n").filter { $0.hasPrefix("- ") }.count == 10)
+        // What Chief can do (6), the two shortcuts and the five examples.
+        #expect(text.components(separatedBy: "\n").filter { $0.hasPrefix("- ") }.count == 13)
     }
 
 }

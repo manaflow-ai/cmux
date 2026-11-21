@@ -12,7 +12,7 @@ public nonisolated enum HomeStrings {
     /// Chief's second message on a fresh install: what it can do, as a short Markdown list (``ChiefWelcome``, cmux#48416).
     static var chiefWelcomeAbout: String {
         String(localized: "home.chief.welcomeAbout",
-               defaultValue: "Here's what I can do for you:\n- **Start coding agents**: Claude Code, Codex and others, each in a workspace of its own\n- **Keep track of them**: what each one is working on, which are done and which need you\n- **Check web pages**: open a page in the browser and tell you what's broken\n- **Set up cmux your way**: workspaces, layouts, themes and settings\n\nJust tell me what you want done.",
+               defaultValue: "Here's a glimpse of what I can do:\n- **Send off agents**: start Claude Code, Codex and others, each in a workspace of its own\n- **Watch your workspaces**: what each agent is doing, which are done and which need you\n- **Change your settings**: density, shortcuts, what a new tab opens, anything in Settings\n- **Set your background**: a built-in painting or one of your own pictures\n- **Arrange your workspaces**: open, split, rename and tidy workspaces and tabs\n- **Check web pages**: open a page in the browser and tell you what's broken\n\nJust tell me what you want done.",
                table: "Home", bundle: .module)
     }
     /// Chief's third message on a fresh install: the background offer, with the picker's `link`.
@@ -116,7 +116,7 @@ public nonisolated enum HomeStrings {
     /// The welcome's example requests, one Markdown list item per line.
     static var chiefWelcomeExamples: String {
         String(localized: "home.chief.welcome.examples",
-               defaultValue: "- Start a Claude Code agent to fix the failing tests in my repo\n- What are my agents working on right now?\n- Open localhost:3000 in a browser and tell me what's broken\n- Run three Codex agents on these issues, each in its own workspace",
+               defaultValue: "- Send three Codex agents off on these issues, each in its own workspace\n- What are my agents working on? Which ones need me?\n- Make everything more compact\n- Set my background to one of my own pictures\n- Open localhost:3000 and tell me what's broken",
                table: "Home", bundle: .module)
     }
     /// The welcome's last line: what the Chief answers.
