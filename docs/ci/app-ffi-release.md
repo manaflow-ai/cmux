@@ -226,10 +226,12 @@ release workflow's push paths, the router, `build_class.py` and
    A step A that changes the action catalog marks what the pinned FFI does not
    have yet with one file per entry under
    `cmux-tui/crates/cmux-action-catalog/tests/awaiting-repin/`: `actions/<id>`
-   for a new action, `shortcut/<id>` and `shortcut-removal/<id>` for a default
+   for a new action, `removal/<id>` for a removed one (the exports keep its row
+   until the re-pin), `shortcut/<id>` and `shortcut-removal/<id>` for a default
    shortcut added or dropped, `fields/<id>` (one JSON pointer per line) for
    changed fields of an existing action, `family/<family>/<id>` for a new palette
-   family member. Text after a `#` is a note. `swift_parity` names the file to
+   family member, `bindings/<list>` (one JSON pointer into the list per line,
+   `/2/when_text`) for changed fields of a `key_binding_defaults` list. Text after a `#` is a note. `swift_parity` names the file to
    create when an export lacks a change, and the file to delete once the re-pin
    carries it. One file per id means two pull requests that mark or clear
    different ids never touch the same path, so they never conflict there.
