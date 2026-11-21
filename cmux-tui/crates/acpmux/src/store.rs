@@ -455,6 +455,12 @@ pub struct SessionMeta {
     /// such a prompt again. Kept on disk with the rest of its meta.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub throwaway: bool,
+    /// The key its creator sent with its `session/new` (`_meta.acpmux.createKey`,
+    /// `hub/create_key.rs`): a create sent again with that key, after a daemon restart closed
+    /// the connection before the reply, answers with this session instead of making another.
+    /// Kept on disk, so the next daemon finds it too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub create_key: Option<String>,
     /// When (Unix ms) the idle exit hibernated its agent, 0 when no start woke it since
     /// (`hub/idle.rs`): after a restart, opening it wakes it and its wake draws no row, as
     /// before the restart, and the wake's log says how long it slept.
