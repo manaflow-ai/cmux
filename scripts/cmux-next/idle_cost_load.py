@@ -19,7 +19,10 @@ before and after from one load, so this builds that load in a fresh home:
                each in its own workspace, shown once; `streaming` of them get a reply that keeps
                streaming through the measured window; `tabs` Chromium tabs of local sites, each
                shown once; Home and the New Tab page in a workspace of their own; then the first
-               idle local chat is shown.
+               idle local chat is shown (`show` "newtab": the New Tab page's workspace instead).
+  seeded_open  with `seeded` ids (seeded_idle_ids): each of those stored idle chats opened in its own
+               workspace and shown once, as Leo's ~200 open chat tabs whose agents are not running
+               (bench_power.py `many-chats`).
 
 A remote chat opens the way `acpmux new --host H --group G` opens one (cli/run/launch.rs
 show_in_group): its mirrored id, without a host; this Mac's acpmux forwards it to the peer.
@@ -86,6 +89,18 @@ def read_chat(home: str, session: str, wait: float = CHECKPOINT_WAIT) -> dict:
     return {"id": session, "meta": meta, "events": events}
 
 
+def seeded_id(index: int) -> str:
+    """The session id seed_store gives its `index`th chat."""
+    return str(uuid.UUID(int=(0x01A1DC00 << 96) | (0x7000 << 64) | (0x8 << 60) | index))
+
+
+def seeded_idle_ids(count: int, closed_share: float, want: int) -> list[str]:
+    """The ids of up to `want` of seed_store's idle (answered, not closed) chats, newest first: the chats
+    `seeded_open` opens as tabs (a person's many open chats whose agents are not running)."""
+    closed_count = int(round(count * closed_share))
+    return [seeded_id(i) for i in range(count - 1, closed_count - 1, -1)][:max(want, 0)]
+
+
 def seed_store(home: str, count: int, closed_share: float, answered: dict, closed: dict) -> dict:
     """`count` chats in the store of the acpmux home `home`, as a long-used daemon lists them:
     copies of the `answered` and `closed` template chats (read_chat), each under its own id."""
@@ -96,7 +111,7 @@ def seed_store(home: str, count: int, closed_share: float, answered: dict, close
     now = int(time.time() * 1000)
     for i in range(count):
         template = closed if i < closed_count else answered
-        session = str(uuid.UUID(int=(0x01A1DC00 << 96) | (0x7000 << 64) | (0x8 << 60) | i))
+        session = seeded_id(i)
         swap = lambda data: data.replace(template["id"].encode(), session.encode())  # noqa: E731
         meta = json.loads(swap(template["meta"]))
         at = now - (count - i) * 60_000  # one a minute, oldest first
@@ -282,9 +297,10 @@ def new_session(cli: str, env: dict, text: str) -> str | None:
         return None
 
 
-def stream(argv: list[str], env: dict, session: str, seconds: float, rate: float) -> bool:
-    """Starts a reply that streams for `seconds` (idle_cost_agent.py's `stream:`), without waiting for it."""
-    sent = subprocess.run(argv + ["send", "--no-wait", session, f"stream: {int(seconds)} {rate}"],
+def stream(argv: list[str], env: dict, session: str, seconds: float, rate: float, chunk: int = 0) -> bool:
+    """Starts a reply that streams for `seconds` (idle_cost_agent.py's `stream:`; `chunk` bytes a chunk, 0: one
+    word), without waiting for it."""
+    sent = subprocess.run(argv + ["send", "--no-wait", session, f"stream: {int(seconds)} {rate}" + (f" {chunk}" if chunk else "")],
                           capture_output=True, text=True, timeout=60, env=env)
     if sent.returncode != 0:
         print(f"   send {session}: {(sent.stdout + sent.stderr).strip()[:2000]}", file=sys.stderr)
@@ -330,6 +346,8 @@ def open_load(app: bm.App, bundle: str, agent: str, peer: PeerDaemon, page_url, 
     """Opens the load in the launched app (see the module); returns what it reached."""
     reached = {"remote_chats": 0, "local_chats": 0, "streaming": 0, "browser_tabs": 0, "home": False,
                "new_tab_page": False, "peer": False}
+    if counts.get("seeded"):
+        reached["seeded_chats"] = 0
     chats = bm.FakeChats(app, bundle, agent)  # the test agent on the app's daemon, and its socket
     app_socket = chats.env["ACPMUX_SOCKET"]
     streaming_left = counts["streaming"]
@@ -343,7 +361,7 @@ def open_load(app: bm.App, bundle: str, agent: str, peer: PeerDaemon, page_url, 
                 opened.append((own, mirrored))
         reached["remote_chats"] = len(opened)
         # One opened remote chat streams on its own machine (the app mirrors it); the rest stream here.
-        if streaming_left and opened and stream([peer.binary], peer.env, opened[0][0], stream_s, counts["rate"]):
+        if streaming_left and opened and stream([peer.binary], peer.env, opened[0][0], stream_s, counts["rate"], counts.get("chunk") or 0):
             reached["streaming"] += 1
             streaming_left -= 1
     except (OSError, RuntimeError, subprocess.SubprocessError) as error:
@@ -356,11 +374,17 @@ def open_load(app: bm.App, bundle: str, agent: str, peer: PeerDaemon, page_url, 
         if not workspace:
             continue
         reached["local_chats"] += 1
-        if streaming_left and stream([app.cli_path, "acp"], chats.env, session, stream_s, counts["rate"]):
+        if streaming_left and stream([app.cli_path, "acp"], chats.env, session, stream_s, counts["rate"], counts.get("chunk") or 0):
             reached["streaming"] += 1
             streaming_left -= 1
         elif first_idle is None:
             first_idle = workspace
+    # Stored idle chats (no agent process), each in its own workspace and shown once.
+    for index, session in enumerate(counts.get("seeded") or []):
+        if open_workspace(app, session):
+            reached["seeded_chats"] += 1
+        if (index + 1) % 25 == 0:
+            safe_print(f"   seeded chats: {reached['seeded_chats']}/{index + 1} opened", flush=True)
     # Browser tabs in a workspace of their own, each shown once (a Chromium page loads when first shown).
     app.run("workspace.newAtBottom")
     app.run("workspace.selectLast")
@@ -381,6 +405,9 @@ def open_load(app: bm.App, bundle: str, agent: str, peer: PeerDaemon, page_url, 
     for key, action in (("home", "home.tab"), ("new_tab_page", "newTab.page")):
         response = app.run(action)
         reached[key] = not (response.get("error") or response.get("code"))
-    if first_idle:
+    if counts.get("show") == "newtab":
+        reached["shown"] = "newtab"  # the window stays on the New Tab page (its workspace is the last one)
+    elif first_idle:
         app.action("goToWorkspace", workspace=first_idle)
+        reached["shown"] = "chat"
     return reached
