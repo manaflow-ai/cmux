@@ -304,7 +304,7 @@ fn status_of(receipt: &Receipt, target: &str, warning: Option<&str>) -> Value {
         .or(receipt.delivered_at)
         .or(receipt.leased_until)
         .unwrap_or(receipt.created_at);
-    json!({
+    let mut status = json!({
         "deliveryId": format!("{PREFIX}{}", receipt.message_id),
         "target": target,
         "promptId": receipt.prompt_id.as_deref().unwrap_or(&receipt.message_id),
@@ -317,8 +317,11 @@ fn status_of(receipt: &Receipt, target: &str, warning: Option<&str>) -> Value {
         "startWork": receipt.start_work,
         "createdAt": receipt.created_at,
         "updatedAt": updated.max(receipt.created_at),
-        "warning": warning,
-    })
+    });
+    if let Some(warning) = warning {
+        status["warning"] = json!(warning);
+    }
+    status
 }
 
 /// The hub's refusal as this daemon's own.
