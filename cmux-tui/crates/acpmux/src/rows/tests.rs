@@ -455,28 +455,28 @@ fn rows_reads_the_log_pages_it_and_patches_a_follower_with_each_live_record() {
     );
     let first = chunk(0, "Hel", Some("m"), None);
     hub.append(&session, "in", "agent_message_chunk", first.msg.clone());
-    let (page, following) = super::read(&hub, "chat", &json!({"follow": true})).unwrap();
+    let (page, following) = super::read(&*hub, "chat", &json!({"follow": true})).unwrap();
     assert_eq!(page["count"], 2, "{page}");
     assert_eq!(page["rows"][1]["id"], "reply:t.1");
     assert_eq!(page["rows"][1]["text"], "Hel");
     let following = following.unwrap();
     let rec =
         hub.append(&session, "in", "agent_message_chunk", chunk(0, "lo", Some("m"), None).msg);
-    let (notice, patch) = super::live(&hub, "chat", &rec, &following).unwrap();
+    let (notice, patch) = super::live(&*hub, "chat", &rec, &following).unwrap();
     assert_eq!(notice, crate::rpc::method::MUX_ROWS_PATCH);
     assert_eq!(patch["patches"].as_array().unwrap().len(), 1, "{patch}");
     assert_eq!(patch["patches"][0]["op"], "append");
     assert_eq!(patch["patches"][0]["text"], "lo");
     assert_eq!(patch["version"].as_u64(), page["version"].as_u64().map(|v| v + 1));
     // Heard again (another connection's delivery): nothing new for this one.
-    assert!(super::live(&hub, "chat", &rec, &following).is_none());
-    let rows = super::held_rows(&hub, "chat").unwrap();
+    assert!(super::live(&*hub, "chat", &rec, &following).is_none());
+    let rows = super::held_rows(&*hub, "chat").unwrap();
     assert_eq!(rows[1].text, "Hello");
     // An older page from the newest row's seq, and bad cursors.
-    let older = super::read(&hub, "chat", &json!({"beforeSeq": rows[1].head.seq})).unwrap().0;
+    let older = super::read(&*hub, "chat", &json!({"beforeSeq": rows[1].head.seq})).unwrap().0;
     assert_eq!(older["rows"].as_array().unwrap().len(), 1);
-    assert!(super::read(&hub, "chat", &json!({"afterSeq": 1, "beforeSeq": 2})).is_err());
-    assert!(super::read(&hub, "chat", &json!({"afterSeq": -1})).is_err());
+    assert!(super::read(&*hub, "chat", &json!({"afterSeq": 1, "beforeSeq": 2})).is_err());
+    assert!(super::read(&*hub, "chat", &json!({"afterSeq": -1})).is_err());
 }
 
 #[test]

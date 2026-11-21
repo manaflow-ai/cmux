@@ -44,6 +44,21 @@ pub const SERVERS: [(&str, &str); 5] = [
     (crate::acpmux_mcp_names::SERVER_NAME, "acpmux-mcp"),
 ];
 
+static MCP_CLIENT: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+
+/// Keep the `clientInfo` of this MCP server's `initialize`: one client per server process
+/// (moved from `sender_harness.rs`, which reads it as [`mcp_client`]).
+pub fn note_mcp_client(params: &Value) {
+    if let Some(info) = params.get("clientInfo").filter(|i| i.is_object()) {
+        let _ = MCP_CLIENT.set(info.clone());
+    }
+}
+
+/// The `clientInfo` [`note_mcp_client`] kept, if any.
+pub fn mcp_client() -> Option<&'static Value> {
+    MCP_CLIENT.get()
+}
+
 /// Whether server `name` run as `args` is one of [`SERVERS`] as acpmux runs it: its own
 /// command word last.
 pub fn owns(name: &str, args: &[String]) -> bool {
@@ -204,7 +219,7 @@ pub(crate) async fn serve(servers: Vec<Served>) -> Result<()> {
         };
         let reply = match verb.as_str() {
             "initialize" => {
-                crate::sender_harness::note_mcp_client(&params);
+                note_mcp_client(&params);
                 let mut reply = json!({
                     "protocolVersion": crate::secret_mcp::protocol_version(&params),
                     "capabilities": {"tools": {}},

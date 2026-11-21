@@ -505,6 +505,9 @@ pub async fn bounded<T>(wait: Duration, first: impl std::future::Future<Output =
 /// pulls first, for at most [`INITIAL_WAIT`], before this returns (agent
 /// spawns wait for startup); then every [`EVERY`], with backoff after a failure.
 pub async fn start_worker() {
+    // Launches read the vault env through `login_env` (a lower module); it stays empty until
+    // `ACTIVE` is set below, as `env_for_children` does.
+    crate::login_env::set_vault_env(env_for_children);
     if ACTIVE.swap(true, Ordering::SeqCst) {
         return;
     }

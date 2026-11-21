@@ -328,7 +328,7 @@ impl LocalStore {
             // F2): a crash or a failure between two renames leaves segments cut to different
             // ends, and the next read or append finishes the cut to it (`finish_cut_locked`).
             // b7496c3f kept it nowhere: a restart read the half-cut log as it was.
-            let intent = staged.cut.filter(|_| !crate::hub::journal_restore::rules_of_b749());
+            let intent = staged.cut.filter(|_| !crate::replay_rules::rules_of_b749());
             if let Some(after) = intent {
                 write_durably(&self.cut_intent(id), &serde_json::to_vec(&CutIntent { after })?)?;
             }
