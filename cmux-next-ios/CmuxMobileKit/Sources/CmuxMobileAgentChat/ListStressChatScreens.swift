@@ -30,7 +30,7 @@ enum ListStressChatScreens {
         case "subagent":
             let source = RigSource()
             let store = AgentChatStore(source: source)
-            seedTranscript(store, items: max(settings.count, 1), running: settings.streams)
+            seedTranscript(store, items: max(settings.count, 0), running: settings.streams, giant: settings.giant)
             if settings.streams { live = streamTranscript(store, source: source) }
             let holder = RigStoreHolder(store: store)
             switch settings.edge {
@@ -46,6 +46,17 @@ enum ListStressChatScreens {
                     try? await Task.sleep(for: .seconds(settings.edgeAfter))
                     source.offline = true
                 }
+            case "burst":
+                // 1000 items reach the open subagent in one main-actor turn (`receive`, as a
+                // Mac's records do): 500 tool runs, each followed by a token of the answer.
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(settings.edgeAfter))
+                    for n in 0..<500 {
+                        store.receive(.subagentUpdate(subagentID: transcriptID, .toolCall(ACPToolCall(
+                            id: "rig-burst-c\(n)", title: "Burst step \(n)", kind: .read, status: .completed))))
+                        store.receive(.subagentUpdate(subagentID: transcriptID, .agentMessageChunk(text: "burst\(n) ", messageId: "rig-burst-m\(n)")))
+                    }
+                }
             default: break
             }
             root = AnyView(NavigationStack { RigTranscript(holder: holder) })
@@ -58,13 +69,20 @@ enum ListStressChatScreens {
             // `LIST_COUNT=-1`: a chat whose records don't come from a Mac (no journal).
             let journal = settings.count < 0 ? nil : AgentEventJournal()
             if let journal {
-                for n in 0..<settings.count { journal.record(record(n)) }
+                for n in 0..<settings.count { journal.record(record(n, giant: settings.giant)) }
                 live = feedInspector(journal, settings: settings)
                 if settings.edge == "drop" {
                     // The oldest records, at the list's end where the reader waits, drop.
                     Task { @MainActor in
                         try? await Task.sleep(for: .seconds(settings.edgeAfter))
                         for n in settings.count..<(settings.count + 60) { journal.record(record(n)) }
+                    }
+                } else if settings.edge == "offline" {
+                    // The Mac goes away mid-scroll: no more records arrive.
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(settings.edgeAfter))
+                        live?.cancel()
+                        live = nil
                     }
                 }
             }
@@ -83,10 +101,12 @@ enum ListStressChatScreens {
 
     /// One subagent with `items` transcript items (messages, thoughts, tool runs, an edit, a
     /// nested subagent halfway), plus 5 siblings.
-    static func seedTranscript(_ store: AgentChatStore, items: Int, running: Bool) {
+    /// `items: 0`: no items and no task (the pill and the footer only). `giant`: the second item
+    /// is a pasted raw log far taller than the screen.
+    static func seedTranscript(_ store: AgentChatStore, items: Int, running: Bool, giant: Bool = false) {
         let start = Date().addingTimeInterval(-600)
         store.apply(.subagent(AgentSubagentChange(id: transcriptID, name: "WireGuard dialer",
-                                                  task: "Check the WireGuard dialer's retry path and measure its backoff",
+                                                  task: items == 0 ? nil : "Check the WireGuard dialer's retry path and measure its backoff",
                                                   state: .running, at: start)))
         for sibling in 0..<5 {
             store.apply(.subagent(AgentSubagentChange(id: "rig-sib\(sibling)", name: "Sibling \(sibling)", task: "Check part \(sibling)",
@@ -98,6 +118,11 @@ enum ListStressChatScreens {
                                                           task: "Measure the relay round trip", state: .running, at: start)))
                 for nested in 0..<10 { store.apply(.subagentUpdate(subagentID: "rig-nested", item(nested))) }
                 store.apply(.subagent(AgentSubagentChange(id: "rig-nested", state: .completed, at: start.addingTimeInterval(30))))
+                continue
+            }
+            if giant, index == 1 {
+                store.apply(.subagentUpdate(subagentID: transcriptID,
+                                            .agentMessageChunk(text: ListStressSettings.giantPrompt(index), messageId: "rig-giant")))
                 continue
             }
             store.apply(.subagentUpdate(subagentID: transcriptID, item(index)))
@@ -214,10 +239,13 @@ enum ListStressChatScreens {
 
     /// An acpmux record: mostly short updates, every 25th a tool result of about 160 KB (under
     /// the journal's 256 KB record cap), so 500 records come near its 4 MB budget.
-    static func record(_ n: Int) -> JSONValue {
+    /// `giant`: record seq 10 is about 400 KB, over the journal's 256 KB record cap.
+    static func record(_ n: Int, giant: Bool = false) -> JSONValue {
         let kinds = ["agent_message_chunk", "tool_call", "tool_call_update", "agent_thought_chunk", "plan"]
         let kind = kinds[n % kinds.count]
-        let text = n % 25 == 24
+        let text = giant && n == 9
+            ? String(repeating: "output line \(n) of an oversized tool result\n", count: 10_000)
+            : n % 25 == 24
             ? String(repeating: "output line \(n) of a long tool result\n", count: 4000)
             : "Reading Sources/Transport/File\(n).swift and checking the retry path"
         let update: JSONValue = .object(["sessionUpdate": .string(kind), "content": .object(["type": .string("text"), "text": .string(text)])])

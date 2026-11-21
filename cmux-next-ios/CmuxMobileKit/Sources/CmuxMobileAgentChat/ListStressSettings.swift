@@ -40,7 +40,8 @@ import Foundation
 ///   the Event Inspector with `LIST_COUNT` records (`LIST_STREAM=1`: 2000 more in one second once the
 ///   scroll starts; `LIST_LIVE_HZ`: records a second; `LIST_FILTER=TEXT`: the filter is typed a
 ///   character every 100 ms, then cleared, over and over; `LIST_COUNT=-1`: a chat with no journal).
-/// - `CMUX_MOBILE_LIST_GIANT=1` (chat): every third replayed prompt is a pasted raw log (hundreds of
+/// - `CMUX_MOBILE_LIST_GIANT=1` (subagent: one answer taller than the screen; inspector: seq 10 over
+///   the 256 KB record cap; chat): every third replayed prompt is a pasted raw log (hundreds of
 ///   lines with emoji, CJK, tabs, ANSI escapes and unbroken tokens), the GUI stress loop's long rows.
 public struct ListStressSettings: Equatable, Sendable {
     public static let shared = ListStressSettings()
@@ -85,7 +86,8 @@ public struct ListStressSettings: Equatable, Sendable {
     public var filter: String?
     /// `CMUX_MOBILE_LIST_EDGE` (UI tests' edge cases): `removed` (subagent: its chat's records go
     /// while the transcript is open), `offline` (subagent: the Mac goes offline mid-run),
-    /// `drop` (inspector: 60 more records arrive, dropping the oldest under the reader).
+    /// `drop` (inspector: 60 more records arrive, dropping the oldest under the reader), `burst`
+    /// (subagent: 1000 items in one main-actor turn), `offline` (inspector: no more records).
     public var edge: String?
     /// `CMUX_MOBILE_LIST_EDGE_AFTER=SECONDS` (default 4): when the edge case happens.
     public var edgeAfter: Double
