@@ -67,6 +67,8 @@ pub(super) fn paste_image(
     .handle(mux, client)
 }
 
+pub(super) const SEND_INPUT_ID_CAPABILITY: &str = "send-input-id-v1";
+
 /// `send-expect-foreground-v1`: `send` takes `expect_foreground`.
 pub(super) const SEND_EXPECT_FOREGROUND_CAPABILITY: &str = "send-expect-foreground-v1";
 
@@ -91,6 +93,9 @@ pub(super) struct ExpectAgent {
 /// The params of `send`.
 #[derive(serde::Deserialize)]
 pub(super) struct SendParams {
+    /// Opaque id of this batch, stable across connections and distinct from the request id.
+    #[serde(default)]
+    pub(super) input_id: Option<String>,
     /// The terminal surface; or `terminal_id` (exactly one).
     #[serde(default)]
     pub(super) surface: Option<SurfaceId>,
@@ -171,22 +176,22 @@ pub(super) fn send(
     mux: &Arc<Mux>,
     client: u64,
     writer: &MessageWriter,
-    params: SendParams,
+    mut params: SendParams,
 ) -> anyhow::Result<Value> {
-    let SendParams {
-        surface,
-        terminal_id,
-        text,
-        bytes,
-        paste,
-        expect_foreground,
-        expect_agent,
-        submit,
-        flow,
-    } = params;
-    let surface = match (surface, terminal_id) {
+    let input_id = params.input_id.take();
+    if let Some(id) = &input_id {
+        anyhow::ensure!(
+            (1..=crate::input_ids::MAX_ID_BYTES).contains(&id.len()),
+            "bad request: input_id must be 1 to 128 UTF-8 bytes"
+        );
+    }
+    let surface = match (params.surface, params.terminal_id.take()) {
         (Some(surface), None) => surface,
-        (None, Some(_)) if expect_foreground.is_some() || expect_agent.is_some() || submit => {
+        (None, Some(_))
+            if params.expect_foreground.is_some()
+                || params.expect_agent.is_some()
+                || params.submit =>
+        {
             return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
                 "bad request: expect_foreground, expect_agent and submit need surface, not terminal_id"
             )));
@@ -197,17 +202,43 @@ pub(super) fn send(
                 client,
                 writer,
                 &terminal_id,
-                text,
-                bytes,
-                paste,
+                params.text,
+                params.bytes,
+                params.paste,
+                input_id,
             );
         }
         _ => anyhow::bail!("bad request: send takes exactly one of surface and terminal_id"),
     };
     let (surface, reply) = input_surface(mux, client, writer, surface)?;
-    require_pty(&surface)?;
-    // Bytes queued for this terminal while it was being created go first.
+    let crate::Surface::Pty(pty) = surface.as_ref() else {
+        anyhow::bail!("browser surface does not support PTY/VT socket commands");
+    };
     mux.wait_for_creating_input_flush(&surface);
+    if let Some(id) = input_id {
+        // Wait for the actual write when issuing a receipt that a reconnect will rely on.
+        if pty
+            .input_ids
+            .run(&id, || write_send(mux, &surface, InputReply::Written, params, true))?
+        {
+            return Ok(json!({"duplicate": true}));
+        }
+    } else {
+        write_send(mux, &surface, reply, params, false)?;
+    }
+    mux.note_terminal_input(&surface, client);
+    Ok(json!({}))
+}
+
+fn write_send(
+    mux: &Mux,
+    surface: &crate::Surface,
+    reply: InputReply,
+    params: SendParams,
+    identified: bool,
+) -> anyhow::Result<()> {
+    let SendParams { text, bytes, paste, expect_foreground, expect_agent, submit, flow, .. } =
+        params;
     // A reply meant for the program that asked must not reach the shell that took the foreground
     // back after it exited: checked here, right before the write, not a round trip earlier.
     if let Some(expected) = expect_foreground {
@@ -251,42 +282,63 @@ pub(super) fn send(
             )));
         }
     }
-    if paste {
-        let mut payload = text.unwrap_or_default().into_bytes();
-        if let Some(b64) = bytes {
-            payload.extend(base64::engine::general_purpose::STANDARD.decode(b64)?);
+    // For an identified send, reject invalid bytes before writing even the text prefix.
+    // Legacy sends still return the decoding error after writing their text.
+    let bytes = bytes.map(|b64| base64::engine::general_purpose::STANDARD.decode(b64));
+    let bytes = match bytes {
+        Some(Err(error)) if identified => return Err(error.into()),
+        bytes => bytes,
+    };
+    let mut wrote_prefix = false;
+    let write = || -> anyhow::Result<()> {
+        if paste {
+            let mut payload = text.unwrap_or_default().into_bytes();
+            if let Some(raw) = bytes {
+                payload.extend(raw?);
+            }
+            surface.write_paste_replying(&payload, reply)?;
+            wrote_prefix = !payload.is_empty();
+        } else {
+            if let Some(text) = text {
+                surface.write_bytes_replying(text.as_bytes(), reply)?;
+                wrote_prefix = !text.is_empty();
+            }
+            if let Some(raw) = bytes {
+                let raw = raw?;
+                cmux_flow_trace::hop(
+                    "daemon.send.write",
+                    flow.unwrap_or(0),
+                    surface.flow_terminal_id(),
+                );
+                surface.write_bytes_replying(&raw, reply)?;
+                wrote_prefix |= !raw.is_empty();
+                cmux_flow_trace::hop(
+                    "daemon.send.written",
+                    flow.unwrap_or(0),
+                    surface.flow_terminal_id(),
+                );
+            }
         }
-        surface.write_paste_replying(&payload, reply)?;
+        if submit {
+            // Return as its own key: a full-screen agent editor reads a pasted newline as a line
+            // break, not a submit. The PTY writer holds it until the program read the paste
+            // (`paste_pacing`).
+            // The text is already in: a failed Return must not read as "nothing was written".
+            surface.write_bytes_replying(b"\r", reply).map_err(|error| {
+                if identified {
+                    anyhow::Error::from(error).context("submit failed")
+                } else {
+                    anyhow::anyhow!("submit failed after the text was written: {error}")
+                }
+            })?;
+        }
+        Ok(())
+    };
+    if identified {
+        write().map_err(|error| crate::input_ids::write_error(error, wrote_prefix))
     } else {
-        if let Some(text) = text {
-            surface.write_bytes_replying(text.as_bytes(), reply)?;
-        }
-        if let Some(b64) = bytes {
-            let raw = base64::engine::general_purpose::STANDARD.decode(b64)?;
-            cmux_flow_trace::hop(
-                "daemon.send.write",
-                flow.unwrap_or(0),
-                surface.flow_terminal_id(),
-            );
-            surface.write_bytes_replying(&raw, reply)?;
-            cmux_flow_trace::hop(
-                "daemon.send.written",
-                flow.unwrap_or(0),
-                surface.flow_terminal_id(),
-            );
-        }
+        write()
     }
-    if submit {
-        // Return as its own key: a full-screen agent editor reads a pasted newline as a line
-        // break, not a submit. The PTY writer holds it until the program read the paste
-        // (`paste_pacing`).
-        // The text is already in: a failed Return must not read as "nothing was written".
-        surface.write_bytes_replying(b"\r", reply).map_err(|error| {
-            anyhow::anyhow!("submit failed after the text was written: {error}")
-        })?;
-    }
-    mux.note_terminal_input(&surface, client);
-    Ok(json!({}))
 }
 
 pub(super) fn read_screen(mux: &Arc<Mux>, surface: SurfaceId) -> anyhow::Result<Value> {

@@ -748,6 +748,7 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
                 expect_foreground: None,
                 expect_agent: None,
                 submit: false,
+                input_id: None,
                 flow: None,
             }),
         ),

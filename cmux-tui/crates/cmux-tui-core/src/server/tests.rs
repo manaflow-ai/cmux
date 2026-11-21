@@ -567,6 +567,8 @@ mod reply_value;
 mod resource_attach;
 mod resource_waits;
 mod send_expect_agent_replay;
+#[cfg(unix)]
+mod send_input_id;
 mod session_streams;
 mod shutdown_refusal;
 mod sizing;

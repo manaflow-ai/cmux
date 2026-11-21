@@ -1659,6 +1659,7 @@ CLI mapping: verb `apply-layout`; flags `[--workspace <id>] [--name <name>] [--c
 | since | protocol 5 |
 | `paste` field | protocol 7 additive extension |
 | `terminal_id` field | `terminal-input-while-creating-v1` additive extension |
+| `input_id` field | `send-input-id-v1` additive extension |
 | `expect_foreground` field | `send-expect-foreground-v1` additive extension |
 | `expect_agent`, `submit` fields | `send-expect-agent-v1` additive extension |
 
@@ -1672,12 +1673,24 @@ Params:
 | --- | --- | --- | --- |
 | `surface` | `Id` | required unless `terminal_id` | Must identify a live PTY surface |
 | `terminal_id` | `string` | default null | `terminal-input-while-creating-v1`; the host terminal id (32 hex digits) instead of `surface`, also of a terminal still being created |
+| `input_id` | `string` | default null | Client-chosen batch id, 1 to 128 UTF-8 bytes |
 | `text` | `string` | default null | Written before `bytes` when both are present |
 | `bytes` | `Base64` | default null | Decoded with standard base64 |
 | `paste` | `boolean` | default false | Protocol 7; conditionally wraps the combined non-empty payload when DEC mode 2004 is enabled |
 | `expect_foreground` | `string` | default null | `send-expect-foreground-v1`; needs `surface`; write only while the foreground executable is this one |
 | `expect_agent` | `{session: string}` | default null | `send-expect-agent-v1`; needs `surface`; write only while the terminal's agent is `idle` in `session` |
 | `submit` | `boolean` | default false | `send-expect-agent-v1`; needs `surface`; Return after the payload, in the same request |
+
+With `send-input-id-v1`, choose one opaque `input_id` for each logical batch (for example
+`<client-instance>:<counter>`). After a lost reply, resend the original fields and id on the same
+terminal. While the receipt is retained, an accepted repeat returns `{"duplicate":true}` and
+writes nothing, including any trailing Return. An ambiguous write error is retained too:
+a retry returns an error and cannot repeat a partially written batch. Refusal before a write
+lets the caller retry. Each terminal retains the latest 1000 identified outcomes in FIFO order.
+Legacy sends consume no entries. The window belongs to the daemon's current terminal instance
+and is lost on restart or terminal replacement. Only retry while the peer advertises the
+capability, the daemon and terminal identities still match, and the batch is inside the window.
+Without the capability, older hosts may ignore the id and apply each request.
 
 With `send-expect-foreground-v1`, `expect_foreground` names the executable the caller saw in the
 foreground (`process-info`'s `foreground_executable`, compared byte for byte). Right before the write the
@@ -1724,7 +1737,7 @@ After the creator's [`cancel-creating-input`](#cancel-creating-input) (`creating
 Result:
 
 ```text
-object{queued?:boolean}
+object{queued?:boolean,duplicate?:boolean}
 ```
 
 Errors:

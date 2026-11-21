@@ -54,6 +54,7 @@ pub(super) fn send_to_terminal(
     text: Option<String>,
     bytes: Option<String>,
     paste: bool,
+    input_id: Option<String>,
 ) -> anyhow::Result<Value> {
     let terminal_id = crate::terminal_host::TerminalId::from_hex(terminal_id)
         .ok_or_else(|| anyhow::anyhow!("bad request: terminal_id must be 32 hex digits"))?
@@ -62,7 +63,7 @@ pub(super) fn send_to_terminal(
     if let Some(b64) = bytes {
         payload.extend(base64::engine::general_purpose::STANDARD.decode(b64)?);
     }
-    if payload.is_empty() {
+    if payload.is_empty() && input_id.is_none() {
         // Nothing to write, but the id must still name a live or creating terminal.
         anyhow::ensure!(
             mux.knows_terminal_input_target(&terminal_id),
@@ -79,6 +80,17 @@ pub(super) fn send_to_terminal(
             "reason": reason,
         }));
     });
-    let target = mux.write_terminal_input(&terminal_id, client, &payload, paste, notice)?;
-    Ok(if target == TerminalInputTarget::Queued { json!({"queued": true}) } else { json!({}) })
+    let target = mux.write_terminal_input(
+        &terminal_id,
+        client,
+        &payload,
+        paste,
+        input_id.as_deref(),
+        notice,
+    )?;
+    Ok(match target {
+        TerminalInputTarget::Queued => json!({"queued": true}),
+        TerminalInputTarget::Duplicate => json!({"duplicate": true}),
+        TerminalInputTarget::Written => json!({}),
+    })
 }

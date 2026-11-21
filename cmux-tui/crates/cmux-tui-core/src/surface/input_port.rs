@@ -90,6 +90,33 @@ pub(crate) fn input_may_be_written(error: &std::io::Error) -> bool {
     error.get_ref().is_some_and(|inner| inner.is::<InputMayBeWritten>())
 }
 
+/// A frame refused before the writer sent it. Keep the original error kind and
+/// message so existing callers see the same refusal.
+#[derive(Debug)]
+pub(super) struct InputNotWritten(std::io::Error);
+
+impl std::fmt::Display for InputNotWritten {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, formatter)
+    }
+}
+
+impl std::error::Error for InputNotWritten {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
+}
+
+impl InputNotWritten {
+    pub(super) fn mark(error: std::io::Error) -> std::io::Error {
+        std::io::Error::new(error.kind(), Self(error))
+    }
+}
+
+pub(crate) fn input_not_written(error: &std::io::Error) -> bool {
+    error.get_ref().is_some_and(|inner| inner.is::<InputNotWritten>())
+}
+
 /// Where a hosted terminal's interactive input goes, published without the runtime lock.
 pub(crate) enum InputRoute {
     /// The current host connection.
@@ -114,7 +141,7 @@ pub(crate) enum InputRefused {
 
 impl From<InputRefused> for std::io::Error {
     fn from(refused: InputRefused) -> Self {
-        match refused {
+        let error = match refused {
             InputRefused::Busy => std::io::Error::new(
                 std::io::ErrorKind::WouldBlock,
                 "terminal.input_busy: the terminal's input port is full",
@@ -124,7 +151,8 @@ impl From<InputRefused> for std::io::Error {
                 "terminal input is larger than one host frame",
             ),
             InputRefused::NoWriter(error) => error,
-        }
+        };
+        InputNotWritten::mark(error)
     }
 }
 
@@ -348,10 +376,10 @@ impl InputPort {
                 if state.load(Ordering::Acquire) == FRAME_TAKEN {
                     Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, InputMayBeWritten))
                 } else {
-                    Err(std::io::Error::new(
+                    Err(InputNotWritten::mark(std::io::Error::new(
                         std::io::ErrorKind::BrokenPipe,
                         "the terminal's input port stopped before it wrote the input",
-                    ))
+                    )))
                 }
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
@@ -364,10 +392,10 @@ impl InputPort {
                     )
                     .is_ok()
                 {
-                    return Err(std::io::Error::new(
+                    return Err(InputNotWritten::mark(std::io::Error::new(
                         std::io::ErrorKind::TimedOut,
                         "terminal input not written: the terminal's input port did not reach it in time",
-                    ));
+                    )));
                 }
                 written.try_recv().unwrap_or_else(|_| {
                     Err(std::io::Error::new(std::io::ErrorKind::TimedOut, InputMayBeWritten))
@@ -745,18 +773,18 @@ fn write_with_reconnect(
             Some(InputRoute::Exited) => return first_error.map_or(Ok(()), Err),
             Some(InputRoute::Failed) => {
                 return Err(first_error.unwrap_or_else(|| {
-                    std::io::Error::new(
+                    InputNotWritten::mark(std::io::Error::new(
                         std::io::ErrorKind::NotConnected,
                         "the terminal's host connection failed; input not written",
-                    )
+                    ))
                 }));
             }
             None => {
                 return Err(first_error.unwrap_or_else(|| {
-                    std::io::Error::new(
+                    InputNotWritten::mark(std::io::Error::new(
                         std::io::ErrorKind::NotConnected,
                         "terminal has no host connection for its input port",
-                    )
+                    ))
                 }));
             }
         };
@@ -779,5 +807,24 @@ fn write_with_reconnect(
             return Err(error);
         }
         first_error = Some(error);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn send_input_id_classifies_pre_write_refusals() {
+        let busy = std::io::Error::from(InputRefused::Busy);
+        assert!(input_not_written(&busy));
+        assert_eq!(busy.kind(), std::io::ErrorKind::WouldBlock);
+        assert_eq!(busy.to_string(), "terminal.input_busy: the terminal's input port is full");
+
+        let ambiguous = std::io::Error::new(std::io::ErrorKind::TimedOut, InputMayBeWritten);
+        assert!(!input_not_written(&ambiguous));
+        assert!(input_may_be_written(&ambiguous));
+        // A plain I/O error carries no such proof, even with a matching kind.
+        assert!(!input_not_written(&std::io::Error::from(std::io::ErrorKind::WouldBlock)));
     }
 }

@@ -142,6 +142,7 @@ tokio-tungstenite.workspace = true
 futures-util.workspace = true
 
 [target.'cfg(unix)'.dev-dependencies]
+cmux-fault.workspace = true
 # The SDK's raw client drives the cloud.* operations in server/cloud_api_tests.rs.
 cmux-sdk = { path = "../../bindings/rust", default-features = false }
 # An agent service in the test's process that serves the v2 list (acpmux's `test-support`

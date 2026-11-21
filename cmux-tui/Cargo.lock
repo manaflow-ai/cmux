@@ -2764,6 +2764,7 @@ dependencies = [
  "cmux-conversation",
  "cmux-device-kind",
  "cmux-embed",
+ "cmux-fault",
  "cmux-feed-core",
  "cmux-file-lock",
  "cmux-flow-trace",

@@ -1304,6 +1304,33 @@ fn a_write_whose_wait_ends_during_its_write_may_be_written() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn send_input_id_survives_the_creating_terminal_flush() {
+    use crate::mux::creating_input::{TerminalInputTarget, UnclaimedNotice};
+
+    let (mux, surface, mut host) = hosted_typing_surface("input-id-creating", true);
+    let terminal_id = surface.terminal_host_identity().unwrap().terminal_id;
+    let generation = mux.begin_creating_input(&terminal_id, 7).unwrap();
+    let notice: UnclaimedNotice = Arc::new(|_, _, _| panic!("queued input was returned"));
+    let send = |client, bytes: &[u8], id| {
+        mux.write_terminal_input(&terminal_id, client, bytes, false, Some(id), notice.clone())
+            .unwrap()
+    };
+    assert_eq!(send(7, b"a", "phone:1"), TerminalInputTarget::Queued);
+    assert_eq!(send(8, b"a", "phone:1"), TerminalInputTarget::Duplicate);
+    assert_eq!(send(8, b"b", "phone:2"), TerminalInputTarget::Queued);
+
+    mux.insert_surface_runtime_for_test(surface);
+    mux.finish_creating_input(&terminal_id, generation, None);
+    assert_eq!(send(9, b"a", "phone:1"), TerminalInputTarget::Duplicate);
+    assert_eq!(send(9, b"c", "phone:3"), TerminalInputTarget::Written);
+    assert_eq!(
+        input_payloads(&frames_until_quiet(&mut host, Duration::from_millis(100))),
+        vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()],
+    );
+}
+
 /// R-DAEMON-STATE S1.6b review 1 (item 6): the creating-input flush gives back the bytes it could not write, but not
 /// bytes whose write may still reach the program; giving those back too types them twice.
 #[cfg(unix)]
@@ -1321,7 +1348,7 @@ fn the_creating_input_flush_keeps_input_that_may_have_been_written() {
             Arc::new(move |_terminal: &str, bytes: &[u8], _reason: &str| {
                 given_back.lock().unwrap().extend_from_slice(bytes);
             });
-        mux.write_terminal_input(&terminal_id, 7, bytes, false, notice)
+        mux.write_terminal_input(&terminal_id, 7, bytes, false, None, notice)
             .expect("queued while creating");
     }
     mux.insert_surface_runtime_for_test(surface.clone());
@@ -1365,7 +1392,7 @@ fn a_failed_write_of_a_cancelled_creating_input_keeps_the_refusal_of_its_id() {
         })
     };
     for bytes in [&b"a"[..], &b"b"[..]] {
-        mux.write_terminal_input(&terminal_id, 7, bytes, false, notice(&given_back))
+        mux.write_terminal_input(&terminal_id, 7, bytes, false, None, notice(&given_back))
             .expect("queued while creating");
     }
     mux.insert_surface_runtime_for_test(surface.clone());
@@ -1384,7 +1411,7 @@ fn a_failed_write_of_a_cancelled_creating_input_keeps_the_refusal_of_its_id() {
         "the creator's bytes went back to it after its cancel"
     );
     let late = mux
-        .write_terminal_input(&terminal_id, 7, b"c", false, notice(&given_back))
+        .write_terminal_input(&terminal_id, 7, b"c", false, None, notice(&given_back))
         .expect_err("input by the id of a cancelled creation was taken after a failed write");
     assert_eq!(
         crate::mux::creating_input::error_code(&late).as_deref(),

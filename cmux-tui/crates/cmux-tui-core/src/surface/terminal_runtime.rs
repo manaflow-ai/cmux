@@ -330,6 +330,8 @@ impl PtyTerminalRuntime {
 /// Parser callbacks run inside `vt_write` under `term`, so they only record
 /// flags or counters that the reader publishes after it unlocks.
 pub struct PtyTerminalRuntime {
+    /// Recent identified sends, shared by placements of this PTY.
+    pub(crate) input_ids: crate::input_ids::InputIds,
     pub(super) event_surface_id: SurfaceId,
     /// Stable public content identity. This belongs to the terminal runtime,
     /// while `SurfaceMeta::resource_identity` belongs to one view placement.

@@ -149,18 +149,20 @@ impl Surface {
         match pty.input_route.load().as_deref() {
             None => None,
             Some(input_port::InputRoute::Exited) => Some(Ok(())),
-            Some(input_port::InputRoute::Failed) => Some(Err(std::io::Error::new(
-                std::io::ErrorKind::NotConnected,
-                "the terminal's host connection failed; input not written",
-            ))),
+            Some(input_port::InputRoute::Failed) => {
+                Some(Err(input_port::InputNotWritten::mark(std::io::Error::new(
+                    std::io::ErrorKind::NotConnected,
+                    "the terminal's host connection failed; input not written",
+                ))))
+            }
             // The reader ended: no host connection will come back, so the input is refused now, as the old path's
             // write failed then (`cmux send` exits non-zero). `Failed` alone is not that: the reader keeps retrying,
             // and it installs a live replacement before the state leaves `Failed` (#34544 review 2).
             Some(input_port::InputRoute::Hosted(_)) if pty.reader_completion.is_complete() => {
-                Some(Err(std::io::Error::new(
+                Some(Err(input_port::InputNotWritten::mark(std::io::Error::new(
                     std::io::ErrorKind::NotConnected,
                     "the terminal's host connection ended; input not written",
-                )))
+                ))))
             }
             Some(input_port::InputRoute::Hosted(_)) => Some(match reply {
                 InputReply::Accepted => {

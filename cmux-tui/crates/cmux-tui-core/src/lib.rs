@@ -63,6 +63,7 @@ pub mod projection;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.
 #[cfg(unix)]
 use cmux_tui_image_paste::image_paste;
+mod input_ids;
 mod journal_checkpoint;
 mod journal_hooks;
 mod journal_ingress;

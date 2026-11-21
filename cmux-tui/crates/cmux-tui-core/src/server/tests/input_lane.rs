@@ -23,6 +23,7 @@ fn key(surface: SurfaceId, byte: u8) -> Command {
         expect_foreground: None,
         expect_agent: None,
         submit: false,
+        input_id: None,
         flow: None,
     })
 }

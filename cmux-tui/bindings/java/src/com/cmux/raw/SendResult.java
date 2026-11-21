@@ -11,19 +11,26 @@ import java.util.Objects;
 
 
 public final class SendResult implements WireValue {
+    private final Field<Boolean> duplicate;
     private final Field<Boolean> queued;
 
     private SendResult(Builder builder) {
+        this.duplicate = builder.duplicate;
         this.queued = builder.queued;
     }
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<Boolean> duplicate() { return duplicate; }
     public Field<Boolean> queued() { return queued; }
 
     public static SendResult fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "SendResult");
         Builder builder = builder();
+        Object rawDuplicate = Wire.optional(object, "duplicate");
+        if (!Wire.isMissing(rawDuplicate)) {
+            builder.duplicate(Wire.bool(rawDuplicate, "SendResult.duplicate"));
+        }
         Object rawQueued = Wire.optional(object, "queued");
         if (!Wire.isMissing(rawQueued)) {
             builder.queued(Wire.bool(rawQueued, "SendResult.queued"));
@@ -34,6 +41,7 @@ public final class SendResult implements WireValue {
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
+        Wire.put(object, "duplicate", duplicate);
         Wire.put(object, "queued", queued);
         return Collections.unmodifiableMap(object);
     }
@@ -41,18 +49,23 @@ public final class SendResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof SendResult that)) return false;
-        return Objects.equals(queued, that.queued);
+        return Objects.equals(duplicate, that.duplicate) && Objects.equals(queued, that.queued);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(queued); }
+    public int hashCode() { return Objects.hash(duplicate, queued); }
 
     @Override
     public String toString() { return "SendResult" + toWire(); }
 
     public static final class Builder {
+        private Field<Boolean> duplicate = Field.omitted();
         private Field<Boolean> queued = Field.omitted();
 
+        public Builder duplicate(Boolean value) {
+            this.duplicate = Field.of(value);
+            return this;
+        }
         public Builder queued(Boolean value) {
             this.queued = Field.of(value);
             return this;

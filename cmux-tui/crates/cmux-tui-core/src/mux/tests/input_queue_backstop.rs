@@ -56,7 +56,7 @@ fn queued_creation(bytes: &[u8]) -> QueuedCreation {
     let notice: UnclaimedNotice = Arc::new(move |_: &str, bytes: &[u8], reason: &str| {
         let _ = given.lock().unwrap().send((bytes.to_vec(), reason.to_owned()));
     });
-    let target = mux.write_terminal_input(TERMINAL, 7, bytes, false, notice).unwrap();
+    let target = mux.write_terminal_input(TERMINAL, 7, bytes, false, None, notice).unwrap();
     assert_eq!(target, TerminalInputTarget::Queued);
     QueuedCreation { mux, clock, generation, back }
 }
@@ -111,7 +111,7 @@ fn queued_adoption(bytes: &[u8]) -> QueuedAdoption {
     let notice: UnclaimedNotice = Arc::new(move |_: &str, bytes: &[u8], reason: &str| {
         let _ = given.lock().unwrap().send((bytes.to_vec(), reason.to_owned()));
     });
-    let target = mux.write_terminal_input(TERMINAL, 7, bytes, false, notice.clone()).unwrap();
+    let target = mux.write_terminal_input(TERMINAL, 7, bytes, false, None, notice.clone()).unwrap();
     assert_eq!(target, TerminalInputTarget::Queued, "input for an adopting terminal is queued");
     QueuedAdoption { mux, clock, back, notice }
 }
@@ -132,7 +132,7 @@ fn an_adoption_that_never_ends_gives_its_input_back_at_the_backstop() {
     assert!(back.recv_timeout(Duration::from_millis(50)).is_err(), "given back twice");
     // The adoption still runs: later input starts a new queue with its own backstop, not a
     // refusal, and the old backstop does not take it.
-    let target = mux.write_terminal_input(TERMINAL, 7, b"after\r", false, notice).unwrap();
+    let target = mux.write_terminal_input(TERMINAL, 7, b"after\r", false, None, notice).unwrap();
     assert_eq!(target, TerminalInputTarget::Queued);
     clock.move_to(&mux, Duration::from_secs(200));
     assert!(back.recv_timeout(NOT_YET).is_err(), "the new queue went early");
@@ -146,7 +146,7 @@ fn an_adoption_that_never_ends_gives_its_input_back_at_the_backstop() {
 fn an_adoption_that_ends_after_the_old_expiry_takes_its_queue_at_its_end() {
     let QueuedAdoption { mux, clock, back, notice } = queued_adoption(b"ls\r");
     clock.move_to(&mux, Duration::from_secs(30));
-    let target = mux.write_terminal_input(TERMINAL, 7, b"pwd\r", false, notice).unwrap();
+    let target = mux.write_terminal_input(TERMINAL, 7, b"pwd\r", false, None, notice).unwrap();
     assert_eq!(target, TerminalInputTarget::Queued);
     clock.move_to(&mux, Duration::from_secs(60));
     assert!(back.recv_timeout(NOT_YET).is_err(), "given back while the adoption ran");

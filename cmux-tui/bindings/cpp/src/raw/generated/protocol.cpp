@@ -33274,6 +33274,11 @@ Result<Json> Codec<SendRequest>::encode(const SendRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("flow", std::move(encoded).value());
     }
+    if (!value.input_id.is_absent()) {
+        auto encoded = encode_value(value.input_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("input_id", std::move(encoded).value());
+    }
     if (value.paste) {
         auto encoded = encode_value(*value.paste);
         if (!encoded) return std::move(encoded).error();
@@ -33346,6 +33351,16 @@ Result<SendRequest> Codec<SendRequest>::decode(const Json& value) {
             result.flow = Field<std::uint64_t>(std::move(decoded).value());
         }
     }
+    const Json* field_input_id = value.find("input_id");
+    if (field_input_id) {
+        if (field_input_id->is_null()) {
+            result.input_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_input_id);
+            if (!decoded) return std::move(decoded).error();
+            result.input_id = Field<std::string>(std::move(decoded).value());
+        }
+    }
     const Json* field_paste = value.find("paste");
     if (field_paste) {
         auto decoded = decode_value<bool>(*field_paste);
@@ -33394,6 +33409,11 @@ Result<SendRequest> Codec<SendRequest>::decode(const Json& value) {
 Result<Json> Codec<SendResult>::encode(const SendResult& value) {
     (void)value;
     Json::Object object;
+    if (value.duplicate) {
+        auto encoded = encode_value(*value.duplicate);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("duplicate", std::move(encoded).value());
+    }
     if (value.queued) {
         auto encoded = encode_value(*value.queued);
         if (!encoded) return std::move(encoded).error();
@@ -33406,6 +33426,12 @@ Result<SendResult> Codec<SendResult>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     SendResult result{};
+    const Json* field_duplicate = value.find("duplicate");
+    if (field_duplicate) {
+        auto decoded = decode_value<bool>(*field_duplicate);
+        if (!decoded) return std::move(decoded).error();
+        result.duplicate = std::move(decoded).value();
+    }
     const Json* field_queued = value.find("queued");
     if (field_queued) {
         auto decoded = decode_value<bool>(*field_queued);
@@ -47509,9 +47535,10 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand221FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand225FieldRequirements{{
     {"key", 9U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand232FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 6> kCommand232FieldRequirements{{
     {"expect_agent", 0U, "send-expect-agent-v1"},
     {"expect_foreground", 0U, "send-expect-foreground-v1"},
+    {"input_id", 0U, "send-input-id-v1"},
     {"paste", 7U, ""},
     {"submit", 0U, "send-expect-agent-v1"},
     {"terminal_id", 0U, "terminal-input-while-creating-v1"},

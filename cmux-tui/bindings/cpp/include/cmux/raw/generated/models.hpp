@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226";
+inline constexpr std::string_view kProtocolIrSha256 = "9d2516d60e5d026f16017351311d9513c06dc9195bb90069b32b83beb6cbad1d";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -5213,6 +5213,7 @@ struct SendRequest {
     Field<SendExpectAgent> expect_agent{};
     Field<std::string> expect_foreground{};
     Field<std::uint64_t> flow{};
+    Field<std::string> input_id{};
     std::optional<bool> paste{};
     std::optional<bool> submit{};
     Field<Id> surface{};
@@ -5222,6 +5223,7 @@ struct SendRequest {
 };
 
 struct SendResult {
+    std::optional<bool> duplicate{};
     std::optional<bool> queued{};
     friend bool operator==(const SendResult&, const SendResult&) = default;
 };

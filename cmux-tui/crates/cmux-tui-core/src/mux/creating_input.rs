@@ -42,6 +42,8 @@
 //! 48 s at 320 terminals on a loaded Mac.
 
 use super::*;
+use crate::input_ids::{InputIds, UncertainWrite};
+use std::ops::ControlFlow;
 
 /// The most bytes queued for one creating terminal; more is refused (`input.overflow`).
 pub(crate) const CREATING_INPUT_LIMIT: usize = 64 * 1024;
@@ -64,7 +66,41 @@ const FLUSH_DELAY_ENV: &str = "CMUX_TUI_TEST_CREATING_INPUT_FLUSH_DELAY_MS";
 /// Gives one connection its queued bytes back: `(terminal_id, bytes, reason)`.
 pub(crate) type UnclaimedNotice = Arc<dyn Fn(&str, &[u8], &str) + Send + Sync>;
 
+/// A terminal-addressed send stays in a creation's FIFO until the PTY can accept it.
+#[derive(Clone, Copy)]
+struct TerminalInput<'a> {
+    bytes: &'a [u8],
+    paste: bool,
+    input_id: Option<&'a str>,
+}
+
+impl TerminalInput<'_> {
+    fn write(self, surface: &Surface) -> anyhow::Result<bool> {
+        let write = || {
+            if self.bytes.is_empty() {
+                Ok(())
+            } else if self.paste {
+                surface.write_paste(self.bytes)
+            } else {
+                surface.write_bytes(self.bytes)
+            }
+        };
+        if let Some(id) = self.input_id {
+            let Surface::Pty(pty) = surface else {
+                anyhow::bail!("browser surface does not accept terminal input");
+            };
+            pty.input_ids.run(id, || {
+                write().map_err(|error| crate::input_ids::write_error(error.into(), false))
+            })
+        } else {
+            write()?;
+            Ok(false)
+        }
+    }
+}
+
 struct QueuedInput {
+    input_id: Option<String>,
     client: u64,
     bytes: Vec<u8>,
     paste: bool,
@@ -77,6 +113,8 @@ struct CreatingTerminal {
     /// for the queue of an adoption.
     owner: Option<u64>,
     queued: Vec<QueuedInput>,
+    /// An acknowledgement of queue admission can be lost before the PTY exists.
+    input_ids: InputIds,
     bytes: usize,
     expiry_started: bool,
     /// The creation committed and the queue is being written; the entry stays until it is empty.
@@ -98,6 +136,7 @@ impl CreatingTerminal {
             generation,
             owner,
             queued: Vec::new(),
+            input_ids: InputIds::default(),
             bytes: 0,
             expiry_started: false,
             flushing: false,
@@ -223,6 +262,8 @@ pub(crate) enum TerminalInputTarget {
     Queued,
     /// Written to the live terminal.
     Written,
+    /// A previous send with this id was queued or written.
+    Duplicate,
 }
 
 /// `write_terminal_input` refused bytes that would take a creating terminal's queue over
@@ -346,8 +387,10 @@ impl Mux {
         client: u64,
         bytes: &[u8],
         paste: bool,
+        input_id: Option<&str>,
         notice: UnclaimedNotice,
     ) -> anyhow::Result<TerminalInputTarget> {
+        let input = TerminalInput { bytes, paste, input_id };
         {
             let inputs = &self.creating_inputs;
             let mut terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
@@ -355,24 +398,24 @@ impl Mux {
                 return Err(InputCancelled.into());
             }
             if let Some(creating) = terminals.get_mut(terminal_id) {
-                return self.queue_input(terminal_id, creating, client, bytes, paste, notice);
+                return self.queue_input(terminal_id, creating, client, input, notice);
             }
         }
         // Live, and no flush is pending: written outside the creating lock. Not live: queued
         // while the terminal's host adopts.
         let surface = match self.live_surface_for_terminal(terminal_id) {
             Some(surface) => surface,
-            None => match self.queue_adopting_input(terminal_id, client, bytes, paste, notice)? {
-                Some(surface) => surface,
-                None => return Ok(TerminalInputTarget::Queued),
+            None => match self.queue_adopting_input(terminal_id, client, input, notice)? {
+                ControlFlow::Continue(surface) => surface,
+                ControlFlow::Break(target) => return Ok(target),
             },
         };
-        if paste {
-            surface.write_paste(bytes)?;
-        } else {
-            surface.write_bytes(bytes)?;
+        if input.write(&surface)? {
+            return Ok(TerminalInputTarget::Duplicate);
         }
-        self.note_terminal_input(&surface, client);
+        if !bytes.is_empty() {
+            self.note_terminal_input(&surface, client);
+        }
         Ok(TerminalInputTarget::Written)
     }
 
@@ -383,15 +426,33 @@ impl Mux {
         terminal_id: &str,
         creating: &mut CreatingTerminal,
         client: u64,
-        bytes: &[u8],
-        paste: bool,
+        input: TerminalInput<'_>,
         notice: UnclaimedNotice,
     ) -> anyhow::Result<TerminalInputTarget> {
-        if creating.bytes + bytes.len() > CREATING_INPUT_LIMIT {
-            return Err(InputOverflow { queued: creating.bytes }.into());
+        // An empty identified send needs a receipt at handoff, too. Charge its marker one byte
+        // so a stream of such requests cannot grow the pending FIFO unboundedly.
+        let cost = input.bytes.len().max(1);
+        let check_room = || {
+            if creating.bytes + cost > CREATING_INPUT_LIMIT {
+                return Err(InputOverflow { queued: creating.bytes }.into());
+            }
+            Ok(())
+        };
+        if let Some(id) = input.input_id {
+            if creating.input_ids.run(id, check_room)? {
+                return Ok(TerminalInputTarget::Duplicate);
+            }
+        } else {
+            check_room()?;
         }
-        creating.bytes += bytes.len();
-        creating.queued.push(QueuedInput { client, bytes: bytes.to_vec(), paste, notice });
+        creating.bytes += cost;
+        creating.queued.push(QueuedInput {
+            client,
+            bytes: input.bytes.to_vec(),
+            paste: input.paste,
+            input_id: input.input_id.map(str::to_owned),
+            notice,
+        });
         if !creating.expiry_started && !creating.flushing {
             creating.expiry_started = true;
             self.start_input_queue_backstop(terminal_id, creating.generation);
@@ -399,19 +460,17 @@ impl Mux {
         Ok(TerminalInputTarget::Queued)
     }
 
-    /// Input for `terminal_id`, which had no live surface: queued (`None`) while an adoption of
-    /// its surviving host runs, the surface to write when it went live meanwhile, else refused.
-    /// The adoption set is read under the creating lock, and an adoption leaves the set before
-    /// its end takes that lock ([`Mux::finish_adopting_input`]), so a queue added here is always
-    /// written or given back. Lock order: creating, then the adoption set.
+    /// Queue the input while an adoption runs, or continue with the surface that went live
+    /// meanwhile. The adoption set is read under the creating lock, and an adoption leaves it
+    /// before its end takes that lock ([`Mux::finish_adopting_input`]), so every queued input
+    /// will be written or given back. Lock order: creating, then the adoption set.
     fn queue_adopting_input(
         self: &Arc<Self>,
         terminal_id: &str,
         client: u64,
-        bytes: &[u8],
-        paste: bool,
+        input: TerminalInput<'_>,
         notice: UnclaimedNotice,
-    ) -> anyhow::Result<Option<Arc<Surface>>> {
+    ) -> anyhow::Result<ControlFlow<TerminalInputTarget, Arc<Surface>>> {
         let inputs = &self.creating_inputs;
         let mut terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
         if inputs.refuses_input(&mut terminals, terminal_id) {
@@ -419,7 +478,7 @@ impl Mux {
         }
         if !terminals.contains_key(terminal_id) {
             if let Some(surface) = self.live_surface_for_terminal(terminal_id) {
-                return Ok(Some(surface));
+                return Ok(ControlFlow::Continue(surface));
             }
             if !self.terminal_adoption_runs(terminal_id) {
                 anyhow::bail!("unknown terminal {terminal_id}");
@@ -431,7 +490,7 @@ impl Mux {
         let Some(creating) = terminals.get_mut(terminal_id) else {
             anyhow::bail!("unknown terminal {terminal_id}");
         };
-        self.queue_input(terminal_id, creating, client, bytes, paste, notice).map(|_| None)
+        self.queue_input(terminal_id, creating, client, input, notice).map(ControlFlow::Break)
     }
 
     /// Whether an adoption thread of `terminal_id`'s surviving host runs.
@@ -583,11 +642,14 @@ impl Mux {
                     give_back(terminal_id, rest, "cancelled");
                     continue 'flush;
                 }
-                let written = if input.paste {
-                    surface.write_paste(&input.bytes)
-                } else {
-                    surface.write_bytes(&input.bytes)
-                };
+                // Remember the applied id on the live PTY before the queue goes away. A
+                // reconnect may retry using either the terminal id or a surface placement.
+                let written = TerminalInput {
+                    bytes: &input.bytes,
+                    paste: input.paste,
+                    input_id: input.input_id.as_deref(),
+                }
+                .write(&surface);
                 if let Err(error) = written {
                     // The terminal took the earlier bytes; the rest, and all queued since, go
                     // back to their senders. Bytes whose write may still reach the program (its
@@ -618,18 +680,18 @@ impl Mux {
                         inputs.ended.notify_all();
                         ended
                     };
-                    let first_given_back = if crate::surface::input_may_be_written(&error) {
-                        index.saturating_add(1)
-                    } else {
-                        index
-                    };
+                    let uncertain = error.is::<UncertainWrite>()
+                        || error
+                            .downcast_ref::<std::io::Error>()
+                            .is_some_and(crate::surface::input_may_be_written);
+                    let first_given_back = if uncertain { index.saturating_add(1) } else { index };
                     let mut rest: Vec<_> = batch.into_iter().skip(first_given_back).collect();
                     rest.extend(later);
                     // The creator cancelled meanwhile: its bytes are dropped, never given back.
                     rest.retain(|input| Some(input.client) != cancelled_by);
                     return give_back(terminal_id, rest, "write-failed");
                 }
-                if !clients.contains(&input.client) {
+                if !input.bytes.is_empty() && !clients.contains(&input.client) {
                     clients.push(input.client);
                 }
             }
@@ -760,7 +822,7 @@ impl Mux {
 /// One give-back per sending connection, with its own bytes in order.
 fn give_back(terminal_id: &str, queued: Vec<QueuedInput>, reason: &str) {
     let mut senders: Vec<(u64, UnclaimedNotice, Vec<u8>)> = Vec::new();
-    for input in queued {
+    for input in queued.into_iter().filter(|input| !input.bytes.is_empty()) {
         match senders.iter_mut().find(|(client, _, _)| *client == input.client) {
             Some((_, _, bytes)) => bytes.extend_from_slice(&input.bytes),
             None => senders.push((input.client, input.notice, input.bytes)),
