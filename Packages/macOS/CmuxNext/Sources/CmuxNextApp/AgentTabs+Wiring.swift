@@ -643,6 +643,12 @@ extension AgentTabStore {
     /// construction and on each observed sign-in/account transition, so sign-in restores them.
     /// A Cloud machine reaches models through its edge, so no action here moves a login to it.
     func syncCloudAccountActions(services: AppServices) {
+        // Door A: a pane's join of a machine over ssh goes with the token the hub's machine routes take
+        // (the sign-in enroll's, CloudSignInEnroll); nil signed out, and the pane says to sign in.
+        machineJoinToken = { [weak services] in
+            guard let services else { return nil }
+            return await services.cloud.auth.machineRoutesToken(identity: services.cloud.installIdentity)
+        }
         if services.cloud.auth.isSignedIn {
             tryAnotherApproach = { [weak services] (chat: String, session: String, throughSeq: Int) async throws -> [String: Any] in
                 guard let services else { throw CancellationError() }

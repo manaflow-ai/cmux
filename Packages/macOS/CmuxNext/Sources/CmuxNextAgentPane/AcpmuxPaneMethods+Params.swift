@@ -143,6 +143,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/archive": (["sessionId", "archived"], []),
         "_acpmux/cold_archive": (["sessionId", "archived"], []),
         "_acpmux/prompt_coach": (["sessionId", "coachId"], []),
+        "_acpmux/machine_candidates": ([], []),
+        // Never `accessToken` or `hub`: the host adds the token, and the hub is the app's own.
+        "_acpmux/machine_join_ssh": (["host", "name", "joinId", "confirmed"], []),
         "_acpmux/run_elsewhere/plan": (["sessionId", "command"], []),
         "_acpmux/run_elsewhere/start": (["sessionId", "command", "peer", "digest", "sendSecrets"], []),
         "_acpmux/bg/output": (["sessionId", "id", "fromByte"], []),

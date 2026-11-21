@@ -185,6 +185,8 @@ import {
 } from "./emojiShortcodes";
 import { COMPOSER_LABELS } from "./composerModel";
 import { attachmentViewMenu } from "./composer/attachmentViewMenu";
+import { MachineJoinLine } from "./MachineJoinLine";
+import { holdSendForJoin, useMachineJoinState } from "./machineJoin";
 import { focusRoute } from "../../ui/focusRoute";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
@@ -615,6 +617,8 @@ function ComposerFrame({
 }: Props) {
   acpmuxPerf.render("composer");
   const t = useT();
+  // The join a Not added yet row started for this new chat (machineJoin.ts): its line, and a held send.
+  const machineJoin = useMachineJoinState();
   // A send held while acpmux starts or reconnects stays in the prompt, and this says so (sendWhenReady.ts).
   const heldForHost = useSyncExternalStore(sendsHeldForHost.subscribe, sendsHeldForHost.get);
   // The chat's peer link for the quiet row, as acpmux reports it; null for a chat on this Mac
@@ -1756,6 +1760,10 @@ function ComposerFrame({
       plusDraft.current = undefined;
       return false;
     }
+    // A new chat's machine is still being set up (Not added yet, machineJoin.ts): the prompt stays
+    // here as typed, the line under the box says it sends when the machine is ready, and this same
+    // send runs again once the chat's machine is that one. Nothing goes to This Mac meanwhile.
+    if (onProject !== undefined && holdSendForJoin(() => submitNow.current(force, steer, kept, route))) return true;
     const fromSend = document.activeElement?.classList.contains("acpmux-send") ?? false;
     // The key that sent it is spent: what the composer writes back after the send is not typing.
     notTyped();
@@ -3124,6 +3132,13 @@ function ComposerFrame({
         trailing={quietActions ? undefined : sendControl}
         chromeItems={chrome.all}
       />
+      {onProject !== undefined && (
+        <MachineJoinLine
+          join={machineJoin.join}
+          onSignIn={() => onConnect?.("cloudSignIn")}
+          onAddMachine={() => onConnect?.("addMachine")}
+        />
+      )}
     </form>
   );
 }

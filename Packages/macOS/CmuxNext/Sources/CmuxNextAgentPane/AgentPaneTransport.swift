@@ -234,6 +234,10 @@ import CmuxNextCompat
     static let personRecoveryReconnects = 3
     /// The recovery running for the current unproven connection.
     var personRecovery: Task<Void, Never>?
+    /// The person's cmux access token for a join of a machine over ssh (`_acpmux/machine_join_ssh`,
+    /// Door A), added to that frame here so the page never holds it; nil signed out. The App wires
+    /// it to the token the hub's machine routes take (``AgentPaneTransport/withMachineJoinToken``).
+    public var machineJoinToken: @MainActor () async -> String? = { nil }
     /// `_acpmux/markUnread` on the host's socket (Mark as Unread, cx-ncc.78). Replaced in tests.
     public var markUnread: @MainActor (_ sessionId: String) async throws -> Void = { _ in
         throw AcpmuxStatusClient.Failure.closed

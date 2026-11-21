@@ -353,6 +353,8 @@ final class AgentTabStore {
     var localPaths: (@MainActor (_ tab: String) -> Bool)?
     /// A background task's terminal beside chat tab `chat` (``AgentProcessTerminal``); false when none opened.
     var openProcess: (@MainActor (_ chat: String, _ viewer: AgentPaneProcessViewer) -> Bool)?
+    /// The person's access token for a Door A join from a pane (``AgentPaneTransport/machineJoinToken``); nil: none.
+    var machineJoinToken: (@MainActor () async -> String?)?
     /// Cloud's latest-turn machine + transcript fork. Tests inject a mocked platform here.
     var tryAnotherApproach: (@MainActor (_ chat: String, _ session: String, _ throughSeq: Int) async throws -> [String: Any])?
     /// A Cloud chat's turn checkpoints and rewinds (``AppServices/cloudTurnRewindHost``).
@@ -727,6 +729,7 @@ final class AgentTabStore {
         }
         wireAgentFolder(model, key: provisional, machine: scoped.machine)
         wireAgentReply(model, key: provisional, machine: scoped.machine)
+        model.transport.machineJoinToken = { [weak self] in await self?.machineJoinToken?() }
         model.onUpload = { [weak self] in
             guard let self else { return nil }
             return uploader?(resolve(provisional, machine: scoped.machine))
