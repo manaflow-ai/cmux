@@ -20,7 +20,14 @@ import { Icon } from "../icons";
 import { revealRow } from "../keyboard";
 import type { ModelConnection, ModelProvider, ModelsRun, ModelsState } from "../ops";
 import { t } from "../strings";
-import { AddConnectionSheet, ChatGPTStatus, providerCatalog, useModelsRun, type Run, type SheetStart } from "./ModelsCard";
+import {
+  AddConnectionSheet,
+  ChatGPTStatus,
+  providerCatalog,
+  useModelsRun,
+  type Run,
+  type SheetStart,
+} from "./ModelsCard";
 
 /** The rows, in order; each is the focus that opens the page on it (`cloud.<row>`). */
 export const CLOUD_ROWS = ["claude", "chatgpt", "apiKey"] as const;
@@ -338,11 +345,7 @@ function ManageMenu({
 }) {
   const plan = connection.kind === "chatgpt-plan";
   const replaceStart: SheetStart =
-    connection.kind === "claude-token"
-      ? "claude"
-      : connection.kind === "api-key"
-        ? connection.provider
-        : null;
+    connection.kind === "claude-token" ? "claude" : connection.kind === "api-key" ? connection.provider : null;
   if (!plan && !replaceStart) return null;
   return (
     <Menu>

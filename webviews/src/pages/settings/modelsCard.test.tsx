@@ -131,7 +131,10 @@ test("every provider of acpmux's catalog is a way in, and each asks for what its
   expect(form.querySelector('[data-models-field="base-url"]')).not.toBeNull();
   await changeValue(form.querySelector<HTMLInputElement>('input[type="password"]')!, "sk-gw-0123456789");
   expect(action(form, "addKey")!.disabled).toBe(true);
-  await changeValue(form.querySelector<HTMLInputElement>('[data-models-field="base-url"]')!, "https://gw.example.com/v1");
+  await changeValue(
+    form.querySelector<HTMLInputElement>('[data-models-field="base-url"]')!,
+    "https://gw.example.com/v1",
+  );
   await click(action(form, "addKey")!);
   expect(rendered.provider.modelRuns).toEqual([
     {

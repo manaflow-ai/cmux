@@ -60,7 +60,12 @@ public final class CloudSetup {
         public func choice(family: String, model: String?, account: String?) -> Choice {
             if let personal {
                 let serving = personal.filter { $0.enabled && $0.signedIn && $0.servesCloud && $0.families.contains(family) }
-                if let pick = serving.first(where: { $0.id == account }) ?? serving.first { return .connection(id: pick.id, family: family) }
+                // OpenCode runs on a key only when the picker names that connection: a key added for Claude or
+                // Codex never takes over an OpenCode chat's own route (cmux#48428).
+                let fallsToOrder = CloudSetup.setupFamilies.contains(family)
+                if let pick = serving.first(where: { $0.id == account }) ?? (fallsToOrder ? serving.first : nil) {
+                    return .connection(id: pick.id, family: family)
+                }
             }
             if organization?.contains(family) == true { return .organization(family: family) }
             // An OpenCode chat runs on a provider key when one serves it (cmux#48428), else on the machine's own path

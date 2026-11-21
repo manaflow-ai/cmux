@@ -75,7 +75,7 @@ pub const MARKER: &str = "ACPMUX_LAUNCH_CREDENTIAL";
 
 /// What a credentialed agent never inherits: the machine's coderouter route, and every other
 /// provider login or endpoint switch that would outrank the credential or send it elsewhere.
-pub const UNSET: [&str; 23] = [
+pub const UNSET: [&str; 29] = [
     "ANTHROPIC_BASE_URL",
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
@@ -99,6 +99,13 @@ pub const UNSET: [&str; 23] = [
     "CMUX_PROVIDER_RESPONSES_URL",
     "CMUX_PROVIDER_REGION",
     "CMUX_OPENCODE_AUTH",
+    // AWS credentials the image may carry would outrank a Bedrock key (cmux#48428).
+    "AWS_PROFILE",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AWS_REGION",
+    "ANTHROPIC_BEDROCK_BASE_URL",
 ];
 
 /// The Codex provider a ChatGPT plan token runs on: the ChatGPT Codex backend
@@ -335,7 +342,10 @@ pub fn apply(
         .get(crate::routes::UNSET_KEY)
         .map(|l| l.split(',').filter(|k| !k.is_empty()).map(str::to_owned).collect())
         .unwrap_or_default();
-    for key in UNSET {
+    // Every variable OpenCode reads a catalog provider's key from goes too: an inherited one
+    // would pick another provider than the delivered key's.
+    let opencode = crate::providers::PROVIDERS.iter().filter_map(|p| p.opencode.map(|o| o.env));
+    for key in UNSET.into_iter().chain(opencode) {
         env.remove(key);
         if !unset.iter().any(|u| u == key) {
             unset.push(key.to_owned());

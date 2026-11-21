@@ -76,7 +76,7 @@ pub struct OpenCode {
 
 /// A field Add a Connection asks for beside the key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "kebab-case")]
 pub enum Field {
     /// The endpoint's `https://` base URL, and the protocol it speaks.
     BaseUrl,
@@ -202,7 +202,7 @@ pub const PROVIDERS: &[Provider] = &[
     },
     Provider {
         console: Some("https://www.kimi.com/code"),
-        anthropic: anthropic("https://api.kimi.com/coding", XApiKey),
+        anthropic: anthropic("https://api.kimi.com/coding", Bearer),
         responses: Some("https://api.kimi.com/coding/v1"),
         opencode: opencode("kimi-code-plan-global", "KIMI_API_KEY"),
         check: get("https://api.kimi.com/coding/v1/models", CheckAuth::Bearer),
@@ -456,7 +456,48 @@ pub fn check_base_url(url: &str) -> Result<String, String> {
     if !url.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._~/:".contains(&b)) {
         return Err("baseUrl may hold only letters, digits and - . _ ~ / :".into());
     }
+    // A key pasted into the path (`https://host/sk-ant-…`) would travel in every request line and log.
+    if parsed.path_segments().into_iter().flatten().any(crate::byo_endpoint::looks_like_secret) {
+        return Err("baseUrl holds what looks like a key; paste the key in the key field".into());
+    }
+    if parsed.host_str().is_none_or(is_private_host) {
+        return Err("baseUrl must name a public host, not this machine or a private network".into());
+    }
     Ok(url)
+}
+
+/// A host a key must never be sent to from a named endpoint: this machine, a private or
+/// link-local network (cloud metadata), or a name only an internal resolver answers.
+fn is_private_host(host: &str) -> bool {
+    use std::net::IpAddr;
+    let bare = host.trim_start_matches('[').trim_end_matches(']');
+    let ip = match bare.parse::<IpAddr>() {
+        Ok(IpAddr::V6(v6)) => v6.to_ipv4_mapped().map_or(IpAddr::V6(v6), IpAddr::V4),
+        Ok(ip) => ip,
+        Err(_) => {
+            let name = bare.trim_end_matches('.').to_ascii_lowercase();
+            return name == "localhost"
+                || [".localhost", ".local", ".internal", ".lan", ".home.arpa", ".ts.net"]
+                    .iter()
+                    .any(|suffix| name.ends_with(suffix))
+                || !name.contains('.');
+        }
+    };
+    match ip {
+        IpAddr::V4(v4) => {
+            let [a, b, ..] = v4.octets();
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || (a == 100 && (64..128).contains(&b)) // CGNAT, tailnets
+        }
+        IpAddr::V6(v6) => {
+            let first = v6.segments()[0];
+            v6.is_loopback() || v6.is_unspecified() || (first & 0xfe00) == 0xfc00 || (first & 0xffc0) == 0xfe80
+        }
+    }
 }
 
 /// An AWS region as Bedrock names one (`us-east-1`, `us-gov-west-1`, `ap-southeast-2`).
@@ -720,9 +761,40 @@ mod tests {
             "https://llm.example.com/sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789",
             "https://llm.example.com/a b",
             "ftp://llm.example.com",
+            // This machine, a private network, cloud metadata or a tailnet never gets the key.
+            "https://127.0.0.1:8443",
+            "https://localhost",
+            "https://10.0.0.5/v1",
+            "https://192.168.1.2",
+            "https://169.254.169.254/latest",
+            "https://100.89.225.106:31415",
+            "https://[::1]/v1",
+            "https://[fd00::1]",
+            "https://[::ffff:10.0.0.1]",
+            "https://coderouter.cmux.internal",
+            "https://box.tail137216.ts.net",
+            "https://intranet",
         ] {
             assert!(check_base_url(bad).is_err(), "{bad}");
         }
+        assert!(check_base_url("https://8.8.8.8/v1").is_ok());
+        // A real gateway path (a Cloudflare account id is 32 hex characters) is not a key.
+        let gateway = "https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/main/anthropic";
+        assert_eq!(check_base_url(gateway).as_deref(), Ok(gateway));
+    }
+
+    /// The page reads the catalog's field names as they are listed (`base-url`, `region`).
+    #[test]
+    fn the_listed_catalog_names_its_fields_as_the_page_reads_them() {
+        let listed = listed();
+        let fields = |id: &str| {
+            listed.as_array().unwrap().iter().find(|p| p["id"] == id).unwrap()["fields"].clone()
+        };
+        assert_eq!(fields("custom"), serde_json::json!(["base-url"]));
+        assert_eq!(fields("bedrock"), serde_json::json!(["region"]));
+        let custom = listed.as_array().unwrap().iter().find(|p| p["id"] == "custom").unwrap();
+        assert_eq!(custom["group"], "custom");
+        assert_eq!(custom["protocols"], serde_json::json!(["anthropic", "anthropic-bearer", "responses"]));
     }
 
     #[test]

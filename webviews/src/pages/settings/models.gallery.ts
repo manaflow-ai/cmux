@@ -55,11 +55,15 @@ export default settingsPageEntry({
       mockModels.chatgptError,
       "The ChatGPT sign-in came back without plan access: the reason in plain words and Try Again.",
     ),
-    "add-sheet": variant(mockModels.macLogins, "The Add a Connection sheet: search, Subscriptions (with coding plans), API keys and Custom endpoint from acpmux's provider catalog.", [
-      shown,
-      { selector: '[data-models-action="add"]', action: "click" },
-      { selector: "[data-models-sheet]", action: "wait" },
-    ]),
+    "add-sheet": variant(
+      mockModels.macLogins,
+      "The Add a Connection sheet: search, Subscriptions (with coding plans), API keys and Custom endpoint from acpmux's provider catalog.",
+      [
+        shown,
+        { selector: '[data-models-action="add"]', action: "click" },
+        { selector: "[data-models-sheet]", action: "wait" },
+      ],
+    ),
     "add-key": variant(mockModels.macLogins, "Add a Connection > Anthropic: the key field and an optional label.", [
       shown,
       { selector: '[data-models-action="add"]', action: "click" },

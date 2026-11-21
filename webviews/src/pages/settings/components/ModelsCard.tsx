@@ -903,8 +903,7 @@ export function AddConnectionSheet({
   const catalog = providerCatalog(models);
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<Choice | null>(() => startChoice(start, catalog));
-  const inGroup = (group: ModelProviderInfo["group"]) =>
-    catalog.filter((info) => info.group === group).map(keyChoice);
+  const inGroup = (group: ModelProviderInfo["group"]) => catalog.filter((info) => info.group === group).map(keyChoice);
   const needle = query.trim().toLocaleLowerCase();
   const matches = (choice: Choice) =>
     !needle || `${choice.title} ${choice.detail}`.toLocaleLowerCase().includes(needle);
@@ -1039,17 +1038,7 @@ const PROTOCOL_NAMES: Record<string, string> = {
   responses: "OpenAI Responses",
 };
 
-function KeyForm({
-  info,
-  busy,
-  run,
-  onDone,
-}: {
-  info: ModelProviderInfo;
-  busy: boolean;
-  run: Run;
-  onDone(): void;
-}) {
+function KeyForm({ info, busy, run, onDone }: { info: ModelProviderInfo; busy: boolean; run: Run; onDone(): void }) {
   const provider = info.id;
   const name = info.label;
   const keyId = useId();
@@ -1091,7 +1080,9 @@ function KeyForm({
       }}
     >
       <p className="row-help">{t("settingsWindow.models.key.help", name)}</p>
-      {info.checked && info.group !== "custom" && <p className="row-help">{t("settingsWindow.models.key.checked", name)}</p>}
+      {info.checked && info.group !== "custom" && (
+        <p className="row-help">{t("settingsWindow.models.key.checked", name)}</p>
+      )}
       {needsBaseUrl && (
         <>
           <label className="row-help" id={baseUrlId}>
@@ -1169,7 +1160,12 @@ function KeyForm({
         onChange={(event) => setLabel(event.target.value)}
       />
       <div className="accounts-buttons">
-        <Button type="submit" className="button" data-models-action="addKey" disabled={busy || !key.trim() || !fieldsReady}>
+        <Button
+          type="submit"
+          className="button"
+          data-models-action="addKey"
+          disabled={busy || !key.trim() || !fieldsReady}
+        >
           {t("settingsWindow.models.key.add")}
         </Button>
         <Button

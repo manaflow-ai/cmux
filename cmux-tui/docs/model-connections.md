@@ -260,7 +260,9 @@ status the provider uses for a bad key (401 or 403, and 400 for Google and xAI) 
 Keychain item it just wrote. Any other status adds it, and the answer's `added.check` says what was
 seen (`accepted`, or `unconfirmed` with the status). A provider whose model list is public (NVIDIA,
 OpenCode Go) has no check. A named endpoint (`custom`, Cloudflare AI Gateway, Neon AI Gateway) takes
-an `https://` base URL with no user info, query or fragment, of URL-safe characters only, and the
+an `https://` base URL with no user info, query or fragment, of URL-safe characters only, naming a
+public host (never this machine, a private, link-local or tailnet address, or a `.internal`, `.local`
+or one-label name, on the Mac and again on the machine), and the
 protocol it speaks (`anthropic`, `anthropic-bearer`, `responses`). Amazon Bedrock takes its AWS
 Region, kept in the route's `health_url` (no new route field), and is checked against Bedrock's
 model list in that region.
@@ -283,8 +285,16 @@ OpenCode as it is. Every credentialed spawn pins `CMUX_<AGENT>_AUTH=own`, so the
 never layers the CodeRouter route over it. A family the connection does not serve keeps the
 machine's own route.
 
-**Families**: Cloud first use now chooses for `claude`, `codex` and `opencode`. An OpenCode chat
-with nothing to serve it still starts on the machine's own path (no Set up Cloud card).
+**Families**: Cloud first use now chooses for `claude`, `codex` and `opencode`. An OpenCode chat runs
+on a key only when the picker names that connection; otherwise, and with nothing to serve it, it
+starts on the machine's own path as before (no Set up Cloud card), so a key added for Claude or
+Codex never takes an OpenCode chat over.
+
+**Models**: a delivery sets the endpoint and the key, not the model. The chat's model is the picker's,
+as before. Providers whose Anthropic endpoint maps Claude's model names (OpenRouter, GLM, Kimi Code,
+DeepInfra) run Claude Code's defaults; on the others (Ollama Cloud, Baseten, Fireworks, Meta, Morph,
+Ramp Router, a named endpoint) the person picks a model the provider serves. A per-provider model
+list in the picker is a follow-up.
 
 **Where a key is** (threat model): on the Mac, in the login Keychain (encrypted at rest by the
 system; the route file holds only the reference). In flight, only over the owner's authenticated
