@@ -82,6 +82,25 @@ trip cut the window of a stream that needed it, and the stream ran seconds
 behind for the rest of the session; a tunnel that had repair on from the start
 never saw the loss at all. The controllers derive `Clone` for the saved copy.
 
+`Socket::unsent_queue()` returns the octets in the transmit buffer that were
+never sent (`send_queue()` also counts those in flight), and
+`Socket::smoothed_rtt()` the RFC 6298 SRTT. cmux-wg reads both to keep at most
+about one bandwidth-delay product of unsent bytes in a socket, as Linux's
+`TCP_NOTSENT_LOWAT` does: bytes in a socket can no longer be reordered, so a
+latency-bound frame queued behind them waits for all of them. The detector is
+`test_unsent_queue_and_smoothed_rtt`.
+
+A pure ACK carries the highest sequence number sent (SND.MAX), as Linux's do,
+not the send point a retransmission timeout rewound. After an RTO smoltcp
+resends from the oldest unacknowledged byte, and it numbered its ACKs from
+there too; a peer that already held data past that point (its ACK was lost)
+saw those ACKs as old segments and dropped them with the acknowledgment they
+carried (RFC 9293 3.10.7.4). With data flowing both ways through loss, both
+ends rewound, each dropped the other's ACKs, and the connection stalled until
+its user timeout. The tunnel TCP model test found it once a gate held writes
+back (seed 13 of `tunnel_tcp_delivers_every_byte_once_in_order_over_a_lossy_link`,
+12% loss). The detector is `test_pure_ack_after_rto_carries_send_max`.
+
 The changes are in `src/socket/tcp/congestion/cubic.rs` and `src/socket/tcp.rs`,
 each marked `cmux patch`, with tests next to them. Reno's own start is unchanged;
 cmux does not enable it.
