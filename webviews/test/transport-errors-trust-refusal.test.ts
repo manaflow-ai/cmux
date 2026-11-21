@@ -23,8 +23,8 @@ const untrusted = () =>
   });
 
 test("a trust refusal reads as the pane's sentence, not acpmux's code", () => {
-  expect(errorMessage(pending())).toBe(translate("error.trustPending"));
-  expect(errorMessage(untrusted())).toBe(translate("error.trustUntrusted"));
+  expect(errorMessage(pending())).toBe(translate("trust.answerFirst"));
+  expect(errorMessage(untrusted())).toBe(translate("picker.needsTrust"));
   for (const text of [errorMessage(pending()), errorMessage(untrusted())]) {
     expect(text).not.toContain("trust.");
     expect(text).not.toContain("the user chose");
@@ -63,6 +63,6 @@ test("a queued mode pick refused for trust says to answer the trust question", a
   store.pickMode("plan");
   expect(await opened).toBe("s1");
   await new Promise((done) => setTimeout(done, 0));
-  expect(notices).toEqual([translate("switch.modeFailed", { mode: "plan", reason: translate("error.trustPending") })]);
+  expect(notices).toEqual([translate("switch.modeFailed", { mode: "plan", reason: translate("trust.answerFirst") })]);
   expect(notices[0]).not.toContain("trust.pending");
 });

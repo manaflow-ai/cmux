@@ -134,7 +134,7 @@ test("Only this folder records the folder, and Not now the repository", async ()
   await open(other.source, "chat-decline", worktree);
   await act(async () => latest!.distrust());
   expect(other.sets).toEqual([[repoRoot, "untrusted"]]);
-  expect(latest!.blocked?.reason).toBe("trust.notTrustedNoPrompts");
+  expect(latest!.blocked).toEqual({ reason: "picker.needsTrust", shownAbove: true, untrusted: true });
 });
 
 const noop = () => undefined;

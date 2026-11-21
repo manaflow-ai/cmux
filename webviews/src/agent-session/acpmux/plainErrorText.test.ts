@@ -39,7 +39,7 @@ test("only the pane's own words count as a reason", () => {
   expect(knownRefusalText(new Error("Failed to fetch"))).toBeUndefined();
   expect(knownRefusalText("Error: socket hang up")).toBeUndefined();
   expect(knownRefusalText({ code: "transport.gesture_required" })).toBe(translate("transport.gestureRequired"));
-  expect(knownRefusalText({ reason: "trust.pending" })).toBe(translate("error.trustPending"));
+  expect(knownRefusalText({ reason: "trust.pending" })).toBe(translate("trust.answerFirst"));
   expect(knownRefusalText({ reason: "remote.session_cancel_ownership" })).toBe(translate("error.stopOwnerOnly"));
   // acpmux's reason is worded; its own message (written for the agent or the CLI) is not.
   expect(knownRefusalText(Object.assign(new Error(RAW), { reason: "subsessions.width_limit" }))).toBe(
@@ -69,7 +69,7 @@ test("a trust answer that did not save shows no host text under Couldn't save th
   expect(failedAsk("/w", { reason: "trust.untrusted" })).toEqual({
     cwd: "/w",
     state: "failed",
-    reason: translate("error.trustUntrusted"),
+    reason: translate("picker.needsTrust"),
   });
 });
 
