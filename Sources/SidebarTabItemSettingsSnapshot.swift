@@ -28,6 +28,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let openPortLinksInCmuxBrowser: Bool
     let showsNotificationMessage: Bool
     let notificationMessageLineLimit: Int
+    /// `sidebar.groupMemberIndent`: leading inset of rows inside a workspace group.
+    let groupMemberIndent: CGFloat
     let activeTabIndicatorStyle: WorkspaceIndicatorStyle
     let loadingSpinnerPosition: SidebarIndicatorPosition
     let notificationBadgePosition: SidebarIndicatorPosition
@@ -91,6 +93,13 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
             ),
             SidebarCatalogSection.notificationMessageLineLimitRange.upperBound
         )
+        groupMemberIndent = CGFloat(min(
+            max(
+                settings.value(for: sidebar.groupMemberIndent),
+                SidebarCatalogSection.groupMemberIndentRange.lowerBound
+            ),
+            SidebarCatalogSection.groupMemberIndentRange.upperBound
+        ))
         visibleAuxiliaryDetails = SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
             showMetadata: details.showCustomMetadata,
             showLog: details.showLog,
