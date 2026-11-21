@@ -156,7 +156,7 @@ final class MacScreenPageService: InternalPageProvider {
 
 extension AppServices {
     static func makeMacScreenPages(_ services: AppServices) -> MacScreenPages {
-        let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID), work: services.work)
+        let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID, loginKeychain: services.loginKeychain), work: services.work)
         pages.useActions(of: services.registry, isPersonEvent: services.personInput.isPerson)
         // SECURITY: a joined Mac serves only what its person allowed here (with the model gone, nothing),
         // and a session stops once that no longer allows it.

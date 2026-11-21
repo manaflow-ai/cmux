@@ -276,8 +276,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.toast {message, tone, group}`: feedback the page shows as the app's native toast, so it
     /// takes the picked toast style (Lawrence 2026-11-13); `group` is its kind (Don't Show Again hides it).
     case toast(message: String, isError: Bool, group: String?)
-    /// `pane.glass {surfaces}`: the page's floating glass the App draws under the page
-    /// (``AgentPaneHostGlass``); empty when none shows.
+    /// `pane.glass {surfaces, zoom}`: the page's floating glass the App draws under the page
+    /// (``AgentPaneHostGlass``), measured at the page zoom `zoom`; empty when none shows.
     case hostGlass([AgentPaneHostGlassSurface])
     /// Copies a native Session Info menu item through the platform clipboard.
     case copyText(String)
