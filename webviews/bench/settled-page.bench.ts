@@ -702,6 +702,12 @@ try {
         const lines = [
           ...read.marks,
           ...(first ? [{ t: first.t, what: "first frame showing the target" }] : []),
+          ...read.frames
+            .filter((frame) => frame.t >= read.t0)
+            .map((frame) => ({
+              t: frame.t,
+              what: `frame rows=${frame.rows.length} target=${frame.rows.filter((row) => rowOf(row.id, target)).length} first=${frame.rows[0]?.id}@${frame.rows[0]?.top.toFixed(1)} last=${frame.rows.at(-1)?.id}@${frame.rows.at(-1)?.top.toFixed(1)} scroll=${frame.scrollTop} composer=${frame.composer?.top.toFixed(1)}`,
+            })),
           { t: read.t0 + judged.settledMs, what: "settled" },
         ]
           .filter((one) => one.t - read.t0 <= judged.settledMs + 50)
