@@ -1,0 +1,348 @@
+{
+  "version": 1,
+  "build": "4486891858901",
+  "notes": "notes/4486891858901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43080,
+      "title": "Agent chats: a released idle chat reopens in the prewarmed spare page",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48413,
+      "title": "ci: re-arm the API call log until 2026-11-22 to attribute the routing App installation's spend",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48198,
+      "title": "feat: gate harness update card behind Labs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48420,
+      "title": "ci: list the glass parity React page",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48374,
+      "title": "acpmux: one acpmux MCP process per chat (5 -> 1), the rest served by the daemon; a test holds the budget",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48153,
+      "title": "voice-room: measure cost over active time",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48370,
+      "title": "fix(cmux-tui): an owner no client reached for a day stops, so its terminal hosts can end",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47835,
+      "title": "cmux NEXT: refresh runtime model catalog after acpmux connects",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/47835/hv-cc94d1b219a0-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 47734,
+      "title": "NEXT: Cloud pick only sets the target; Cmd+D beside Cloud reads Cloud; Cloud chat row never last; pickers stay independent (#47677)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48400,
+      "title": "Settings: regenerate the agent policy Swift copy (appearance.agentGlow, notifications.attention.mark were missing)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43454,
+      "title": "cmux-next-ios: the keyboard never resizes the terminal; a full-screen app's header stays above it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48475,
+      "title": "acpmux: put every codex -c before app-server so GUI Codex keeps root overrides (#48354)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47719,
+      "title": "New Tab: Cards, Default, Threads and Console become templates you build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48474,
+      "title": "cmux-tui artifacts: a nightly-next run takes over from any owner that is not nightly-next",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48386,
+      "title": "base red: crash safety passes again on feat-cmux-next",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48360,
+      "title": "acpmux: GUI Codex chats route the configured model like a terminal codex (#48354)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47688,
+      "title": "Settings: on/off choices are animated switches, not checkboxes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48396,
+      "title": "ci: bound every workflow job, skip tail jobs on a cancelled run, and check every schedule against main",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48433,
+      "title": "base red: Home's blue dot, built-in glyph size and sidebar leading-edge suites open a 2x window",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48402,
+      "title": "CI: force worktree add over a stale registration on persistent runners",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48423,
+      "title": "fix(next browser): keep CEF middle clicks in background",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48409,
+      "title": "cmux-tui artifacts: tree-owner-wait runs on trunk pushes; gh attestation detector",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47704,
+      "title": "Cloud start: a machine that does not run is started or resumed, not refused (#47638)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48202,
+      "title": "New Cloud Chat in File and New Tab menus (step A), and a paste-to-agent prompt for a first Cloud chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48401,
+      "title": "cmux-next: parse CLI and daemon answers off the main actor (main-actor ratchet green)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48213,
+      "title": "experiment: opt-in Linux VM capacity replay",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48389,
+      "title": "Script tests base red: tree key covers settings defaults, push_range keeps bare upstream names, tab-switch test follows #47805",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48380,
+      "title": "ci(cmux-next checks): fix the checks-structure, tier-routing and companion base reds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48346,
+      "title": "acpmux: newRelay runs a configured command when new --machine names no peer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48381,
+      "title": "cmux-next checks base reds: list glass-parity, cut the idle-hold string, translate the updater holds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48425,
+      "title": "base red: tab icon, top row and sidebar slot suites open a 2x window; Dismiss Highlight runs last in the remote attention test",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47733,
+      "title": "Composer: a new chat on a Cloud machine's page starts there, never as a refused Cloud start (#47679)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48339,
+      "title": "live code build: skip the Embed Frameworks copy of CmuxNextApp, which the static link does not make (#48325)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48223,
+      "title": "Experiment with default-off signer shadow handoff",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48179,
+      "title": "acpmux: workflow machine on ci runs on the Linux pool with one bounded wait",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48378,
+      "title": "base red: regenerate the settings agent-policy tables from agent-policy.json",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48230,
+      "title": "Add default-off high contrast chat experiment",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48415,
+      "title": "fix(cmux-next): agent swift suites pass on feat-cmux-next",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47798,
+      "title": "cmux-tui: terminals can share one holder process, off by default (successor of #47193)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48411,
+      "title": "NEXT sidebar: hover close never covers the PR badge, unread dot or error mark (#48363)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48393,
+      "title": "perf-bench: pane and tab drag harness at 2, 8 and 30 panes (RFD 0022 item 1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48412,
+      "title": "test(omnibar): the pixel-centering suites open a 2x window, so a 1x fleet display does not snap their half-point geometry",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48226,
+      "title": "Preview remote workspaces from Devices",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48331,
+      "title": "test(cmux-next): four base-red suites follow the behaviour their commits intended",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48410,
+      "title": "base red: tab strip swift suites (TabLookupGuard, TabStripOverflow, TabStripPinnedScroll)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48390,
+      "title": "cmux-tui: a rewritten shared shim keeps its older writer as a checked fallback",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48344,
+      "title": "cloud-dev-stack: each tag stack gets an authenticated public origin, and the backend allowlists name exactly ours",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47787,
+      "title": "Composer lists: a row is always highlighted and Enter takes it; one completion UI",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48191,
+      "title": "feat: add a Labs-gated guest handoff experiment",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47749,
+      "title": "Onboarding: a default launch asks the cmux Tools question once",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48353,
+      "title": "cmux-tui: shared agent shims start claude/codex through the terminal's own cmux (no cmux in /mcp in older terminals)",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47858,
+      "title": "cmux-tui: the public topology fold keeps digests of what it stated, not copies (CMUX-571) (successor of #46174)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47974,
+      "title": "Host glass: a report at a new page zoom waits for the page's frame, so the glass never leads the menu",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48356,
+      "title": "ci(gallery): a base build writes strings best-effort, so a translation the base lacked excuses no red away",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48365,
+      "title": "nightly decide: read on a spare App token when the Actions installation is dry, and wait up to its hourly reset",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48350,
+      "title": "ci: a pool VM's old apt gh gets a pinned gh before gh attestation verify",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
