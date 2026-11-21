@@ -287,9 +287,7 @@ final class NewTabInputCoordinator {
     /// the store's id too from now on. The store answers for `first` only until its tree no longer lists that id
     /// (`AgentTabStore.releaseGoneTabs`), so a later key can not ask the store.
     func tabMade(_ first: String, in tabs: AgentTabStore) {
-        for entry in buffers.values where entry.opened.contains(first) {
-            entry.opened.insert(tabs.resolve(first))
-        }
+        for entry in buffers.values where entry.opened.contains(first) { entry.opened.insert(tabs.resolve(first)) }
     }
 
     /// The open showed its tab with a page view that was there before the key. When that view had the keyboard at the key, the hold has no owner, so an end with no field ready gives its keys to that view (`NewTabHoldKeyboard.newTabTook`).
