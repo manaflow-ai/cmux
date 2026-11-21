@@ -256,12 +256,9 @@ final class HomeMessagesHostProvider: PageProvider {
     }
 
     /// The header's location chip on the conversation that shows it (``HomeService/showsTeleport(conversation:)``).
-    private func place() -> JSONValue {
-        guard let services, let shown, services.home.showsTeleport(conversation: shown.rawValue),
-              let face = try? JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(services.chiefTeleport.chipFace(saysAway: true)))
-        else { return .null }
-        return .object(["conversation": .string(shown.rawValue), "chip": face])
-    }
+    /// The header shows no location chip: where the Chief runs is the Chief card's Runs On row
+    /// (``ChiefTeleportChips``), so the page always gets null.
+    private func place() -> JSONValue { .null }
 
     /// The Needs you section: `{route}` (the Feed page's route the page draws) while the shown conversation is a
     /// Chief's and the section is on, else null. Off, the page mounts no Feed view, so it reads no Feed state.

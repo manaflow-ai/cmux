@@ -25,7 +25,7 @@ struct HomeHeaderPanel {
     /// Whether the toggle shows for this conversation (Memory: a Chief's only).
     var isShown: @MainActor (HomeHeaderPanelContext) -> Bool = { _ in true }
     /// Shown even while Debug Settings > Home > Home header panel toggles is off: a control that is
-    /// also an indicator the person must always see (Share Screen with Chief).
+    /// also an indicator the person must always see.
     var alwaysShown = false
     /// The click's arguments (Memory names this conversation's Chief).
     var arguments: @MainActor (HomeHeaderPanelContext) -> [String: ActionValue] = { _ in [:] }
@@ -49,16 +49,7 @@ struct HomeHeaderPanelContext {
 @MainActor
 enum HomeHeaderPanels {
     /// Every header toggle, left to right.
-    static let all: [HomeHeaderPanel] = [screenShare, memory, rightSidebar]
-
-    /// Share Screen with Chief (docs/chief-screen-share.md): on this Mac's own Chief only, lit while
-    /// the Chief can see the screen; a click starts or stops sharing.
-    static let screenShare = HomeHeaderPanel(
-        id: "screenShare", symbol: "display", onSymbol: "record.circle", label: { ChiefScreenShareActions.headerLabel },
-        action: ChiefScreenShareActions.toggleID,
-        isShown: { $0.isChief && $0.chief == nil && $0.server == nil },
-        alwaysShown: true,
-        isOpen: { $0.services.chiefScreenShare.isOn })
+    static let all: [HomeHeaderPanel] = [memory, rightSidebar]
 
     /// The Chief's Memory Inspector, a tab in Home's right column (``ChiefMemoryPageService``).
     static let memory = HomeHeaderPanel(
