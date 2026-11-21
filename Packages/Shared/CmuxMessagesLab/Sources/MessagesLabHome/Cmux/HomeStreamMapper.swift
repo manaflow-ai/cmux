@@ -11,6 +11,9 @@ import Foundation
 ///   rule (`TextParts.parts`), each line asked of the link detector once.
 /// - A reply that may hold a Mermaid diagram while a diagram renderer is installed maps in full
 ///   (`HomeMapping.parts`; the splitter's rules stay in one place).
+/// - A reply with a pipe table while the table cards are installed splits as the full mapping does
+///   (`HomeMapping.tableParts`): the table is its card while it streams, so the posted reply draws the
+///   same rows; the text around it maps as below.
 ///
 /// Main thread only (the projection's).
 final class HomeStreamMapper {
@@ -25,6 +28,12 @@ final class HomeStreamMapper {
             fullMaps += 1
             return HomeMapping.parts(.text(text), markdown: true, links: links)
         }
+        if text.contains("|"), let split = HomeMapping.tableParts(text, { self.streamed($0, links: links) }) { return split }
+        return streamed(text, links: links)
+    }
+
+    /// `text` (no table card in it) as HomeMapping.textParts maps it, rendering only its new lines.
+    private func streamed(_ text: String, links: HomeMapping.Links) -> [Part] {
         // HomeMapping.textParts: a fenced block keeps the reply one part, and so does a long text (TextParts.parts).
         if text.contains("```") || text.contains("~~~") || LongText.isLong(text) {
             let (shown, runs) = renderer.render(text)

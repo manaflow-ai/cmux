@@ -510,12 +510,12 @@ pub fn validate(file: &RouteFile) -> Result<(), RouteError> {
     match &file.secret {
         Some(s) if s.starts_with("op://") => {
             return Err(RouteError::BadParams(
-                "op:// references are not supported yet: store the secret with `cmux harness secret set NAME` and use keychain:NAME".into(),
+                "op:// references are not supported yet: add a model key with `cmux cloud connect api-key --provider anthropic|openai` (or a Claude subscription with `cmux cloud connect claude`), or store the secret in the Keychain and pass keychain:SERVICE/ACCOUNT".into(),
             ));
         }
         Some(s) if !is_reference(s) => {
             return Err(RouteError::SecretInline(
-                "secret must be a reference (keychain:ITEM, env:VAR or file:/ABSOLUTE/PATH), never the secret itself: store it with `cmux harness secret set NAME` and pass keychain:NAME".into(),
+                "secret must be a reference (keychain:SERVICE/ACCOUNT, env:VAR or file:/ABSOLUTE/PATH), never the secret itself: add a model key with `cmux cloud connect api-key --provider anthropic|openai` (or a Claude subscription with `cmux cloud connect claude`), which stores it in the Keychain, or store it there yourself and pass keychain:SERVICE/ACCOUNT".into(),
             ));
         }
         _ => {}
