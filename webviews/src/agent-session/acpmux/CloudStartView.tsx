@@ -698,7 +698,9 @@ export function CloudStartView({
             >
               {t("cloudStart.signInToContinue")}
             </button>
-            {onRunHere && (
+            {/* Only once the start has failed: while the browser is out the prompt is held for the sign-in, so
+                Run on This Mac there would switch modes and send an empty composer. */}
+            {onRunHere && failed && (
               <button
                 type="button"
                 className="acpmux-cloud-ask__button"
