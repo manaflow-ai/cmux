@@ -381,9 +381,13 @@ fn claude_installed_plugins(homes: &Homes, project: Option<&Path>) -> Vec<(Strin
 
 // ----- Codex -----
 
+/// A folder Codex reads skills from: the folder, its scope, the plugin it
+/// belongs to (short name, full id) and whether to follow symlinks in it.
+type CodexRoot = (PathBuf, Scope, Option<(String, String)>, bool);
+
 /// Codex's skills from its folders (no app-server).
 fn codex_files(homes: &Homes, cwd: Option<&Path>, problems: &mut Vec<Problem>) -> Vec<Skill> {
-    let mut roots: Vec<(PathBuf, Scope, Option<(String, String)>, bool)> = vec![
+    let mut roots: Vec<CodexRoot> = vec![
         (homes.codex.join("skills"), Scope::User, None, true),
         (homes.agents_skills(), Scope::User, None, true),
         (homes.codex.join("skills/.system"), Scope::System, None, false),
