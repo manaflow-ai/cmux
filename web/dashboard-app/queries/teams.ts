@@ -339,12 +339,14 @@ export function useCreateTeam() {
 
 /**
  * Creating or joining a team selects it on the server. Refresh this page's
- * catalog and the dashboard-wide team scope so both show the new selection.
+ * catalog, the dashboard-wide team scope and the selected team's plan so all
+ * of them show the new selection.
  */
 export async function invalidateTeamScope(queryClient: QueryClient): Promise<void> {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: teamQueryKeys.catalog }),
     queryClient.invalidateQueries({ queryKey: ["dashboard-team-catalog"] }),
+    queryClient.invalidateQueries({ queryKey: rpc.billing.current.key() }),
   ]);
 }
 
