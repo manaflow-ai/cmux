@@ -83,7 +83,7 @@ final class MacScreenViewerOverlay: MacScreenThemedView {
     private let model: MacScreenPaneModel
     /// Follows the model (``ObservationStream``); ends once the view is gone.
     private var watch: Task<Void, Never>?
-    private let toolbar: NSView
+    private let toolbar: MacScreenToolbarView
     private let edge = CALayer()
     private let pill = MacScreenPictureMark()
     private let hideTimer = DemandTimer(owner: "mac-screen.toolbar-hide")
@@ -96,7 +96,7 @@ final class MacScreenViewerOverlay: MacScreenThemedView {
     private var outageMarkDue = false
     private var mark = Mark.none
 
-    init(model: MacScreenPaneModel, toolbar: NSView) {
+    init(model: MacScreenPaneModel, toolbar: MacScreenToolbarView) {
         self.model = model
         self.toolbar = toolbar
         super.init(frame: .zero)
@@ -245,12 +245,12 @@ final class MacScreenViewerOverlay: MacScreenThemedView {
         toolbarShown = shown
         let toolbar = toolbar
         if shown {
-            toolbar.isHidden = false
+            toolbar.autoHidden = false
             Motion.overlays.animate(.fadeIn, in: toolbar, { toolbar.animator().alphaValue = 1 })
         } else {
             Motion.overlays.animate(.fadeOut, in: toolbar, { toolbar.animator().alphaValue = 0 }, completion: { [weak self] in
                 guard let self, !toolbarShown else { return }
-                self.toolbar.isHidden = true
+                self.toolbar.autoHidden = true
             })
         }
     }

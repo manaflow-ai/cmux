@@ -89,11 +89,9 @@ struct AAMacScreenViewerGalleryTests {
         scope.root(root)
         let viewer = MacScreenHubViewer(deviceID: "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff") { nil }
         viewer.phase = .streaming(sessionID: "gallery-session", scope: state.scope)
-        let pane = MacScreenPane(hubDevice: viewer, name: "Studio MacBook Pro", preferences: ScreenPreferences())
+        let pane = MacScreenPane(hubDevice: viewer, name: "Studio MacBook Pro", preferences: ScreenPreferences(), viewerLook: look)
         defer { pane.close() }
-        pane.model.viewerLook = look
         pane.model.hasFrame = state.hasFrame
-        pane.model.capturesKeyboard = state.capturesKeyboard
         pane.session?.showPreviewState(phase: state.phase, failureCause: state.cause, linkConnected: state.linkConnected,
                                        frameSize: state.hasFrame ? remotePixels : .zero)
         pane.view.frame = root.bounds
@@ -102,6 +100,10 @@ struct AAMacScreenViewerGalleryTests {
         window.orderFrontRegardless()
         // The toolbar and the card follow the models through Observation (main-actor tasks): let them run.
         for _ in 0 ..< 100 { await Task.yield() }
+        // The keyboard state goes in after those tasks: each syncs the input gate, which puts back the fixture's
+        // released keyboard (`capturesKeyboard` false). Nothing syncs it again, so the control states keep their marks.
+        pane.model.capturesKeyboard = state.capturesKeyboard
+        for _ in 0 ..< 20 { await Task.yield() }
         pane.view.needsLayout = true
         pane.view.layoutSubtreeIfNeeded()
         if state.hasFrame {
@@ -119,6 +121,8 @@ struct AAMacScreenViewerGalleryTests {
         pane.view.chrome.statusStrip?.body.resolveColors()
         for _ in 0 ..< 20 { await Task.yield() }
         pane.view.layoutSubtreeIfNeeded()
+        // The picture shows the state named: a control state with its controlling marks, the rest without.
+        try #require(pane.model.capturesKeyboard == state.capturesKeyboard, "\(look.rawValue)-\(state.name): capturesKeyboard")
         for view in AANestedGroupsGalleryTests.all(root) { view.needsDisplay = true; view.displayIfNeeded() }
         CATransaction.flush()
         let rep = try #require(root.bitmapImageRepForCachingDisplay(in: root.bounds))

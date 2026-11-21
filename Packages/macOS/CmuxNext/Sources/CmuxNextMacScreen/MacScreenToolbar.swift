@@ -42,6 +42,24 @@ final class MacScreenToolbarView: MacScreenThemedView {
     private var surfaceLook: MacScreenViewerLook?
     /// The pill layout (``MacScreenViewerStyle/ToolbarLayout/pill``): one row, the secondary controls in More.
     private var isPill: Bool { model.viewerLook.style.toolbarLayout == .pill }
+    /// Look A's auto-hide faded the toolbar out (``MacScreenViewerOverlay``): it stays hidden so clicks reach the picture.
+    var autoHidden = false {
+        didSet { syncHidden() }
+    }
+
+    /// Whether the selected look hides the toolbar now: under look B's strip (it carries the state and the controls), a
+    /// pill anywhere but over a live picture, or a toolbar look A's auto-hide faded out. The toolbar's own state and the
+    /// pane's layout both set ``isHidden`` from here, so neither undoes the other.
+    var hiddenByLook: Bool {
+        let style = model.viewerLook.style
+        if style.statusStrip || autoHidden { return true }
+        return style.toolbarLayout == .pill && !(model.showsSessionControls && model.isLive)
+    }
+
+    func syncHidden() {
+        let hidden = hiddenByLook
+        if isHidden != hidden { isHidden = hidden }
+    }
     /// The pill's width the pane last laid out (nil: not a pill).
     private var reportedPillWidth: CGFloat?
     /// The look's View | Control segments, in place of `access` when it asks (``MacScreenViewerStyle/toolbarScopeSegments``).
@@ -178,7 +196,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         controlsShown = model.showsSessionControls
         let pill = isPill
         // A pill floats only over a live picture: every other state takes the pane with its own actions.
-        isHidden = pill && !(controlsShown && live)
+        syncHidden()
         access.isHidden = !controlsShown || scopeControl !== access
         segments.isHidden = !controlsShown || scopeControl !== segments
         access.isEnabled = controlsShown

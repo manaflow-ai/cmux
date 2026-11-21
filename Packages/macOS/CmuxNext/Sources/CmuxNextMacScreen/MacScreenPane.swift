@@ -36,8 +36,14 @@ public final class MacScreenPaneModel {
     public internal(set) var systemShortcuts: MacScreenSystemShortcuts?
     /// The device hub tab's session: its request, approval and ticket; nil for an unsupported record.
     public let hub: MacScreenHubViewer?
-    /// How the viewer is drawn (Debug Settings `macScreen.viewerLook`); the pane, toolbar and card follow it at once.
-    var viewerLook = MacScreenTunables.viewerLook.value
+    /// A look fixed for this pane (the gallery and tests draw one look); nil follows Debug Settings `macScreen.viewerLook`.
+    var viewerLookOverride: MacScreenViewerLook?
+    /// How the viewer is drawn: the fixed look, else the setting, read live. Reading it tracks the setting (an Observation
+    /// dependency on its key), so the pane, toolbar, card and strip of an open viewer follow a change at once.
+    var viewerLook: MacScreenViewerLook {
+        get { viewerLookOverride ?? MacScreenTunables.viewerLook.value }
+        set { viewerLookOverride = newValue }
+    }
 
     init(session: MacScreenSession?, name: String, platform: DevicePlatform? = nil, gate: Gate, hub: MacScreenHubViewer? = nil) {
         self.session = session
@@ -95,9 +101,12 @@ public final class MacScreenPane {
     /// approved session: `viewer` asks for it and hands its ticket's
     /// signaling to the session once; a dropped stream does not reconnect on
     /// its own (Try Again asks again).
-    public init(hubDevice viewer: MacScreenHubViewer, name: String, platform: DevicePlatform? = nil, preferences: ScreenPreferences) {
+    /// `viewerLook` fixes the look (the gallery and tests); nil follows the setting.
+    public init(hubDevice viewer: MacScreenHubViewer, name: String, platform: DevicePlatform? = nil, preferences: ScreenPreferences,
+                viewerLook: MacScreenViewerLook? = nil) {
         let session = MacScreenSession(title: name, preferences: preferences, signaling: { [weak viewer] in viewer?.takeSignaling() })
         model = MacScreenPaneModel(session: session, name: name, platform: platform, gate: .open, hub: viewer)
+        model.viewerLookOverride = viewerLook
         // A quality or display change: the ticket admits once, so the hub gives a new session.
         session.restart = { [weak viewer] in
             guard let viewer, let scope = viewer.phase.streamingScope else { return }
@@ -244,12 +253,9 @@ public final class MacScreenPane {
     /// single `connect()` failed at once. Tests count the starts.
     var connectSession: @MainActor (MacScreenSession) -> Void = { $0.reconnect() }
 
-    /// The screen's input surface; while a state card shows, its default button (Full Control on the
-    /// Connect chooser), so the keyboard can act on the card.
-    public var focusTarget: NSView {
-        guard view.chrome.showsCard, let button = view.chrome.card.keyButton else { return view.input.view }
-        return button
-    }
+    /// The screen's input surface; while a state shows, the default button of what shows it (Full Control on the
+    /// Connect chooser): the card's, or look B's strip's, so the keyboard acts on the buttons on screen.
+    public var focusTarget: NSView { view.chrome.keyButton ?? view.input.view }
 
     /// The tab is shown: a device tab with a scope waiting asks the hub.
     public func resume() {
