@@ -6,7 +6,7 @@ import Testing
 @testable import CmuxSimulatorUI
 @testable import CmuxSimulatorWorker
 
-@Suite("Simulator frame surface lifecycle")
+@Suite("Simulator frame surface lifecycle", .serialized)
 @MainActor
 struct SimulatorRemoteSurfaceLifecycleTests {
     @Test("A static visible pane presents its first completed frame")
