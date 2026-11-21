@@ -144,9 +144,10 @@ declare namespace Cmux {
   type DeviceStatus = { install: Cmux.InstallId; user: string; policy_version: number; app_version: string; mdm_keys: Array<string>; conflicts: Array<string>; reported_at: number }
   type DiffComment = Record<string, Cmux.JsonValue>
   type DiffCommentsDeleteResult = { deleted: number; ids: Array<string> }
-  type DiffCommentsListResult = { root: string; comments: Array<Cmux.DiffComment> }
+  type DiffCommentsListResult = { root: string; comments: Array<Cmux.DiffComment>; review?: Cmux.DiffReviewTarget }
   type DiffCommentsSaveResult = { comment: Cmux.DiffComment }
   type DiffCommentsSendResult = { sent: number; cleared: Array<string> }
+  type DiffReviewTarget = { url: string; repo: string; number: number; title: string; head: string; base: string }
   type EgressHost = string
   type EmailAddress = string
   type EmailDomain = string
@@ -199,6 +200,8 @@ declare namespace Cmux {
   type GitIncludeReport = { copied: number; kept: number; outside: Array<string>; problems: Array<string> }
   type GitPatchPage = { offset: string; next_offset: string; total_bytes: string; revision: string; data_base64: string; complete: boolean }
   type GitPushResult = { root: string; remote: string; branch: string; upstream: string; pushed_commit: string; previous_remote_commit?: string; created_upstream: boolean; up_to_date: boolean }
+  type GitReviewPostResult = { url: string; posted: number; in_body: number; cleared: Array<string> }
+  type GitReviewStartResult = { root: string; branch: string; url: string; repo: string; number: number; title: string; head: string; base: string; diff: string; setup: Cmux.GitWorktreeSetupStart; reused: boolean }
   type GitStatusResult = { root: string; branch?: string; detached: boolean; head?: string; upstream?: string; github_repo?: string; base?: string; ahead: number; behind: number; worktree?: Cmux.GitStatusWorktree }
   type GitStatusWorktree = { main_root: string }
   type GitWorktreeApplyResult = { main_root: string; files: Array<string> }
@@ -1097,6 +1100,14 @@ interface CmuxGlobal {
     fingerprint: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; scope?: Cmux.GitFingerprintScope }, Cmux.GitFingerprintResult>
     /** `git.push` (mutation, scope `git:external`) */
     push: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; remote?: string; branch?: string; set_upstream?: boolean; expected_head?: string }, Cmux.MutationResult<Cmux.GitPushResult>>
+    review: {
+      /** `git.review.comment` (mutation, scope `git:write`) */
+      comment: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; file: string; line: number; start_line?: number; side?: "new" | "old" | "additions" | "deletions"; message: string }, Cmux.MutationResult<Cmux.DiffCommentsSaveResult>>
+      /** `git.review.post` (mutation, scope `git:external`) */
+      post: CmuxOp<{ machine?: string; session?: string; root: string; ids: Array<string>; versions: Record<string, string> }, Cmux.MutationResult<Cmux.GitReviewPostResult>>
+      /** `git.review.start` (mutation, scope `git:execute`) */
+      start: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; url: string }, Cmux.MutationResult<Cmux.GitReviewStartResult>>
+    }
     /** `git.status` (read, scope `git:read`) */
     status: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; github?: boolean }, Cmux.GitStatusResult>
     worktree: {
