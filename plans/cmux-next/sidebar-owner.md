@@ -1,5 +1,6 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-19 (lane/agent-dot-signature): Sidebar-Look: Leo, 2026-11-19: "all of them" and "some of them maybe just as customizations lol if it affects default looks". With `appearance.agentSignature` on (off by default), an agent's workspace row draws a static dot glyph made from its session id (acpmux `session/signature`) at the indicator size before the title, after the agent mark when that sits beside the title; one cached bitmap per id, size and scale, no animation. Off, the row has no glyph view and its layout is unchanged. `SidebarAgentSignatureTests`.
 - 2026-11-21 (lane/sidebar-pin-archive): Sidebar-Look: Leo, 2026-11-21: "the pin button does not make sense. you
   expect this to be the pinned thing. but it isn't. when you pin it, the pin goes to teh left of the bar as an empty
   looking pin symbol." A hover control says what a press does, never what the row is: Pin on an unpinned row is the

@@ -277,6 +277,7 @@
         "ui.reducedBackgrounds",
         "appearance.agentGlow",
         "appearance.experimentalControls",
+        "appearance.agentSignature",
         "app.uiScale",
         "appearance.glassTransparency",
         "appearance.hue",
