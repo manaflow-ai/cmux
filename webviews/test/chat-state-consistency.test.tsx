@@ -315,6 +315,22 @@ describe("1. the model and effort shown are the session's", () => {
     expect(harnessSwitch.view().configs).toBeUndefined();
   });
 
+  test("a level picked on the model a pick just switched to keeps drawing until the session reports it", async () => {
+    const { harnessSwitch, answer } = await liveSwitch(() => ({ sessionId: "s1", harness: "claude" }));
+    void harnessSwitch.pickModel("claude-sonnet-5-5", { sessionId: "s1", model: "claude-opus-5-5" });
+    // The chip already names Sonnet; the raw summary still runs Opus.
+    harnessSwitch.pickConfig("effort", "high", { sessionId: "s1", current: "medium", model: "claude-opus-5-5" });
+    await answer();
+    // The model's report lands before the level's: the picked level still draws, no flicker.
+    const moved = await drawn(snapshotOf(summaryOf("s1", { model: "claude-sonnet-5-5" })), harnessSwitch);
+    expect(moved.summary?.model).toBe("claude-sonnet-5-5");
+    expect(effortOf(moved)).toBe("high");
+    const reported = summaryOf("s1", { model: "claude-sonnet-5-5" });
+    reported.configOptions![0]!.currentValue = "high";
+    expect(effortOf(await drawn(snapshotOf(reported), harnessSwitch))).toBe("high");
+    expect(harnessSwitch.view().configs).toBeUndefined();
+  });
+
   test("an effort pick in one chat never draws on another, nor on the first again", async () => {
     const { harnessSwitch } = await liveSwitch(() => ({ sessionId: "s1", harness: "claude" }));
     harnessSwitch.pickConfig("effort", "high", { sessionId: "s1", current: "medium" });

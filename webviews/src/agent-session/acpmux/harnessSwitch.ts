@@ -614,12 +614,15 @@ export class HarnessSwitch {
       if (!port || !live) return false;
       // A second pick of the same option replaces the first; the model's and other options' stay.
       const earlier = this.configPicks.find((item) => item.configId === configId && item.sessionId === live.sessionId);
+      // The model this pick is made on: the one a model pick in flight draws, else the session's.
+      // Never an earlier pick's: the chat may run another model since.
+      const modelAt = this.modelPick?.sessionId === live.sessionId ? this.modelPick.model : live.model;
       const pick: ConfigPick = {
         sessionId: live.sessionId,
         configId,
         from: earlier?.from ?? live.current,
         value,
-        ...(live.model !== undefined && { modelAt: earlier?.modelAt ?? live.model }),
+        ...(modelAt !== undefined && { modelAt }),
       };
       const others = (list: readonly ConfigPick[]) => list.filter((item) => item.configId !== configId);
       this.configPicks = [...others(this.configPicks), pick];
