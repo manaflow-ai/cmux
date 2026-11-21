@@ -89,3 +89,113 @@ fn age_reads_ps_lstart_with_padded_days() {
     assert!((0..5).contains(&age), "{age}");
     assert_eq!(age_secs("not a date"), None);
 }
+
+fn record(session: &str, nonce: &str, host_pid: u32, harness_pid: Option<u32>) -> HostRecord {
+    serde_json::from_value(json!({
+        "record_version": 1,
+        "session_id": session,
+        "incarnation": "i",
+        "host_pid": host_pid,
+        "start_nonce": nonce,
+        "harness_pid": harness_pid,
+        "owner_token": "t",
+        "protocol_min": 1,
+        "protocol_max": 1,
+        "host_build": "b",
+        "socket": "/nonexistent.sock",
+    }))
+    .unwrap()
+}
+
+fn row(r: HostRecord, liveness: Liveness) -> HostRow {
+    HostRow { dir: PathBuf::from("/nonexistent"), record: r, pooled: false, liveness }
+}
+
+/// A lock file aged `age` ago, the way an ended host leaves it.
+fn lock_file(dir: &Path, name: &str, age: std::time::Duration) -> PathBuf {
+    let path = dir.join(name);
+    let f = std::fs::File::create(&path).unwrap();
+    f.set_modified(std::time::SystemTime::now() - age).unwrap();
+    path
+}
+
+fn hold(path: &Path) -> cmux_file_lock::FileLock {
+    let f = std::fs::OpenOptions::new().read(true).write(true).open(path).unwrap();
+    cmux_file_lock::FileLock::try_take(f, cmux_file_lock::Kind::Exclusive).unwrap()
+}
+
+const OLD: std::time::Duration = std::time::Duration::from_secs(3600);
+const MIN: std::time::Duration = STRAY_LOCK_MIN_AGE;
+
+/// Only an old, unheld lock no record names (readable or not) is stray: a young one is a host
+/// still starting, whose record comes after its lock.
+#[test]
+fn a_stray_lock_is_old_unheld_and_named_by_no_record() {
+    let dir = tempfile::tempdir_in("/tmp").unwrap();
+    let stray = lock_file(dir.path(), "s1.aa.live", OLD);
+    let _young = lock_file(dir.path(), "s2.bb.live", std::time::Duration::from_secs(5));
+    let _named = lock_file(dir.path(), "s3.cc.live", OLD);
+    let _unreadable = lock_file(dir.path(), "s4.dd.live", OLD);
+    let held = lock_file(dir.path(), "s5.ee.live", OLD);
+    let _guard = hold(&held);
+    let _other = lock_file(dir.path(), "s6.json", OLD);
+    let names = LockNames::for_test(&[("s3", "cc")], &["s4"]);
+    let found = stray_locks_in(&[dir.path().to_path_buf()], &names, MIN);
+    assert_eq!(found, vec![stray]);
+}
+
+#[test]
+fn removing_a_stray_lock_judges_it_again_under_its_own_flock() {
+    let dir = tempfile::tempdir_in("/tmp").unwrap();
+    // A host took it since the census: left alone.
+    let taken = lock_file(dir.path(), "s1.aa.live", OLD);
+    let guard = hold(&taken);
+    let err = remove_stray_lock(&taken, LockNames::default, MIN).unwrap_err();
+    assert!(err.contains("holds it"), "{err}");
+    assert!(taken.exists());
+    drop(guard);
+    // A record that names it appeared since the census: left alone.
+    let err =
+        remove_stray_lock(&taken, || LockNames::for_test(&[("s1", "aa")], &[]), MIN).unwrap_err();
+    assert!(err.contains("record names it"), "{err}");
+    assert!(taken.exists());
+    // A fresh file took the name since the census: left alone.
+    std::fs::remove_file(&taken).unwrap();
+    let fresh = lock_file(dir.path(), "s1.aa.live", std::time::Duration::ZERO);
+    let err = remove_stray_lock(&fresh, LockNames::default, MIN).unwrap_err();
+    assert!(err.contains("younger"), "{err}");
+    assert!(fresh.exists());
+    // Still old, unheld and unnamed: removed.
+    let stray = lock_file(dir.path(), "s2.bb.live", OLD);
+    remove_stray_lock(&stray, LockNames::default, MIN).unwrap();
+    assert!(!stray.exists());
+}
+
+/// gc refuses a left-behind verdict when a host record that is not dead still names the process
+/// as its host or harness, or the process sits in that harness's group.
+#[test]
+fn gc_refuses_what_a_live_or_unknown_host_record_names() {
+    let me = std::process::id();
+    let o = owned(me, Verdict::LeftBehind, &["x"], Some("aa"), None);
+    let own_group = pgid(me).unwrap();
+    for (r, live, refused) in [
+        (record("s1", "aa", me, None), Liveness::Live, true),
+        (record("s1", "aa", 1, Some(me)), Liveness::Unknown, true),
+        (record("s1", "aa", 1, Some(own_group)), Liveness::Live, true),
+        (record("s1", "aa", me, Some(me)), Liveness::Dead, false),
+        (record("s1", "aa", 1, Some(u32::MAX - 1)), Liveness::Live, own_group == u32::MAX - 1),
+    ] {
+        let got = referenced_by_live_host(&o, &[row(r, live)]);
+        assert_eq!(got.is_some(), refused, "{live:?} {got:?}");
+    }
+}
+
+/// A live process with no agent host incarnation of its own (one acpmux runs for the session)
+/// says so, rather than naming a host lock it has none of.
+#[test]
+fn a_live_process_with_no_host_nonce_names_no_host_lock() {
+    let o = owned(10, Verdict::Live, &["x"], None, None);
+    let (state, reason) = state(&o, "mcp-server", &SessionInfo::default());
+    assert_eq!(state, "in-use");
+    assert!(!reason.contains("live lock"), "{reason}");
+}
