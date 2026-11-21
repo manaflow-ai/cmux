@@ -263,6 +263,16 @@ fi
 if [ -z "$console_user" ] || [ "$console_user" = "root" ] \
   || [ "$console_user" = "loginwindow" ]; then
   echo "::warning::No logged-in console user on this runner; running in the current bootstrap. GUI XCTest requires an active console login." >&2
+  # Not exec'd: when the command fails here its failures are this runner's, not
+  # the code's (no testmanagerd control service outside a console session), and
+  # ci-failure-attribution reads that only from a failure annotation (#15395).
+  # A command that passes stays silent past the warning above.
+  status=0
+  "$@" || status=$?
+  if [ "$status" -ne 0 ]; then
+    echo "::error::No logged-in console user on this runner, and the command run in the current bootstrap exited $status; GUI XCTest cannot pass without a console login." >&2
+  fi
+  exit "$status"
 else
   current_uid="$(id -u 2>/dev/null || true)"
   session_manager="$(launchctl managername 2>/dev/null || true)"
