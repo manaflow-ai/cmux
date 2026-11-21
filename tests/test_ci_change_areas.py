@@ -636,7 +636,7 @@ def test_release_build_waits_for_linux_preflight_admission() -> None:
         " || github.event_name == 'pull_request'"
         " && github.event.pull_request.head.repo.full_name != github.repository"
         " && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)"
-        " && 'blacksmith-4vcpu-ubuntu-2404'"
+        " && 'ubuntu-24.04'"
         " || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
     ) in admission
     assert 'TARGET_JOB: "linux-preflight"' in admission
