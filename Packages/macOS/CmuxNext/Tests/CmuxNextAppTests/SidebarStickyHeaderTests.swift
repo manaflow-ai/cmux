@@ -135,6 +135,10 @@ struct SidebarStickyHeaderTests {
         let after = try Self.header(bench)
         #expect(after.view === before.view)
         #expect(after.row.isCollapsed)
+        do {
+            let rows = bench.list.displayed.rows.prefix(6).map { "\($0.key) y\($0.y) h\($0.height)" }.joined(separator: ", ")
+            Issue.record("DIAG sticky: scale \(bench.list.window?.backingScaleFactor ?? -1) inset \(bench.list.stickyTopInset) clipY \(bench.clip.bounds.minY) headerY \(after.row.y) h \(after.row.height) beforeFrame \(before.view.frame) onScreen \(onScreen) afterFrame \(after.view.frame) rowH \(SidebarRowTokens.current.rowHeight) rows \(rows)")
+        }
         #expect(abs(after.row.y - Self.top(bench)) < 0.5, "the collapsed header is at its own place, at the visible top")
         #expect(after.view.frame == bench.list.frame(for: after.row))
         #expect(abs(after.view.frame.minY - bench.clip.bounds.minY - onScreen) < 0.5, "the header did not move on screen")
