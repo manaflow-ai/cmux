@@ -48,10 +48,9 @@ pub mod redescribe;
 mod replies;
 mod reply_ledger;
 mod rights_gate;
-pub use rights_gate::RightsCtx;
-mod screen;
 pub use outcome_ledger::{UNTOLD_TAG, UNTOLD_WAIT};
 pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
+pub use rights_gate::RightsCtx;
 mod send;
 mod side;
 mod spawn_text;
@@ -712,9 +711,6 @@ pub struct Settings {
     /// (chief_inbox.rs): how another Chief on this Mac or a lane reaches it
     /// with `acpmux_send`. None: no such session (tests, a Cloud Chief).
     pub chief_inbox: Option<String>,
-    /// `$MUX_HOME/optchat/screen` (Share Screen with Chief, `screen_share.rs`):
-    /// its inbox becomes a note at each turn start. None: not read.
-    pub screen_share: Option<PathBuf>,
 }
 
 /// The longest a turn waits for view lines that are still building
@@ -1128,6 +1124,12 @@ pub struct Brain {
     /// The idempotency keys of this run's `send` calls (send.rs): a repeat
     /// of one in the same turn is a noop even after the owner took it.
     sent_keys: std::collections::HashSet<String>,
+    /// Messages the owner refused and the outbox dropped (outbox.rs) that the
+    /// Chief has not been told of yet: `send` reports them (send.rs).
+    refused: Vec<outbox::Refused>,
+    /// `send` keys the outbox merged into an earlier entry (pacing::coalesce):
+    /// absorbed key -> the key it went under, until that `send` answers.
+    merged_sends: HashMap<String, String>,
     /// The running turn was ended by the Chief's own `stop` or `sleep`
     /// (wakes.rs): its final text is not posted, and it is no failure.
     tool_stopped: bool,
@@ -1171,6 +1173,9 @@ pub struct Brain {
     /// false): its work may have run, so the try that ends the row is never
     /// treated as one that did not start.
     cut_ran: bool,
+    /// Refused turns in a row (`TurnOutcome::refused`): each refused reply says how many, so no two
+    /// in a row post the same text (first-run findings row 8). Any other ended turn resets it.
+    refused_in_row: u32,
     /// While set, an adopted turn session still runs and no turn starts; at
     /// this time it is folded and ended anyway (`children::adopt_orphans`).
     orphan_wait: Option<Instant>,
@@ -1336,6 +1341,8 @@ impl Brain {
             newest_seq: 0,
             reacted: std::collections::HashSet::new(),
             sent_keys: std::collections::HashSet::new(),
+            refused: Vec::new(),
+            merged_sends: HashMap::new(),
             tool_stopped: false,
             denial_stopped: None,
             unanswered: Vec::new(),
@@ -1353,6 +1360,7 @@ impl Brain {
 
             cuts: 0,
             cut_ran: false,
+            refused_in_row: 0,
             resume_at: None,
             orphan_wait: None,
             upstream_backoff: turns::UPSTREAM_RESUME_BACKOFF.to_vec(),

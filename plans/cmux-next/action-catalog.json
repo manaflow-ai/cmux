@@ -36247,7 +36247,7 @@
         "workspace",
         "tab"
       ],
-      "title" : "Send Message…",
+      "title" : "Ask Chief About This…",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
