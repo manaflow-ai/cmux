@@ -14,6 +14,10 @@
 //                                                   with settle=S, after the readings at main let it run on to its
 //                                                   window and its window_usable mark (or S seconds past the window),
 //                                                   then SIGTERM, with the settle fields
+//                                                   exec also reads the stub's `stub_main` mark (a stub that loads
+//                                                   the app's framework after its main): resume_to_stub_main,
+//                                                   stub_main_to_main, and syspolicyd's CPU ms before stub_main and
+//                                                   from it to main_start (syspolicyd_to_stub_main, _stub_to_main)
 //   launch-premain stub FILE LABEL                  exec FILE --version and time it to exit (killed at 5 s)
 //   launch-premain resident FILE                    print FILE's resident fraction and page counts
 //   launch-premain spawn FILE LABEL                 posix_spawn FILE started suspended, time the call (the kernel's
@@ -205,6 +209,26 @@ func runningCopy(_ app: URL) -> NSRunningApplication? {
     NSWorkspace.shared.runningApplications.first { $0.bundleURL?.standardizedFileURL.path == app.standardizedFileURL.path && $0.processIdentifier > 0 }
 }
 
+// syspolicyd's CPU ms (user and system) as ps reads it, the way launch-premain.sh's checker_cpu sums it; nil when ps
+// lists none.
+func syspolicydMs() -> Double? {
+    let task = Process(), pipe = Pipe()
+    task.executableURL = URL(fileURLWithPath: "/bin/ps")
+    task.arguments = ["-axo", "time=,comm="]
+    task.standardOutput = pipe
+    guard (try? task.run()) != nil else { return nil }
+    let out = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    task.waitUntilExit()
+    var total: Double?
+    for line in out.split(separator: "\n") {
+        let parts = line.split(separator: " ", maxSplits: 1)
+        guard parts.count == 2, parts[1].trimmingCharacters(in: .whitespaces).split(separator: "/").last == "syspolicyd" else { continue }
+        let secs = parts[0].split(separator: ":").reduce(0.0) { $0 * 60 + (Double($1) ?? 0) }
+        total = (total ?? 0) + secs * 1000
+    }
+    return total
+}
+
 func spin(until done: () -> Bool) { while !done() { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.002)) } }
 
 switch args[1] {
@@ -254,11 +278,14 @@ case "exec":
     let exe = executable(app), before = resident(exe)
     let fw = codeFramework(app), fwBefore = fw.flatMap(resident)
     var later: [String: Double] = [:], stoppedMs: Double?
+    var stubAt: Double?, policyAtStub: Double?, policyAtMain: Double?
     let fifo = marksFIFO(homeRoot) { name, ms in
         if settleMarks.contains(name) { later[name] = ms }
+        if name == "stub_main", stubAt == nil { stubAt = ms; policyAtStub = syspolicydMs() }
         guard name == "main_start", mainAt == nil else { return }
         kill(child, SIGSTOP) // stopped at main: rusage and residency below are the pre-main ones
         let stopped = now()
+        policyAtMain = syspolicydMs()
         mainAt = ms
         row = usage(child)
         let atMain = resident(exe)
@@ -280,6 +307,7 @@ case "exec":
     let appLog = homeRoot.appendingPathComponent("exec.log").path
     posix_spawn_file_actions_addopen(&actions, 1, appLog, O_WRONLY | O_CREAT | O_APPEND, 0o644)
     posix_spawn_file_actions_addopen(&actions, 2, appLog, O_WRONLY | O_CREAT | O_APPEND, 0o644)
+    let policyBefore = syspolicydMs()
     let sysBefore = systemPageins(), requested = now()
     guard posix_spawn(&child, exe, &actions, &attr, argv, env) == 0 else { emit(["label": label, "error": "spawn"]); exit(1) }
     // posix_spawn returns once the kernel has activated the new image (the code signature and the system's policy
@@ -321,6 +349,15 @@ case "exec":
                                  "resume_to_main": json(resumed.flatMap { r in start.flatMap { s in mainAt.map { round1(s + $0 - r) } } })]
     row.merge(fields) { $1 }
     if fw != nil { row["fw_resident_before"] = fraction(fwBefore) }
+    if let stubAt {
+        row["stub_main"] = stubAt
+        row["resume_to_stub_main"] = json(resumed.flatMap { r in start.map { round1($0 + stubAt - r) } })
+        row["stub_main_to_main"] = json(mainAt.map { round1($0 - stubAt) })
+        row["syspolicyd_to_stub_main"] = json(policyBefore.flatMap { b in policyAtStub.map { $0 - b } })
+        row["syspolicyd_stub_to_main"] = json(policyAtStub.flatMap { s in policyAtMain.map { $0 - s } })
+    } else {
+        row["syspolicyd_to_main"] = json(policyBefore.flatMap { b in policyAtMain.map { $0 - b } })
+    }
     if let settleFor {
         let windowMs = execWindow.flatMap { w in start.map { round1(w - $0) } }
         row.merge(settleFields(later, window: windowMs, waited: settleFor)) { $1 }
