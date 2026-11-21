@@ -228,7 +228,11 @@ class WiringTest(unittest.TestCase):
             job = jobs[key]
             self.assertEqual(job["uses"], f"./.github/workflows/{suite.workflow}", key)
             self.assertEqual(job["if"], f"contains(needs.plan.outputs.suites, ' {key} ')", key)
-            self.assertEqual(job["with"], {"sha": "${{ needs.plan.outputs.sha }}", "only": "${{ needs.plan.outputs.only }}"}, key)
+            # base (the commit the last batch run tested) is optional: a suite whose steps diff against it takes it.
+            want = {"sha": "${{ needs.plan.outputs.sha }}", "only": "${{ needs.plan.outputs.only }}"}
+            if "base" in job["with"]:
+                want["base"] = "${{ needs.plan.outputs.base }}"
+            self.assertEqual(job["with"], want, key)
             self.assertNotIn("name", job, f"{key}: the caller job's name must be the suite key")
         self.assertEqual(set(jobs["judge"]["needs"]), {"plan", *self.suites})
 
@@ -242,6 +246,11 @@ class WiringTest(unittest.TestCase):
                 gate = str(callee["jobs"][job_id].get("if", ""))
                 self.assertIn(f"inputs.only == '{job_id}'", gate, f"{key}/{job_id}")
             self.assertIn("inputs.sha", (WORKFLOW.parent / suite.workflow).read_text(), key)
+            self.assertNotIn("push", on, f"{key}: a batch suite runs on the base in the batch, not on each push")
+
+    def test_the_plan_job_hands_its_base_to_the_suites(self) -> None:
+        outputs = self.workflow["jobs"]["plan"]["outputs"]
+        self.assertEqual(outputs.get("base"), "${{ steps.plan.outputs.base }}")
 
 
 class GuardTest(unittest.TestCase):
