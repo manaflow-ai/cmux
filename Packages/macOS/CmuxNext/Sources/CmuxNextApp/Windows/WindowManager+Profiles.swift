@@ -18,8 +18,8 @@ extension WindowManager {
     /// Shows `profile` in `state`'s window: the workspaces the window holds
     /// in it (the last one shown there is selected), else the profile's
     /// workspaces no open window showing that profile holds, else a new
-    /// workspace created in it.
-    func switchProfile(_ profile: ProfileID, in state: WindowState, keepingHomes: Bool = false) {
+    /// workspace created in it: a person's a chat (the New Tab page, David Beyer 2026-11-20), automation's a terminal.
+    func switchProfile(_ profile: ProfileID, in state: WindowState, keepingHomes: Bool = false, opensNewTabPage: Bool = ActionRunScope.isPersonsAction()) {
         guard profile != state.profileID else { return }
         // An incognito space lives in its incognito window (spaces-overhaul-DESIGN.md rule 2): switching another
         // window to it shows that window instead, and an incognito space's window never shows a normal space.
@@ -49,7 +49,7 @@ extension WindowManager {
             // and the switch shows it as soon as the daemon mirrors it.
             state.enterProfile(profile)
             recordSaver.stateDidChange(state)
-            let create = startWorkspace(WorkspaceSpawn(), into: state.id)
+            let create = startWorkspace(WorkspaceSpawn(newTabPage: opensNewTabPage), into: state.id)
             Task { _ = try? await create() } // a failure releases the claim (`createFailed`)
             return
         }
