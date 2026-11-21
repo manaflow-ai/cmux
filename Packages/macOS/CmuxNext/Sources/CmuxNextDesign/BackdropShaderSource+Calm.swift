@@ -307,10 +307,10 @@ nonisolated extension BackdropShaderSource {
             float2 q = p * sc + float(i) * 5.0;
             float2 cell = floor(q), f = fract(q);
             float h1 = hash21(cell + 3.0), h2 = hash21(cell + 19.0), h3 = hash21(cell + 43.0);
-            float r = (i == 0 ? 0.16 : 0.18) + 0.14 * h2;
+            float r = (i == 0 ? 0.14 : 0.16) + 0.12 * h2;
             float breathe = 0.85 + 0.15 * sin(t * 0.15 + h3 * 20.0);
             float2 c = float2(r + (1.0 - 2.0 * r) * h1, r + (1.0 - 2.0 * r) * h3);
-            if (h2 + 0.3 * h1 > 0.45) {
+            if (h2 + 0.3 * h1 > 0.95) {
                 col = glassDrop(col, f / sc, c / sc, r * breathe / sc, u, m, e);
             }
         }
