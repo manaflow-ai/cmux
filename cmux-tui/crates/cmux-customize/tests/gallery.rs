@@ -166,7 +166,7 @@ fn round_trip(dir: &Path, rel: &str) {
         let live = fs::read_to_string(home.path().join("config").join(file)).unwrap();
         // The installer writes a JSON file in its own layout (keybindings.json pretty-printed),
         // so a JSON file is the same when it parses to the same value; the rest match exactly.
-        let parse = |text: &str| serde_json::from_str::<serde_json::Value>(text).ok();
+        let parse = |text: &str| serde_json::from_str::<Value>(text).ok();
         let same_json =
             file.ends_with(".json") && parse(&live).is_some() && parse(&live) == parse(text);
         assert!(
@@ -190,7 +190,7 @@ fn round_trip(dir: &Path, rel: &str) {
             library: installed.applied.as_ref().and_then(|applied| applied.library.clone()),
             library_created: installed.library_created,
             actions: read.actions().clone(),
-            prior_actions: installed.prior_actions.clone(),
+            prior_actions: installed.prior_actions,
             extensions: Vec::new(),
             installed_ms: 10,
         })
@@ -258,7 +258,7 @@ fn the_thinking_dots_document_holds_together() {
     let names = |value: &Value| -> Vec<String> {
         match value {
             Value::Array(list) => list.iter().map(|n| n.as_str().unwrap().to_owned()).collect(),
-            Value::Object(parts) => parts.values().flat_map(|part| names_of(part)).collect(),
+            Value::Object(parts) => parts.values().flat_map(names_of).collect(),
             _ => panic!("a trigger is a list of phases or {{intro, loop}}"),
         }
     };
