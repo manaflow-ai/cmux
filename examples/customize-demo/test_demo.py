@@ -93,6 +93,19 @@ class DemoTests(unittest.TestCase):
                 for step in steps:
                     self.assertTrue(all(len(arg) <= 2000 for arg in step.get("cmux", [])))
 
+    def test_frame_states_fit_the_runner(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "states"
+            subprocess.run(["python3", str(HERE / "record-steps.py"), "--ref", "a" * 40, "--frames", "12",
+                            "--output-dir", str(output)], check=True, capture_output=True)
+            for state in output.glob("*.json"):
+                steps = json.loads(state.read_text())["steps"]
+                self.assertLessEqual(len(steps), 60)
+                shots = [step["shot"] for step in steps if "shot" in step]
+                self.assertEqual(len(shots), len(set(shots)))
+                self.assertEqual(len(shots), 14)  # before, 12 frames, after reset
+                self.assertFalse(any("recording" in step for step in steps))
+
 
 if __name__ == "__main__":
     unittest.main()

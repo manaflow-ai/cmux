@@ -64,6 +64,19 @@
   lane's unfinished list leads, else the newest (`SidebarLaneStatus.taskProgress`). Tunable `sidebar.taskProgress`
   (default on) turns it off. VoiceOver says "N of M tasks done". Fixture: `sidebar.laneFixture`.
 
+- 2026-11-20 (a1307, Chief replaces Home): Sidebar-Look: the person, 2026-11-20 (msg 44729): "we need to redesign
+  chief so we replace home with chief"; David Beyer, Nov 20: the Chief is a thread like the others ("threads should
+  all be threads"). The top band's Home item (the `cmux/home` app or the older built-in) draws as the Chief: the
+  Chief's name and glyph (`sparkles`, `agentChief`), its worn picture when it has one, its status (needs you, working)
+  and the count of subagents that need the person, and still the blue unread dot while another chat is unread
+  (`ChiefSidebar.decorateHome`). Its subagents draw as indented rows right under it
+  (`SidebarTransientItem.chiefAnchors`), and its menu has Show Idle Chief Subagents. A click runs Open Chief: the
+  Chief's chat, at the full width (the conversation list folds behind a Chats button at the chat's top-left), or
+  with Chief in Side Panel on, the side panel. No migration: a stored layout keeps its item; only its look changed.
+  Its title is the Home item's own name, Chief (`SidebarBuiltIn.home`), never the separate item's Chief Activity
+  (cmux#48416). Regression: `ChiefReplacesHomeTests` (CmuxNextAppTests).
+
+- 2026-11-20 (a1301 groups-as-folders): Sidebar-Look: David Beyer, Nov 20 call (launch Mon Nov 23): sidebar groups should be plain folders, with all threads in one place. `sidebar.groupHeader.background` gains Folders (`folder`), now the default: a group header is a plain row, the icon pack's folder glyph on the rows' icon column (in the group's color where it has one, held to 3:1 on the sidebar), its name in the primary ink on the rows' text column, the chevron as before, no band, rim, dot, block or members' line; hover and a drop take a workspace row's fills. With no line to mark them, a folder's members sit one indent step (`SidebarStyle.groupGutter`) in under a header flush with the loose rows (`SidebarIndent.indentsTopLevel`, the one rule rows, lifted cards, drop gaps and the outliner's drag-out share). Automatic, Glass, Solid and Sections keep their looks and the no-indent rule (#23975). Folding, double-click rename, drag in and out and the + and more on hover are unchanged. Spaces (a1283) are separate. Regression: `SidebarGroupsAsFoldersTests`. Capture tour: `sidebar-groups-as-folders`.
 - 2026-11-19 (lane/needs-you-glow): Sidebar-Look: Leo, 2026-11-19, on eight new features: "all of them" and "some of
   them maybe just as customizations lol if it affects default looks". "Needs you" as motion, off by default: with
   `notifications.attention.mark` `glow` (default `badge`, no change), a workspace row that waits for the person (an
