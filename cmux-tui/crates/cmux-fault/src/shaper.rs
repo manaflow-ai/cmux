@@ -550,9 +550,10 @@ mod tests {
         let small = round_trip(&mut client, 10).await;
         assert!(small >= Duration::from_millis(70), "{small:?}");
         assert!(small < Duration::from_millis(400), "{small:?}");
-        // 120 kB at 12 Mbit/s is 80 ms each way on top of the round trip.
+        // 120 kB at 12 Mbit/s is 80 ms on the air; the echo answers each segment as it lands, so
+        // the two ways overlap: about 80 ms plus the 70 ms round trip.
         let big = round_trip(&mut client, 120_000).await;
-        assert!(big >= Duration::from_millis(220), "{big:?}");
+        assert!(big >= Duration::from_millis(145), "{big:?}");
         let counters = shaper.counters();
         assert_eq!(counters.up_bytes, 120_010);
         assert_eq!(counters.down_bytes, 120_010);
@@ -577,16 +578,17 @@ mod tests {
         let shaper = Shaper::start(echo_server().await, profile, 1, &Trace::new()).await.unwrap();
         let mut old = TcpStream::connect(shaper.addr()).await.unwrap();
         round_trip(&mut old, 10).await;
-        shaper.address_change(Some(Duration::from_millis(300)));
+        let flows = shaper.address_change(Some(Duration::from_millis(1_500)));
         old.write_all(b"ping").await.unwrap();
         let mut answer = [0_u8; 4];
         let silent =
             tokio::time::timeout(Duration::from_millis(800), old.read_exact(&mut answer)).await;
         assert!(silent.is_err(), "the old connection answered");
-        let started = std::time::Instant::now();
+        // Dialed inside the stall: its first round trip lands only after the stall ends.
         let mut new = TcpStream::connect(shaper.addr()).await.unwrap();
         round_trip(&mut new, 10).await;
-        assert!(started.elapsed() >= Duration::from_millis(300), "{:?}", started.elapsed());
+        let now = tokio::time::Instant::now();
+        assert!(now >= flows, "answered {:?} before the stall ended", flows - now);
     }
 
     #[tokio::test]
