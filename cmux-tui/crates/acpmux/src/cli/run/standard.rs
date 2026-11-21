@@ -394,15 +394,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 Some(h) => format!("{h}/{n}"),
                 None => n.clone(),
             });
+            // This create's key (`hub/create_key.rs`): sent again with it after a restart, it
+            // gets the session the first one made, or makes it, never a second one.
+            meta.set(crate::hub::create_key::FIELD, json!(uuid::Uuid::now_v7().to_string()));
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
             if let Some(cwd) = &cwd {
                 p["cwd"] = json!(cwd);
             }
             let parentless = ephemeral || probe || args.no_parent;
-            // This create's key (`hub/create_key.rs`): sent again with it after a restart, it
-            // gets the session the first one made, or makes it, never a second one.
-            p["_meta"]["acpmux"][crate::hub::create_key::FIELD] =
-                json!(uuid::Uuid::now_v7().to_string());
             // A daemon restarted while this create waits (the app's keyed acpmux
             // start, a machine update) closes the connection with no reply, and the
             // create may already have happened. A named `--reuse` launch reconnects
