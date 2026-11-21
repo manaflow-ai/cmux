@@ -24,7 +24,6 @@
     "chat.attach.source": "chat.attach.source",
     "chat.attention.open": "chat.attention.open",
     "chat.btw.inline": "chat.btw.inline",
-    "chat.cloudCredentialTransfer": "chat.cloudCredentialTransfer",
     "chat.computerUsePreview": "chat.computerUsePreview",
     "chat.draftAttachments": "chat.draftAttachments",
     "chat.draftAttachments.get": "chat.draftAttachments.get",
@@ -101,6 +100,7 @@
     "cloudMachine.resume": "cloudMachine.resume",
     "composer.capture": "composer.capture",
     "composer.copy": "composer.copy",
+    "designSelection.released": "designSelection.released",
     "diag.flicker": "diag.flicker",
     "dictation.audio": "dictation.audio",
     "dictation.cancel": "dictation.cancel",
@@ -136,6 +136,7 @@
     "git.worktree.remove": "git.worktree.remove",
     "git.worktree.setup": "git.worktree.setup",
     "github.connect": "github.connect",
+    "github.repos.checkout": "github.repos.checkout",
     "github.repos.list": "github.repos.list",
     "github.status": "github.status",
     "handshake": "ready",
@@ -238,6 +239,7 @@
     "uiPointer.report": "uiPointer.report",
     "video.frames": "video.frames",
     "video.info": "video.info",
+    "video.probes": "video.probes",
     "video.quickLook": "video.quickLook",
     "video.transcript": "video.transcript",
     "workspace.chooseFolder": "workspace.chooseFolder",
@@ -316,6 +318,9 @@
     "video.info": [
       "src"
     ],
+    "video.probes": [
+      "src"
+    ],
     "video.quickLook": [
       "src"
     ],
@@ -330,7 +335,8 @@
   "unserved": {
     "git.capabilities": "checkpoints/controller.tsx asks whether the app takes checkpoints; no app serves it yet, so the request is refused and the checkpoint review stays off. Remove this entry when the app serves it (the Swift test fails once AgentPageOps has it).",
     "chat.subagentBack": "subagentPanes.ts backToOpeningChat asks the app to close a subagent split and focus the chat tab that opened it; until the app serves it, the page shows the chat in place. Remove this entry when the app serves it (the Swift test fails once AgentPageOps has it).",
-    "models.catalog": "modelCatalogHost.ts asks for the app's model catalog; no app serves it yet, so the page keeps the bundled snapshot. Remove this entry when the app serves it (the Swift test fails once AgentPageOps has it)."
+    "models.catalog": "modelCatalogHost.ts asks for the app's model catalog; no app serves it yet, so the page keeps the bundled snapshot. Remove this entry when the app serves it (the Swift test fails once AgentPageOps has it).",
+    "chat.cloudCredentialTransfer": "cloudCredentialRecovery.ts asks the app to copy a provider sign-in to a cloud machine; the app stopped serving it in #40159 and no host sets cloudCredentialRecoveryAvailable, so the page never sends it. Remove this entry with that page code, or when the app serves it again (the Swift test fails once AgentPageOps has it)."
   },
   "handlers": {
     "agentSession": "CmuxNextAgentPane AgentPaneRequest.handlerName (the old bridge)",

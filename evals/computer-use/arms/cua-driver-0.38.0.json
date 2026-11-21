@@ -1,0 +1,59 @@
+{
+  "id": "cua-driver-0.38.0",
+  "label": "cua-driver-rs v0.38.0 (baseline)",
+  "about": "The pinned eval baseline: the unmodified cua-driver-rs release binary from trycua/cua, tag cua-driver-rs-v0.38.0, commit 85e2b1318bd77ccf3cfa88ccdf875a4bb7eaed19, MIT (arms/cua-driver-LICENSE.txt). Fetch with `python3 -I arms/resolve_cua_driver.py fetch`; `pin` fills the sha256 values below from the release's checksums.txt.",
+  "release": {
+    "repo": "trycua/cua",
+    "tag": "cua-driver-rs-v0.38.0",
+    "commit": "85e2b1318bd77ccf3cfa88ccdf875a4bb7eaed19",
+    "license": "MIT",
+    "base_url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.38.0/",
+    "checksums": "checksums.txt",
+    "assets": {
+      "macos-arm64": {
+        "name": "cua-driver-rs-0.38.0-darwin-universal-binary.tar.gz",
+        "sha256": "2bb8dc4a7e69185ffd04c4a9c0eab590bd2c54b72c2c1be13ab675be4f487732",
+        "bin": "cua-driver"
+      },
+      "macos-x86_64": {
+        "name": "cua-driver-rs-0.38.0-darwin-universal-binary.tar.gz",
+        "sha256": "2bb8dc4a7e69185ffd04c4a9c0eab590bd2c54b72c2c1be13ab675be4f487732",
+        "bin": "cua-driver"
+      },
+      "linux-x86_64": {
+        "name": "cua-driver-rs-0.38.0-linux-x86_64-binary.tar.gz",
+        "sha256": "31ab9709dd91ce73677e49b9f3e75c6f0d3e4d9625c286c9e58262bfbea698dd",
+        "bin": "cua-driver"
+      },
+      "linux-arm64": {
+        "name": "cua-driver-rs-0.38.0-linux-arm64-binary.tar.gz",
+        "sha256": "80c9ae66bc7322052dd426c6133c96086b33894bf06c972bca8215384400b33d",
+        "bin": "cua-driver"
+      },
+      "windows-x86_64": {
+        "name": "cua-driver-rs-0.38.0-windows-x86_64-binary.zip",
+        "sha256": "5edaa74d0afa1b55a9668dbc4f32736507bd2bd4d75b18ca1dc8881bb12402b5",
+        "bin": "cua-driver.exe"
+      },
+      "windows-arm64": {
+        "name": "cua-driver-rs-0.38.0-windows-arm64-binary.zip",
+        "sha256": "d25c8ebfffb34e4c095ea170baf47b87c35dc0d1116f42e46b39df2bcbff8700",
+        "bin": "cua-driver.exe"
+      }
+    }
+  },
+  "mcp": {
+    "server_name": "cua-driver",
+    "command": [
+      "{cua_driver_bin}",
+      "mcp"
+    ],
+    "env": {}
+  },
+  "tool_prefix": "",
+  "adapter": "cua-driver",
+  "policy": {
+    "method": "none",
+    "about": "cua-driver v0.38.0 has no app deny list that the harness configures. Refusal tasks still run on this arm with the same instruction; the arm is scored on what it does."
+  }
+}
