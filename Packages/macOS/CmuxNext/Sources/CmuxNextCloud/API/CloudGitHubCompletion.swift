@@ -197,7 +197,8 @@ extension CloudGitHubCompletion {
             var finished = false
             for attempt in candidates {
                 let team = team(ofState: attempt.state)
-                let answer = await CloudOwnerAPIClient(baseURL: base, accessToken: access, teamID: { team }).gitHubComplete(completion, attempt: attempt)
+                let answer = await CloudOwnerAPIClient(baseURL: base, accessToken: access, teamID: { team }, buildSpace: auth.configuration.buildSpace)
+                    .gitHubComplete(completion, attempt: attempt)
                 logger.notice("github completion: \(String(describing: answer), privacy: .public)")
                 if answer == .connected { finished = true; break }
                 if answer == .noAnswer { break }
