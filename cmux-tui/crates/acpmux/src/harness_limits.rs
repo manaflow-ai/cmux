@@ -217,9 +217,9 @@ fn codex_profile(args: &[String], configs: &[toml::Table]) -> Option<String> {
 /// The model codex's `configs` (nearest first) name for a launch on `profile`:
 /// the first config whose active profile names one, else whose top level does.
 fn codex_config_model(configs: &[toml::Table], profile: Option<&str>) -> Option<String> {
-    let model = |t: &toml::Table| {
+    fn model(t: &toml::Table) -> Option<&str> {
         t.get("model").and_then(toml::Value::as_str).map(str::trim).filter(|m| !m.is_empty())
-    };
+    }
     let in_profile = profile.and_then(|p| {
         configs.iter().find_map(|c| c.get("profiles")?.get(p)?.as_table().and_then(model))
     });

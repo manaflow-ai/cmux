@@ -214,7 +214,10 @@ async fn starts_of_a_chat(hub: &Arc<Hub>, d: &Path, recorded: &Path) -> Vec<Valu
     let mut c = Client::local(hub);
     let (s, _) = harness_of_new(&mut c, d, "codex").await;
     let r = c
-        .call("session/prompt", json!({"sessionId": s, "prompt": [{"type": "text", "text": "1+1"}]}))
+        .call(
+            "session/prompt",
+            json!({"sessionId": s, "prompt": [{"type": "text", "text": "1+1"}]}),
+        )
         .await;
     assert_eq!(r["result"]["stopReason"], "end_turn", "{r}");
     std::fs::read_to_string(recorded)
