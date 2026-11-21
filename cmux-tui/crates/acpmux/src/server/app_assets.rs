@@ -3,41 +3,26 @@
 //! to the browser transport. Host/Origin checks run before this module is called.
 use std::path::{Path, PathBuf};
 
+#[path = "app_asset_paths.rs"]
+mod paths;
+use paths::asset;
+
+/// What build.rs embedded (empty unless ACPMUX_BUNDLED_APP_ASSETS_DIR was set at build time).
+mod bundled {
+    include!(concat!(env!("OUT_DIR"), "/app_bundle.rs"));
+}
+
+type Bundle = &'static [(&'static str, cmux_embed::PackedStr)];
+
 type Response = (&'static str, Vec<u8>, &'static str);
 
 fn missing() -> Response {
     ("404 Not Found", b"not found".to_vec(), "text/plain")
 }
 
-/// No URL decoding or directory browsing: only the production builder's output.
-fn asset(path: &str) -> Option<(&str, &'static str)> {
-    let relative = path.strip_prefix("/app/")?;
-    let relative = if relative.is_empty() { "index.html" } else { relative };
-    let kind = match relative {
-        "index.html" => "text/html; charset=utf-8",
-        "pane.css" | "pane-copy.css" => "text/css; charset=utf-8",
-        "pane.js"
-        | "highlight-worker.js"
-        | "image-worker.js"
-        | "chat-snapshot.js"
-        | "__snapshot/chat.js" => "text/javascript; charset=utf-8",
-        _ => {
-            let (directory, name) = relative.split_once('/')?;
-            if !matches!(directory, "chunks" | "locales")
-                || name.starts_with('.')
-                || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
-                || !name.ends_with(".js")
-            {
-                return None;
-            }
-            "text/javascript; charset=utf-8"
-        }
-    };
-    Some((relative, kind))
-}
-
-/// A standalone distribution can put agent-pane beside its binary, or point at
-/// the output of build-agent-pane-web.sh. The app uses its existing SPM resource
+/// The lookup order: ACPMUX_APP_ASSETS_DIR, then a directory beside the binary, then the
+/// bundle embedded at build time. A standalone distribution can put agent-pane beside its
+/// binary, or point at the output of build-agent-pane-web.sh. The app uses its existing SPM resource
 /// bundle; no checkout, Vite host, current directory or other app is searched.
 fn roots(exe: &Path, configured: Option<PathBuf>) -> Vec<PathBuf> {
     if let Some(root) = configured {
@@ -55,18 +40,33 @@ fn roots(exe: &Path, configured: Option<PathBuf>) -> Vec<PathBuf> {
 }
 
 pub(super) async fn serve(path: &str) -> Response {
+    let exe = std::env::current_exe().unwrap_or_default();
+    let configured = std::env::var_os("ACPMUX_APP_ASSETS_DIR").map(PathBuf::from);
+    serve_from(path, &exe, configured, bundled::BUNDLE).await
+}
+
+async fn serve_from(
+    path: &str,
+    exe: &Path,
+    configured: Option<PathBuf>,
+    bundle: Bundle,
+) -> Response {
     let Some((relative, kind)) = asset(path) else { return missing() };
     // Native pages may paint a saved chat before connecting. A fresh browser
     // page has none; answer the same script path without disclosing any state.
     if relative == "__snapshot/chat.js" {
         return ("200 OK", Vec::new(), kind);
     }
-    let exe = std::env::current_exe().unwrap_or_default();
-    let configured = std::env::var_os("ACPMUX_APP_ASSETS_DIR").map(PathBuf::from);
-    for root in roots(&exe, configured) {
+    for root in roots(exe, configured) {
         if tokio::fs::metadata(root.join("index.html")).await.is_ok_and(|m| m.is_file()) {
             return read(&root, relative, kind).await;
         }
+    }
+    if bundle.iter().any(|(name, _)| *name == "index.html") {
+        return match bundle.iter().find(|(name, _)| *name == relative) {
+            Some((_, text)) => finish(relative, text.inflate().into_bytes(), kind),
+            None => missing(),
+        };
     }
     (
         "503 Service Unavailable",
@@ -85,7 +85,12 @@ async fn read(root: &Path, relative: &str, kind: &'static str) -> Response {
     if !meta.is_file() || meta.len() > 32 * 1024 * 1024 {
         return missing();
     }
-    let Ok(mut body) = tokio::fs::read(file).await else { return missing() };
+    let Ok(body) = tokio::fs::read(file).await else { return missing() };
+    finish(relative, body, kind)
+}
+
+/// The same headers' worth of rewriting for a file from disk and one from the bundle.
+fn finish(relative: &str, mut body: Vec<u8>, kind: &'static str) -> Response {
     if relative == "index.html" {
         let Ok(html) = String::from_utf8(body) else { return missing() };
         // The native resource remains unchanged. Only the browser's copy may
@@ -98,6 +103,58 @@ async fn read(root: &Path, relative: &str, kind: &'static str) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn packed(text: &str) -> cmux_embed::PackedStr {
+        let bytes: &'static [u8] =
+            Box::leak(zstd::bulk::compress(text.as_bytes(), 3).unwrap().into_boxed_slice());
+        cmux_embed::PackedStr::__new(bytes, text.len())
+    }
+
+    fn embedded() -> Bundle {
+        Box::leak(Box::new([
+            ("index.html", packed("<meta content=\"connect-src 'none'\">")),
+            ("pane.js", packed("embedded")),
+        ]))
+    }
+
+    #[tokio::test]
+    async fn app_assets_lookup_order_is_override_then_adjacent_then_embedded() {
+        let exe_dir = tempfile::tempdir().unwrap();
+        let exe = exe_dir.path().join("bin/acpmux");
+        let adjacent = exe_dir.path().join("bin/agent-pane");
+        let configured = tempfile::tempdir().unwrap();
+        for (dir, text) in [(&adjacent, "adjacent"), (configured.path(), "override")] {
+            tokio::fs::create_dir_all(dir).await.unwrap();
+            tokio::fs::write(dir.join("index.html"), text).await.unwrap();
+            tokio::fs::write(dir.join("pane.js"), text).await.unwrap();
+        }
+        let get = |path: &'static str, configured: Option<PathBuf>| {
+            let exe = exe.clone();
+            async move { serve_from(path, &exe, configured, embedded()).await }
+        };
+        // The override wins over the adjacent directory and the bundle.
+        let r = get("/app/pane.js", Some(configured.path().to_owned())).await;
+        assert_eq!((r.0, r.1), ("200 OK", b"override".to_vec()));
+        // Then the directory beside the binary.
+        let r = get("/app/pane.js", None).await;
+        assert_eq!((r.0, r.1), ("200 OK", b"adjacent".to_vec()));
+        // Then the bundle, with nothing on disk.
+        tokio::fs::remove_dir_all(&adjacent).await.unwrap();
+        let r = get("/app/pane.js", None).await;
+        assert_eq!((r.0, r.1), ("200 OK", b"embedded".to_vec()));
+        // The same CSP rewrite as a file from disk.
+        let (status, body, kind) = get("/app/", None).await;
+        assert_eq!(status, "200 OK");
+        assert_eq!(kind, "text/html; charset=utf-8");
+        assert_eq!(body, b"<meta content=\"connect-src 'self'\">");
+        // Not allowlisted, or allowlisted but not in the bundle: 404, never the 503.
+        assert_eq!(get("/app/config.json", None).await.0, "404 Not Found");
+        assert_eq!(get("/app/chunks/../pane.js", None).await.0, "404 Not Found");
+        assert_eq!(get("/app/pane.css", None).await.0, "404 Not Found");
+        // No bundle and nothing on disk: the old 503.
+        let none = serve_from("/app/", &exe, None, &[]).await;
+        assert_eq!(none.0, "503 Service Unavailable");
+    }
 
     #[test]
     fn app_assets_paths_are_only_production_outputs() {

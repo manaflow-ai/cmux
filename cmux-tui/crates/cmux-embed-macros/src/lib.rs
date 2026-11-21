@@ -18,7 +18,8 @@ use proc_macro::{Delimiter, Group, Literal, Punct, Spacing, Span, TokenStream, T
 const LEVEL: i32 = 19;
 
 /// `packed_str!(include_str!("path"))`, or
-/// `packed_str!(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/path")))`.
+/// `packed_str!(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/path")))`
+/// (`OUT_DIR` likewise, for a file the build script wrote).
 #[proc_macro]
 pub fn packed_str(input: TokenStream) -> TokenStream {
     match expand(input) {
@@ -109,13 +110,14 @@ fn embedded_path(input: TokenStream) -> Result<PathBuf, String> {
             if env.to_string() != "env"
                 || env_bang.as_char() != '!'
                 || comma.as_char() != ','
-                || string_literal(var)? != "CARGO_MANIFEST_DIR"
+                || !matches!(string_literal(var)?.as_str(), "CARGO_MANIFEST_DIR" | "OUT_DIR")
             {
                 return Err(USAGE.to_owned());
             }
-            let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-                .map_err(|_| "packed_str!: CARGO_MANIFEST_DIR is not set".to_owned())?;
-            Ok(PathBuf::from(format!("{manifest_dir}{}", string_literal(rest)?)))
+            // OUT_DIR: a file the crate's build script wrote.
+            let var = string_literal(var)?;
+            let dir = std::env::var(&var).map_err(|_| format!("packed_str!: {var} is not set"))?;
+            Ok(PathBuf::from(format!("{dir}{}", string_literal(rest)?)))
         }
         _ => Err(USAGE.to_owned()),
     }

@@ -464,6 +464,27 @@ jobs:
         shell: bash
         run: rustup target add ${{ matrix.target }}
 
+      # The production NEXT agent pane, embedded in acpmux so a shipped binary serves /app/ with no
+      # files beside it. acpmux's build.rs reads ACPMUX_BUNDLED_APP_ASSETS_DIR (unset: embeds nothing).
+      # Every Unix leg below inherits it through GITHUB_ENV; bun runs on the runner whatever the target.
+      - name: Install bun for the NEXT agent pane
+        if: needs.plan-build.outputs.unix_targets == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: true
+
+      - name: Build the NEXT agent pane for acpmux
+        if: needs.plan-build.outputs.unix_targets == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          pane="$RUNNER_TEMP/acpmux-agent-pane"
+          rm -rf "$pane"
+          sh scripts/cmux-next/build-agent-pane-web.sh --out "$pane"
+          test -f "$pane/index.html"
+          echo "ACPMUX_BUNDLED_APP_ASSETS_DIR=$pane" >> "$GITHUB_ENV"
+
       - name: Test the cargo groups runner
         if: runner.os == 'Linux'
         shell: bash
