@@ -1,21 +1,20 @@
 #if DEBUG
 import AppKit
 @testable import CmuxNextCloudUI
-import SwiftUI
 import Testing
 import Vision
 
-/// Environment Secrets Playground, checked on the drawn pixels: each direction is hosted in an
-/// `NSHostingView` the size of the playground window, drawn into a bitmap, and read back with on-device
-/// text recognition. The tests use only the model and the direction views, so they compile on the
-/// gallery before its fix and fail there on the drawn result.
+/// Environment Secrets Playground, checked on the drawn pixels: the playground's AppKit root view draws
+/// one direction at the window's size into a bitmap, read back with on-device text recognition. The tests
+/// use only the model and the root view, so a layout change shows as a failed reading, not a compile error.
 @MainActor @Suite struct EnvSecretsRenderedLayoutTests {
     /// Ledger, History state: the open row's history starts one indent in from the row's left edge.
     /// Before the fix the history was centred under the row, about 255 points to the right.
     @Test func ledgerHistoryStartsAtTheRowsLeftEdge() throws {
         let model = EnvSecretsPlaygroundModel()
         model.scene = .audit
-        let page = try RenderedPage(EnvLedgerDirection(model: model))
+        model.direction = .ledger
+        let page = try RenderedPage(model)
         let nameColumn = try #require(page.line("Name"), "the table's Name column title is drawn")
         let firstUse = try #require(page.line(containing: "4:07 PM"), "the history's first line is drawn")
         #expect(firstUse.minX - nameColumn.minX < 40, "history starts \(firstUse.minX - nameColumn.minX) pt right of the Name column")
@@ -26,7 +25,8 @@ import Vision
     @Test func sentencesRequestCardOffersTheScopeChoiceWithChatPicked() throws {
         let model = EnvSecretsPlaygroundModel()
         model.scene = .request
-        let page = try RenderedPage(EnvSentencesDirection(model: model))
+        model.direction = .sentences
+        let page = try RenderedPage(model)
         #expect(page.line("Where to keep it") != nil, "the card has the \"Where to keep it\" title")
         let chat = try #require(page.line(containing: "Only this chat"), "the Chat choice is drawn")
         let personal = try #require(page.line(containing: "Only you."), "the Personal choice is drawn")
@@ -38,24 +38,28 @@ import Vision
     }
 }
 
-/// One direction drawn at the playground window's size in the light look, with its recognised text
-/// lines in view points (origin top left).
+/// The playground (chrome and the model's direction) drawn at the window's size in the light look, with its
+/// recognised text lines in view points (origin top left).
 @MainActor
 private struct RenderedPage: CustomStringConvertible {
     let bitmap: NSBitmapImageRep
     let lines: [(text: String, frame: CGRect)]
     let scale: CGFloat
 
-    init(_ view: some View) throws {
+    init(_ model: EnvSecretsPlaygroundModel) throws {
         _ = NSApplication.shared
         let size = CGSize(width: 1180, height: 820)
-        let host = NSHostingView(rootView: view.environment(\.colorScheme, .light))
+        let root = EnvSecretsPlaygroundView(model: model, applyLook: {})
         let window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
-        window.appearance = NSAppearance(named: .aqua)
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: bitmap)
+        let light = try #require(NSAppearance(named: .aqua))
+        window.appearance = light
+        window.contentView = root
+        root.widthAnchor.constraint(equalToConstant: size.width).isActive = true
+        root.heightAnchor.constraint(equalToConstant: size.height).isActive = true
+        window.setContentSize(size)
+        root.layoutSubtreeIfNeeded()
+        let bitmap = try #require(root.bitmapImageRepForCachingDisplay(in: root.bounds))
+        light.performAsCurrentDrawingAppearance { root.cacheDisplay(in: root.bounds, to: bitmap) }
         let image = try #require(bitmap.cgImage)
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
