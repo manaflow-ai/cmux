@@ -105,6 +105,10 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The daemon takes `replay_history_rows` (it listed
     /// `attach-replay-history-rows-v1`, and its lane did not refuse it).
     private var tailReplay = false
+    /// The last identify reply this session got. A reattach reads the daemon's
+    /// capabilities from it, to send resolve, identify and attach in one write
+    /// (`attach-terminal-id-v1`); with none (or none listed) it asks as before.
+    private var lastIdentify: Data?
     /// The daemon lists `send-expect-agent-v1`: `send` takes `submit` with
     /// `paste` (``sendPasteAndSubmit(_:notSent:)``). An older daemon ignores `submit`
     /// and would paste the draft with no Return: it gets the mirror's paste.
@@ -577,6 +581,56 @@ public final class DaemonTerminalSession: TerminalSession {
         case unknown
     }
 
+    /// What an `attach-surface` refusal says about the terminal (`attach-terminal-id-v1`),
+    /// as `resolve-terminal` would; nil for any other refusal.
+    nonisolated static func resolvedAttachError(_ error: String) -> Resolved? {
+        if error.contains("terminal_not_found") { return .gone }
+        if error.contains("terminal_exited") {
+            var code: Int?
+            if let range = error.range(of: "exit_code=") {
+                code = Int(error[range.upperBound...].prefix { $0 == "-" || $0.isNumber })
+            }
+            return .exited(code: code)
+        }
+        if error.contains("terminal_not_on_surface") { return .notYet }
+        return nil
+    }
+
+    /// The surface an attach reply names (`attach-terminal-id-v1` always does).
+    nonisolated static func attachedSurface(_ reply: Data) -> Int? {
+        guard let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
+              let data = object["data"] as? [String: Any] else { return nil }
+        return data["surface"] as? Int
+    }
+
+    /// Acts on where the terminal is: true when the session ended (the caller returns),
+    /// a throw for the reattach backoff.
+    private func applyResolution(_ resolution: Resolved, terminalID: String) throws -> Bool {
+        switch resolution {
+        case .surface(let moved) where moved != surface:
+            log.notice("surface \(self.surface, privacy: .public): terminal \(terminalID, privacy: .public) is now surface \(moved, privacy: .public)")
+            surface = moved
+            lineParser = DaemonTerminalEventParser(surface: moved)
+            return false
+        case .exited(let code):
+            terminalGone(exitCode: code, exited: true)
+            return true
+        case .gone where attachRetries + 1 >= reattachBackoff.count:
+            terminalGone()
+            return true
+        case .gone:
+            // Right after the Mac app or its daemon restarts, a terminal
+            // can be missing from the registry for a moment: only a
+            // terminal still missing after the retries is gone.
+            throw LinkError(code: "attach", message: "terminal_not_found")
+        case .notYet:
+            // Into the reattach backoff, keeping the last frame.
+            throw LinkError(code: "attach", message: "the terminal is not on a surface yet")
+        case .surface, .unknown:
+            return false
+        }
+    }
+
     static func resolved(_ reply: Data) -> Resolved {
         guard let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any] else { return .unknown }
         if object["ok"] as? Bool == false || object["error"] != nil {
@@ -700,31 +754,14 @@ public final class DaemonTerminalSession: TerminalSession {
             // daemon that restarted numbers its surfaces again, and the old
             // number may now name another terminal (defect 2 of
             // verify/transport-verify-20261019.md).
-            if let terminalID, everAttached || attachRetries > 0 {
+            // A daemon that listed `attach-terminal-id-v1` resolves the terminal inside the
+            // attach itself: the resolve, identify and attach go out in one write below.
+            let reattaching = terminalID != nil && (everAttached || attachRetries > 0)
+            let pipelined = reattaching && (lastIdentify.map { Self.lists(Self.attachTerminalIDCapability, $0) } ?? false)
+            if let terminalID, reattaching, !pipelined {
                 let reply = try await client.request("resolve-terminal", params: ["terminal_id": terminalID])
                 guard self.client === client else { return }
-                switch Self.resolved(reply) {
-                case .surface(let moved) where moved != surface:
-                    log.notice("surface \(self.surface, privacy: .public): terminal \(terminalID, privacy: .public) is now surface \(moved, privacy: .public)")
-                    surface = moved
-                    lineParser = DaemonTerminalEventParser(surface: moved)
-                case .exited(let code):
-                    terminalGone(exitCode: code, exited: true)
-                    return
-                case .gone where attachRetries + 1 >= reattachBackoff.count:
-                    terminalGone()
-                    return
-                case .gone:
-                    // Right after the Mac app or its daemon restarts, a terminal
-                    // can be missing from the registry for a moment: only a
-                    // terminal still missing after the retries is gone.
-                    throw LinkError(code: "attach", message: "terminal_not_found")
-                case .notYet:
-                    // Into the reattach backoff, keeping the last frame.
-                    throw LinkError(code: "attach", message: "the terminal is not on a surface yet")
-                case .surface, .unknown:
-                    break
-                }
+                if try applyResolution(Self.resolved(reply), terminalID: terminalID) { return }
             }
             let events = client.events
             eventTask?.cancel()
@@ -763,10 +800,54 @@ public final class DaemonTerminalSession: TerminalSession {
             // One write: the client info (it opts into the size lease) and identify.
             var info: [String: Any] = clientInfo
             info["capabilities"] = Self.capabilities(agentCLIHybrid: hybridWanted)
-            let setup = await client.requests(
-                [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
-            )
-            let identify = try? setup.last?.get()
+            // The first attach's size, as the branches below choose it.
+            func firstAttachSize(_ initialSize: Bool) -> (columns: Int, rows: Int)? {
+                guard initialSize, let size = lastSize ?? pendingSize else { return nil }
+                if everAttached, let overruled, overruled.asked.columns == size.columns, overruled.asked.rows == size.rows,
+                   overruled.mac.columns <= size.columns, overruled.mac.rows <= size.rows {
+                    return overruled.mac
+                }
+                return size
+            }
+            func attachParams(_ size: (columns: Int, rows: Int)?, _ historyRows: Int?, hybridResumable: Bool) -> [String: Any] {
+                var params: [String: Any] = ["surface": surface]
+                if pipelined, let terminalID { params["terminal_id"] = terminalID }
+                // Settings → Transport → Agent CLI Screen Changes: a reattach resumes
+                // the hybrid stream from the frame this mirror drew.
+                if hybridWanted, hybridResumable, let resume = resumeFrom {
+                    params["hybrid_stream"] = resume.stream
+                    params["hybrid_frame"] = resume.frame
+                }
+                if let size {
+                    params["cols"] = size.columns
+                    params["rows"] = size.rows
+                }
+                if let historyRows { params["replay_history_rows"] = historyRows }
+                return params
+            }
+            var prefetched: (size: (columns: Int, rows: Int)?, historyRows: Int?, reply: Data)?
+            var plan: (size: (columns: Int, rows: Int)?, historyRows: Int?)?
+            let setup: [Result<Data, any Error>]
+            if pipelined, let known = lastIdentify {
+                // The capabilities the earlier identify listed decide the attach's size and
+                // history; the identify in this write replaces them for the next reattach.
+                let size = firstAttachSize(claimsSize && Self.acceptsInitialSize(known))
+                let rows = Self.lists(Self.replayHistoryRowsCapability, known) ? historyAllowance : nil
+                plan = (size, rows)
+                let resumable = Self.lists(Self.agentCLIHybridCapability, known)
+                heldEvents = []
+                setup = await client.requests([
+                    (cmd: "set-client-info", params: info),
+                    (cmd: "identify", params: [:]),
+                    (cmd: "attach-surface", params: attachParams(size, rows, hybridResumable: resumable)),
+                ])
+            } else {
+                setup = await client.requests(
+                    [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
+                )
+            }
+            let identify = try? setup.dropLast(plan == nil ? 0 : 1).last?.get()
+            lastIdentify = identify
             // Hidden: attach without a size, so the attach claims none.
             let initialSize = claimsSize && (identify.map(Self.acceptsInitialSize) ?? false)
             shortLease = identify.map { Self.lists(Self.shortSizeLeaseCapability, $0) } ?? false
@@ -777,6 +858,18 @@ public final class DaemonTerminalSession: TerminalSession {
             let hybridResumable = identify.map { Self.lists(Self.agentCLIHybridCapability, $0) } ?? false
             tailReplay = identify.map { Self.lists(Self.replayHistoryRowsCapability, $0) } ?? false
             pasteSubmit = identify.map { Self.lists(Self.pasteSubmitCapability, $0) } ?? false
+            if let plan {
+                // The attach rode in the setup write. A refusal that names the terminal ends or
+                // retries the session as `resolve-terminal`'s answer would; anything else goes
+                // through the attach's usual handling below.
+                let data = try setup[2].get()
+                if let error = Self.error(in: data), let resolution = Self.resolvedAttachError(error), let terminalID {
+                    guard self.client === client else { heldEvents = nil; return }
+                    heldEvents = nil
+                    if try applyResolution(resolution, terminalID: terminalID) { return }
+                }
+                prefetched = (plan.size, plan.historyRows, data)
+            }
             // `attach-surface` with this view's size (if any) and history
             // allowance. A lane that refuses the allowance (a Mac app older
             // than its daemon) gets the same attach without it.
@@ -784,27 +877,13 @@ public final class DaemonTerminalSession: TerminalSession {
                 // Each request gets its own literal: a dictionary sent to the
                 // client actor is never touched again here (Swift 6 regions).
                 func send(historyRows: Int?) async throws -> Data {
-                    // Settings → Transport → Agent CLI Screen Changes: a reattach resumes
-                    // the hybrid stream from the frame this mirror drew.
-                    if hybridWanted, hybridResumable, let resume = hybridResume {
-                        var params: [String: Any] = ["surface": surface, "hybrid_stream": resume.stream, "hybrid_frame": resume.frame]
-                        if let size {
-                            params["cols"] = size.columns
-                            params["rows"] = size.rows
-                        }
-                        if let historyRows { params["replay_history_rows"] = historyRows }
-                        return try await client.request("attach-surface", params: params)
+                    // The attach already sent in the setup write, when it is this one.
+                    if let pre = prefetched, pre.historyRows == historyRows,
+                       pre.size?.columns == size?.columns, pre.size?.rows == size?.rows {
+                        prefetched = nil
+                        return pre.reply
                     }
-                    switch (size, historyRows) {
-                    case let (size?, rows?):
-                        return try await client.request("attach-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows, "replay_history_rows": rows])
-                    case let (size?, nil):
-                        return try await client.request("attach-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows])
-                    case let (nil, rows?):
-                        return try await client.request("attach-surface", params: ["surface": surface, "replay_history_rows": rows])
-                    case (nil, nil):
-                        return try await client.request("attach-surface", params: ["surface": surface])
-                    }
+                    return try await client.request("attach-surface", params: attachParams(size, historyRows, hybridResumable: hybridResumable))
                 }
                 guard tailReplay, let rows = historyAllowance else { return try await send(historyRows: nil) }
                 let reply = try await send(historyRows: rows)
@@ -819,7 +898,8 @@ public final class DaemonTerminalSession: TerminalSession {
             // the last frame on screen under the reconnecting badge, instead
             // of a blank screen with an error line (termqa D3). The replay's
             // events wait in `heldEvents` until the attach is confirmed.
-            heldEvents = []
+            // (The attach that rode in the setup write has its events held already.)
+            if plan == nil { heldEvents = [] }
             // With the size in the attach the Mac builds the replay at that size
             // once; attached first and resized after, it reset the mirror and
             // replayed the whole history a second time (user report 2026-10-14).
@@ -854,7 +934,21 @@ public final class DaemonTerminalSession: TerminalSession {
             } else {
                 reply = try await attachSurface(nil)
             }
-            if let error = Self.error(in: reply) { throw LinkError(code: "attach", message: error) }
+            if let error = Self.error(in: reply) {
+                if pipelined, let terminalID, let resolution = Self.resolvedAttachError(error) {
+                    heldEvents = nil
+                    if try applyResolution(resolution, terminalID: terminalID) { return }
+                }
+                throw LinkError(code: "attach", message: error)
+            }
+            if pipelined, let moved = Self.attachedSurface(reply), moved != surface {
+                // The terminal is on another surface now: the events of this attach were
+                // read for the old number. Next attempt attaches at the new one.
+                log.notice("surface \(self.surface, privacy: .public): terminal \(self.terminalID ?? "-", privacy: .public) is now surface \(moved, privacy: .public)")
+                self.surface = moved
+                lineParser = DaemonTerminalEventParser(surface: moved)
+                throw LinkError(code: "attach", message: "the terminal moved to another surface")
+            }
             guard self.client === client else { heldEvents = nil; return }
             let (sizeState, participant) = Self.attachSizing(reply)
             sizing.apply(sizeState, selfParticipant: participant)
@@ -1625,6 +1719,9 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `replay_history_rows` on `attach-surface`: the replay holds the screen
     /// and only that many history rows (latest screen first).
     static let replayHistoryRowsCapability = "attach-replay-history-rows-v1"
+    /// `terminal_id` on `attach-surface`: the daemon resolves the terminal in the attach, so a
+    /// reattach is one round trip.
+    static let attachTerminalIDCapability = "attach-terminal-id-v1"
     /// `send` takes `submit` (with `paste`): Return in the same request as the paste.
     static let pasteSubmitCapability = "send-expect-agent-v1"
     /// What the attach channel lists in `set-client-info`.
