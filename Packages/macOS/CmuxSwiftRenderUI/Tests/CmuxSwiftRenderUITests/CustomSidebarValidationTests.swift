@@ -155,14 +155,6 @@ struct CustomSidebarValidationTests {
         return url
     }
 
-    /// Every Text/Label string drawn under `node`, in draw order.
-    private static func texts(in node: RenderNode) -> [String] {
-        var out: [String] = []
-        if let text = node.text { out.append(text) }
-        out += node.children.flatMap(texts(in:))
-        return out
-    }
-
     private func examplesDirectory() -> URL {
         var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         for _ in 0..<8 {
