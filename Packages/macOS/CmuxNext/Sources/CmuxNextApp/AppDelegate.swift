@@ -383,7 +383,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         services.configActions.start(settings: settings)
-        services.personInput.start()
+        services.personInput.start(); services.cache.cef.personInput = { [ledger = services.personInput] in ledger.isPerson($0) }
         services.joinConsent.follow(settings: settings)
         if !environment.noActivate { services.signInEnroll.follow() } // an agent-launched build enrolls no machine
         // Agent-launched builds never take system-wide keys from the person's app, nor a menu bar item.

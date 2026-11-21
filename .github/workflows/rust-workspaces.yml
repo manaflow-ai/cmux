@@ -276,7 +276,10 @@ jobs:
   workspace:
     name: ${{ matrix.root }}
     needs: plan
-    if: ${{ needs.plan.outputs.jobs != '[]' }}
+    # !cancelled(): plan runs past a skipped receipt (every push and every PR without one), and GitHub's
+    # implicit success() skipped this job there, so no planned workspace ran and summary read the skip
+    # as a pass.
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.jobs != '[]' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 45
     strategy:
@@ -380,7 +383,7 @@ jobs:
           RECEIPT_RUN: ${{ needs.receipt.outputs.run_url }}
           RECEIPT_PRODUCER: ${{ needs.receipt.outputs.producer }}
         run: |
-          # A receipt skip says so in the log, a notice and the step summary, so neither a reader nor merge_hold
+          # A receipt skip says so in the log, a notice and the step summary, so neither a reader nor land-judge
           # takes it for a plain skip (work nobody judged). its manual test test_ci_receipt.py runs this step.
           if [[ "$RECEIPT_VALID" == true && "$RECEIPT_AUDIT" != true ]]; then
             line="rust workspaces: verified reuse of receipt $RECEIPT_RUN (by $RECEIPT_PRODUCER); plan and every workspace skipped on it"
