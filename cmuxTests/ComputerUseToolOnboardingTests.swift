@@ -110,6 +110,26 @@ struct ComputerUseToolOnboardingTests {
         #expect(fixture.runtime.desiredEnabled)
     }
 
+    @Test(.timeLimit(.minutes(1)), arguments: ["cmux-cua.get_app_state", "cmux-cua.check_permissions"])
+    func toolRequestRecoversFailedHelperEvenWhenMenuFeatureIsOff(_ tool: String) async throws {
+        let fixture = try ComputerUseToolOnboardingFixture(simulatesFailedHelperLaunch: true)
+        defer { fixture.remove() }
+        var launches = fixture.helperLaunches.stream.makeAsyncIterator()
+        try await fixture.enable()
+        #expect(await launches.next() != nil)
+        fixture.featureEnabled = false
+
+        await fixture.send(tool)
+
+        // Await the launch signal, not an arbitrary delay. The frozen uptime
+        // keeps background reconciliation behind the failed startup's backoff.
+        #expect(await launches.next() != nil)
+        #expect(fixture.runtime.desiredEnabled)
+        if tool == "cmux-cua.check_permissions" {
+            #expect(fixture.presentations.isEmpty)
+        }
+    }
+
     @Test func completedSetupStaysQuietUntilHelperInvalidation() async throws {
         let fixture = try ComputerUseToolOnboardingFixture()
         defer { fixture.remove() }
