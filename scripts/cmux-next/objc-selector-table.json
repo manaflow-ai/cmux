@@ -354,7 +354,13 @@
    "26.5.1": true,
    "26.6": true
   },
+  "NSButtonCell call:drawBezel/2:in": {
+   "27.0": true
+  },
   "NSButtonCell call:drawTitle/3:withFrame,in": {
+   "27.0": true
+  },
+  "NSPopUpButtonCell call:drawBezel/2:in": {
    "27.0": true
   },
   "NSPopUpButtonCell call:drawTitle/3:withFrame,in": {
