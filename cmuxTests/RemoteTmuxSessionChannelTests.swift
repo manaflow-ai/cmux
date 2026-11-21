@@ -107,6 +107,7 @@ import Testing
 @MainActor
 private final class ReconnectFanOutFakeSource: RemoteTmuxSessionSource {
     var connectionState: RemoteTmuxConnectionState = .connected
+    var reconnectingSince: ContinuousClock.Instant? { nil }
     var exited = false
     var sessionId: Int? = 1
     var windowsByID: [Int: RemoteTmuxWindow] = [:]

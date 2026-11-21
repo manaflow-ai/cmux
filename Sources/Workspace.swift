@@ -146,8 +146,8 @@ extension Workspace {
             SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)
         )
         let statusSnapshots = statusEntries.values
-            // A failed wake is runtime state; it must not come back after a relaunch.
-            .filter { $0.key != Self.agentWakeFailedStatusKey }
+            // A failed wake and a reconnect in progress are runtime state; neither comes back after a relaunch.
+            .filter { $0.key != Self.agentWakeFailedStatusKey && $0.key != Self.remoteTmuxReconnectingStatusKey }
             .sorted { lhs, rhs in lhs.key < rhs.key }
             .map { entry in
                 SessionStatusEntrySnapshot(
@@ -6885,8 +6885,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         statusEntries.removeAll()
         agentStatusEntriesByPanelId.removeAll()
         resetProgramStatus()
-        // The failed-wake row mirrors banners that are still up.
-        refreshAgentWakeFailureStatusEntry()
+        // Rows that mirror state owned elsewhere come back while that state holds.
+        refreshDerivedStatusEntries()
         clearAllAgentPIDs(refreshPorts: false)
         clearAllAgentLifecycleStates()
         agentListeningPorts.removeAll()
