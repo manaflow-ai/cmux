@@ -19,6 +19,7 @@ use serde_json::Value;
 use serde_json::value::RawValue;
 
 pub use accepts::{Accepted, accepts, effective_value, is_hex_color};
+pub use backdrop::normalize_backdrop;
 pub use build_defaults::{BUILD_DEFAULTS_ENV, build_defaults_from};
 pub use chat_roots::chat_root_is_valid;
 pub use retired::{Replaced, replaced_by_row, replaced_keys, retired_keys, retired_reason};
@@ -146,6 +147,9 @@ pub enum DomainKind {
     BackdropSchedule,
     /// `appearance.backgroundLocation`: `LAT,LON` (Swift `BackdropLocation`).
     BackdropLocation,
+    /// `appearance.backgroundMemory`: what each background mode last showed
+    /// (`rotate`, `folder`, `off`; Swift `BackdropSelectionSetting.acceptsMemory`).
+    BackdropMemory,
     /// `agents.chats.roots`: absolute folders outside the protected ones
     /// (Swift `ChatRootValidator`).
     ChatRoots,
@@ -425,6 +429,7 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "domain:backdrop_picture" => Validation::Domain(DomainKind::BackdropPicture),
         "domain:backdrop_schedule" => Validation::Domain(DomainKind::BackdropSchedule),
         "domain:backdrop_location" => Validation::Domain(DomainKind::BackdropLocation),
+        "domain:backdrop_memory" => Validation::Domain(DomainKind::BackdropMemory),
         "domain:chat_roots" => Validation::Domain(DomainKind::ChatRoots),
         "domain:search_template" => Validation::Domain(DomainKind::SearchTemplate),
         "domain:custom_densities" => Validation::Domain(DomainKind::CustomDensities),

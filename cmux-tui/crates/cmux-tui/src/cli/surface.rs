@@ -129,6 +129,8 @@ Cloud VMs through the cmux VM API (vm.cmux.dev):
   access    Short-lived access to one VM (new, ls, revoke, exec)
   key       A VM-only agent key for any process (new, status, revoke)
   creation  Recover a create whose answer was lost (list, get, cancel, reconcile)
+  pool      The CI runner pool on Freestyle and GCP: up N, pause, watch,
+            schedule (`cmux vm pool --help`; never deletes a machine)
 
 `cmux vm access new|exec --target vm:VM_ID` mints access through the
 cmux API instead, for the app's Cloud VMs. Use `cmux vm resize` to

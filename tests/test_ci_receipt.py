@@ -20,6 +20,9 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import ci_receipt  # noqa: E402
 
+sys.path.insert(0, str(ROOT / "tests"))
+import git_fixture_env  # noqa: E402
+
 REPO = "manaflow-ai/cmux"
 CANONICAL = "python3 scripts/ci/ci_receipt.py produce fast-gates"
 HEAD = "a" * 40
@@ -275,7 +278,7 @@ class Produce(unittest.TestCase):
 
         def git(*args: str) -> str:
             return subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *args],
-                                  check=True, capture_output=True, text=True).stdout.strip()
+                                  check=True, capture_output=True, text=True, env=git_fixture_env.fixture_env()).stdout.strip()
 
         git("init", "-q", "-b", ci_receipt.BRANCH)
         (repo / "a").write_text("1")
