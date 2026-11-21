@@ -14,6 +14,50 @@ branch, not with the last FFI tag: runs 37551889292 and 38682698310 had the
 last tag's workflow tree, minted contents:write only and got HTTP 403. Only the
 release create uses that token.
 
+The xcframework holds one dynamic library, `libcmux_app_ffi.dylib` (install name
+`@rpath/libcmux_app_ffi.dylib`, ad hoc signed, with its dSYM). An app built
+against such a pin carries it at `Contents/Frameworks/libcmux_app_ffi.dylib`
+(Xcode embeds and signs a package's dynamic binary target), where the nightly's bundle signing signs
+it with the app, and `hot-apply.py` can swap a newer release in warm. The
+release also carries `libcmux_app_ffi-prelinked.a`, the same objects as one
+archive, for the size and parity checks.
+
+The release smoke check runs a small arm64 client against the loaded dylib and
+resolves the C symbols the app imports, including
+`cmux_layout_reducer_ffi_abi_version()`. A link-only check can accept a stale
+library. The opt-in loader experiment below adds the explicit ABI comparison;
+it leaves the current app packaging and defaults unchanged.
+
+For an opt-in check against a downloaded release (on a macOS verification host),
+run the real loader experiment from the app FFI crate:
+
+```sh
+cd cmux-tui
+cargo run --locked --manifest-path crates/cmux-app-ffi/Cargo.toml \
+  --example ffi_warm_swap -- /path/to/libcmux_app_ffi.dylib --expect-abi 1
+```
+
+It calls `dlopen`, resolves `cmux_layout_reducer_ffi_abi_version`, and refuses
+with exit 3 when the loaded library reports a different ABI. This is deliberately
+invoked by an experiment owner; it does not add a release gate or change the
+app's packaging defaults.
+
+The repeatable fleet harness downloads a published artifact and exercises both
+paths on a macOS worker (the default source is a currently published release):
+
+```sh
+cmux-ci run --class light --os macos \
+  --script scripts/ci/ffi-warm-swap-experiment.sh \
+  --ref <40-char-merged-sha> --key ffi-loader-<40-char-merged-sha>
+```
+
+The script must first be registered in the controller's ci-step allowlist; an
+unregistered script is refused by name. The script blob must also land on
+`feat-cmux-next` before the worker will run it. The explicit key identifies this
+manual run outside Actions. It records the archive SHA-256 and
+reports success only after the matching ABI loads and an intentionally
+mismatched expected value exits 3 with the loader's ABI diagnostic.
+
 ## The pin, after a publish
 
 The run's `repin` job first pins its release straight on `feat-cmux-next`
@@ -35,11 +79,79 @@ Otherwise it falls back to the `app-ffi-repin` pull request, which the app
 compile proves before it lands. Dry run until `CMUX_NEXT_BASE_AUTOFIX` is
 `1`, like the base autofix.
 
+A GitHub call that the re-pin makes and GitHub refuses for its rate limit
+(HTTP 429, an error that names a rate limit, or a 403 with
+`x-ratelimit-remaining: 0`) waits and asks again. The wait comes from the refusal's `retry-after`
+header. Without that header, it waits until `x-ratelimit-reset`. Without
+either, it waits 60 s, then doubles. One run waits at most
+`REPIN_RATE_LIMIT_WAIT_S` (600 s) in all. When the refusal still stands after
+that, or the reset is further off, the job fails with "Re-pin rate-limited"
+and the reason, and its failure step starts `app-ffi-repin.yml`. Before
+this, a rate-limited read of the open re-pin pull request counted as a failed
+read. The job then ended green with "left app-ffi-repin alone": on
+2026-11-20, runs 44804668946, 44820694017 and 44823028309 all did that, and
+#48065 kept an older pin.
+
+There is no merge queue on `feat-cmux-next`. next-autoland lands that pull
+request with no review receipt (`repin_bot_exempt`) once its checks finish, and judges it
+first on every pass. Its runner-lost reds get one rerun. The base's pin check
+fails 120 min after the FFI change (`--stale-grace 7200`). At 90 min,
+base-red-watch sends the coordinator a WARN that names the open re-pin pull
+request. If the PR is still unmerged then, land it by hand: `land-judge
+explain`, then a pinned squash. Only with a passing `cmux-next fast tier` (on a
+re-pin it runs `HandlerCoverageTests` alone) at the PR head: a `cancelled` or
+skipped tier is no verdict. When the release's action catalog differs from the
+current pin's, that test is the only proof that every tab, pane, screen and
+terminal action has an App handler. #43935 landed with its tier cancelled at the
+20-minute limit (2026-11-15), and every Debug launch then stopped in
+`HandlerCoverage.verify` until #44082. Without a verdict, get one on the fleet
+before landing:
+
+```sh
+cmux-ci run --class light --script scripts/ci/run-swift-testing-suites.sh \
+  --ref PR_HEAD_SHA --arg Packages/macOS/CmuxNext \
+  --env CMUX_SWIFT_TEST_SUITES=HandlerCoverageTests --key handler-coverage-PR_HEAD_SHA
+```
+
+A catalog row in one of those categories that lands before its App code needs a
+typed "unavailable" placeholder in the App before the re-pin (as
+`TerminalToChatPlaceholders` does), or the re-pin cannot pass.
+
 A tip whose FFI sources moved past the release still gets that release
 pinned. Until 2026-11-11 it was left to the newer push's own run, and when FFI
 commits landed faster than a release builds (20 to 45 minutes) no release
 ever had the tip's sources: the pin did not move from 23:42 to 03:37 UTC on
 2026-11-10, with the release of a6741b51 published at 01:08 and never pinned.
+
+## Catalog exports after a re-pin
+
+`regenerate-action-exports.sh` runs `ActionSurfaceParityTests`, `ActionCatalogDumpTests`
+and `LinkExportTests` together against one pinned app FFI. Its patch and every base-autofix
+carrier include `action-surfaces.json`, `action-catalog.json`, `actions.md` and `links.json`.
+The cached pack recipe changes when that set changes; a pack missing any member is refused.
+
+The publication detector is the existing `cmux-action-catalog` `swift_parity` integration
+suite. `base-autofix-push.sh` runs it on the final candidate immediately before each push,
+including a candidate rebuilt after the base moves. Build scripts and tests run without
+the publication token or injected Git authorization headers. Failure stops publication: neither an
+old green result nor regenerated files alone prove the candidate consistent. A re-pin whose
+awaiting-repin marker (a file under `cmux-tui/crates/cmux-action-catalog/tests/awaiting-repin/`)
+is stale needs that marker deleted in a reviewed change; automation never filters out the
+disagreement.
+
+This closes the partial-export failure in base-autofix run `43540827406`: the surface report
+acquired an action while the full catalog dump stayed old. Regression coverage executes the
+real regeneration and push scripts with process-boundary fixtures, verifies that all changed
+exports travel together, and checks that a failed parity command leaves the remote unchanged
+(`regenerate-action-exports.test.sh`, `base-autofix-action-exports.test.sh`,
+`base-autofix-push.test.sh`, `test_base_autofix_pushed_exports.py`).
+
+Registering a missed export in `generated_outputs.py` is ownership repair when its literal
+path already exists on the base. `generated_files_guard.py` checks that distinction;
+new export paths and widened patterns still fail. Its regression tests cover both cases
+(guard run `43580150976` misclassified the existing catalog dump as a new committed file).
+The PR-size generated-output list must carry the same export set; `test_ci_pr_size.py`
+checks every tracked registered output against it (run `43581204521` caught the missing dump).
 
 ## The pin check on the tip
 
@@ -89,13 +201,40 @@ change. So a pull request cannot pin a release of its own FFI sources, and
 FFI inputs: split it into a Rust-only step A and a Swift step B after the
 re-pin.
 
+A crate's `tests/`, `benches/` and `examples/` are not FFI inputs
+(`--list-excluded`): Cargo never builds them into the library, so a test-only
+change (a new test, a `cargo fmt` of one) needs no release and no re-pin. A
+library file that names one of those folders (an `include_str!` of a test
+vector, a build script) keeps it an input. `scripts/ci/app_ffi_pin.py`
+(`NOT_BUILT`) is the one definition; the pin check, the pin on the base, the
+release workflow's push paths, the router, `build_class.py` and
+`base_red_excuse.py` read it.
+
 1. **Step A: the Rust change only.** Make it additive, so that the Swift on
    `feat-cmux-next` keeps working with the new Rust. Do not change Swift,
    `Package.swift` or `app-ffi-pin.json`. The merge gate excuses the stale-pin
    red of such a PR (`scripts/ci/base_red_excuse.py`, the step-A rule). After
    the merge, `app-ffi-release.yml` publishes the release and the re-pin bot
-   opens the re-pin pull request (branch `app-ffi-repin`). The merge queue
-   merges the re-pin first.
+   opens the re-pin pull request (branch `app-ffi-repin`), which
+   next-autoland lands first (see above). A function that step A adds to a header is not
+   port drift (`scripts/cmux-next/ffi_caller_ratchet.py`) while the pinned
+   release lacks it: the app cannot call it yet, so the check prints a note,
+   not a finding. From the re-pin on, it needs its Swift caller, which is
+   step B. A re-pin, the bot's or one by hand, is never refused by the
+   check.
+
+   A step A that changes the action catalog marks what the pinned FFI does not
+   have yet with one file per entry under
+   `cmux-tui/crates/cmux-action-catalog/tests/awaiting-repin/`: `actions/<id>`
+   for a new action, `removal/<id>` for a removed one (the exports keep its row
+   until the re-pin), `shortcut/<id>` and `shortcut-removal/<id>` for a default
+   shortcut added or dropped, `fields/<id>` (one JSON pointer per line) for
+   changed fields of an existing action, `family/<family>/<id>` for a new palette
+   family member, `bindings/<list>` (one JSON pointer into the list per line,
+   `/2/when_text`) for changed fields of a `key_binding_defaults` list. Text after a `#` is a note. `swift_parity` names the file to
+   create when an export lacks a change, and the file to delete once the re-pin
+   carries it. One file per id means two pull requests that mark or clear
+   different ids never touch the same path, so they never conflict there.
 2. **Step B: the Swift change,** after the re-pin merges. Its FFI inputs then
    equal the pinned source, so the pin check passes.
 
@@ -163,8 +302,13 @@ gh run view "$RUN" --repo manaflow-ai/cmux --json headSha,workflowName --jq '.he
    ```
 
 7. Pin move, by the lane that owns the window: in a fresh worktree from the
-   newest `origin/feat-cmux-next`, set the `CCmuxAppFFI` binaryTarget `url`
-   and `checksum` in `Packages/macOS/CmuxNext/Package.swift`, commit, then
+   newest `origin/feat-cmux-next`, run
+   `scripts/cmux-next/repin-app-ffi.sh <source sha> <checksum>`, which writes
+   `url` and `checksum` into `Packages/macOS/CmuxNext/app-ffi-pin.json` (the
+   file Package.swift reads) and the same checksum into Package.swift's one
+   `// app-ffi-pin-checksum:` line (SwiftPM caches the manifest by its text, so
+   the manifest must change with the pin; never edit anything else there),
+   commit, then
 
    ```bash
    if scripts/cmux-next/check-app-ffi-pin.sh --verify-release; then <safe-push>; fi

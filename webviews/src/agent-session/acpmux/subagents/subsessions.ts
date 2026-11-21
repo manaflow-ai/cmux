@@ -51,6 +51,8 @@ export type SubsessionInfo = {
   retryDeciding?: true;
   /** Why its turn failed, while it is failed (acpmux's `lane.error`). */
   error?: string;
+  /// When its last turn ended stopped, while it is done: it offers Resume (resumeState.ts).
+  stoppedAt?: number;
 };
 
 /// The user-facing name for a session. Keep the raw id in `session.name` for matching and
@@ -182,6 +184,8 @@ export function subsessionInfo(entry: AcpmuxSessionEntry): SubsessionInfo {
     ...(entry.retry ? { retry: entry.retry } : {}),
     ...(entry.retryDeciding ? { retryDeciding: true as const } : {}),
     ...(state === "failed" && !entry.retry && entry.laneError ? { error: entry.laneError } : {}),
+    // Only a sub-session's stop resumes (hub/subsession_resume.rs): one its parent started.
+    ...(state === "done" && entry.startedBy && entry.stoppedAt !== undefined ? { stoppedAt: entry.stoppedAt } : {}),
   };
 }
 

@@ -9,6 +9,7 @@
 // "THE COMBINATIONS". The Cloud checks (PR proof, hourly journey, probes) start chats from the
 // command line in one small repository, so none of them crosses this page.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -85,7 +86,8 @@ afterEach(async () => {
   setCloudTeamForTest(undefined);
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const key of added) delete scope[key];
   for (const [key, had, value] of saved) {
@@ -200,7 +202,7 @@ async function renderPage(cell: Cell, calls: Call[]) {
           lastAgent={cell.harness}
           projects={[...projects]}
           knownProjects={[SCRATCH, ...projects.map((project) => project.cwd)]}
-          pageWidgets={new Set(["projects"])}
+          template="default"
           chips={NewTabComposerChips}
           onAsk={actions.onAsk}
           onOpen={() => {}}
@@ -319,10 +321,9 @@ for (const cell of CELLS) {
       if (folder) expect(starts[0]!.params.cwd).toBe(folder);
       else expect(starts[0]!.params).toMatchObject({ home: true });
       expect(starts[0]!.params.cwd).not.toBe(SCRATCH);
-      // The account the chat runs in is the app's active one: the Where control names it before Send.
+      // The Where control says Cloud and nothing else, never the team (https://github.com/manaflow-ai/cmux/issues/45695).
       const where = host.querySelector<HTMLElement>('.acpmux-location-picker[data-kind="computer"] button');
-      const named = `${where?.getAttribute("aria-label") ?? ""} ${where?.textContent ?? ""}`;
-      expect(named).toContain(TEAMS[cell.team].name);
+      expect(where?.textContent?.trim()).toBe("Cloud");
       return;
     }
 

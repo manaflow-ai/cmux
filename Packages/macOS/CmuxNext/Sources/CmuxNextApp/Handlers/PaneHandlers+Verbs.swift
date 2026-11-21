@@ -64,6 +64,7 @@ extension PaneHandlers {
                 return ctx.refuse(MiscHandlerStrings.homeChiefPaneStays)
             }
             let handle = pane.handle
+            ctx.services.keyRouter.creationInputCoordinator.drop(closing: [pane]) // a stand-in that is no split (a dock's, Cmd-N's first pane): no creation to cancel above
             // The pane leaves its window now and its neighbours spring into its space
             // (close-animation DESIGN.md); a refused close brings it back.
             let controller = ctx.services.paneController(for: pane)
@@ -90,12 +91,10 @@ extension PaneHandlers {
             // after it has no view and got a second close the daemon refused (`unknown pane`).
             let shown = others.compactMap { ctx.services.paneController(for: $0) }
             let unshown = others.filter { ctx.services.paneController(for: $0) == nil }
+            ctx.services.keyRouter.creationInputCoordinator.drop(closing: unshown)
             // One gesture: one question, one toast decision and one closed group over every closing tab (cx-lb4al).
             CloseUndoToasts.close(shown.map { (pane: $0, ids: $0.stripModel.orderedTabs.map(\.id)) })
-            for other in unshown {
-                let handle = other.handle
-                ctx.send("close-pane") { try await $0.closePane(handle) }
-            }
+            for other in unshown { ctx.services.daemon(for: other).closePane(other.handle) { _ in } } // its own daemon, never the active one
         })
         // The name shows in the input's turn (a store intent); a refusal puts the old one back.
         registry.bindEffect("renamePane", effect: { invocation in

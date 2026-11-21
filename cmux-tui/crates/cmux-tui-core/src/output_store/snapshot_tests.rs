@@ -148,8 +148,7 @@ fn a_failing_disk_does_not_retry_the_snapshot_on_the_next_pass() {
         false,
     );
     let wants = Plan::of(&log, std::time::Duration::from_secs(30)).wants_snapshot(
-        2,
-        (80, 24),
+        super::ScreenNow { digest: 2, size: (80, 24), alternate: false },
         true,
         false,
         true,
@@ -417,7 +416,7 @@ fn a_reconnect_during_a_snapshot_write_still_asks_for_a_snapshot() {
     let log = store.logs.lock().unwrap().get(&id).cloned().unwrap();
     // The pass captured the old screen at offset 10; the reconnect replaces
     // the terminal before the pass records its snapshot.
-    store.stream_gap(&id);
+    store.stream_gap(&id, &generation);
     snapshot_written(
         &directory,
         &log,
@@ -565,8 +564,7 @@ fn a_flood_compacts_its_tail_at_most_once_a_second() {
     }
     let wants = |log: &TerminalLog| {
         Plan::of(log, super::super::SNAPSHOT_INTERVAL).wants_snapshot(
-            2,
-            (80, 24),
+            super::ScreenNow { digest: 2, size: (80, 24), alternate: false },
             true,
             false,
             true,

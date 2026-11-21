@@ -1,0 +1,191 @@
+{
+  "title": "Customization showcase: ide",
+  "customize": true,
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Tour"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Show the Tour workspace",
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "focus"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Before: cmux as it ships",
+      "wait": 2
+    },
+    {
+      "title": "ide: its views",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && echo Ly8gSURFOiBhbiBFeHBsb3JlciBmb3IgdGhlIHdvcmtzcGFjZSB5b3UgYXJlIGluLCB0aGUgd2F5IGFuIGVkaXRvciBsaXN0cyBpdHMgb3BlbiBlZGl0b3JzIGJ5Ci8vIGdyb3VwOiBlYWNoIHBhbmUsIHRoZW4gaXRzIHRhYnMsIHRoZSBmb2N1c2VkIG9uZSBzZWxlY3RlZC4gVGhlIHByb2ZpbGUncyBzZXR0aW5ncyBkbyB0aGUgcmVzdAovLyAodmVydGljYWwgdGFicywgZXZlcnkgbmV3IHRlcm1pbmFsIGEgc3BsaXQsIGxpbmtzIGJlc2lkZSB0aGUgY29kZSwgY2hhdHMgd2l0aCB0b29sIG91dHB1dCkuCgpjb25zdCBbdmlldywgc2V0Vmlld10gPSBzaWduYWwobnVsbCkgLy8geyB3b3Jrc3BhY2UsIHBhbmVzOiBbeyBwYW5lLCB0YWJzIH1dIH0KY29uc3QgW2Vycm9yLCBzZXRFcnJvcl0gPSBzaWduYWwobnVsbCkKCmNvbnN0IHN5bWJvbE9mID0gKGtpbmQpID0+IChraW5kID09PSAiYnJvd3NlciIgPyAiZ2xvYmUiIDoga2luZCA9PT0gImNvbnZlcnNhdGlvbiIgPyAiYnViYmxlLmxlZnQiIDogInRlcm1pbmFsIikKY29uc3Qgd2FybiA9ICh3aGF0KSA9PiAoZSkgPT4gY211eC50b2FzdCh7IHRpdGxlOiB3aGF0LCBtZXNzYWdlOiBlIGluc3RhbmNlb2YgRXJyb3IgPyBlLm1lc3NhZ2UgOiBTdHJpbmcoZSksIHRvbmU6ICJ3YXJuaW5nIiB9KQoKbGV0IHJlYWRpbmcgPSBmYWxzZQpsZXQgYWdhaW4gPSBmYWxzZQphc3luYyBmdW5jdGlvbiBsb2FkKCkgewogIGlmIChyZWFkaW5nKSByZXR1cm4gdm9pZCAoYWdhaW4gPSB0cnVlKQogIHJlYWRpbmcgPSB0cnVlCiAgdHJ5IHsKICAgIGNvbnN0IHdvcmtzcGFjZXMgPSBhd2FpdCBjbXV4LndvcmtzcGFjZS5saXN0KHt9KQogICAgY29uc3Qgd29ya3NwYWNlID0gd29ya3NwYWNlcy5maW5kKCh3KSA9PiB3LmZvY3VzZWQpIHx8IHdvcmtzcGFjZXNbMF0gfHwgbnVsbAogICAgaWYgKCF3b3Jrc3BhY2UpIHJldHVybiB2b2lkIHNldFZpZXcobnVsbCkKICAgIGNvbnN0IFtwYW5lcywgdGFic10gPSBhd2FpdCBQcm9taXNlLmFsbChbY211eC5wYW5lLmxpc3QoeyB3b3Jrc3BhY2U6IHdvcmtzcGFjZS5pZCB9KSwgY211eC50YWIubGlzdCh7IHdvcmtzcGFjZTogd29ya3NwYWNlLmlkIH0pXSkKICAgIHNldFZpZXcoeyB3b3Jrc3BhY2UsIHBhbmVzOiBwYW5lcy5tYXAoKHBhbmUsIGluZGV4KSA9PiAoeyBwYW5lLCBpbmRleCwgdGFiczogdGFicy5maWx0ZXIoKHQpID0+IHQucGFuZV9pZCA9PT0gcGFuZS5pZCkuc29ydCgoYSwgYikgPT4gYS5pbmRleCAtIGIuaW5kZXgpIH0pKSB9KQogICAgc2V0RXJyb3IobnVsbCkKICB9IGNhdGNoIChlKSB7CiAgICBzZXRFcnJvcihlIGluc3RhbmNlb2YgRXJyb3IgPyBlLm1lc3NhZ2UgOiBTdHJpbmcoZSkpCiAgfSBmaW5hbGx5IHsKICAgIHJlYWRpbmcgPSBmYWxzZQogICAgaWYgKGFnYWluKSB7CiAgICAgIGFnYWluID0gZmFsc2UKICAgICAgbG9hZCgpCiAgICB9CiAgfQp9CgpmdW5jdGlvbiBmb2N1c2VkUGFuZSgpIHsKICBjb25zdCB2ID0gdmlldygpCiAgcmV0dXJuIHYgJiYgKHYucGFuZXMuZmluZCgocCkgPT4gcC5wYW5lLmZvY3VzZWQpIHx8IHYucGFuZXNbMF0pCn0KCmZ1bmN0aW9uIHJlbmRlckV4cGxvcmVyKCkgewogIGxvYWQoKQogIGZvciAoY29uc3Qgc3RyZWFtIG9mIFsid29ya3NwYWNlLmNoYW5nZWQiLCAicGFuZS5jaGFuZ2VkIiwgInRhYi5jaGFuZ2VkIl0pIGNtdXguZXZlbnRzLm9uKHN0cmVhbSwgbG9hZCkKICByZXR1cm4gVlN0YWNrKHsgc3BhY2luZzogMiB9LCBbCiAgICBIU3RhY2soeyBzcGFjaW5nOiA2IH0sIFsKICAgICAgVGV4dCgoKSA9PiAodmlldygpID8gdmlldygpLndvcmtzcGFjZS5uYW1lIDogIiIpKS5mb250KCJoZWFkbGluZSIpLmxpbmVMaW1pdCgxKSwKICAgICAgU3BhY2VyKCksCiAgICAgIE1lbnUoIk5ldyIsIFsKICAgICAgICBCdXR0b24oIlRlcm1pbmFsIiwgKCkgPT4gY211eC5hY3Rpb25zLnJ1bigibmV3U3VyZmFjZSIpLmNhdGNoKHdhcm4oIlR1cm4gb24gUnVuIGFjdGlvbnMgZm9yIElERSIpKSksCiAgICAgICAgQnV0dG9uKCJCcm93c2VyIiwgKCkgPT4gY211eC5hY3Rpb25zLnJ1bigib3BlbkJyb3dzZXIiKS5jYXRjaCh3YXJuKCJUdXJuIG9uIFJ1biBhY3Rpb25zIGZvciBJREUiKSkpLAogICAgICAgIERpdmlkZXIoKSwKICAgICAgICBCdXR0b24oIlNwbGl0IFJpZ2h0IiwgKCkgPT4gewogICAgICAgICAgY29uc3QgcCA9IGZvY3VzZWRQYW5lKCkKICAgICAgICAgIGlmIChwKSBjbXV4LnBhbmUuc3BsaXQoeyBwYW5lOiBwLnBhbmUuaWQsIGRpcmVjdGlvbjogInJpZ2h0IiB9KS5jYXRjaCh3YXJuKCJUdXJuIG9uIENoYW5nZSB3b3Jrc3BhY2VzIGZvciBJREUiKSkKICAgICAgICB9KSwKICAgICAgICBCdXR0b24oIlNwbGl0IERvd24iLCAoKSA9PiB7CiAgICAgICAgICBjb25zdCBwID0gZm9jdXNlZFBhbmUoKQogICAgICAgICAgaWYgKHApIGNtdXgucGFuZS5zcGxpdCh7IHBhbmU6IHAucGFuZS5pZCwgZGlyZWN0aW9uOiAiZG93biIgfSkuY2F0Y2god2FybigiVHVybiBvbiBDaGFuZ2Ugd29ya3NwYWNlcyBmb3IgSURFIikpCiAgICAgICAgfSkKICAgICAgXSkKICAgIF0pLAogICAgRm9yRWFjaCh7IGl0ZW1zOiAoKSA9PiAodmlldygpID8gdmlldygpLnBhbmVzIDogW10pLCBrZXk6IChwKSA9PiBwLnBhbmUuaWQgfSwgKHApID0+CiAgICAgIFZTdGFjayh7IHNwYWNpbmc6IDEgfSwgWwogICAgICAgIFRleHQoKCkgPT4gYEdyb3VwICR7cCgpLmluZGV4ICsgMX1gKS5mb250KCJjYXB0aW9uIikud2VpZ2h0KCJtZWRpdW0iKS5jb2xvcigic2Vjb25kYXJ5IiksCiAgICAgICAgRm9yRWFjaCh7IGl0ZW1zOiAoKSA9PiBwKCkudGFicywga2V5OiAodCkgPT4gdC5pZCB9LCAodCkgPT4KICAgICAgICAgIFJvdyh7IHRpdGxlOiAoKSA9PiB0KCkubmFtZSB8fCB0KCkuY29udGVudF9raW5kLCBzeW1ib2w6ICgpID0+IHN5bWJvbE9mKHQoKS5jb250ZW50X2tpbmQpLCBzZWxlY3RlZDogKCkgPT4gdCgpLmZvY3VzZWQgfSkub25UYXAoKCkgPT4KICAgICAgICAgICAgY211eC50YWIuZm9jdXMoeyB0YWI6IHQoKS5pZCB9KS5jYXRjaCh3YXJuKCJUdXJuIG9uIENoYW5nZSB3b3Jrc3BhY2VzIGZvciBJREUiKSkKICAgICAgICAgICkKICAgICAgICApCiAgICAgIF0pCiAgICApLAogICAgKCkgPT4gKGVycm9yKCkgPyBFbXB0eVN0YXRlKHsgdGl0bGU6ICJDYW5ub3QgcmVhZCB0aGUgd29ya3NwYWNlIiwgbWVzc2FnZTogZXJyb3IoKSwgc3ltYm9sOiAiZXhjbGFtYXRpb25tYXJrLnRyaWFuZ2xlIiB9KSA6IG51bGwpCiAgXSkKfQoKZ2xvYmFsVGhpcy5fX2NtdXhBcHBFeHBvcnRzID0geyByZW5kZXJFeHBsb3JlciB9Cg== | base64 -d > \"$D/main.js\" && echo ewogICIkc2NoZW1hIjogImh0dHBzOi8vY211eC5kZXYvc2NoZW1hcy9jbXV4LWFwcC8yLmpzb24iLAogICJtYW5pZmVzdFZlcnNpb24iOiAyLAogICJpZCI6ICJsb2NhbC9jdXN0b21pemUiLAogICJuYW1lIjogIklERSIsCiAgInZlcnNpb24iOiAiMS4wLjAiLAogICJkZXNjcmlwdGlvbiI6ICJBbiBFeHBsb3JlciBzZWN0aW9uOiB0aGUgd29ya3NwYWNlIHlvdSBhcmUgaW4sIGl0cyBwYW5lcyBhbmQgdGhlaXIgdGFicywgd2l0aCBidXR0b25zIHRvIHNwbGl0LCBvcGVuIGEgdGVybWluYWwgb3IgYSBicm93c2VyLiIsCiAgImVuZ2luZXMiOiB7ICJjbXV4IjogIl4yLjAiIH0sCiAgInJ1bnRpbWUiOiB7ICJtYWluIjogIm1haW4uanMiIH0sCiAgImltcGxlbWVudHMiOiB7CiAgICAiY211eC5zZWN0aW9uLzEiOiB7CiAgICAgICJleHBvcnQiOiAicmVuZGVyRXhwbG9yZXIiLAogICAgICAidGl0bGUiOiAiRXhwbG9yZXIiLAogICAgICAic3ltYm9sIjogInNpZGViYXIuc3F1YXJlcy5sZWZ0IiwKICAgICAgIm9wdGlvbnMiOiB7ICJkZWZhdWx0UmVnaW9uIjogInRvcCIsICJtYXhSb3dzIjogMzAgfQogICAgfQogIH0sCiAgInNjb3BlcyI6IHsKICAgICJ3b3Jrc3BhY2U6cmVhZCI6ICJMaXN0IHRoZSBwYW5lcyBhbmQgdGFicyBvZiB0aGUgd29ya3NwYWNlIHlvdSBhcmUgaW4uIiwKICAgICJ3b3Jrc3BhY2U6d3JpdGUiOiAiRm9jdXMgYSB0YWIgYW5kIHNwbGl0IGEgcGFuZSB3aGVuIHlvdSBjbGljay4iLAogICAgImFjdGlvbnM6cnVuIjogIk9wZW4gYSB0ZXJtaW5hbCBvciBhIGJyb3dzZXIgZnJvbSB0aGUgc2VjdGlvbi4iCiAgfQp9Cg== | base64 -d > \"$D/cmux-app.json\" && echo saved ide\r"
+      ],
+      "wait": 4,
+      "shot": false
+    },
+    {
+      "title": "ide: tabs.verticalTabs",
+      "cmux": [
+        "settings",
+        "set",
+        "tabs.verticalTabs",
+        "true"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "ide: layout.mainPane",
+      "cmux": [
+        "settings",
+        "set",
+        "layout.mainPane",
+        "off"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "ide: layout.newPanePlacement",
+      "cmux": [
+        "settings",
+        "set",
+        "layout.newPanePlacement",
+        "split"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "ide: layout.linkPlacement",
+      "cmux": [
+        "settings",
+        "set",
+        "layout.linkPlacement",
+        "split-right"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "ide: layout.paneSeparation",
+      "cmux": [
+        "settings",
+        "set",
+        "layout.paneSeparation",
+        "borders"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "ide: sidebar.groupBy",
+      "cmux": [
+        "settings",
+        "set",
+        "sidebar.groupBy",
+        "folder"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "ide: sidebar.density",
+      "cmux": [
+        "settings",
+        "set",
+        "sidebar.density",
+        "compact"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "ide: agentPane.display.transcriptView",
+      "cmux": [
+        "settings",
+        "set",
+        "agentPane.display.transcriptView",
+        "verbose"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "ide: agentPane.display.minimap",
+      "cmux": [
+        "settings",
+        "set",
+        "agentPane.display.minimap",
+        "full"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "ide: agentPane.display.sessionInfo.placement",
+      "cmux": [
+        "settings",
+        "set",
+        "agentPane.display.sessionInfo.placement",
+        "push"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "ide: appearance.chromeStyle",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.chromeStyle",
+        "panes"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "ide: appearance.density",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.density",
+        "compact"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "ide: An editor's shape: vertical tabs beside the panes, every new terminal a split, links and files beside the code, projects grouped by folder, an Explorer section for the workspace you are in, and chats that show their tool output.",
+      "wait": 3
+    }
+  ]
+}

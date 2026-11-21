@@ -43,6 +43,13 @@ public final class TabStripModel {
     /// The strip's pane is zoomed: the pane shows ``PaneZoomIndicatorView`` at its top-right, whose
     /// click restores the layout (`TabStripIntent.toggleZoom`), and VoiceOver reads the selected tab
     /// as zoomed. The tabs draw nothing for it, so a zoom never changes the strip's width or moves a tab.
+    ///
+    /// The layout that shows the pane writes it, not the store (``PaneZoomIndicatorView/show(zoomed:controls:)``). A
+    /// zoom key changes the store in the key's turn, and the screen shows the zoom some frames later (a zoom's dim
+    /// comes first, then the panes hear their sizes): a mark that followed the store showed over the layout before
+    /// the zoom for those frames, and went before an unzoom showed. One case stays with the store: a page that has
+    /// the whole window shows its pane alone, as a zoom does, whatever the store's zoom is, so while the pane
+    /// presents its page the layout leaves this alone and the pane's snapshot of the store writes it.
     public var zoomsSelected = false
 
     /// Receives every intent. Set by the App (or the demo).
@@ -53,13 +60,27 @@ public final class TabStripModel {
     @ObservationIgnored public var successors: [TabID: TabID] = [:]
     /// The close-selection rule's pick for this strip, set by the App to its window's state (who opened which
     /// tab; `TabCloseSelection` in CmuxNextBridge): the tab selected after `closed`, the selected tab, left
-    /// `old`, with `surviving` left and `shown` not hidden. Nil: the rule by position (no opener is known).
-    @ObservationIgnored public var closeSuccessor: ((_ closed: TabID, _ old: [TabID], _ surviving: [TabID], _ shown: Set<TabID>) -> TabID?)?
-    /// Tabs leaving this strip by a move to another pane, not a close (`TabMoves.depart` in the App):
+    /// `old`, with `surviving` left, `shown` not hidden and `groups` each grouped tab's group. Nil: the rule by
+    /// position and group (no opener is known).
+    @ObservationIgnored public var closeSuccessor: ((_ closed: TabID, _ old: [TabID], _ surviving: [TabID], _ shown: Set<TabID>,
+                                                     _ groups: [TabID: String]) -> TabID?)?
+    /// Tabs leaving this strip by a move to another pane, not a close (`TabMoves.depart` in the App, and
+    /// ``take(_:movedAway:)`` for a move this client did not make):
     /// each leaves at once with no close, and the tabs left close up on the strip's move (Leo
     /// 2026-11-07: "you have a thing that you already dragged, and yet you're playing the closed tab
     /// animation. You should play no animation there").
     @ObservationIgnored public var departures: Set<TabID> = []
+
+    /// Takes the App's new `tabs`. A tab that leaves the list while `movedAway` says that another pane holds it
+    /// left by a move, not a close (a move that another client of the daemon made marks nothing here before the
+    /// store reports it): it joins ``departures``, so its strip drops it at once and keeps it for no leaving pane.
+    /// A tab that comes into the list is no departure: one that moved away and came back before a sync loses its mark.
+    public func take(_ items: [TabItem], movedAway: (TabID) -> Bool) {
+        let had = Set(tabs.map(\.id)), kept = Set(items.map(\.id))
+        departures.subtract(kept.subtracting(had))
+        for id in had.subtracting(kept) where movedAway(id) { departures.insert(id) }
+        tabs = items
+    }
 
     public init(
         stripID: UUID = UUID(),
@@ -128,8 +149,9 @@ public final class TabStripModel {
     /// The tab selected after `closed`, the selected tab, left `old`: the App's rule state when it gave one
     /// (``closeSuccessor``), else the rule with no opener known.
     func successor(of closed: TabID, old: [TabID], surviving: [TabID], shown: Set<TabID>) -> TabID? {
-        if let closeSuccessor { return closeSuccessor(closed, old, surviving, shown) }
-        return CloseSelection<TabID>().successor(ofTab: closed, old: old, surviving: surviving, shown: shown)
+        let groups = Dictionary(tabGroups.map { (TabID($0.key), $0.value) }, uniquingKeysWith: { first, _ in first })
+        if let closeSuccessor { return closeSuccessor(closed, old, surviving, shown, groups) }
+        return CloseSelection<TabID>().successor(ofTab: closed, old: old, surviving: surviving, shown: shown, groups: groups)
     }
 
     /// The members of a collapsed group, which the strip does not show: a closed selected tab's successor
@@ -137,6 +159,11 @@ public final class TabStripModel {
     public var hiddenTabs: Set<String> {
         let collapsed = Set(groups.filter(\.isCollapsed).map(\.id))
         return collapsed.isEmpty ? [] : Set(tabs.filter { $0.groupID.map(collapsed.contains) ?? false }.map(\.id.rawValue))
+    }
+
+    /// Each grouped tab's group, by tab id (the close rule's group step reads it).
+    public var tabGroups: [String: String] {
+        Dictionary(tabs.compactMap { tab in tab.groupID.map { (tab.id.rawValue, $0.rawValue) } }, uniquingKeysWith: { first, _ in first })
     }
 
     /// The tab to select as tab group `group` closes: nil when the selected tab is not one of its members

@@ -11,18 +11,23 @@ prints the active profile.
 from __future__ import annotations
 
 import base64
+import datetime as dt
 import importlib.util
 import io
 from pathlib import Path
 import sys
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/ci/asc_developer_id_app.py"
 spec = importlib.util.spec_from_file_location("asc_developer_id_app", SCRIPT)
 asc = importlib.util.module_from_spec(spec)
 sys.modules["asc_developer_id_app"] = asc
 spec.loader.exec_module(asc)
+
+# The clock every case runs at: never the real one, so the certificate dated 2031 below stays
+# unexpired forever (the tooling-tests time-bomb row runs this file with CMUX_NOW_EPOCH in 2101).
+NOW = dt.datetime(2026, 6, 1, tzinfo=dt.timezone.utc)
 
 CERTS = {"data": [
     {"id": "C1", "attributes": {"certificateType": "DEVELOPER_ID_APPLICATION_G2", "name": "Developer ID Application: Manaflow", "expirationDate": "2031-01-01T00:00:00.000+0000"}},
@@ -64,10 +69,13 @@ class FakeASC:
         raise AssertionError(f"unexpected {method} {path}")
 
 
-def run(fake, mode):
-    out = io.StringIO()
-    with redirect_stdout(out):
-        code = asc.run(fake, mode, "com.cmuxterm.app.next", "cmux NEXT", "cmux NEXT Developer ID")
+def run(fake, mode, now=NOW):
+    # stderr is captured too: the negative cases' expected "error: no ACTIVE profile" lines
+    # printed into the CI log next to "ok" read as this suite failing (base run 43166772721).
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        code = asc.run(fake, mode, "com.cmuxterm.app.next", "cmux NEXT", "cmux NEXT Developer ID", now=now)
+    run.stderr = err.getvalue()
     return code, out.getvalue()
 
 
@@ -104,6 +112,14 @@ class DeveloperIdAppTests(unittest.TestCase):
         # Only the unexpired Developer ID Application certificate.
         self.assertEqual(profile["relationships"]["certificates"]["data"], [{"type": "certificates", "id": "C1"}])
 
+    def test_certificate_expiry_is_judged_against_the_given_clock(self):
+        # Past the last certificate's expiry nothing is active, so ensure refuses to create a profile.
+        fake = FakeASC()
+        code, _ = run(fake, "ensure", now=dt.datetime(2031, 6, 1, tzinfo=dt.timezone.utc))
+        self.assertEqual(code, 1)
+        self.assertIn("no active Developer ID Application certificate", run.stderr)
+        self.assertEqual(writes(fake), [])
+
     def test_ensure_is_a_no_op_when_both_exist(self):
         fake = FakeASC(bundle=True, profile="ACTIVE")
         self.assertEqual(run(fake, "ensure")[0], 0)
@@ -118,6 +134,7 @@ class DeveloperIdAppTests(unittest.TestCase):
         code, out = run(FakeASC(bundle=True, profile="ACTIVE"), "download")
         self.assertEqual((code, out), (0, base64.b64encode(b"profile").decode()))
         self.assertEqual(run(FakeASC(bundle=True, profile="INVALID"), "download")[0], 1)
+        self.assertIn("no ACTIVE profile named 'cmux NEXT Developer ID'", run.stderr)
         self.assertEqual(run(FakeASC(bundle=True), "download")[0], 1)
 
 

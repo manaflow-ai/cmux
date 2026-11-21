@@ -346,6 +346,36 @@ select {
   color: var(--cloud-text-2);
 }
 
+.cloud-machine-disk {
+  display: block;
+  margin-top: var(--grid-half-step);
+}
+
+.cloud-disk-health {
+  color: var(--cloud-text-2);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-disk-health-warning {
+  color: var(--cloud-bad);
+}
+
+.cloud-disk-health-stale,
+.cloud-disk-health-unknown {
+  color: var(--cloud-warn);
+}
+
+.cloud-disk-health-users-label,
+.cloud-disk-health-floor {
+  color: var(--cloud-text-2);
+}
+
+.cloud-disk-health-user code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: var(--text-caption);
+}
+
 .cloud-machine-size {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -354,7 +384,7 @@ select {
 .cloud-button,
 .cloud-link-button {
   white-space: nowrap;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   cursor: default;
 }
 

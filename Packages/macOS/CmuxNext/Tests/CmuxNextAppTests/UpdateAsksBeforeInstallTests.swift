@@ -74,7 +74,9 @@ import Testing
         updater.debugIndicatorPhase = .checking
         updater.debugIndicatorPhase = .downloading(.starting)
         updater.debugIndicatorPhase = .ready(version: "2.0.0")
-        try await Task.sleep(for: .milliseconds(50))
+        // The gate decides as the phase moves (`syncFlowPhase` runs in the setter): an install
+        // starts only from its install request, so with none the staged update waits for a click.
+        #expect(!updater.flow.installRequested, "the nightly asked to install without a click")
         #expect(updater.availableButton == nil, "the nightly asked before it downloaded")
         #expect(effects.installs == 0, "the nightly relaunched without a click")
         let ready = try #require(updater.readyCard, "the staged nightly shows no Restart to Update")

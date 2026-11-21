@@ -9,6 +9,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type HarnessHealth, type UpdateOffer } from "./harnessHealthNoticeModel";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -47,6 +48,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   offer = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -151,7 +153,7 @@ test("an expired sign-in says so, and Log In runs its login like a signed-out on
   const container = installDom();
   const opened = await render(container, { ...signedOut, auth: "expired" });
   expect(notice(container)?.dataset.harnessNotice).toBe("signedOut");
-  expect(text(container)).toContain("Your sign-in expired.");
+  expect(text(container)).toContain("Your Codex sign-in expired. Sign in to Codex to continue.");
   await press(container, "login");
   expect(opened).toEqual([{ kind: "terminal", text: "codex login", cwd: "/work", run: true }]);
 });

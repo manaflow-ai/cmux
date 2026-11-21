@@ -97,6 +97,38 @@ struct AgentPaneHarnessCardTests {
         #expect(await host.restarts == 0)
     }
 
+    // MARK: Update all (Harness updates available)
+
+    /// One click on Update all runs every listed agent's update in one acpmux call: the click is
+    /// spent once, and each agent gets its own answer.
+    @Test func updateAllRunsEveryAgentOnOneClick() async throws {
+        let acpmux = try OneAnswerAcpmux(reply: ["result": ["results": [
+            ["id": "codex", "ok": true, "version": "0.167.2"],
+            ["id": "opencode", "ok": false, "error": "npm error code EACCES"],
+        ]]])
+        let model = AgentPaneModel(host: NoHost())
+        model.transport.acpmuxSocket = acpmux.path
+        model.transport.gestures.record()
+        let reply = await model.respond(to: AgentPaneRequest(body: ["method": "harness.update", "params": ["ids": ["codex", "opencode"]]]))
+        let results = (reply["value"] as? [String: Any])?["results"] as? [[String: Any]] ?? []
+        #expect(results.map { $0["id"] as? String } == ["codex", "opencode"], "\(reply)")
+        #expect(results.first?["ok"] as? Bool == true && results.first?["version"] as? String == "0.167.2", "\(reply)")
+        #expect(results.last?["ok"] as? Bool == false && results.last?["error"] as? String == "npm error code EACCES", "\(reply)")
+    }
+
+    /// `ids` takes only harness ids, never a command, and no repeats.
+    @Test func updateAllRefusesAnythingButHarnessIds() {
+        for ids: Any in [[], ["codex", "codex"], ["codex", "rm -rf /"], [1], "codex"] {
+            let request = AgentPaneRequest(body: ["method": "harness.update", "params": ["ids": ids]])
+            if case .harnessUpdate = request { Issue.record("accepted \(ids)") }
+        }
+        if case .harnessUpdate(let ids, let each) = AgentPaneRequest(body: ["method": "harness.update", "params": ["id": "claude"]]) {
+            #expect(ids == ["claude"] && !each)
+        } else {
+            Issue.record("refused one id")
+        }
+    }
+
     /// A Chief-owned chat's daemon is the Chief home's: the router never restarts it, even when
     /// that host may start daemons; a local chat's goes to this Mac's host.
     @Test func theRouterNeverRestartsAChiefChatsDaemon() async {

@@ -72,7 +72,7 @@ async fn upload_rig(transport: Transport) -> UploadRig {
             block_udp: false,
             video_lane: false,
             webrtc_media: false,
-            ultra_on_cellular: false,
+            ultra: cmux_mobile_link::UltraSetting::Off,
         },
         None,
     )

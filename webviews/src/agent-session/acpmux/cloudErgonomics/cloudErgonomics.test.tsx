@@ -87,10 +87,15 @@ test("a whole run renders every state and adds up", async () => {
   expect(report.waits_total).toBeGreaterThan(0);
   const byId = new Map(report.states.map((reading) => [reading.id, reading]));
   // Anchors that hold whatever the counts are: a retryable start offers Retry in the pane, a signed-out start
-  // signs in from the card, Cloud off by policy offers nothing, a rate limit leads with Retry.
+  // signs in from the card, Cloud off by policy runs the prompt on this Mac (in a sentence, never its code), a
+  // folder refusal picks another folder, a rate limit leads with Retry.
   expect(byId.get("cloud-start.cloud_start_failed.retryable")?.class).toBe("next-step");
   expect(byId.get("cloud-start.not_signed_in.timed-out")?.class).toBe("next-step");
-  expect(byId.get("cloud-start.cloud_disabled")?.class).toBe("dead-end");
+  expect(byId.get("cloud-start.cloud_disabled")?.class).toBe("next-step");
+  expect(byId.get("cloud-start.cloud_disabled")?.text).not.toContain("cloud_disabled");
+  expect(byId.get("cloud-start.cloud_folder_missing")?.class).toBe("next-step");
+  expect(byId.get("turn-failure.trust-pending")?.class).toBe("next-step");
+  expect(byId.get("repo-recovery.no-access")?.class).toBe("next-step");
   expect(byId.get("turn-failure.rate-limited")?.class).toBe("next-step");
   expect(byId.get("repo-recovery.ambiguous")?.class).toBe("next-step");
   // A start that is signing in says so; it gives no time, since that is the person's.

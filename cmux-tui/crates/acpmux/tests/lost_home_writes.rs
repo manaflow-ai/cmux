@@ -109,6 +109,11 @@ fn launch_roots_are_not_recorded_into_a_replaced_home() {
 /// the home is replaced, a launch root is recorded, and only then does the save go on. Neither
 /// write lands in the replacement: `config::refuse_lost_home` by path cannot rule that out for a
 /// check that passed before the replacement, so the save writes through the folder it holds.
+///
+/// Unix only: the save goes through the held folder's descriptor, and Windows has no `*at`
+/// calls. There each step checks the home's file id again instead
+/// (`lost_home_race_tests::a_replaced_home_is_refused_by_its_file_id_and_the_same_home_passes`).
+#[cfg(unix)]
 #[test]
 fn a_text_save_that_checked_before_the_home_was_replaced_is_not_written_into_it() {
     isolated(
@@ -160,10 +165,13 @@ fn end_service<T: Clone>(
     while !matches!(ended.blocking_recv(), Err(tokio::sync::broadcast::error::RecvError::Closed)) {}
 }
 
+#[cfg(unix)]
 /// The held save: whether its home check passed, and whether the test let it go on.
 static HELD: std::sync::Mutex<(Option<bool>, bool)> = std::sync::Mutex::new((None, false));
+#[cfg(unix)]
 static HELD_MOVED: std::sync::Condvar = std::sync::Condvar::new();
 
+#[cfg(unix)]
 /// `SAVE_CHECKED` on the text thread: tells the test whether the first save's check passed, and
 /// holds that save, when it passed, until [`release_held_save`]. Later saves go on.
 fn held_save(passed: bool) {
@@ -178,6 +186,7 @@ fn held_save(passed: bool) {
     }
 }
 
+#[cfg(unix)]
 /// Waits for the text thread's first save to reach its check, and says whether the check passed.
 fn held_save_checked() -> Option<bool> {
     // timeout: only a text thread that never saves ends here; the order is the hook's.
@@ -190,6 +199,7 @@ fn held_save_checked() -> Option<bool> {
     held.0
 }
 
+#[cfg(unix)]
 fn release_held_save() {
     HELD.lock().unwrap().1 = true;
     HELD_MOVED.notify_all();

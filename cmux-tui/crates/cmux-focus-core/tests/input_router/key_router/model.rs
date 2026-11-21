@@ -1010,16 +1010,9 @@ impl Model {
         {
             return None;
         }
-        let page_may_own = match binding.tier {
-            Tier::Content => true,
-            Tier::Navigation => {
-                ["find", "findNext", "findPrevious", "useSelectionForFind"].contains(&action)
-                    || (key.page_editing_chord
-                        && !["openBrowser", "openBrowser.chromium", "openBrowser.webkit"]
-                            .contains(&action))
-            }
-            Tier::System => false,
-        };
+        let page_may_own = binding.tier != Tier::System
+            && ["find", "findNext", "findPrevious", "browser.findPrevious", "useSelectionForFind"]
+                .contains(&action);
         let reached = key.reaches.as_ref() == Some(&page);
         let takes = self.waits(&page) == 0
             && self.via(&page, key.reaches.as_ref(), false) == Ok(Via::Responder);

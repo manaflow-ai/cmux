@@ -73,8 +73,11 @@ import CmuxNextWakeupsTestSupport
         let (h, _) = Self.make()
         await Self.stage(h)
         #expect(await eventually { h.updater.stagedRefresh.hasFreshRead(h.updater) })
+        try #require(h.updater.feedReadAheadTask == nil, "a read ahead was already running")
         h.updater.prefetchForInstallClick()
-        try await Task.sleep(for: .milliseconds(50))
+        // A read ahead starts as the prefetch returns (`readFeedAhead` stores its task): with none
+        // started, no fetch can follow.
+        #expect(h.updater.feedReadAheadTask == nil, "a fresh read was read again on activation")
         #expect(h.feed.fetches == 0, "a fresh read was read again on activation")
         h.updater.lastFeedRead = FeedRead(newest: "300", at: h.updater.now().addingTimeInterval(-(StagedUpdateRefresh.clickReadFreshness + 1)),
                                           ring: h.updater.ring)

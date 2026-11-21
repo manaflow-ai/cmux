@@ -30,4 +30,8 @@ extension TerminalSession: TerminalFindTarget {
     public func focusTerminal() {
         focus()
     }
+
+    public func showFindBar() {
+        view.showFindBar(find)
+    }
 }

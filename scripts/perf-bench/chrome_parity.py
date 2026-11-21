@@ -3,9 +3,9 @@
 display at 120 Hz, light and under load, for every interaction the person feels. Lawrence: "i want us to match
 chrome's smoothness, throughout the entire app, don't stop until it's to chrome's quality".
 
-This is a bench tool, never a CI gate, job, step or perf-gate row (CLAUDE.md). The fleet entry is
-scripts/measure/perf-bench.sh suite=parity (README "Chrome parity"). Run it only on a quiet fleet mini, never on a
-person's Mac.
+This is a bench tool, not a CI gate, job, step or perf-gate row (kept off CI under the 2026-10-23 no-new-CI rule,
+since lifted). The fleet entry is scripts/measure/perf-bench.sh suite=parity (README "Chrome parity"). Run it only
+on a quiet fleet mini, never on a person's Mac.
 
   chrome_parity.py run --cmux CMUX.app --out DIR [--chrome "/Applications/Google Chrome.app"] [--rounds 2]
                        [--rows key-field,...] [--loads light,load] [--vdisplay 120x1] [--max-load 2]
@@ -64,6 +64,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "cmux-next"))
 
 import procs  # noqa: E402
 import xbench  # noqa: E402
+from made_workspace import made_workspace  # noqa: E402
 
 CHROME_DEFAULT = "/Applications/Google Chrome.app"
 XTERM_DIR = os.path.join(REPO, "cmux-tui/frontends/web/node_modules/@xterm/xterm")
@@ -624,11 +625,11 @@ class CmuxArm(Arm):
 
     def workspace(self):
         reply = self.act("workspace.newAtBottom")
-        made = [i for i in reply.get("created", []) if str(i).startswith("ws_")]
+        made = made_workspace(reply, lambda: self.b.app.call("snapshot.get", timeout=30).get("topology"))
         if not made:
             raise NotRun(f"cmux: workspace.newAtBottom made no workspace ({str(reply)[:200]})")
-        self.act("goToWorkspace", workspace=made[0])
-        return made[0]
+        self.act("goToWorkspace", workspace=made)
+        return made
 
     def open(self, url):
         self.act("openBrowser.chromium", url=url)

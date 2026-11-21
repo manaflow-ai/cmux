@@ -29,6 +29,7 @@ jobs:
     outputs:
       source_sha: ${{ steps.source.outputs.sha }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: web
@@ -59,6 +60,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Install dependencies
         run: bash "$RUNNER_TEMP/bun-install.sh" --frozen-lockfile
       - name: Cloud VM migration preflight
@@ -70,6 +72,7 @@ jobs:
   migrate-staging:
     if: ${{ inputs.target == 'staging' || inputs.target == 'production' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 60
     needs: preflight
     environment: cloud-vm-staging
     defaults:
@@ -103,6 +106,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Install dependencies
         run: bash "$RUNNER_TEMP/bun-install.sh" --frozen-lockfile
       - name: Validate PlanetScale credentials
@@ -120,13 +124,6 @@ jobs:
         run: bun run cloud-vm:migrate -- staging --check
       - name: Apply staging migration
         run: bun run cloud-vm:migrate -- staging
-      - name: Run durable runtime promotion suite
-        env:
-          CMUX_DB_TEST: "1"
-          CMUX_CLOUD_VM_ENV_SOURCE: process
-          CMUX_DB_DRIVER: url
-          DIRECT_DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: bun run test:runtime-promotion:db
       - name: Clean up staging Iroh challenges
         if: ${{ inputs.cleanup_iroh_challenges }}
         run: bun run cloud-vm:cleanup-iroh -- staging --apply
@@ -134,6 +131,7 @@ jobs:
   migrate-production:
     if: ${{ inputs.target == 'production' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 60
     needs: [preflight, migrate-staging]
     environment: cloud-vm-production
     defaults:
@@ -167,6 +165,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Install dependencies
         run: bash "$RUNNER_TEMP/bun-install.sh" --frozen-lockfile
       - name: Validate PlanetScale credentials

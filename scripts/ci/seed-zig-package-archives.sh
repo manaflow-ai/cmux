@@ -40,6 +40,14 @@
 # stops after CMUX_ZIG_SEED_TIMEOUT seconds (default 300), leaving the rest to Zig.
 set -euo pipefail
 
+# The sha256 of a file, read through stdin: given a file name with a backslash (the
+# Zig cache on a Windows runner, C:\Users\...), sha256sum and shasum put a "\" before
+# the hash, and every mirror copy failed its check (cmux-tui job 130915587979).
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum < "$1" | cut -d' ' -f1
+  else shasum -a 256 < "$1" | cut -d' ' -f1; fi
+}
+
 if [[ "${1:-}" == --one ]]; then
   # One package: --one CACHE HASH URL. Written under a name with no archive
   # suffix, checked, then renamed into place, so a cut-short download never
@@ -68,11 +76,12 @@ if [[ "${1:-}" == --one ]]; then
     # A whole tar with entries, not only whole gzip: a host can answer 200 with a
     # gzipped error page (GNU tar lists a short non-tar as an empty archive, exit 0).
     # Counted, not kept: a listing can be long. pipefail keeps tar's own status.
-    entries="$(tar -tzf "$part" 2>/dev/null | wc -l)" && (( entries > 0 )) \
+    # Through stdin: GNU tar reads a C:\... path (the Zig cache on a Windows runner)
+    # as HOST:FILE and rejected every download there (cmux-tui job 130512447393).
+    entries="$(tar -tzf - < "$part" 2>/dev/null | wc -l)" && (( entries > 0 )) \
       || { echo "seed: $url is not a whole tar archive" >&2; continue; }
     if [[ -n "$want" ]]; then
-      if command -v sha256sum >/dev/null 2>&1; then got="$(sha256sum "$part" | cut -d' ' -f1)"
-      else got="$(shasum -a 256 "$part" | cut -d' ' -f1)"; fi
+      got="$(sha256_of "$part")"
       [[ "$got" == "$want" ]] || { echo "seed: $url has sha256 $got, the lock pins $want" >&2; continue; }
     fi
     mv -f "$part" "$final"
@@ -168,8 +177,9 @@ package_manifest() {
   if [[ -f "$source_dir/zig-pkg/$hash/build.zig.zon" ]]; then cat "$source_dir/zig-pkg/$hash/build.zig.zon"; return 0; fi
   if [[ -f "$cache/p/$hash/build.zig.zon" ]]; then cat "$cache/p/$hash/build.zig.zon"; return 0; fi
   [[ -f "$archive" ]] || return 0
-  name="$(tar -tzf "$archive" 2>/dev/null | grep -E '^(\./)?([^/]+/)?build\.zig\.zon$' | head -n 1 || true)"
-  [[ -n "$name" ]] && tar -xzOf "$archive" "$name" 2>/dev/null || true
+  # Through stdin, as in --one: a C:\... path is HOST:FILE to GNU tar.
+  name="$(tar -tzf - < "$archive" 2>/dev/null | grep -E '^(\./)?([^/]+/)?build\.zig\.zon$' | head -n 1 || true)"
+  [[ -n "$name" ]] && tar -xzOf - "$name" < "$archive" 2>/dev/null || true
 }
 
 pairs="$(find "$source_dir" -name build.zig.zon -not -path '*/zig-pkg/*' -not -path '*/.zig-cache/*' -print \
@@ -237,7 +247,10 @@ run_round() {
   set +m
   ( while kill -0 "$pool" 2>/dev/null; do
       if (( SECONDS >= deadline )); then
-        echo "seed: stopped after ${seed_timeout}s; Zig fetches the rest" >&2
+        # The message runs in a subshell that ignores SIGPIPE, and `|| true`: an echo to a stderr nobody reads
+        # any more would otherwise end this watchdog (SIGPIPE, or set -e on the failed write) before its kills
+        # (cmux#41832 review F1; tests/test_guard_logs_survive_closed_pipe.py).
+        ( trap '' PIPE; echo "seed: stopped after ${seed_timeout}s; Zig fetches the rest" >&2 ) || true
         kill -TERM -- "-$pool" 2>/dev/null; sleep 2; kill -KILL -- "-$pool" 2>/dev/null; exit 0
       fi
       sleep 1

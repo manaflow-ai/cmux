@@ -107,6 +107,8 @@ impl Hub {
         closed: &mut tokio::sync::watch::Receiver<bool>,
     ) {
         while let Some(item) = next_inbound(rx, stop, closed, &session.inbound_tx).await {
+            // An agent's stream allocates without any request: its pages go back once it stops.
+            cmux_tui_platform::malloc_quiet_trim::note_activity();
             match item {
                 Inbound::Notification {
                     method: m,
@@ -289,6 +291,25 @@ impl Hub {
                             child.fail_pending_if_unheard().await;
                         }
                         self.idle_wake.notify_one();
+                    } else if let Some(child) = session
+                        .child
+                        .lock()
+                        .await
+                        .clone()
+                        .filter(|c| c.generation == agent && !c.is_broken())
+                    {
+                        // A lost link of a live host: reached again at once, and its open requests
+                        // get their real answers (`ChildAgent::start_reader` kept them). Not
+                        // reached: they fail now, as before. Off this loop, which the reattach's
+                        // replay comes through.
+                        // One reattach try per lost link, bounded by its host's hello and the
+                        // 2 s death proof; the hub's scope owns it and ends it at shutdown.
+                        let (hub, s) = (self.clone(), session.clone());
+                        self.scope.spawn_named("lost-link-reattach", async move {
+                            if !hub.reach_lost_link(&s, &child).await {
+                                child.fail_pending_if_unheard().await;
+                            }
+                        });
                     }
                 }
                 Inbound::Exited { pid, code, host_seq } => {
@@ -314,6 +335,11 @@ impl Hub {
                     self.end_background_subagents(&session);
                     // And its loops, also when a forced Stop dropped its own clear (`loop_goal.rs`).
                     self.end_loop_goal(&session);
+                    // And a turn it ran on its own: its line ends here, as a hosted agent's does on
+                    // the host's exit (`tap.rs`), so a direct agent's never spins on in the pane
+                    // (`background_turn.rs`). One the host's exit ended already is no second record.
+                    session.harness_turn.store(false, Ordering::SeqCst);
+                    self.end_background_turn(&session, "exit");
                     // The idle exit marked it before it ended the harness (`idle.rs`); a stop clears the mark.
                     let hibernating = session.hibernated_at.load(Ordering::SeqCst) != 0
                         && session.status() != SessionStatus::Closed;
@@ -366,8 +392,17 @@ impl Hub {
         let mut goal_write = false;
         let mut mark_cleared = false;
         let mut breakdown_changed = false;
+        let mut retitled = false;
         let background = kind == "agent_message_chunk" && self.background_message(session, update);
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        // The harness's plan is the chat's task list from now on (`task_list.rs`); history a load
+        // replays says nothing newer than what the meta kept.
+        let task_list_write = (kind == "plan" && !replayed)
+            .then(|| crate::task_list::plan_items(update))
+            .flatten()
+            .and_then(|items| crate::task_list::after_plan(m.task_list.as_ref(), items, now_ms()))
+            .map(|list| m.task_list = list)
+            .is_some();
         match kind {
             "agent_message_chunk" => {
                 // History a load replays is logged (`.replay`) but is not the chat's newest
@@ -400,6 +435,18 @@ impl Hub {
                     self.review_index.note_pr(&session.id, &url, at);
                     self.ledger.note_pull_request(&session.id, &url);
                 }
+                for target in super::pull_requests::absorb_closed(session, update) {
+                    let url = match target {
+                        super::pull_requests::Target::Url(url) => Some(url),
+                        super::pull_requests::Target::Number(n) => {
+                            self.review_index.pr_by_number(n)
+                        }
+                    };
+                    if let Some(url) = url {
+                        super::pull_requests::record_closed(&mut m, &url);
+                        self.review_index.note_closed(&url);
+                    }
+                }
                 super::touched::absorb(session, update, &mut m, replayed);
                 super::lineage::note_tool_call(session, update);
             }
@@ -408,7 +455,7 @@ impl Hub {
             super::native_messaging::HOLD_UPDATE if !replayed => {
                 self.note_peer_message_hold(session, update);
             }
-            "available_commands_update" => m.available_commands = Some(update.clone()),
+            "available_commands_update" => m.available_commands = Some(update.clone().into()),
             "plan"
                 if m.family.as_deref().is_some_and(crate::goal::GoalProvider::is_claude_family) =>
             {
@@ -456,6 +503,7 @@ impl Hub {
                 if let Some(title) = update.get("title").and_then(Value::as_str) {
                     let title = cmux_chat_index::without_client_context(title).trim_end();
                     if !title.is_empty() {
+                        retitled = m.title.as_deref() != Some(title);
                         m.title = Some(title.to_owned());
                         m.title_source = Some(super::titles::HARNESS.to_owned());
                         // The ledger's copy (one map entry; a line only when a field changed).
@@ -498,8 +546,13 @@ impl Hub {
             _ => {}
         }
         drop(m);
-        // Goal state must survive a daemon restart even when the turn has not settled yet.
-        if goal_write || breakdown_changed {
+        if task_list_write {
+            self.task_list_changed(session);
+        }
+        // Goal state must survive a daemon restart even when the turn has not settled yet. So
+        // must a title the harness gave: the chat shows it now, and before it waited for the
+        // turn's end or the stop's flush, so a hard exit in between took it back.
+        if goal_write || breakdown_changed || retitled {
             self.save_meta(session);
         }
         if let Some(claude) = reported_tools {
@@ -539,10 +592,14 @@ impl Hub {
     ) {
         let fence = ANSWER_FENCE.try_with(|f| f.borrow_mut().0.take()).ok().flatten();
         let _ = child.respond_fenced(id.clone(), result, fence.as_ref()).await;
-        let Some(fence) = fence else { return };
+        let Some(fence) = fence else {
+            self.reach_hosted_again(session, child).await;
+            return;
+        };
         fence.taken().await;
-        // A writer that stopped cuts what it still had: its agent is gone and asks nothing.
-        if fence.is_cut() && child.is_alive().await {
+        // A writer that stopped cuts what it still had: its agent is gone and asks nothing. A
+        // hosted agent whose link was down is reached again first, as the next request would.
+        if self.reach_hosted_again(session, child).await && fence.is_cut() {
             let (m, params, epoch, turn_id, incarnation) = again;
             let s = session.clone();
             let c = Some(child.clone());
@@ -550,6 +607,22 @@ impl Hub {
                 .on_agent_request(s, id, m, params, epoch, turn_id, None, incarnation, c)
                 .await;
         }
+    }
+
+    /// Whether `child`, the agent an answer was written to, is alive: now, or for a hosted agent
+    /// whose link to its host is down, once its host is reached again (`reach_lost_link`), which
+    /// the person who just answered must not wait for: the agent waits on that answer. Once it is
+    /// reached, an answer the link did not take is asked again when it was cut (by the caller,
+    /// under the bound now) and otherwise sent again by the agent itself (`ChildAgent::reattach`),
+    /// never both: a cut answer is never sent again unchecked. (CROSS-LANE Q3 from c-turns: the
+    /// answer was lost and the agent waited for ever.) False for an agent that exited, ended, or
+    /// another agent took the session from.
+    async fn reach_hosted_again(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+    ) -> bool {
+        self.reach_lost_link(session, child).await
     }
 
     /// [`Self::on_agent_request_in`], where an ancestor's answer finds the fence of its write
@@ -741,13 +814,21 @@ impl Hub {
         })
         .await?;
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
+            crate::home_fs::create_dirs(parent)
                 .map_err(|e| RpcError::internal(format!("create {}: {e}", parent.display())))?;
         }
         let written = if web_turn {
             super::remote_floor::write_approved(&path, content.as_bytes())
         } else {
-            std::fs::write(&path, content.as_bytes())
+            // As `std::fs::write`: made 0666 less the umask when new (the agent's file in the
+            // user's project), cut and written in place when there.
+            crate::home_fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o666)
+                .open(&path)
+                .and_then(|mut file| std::io::Write::write_all(&mut file, content.as_bytes()))
         };
         written.map_err(|e| RpcError::internal(format!("write {}: {e}", path.display())))?;
         Ok(Value::Null)
@@ -1268,7 +1349,7 @@ impl Hub {
                     (narrows, proved || signed)
                 })
             };
-            self.web_answer_check(session, control, narrows, proved)?;
+            self.web_answer_check(session, control, narrows, proved, answerer.device)?;
         }
         let cfg = self.config.read().await;
         let (pending, answered_by, annotations) = {

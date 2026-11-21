@@ -61,7 +61,7 @@ struct WorkspaceLayoutRefs {
     /// another device's belongs to no window here and stays.
     func ownedElsewhere(_ value: String, window windowID: String, registry: WindowRegistry) -> Bool {
         guard let id = workspaceID(for: .workspace(value)), let owner = registry.owner(of: id) else { return false }
-        return owner != windowID
+        return owner != windowID && !registry.isGuest(id, in: windowID) // a shared space's workspace is listed here too
     }
 
     /// Whether a window other than `windowID` lists the open workspace a document ref names
@@ -76,7 +76,7 @@ struct WorkspaceLayoutRefs {
             }, uniquingKeysWith: { first, _ in first })
             index = ids
             guard let id = ids[ref], !ClosingWorkspaces.shared.ids.contains(id), let owner = registry.value.owner(of: id) else { return false }
-            return owner != windowID
+            return owner != windowID && !registry.value.isGuest(id, in: windowID)
         }
     }
 

@@ -2,6 +2,7 @@ import CmuxMobileAgentChat
 import CmuxMobileBrowserStream
 import CmuxMobileFeed
 import CmuxMobileModel
+import CmuxMobileTerminal
 import CmuxMobileTransport
 import Foundation
 import Testing
@@ -145,17 +146,17 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
 /// one of its workspaces) closed the first Mac's link, so its workspaces said
 /// "Can't connect" and its terminals ended until it was chosen again.
 @MainActor
-@Suite(.serialized) struct MultiMacLinkTests {
+@Suite(.serialized, .timeLimit(.minutes(2))) struct MultiMacLinkTests {
     let host = "svc-\(UUID().uuidString.prefix(8).lowercased()).cmuxMobile.test"
     let userID = "user-\(UUID().uuidString)"
 
-    func coordinator(store: AppStore, dialer: PerMacDialer) -> LiveCoordinator {
+    func coordinator(store: AppStore, dialer: PerMacDialer, savedOnline: Bool = true) -> LiveCoordinator {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-mobile-multimac-\(UUID().uuidString)")
         let snapshots = LiveSnapshotStore(directory: directory)
         let saved = Date(timeIntervalSince1970: 1_000)
         snapshots.save(LiveSnapshot(
             teamID: "t-multimac", teamName: "One",
-            macs: [MacDevice(id: "m1", name: "Aziz's MacBook Pro", isOnline: true), MacDevice(id: "m2", name: "MacBook Pro", isOnline: true)],
+            macs: [MacDevice(id: "m1", name: "Aziz's MacBook Pro", isOnline: savedOnline), MacDevice(id: "m2", name: "MacBook Pro", isOnline: true)],
             linkedMacID: "m1",
             workspaces: ["m1": .init(workspaces: [], savedAt: saved), "m2": .init(workspaces: [], savedAt: saved)]
         ), accountID: userID)
@@ -174,7 +175,9 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
     }
 
     func settle(_ done: () -> Bool) async {
-        for _ in 0..<3000 where !done() { try? await Task.sleep(for: .milliseconds(1)) }
+        // No deadline of its own: 3000 sleeps ended before a busy kit run's main actor had
+        // applied the state waited for (cmux#40635). The suite's time limit bounds a hang.
+        while !done(), !Task.isCancelled { try? await Task.sleep(for: .milliseconds(1)) } // test: polls the condition
     }
 
     func drain() async {
@@ -297,7 +300,12 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         defer { live.stop() }
         live.linkPolicy = MacLinkPolicy(idleAfter: .milliseconds(200))
         live.showing(macIDs: nil)
-        await settle { store.macConnection["m1"] == .connected && live.sessions["m2"]?.link.phase == .signedOut }
+        // The store hears a phase one main-actor hop after the link (observe(_:)'s onChange Task), so wait
+        // for the store too: on a busy runner the phase alone settled while m2 still read .connecting.
+        await settle {
+            store.macConnection["m1"] == .connected && live.sessions["m2"]?.link.phase == .signedOut
+                && store.macConnection["m2"] == .failed("Signed out")
+        }
         #expect(live.sessions["m2"]?.link.phase == .signedOut)
         #expect(store.macConnection["m2"] == .failed("Signed out"))
         // The first refusal, then one dial with a refreshed token.
@@ -350,6 +358,40 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         await settle { store.macConnection["m2"] == .connected }
         #expect(store.macConnection["m2"] == .connected)
         #expect(live.focusedMacID == "m1")
+    }
+
+    /// Leo, cold open into a browser tab, then the terminal: "It just says like, you know,
+    /// cosmic gray is offline or something. But like clearly it wasn't". The saved snapshot
+    /// (stale presence) says the Mac is offline: launch dials it anyway, the browser and
+    /// the terminal share that one link, and the terminal never says offline before a
+    /// dial has really failed.
+    @Test func coldOpenIntoBrowserThenTerminalDialsAndNeverSaysOffline() async {
+        let key = "cmuxMobile.live.mac.t-multimac"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = emptyStore()
+        let dialer = PerMacDialer()
+        let live = coordinator(store: store, dialer: dialer, savedOnline: false)
+        defer { live.stop() }
+        // The browser tab opens first, before anything connected.
+        _ = await live.browserLink(macID: "m1")
+        // The flag every terminal of the Mac reads, from launch until the Mac is live.
+        var saidOffline = live.sessions["m1"]?.terminalsOffline ?? false
+        await settle {
+            saidOffline = saidOffline || (live.sessions["m1"]?.terminalsOffline ?? false)
+            return store.macDataPhase("m1") == .live
+        }
+        #expect(store.macConnection["m1"] == .connected)
+        #expect(dialer.dialCount("m1") == 1)
+        #expect(!saidOffline)
+        // Then the terminal: it rides the same link, and is not offline.
+        let terminal = live.terminalSession(tabID: "s1", programName: "zsh", macID: "m1")
+        #expect(terminal != nil)
+        if let terminal, case .offline = terminal.connectionState { Issue.record("terminal says offline on a live link") }
+        // Opening the browser tab again does not dial a second link.
+        _ = await live.browserLink(macID: "m1")
+        await drain()
+        #expect(dialer.dialCount("m1") == 1)
     }
 
     @Test func bannerRetryRedialsTheFocusedMacAndKeepsErrorsInDiagnostics() async throws {

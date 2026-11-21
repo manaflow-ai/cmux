@@ -1,0 +1,25 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "My views",
+  "version": "1.0.0",
+  "description": "A radio player in the sidebar: SomaFM's stations, the song on now, play, previous, next and favorites.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderPlayer",
+      "title": "Radio",
+      "symbol": "radio",
+      "options": { "defaultRegion": "bottom" }
+    }
+  },
+  "scopes": {
+    "net:somafm.com": "Read SomaFM's stations and the song each one plays now.",
+    "actions:run": "Play a station in a cmux browser tab.",
+    "browser:read": "See whether the stream tab is open, so the player knows it plays.",
+    "browser:write": "Move the stream tab to the next station instead of opening a second one.",
+    "storage:local": "Remember your station and your favorites."
+  }
+}

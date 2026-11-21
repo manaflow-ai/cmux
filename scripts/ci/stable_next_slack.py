@@ -29,6 +29,15 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
+
+# stable-next.yml may run this with -I, which leaves its own directory off sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402  - every call's transport: a call ends within its bound, whatever the peer does
+
+# The whole-call bound of one GitHub or Slack call. Slack is a report, never a gate: a stalled peer costs the
+# job this long and no longer (urlopen's timeout bounded each read, not the call).
+HTTP_BOUND = 30
 
 # Gate order and plain names, as people read them in Slack.
 LANES = [
@@ -150,8 +159,8 @@ def github(path: str) -> object:
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
     request = urllib.request.Request(f"{api}{path}", headers={
         "Authorization": f"Bearer {os.environ.get('GITHUB_TOKEN', '')}", "Accept": "application/vnd.github+json"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.load(response)
+    _, body, _ = deadline_http.request(request, HTTP_BOUND, raise_errors=True)
+    return json.loads(body)
 
 
 def job_reasons(job: str, level: str = "failure") -> str:
@@ -176,8 +185,8 @@ def call(method: str, token: str, body: dict) -> dict:
     request = urllib.request.Request(
         f"{os.environ.get('SLACK_API_URL', 'https://slack.com/api')}/{method}", data=json.dumps(body).encode(),
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json; charset=utf-8"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        answer = json.load(response)
+    _, raw, _ = deadline_http.request(request, HTTP_BOUND, raise_errors=True)
+    answer = json.loads(raw)
     if not answer.get("ok"):
         raise RuntimeError(f"{method}: {answer.get('error', 'not ok')}")
     return answer

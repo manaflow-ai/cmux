@@ -20,7 +20,7 @@ struct AgentPaneChromiumMoveTests {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
 
-    /// A Chromium page parked at 800 x 600, out of any window.
+    /// A Chromium page parked at 800 x 600, out of any window, laid out there as a Chromium page.
     private func parkedChromiumPage() async throws -> (AgentPaneView, FakeChromiumPage) {
         let file = try #require(AgentPageTestRoot.page)
         let hosting = FakeChromiumHosting()
@@ -31,7 +31,20 @@ struct AgentPaneChromiumMoveTests {
         let deadline = Date().addingTimeInterval(5)
         while !view.debugShowsChromium, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
         #expect(view.debugShowsChromium)
+        // The page's place depends on its engine (#40286: a Chromium page's view is one point taller), and the layout
+        // above ran before Chromium showed. The pane itself must ask for its layout when its page starts to show in
+        // Chromium: the rig marks nothing, it only runs the layout that is due, as the parking window does each turn.
+        // Without that, the app's parked spare stays one point short, and each take of it waits outside the window.
+        view.layoutSubtreeIfNeeded()
+        #expect(view.pageContent.frame == pagePlace(view, in: view.bounds), "the parked page is not laid out as a Chromium page")
         return (view, try #require(hosting.made.last))
+    }
+
+    /// Where a Chromium page's view lies in a pane of `bounds` (#40286): the content area, and the point above it,
+    /// where the page window draws Chrome's frame and the pane clips it away (no hairline under the tab bar).
+    private func pagePlace(_ view: AgentPaneView, in bounds: NSRect) -> NSRect {
+        let content = view.topBar.contentFrame(in: bounds), band = AgentPaneTopBar.chromiumFrameBand
+        return NSRect(x: content.minX, y: view.isFlipped ? content.minY - band : content.minY, width: content.width, height: content.height + band)
     }
 
     private func pane(_ size: NSSize) -> NSWindow {
@@ -57,12 +70,27 @@ struct AgentPaneChromiumMoveTests {
 
         #expect(moves == 1)
         #expect(!view.holdsPageAway)
-        #expect(view.pageContent.frame == view.topBar.contentFrame(in: view.bounds))
+        #expect(view.pageContent.frame == pagePlace(view, in: view.bounds))
         #expect(sizeWaits(page) == 0)
         // Later layouts do not tell the window again.
         view.needsLayout = true
         view.layoutSubtreeIfNeeded()
         #expect(moves == 1)
+    }
+
+    @Test func aReservedPageWaitsForItsFrameEvenWhenItsNativeSizeAlreadyMatches() async throws {
+        let (view, page) = try await parkedChromiumPage()
+        view.placeMovedChromiumPage(requiringFrame: true)
+        let window = pane(NSSize(width: 800, height: 600))
+        defer { window.close() }
+        let root = try #require(window.contentView)
+        root.addPrewarmedSubview(view)
+        try #require(view.holdsPageAway, "native size alone cannot release a workspace reservation")
+        let deadline = Date().addingTimeInterval(5)
+        while view.holdsPageAway, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(sizeWaits(page) == 1)
+        #expect(!view.holdsPageAway)
+        #expect(page.visibility.last == true)
     }
 
     @Test func aPageParkedAtAnotherSizeWaitsOutsideTheWindowUntilItDrewThere() async throws {
@@ -82,7 +110,7 @@ struct AgentPaneChromiumMoveTests {
         view.layoutSubtreeIfNeeded()
 
         // Laid out at the pane's size, outside the window, its window told: nothing of it shows yet.
-        let final = view.topBar.contentFrame(in: view.bounds)
+        let final = pagePlace(view, in: view.bounds)
         #expect(moves == 1)
         #expect(view.holdsPageAway)
         #expect(view.pageContent.frame == AgentPaneView.awayFrame(of: final))
@@ -96,6 +124,64 @@ struct AgentPaneChromiumMoveTests {
         #expect(moves == 2)
         view.layoutSubtreeIfNeeded()
         #expect(view.pageContent.frame == final)
+    }
+
+    @Test func aFrameAtThePreviousWidthCannotRevealAPageBeforeItsNextLayout() async throws {
+        let (view, page) = try await parkedChromiumPage()
+        var resized = false
+        page.answer = { method, params in
+            guard method == "Runtime.evaluate",
+                  (params["expression"] as? String)?.contains("innerWidth") == true, !resized else { return nil }
+            // Cmd-N can give the page its workspace's width while a frame requested at the split's width returns.
+            resized = true
+            view.frame.size.width = 1400
+            return nil
+        }
+        var moves = 0
+        view.placeMovedChromiumPage { moves += 1 }
+        let window = pane(NSSize(width: 1000, height: 700))
+        defer { window.close() }
+        window.contentView?.addSubview(view)
+        view.frame = window.contentView!.bounds
+        view.layoutSubtreeIfNeeded()
+        try #require(view.holdsPageAway)
+
+        let deadline = Date().addingTimeInterval(5)
+        while !resized, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(resized, "the page never answered the first size wait")
+        try await Task.sleep(for: .milliseconds(200)) // let the fake's old-size answer return before the next layout
+        #expect(view.holdsPageAway, "the old-width frame revealed the page at the workspace's new width")
+        #expect(moves == 1, "the page moved into view before it drew at the new width")
+
+        view.layoutSubtreeIfNeeded()
+        let final = pagePlace(view, in: view.bounds)
+        #expect(view.pageContent.frame == AgentPaneView.awayFrame(of: final))
+        while view.holdsPageAway, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(sizeWaits(page) == 2)
+        #expect(!view.holdsPageAway)
+        #expect(view.pageContent.frame == final)
+    }
+
+    @Test(arguments: [800.0, 1280.0])
+    func aPrewarmedWorkspacePageRendersAtItsFinalSizeBeforeItShows(width: Double) async throws {
+        let (view, page) = try await parkedChromiumPage()
+        let window = pane(NSSize(width: width, height: 600))
+        defer { window.close() }
+        let root = try #require(window.contentView)
+        root.addPrewarmedSubview(view)
+        let final = pagePlace(view, in: view.bounds)
+        #expect(view.window === window)
+        #expect(!view.isHiddenOrHasHiddenAncestor)
+        #expect(view.alphaValue == 0)
+        #expect(!view.frame.intersects(root.bounds))
+        #expect(page.visibility.last == true, "offscreen prewarming paused Chromium")
+        #expect(view.pageContent.frame == final)
+
+        view.frame = root.bounds
+        view.alphaValue = 1
+        view.layoutSubtreeIfNeeded()
+        #expect(view.pageContent.frame == final, "showing the pre-rendered page resized it")
+        #expect(sizeWaits(page) == 0)
     }
 
     /// A pane on its split's spring: it shows at `bounds` now and will rest at `rest` (`RestingPlacement`).
@@ -141,7 +227,7 @@ struct AgentPaneChromiumMoveTests {
         view.frame = springing.bounds
         view.layoutSubtreeIfNeeded()
 
-        let atRest = view.topBar.contentFrame(in: NSRect(origin: .zero, size: rest)).size
+        let atRest = pagePlace(view, in: NSRect(origin: .zero, size: rest)).size
         try #require(view.holdsPageAway, "the moved page shows at once: the test no longer reaches the wait")
         #expect(view.pageContent.frame.size == atRest,
                 "the held page is laid out at \(view.pageContent.frame.size), a size of the spring, not the size its pane rests at \(atRest)")
@@ -169,7 +255,7 @@ struct AgentPaneChromiumMoveTests {
         while view.holdsPageAway, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
         #expect(!view.holdsPageAway)
         view.layoutSubtreeIfNeeded()
-        #expect(view.pageContent.frame == view.topBar.contentFrame(in: view.bounds))
+        #expect(view.pageContent.frame == pagePlace(view, in: view.bounds))
     }
 
     /// A page that drew its frame while its pane is still on the spring does not come in at a size of the spring (it
@@ -198,7 +284,7 @@ struct AgentPaneChromiumMoveTests {
         while asked == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
         try #require(asked > 0, "no size wait was asked of the page")
         try await Task.sleep(for: .milliseconds(500)) // the fake's answer comes back in a later turn
-        let atRest = view.topBar.contentFrame(in: NSRect(origin: .zero, size: rest)).size
+        let atRest = pagePlace(view, in: NSRect(origin: .zero, size: rest)).size
         #expect(view.holdsPageAway, "the page came in while its pane is on its spring, at \(view.pageContent.frame.size)")
         #expect(view.pageContent.frame.size == atRest)
 
@@ -207,7 +293,7 @@ struct AgentPaneChromiumMoveTests {
         view.frame = springing.bounds
         view.layoutSubtreeIfNeeded()
         #expect(!view.holdsPageAway, "the page is still outside the window after its pane landed")
-        #expect(view.pageContent.frame == view.topBar.contentFrame(in: view.bounds))
+        #expect(view.pageContent.frame == pagePlace(view, in: view.bounds))
     }
 
     /// A page parked at the size its new pane rests at needs no new frame, but its pane is still on its spring: it
@@ -226,7 +312,7 @@ struct AgentPaneChromiumMoveTests {
         view.frame = springing.bounds
         view.layoutSubtreeIfNeeded()
 
-        let atRest = view.topBar.contentFrame(in: NSRect(origin: .zero, size: rest)).size
+        let atRest = pagePlace(view, in: NSRect(origin: .zero, size: rest)).size
         #expect(view.holdsPageAway, "the page shows in a pane on its spring: it gets a size in each spring frame")
         #expect(view.pageContent.frame.size == atRest, "the held page is at \(view.pageContent.frame.size), not at its pane's rest size \(atRest)")
         try await Task.sleep(for: .milliseconds(200))
@@ -237,7 +323,7 @@ struct AgentPaneChromiumMoveTests {
         view.frame = springing.bounds
         view.layoutSubtreeIfNeeded()
         #expect(!view.holdsPageAway, "the page is still outside the window after its pane landed")
-        #expect(view.pageContent.frame == view.topBar.contentFrame(in: view.bounds))
+        #expect(view.pageContent.frame == pagePlace(view, in: view.bounds))
         #expect(moves == 2, "the page's window was told \(moves) times, not once out and once back")
     }
 }

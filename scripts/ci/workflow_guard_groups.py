@@ -97,6 +97,7 @@ PATH_OWNERS = {
     # test_ios_app_review_gate.py loads the gate by path and reads the history.
     "cmux-next-ios/scripts/app_review_gate.py": frozenset(("release-ios",)),
     "cmux-next-ios/AppStoreReview/rejection-history.json": frozenset(("release-ios",)),
+    "cmux-next-ios/AppStoreReview/known-blockers.json": frozenset(("release-ios",)),
     # validate_test_execution_registry.py reads the recipe for the tests it runs.
     "scripts/verify-local.py": frozenset(("preflight", "ci")),
     # test_lint_feature_flags_scope.py reads its parser and registry discovery.
@@ -125,12 +126,6 @@ PATH_OWNERS = {
     "tests/fixtures/pr_media_gate/seeded-private-term.png": frozenset(("ci",)),
     # test_ci_package_bisect.py loads it by path.
     "scripts/ci/package_bisect.py": frozenset(("ci",)),
-    # test_ci_merge_receipt.py loads it by path and also reads its workflow
-    # and fixtures.
-    "scripts/ci/merge_receipt.py": frozenset(("ci",)),
-    ".github/workflows/merge-receipt.yml": frozenset(("ci",)),
-    "tests/fixtures/merge_receipt/pr14433.json": frozenset(("ci",)),
-    "tests/fixtures/merge_receipt/pr14461.json": frozenset(("ci",)),
     # The local merge-main resolver runs these trusted generators. The
     # resolver also backs the project-file merge driver below.
     "scripts/ci/merge_main_resolver.py": frozenset(("preflight", "ci")),
@@ -146,6 +141,7 @@ PATH_OWNERS = {
     "scripts/ci/merge_main.py": frozenset(("ci",)),
     "scripts/ci/last_green_base.py": frozenset(("ci",)),
     "scripts/ci/run_ci_guards.py": frozenset(("ci",)),
+    "scripts/ci/guard_step_inputs.py": frozenset(("ci",)),  # run_ci_guards.py --affected's selection
     "scripts/ci/guards-local.sh": frozenset(("ci",)),
 
     "scripts/ci/ios_upload_batch_decision.py": frozenset(("release-ios",)),
@@ -188,6 +184,8 @@ PATH_OWNERS = {
     "scripts/ci/run-swift-testing-suites.sh": frozenset(("app-host-execution",)),
     # run-swift-testing-suites.sh runs it.
     "scripts/ci/swift_package_submodules.py": frozenset(("app-host-execution",)),
+    # run-swift-testing-suites.sh runs it before the build.
+    "scripts/ci/swift_suite_names_precheck.py": frozenset(("app-host-execution",)),
     # The swift-package-tests lane; detect_ci_change_areas.py reads its package list.
     "scripts/ci/package-test-lane.sh": frozenset(("app-host-execution", "ci")),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),
@@ -429,6 +427,47 @@ def _workflow_path_owners() -> dict[str, frozenset[str]] | None:
         return None
 
 
+TEST_MODULE = re.compile(r"tests/([A-Za-z_][A-Za-z0-9_]*)\.py")
+
+
+def _importers(stem: str, root: Path) -> set[str]:
+    """tests/*.py files that import the sibling module `stem`, directly or through another
+    sibling module (tests/test_x.py imports job_lists_routing, which imports workflow_jobs)."""
+    found: set[str] = set()
+    pending = [stem]
+    while pending:
+        module = pending.pop()
+        pattern = re.compile(
+            rf"^\s*(?:from\s+{module}\s+import\b|import\s+(?:[\w.]+\s*,\s*)*{module}\b)", re.M
+        )
+        for candidate in sorted((root / "tests").glob("*.py")):
+            relative = f"tests/{candidate.name}"
+            if relative in found:
+                continue
+            try:
+                text = candidate.read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
+                continue
+            if pattern.search(text):
+                found.add(relative)
+                pending.append(candidate.stem)
+    return found
+
+
+def import_owners(path: str, derived: dict[str, frozenset[str]], root: Path | None = None) -> set[str]:
+    """Groups whose guard steps run a test that imports this tests/ module. A shared helper such
+    as tests/workflow_jobs.py is never run by a step itself, so without this an edit to it would
+    run none of the suites that read it."""
+    match = TEST_MODULE.fullmatch(path)
+    if match is None:
+        return set()
+    root = root or GUARD_WORKFLOW.parents[2]
+    owners: set[str] = set()
+    for importer in _importers(match.group(1), root):
+        owners.update(derived.get(importer, ()))
+    return owners
+
+
 def groups_for_path(path: str) -> tuple[str, ...] | None:
     """Return current observers for path, or None when ownership is unknown."""
     if path in ROUTING_POLICY_PATHS:
@@ -443,6 +482,7 @@ def groups_for_path(path: str) -> tuple[str, ...] | None:
         # A test registry area fragment is read like tests/test-execution.toml was.
         owners.update(PATH_OWNERS["tests/test-execution.toml"])
     owners.update(derived.get(path, ()))
+    owners.update(import_owners(path, derived))
     if _python_syntax_scan(path):
         # Syntax compilation is a cheap, deterministic check. Keep it out of
         # the serial preflight bucket, whose other steps install and exercise
