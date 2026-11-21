@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44905751725",
+  "recorded_at": "2026-11-21T13:03:16Z",
+  "reason": "cmux-tui 68f3288992be changes the image's cmux-tui (pinned 2f20def2a0dc)",
+  "dry_run": false,
+  "cmux_tui": "68f3288992be5ece51b8bd4609dd880632dc1734",
+  "fixes": [
+    {
+      "sha": "68f3288992be5ece51b8bd4609dd880632dc1734",
+      "mergedAt": "2026-11-21T04:16:16-08:00",
+      "subject": "fix(terminal beside chat): a terminal opened in an agent's workspace goes right of its chat (#47812)"
+    },
+    {
+      "sha": "657b06be20a5fb8cce827e5b82011e34c3482cd4",
+      "mergedAt": "2026-11-21T04:15:11-08:00",
+      "subject": "acpmux run_wait: a bg task id with a timeout waits for the task to end (#48988)"
+    },
+    {
+      "sha": "73a7e11a2d0c889ff67965228fc4758845250ce4",
+      "mergedAt": "2026-11-21T12:14:59Z",
+      "subject": "acpmux: opt-in batched peer-list notice, so an attach on a god start no longer waits behind 10,400 row notices (#46563)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-21T13:03:16Z",
+    "snapshot_id": "sh-50c95f5080c54cf79a2e340d2320ad51",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44905751725): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f20f10b54507d3cfea9c37f5df286bdc1bd5a059",
+    "image": "cloud-native-auto-68f32889-44905751725-1",
+    "revision": "ci-44905751725-1",
+    "at": "2026-11-21T13:03:16Z"
+  },
+  "rolled_back": false
+}
