@@ -9,7 +9,9 @@
 //!   accepts it (`ssh -- DEST '...'` for an `ssh://` peer; else the command with
 //!   `data.runOn: HOST`), with its folder made first;
 //! - from a peer that serves it as a peer, a folder outside its roots: the same start in the
-//!   folder the peer checked (`data.tryCwd`), else with no folder (a scratch folder there).
+//!   folder the peer checked (`data.tryCwd`), else with no folder (a scratch folder there);
+//!   a Claude Code start in a folder that is not a checkout (`hub/remote_cwd.rs`): the same
+//!   start with no folder, which both that check and the roots admit.
 //!
 //! A mode is never taken at a remote start, nor by HOST's own CLI (not the person), so no
 //! suggestion keeps one: the session starts in the harness's asking mode. The peer judges a
@@ -27,6 +29,7 @@ pub(crate) const POLICY_REFUSED: &str = "remote.policy_refused";
 pub(crate) const MODE_REFUSED: &str = "remote.mode_refused";
 pub(crate) const CWD_MISSING: &str = "remote.cwd_missing";
 pub(crate) const CWD_OUTSIDE_ROOTS: &str = "remote.cwd_outside_roots";
+pub(crate) const CWD_NOT_CHECKOUT: &str = crate::hub::remote_cwd::NOT_CHECKOUT;
 
 /// `remote_guard::check_inner`. A refused remote `session/new` (`remote.*`) says how this
 /// daemon served the caller (`data.servedAs`: `peer` or `remote`), for the forwarding
@@ -490,7 +493,7 @@ fn suggest(start: &Start, reason: &str, found: Found) -> Hint {
             next.cwd = None;
             Hint::OnHost(next)
         }
-        (Some("peer"), CWD_OUTSIDE_ROOTS | CWD_MISSING | MODE_REFUSED) => {
+        (Some("peer"), CWD_OUTSIDE_ROOTS | CWD_MISSING | MODE_REFUSED | CWD_NOT_CHECKOUT) => {
             if reason != MODE_REFUSED {
                 next.cwd = try_cwd.filter(|_| reason == CWD_OUTSIDE_ROOTS).map(str::to_owned);
             }
@@ -569,6 +572,12 @@ mod tests {
         assert_eq!(next.cwd.as_deref(), Some("/home/cmux/Projects/x"));
         assert_eq!(next.mode, None);
         let Hint::Here(next) = suggest(&s, CWD_OUTSIDE_ROOTS, peer(None)) else { panic!() };
+        assert_eq!(next.cwd, None);
+        // A Claude start in a folder that is not a checkout: the same start with no folder,
+        // never the refused folder again, nor one under the temporary folder.
+        let Hint::Here(next) = suggest(&s, CWD_NOT_CHECKOUT, peer(Some("/tmp/lane-tmp"))) else {
+            panic!()
+        };
         assert_eq!(next.cwd, None);
         let Hint::Here(next) = suggest(&s, MODE_REFUSED, peer(None)) else { panic!() };
         assert_eq!((next.mode, next.policy.as_deref()), (None, Some("approve-all")));
