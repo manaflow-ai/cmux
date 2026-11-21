@@ -150,12 +150,7 @@ async fn session_info(client: Option<&Client>, id: &str) -> SessionInfo {
             status: v.get("status").and_then(Value::as_str).map(str::to_owned),
             updated_at: v.get("updatedAt").and_then(Value::as_u64),
         },
-        Err(e)
-            if e.downcast_ref::<crate::client::DaemonError>()
-                .is_some_and(|d| is_no_session(&d.0)) =>
-        {
-            SessionInfo::gone()
-        }
+        Err(e) if refused_as_no_session(&e) => SessionInfo::gone(),
         Err(_) => SessionInfo::default(),
     }
 }
@@ -167,6 +162,12 @@ async fn session_info(client: Option<&Client>, id: &str) -> SessionInfo {
 pub(crate) fn is_no_session(e: &crate::rpc::RpcError) -> bool {
     e.code == crate::rpc::RpcError::not_found("").code
         && e.message.starts_with("no session matches ")
+}
+
+/// Whether a request to the daemon failed with its no-such-session refusal ([`is_no_session`]):
+/// the one test every CLI path that reads a session `gone` uses (`ps`, `gc`).
+pub(crate) fn refused_as_no_session(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<crate::client::DaemonError>().is_some_and(|d| is_no_session(&d.0))
 }
 
 /// The most of one argument a trimmed census row keeps, and the most arguments it keeps.
@@ -190,8 +191,10 @@ pub(crate) fn fit_census(census: &mut Value, budget: usize) -> bool {
         let rows = census.pointer(list).and_then(Value::as_array).map_or(0, Vec::len);
         pointers.extend((0..rows).map(|i| format!("{list}/{i}/argv")));
     }
+    // Room for the `omitted` mark added after the cut.
+    let room = budget.saturating_sub(256);
     let trimmed =
-        crate::hub::reply_fit::shrink_largest(census, before, budget, pointers, |argv, _| {
+        crate::hub::reply_fit::shrink_largest(census, before, room, pointers, |argv, _| {
             let args: Vec<String> = argv
                 .as_array()
                 .into_iter()

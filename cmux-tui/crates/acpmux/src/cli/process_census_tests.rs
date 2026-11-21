@@ -211,10 +211,23 @@ fn only_the_daemons_no_session_refusal_reads_gone() {
     assert!(!is_no_session(&crate::rpc::RpcError::internal("timed out")));
 }
 
+#[test]
+fn ps_and_gc_read_gone_from_the_same_refusal() {
+    // What `Client::request` returns for a daemon refusal: the one shape both `ps`
+    // (`session_info`) and `gc` (`process_owner::session_status`) read `gone` from.
+    let gone =
+        anyhow::Error::new(crate::client::DaemonError(crate::session_name::not_found("x", &[])));
+    assert!(refused_as_no_session(&gone));
+    let timeout =
+        anyhow::Error::new(crate::client::DaemonError(crate::rpc::RpcError::internal("timed out")));
+    assert!(!refused_as_no_session(&timeout));
+    assert!(!refused_as_no_session(&anyhow::anyhow!("no session matches \"x\"")));
+}
+
 fn census_with_argv(rows: usize, arg_bytes: usize) -> Value {
     let row = |pid: usize| {
         json!({"pid": pid, "owner": "left-behind", "state": "orphaned", "reason": "its host ended",
-            "argv": ["node", "x".repeat(arg_bytes), "--flag", "é".repeat(arg_bytes / 2)]})
+            "argv": ["node", "x".repeat(arg_bytes), "--flag", "€".repeat(arg_bytes / 3)]})
     };
     json!({
         "product": "acpmux",
