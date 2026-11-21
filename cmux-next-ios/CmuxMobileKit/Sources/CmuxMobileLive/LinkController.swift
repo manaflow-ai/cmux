@@ -75,6 +75,8 @@ public final class LinkController {
     /// an elevator; the Rust link closes on its own keepalive before that
     /// when the Mac is gone.
     nonisolated static let standbyLimit: Duration = .seconds(45)
+    /// The probes that fill ``standbyLimit``, one per probe and gap (36).
+    nonisolated static let standbyProbes = Int(standbyLimit / (standbyProbeTimeout + standbyProbeEvery))
     /// What the timers did, for tests that move a test clock: how many heartbeat tasks were
     /// started and how many have begun running, how many times the heartbeat went to sleep and for
     /// how long the last time, and how many probes started and the last one's timeout. Counters
@@ -363,8 +365,7 @@ public final class LinkController {
         ConnectTimeline.shared.mark("link_standby")
         let clock = clock
         standbyTask = Task { [weak self] in
-            let start = clock.now
-            while !Task.isCancelled, start.duration(to: clock.now) < Self.standbyLimit {
+            for _ in 0..<Self.standbyProbes where !Task.isCancelled {
                 let result = await Self.race(timeout: Self.standbyProbeTimeout + Self.probeGrace, clock: clock) {
                     try await link.probe(timeout: Self.standbyProbeTimeout)
                 }
