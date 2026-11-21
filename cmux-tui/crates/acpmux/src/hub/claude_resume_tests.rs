@@ -119,13 +119,16 @@ fn the_store_read_is_scoped_to_the_chats_project_folder() {
 
     // `projects/` can be walked through but not listed (mode 0o300): the folder
     // `cwd` names is still read, a walk of every folder under it is not. The
-    // full scan is what the old check cost on every resume.
+    // full scan is what the old check cost on every resume. (A run as root
+    // ignores the mode, so the walk still works there and only the scoped read
+    // is asserted.)
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&projects, std::fs::Permissions::from_mode(0o300)).unwrap();
+        let listable = std::fs::read_dir(&projects).is_ok();
         assert!(
-            crate::adopt::find_claude(&root, CHAT).is_none(),
+            listable || crate::adopt::find_claude(&root, CHAT).is_none(),
             "a walk needs to list projects/, so this proves the scoped read did not walk"
         );
         assert!(crate::adopt::claude_session_exists_near(&root, CHAT, &cwd));
