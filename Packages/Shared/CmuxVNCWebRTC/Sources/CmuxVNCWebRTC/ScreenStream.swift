@@ -153,6 +153,14 @@ public enum ScreenQuality: String, Codable, Sendable, CaseIterable, Identifiable
     /// 60. A rate nobody reported (an older peer, a source that does not
     /// know it, a display that says 0) counts as 60, so the stream stays
     /// where it was. The fixed presets keep their own rate.
+    /// The display rate a viewer showing a stream at `frameRate` asks its screen for
+    /// (an iPhone's ProMotion display stays at 60 Hz unless asked): the stream's
+    /// rate when above ``baselineFrameRate`` and the view is in a window, at most
+    /// ``maximumFrameRate``; nil asks for nothing.
+    public static func requestedDisplayRate(frameRate: Int, inWindow: Bool) -> Int? {
+        inWindow && frameRate > baselineFrameRate ? min(frameRate, maximumFrameRate) : nil
+    }
+
     func frameRate(hostMaximum: Int?, viewerMaximum: Int?) -> Int {
         switch self {
         case .low, .medium, .high:
@@ -733,15 +741,25 @@ public final class ScreenStreamHost: @unchecked Sendable {
         #endif
     }
 
-    /// Sends the pointers to a viewer that draws them: about 60 times a
-    /// second, only when one moved, on the unordered `pointer` channel
-    /// (latest wins; the ordered channel for a viewer without one).
+    /// How often the pointers are sampled for a stream at `frameRate` (nil: not agreed
+    /// yet): once a frame, so the pointer the viewer draws moves as often as the
+    /// picture under it (8 ms at 120 fps; 16 ms at 60 and below).
+    static func telepointerPeriod(frameRate: Int?) -> Duration {
+        let fps = min(max(frameRate ?? ScreenQuality.baselineFrameRate, ScreenQuality.baselineFrameRate), ScreenQuality.maximumFrameRate)
+        return .microseconds(1_000_000 / fps)
+    }
+
+    /// Sends the pointers to a viewer that draws them: once a frame of the
+    /// stream (``telepointerPeriod(frameRate:)``), only when one moved, on the
+    /// unordered `pointer` channel (latest wins; the ordered channel for a
+    /// viewer without one).
     private func startTelepointers(_ session: Session) {
         let task = Task { [weak self] in
             var last: (ScreenHostMessage.Pointer?, ScreenHostMessage.Pointer?)?
             var lastSent = DispatchTime.now()
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(16)) // telepointer sampling period (60 Hz)
+                let period = Self.telepointerPeriod(frameRate: session.lock.withLock { session.frameRate })
+                try? await Task.sleep(for: period) // telepointer sampling period: one stream frame
                 guard let self else { return }
                 let display = session.backend.displayFrame
                 let person = Self.fraction(of: Self.pointerLocation(), in: display)

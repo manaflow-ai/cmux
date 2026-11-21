@@ -195,6 +195,16 @@
       "what": "one keystroke in the New Tab field: screenRows ranks the open tabs, workspaces, visited pages, palette actions, chats and agent starts for the typed text (webviews newtab/screenModel.ts, launchRows.ts), over lists folded once per host update (omnibar.ts foldedTexts)",
       "bench": "cd webviews && bun bench/new-tab-omnibar-keystroke.bench.ts (stress fixture: 2,000 actions, 500 chats, 200 folders; prints p50/p95/p99/max µs per key; --no-agents for the rows without the agent sources)",
       "owner": "new tab"
+    },
+    "screen-stream-present": {
+      "what": "one decoded Screen Sharing video frame on the viewer (CmuxVNCWebRTC ScreenVideoView SampleBufferSink.renderFrame, libwebrtc's decode thread): wrap the decoder's CVPixelBuffer in a DisplayImmediately sample buffer and enqueue it on the AVSampleBufferDisplayLayer, macOS and iOS",
+      "bench": "scripts/measure/mac-screen-120fps.sh (cmux-ci run --class exclusive): MAC-SCREEN-120FPS decoded fps and source_to_decoded p50/p95 latency, before= the merge base",
+      "owner": "screen sharing"
+    },
+    "screen-stream-encode": {
+      "what": "one Screen Sharing frame into the Mac's H.264 encoder (CmuxVNCWebRTC ScreenLowLatencyEncoder.encode, libwebrtc's encoder queue): the frame's pixel buffer (cropped or scaled only when libwebrtc lowered the size) handed to VideoToolbox's low-latency session",
+      "bench": "scripts/measure/mac-screen-120fps.sh (cmux-ci run --class exclusive): MAC-SCREEN-120FPS decoded fps, encode ms and source_to_decoded p50/p95 latency, before= the merge base",
+      "owner": "screen sharing"
     }
   }
 }
