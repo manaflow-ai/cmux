@@ -20,6 +20,7 @@ fn event(session: &str, dir: &str, kind: &str) -> HubEvent {
         update_line: Default::default(),
         row: Default::default(),
         list_seq: 0,
+        peer_batch: false,
     }
 }
 
@@ -116,4 +117,27 @@ async fn recv_waits_for_the_next_routed_event() {
     send(&router, event("b", "mux", "titled"));
     send(&router, event("a", "mux", "renamed"));
     assert_eq!(reader.await.unwrap().ok().as_deref(), Some("renamed"));
+}
+
+#[test]
+fn an_events_fanout_clock_owes_only_the_inboxes_it_was_queued_for() {
+    let router = Router::new(8);
+    let attached = router.inbox();
+    let _idle = router.inbox();
+    router.attach(&attached, "s1");
+
+    let ev = event("s1", "mux", "note");
+    let row = ev.row.clone();
+    send(&router, ev);
+    assert!(row.fanout.sent(), "routing started its clock");
+    assert_eq!(row.fanout.owed(), 1, "one inbox queued it; the idle one owes nothing");
+    let _ = attached.try_recv().unwrap();
+    row.fanout.taken();
+    assert_eq!(row.fanout.owed(), 0);
+
+    // An event no inbox wants owes nothing and is no sample.
+    let unwanted = event("s2", "mux", "note");
+    let row = unwanted.row.clone();
+    send(&router, unwanted);
+    assert_eq!(row.fanout.owed(), 0);
 }
