@@ -132,6 +132,13 @@ public final class AgentShareInviteSheetModel {
         await load()
     }
 
+    /// ``open()`` for a presenter: starts it and returns what the sheet's dismissal calls, ``close()``.
+    public func openUntilDismissed() -> () -> Void {
+        // task-owner: the open sheet's first read of the chat's shares; ends with the read
+        Task { await open() }
+        return { self.close() }
+    }
+
     /// The sheet closed: the daemon's changes reach it no more (a read already running ends on its own).
     public func close() {
         isClosed = true
