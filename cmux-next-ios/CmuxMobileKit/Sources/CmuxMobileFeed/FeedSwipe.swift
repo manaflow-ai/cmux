@@ -100,8 +100,10 @@ extension FeedItem {
             }
             return [decline, answer]
         case .needsInput:
-            // Answered in the terminal (or on the page a Mac request links): the decision is opening it.
-            let answer = FeedSwipeAction(id: "answer", title: "Open", systemImage: link == nil ? "terminal" : "safari",
+            // Answered in the terminal (or on the page a Mac request links, or in the chat whose ask
+            // could not be read): the decision is opening it.
+            let symbol = link != nil ? "safari" : opensTerminal ? "terminal" : "bubble.left"
+            let answer = FeedSwipeAction(id: "answer", title: "Open", systemImage: symbol,
                                          tint: FeedSwipeTint.read, action: open)
             return [done, answer]
         default:
