@@ -22,6 +22,11 @@ fn not_found() -> Output {
     }
 }
 
+/// What `launchctl print` does for a job launchd has not loaded.
+fn not_loaded() -> Output {
+    Output { code: Some(113), ..Output::default() }
+}
+
 fn shows(text: &str) -> Output {
     Output { code: Some(0), stdout: text.as_bytes().to_vec(), ..Output::default() }
 }
@@ -70,6 +75,7 @@ fn a_unit_that_only_looks_like_cmux_is_left_alone() {
         std::fs::write(&path, &text).unwrap();
         let runner = RecordingRunner::new();
         runner.answer_always("--property=LoadState", not_found());
+        runner.answer_always("launchctl print", not_loaded());
         let svc = services(&layout, &runner, &tmp.path().join(".local/bin/cmux-tui"));
         assert_eq!(svc.foreign_units().unwrap(), vec![path.clone()], "{platform:?}");
         let err = svc.install(false).unwrap_err();
@@ -92,6 +98,7 @@ fn a_unit_cmux_wrote_stays_cmux_after_the_binary_moves() {
         let layout = layout_at(tmp.path(), platform);
         let runner = RecordingRunner::new();
         runner.answer_always("--property=LoadState", not_found());
+        runner.answer_always("launchctl print", not_loaded());
         let first = services(&layout, &runner, &tmp.path().join("a/cmux-tui"));
         first.install(false).unwrap();
         // Another binary renders another unit; the record says cmux wrote the old one.
@@ -173,6 +180,7 @@ fn the_launchagent_log_is_private_and_a_plain_file_of_yours() {
     std::fs::write(&log, b"old line\n").unwrap();
     std::fs::set_permissions(&log, std::fs::Permissions::from_mode(0o644)).unwrap();
     let runner = RecordingRunner::new();
+    runner.answer_always("launchctl print", not_loaded());
     services(&layout, &runner, &binary).install(false).unwrap();
     assert_eq!(mode(&logs), 0o700);
     assert_eq!(mode(&log), 0o600);
@@ -194,4 +202,115 @@ fn the_launchagent_log_is_private_and_a_plain_file_of_yours() {
     std::os::unix::fs::symlink(&real, &logs).unwrap();
     let err = services(&layout, &runner, &binary).preflight().unwrap_err();
     assert!(err.to_string().contains("log"), "{err}");
+}
+
+/// What `launchctl print` shows for a job loaded from `plist`.
+fn launchd_job(plist: &Path) -> Output {
+    shows(&format!(
+        "gui/501/com.cmux.server = {{\n\tactive count = 1\n\tpath = {}\n\tstate = running\n}}\n",
+        plist.display()
+    ))
+}
+
+#[test]
+fn a_launchagent_job_loaded_from_another_plist_is_left_alone() {
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = layout_at(tmp.path(), Platform::MacOs);
+    let binary = tmp.path().join(".local/bin/cmux-tui");
+    let elsewhere = tmp.path().join("Library/LaunchAgents/someone-else.plist");
+    // No plist at cmux's path, but launchd runs com.cmux.server from another one.
+    let runner = RecordingRunner::new();
+    runner.answer_always("launchctl print", launchd_job(&elsewhere));
+    let svc = services(&layout, &runner, &binary);
+    let err = svc.foreign_units().unwrap_err();
+    assert!(err.to_string().contains("someone-else.plist"), "{err}");
+    assert!(svc.install(false).is_err());
+    let lines = runner.lines().join("\n");
+    assert!(!lines.contains("bootout") && !lines.contains("bootstrap"), "{lines}");
+    // Loaded from cmux's own plist, or not loaded: fine.
+    let ours = svc.unit_path().unwrap();
+    let runner = RecordingRunner::new();
+    runner.answer_always("launchctl print", launchd_job(&ours));
+    services(&layout, &runner, &binary).foreign_units().unwrap();
+    let runner = RecordingRunner::new();
+    runner.answer_always("launchctl print", not_loaded());
+    services(&layout, &runner, &binary).foreign_units().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn uninstall_trusts_no_record_in_a_folder_others_can_write() {
+    use std::os::unix::fs::PermissionsExt as _;
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = layout_at(tmp.path(), Platform::Linux);
+    let binary = tmp.path().join(".local/bin/cmux-tui");
+    let runner = RecordingRunner::new();
+    runner.answer_always("--property=LoadState", not_found());
+    runner.answer_always("launchctl print", not_loaded());
+    let svc = services(&layout, &runner, &binary);
+    svc.install(false).unwrap();
+    let state = cmux_server::fsx::local(&layout.state);
+    std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o777)).unwrap();
+    // foreign_units is what uninstall asks; it must not read a record another
+    // account could have replaced.
+    let err = svc.foreign_units().unwrap_err();
+    assert!(err.to_string().contains(&state.display().to_string()), "{err}");
+    std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o700)).unwrap();
+    svc.foreign_units().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn write_if_changed_replaces_a_symlink_even_to_the_same_bytes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let target = tmp.path().join("target");
+    let link = tmp.path().join("unit");
+    std::fs::write(&target, b"same\n").unwrap();
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    let wrote = cmux_server::fsx::write_if_changed(&link, b"same\n", 0o644).unwrap();
+    assert!(wrote, "a symlink is never kept as the file cmux wrote");
+    assert!(std::fs::symlink_metadata(&link).unwrap().is_file());
+    assert_eq!(std::fs::read(&target).unwrap(), b"same\n", "the link's target is left alone");
+}
+
+#[test]
+fn system_app_server_instances_must_come_from_cmuxs_template() {
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = cmux_server_core::layout::layout(
+        cmux_server_core::InstallMode::System,
+        Platform::Linux,
+        &env_for(tmp.path()),
+    )
+    .unwrap();
+    let runner = RecordingRunner::new();
+    runner.answer(
+        "list-units",
+        shows("cmux-app-server@notes.service loaded active running cmux app server notes\n"),
+    );
+    runner.answer(
+        "cmux-app-server@notes.service",
+        shows("LoadState=loaded\nFragmentPath=/usr/lib/systemd/system/cmux-app-server@.service\nTransient=no\n"),
+    );
+    runner.answer_always("--property=LoadState", not_found());
+    runner.answer_always("launchctl print", not_loaded());
+    let svc = Services {
+        layout: &layout,
+        runner: &runner,
+        uid: 0,
+        user: "root".to_owned(),
+        session: None,
+        linger: false,
+        announce: false,
+    };
+    let err = svc.foreign_units().unwrap_err();
+    assert!(err.to_string().contains("cmux-app-server@notes.service"), "{err}");
 }

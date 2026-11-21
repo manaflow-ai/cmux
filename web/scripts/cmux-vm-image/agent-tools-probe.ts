@@ -12,8 +12,11 @@
  *    `--mcp-config` servers and the `--plugin-dir` skills), then fails. No model is called.
  * 2. Each recorded MCP server is started with its recorded command, args and env from that
  *    terminal, and an MCP client lists its tools and calls them: the browser host takes a
- *    screenshot of a loopback page (the daemon socket-activates the host), and cmux-cua takes a
- *    screenshot of the Xvfb display (the wrapper starts it) with a Chrome window on it.
+ *    screenshot of a loopback page (the daemon socket-activates the host), and Computer Use takes
+ *    a screenshot of the Xvfb display with a Chrome window on it and lists that window. Computer Use
+ *    is the server the image's acpmux attaches: `cmux-computer-use` (cmux-tui since #37003, whose
+ *    first call makes the daemon start its worker, which runs the machine's desktop starter for the
+ *    display), or `cmux-cua` before it (whose wrapper starts the display).
  * 3. Desktop (role desktop): the cmux-rd host's user, run dir and socket; another user cannot
  *    connect (EACCES); a connection as the work user (the link receiver's uid) starts the host,
  *    which runs as its own user with Unix sockets only and no TCP or UDP socket; the work user
@@ -34,7 +37,7 @@ import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
-import { A11Y_TEMPLATE_UNIT, AGENT_DISPLAY, AGENT_DISPLAY_SIZE, AGENT_TOOLS_BIN, DESKTOP_CHECK_SCRIPT, DESKTOP_CHECK_SECONDS, DESKTOP_SESSION_UNIT, AGENT_XAUTHORITY, CUA_UNIT, DISPLAY_TEMPLATE_UNIT, DISPLAY_UNIT, RD_HOST_DIR, RD_PEER_UID, RD_RUN_DIR, RD_SOCKET, RD_SOCKET_UNIT, RD_START_SCRIPT, RD_UNIT, RD_USER, RD_XAUTHORITY, WORK_USER_CMUX_JSON } from "./agent-tools";
+import { A11Y_TEMPLATE_UNIT, A11Y_UNIT, AGENT_DISPLAY, AGENT_DISPLAY_SIZE, AGENT_TOOLS_BIN, CUA_REFUSE_DIR, DESKTOP_CHECK_SCRIPT, DESKTOP_CHECK_SECONDS, DESKTOP_SESSION_UNIT, DESKTOP_STARTER, AGENT_XAUTHORITY, CUA_UNIT, DISPLAY_TEMPLATE_UNIT, DISPLAY_UNIT, NO_NEW_PRIVS_ENV, RD_HOST_DIR, RD_PEER_UID, RD_RUN_DIR, RD_SOCKET, RD_SOCKET_UNIT, RD_START_SCRIPT, RD_UNIT, RD_USER, RD_XAUTHORITY, WORK_USER_CMUX_JSON } from "./agent-tools";
 import { createVm, deleteVm, firstExec, freestyleClient, Ledger, run, type Vm } from "./guest";
 import { BROWSER_CHECKS, checkRegressionGate, ensureOutputFile, harnessEnsureScript, LIVE_FAILING_FILE, liveBootImage, liveFailingLines, pickerHarnesses, regressionGate } from "./harness-gate";
 import { CURRENT_BIN, sq } from "./lock";
@@ -56,11 +59,43 @@ const MCP_CONFIG_LINE = "MCP_CONFIG_FILE ";
 /** acpmux folds every other server into the cmux server's env under this name (acpmux agent_tools.rs UPSTREAMS_ENV). */
 const UPSTREAMS_ENV = "CMUX_MCP_UPSTREAMS";
 
+/** cmux-tui's Computer Use server (acpmux `computer-use-mcp`, since #37003). */
+export const CU_SERVER = "cmux-computer-use";
+/** The Computer Use server of an image whose cmux-tui predates #37003 (the cmux-cua proxy). */
+export const LEGACY_CU_SERVER = "cmux-cua";
+/** The worker the cmux-tui daemon starts for CU_SERVER (cmux-tui-core computer_use_host.rs WORKER_MODE). */
+const CU_WORKER_MODE = "__computer-use-worker";
+
 /** Tools and skills the agent must name (Claude Code prefixes MCP tools with mcp__<server>__). */
-export const REQUIRED_TOOLS = ["mcp__cmux-cua__get_desktop_state", "mcp__cmux-cua__click", "mcp__cmux__browser_repl_eval", "mcp__cmux__browser_repl_open"] as const;
+export const REQUIRED_TOOLS = [`mcp__${CU_SERVER}__screenshot`, `mcp__${CU_SERVER}__click`, "mcp__cmux__browser_repl_eval", "mcp__cmux__browser_repl_open"] as const;
 export const REQUIRED_SKILLS = ["cmux:cmux-browser"] as const;
 /** The same tools by server, as an MCP client lists them. */
-const REQUIRED_BY_SERVER: Record<string, string[]> = { "cmux-cua": ["get_desktop_state", "click"], cmux: ["browser_repl_eval", "browser_repl_open"] };
+const REQUIRED_BY_SERVER: Record<string, string[]> = {
+  [CU_SERVER]: ["screenshot", "list_windows", "click", "type_text", "get_ui_tree"],
+  [LEGACY_CU_SERVER]: ["get_desktop_state", "click"],
+  cmux: ["browser_repl_eval", "browser_repl_open"],
+};
+
+/**
+ * The Computer Use server among `servers`, as acpmux attached it: CU_SERVER from the image's own
+ * cmux-tui (the acpmux binary, `computer-use-mcp`), else LEGACY_CU_SERVER through the image's
+ * wrapper in AGENT_TOOLS_BIN; `ok` is false for one attached any other way. Null when none is.
+ */
+export function attachedComputerUse(servers: readonly RecordedServer[]): { name: string; ok: boolean; legacy: boolean } | null {
+  const cu = servers.find((s) => s.name === CU_SERVER);
+  if (cu) return { name: CU_SERVER, ok: /\/cmux-tui$/.test(cu.command) && cu.args.includes("computer-use-mcp"), legacy: false };
+  const legacy = servers.find((s) => s.name === LEGACY_CU_SERVER);
+  if (legacy) return { name: LEGACY_CU_SERVER, ok: legacy.command.startsWith(`${AGENT_TOOLS_BIN}/`), legacy: true };
+  return null;
+}
+
+/**
+ * Tools of a Computer Use server that would record video or install software: role cua-video (ffmpeg,
+ * libx264) stays off on cmux machines, so CU_SERVER must list none.
+ */
+export function videoToolProblems(tools: readonly string[]): string[] {
+  return tools.filter((t) => /ffmpeg|video|record|install/i.test(t)).map((t) => `lists ${t}`);
+}
 /**
  * The tools server NAME must list, as acpmux launched it (`args`). In code mode (no `--all-tools`, acpmux
  * agent_tools.rs `listing`) the cmux server lists only cmux_exec and cmux_workflow; its tools still answer a
@@ -152,9 +187,10 @@ export function parseRecordedLaunch(text: string): { servers: RecordedServer[]; 
 /**
  * MCP client over stdio (python3 on the image): starts one server from a spec file, initializes,
  * lists tools, runs `before_calls` (a shell command), makes `calls`, and writes a JSON report.
- * A PNG path in a call's text is copied to `copy_png_to`.
+ * A call `{shell}` runs that shell command at its place instead. A call's PNG (an image content
+ * item, else a PNG path in its text) is written to `copy_png_to`.
  */
-const MCP_CLIENT_PY = String.raw`import json, os, re, select, shutil, subprocess, sys, time
+const MCP_CLIENT_PY = String.raw`import base64, json, os, re, select, shutil, subprocess, sys, time
 spec = json.load(open(sys.argv[1]))
 env = dict(os.environ); env.update(spec.get("env", {}))
 p = subprocess.Popen([spec["command"], *spec["args"]], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=open(spec["stderr"], "wb"), env=env)
@@ -183,12 +219,17 @@ tools = rpc(2, "tools/list", {})
 report["tools"] = [t["name"] for t in tools.get("result", {}).get("tools", [])]
 if spec.get("before_calls"): subprocess.run(spec["before_calls"], shell=True)
 for n, call in enumerate(spec.get("calls", [])):
+    if "shell" in call:
+        subprocess.run(call["shell"], shell=True); continue
     res = rpc(10 + n, "tools/call", {"name": call["name"], "arguments": call["arguments"]}, 180)
     body = res.get("result", {})
     text = " ".join(c.get("text", "") for c in body.get("content", []) if c.get("type") == "text")
     entry = {"name": call["name"], "isError": bool(body.get("isError")) or "error" in res, "expect_error": bool(call.get("expect_error")), "text": (text or str(res.get("error", "")))[:1500]}
+    images = [c["data"] for c in body.get("content", []) if c.get("type") == "image" and c.get("data")]
     m = re.search(r"(/[^\s\"']+\.png)", text)
-    if call.get("copy_png_to") and m and os.path.exists(m.group(1)):
+    if call.get("copy_png_to") and images:
+        open(call["copy_png_to"], "wb").write(base64.b64decode(images[0])); entry["copied"] = call["copy_png_to"]
+    elif call.get("copy_png_to") and m and os.path.exists(m.group(1)):
         shutil.copy(m.group(1), call["copy_png_to"]); entry["copied"] = call["copy_png_to"]
     report["calls"].append(entry)
 json.dump(report, open(spec["out"], "w"))
@@ -208,8 +249,8 @@ export function screenshotPrompt(pageUrl: string): string {
   return [
     `Do these two things with your MCP tools, then report. 1) Browser: call mcp__cmux__browser_repl_eval with session "agent" and code: await page.goto(${JSON.stringify(pageUrl)}); console.log(await page.title()); screenshot() .`,
     `Printing an image saves it to a file and prints its path; copy that PNG to ${WORK_DIR}/agent-browser.png with Bash.`,
-    "2) Computer use: I explicitly ask you to use cmux Computer Use through the mcp__cmux-cua__ tools.",
-    `Take a screenshot of the whole display of this machine (capture the desktop, not one window) and save the PNG to ${WORK_DIR}/agent-cua.png (use a screenshot_out_file argument if a tool offers one), and report the screen size.`,
+    `2) Computer use: I explicitly ask you to use cmux Computer Use through the mcp__${CU_SERVER}__ tools.`,
+    `Take a screenshot of the whole display of this machine (capture the display, not one window), save the PNG to ${WORK_DIR}/agent-cua.png, and report the screen size.`,
     "End your reply with the line RESULT browser=<ok|failed> cua=<ok|failed>.",
   ].join(" ");
 }
@@ -219,7 +260,9 @@ export function staticCheckCommand(): string {
   return [
     `test "$(readlink ${AGENT_TOOLS_BIN}/cmux)" = ${CURRENT_BIN}/cmux-tui && echo cmux-link=ok`,
     `grep -q 'systemctl start ${CUA_UNIT}' ${AGENT_TOOLS_BIN}/cmux-cua && echo cua-wrapper=ok`,
-    `for u in ${DISPLAY_UNIT} ${CUA_UNIT}; do echo "unit-$u=$(systemctl is-active $u)"; done`,
+    `echo "starter=$(stat -c '%U:%G:%a' ${DESKTOP_STARTER} /etc/cmux 2>/dev/null | tr '\\n' ' ')"`,
+    `sh -n ${DESKTOP_STARTER} 2>/dev/null && grep -q 'systemctl start ${DISPLAY_UNIT}' ${DESKTOP_STARTER} && echo starter-script=ok`,
+    `for u in ${DISPLAY_UNIT} ${CUA_UNIT} ${A11Y_UNIT}; do echo "unit-$u=$(systemctl is-active $u)"; done`,
     `for u in ${DISPLAY_TEMPLATE_UNIT} ${A11Y_TEMPLATE_UNIT}; do systemctl cat $u >/dev/null 2>&1 && echo "template-$u=ok"; done`,
     `for u in ${DISPLAY_TEMPLATE_UNIT.replace("@", "@1")} ${A11Y_TEMPLATE_UNIT.replace("@", "@1")}; do echo "unit-$u=$(systemctl is-active $u)"; done`,
     `echo "mcp-enabled=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["mcp"]["enabled"])' ${WORK_USER_CMUX_JSON})"`,
@@ -254,17 +297,40 @@ async function readGuest(vm: Vm, file: string): Promise<string> {
   return new TextDecoder().decode(await vm.fs.readFile(file));
 }
 
+/** The fewest pixels on a screenshot's long edge for it to count as the display (cmux-computer-use sends at most 1456). */
+export const MIN_SCREENSHOT_EDGE = 1024;
+
+/**
+ * Whether a `WxH` screenshot shows the whole `WxH` display: the same size (cmux-cua), or the display scaled down
+ * whole (cmux-computer-use scales its long edge to at most 1456 px) with the same aspect, to rounding, and a long
+ * edge of at least MIN_SCREENSHOT_EDGE. A crop, a window-sized shot or a thumbnail does not.
+ */
+export function screenshotShowsDisplay(dims: string, display: string): boolean {
+  const parse = (v: string) => /^(\d+)x(\d+)$/u.exec(v)?.slice(1).map(Number) as [number, number] | undefined;
+  const shot = parse(dims);
+  const screen = parse(display);
+  if (!shot || !screen) return false;
+  const [w, h] = shot;
+  const [dw, dh] = screen;
+  if (w === dw && h === dh) return true;
+  const long = Math.max(w, h);
+  if (long < MIN_SCREENSHOT_EDGE || w > dw || h > dh) return false;
+  return w >= h ? Math.abs(h - (w * dh) / dw) <= 1 : Math.abs(w - (h * dw) / dh) <= 1;
+}
+
 type Checker = (name: string, ok: boolean, detail: string) => void;
 
 /** Copies a PNG from the machine into the out dir and checks it. */
-async function pngCheck(vm: Vm, check: Checker, result: ProbeResult, outDir: string, name: string): Promise<void> {
+async function pngCheck(vm: Vm, check: Checker, result: ProbeResult, outDir: string, name: string, size?: string): Promise<void> {
   const file = path.join(outDir, `${name}.png`);
   try {
     const bytes = Buffer.from(await vm.fs.readFile(`${WORK_DIR}/${name}.png`));
     writeFileSync(file, bytes);
     result.files.push(file);
     const png = bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
-    check(`${name}-screenshot`, png && bytes.length > 2000, `${bytes.length} bytes, ${png ? "PNG" : "not a PNG"}, ${png ? `${bytes.readUInt32BE(16)}x${bytes.readUInt32BE(20)}` : ""}`);
+    const dims = png ? `${bytes.readUInt32BE(16)}x${bytes.readUInt32BE(20)}` : "";
+    const fits = size === undefined || screenshotShowsDisplay(dims, size);
+    check(`${name}-screenshot`, png && bytes.length > 2000 && fits, `${bytes.length} bytes, ${png ? "PNG" : "not a PNG"}, ${dims}${size && dims !== size ? ` (the display is ${size}${fits ? ", scaled down whole" : ""})` : ""}`);
   } catch (error) {
     check(`${name}-screenshot`, false, String(error).slice(0, 200));
   }
@@ -274,7 +340,9 @@ async function pngCheck(vm: Vm, check: Checker, result: ProbeResult, outDir: str
 async function prepare(vm: Vm, check: Checker, result: ProbeResult): Promise<boolean> {
   const s = kv((await run(vm, staticCheckCommand())).stdout);
   check("tool-dir", s["cmux-link"] === "ok" && s["cua-wrapper"] === "ok", JSON.stringify({ cmux: s["cmux-link"], wrapper: s["cua-wrapper"] }));
-  check("display-and-cua-off-until-asked", s[`unit-${DISPLAY_UNIT}`] === "inactive" && s[`unit-${CUA_UNIT}`] === "inactive", `${s[`unit-${DISPLAY_UNIT}`]} ${s[`unit-${CUA_UNIT}`]}`);
+  check("display-and-cua-off-until-asked", s[`unit-${DISPLAY_UNIT}`] === "inactive" && s[`unit-${CUA_UNIT}`] === "inactive" && s[`unit-${A11Y_UNIT}`] === "inactive", `${s[`unit-${DISPLAY_UNIT}`]} ${s[`unit-${CUA_UNIT}`]} ${s[`unit-${A11Y_UNIT}`]}`);
+  // cmux-tui's worker launcher runs the starter only when root owns it and its folder and nobody else can write them.
+  check("desktop-starter", (s.starter ?? "").trim() === "root:root:755 root:root:755" && s["starter-script"] === "ok", `${DESKTOP_STARTER} and /etc/cmux: ${s.starter ?? "absent"}; script ${s["starter-script"] ?? "not checked"}`);
   const instances = [DISPLAY_TEMPLATE_UNIT, A11Y_TEMPLATE_UNIT].map((u) => u.replace("@", "@1"));
   check(
     "per-display-templates-off",
@@ -326,7 +394,13 @@ async function recordLaunch(vm: Vm, check: Checker, result: ProbeResult, outDir:
   }
   const launch = parseRecordedLaunch(text);
   const names = launch.servers.map((s) => `${s.name}=${s.command} ${s.args.join(" ")}`);
-  check("acpmux-attaches-servers", ["cmux-cua", "cmux"].every((n) => launch.servers.some((s) => s.name === n && s.command.startsWith(`${AGENT_TOOLS_BIN}/`))), names.join("; ") || `no launch with --mcp-config was recorded (${text ? "launches without it" : "no launch at all"}); ${said.join(" | ")}`);
+  const cu = attachedComputerUse(launch.servers);
+  const cmuxOk = launch.servers.some((s) => s.name === "cmux" && s.command.startsWith(`${AGENT_TOOLS_BIN}/`));
+  check(
+    "acpmux-attaches-servers",
+    cmuxOk && cu?.ok === true,
+    `${cmuxOk ? "" : "no cmux server from the tool dir; "}${cu ? (cu.ok ? "" : `${cu.name} attached another way; `) : `no Computer Use server (${CU_SERVER} or ${LEGACY_CU_SERVER}); `}${names.join("; ") || `no launch with --mcp-config was recorded (${text ? "launches without it" : "no launch at all"}); ${said.join(" | ")}`}`,
+  );
   const skills = launch.pluginDir ? await run(vm, `ls ${sq(`${launch.pluginDir}/skills`)} && test -s ${sq(`${launch.pluginDir}/skills/cmux-browser/SKILL.md`)} && echo skill-ok`) : { stdout: "", code: 1 };
   check("acpmux-attaches-skills", skills.stdout.includes("skill-ok"), `plugin dir ${launch.pluginDir ?? "absent"}: ${skills.stdout.trim().replace(/\n/g, " ")}`);
   return launch.servers;
@@ -344,7 +418,17 @@ function displayWindowCommand(page: string): string {
 /** Each recorded server started as acpmux would start it, from a daemon terminal; tools listed and called. */
 async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: string, servers: RecordedServer[]): Promise<void> {
   const calls: Record<string, { before?: string; calls: unknown[] }> = {
-    "cmux-cua": {
+    // The first call makes the daemon start the worker, which runs the desktop starter (the display and
+    // its AT-SPI bus); then a Chrome window goes on the display, which the worker must see and capture.
+    [CU_SERVER]: {
+      calls: [
+        { name: "status", arguments: {} },
+        { shell: displayWindowCommand(`http://127.0.0.1:${PAGE_PORT}/cua.html`) },
+        { name: "screenshot", arguments: { force: true }, copy_png_to: `${WORK_DIR}/cua.png` },
+        { name: "list_windows", arguments: {} },
+      ],
+    },
+    [LEGACY_CU_SERVER]: {
       before: displayWindowCommand(`http://127.0.0.1:${PAGE_PORT}/cua.html`),
       calls: [
         { name: "set_config", arguments: { capture_scope: "desktop" } },
@@ -363,7 +447,9 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
   }
   await run(vm, `chown -R ${DEVBOX_WORK_USER}:${DEVBOX_WORK_USER} ${PROBE_DIR}`);
   result.timings.mcpMs = await inTerminal(vm, "mcp", terminalScript("mcp", lines.join("\n")), 600);
-  for (const name of Object.keys(calls)) {
+  // Only the Computer Use server acpmux attached is judged; with none, CU_SERVER's checks fail.
+  const cu = attachedComputerUse(servers) ?? { name: CU_SERVER, ok: false, legacy: false };
+  for (const name of Object.keys(calls).filter((n) => n === "cmux" || n === cu.name)) {
     let report: { tools: string[]; initialize: string; calls: Array<{ name: string; isError: boolean; text: string; expect_error?: boolean }> };
     const stderr = await readGuest(vm, `${PROBE_DIR}/mcp-${name}.stderr`).catch(() => "");
     if (stderr) writeFileSync(path.join(outDir, `mcp-${name}.stderr`), stderr);
@@ -380,18 +466,72 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
     const failed = report.calls.filter((c) => c.isError !== (c.expect_error === true));
     check(`mcp-${name}-calls`, report.calls.length > 0 && failed.length === 0, report.calls.map((c) => `${c.name}: ${c.isError ? "error " : ""}${c.text.slice(0, 160)}`).join(" | "));
   }
-  const cuaReport = await readGuest(vm, `${PROBE_DIR}/mcp-cmux-cua.json`).catch(() => "");
   const ffmpeg = await run(vm, "command -v ffmpeg; dpkg-query -W -f='${Status}' ffmpeg libx264-164 2>/dev/null | grep -c 'ok installed' || true");
-  check("cua-video-refused", cuaReport.includes("cua-video") && ffmpeg.stdout.trim() === "0", `install_ffmpeg ${cuaReport.includes("cua-video") ? "refused with the cua-video message" : "was not refused"}; ffmpeg/libx264 installed packages: ${ffmpeg.stdout.trim()}`);
-  const units = await run(vm, `systemctl is-active ${DISPLAY_UNIT} ${CUA_UNIT} | tr '\\n' ' '`);
-  check("display-and-cua-started-by-cmux-cua-mcp", units.stdout.trim() === "active active", units.stdout.trim());
+  if (cu.legacy) {
+    const cuaReport = await readGuest(vm, `${PROBE_DIR}/mcp-${LEGACY_CU_SERVER}.json`).catch(() => "");
+    check("cua-video-refused", cuaReport.includes("cua-video") && ffmpeg.stdout.trim() === "0", `install_ffmpeg ${cuaReport.includes("cua-video") ? "refused with the cua-video message" : "was not refused"}; ffmpeg/libx264 installed packages: ${ffmpeg.stdout.trim()}`);
+    const units = await run(vm, `systemctl is-active ${DISPLAY_UNIT} ${CUA_UNIT} | tr '\\n' ' '`);
+    check("display-and-cua-started-by-cmux-cua-mcp", units.stdout.trim() === "active active", units.stdout.trim());
+  } else {
+    await computerUseChecks(vm, check, ffmpeg.stdout.trim());
+  }
   const mcpBrowser = await readGuest(vm, `${PROBE_DIR}/mcp-cmux.json`).catch(() => "");
   check("browser-page-title", mcpBrowser.includes(PAGE_TITLE), `the browser host ${mcpBrowser.includes(PAGE_TITLE) ? "returned" : "did not return"} "${PAGE_TITLE}"`);
   await pngCheck(vm, check, result, outDir, "browser");
-  await pngCheck(vm, check, result, outDir, "cua");
+  await pngCheck(vm, check, result, outDir, "cua", AGENT_DISPLAY_SIZE);
   const host = await run(vm, `pgrep -u ${DEVBOX_WORK_USER} -f '[c]mux-browser-host serve' | wc -l; tr '\\0' ' ' < /proc/$(pgrep -u ${DEVBOX_WORK_USER} -f '[c]hrome-linux64/chrome' | head -1)/cmdline 2>/dev/null | grep -cE -- '--no-sandbox|--disable-setuid-sandbox' || true`);
   const [hosts, sandboxOff] = host.stdout.trim().split("\n");
   check("browser-host-socket-activated-sandbox-on", Number(hosts) >= 1 && sandboxOff === "0", `hosts=${hosts} sandbox-off-switches=${sandboxOff}`);
+}
+
+/** As root: the worker the daemon started for CU_SERVER, its units and what it may do (worker-* keys). */
+export function computerUseWorkerCommand(): string {
+  return [
+    `pid=$(pgrep -u ${DEVBOX_WORK_USER} -f '[_]${CU_WORKER_MODE.slice(1)}' | head -1)`,
+    'echo "worker-pid=${pid:-none}"',
+    `for u in ${DISPLAY_UNIT} ${A11Y_UNIT}; do echo "worker-unit-$u=$(systemctl is-active $u)"; done`,
+    `[ -n "$pid" ] && sed -n 's/^NoNewPrivs:[[:space:]]*/worker-nnp=/p' /proc/$pid/status`,
+    `[ -n "$pid" ] && tr '\\0' '\\n' < /proc/$pid/environ | grep -E '^(DISPLAY|XAUTHORITY|CMUX_CU_HEADLESS|DBUS_SESSION_BUS_ADDRESS|PATH)=' | sed 's/^/worker-env-/'`,
+    "true",
+  ].join("; ");
+}
+
+/** The worker runs, its display and AT-SPI units are active, and its env points at that display and bus, headless. */
+function workerStartedByComputerUse(w: Record<string, string>, bus: string): boolean {
+  return (
+    w["worker-pid"] !== "none" &&
+    w[`worker-unit-${DISPLAY_UNIT}`] === "active" &&
+    w[`worker-unit-${A11Y_UNIT}`] === "active" &&
+    w["worker-env-DISPLAY"] === AGENT_DISPLAY &&
+    w["worker-env-XAUTHORITY"] === AGENT_XAUTHORITY &&
+    w["worker-env-CMUX_CU_HEADLESS"] === "1" &&
+    w["worker-env-DBUS_SESSION_BUS_ADDRESS"] === bus
+  );
+}
+
+/**
+ * CU_SERVER's machine checks: the first call started the display, its AT-SPI bus and the worker on it,
+ * headless; the worker cannot gain privileges and finds the refusing sudo/apt first (role cua-video
+ * stays off), the server lists no video or install tool, and the Chrome window is in its window list.
+ */
+async function computerUseChecks(vm: Vm, check: Checker, ffmpegInstalled: string): Promise<void> {
+  const w = kv((await run(vm, computerUseWorkerCommand())).stdout);
+  const bus = `unix:path=/run/cmux-agent-a11y-${AGENT_DISPLAY.slice(1)}/bus`;
+  check(
+    "display-and-worker-started-by-computer-use",
+    workerStartedByComputerUse(w, bus),
+    JSON.stringify({ worker: w["worker-pid"], display: w[`worker-unit-${DISPLAY_UNIT}`], a11y: w[`worker-unit-${A11Y_UNIT}`], DISPLAY: w["worker-env-DISPLAY"], headless: w["worker-env-CMUX_CU_HEADLESS"], bus: w["worker-env-DBUS_SESSION_BUS_ADDRESS"] }),
+  );
+  const report = await readGuest(vm, `${PROBE_DIR}/mcp-${CU_SERVER}.json`).then((t) => JSON.parse(t) as { tools: string[]; calls: Array<{ name: string; text: string }> }).catch(() => null);
+  const listed = videoToolProblems(report?.tools ?? []);
+  const firstPath = (w["worker-env-PATH"] ?? "").split(":")[0];
+  check(
+    "cua-video-refused",
+    report !== null && listed.length === 0 && w["worker-nnp"] === "1" && firstPath === CUA_REFUSE_DIR && ffmpegInstalled === "0",
+    `${report ? (listed.length ? listed.join(", ") : "no video or install tool") : "no report"}; worker NoNewPrivs ${w["worker-nnp"] ?? "unread"} (${NO_NEW_PRIVS_ENV}), PATH first ${firstPath || "unread"}; ffmpeg/libx264 installed packages: ${ffmpegInstalled}`,
+  );
+  const windows = report?.calls.find((c) => c.name === "list_windows")?.text ?? "";
+  check("cu-window-listed", windows.includes(CUA_PAGE_TEXT), `list_windows ${windows.includes(CUA_PAGE_TEXT) ? "names" : "does not name"} the "${CUA_PAGE_TEXT}" window: ${windows.slice(0, 200)}`);
 }
 
 /** Connects RD_SOCKET and prints `connected` or the errno name; with `holdSeconds`, keeps the connection open that long. */
