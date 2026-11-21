@@ -53,9 +53,27 @@ class NewReds(unittest.TestCase):
         flake = "test/agent-pane-suggested-tasks.test.ts > sends the image"
         done = self.run_flaky({flake: False}, {flake: True}, [flake])
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertIn(f"::warning title=Webview test flaky on the base::{flake}", done.stdout)
+        self.assertIn(f"::warning title=Known flake excused::Webview test failed twice on the head, flaky on the base::{flake}", done.stdout)
         self.assertNotIn("::error", done.stdout)
         self.assertIn("0 webview test steps red on this change, 0 red on the base too, 1 flaky on the base", done.stdout)
+
+    def test_strict_charges_a_red_that_failed_twice_on_the_head(self):
+        """CMUX_FLAKE_EXCUSE_STRICT=1 (off by default): base flakiness no longer excuses a red still failing after the
+        head's retry alone, and --new-files does not hand it to the head re-run, whose pass would excuse it."""
+        flake = "test/agent-pane-suggested-tasks.test.ts > sends the image"
+        old = os.environ.get("CMUX_FLAKE_EXCUSE_STRICT")
+        os.environ["CMUX_FLAKE_EXCUSE_STRICT"] = "1"
+        try:
+            done = self.run_flaky({flake: False}, {flake: True}, [flake])
+        finally:
+            if old is None:
+                os.environ.pop("CMUX_FLAKE_EXCUSE_STRICT")
+            else:
+                os.environ["CMUX_FLAKE_EXCUSE_STRICT"] = old
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn(f"::error title=Webview test failed twice on the head (CMUX_FLAKE_EXCUSE_STRICT)::{flake}",
+                      done.stdout)
+        self.assertNotIn("Known flake excused", done.stdout)
 
     def test_a_file_timeout_its_base_red_tests_explain_is_red_on_the_base(self):
         # transcript-block-sideways-scrollbar.test.ts hit its hard limit on base and head alike: four 60 s gallery
@@ -91,7 +109,7 @@ class NewReds(unittest.TestCase):
         done = self.run_flaky({"test/a.test.ts > flake": False, "test/a.test.ts > broken": False, "test/b.test.ts": False},
                               {}, ["test/a.test.ts > flake", "test/a.test.ts"])
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
-        self.assertIn("::warning title=Webview test flaky on the base::test/a.test.ts > flake", done.stdout)
+        self.assertIn("::warning title=Known flake excused::Webview test failed twice on the head, flaky on the base::test/a.test.ts > flake", done.stdout)
         self.assertIn("::error title=Webview test red on this change::test/a.test.ts > broken", done.stdout)
         self.assertIn("::error title=Webview test red on this change::test/b.test.ts", done.stdout)
 
@@ -120,7 +138,7 @@ class NewReds(unittest.TestCase):
                               {red: True, "test/session-info-per-pane.test.ts": True})
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertNotIn("::error", done.stdout)
-        self.assertIn(f"::warning title=Webview test passed again alone on the head::{red}", done.stdout)
+        self.assertIn(f"::warning title=Known flake excused::Webview test passed again alone on the head::{red}", done.stdout)
         self.assertIn(f"webview test red step (flaky): {named}", done.stdout)
         self.assertIn("0 webview test steps red on this change, 0 red on the base too, 2 flaky on the base", done.stdout)
         self.assertIn("2 of the flaky passed again when re-run alone on the head", done.stdout)
@@ -147,7 +165,7 @@ class NewReds(unittest.TestCase):
             {"test/a.test.ts > passed": True, "test/a.test.ts > remains": False},
         )
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
-        self.assertIn("::warning title=Webview test passed again alone on the head::test/a.test.ts > passed", done.stdout)
+        self.assertIn("::warning title=Known flake excused::Webview test passed again alone on the head::test/a.test.ts > passed", done.stdout)
         self.assertIn("::error title=Webview test red on this change::test/a.test.ts > remains", done.stdout)
 
     def run_again(self, head, base, *again, new_files=False):
@@ -174,7 +192,7 @@ class NewReds(unittest.TestCase):
         done = self.run_again({red: False}, {red: True}, {red: True}, {red: False})
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertNotIn("::error", done.stdout)
-        self.assertIn(f"::warning title=Webview test passed and failed on the base's replays::{red}", done.stdout)
+        self.assertIn(f"::warning title=Known flake excused::Webview test failed twice on the head, passed and failed on the base's replays::{red}", done.stdout)
         self.assertIn(f"webview test red step (flaky): {red}", done.stdout)
         self.assertIn("0 webview test steps red on this change, 0 red on the base too, 1 flaky on the base", done.stdout)
         listed = self.run_again({red: False}, {red: True}, {red: False}, new_files=True)

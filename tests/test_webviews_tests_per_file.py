@@ -312,6 +312,32 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(json.loads(results_path.read_text())["test/timed-out-then-fail.test.ts > still broken alone"],
                          False, output)
 
+    def test_a_new_file_that_passes_only_alone_stays_red(self):
+        """CMUX_WEB_TEST_NEW_SINCE (a pull request's merge parent): a file it lacks is the change's new test, and a
+        pass alone does not excuse it; a file it has is excused and says so with the title HQ counts."""
+        old, new = "test/a-timed-out-once.test.ts", "test/b-timed-out-once.test.ts"
+
+        def commit_only_the_old_file(web):
+            repo = web.parent
+            subprocess.run(["git", "-C", str(repo), "reset", "-q"], check=True)
+            subprocess.run(["git", "-C", str(repo), "add", f"webviews/{old}"], check=True)
+            subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base"],
+                           check=True)
+            subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+
+        self.web_hook = commit_only_the_old_file
+        result, _, calls = self.run_runner(
+            [old, new], extra_env={"CMUX_WEB_TEST_RETRIES": "60", "CMUX_WEB_TEST_NEW_SINCE": "HEAD"})
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(calls.count(f"./{new}"), 2, output)
+        self.assertIn(f"::warning title=Known flake excused::Webview test {old} failed (TIMEOUT), then passed run "
+                      "again alone", output)
+        self.assertIn(f"::error title=Webview test (new flaky test)::{new} failed (TIMEOUT)", output)
+        self.assertIn(f"  {old} (first run: TIMEOUT)", output)
+        self.assertNotIn(f"  {new} (first run: TIMEOUT)", output)
+        self.assertIn(f"TIMEOUT {new} (limit", output)
+
     def base_reds(self, red, inputs="base-key"):
         path = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())) / "base-reds.json"
         path.write_text(json.dumps({"sha": "b" * 40, "inputs": inputs, "red": red}), encoding="utf-8")
