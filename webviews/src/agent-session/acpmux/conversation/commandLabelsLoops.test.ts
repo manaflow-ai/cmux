@@ -46,13 +46,15 @@ test("a loop over files reads as the files it read, never as Read $f", () => {
 test("a variable reads as its value; one it cannot read never shows in the heading", () => {
   expect(label(tool(`F=docs/notes.md; cat "$F"`))).toBe("Read notes.md");
   // `$H` came from a `$(…)`, `$OUT` from nowhere, `$f` from a glob: none is named.
-  for (const command of [
-    `H=$(ls -d ~/x/* | head -1); cat "$H/README.md"`,
-    `cat "$OUT"`,
-    `for f in *.md; do cat "$f"; done`,
-    `while read f; do cat "$f"; done < list.txt`,
-  ])
+  expect(label(tool(`H=$(ls -d ~/x/* | head -1); cat "$H/README.md"`))).toBe("Read README.md");
+  expect(label(tool(`cat "$OUT" | head -20`))).toBe("Read 1 file");
+  expect(label(tool(`cat "$A" "$B"`))).toBe("Read 2 files");
+  for (const command of [`for f in *.md; do cat "$f"; done`, `while read f; do cat "$f"; done < list.txt`])
     expect(label(tool(command))).not.toMatch(/^Read .*\$/);
+  // A name the label never shows does not matter (`--match-head-commit $H`).
+  expect(label(tool(`H=$(git rev-parse HEAD); gh pr merge 32695 --squash --match-head-commit $H 2>&1 | tail -5`))).toBe(
+    "Merged PR #32695",
+  );
   // Single quotes keep a `$` literal: a search for it is still a search.
   expect(label(tool(`rg -n '$HOME' src`))).toBe("Searched for “$HOME”");
 });

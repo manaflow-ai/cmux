@@ -106,8 +106,14 @@ test("a running turn folds no run, before a steer, after it and after more calls
     for (const entry of runsOf(shaped)) expect(drawn(entry)).not.toMatch(/Ran \d+ commands, read/);
   }
   const text = drawn(runsOf(live(going)).find((entry) => entry.id === "t-1")!);
-  for (const command of ["rg -n foldRun src", "git log -5 --oneline", "rg -n codexRuns src", "git status"])
-    expect(text).toContain(command);
+  for (const step of [
+    "Searched for “foldRun”",
+    "Read git history",
+    "Read turns.ts",
+    "Searched for “codexRuns”",
+    "Checked git status",
+  ])
+    expect(text).toContain(step);
 });
 
 test("a steer changes nothing drawn above it", () => {
