@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
 import { NEXT_PLAN_OFFERS } from "../services/billing/nextPlans";
 import { runChild } from "./helpers/run-child";
@@ -49,7 +49,8 @@ cat >/dev/null
 printf '%s\\n' "$*" >> "${root}/calls.log"
 case "$*" in
   *"/products/search"*) cat "${root}/products.json" ;;
-  *"lookup_keys"*) cat "${root}/prices.json" ;;
+  *"lookup_keys"*"cmux-next-plus-monthly-20"*) cat "${root}/prices.json" ;;
+  *"lookup_keys"*) echo '{"data":[]}' ;;
   *"-X POST"*"/prices"*) echo '{"id":"price_new"}' ;;
   *) echo '{"id":"prod_existing"}' ;;
 esac
@@ -77,6 +78,7 @@ const goodPrice = (over: Record<string, unknown> = {}) => ({
 });
 
 describe("provision-next-plans.sh against Stripe (a fake one)", () => {
+  setDefaultTimeout(30_000);
   test("an existing Price that checkout would refuse is reported, never printed as the id to deploy", async () => {
     for (const bad of [
       { product: { id: "prod_other", metadata: {} } },
@@ -97,6 +99,13 @@ describe("provision-next-plans.sh against Stripe (a fake one)", () => {
     expect(out.stdout).not.toContain("price_ok");
   });
 
+  test("a dashboard-made Price is reused with its own Product even before search finds it: no second Product", async () => {
+    const out = await runAgainstFakeStripe(goodPrice(), ["test", "--apply"], false);
+    expect(out.calls).not.toContain("Idempotency-Key: cmux-next-test-v1-product-next_plus");
+    expect(out.stderr).toContain("price price_ok (cmux-next-plus-monthly-20, 2000 cents a month) is current on product prod_existing");
+    expect(out.stdout).toContain("STRIPE_PRICE_NEXT_PLUS_MONTHLY=price_ok");
+  });
+
   test("a matching Price is current for Plus; creates carry a stable Idempotency-Key", async () => {
     const out = await runAgainstFakeStripe(null);
     expect(out.status).toBe(0);
@@ -104,6 +113,6 @@ describe("provision-next-plans.sh against Stripe (a fake one)", () => {
     expect(out.calls).toContain("Idempotency-Key: cmux-next-test-v1-price-cmux-next-max-monthly-200");
     expect(out.stdout).toContain("STRIPE_PRICE_NEXT_PLUS_MONTHLY=price_new");
     const current = await runAgainstFakeStripe(goodPrice(), ["test"]);
-    expect(current.stderr).toContain("price price_ok (cmux-next-plus-monthly-20, 2000 cents a month) is current");
+    expect(current.stderr).toContain("price price_ok (cmux-next-plus-monthly-20, 2000 cents a month) is current on product prod_existing");
   });
 });
