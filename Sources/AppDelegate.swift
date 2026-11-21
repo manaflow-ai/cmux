@@ -15486,6 +15486,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
+        if handleSidebarTabSearchShortcut(event) { return true }
         // Active marked text owns every non-Command event, regardless of which
         // NSTextInputClient has focus. Command shortcuts remain available while
         // composing because Command is not part of IME input sequences.
