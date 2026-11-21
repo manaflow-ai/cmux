@@ -4,6 +4,249 @@
 public import CmuxNextDesign
 
 extension AppearanceSettingsSchema {
+    static var windowBackground: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.windowBackground", "Window Background")
+        return [
+            SettingDescriptor(
+                BackdropArtSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backdropArt", "Backdrop Art"),
+                help: SettingsText.keyed("settings.appearance.backdropArt.help", "A painting behind the window. Lower Opacity to see it."),
+                summary: SettingsText.keyed("settings.appearance.backdropArt.summary", "Painting behind the window"),
+                kind: .choice([
+                    SettingChoice("none", SettingsText.keyed("settings.choice.none", "None")),
+                ] + BackdropArtSetting.artChoices),
+                default: .string(BackdropArtSetting.fallback),
+                keywords: ["painting", "art", "wallpaper", "backdrop", "attribution", "legacy"]
+            ).hiddenFromSettingsPage("legacy: the wallpaper card's appearance.background replaces it; the key still loads"),
+            SettingDescriptor(
+                BackdropSelectionSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.background", "Background"),
+                help: SettingsText.keyed("settings.appearance.background.help", "A painting, your wallpaper or a macOS wallpaper behind the window."),
+                summary: SettingsText.keyed("settings.appearance.background.summary", "Image behind your terminals"),
+                kind: .choice([
+                    SettingChoice("none", SettingsText.keyed("settings.choice.none", "None")),
+                    SettingChoice("daily", SettingsText.keyed("settings.choice.shufflePaintings", "Shuffle Paintings")),
+                    SettingChoice("appearance", SettingsText.keyed("settings.choice.backgroundFollowAppearance", "Light and Dark")),
+                    SettingChoice("schedule", SettingsText.keyed("settings.choice.backgroundTimeOfDay", "Time of Day")),
+                ] + BackdropSelectionSetting.catalogChoices),
+                default: .string(BackdropSelectionSetting.fallback),
+                keywords: ["painting", "art", "wallpaper", "backdrop", "desktop", "attribution", "museum", "dark", "doré", "shuffle", "folder"]
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting.rotationPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundRotation", "Change Picture"),
+                help: SettingsText.keyed("settings.appearance.backgroundRotation.help", "How often a shuffled background changes."),
+                summary: SettingsText.keyed("settings.appearance.backgroundRotation.summary", "How often Shuffle changes the picture"),
+                kind: .choiceOrNumber([
+                    SettingChoice(BackdropRotation.quarterHour.rawValue, SettingsText.keyed("settings.choice.every15Minutes", "Every 15 Minutes")),
+                    SettingChoice(BackdropRotation.hourly.rawValue, SettingsText.keyed("settings.choice.everyHour", "Every Hour")),
+                    SettingChoice(BackdropRotation.daily.rawValue, SettingsText.keyed("settings.choice.everyDay", "Every Day")),
+                ], SettingNumber(BackdropSelectionSetting.rotationRange, step: 1, unit: .minutes, placeholder: BackdropSelectionSetting.rotationPlaceholder)),
+                default: .string(BackdropSelectionSetting.rotationDefault.rawValue),
+                keywords: ["shuffle", "rotate", "rotating", "wallpaper", "interval", "change picture", "background", "minutes"]
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting.lightPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundLight", "Light Picture"),
+                help: SettingsText.keyed("settings.appearance.backgroundLight.help", "Unset, it shows the dark picture."),
+                kind: .choice(BackdropSelectionSetting.catalogChoices),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.sameAsDark", "Same as Dark"),
+                keywords: ["wallpaper", "background", "light", "appearance", "day", "auto switch"]
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting.darkPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundDark", "Dark Picture"),
+                help: SettingsText.keyed("settings.appearance.backgroundDark.help", "Unset, it shows the light picture."),
+                kind: .choice(BackdropSelectionSetting.catalogChoices),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.sameAsLight", "Same as Light"),
+                keywords: ["wallpaper", "background", "dark", "appearance", "night", "auto switch"]
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting.schedulePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundSchedule", "Time of Day Pictures"),
+                help: SettingsText.keyed("settings.appearance.backgroundSchedule.help", "A time (07:00) or sun event (sunset-30m) for each picture."),
+                kind: .stringMap,
+                default: nil,
+                keywords: ["wallpaper", "background", "schedule", "time of day", "sunrise", "sunset", "night", "auto switch"]
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting.dynamicPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundDynamic", "Dynamic Wallpaper"),
+                help: SettingsText.keyed("settings.appearance.backgroundDynamic.help", "Follow light and dark, or change with the sun through the day."),
+                summary: SettingsText.keyed("settings.appearance.backgroundDynamic.summary", "Follow light and dark, or the sun"),
+                kind: .choice([
+                    SettingChoice(BackdropDynamicMode.appearance.rawValue, SettingsText.keyed("settings.choice.backgroundFollowAppearance", "Light and Dark")),
+                    SettingChoice(BackdropDynamicMode.time.rawValue, SettingsText.keyed("settings.choice.backgroundTimeOfDay", "Time of Day")),
+                ]),
+                default: .string(BackdropSelectionSetting.dynamicDefault.rawValue),
+                keywords: ["dynamic", "wallpaper", "sun", "solar", "time of day", "macos"]
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting.locationPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundLocation", "Sun Location"),
+                help: SettingsText.keyed("settings.appearance.backgroundLocation.help", "Latitude,longitude for sunrise and sunset, such as 37.77,-122.42. Unset: your time zone."),
+                kind: .text,
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.fromTimeZone", "From Time Zone"),
+                keywords: ["location", "latitude", "longitude", "sunrise", "sunset", "sun"],
+                placeholder: SettingText(key: nil, text: "37.77,-122.42")
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting.memoryPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundMemory", "Background Mode Memory"),
+                help: SettingsText.keyed("settings.appearance.backgroundMemory.help", "The folder and picture each background mode last showed, so switching back restores them."),
+                kind: .stringMap,
+                default: nil,
+                keywords: ["wallpaper", "background", "folder", "rotate", "restore"]
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting.displayBackgroundsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.displayBackgrounds", "Per-display Backgrounds"),
+                help: SettingsText.keyed("settings.appearance.displayBackgrounds.help", "Display ID to daily, folder:<path>, desktop, a background or none."),
+                kind: .stringMap,
+                default: nil,
+                keywords: ["display", "screen", "wallpaper", "background", "folder", "none"]
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting.displayBackgroundRotationsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.displayBackgroundRotations", "Per-display Background Rotation"),
+                help: SettingsText.keyed("settings.appearance.displayBackgroundRotations.help", "Display ID to 15m, hourly or daily. Others use the global rotation."),
+                kind: .stringMap,
+                default: nil,
+                keywords: ["display", "screen", "wallpaper", "rotation", "cadence", "hourly"]
+            ),
+            SettingDescriptor(
+                PaneBackgroundsSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.paneBackgrounds", "Pane Backgrounds"),
+                help: SettingsText.keyed("settings.appearance.paneBackgrounds.help", "One background behind the window, or a copy in each pane."),
+                summary: SettingsText.keyed("settings.appearance.paneBackgrounds.summary", "One background or one per pane"),
+                kind: .choice([
+                    SettingChoice(PaneBackgroundMode.shared.rawValue, SettingsText.keyed("settings.choice.paneBackgrounds.shared", "One for the Window")),
+                    SettingChoice(PaneBackgroundMode.perPane.rawValue, SettingsText.keyed("settings.choice.paneBackgrounds.perPane", "One per Pane")),
+                ]),
+                default: .string(PaneBackgroundsSetting.fallback.rawValue),
+                keywords: ["background", "wallpaper", "pane", "split", "per pane", "each pane", "backdrop", "art"]
+            ),
+            SettingDescriptor(
+                ReducedBackgroundsSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.ui.reducedBackgrounds", "Plain Backgrounds"),
+                help: SettingsText.keyed("settings.ui.reducedBackgrounds.help", "The plain theme color, without paintings, wallpapers or glass."),
+                kind: .toggle,
+                default: .bool(ReducedBackgroundsSetting.fallback),
+                keywords: ["background", "plain", "reduce", "reduced", "painting", "wallpaper", "glass", "transparency", "backdrop", "art", "simple", "performance"]
+            ),
+            SettingDescriptor(
+                AgentGlowSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.agentGlow", "React to Agents"),
+                help: SettingsText.keyed("settings.appearance.agentGlow.help", "Calm while agents are idle; a soft glow in the machine's color when an agent needs you."),
+                kind: .toggle,
+                default: .bool(AgentGlowSetting.fallback),
+                keywords: ["agent", "agents", "glow", "react", "reactive", "background", "attention", "needs you", "idle", "calm", "machine color"]
+            ),
+            SettingDescriptor(
+                PreviousGlassSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.previousGlass", "Previous Glass Look"),
+                help: SettingsText.keyed("settings.appearance.previousGlass.help", "Draws menus, popovers, the composer and cards with the glass from before November 2026."),
+                kind: .toggle,
+                default: .bool(PreviousGlassSetting.fallback),
+                keywords: ["glass", "liquid glass", "previous", "old", "classic look", "blur", "frost", "translucent", "transparency", "menu", "popover"]
+            ),
+            SettingDescriptor(
+                ExperimentalAppearanceSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.experimentalControls", "Experimental Appearance Controls"),
+                help: SettingsText.keyed("settings.appearance.experimentalControls.help", "Applies Hue and Saturation to the window's tint. Off, they have no effect."),
+                kind: .toggle,
+                default: .bool(ExperimentalAppearanceSetting.fallback),
+                keywords: ["experimental", "tuning", "tint", "transparency", "hue", "saturation", "labs"]
+            ),
+            SettingDescriptor(
+                WindowBackgroundSetting.opacityPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundOpacity", "Opacity"),
+                help: SettingsText.keyed("settings.appearance.backgroundOpacity.help", "How much of the theme color covers the material behind the window."),
+                summary: SettingsText.keyed("settings.appearance.backgroundOpacity.summary", "Theme color over the backdrop"),
+                kind: .number(SettingNumber(WindowBackgroundSetting.opacityRange, step: 0.05, unit: .fraction, placeholder: WindowBackgroundSetting.opacityPlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.source.ghostty", "Ghostty"),
+                keywords: ["transparency", "translucent", "background-opacity", "blur", "glass"]
+            ),
+            SettingDescriptor(
+                WindowBackgroundSetting.materialPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundBlur", "Material"),
+                help: SettingsText.keyed("settings.appearance.backgroundBlur.help", "Unset, the window follows Ghostty's background-opacity and background-blur."),
+                summary: SettingsText.keyed("settings.appearance.backgroundBlur.summary", "Clear Glass shows the desktop through the wallpaper"),
+                kind: .choice([
+                    SettingChoice(WindowMaterialChoice.frosted.rawValue, SettingsText.keyed("settings.choice.frosted", "Frosted")),
+                    SettingChoice(WindowMaterialChoice.glass.rawValue, SettingsText.keyed("settings.choice.glass", "Glass")),
+                    SettingChoice(WindowMaterialChoice.glassClear.rawValue, SettingsText.keyed("settings.choice.glassClear", "Clear Glass")),
+                    SettingChoice(WindowMaterialChoice.unblurred.rawValue, SettingsText.keyed("settings.choice.none", "None")),
+                ]),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.source.ghostty", "Ghostty"),
+                keywords: ["blur", "vibrancy", "liquid glass", "background-blur", "transparency"]
+            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
+            SettingDescriptor(
+                WindowBackgroundSetting.inactiveDimPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.inactiveWindowDim", "Dim Inactive Windows"),
+                help: SettingsText.keyed("settings.appearance.inactiveWindowDim.help", "How much windows behind the front one are tinted. 0 keeps them the same."),
+                kind: .number(SettingNumber(WindowBackgroundSetting.inactiveDimRange, step: 0.05, unit: .fraction)),
+                default: .number(WindowBackgroundSetting.inactiveDimDefault),
+                keywords: ["inactive", "unfocused", "focus", "dim", "opacity", "transparency", "background"]
+            ),
+            SettingDescriptor(
+                WallpaperTintSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.wallpaperTint", "Tint with Desktop Wallpaper"),
+                help: SettingsText.keyed("settings.appearance.wallpaperTint.help", "The glass takes the colors of your desktop picture."),
+                kind: .toggle,
+                default: .bool(WallpaperTintSetting.fallback),
+                keywords: ["wallpaper", "desktop", "tint", "tinting", "glass", "color", "colour", "space", "background"]
+            ),
+        ]
+    }
+}
+
+extension AppearanceSettingsSchema {
     static var tuning: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.appearanceTuning", "Appearance Tuning")
         return [
@@ -37,344 +280,6 @@ extension AppearanceSettingsSchema {
                 default: .number(AppearanceTuningSetting.saturationDefault),
                 keywords: ["tint", "color", "colour", "intensity"]
             ),
-        ]
-    }
-}
-
-extension AppearanceSettingsSchema {
-    static var look: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.densityMotion", "Density and Motion")
-        return [
-            SettingDescriptor(
-                DensitySetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.density", "Density"),
-                help: SettingsText.keyed("settings.appearance.density.help", "Row height, padding, corners, icons and text size together."),
-                kind: .choice([
-                    SettingChoice(DensityPreset.ultraCompact.rawValue, SettingsText.keyed("settings.choice.ultraCompact", "Ultra-compact")),
-                    SettingChoice(DensityPreset.compact.rawValue, SettingsText.keyed("settings.choice.compact", "Compact")),
-                    SettingChoice(DensityPreset.cozy.rawValue, SettingsText.keyed("settings.choice.default", "Default")),
-                    SettingChoice(DensityPreset.comfortable.rawValue, SettingsText.keyed("settings.choice.comfortable", "Comfortable")),
-                    SettingChoice(DensityPreset.spacious.rawValue, SettingsText.keyed("settings.choice.spacious", "Spacious")),
-                ]),
-                default: .string(DensitySetting.fallback.rawValue),
-                keywords: ["size", "spacing", "compact", "comfortable", "cozy", "default", "normal", "spacious", "dense", "font"]
-            ),
-            SettingDescriptor(
-                CustomDensitySelectionSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.customDensity", "Custom Density"),
-                kind: .text,
-                default: nil,
-                keywords: ["density", "custom"]
-            ).hiddenFromPalette("the Density card and the palette's density rows pick it"),
-            SettingDescriptor(
-                CustomDensitiesSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.customDensities", "Custom Densities"),
-                kind: .text,
-                default: .array(CustomDensitiesSetting.fallback.map { .string($0) }),
-                keywords: ["density", "custom"]
-            ).hiddenFromPalette("the Density card edits them: a list of density objects"),
-            SettingDescriptor(
-                UIScaleSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.uiScale", "App Zoom"),
-                help: SettingsText.keyed("settings.appearance.uiScale.help", "Zoom for chat, Settings and other app pages."),
-                kind: .number(SettingNumber(UIScaleSetting.range, step: 0.05, unit: .fraction, placeholder: UIScaleSetting.placeholder)),
-                default: .number(UIScaleSetting.fallback),
-                keywords: ["scale", "zoom", "size", "chrome", "web", "bigger", "smaller", "interface scale"]
-            ),
-            SettingDescriptor(
-                InterfaceSizeSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.textSize", "Text Size"),
-                help: SettingsText.keyed("settings.appearance.textSize.help", "Text size of the sidebar, tabs, menus and chat. Terminals have their own size."),
-                kind: .number(SettingNumber(InterfaceSizeSetting.range, step: 1, unit: .points, placeholder: InterfaceSizeSetting.placeholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["font", "text", "size", "density", "interface size", "chromeFontSize", "sidebar font size", "menu", "interface font", "bigger", "larger", "readable", "accessibility"]
-            ),
-            SettingDescriptor(
-                FontSmoothingSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.fontSmoothing", "Text Smoothing"),
-                help: SettingsText.keyed("settings.appearance.fontSmoothing.help", "How text draws. Some text changes after cmux restarts; terminals keep their own."),
-                kind: .choice([
-                    SettingChoice(FontSmoothing.auto.rawValue, SettingsText.keyed("settings.choice.fontSmoothingAuto", "Auto")),
-                    SettingChoice(FontSmoothing.antialiased.rawValue, SettingsText.keyed("settings.choice.fontSmoothingThin", "Thin")),
-                    SettingChoice(FontSmoothing.subpixel.rawValue, SettingsText.keyed("settings.choice.fontSmoothingSmooth", "Smooth")),
-                ]),
-                default: .string(FontSmoothingSetting.fallback.rawValue),
-                keywords: ["AppleFontSmoothing", "antialiased", "antialiasing", "auto", "bold", "crisp", "font", "rendering", "smooth", "smoothing", "subpixel", "system", "text", "thin", "weight"]
-            ),
-            SettingDescriptor(
-                InterfaceScaleSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.interfaceSize", "Interface Size"),
-                help: SettingsText.keyed("settings.appearance.interfaceSize.help", "Text size of tabs, the sidebar and other controls. Terminal text has its own size."),
-                summary: SettingsText.keyed("settings.appearance.interfaceSize.summary", "Text size of tabs, sidebar and controls"),
-                kind: .number(SettingNumber(InterfaceScaleSetting.range, step: 0.05, unit: .fraction, placeholder: InterfaceScaleSetting.placeholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["font", "text", "size", "zoom", "scale", "bigger", "smaller", "interfaceScale"]
-            ).hiddenFromSettingsPage("opt-in: the Debug Settings toggle chrome.interfaceSize turns it on, until it is promoted"),
-            SettingDescriptor(
-                LayoutMetricSetting.sidebarWidthPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.sidebarWidth", "Sidebar Width"),
-                kind: .number(SettingNumber(LayoutMetricSetting.sidebarWidthRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.sidebarWidthPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["sidebar", "width", "size", "sidebarWidth"]
-            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
-            SettingDescriptor(
-                LayoutMetricSetting.columnGapPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.columnGap", "Column Gap"),
-                kind: .number(SettingNumber(LayoutMetricSetting.columnGapRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.columnGapPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["column", "gap", "spacing", "columnGap"]
-            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
-            SettingDescriptor(
-                LayoutMetricSetting.dividerThicknessPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.dividerThickness", "Divider Thickness"),
-                kind: .number(SettingNumber(LayoutMetricSetting.dividerThicknessRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.dividerThicknessPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["divider", "split", "pane", "line", "thickness", "dividerThickness"]
-            ),
-            SettingDescriptor(
-                LayoutMetricSetting.dividerHitWidthPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.dividerHitWidth", "Divider Drag Width"),
-                kind: .number(SettingNumber(LayoutMetricSetting.dividerHitWidthRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.dividerHitWidthPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["divider", "split", "pane", "drag", "hit", "width", "dividerHitWidth"]
-            ),
-            SettingDescriptor(
-                LayoutMetricSetting.titlebarHeightPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.titlebarHeight", "Titlebar Height"),
-                kind: .number(SettingNumber(LayoutMetricSetting.titlebarHeightRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.titlebarHeightPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["titlebar", "title bar", "header", "height", "titlebarHeight"]
-            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
-            SettingDescriptor(
-                LayoutMetricSetting.sidebarRowHeightPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.sidebarRowHeight", "Workspace Row Height"),
-                kind: .number(SettingNumber(LayoutMetricSetting.sidebarRowHeightRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.sidebarRowHeightPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["sidebar", "workspace", "row", "height", "thinner", "sidebarRowHeight"]
-            ),
-            SettingDescriptor(
-                LayoutMetricSetting.sidebarRowInsetPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.sidebarRowInset", "Workspace Row Inset"),
-                help: SettingsText.keyed("settings.appearance.sidebarRowInset.help", "The gap between a sidebar row's fill and the sidebar's left and right edges. Unset is the density's."),
-                kind: .number(SettingNumber(LayoutMetricSetting.sidebarRowInsetRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.sidebarRowInsetPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["sidebar", "workspace", "row", "padding", "inset", "sidebarRowInset"]
-            ),
-            SettingDescriptor(
-                LayoutMetricSetting.sidebarRowPaddingPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.sidebarRowPadding", "Workspace Row Padding"),
-                help: SettingsText.keyed("settings.appearance.sidebarRowPadding.help", "Where a sidebar row's first glyph or title starts inside its fill, and its last trailing mark ends. Unset is the density's."),
-                kind: .number(SettingNumber(LayoutMetricSetting.sidebarRowPaddingRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.sidebarRowPaddingPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["sidebar", "workspace", "row", "padding", "content", "sidebarRowPadding"]
-            ),
-            SettingDescriptor(
-                LayoutMetricSetting.sidebarRowGapPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.sidebarRowGap", "Workspace Row Gap"),
-                help: SettingsText.keyed("settings.appearance.sidebarRowGap.help", "The gap between two sidebar rows. Unset is the density's."),
-                kind: .number(SettingNumber(LayoutMetricSetting.sidebarRowGapRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.sidebarRowGapPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["sidebar", "workspace", "row", "gap", "spacing", "sidebarRowGap"]
-            ),
-            SettingDescriptor(
-                LayoutMetricSetting.sidebarRowHeightWithSubtitlePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.sidebarRowHeightWithSubtitle", "Two-Line Row Height"),
-                help: SettingsText.keyed("settings.appearance.sidebarRowHeightWithSubtitle.help", "A sidebar row with a detail line under its title, such as a two-line card. Unset is the row height plus one line."),
-                kind: .number(SettingNumber(LayoutMetricSetting.sidebarRowHeightWithSubtitleRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.sidebarRowHeightWithSubtitlePlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["sidebar", "workspace", "row", "two line", "card", "subtitle", "height", "sidebarRowHeightWithSubtitle"]
-            ),
-            SettingDescriptor(
-                LayoutMetricSetting.toolbarButtonSizePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.toolbarButtonSize", "Toolbar Button Size"),
-                help: SettingsText.keyed("settings.appearance.toolbarButtonSize.help", "The side of the chrome's icon buttons: the title bar's sidebar toggle, Back and Forward, the pane's tools and the sidebar's +. Unset is the density's."),
-                kind: .number(SettingNumber(LayoutMetricSetting.toolbarButtonSizeRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.toolbarButtonSizePlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["toolbar", "header", "titlebar", "button", "icon", "size", "toolbarButtonSize"]
-            ),
-            SettingDescriptor(
-                LayoutMetricSetting.toolbarButtonGapPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.toolbarButtonGap", "Toolbar Button Gap"),
-                help: SettingsText.keyed("settings.appearance.toolbarButtonGap.help", "The space between neighboring icon buttons in the title bar. Unset is three tenths of a button."),
-                kind: .number(SettingNumber(LayoutMetricSetting.toolbarButtonGapRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.toolbarButtonGapPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["toolbar", "header", "titlebar", "button", "gap", "spacing", "toolbarButtonGap"]
-            ),
-            SettingDescriptor(
-                LayoutMetricSetting.toolbarButtonCornerRadiusPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.toolbarButtonCornerRadius", "Toolbar Button Corner"),
-                help: SettingsText.keyed("settings.appearance.toolbarButtonCornerRadius.help", "The corner of an icon button's hover, pressed and active fill: 0 is square, half the button is round. Unset rounds as a tab does."),
-                kind: .number(SettingNumber(LayoutMetricSetting.toolbarButtonCornerRadiusRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.toolbarButtonCornerRadiusPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["toolbar", "header", "titlebar", "button", "corner", "radius", "rounded", "square", "toolbarButtonCornerRadius"]
-            ),
-            SettingDescriptor(
-                LayoutMetricSetting.toolbarButtonActiveFillPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.toolbarButtonActiveFill", "Active Button Fill"),
-                help: SettingsText.keyed("settings.appearance.toolbarButtonActiveFill.help", "How strong the fill under a toolbar button that is on draws, as a share of the text color. Unset is the hover fill."),
-                kind: .number(SettingNumber(LayoutMetricSetting.toolbarButtonActiveFillRange, step: 0.01, unit: .fraction, placeholder: LayoutMetricSetting.toolbarButtonActiveFillPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["toolbar", "header", "button", "active", "on", "fill", "toolbarButtonActiveFill"]
-            ),
-            SettingDescriptor(
-                LayoutMetricSetting.headerDividerPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.headerDivider", "Header Divider"),
-                help: SettingsText.keyed("settings.appearance.headerDivider.help", "How strong the hairline under the title bar and tab row draws: 0 is none, 1 a full separator. Unset is today's."),
-                kind: .number(SettingNumber(LayoutMetricSetting.headerDividerRange, step: 0.05, unit: .fraction, placeholder: LayoutMetricSetting.headerDividerPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["header", "titlebar", "title bar", "tab row", "divider", "hairline", "line", "headerDivider"]
-            ),
-            SettingDescriptor(
-                LayoutMetricSetting.spacingScalePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.spacingScale", "Spacing"),
-                help: SettingsText.keyed("settings.appearance.spacingScale.help", "One multiplier for the chrome's padding and gaps (the spacing grid). Unset is the density's."),
-                kind: .number(SettingNumber(LayoutMetricSetting.spacingScaleRange, step: 0.05, unit: .fraction, placeholder: LayoutMetricSetting.spacingScalePlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["spacing", "padding", "gap", "airy", "tight", "spacingScale"]
-            ),
-            SettingDescriptor(
-                LayoutMetricSetting.composerPaddingPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.composerPadding", "Composer Padding"),
-                help: SettingsText.keyed("settings.appearance.composerPadding.help", "The room from the chat prompt box's sides to its text and controls. Unset is the density's."),
-                kind: .number(SettingNumber(LayoutMetricSetting.composerPaddingRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.composerPaddingPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["composer", "prompt", "input", "padding", "inset", "composerPadding"]
-            ),
-            SettingDescriptor(
-                LayoutMetricSetting.composerMinHeightPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.composerMinHeight", "Composer Height"),
-                help: SettingsText.keyed("settings.appearance.composerMinHeight.help", "The height of the chat's one-line prompt box; it still grows with a longer prompt. Unset is the density's."),
-                kind: .number(SettingNumber(LayoutMetricSetting.composerMinHeightRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.composerMinHeightPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["composer", "prompt", "input", "height", "composerMinHeight"]
-            ),
-            SettingDescriptor(
-                BordersSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.borders", "Borders"),
-                help: SettingsText.keyed("settings.appearance.borders.help", "None removes every border, hairline and separator in the app."),
-                kind: .choice([
-                    SettingChoice(BorderMode.default.rawValue, SettingsText.keyed("settings.choice.default", "Default")),
-                    SettingChoice(BorderMode.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
-                ]),
-                default: .string(BordersSetting.fallback.rawValue),
-                keywords: ["border", "hairline", "separator", "outline", "line"]
-            ),
-            SettingDescriptor(
-                PaneFocusSettings.focusIndicatorPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.focusIndicator", "Focused Pane"),
-                help: SettingsText.keyed("settings.appearance.focusIndicator.help", "How the focused pane stands out."),
-                summary: SettingsText.keyed("settings.appearance.focusIndicator.summary", "How the focused pane stands out"),
-                kind: .choice([
-                    SettingChoice(FocusIndicator.border.rawValue, SettingsText.keyed("settings.choice.border", "Border")),
-                    SettingChoice(FocusIndicator.tabs.rawValue, SettingsText.keyed("settings.choice.tabs", "Tabs")),
-                    SettingChoice(FocusIndicator.both.rawValue, SettingsText.keyed("settings.choice.both", "Both")),
-                    SettingChoice(FocusIndicator.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
-                ]),
-                default: .string(PaneFocusSettings.focusIndicatorDefault.rawValue),
-                keywords: ["focus", "active", "pane", "tab", "ring"]
-            ),
-            SettingDescriptor(
-                PaneFocusSettings.inactiveTabStylePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.focus.inactiveTabStyle", "Unfocused Pane Tabs"),
-                help: SettingsText.keyed("settings.focus.inactiveTabStyle.help", "How other panes' tabs look subtler when Focused Pane marks tabs."),
-                summary: SettingsText.keyed("settings.focus.inactiveTabStyle.summary", "How tabs in other panes tone down"),
-                kind: .choice([
-                    SettingChoice(InactiveTabStyle.fade.rawValue, SettingsText.keyed("settings.choice.fade", "Fade")),
-                    SettingChoice(InactiveTabStyle.tonal.rawValue, SettingsText.keyed("settings.choice.tonal", "Tonal")),
-                    SettingChoice(InactiveTabStyle.quiet.rawValue, SettingsText.keyed("settings.choice.quiet", "Quiet")),
-                ]),
-                default: .string(PaneFocusSettings.inactiveTabStyleDefault.rawValue),
-                keywords: ["focus", "inactive", "unfocused", "pane", "tab", "fade", "dim"]
-            ),
-            SettingDescriptor(
-                AnimationSpeedSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.ui.animationSpeed", "Animations"),
-                kind: .choice([
-                    SettingChoice(MotionSpeed.fast.rawValue, SettingsText.keyed("settings.choice.fast", "Fast")),
-                    SettingChoice(MotionSpeed.normal.rawValue, SettingsText.keyed("settings.choice.normal", "Normal")),
-                    SettingChoice(MotionSpeed.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
-                ]),
-                default: .string(AnimationSpeedSetting.fallback.rawValue),
-                keywords: ["motion", "speed"]
-            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
         ]
     }
 }
