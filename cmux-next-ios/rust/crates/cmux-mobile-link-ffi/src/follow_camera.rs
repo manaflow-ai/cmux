@@ -51,6 +51,10 @@ struct Inner {
     /// The shared screen's size, from the constructor or the last `source`
     /// event: what the crop's pixels are relative to.
     source: (f64, f64),
+    /// The last event's Mac time and the phone time it was given: the next
+    /// event at the same Mac time takes the same phone time, so the rects of
+    /// one redraw stay one instant to the engine.
+    last_stamp: Option<(u64, u64)>,
 }
 
 /// One viewer's follow camera.
@@ -89,13 +93,20 @@ impl FollowCamera {
             config.max_accel = 1e9;
         }
         let source = (source_w.max(1.0), source_h.max(1.0));
-        Self { inner: Mutex::new(Inner { camera: Camera::new(config, source.0, source.1), source }) }
+        Self {
+            inner: Mutex::new(Inner {
+                camera: Camera::new(config, source.0, source.1),
+                source,
+                last_stamp: None,
+            }),
+        }
     }
 
     /// One message of the `focus` channel (a JSON event), received at
     /// `now_us` on the phone's clock. Its own `t_us` (the Mac's clock) is
-    /// replaced by `now_us`. A message that is not an event is refused and
-    /// changes nothing.
+    /// replaced by `now_us`, except that events sharing one Mac `t_us` (the
+    /// rects of one redraw) all take the phone time the first of them got.
+    /// A message that is not an event is refused and changes nothing.
     pub fn push_json(&self, line: String, now_us: u64) -> Result<(), CmuxMobileError> {
         let event: Event = serde_json::from_str(&line)
             .map_err(|error| CmuxMobileError::InvalidArgument { message: format!("focus event: {error}") })?;
@@ -106,7 +117,12 @@ impl FollowCamera {
             }
             inner.source = (w, h);
         }
-        inner.camera.push(Event { t_us: now_us, signal: event.signal });
+        let t_us = match inner.last_stamp {
+            Some((mac, phone)) if mac == event.t_us => phone,
+            _ => now_us,
+        };
+        inner.last_stamp = Some((event.t_us, t_us));
+        inner.camera.push(Event { t_us, signal: event.signal });
         Ok(())
     }
 
