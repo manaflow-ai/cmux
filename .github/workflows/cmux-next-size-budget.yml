@@ -117,7 +117,7 @@ jobs:
             exit 0
           fi
           echo "tool=true" >> "$GITHUB_OUTPUT"
-          git worktree add --detach "$RUNNER_TEMP/base" HEAD^1
+          git worktree add -f -f --detach "$RUNNER_TEMP/base" HEAD^1
           mapfile -t routed < <(python3 -I "$RUNNER_TEMP/base/scripts/cmux-next/web-bundle-key.py" "$RUNNER_TEMP/base" --routed)
           if git diff --quiet HEAD^1 HEAD -- "${routed[@]}"; then
             echo "web=false" >> "$GITHUB_OUTPUT"
