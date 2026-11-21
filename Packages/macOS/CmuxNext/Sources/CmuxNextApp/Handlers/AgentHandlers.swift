@@ -282,8 +282,7 @@ enum AgentHandlers {
             }
             view.showCreateCheckpoint()
         })
-        // Commit and Push run the changes view's own path. Headless callers
-        // use the session host's `cmux git commit|push` instead.
+        // Commit and Push run the changes view's own path. Headless callers use the session host's `cmux git commit|push` instead.
         for (id, action) in [("agentPane.git.commit", AgentPaneGitAction.commit), ("agentPane.git.push", .push)] as [(ActionID, AgentPaneGitAction)] {
             registry.bind(id, run: { invocation in
                 guard invocation.allowsViewChange else {
