@@ -63,7 +63,8 @@ import Testing
     }
 
     @Test func theRouteKeepsTheRunsDisplay() throws {
-        let record = MacScreenRecord(deviceID: Self.device, display: 9, control: true, name: "a&b run")
+        let record = MacScreenRecord(deviceID: Self.device, display: 9, control: true, name: "a&b+c=d #run")
+        #expect(MacScreenRecord(url: record.url) == record)
         let route = MacScreenPages.route(of: record)
         #expect(route.hasPrefix("device:\(Self.device)?display=9&control=1&name="))
         #expect(MacScreenPages.record(route: route) == record)

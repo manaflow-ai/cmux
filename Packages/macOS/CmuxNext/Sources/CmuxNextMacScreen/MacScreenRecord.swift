@@ -119,8 +119,9 @@ public nonisolated struct MacScreenRecord: Sendable, Hashable {
             var items = [URLQueryItem(name: "device", value: deviceID)]
             if let display { items.append(URLQueryItem(name: "display", value: String(display))) }
             if control { items.append(URLQueryItem(name: "control", value: "1")) }
-            if let name { items.append(URLQueryItem(name: "name", value: name)) }
-            components.queryItems = items
+            // A run's name may hold `&`, `=` or `+`: encoded so it stays one value.
+            if let name { items.append(URLQueryItem(name: "name", value: name.addingPercentEncoding(withAllowedCharacters: Self.valueAllowed))) }
+            components.percentEncodedQueryItems = items
         } else if let macID {
             components.queryItems = [URLQueryItem(name: "mac", value: macID.uuidString)]
         }
@@ -132,6 +133,9 @@ public nonisolated struct MacScreenRecord: Sendable, Hashable {
         guard let url else { return false }
         return url.scheme?.lowercased() == scheme && url.host?.lowercased() == urlHost
     }
+
+    /// What a query value keeps unencoded: the query's characters but the ones that split or change it.
+    private static let valueAllowed = CharacterSet.urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&=+#"))
 
     /// A device id as the hub writes it (a lowercase UUID); nil for anything else.
     static func normalizedDeviceID(_ text: String) -> String? {
