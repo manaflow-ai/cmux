@@ -61,6 +61,14 @@ extension WindowOverlayHost {
     /// mouse monitor asks this for every window of the app; the window asks it in `sendEvent` too, for the events a
     /// divider catcher forwards (those pass no monitor).
     ///
+    /// A left press on an overlay's control (a dialog's Close, Cancel or check box) is held until its release, then both
+    /// go to the panel, the release first in the queue. The control runs AppKit's tracking loop on the press, and that
+    /// loop takes the release from the queue itself, unseen by this host and addressed to the window under the panel:
+    /// a press handed over at once had its release read in that window's coordinates (a divider catcher's, a page's),
+    /// off the control, and the click answered nothing (Aziz 2026-11-17: Close on "Close “Align GUI Bullet Points”?"
+    /// took click after click over the divider between a terminal and a page). The held press's drags go nowhere: the
+    /// control reads only where its release lands.
+    ///
     /// - Parameter event: A mouse or scroll event on its way to a window that is not the panel.
     /// - Returns: True when the panel got the event instead.
     public func takeEventFromBelow(_ event: NSEvent) -> Bool {
@@ -78,17 +86,48 @@ extension WindowOverlayHost {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel:
             guard acceptsMouse(at: panel.convertPoint(fromScreen: screen)) else {
                 // A press elsewhere: a taken press whose release never came (a menu loop took it) is over.
-                if event.type != .scrollWheel { takenButton = nil }
+                if event.type != .scrollWheel {
+                    takenButton = nil
+                    heldPress = nil
+                }
                 return false
             }
             panel.ignoresMouseEvents = false
-            if event.type != .scrollWheel { takenButton = Self.button(of: event) }
+            if event.type != .scrollWheel {
+                takenButton = Self.button(of: event)
+                heldPress = nil
+                if event.type == .leftMouseDown, controlTracksPress(atScreen: screen) {
+                    heldPress = (event, screen)
+                    return true
+                }
+            }
         default:
             guard let takenButton, Self.button(of: event) == takenButton else { return false }
-            if [.leftMouseUp, .rightMouseUp, .otherMouseUp].contains(event.type) { self.takenButton = nil }
+            let released = [.leftMouseUp, .rightMouseUp, .otherMouseUp].contains(event.type)
+            if released { self.takenButton = nil }
+            if let held = heldPress {
+                guard released else { return true }
+                heldPress = nil
+                // The release waits at the head of the queue, addressed to the panel, for the control's tracking loop.
+                if let release = addressed(event, to: panel, screen: screen) { NSApp.postEvent(release, atStart: true) }
+                deliver(held.event, to: panel, screen: held.screen)
+                return true
+            }
         }
         deliver(event, to: panel, screen: screen)
         return true
+    }
+
+    /// Whether an enabled control of an overlay is under `screen`: a press there runs AppKit's tracking loop.
+    func controlTracksPress(atScreen screen: NSPoint) -> Bool {
+        guard let root = panel.contentView else { return false }
+        let point = panel.convertPoint(fromScreen: screen)
+        var view = root.hitTest(root.superview?.convert(point, from: nil) ?? point)
+        while let current = view {
+            if let control = current as? NSControl { return control.isEnabled }
+            view = current.superview
+        }
+        return false
     }
 
     /// ``takeEventFromBelow(_:)`` for the overlay host of `window`, asked by the window's `sendEvent` for every event:
@@ -223,6 +262,12 @@ extension WindowOverlayHost {
 
     /// Sends `event` to `target` at `screen` (a screen point), as the window server would have.
     func deliver(_ event: NSEvent, to target: NSWindow, screen: NSPoint) {
+        if let forwarded = addressed(event, to: target, screen: screen) { target.sendEvent(forwarded) }
+    }
+
+    /// `event` as the window server would have sent it to `target` at `screen` (a screen point); nil for a scroll that
+    /// cannot be addressed there, which goes nowhere rather than to the wrong window.
+    func addressed(_ event: NSEvent, to target: NSWindow, screen: NSPoint) -> NSEvent? {
         // A copy of the real event keeps its drag deltas (pointer lock, page
         // drags use them); only the window and location change.
         if let copy = event.cgEvent?.copy() {
@@ -230,12 +275,11 @@ extension WindowOverlayHost {
             copy.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(target.windowNumber))
             if let forwarded = NSEvent(cgEvent: copy) {
                 let addressed = Self.relocated(forwarded, to: target, screen: screen)
-                // A scroll the copy did not address to `target` goes nowhere rather than to the wrong window.
-                if addressed == nil, forwarded.type == .scrollWheel { return }
-                return target.sendEvent(addressed ?? forwarded)
+                if addressed == nil, forwarded.type == .scrollWheel { return nil }
+                return addressed ?? forwarded
             }
         }
-        if let forwarded = Self.relocated(event, to: target, screen: screen) { target.sendEvent(forwarded) }
+        return Self.relocated(event, to: target, screen: screen)
     }
 
     /// `event` addressed to `target` at the screen point (deltas are lost: a fallback only). Nil for a scroll, which
