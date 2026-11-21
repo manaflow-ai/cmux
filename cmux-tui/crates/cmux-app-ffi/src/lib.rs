@@ -25,6 +25,8 @@
 //! (include/cmux_daemon_launch.h).
 //! `health` is the app health model: which part is stuck, its repairs and the
 //! status indicator's snapshot (cmux-health-core, include/cmux_health.h).
+//! `auth_coordinator` is the sign-in and session reducer, run in the app's
+//! process as on iOS (cmux-auth-coordinator, include/cmux_auth_coordinator.h).
 //! `sdk` is the daemon client the `cmux` CLI uses (the cmux SDK), as a C ABI
 //! (cmux-sdk-ffi, include/cmux_sdk_ffi.h): the app reaches the daemon through it.
 //! `terminal_prediction` is predictive local echo for a terminal whose shell runs
@@ -40,6 +42,7 @@ pub mod terminal_selection;
 pub use acpmux_client::ffi as agent_client;
 pub use cmux_action_catalog::ffi as action_catalog;
 pub use cmux_agent_pane_policy::ffi as agent_pane_policy;
+pub use cmux_auth_coordinator::ffi as auth_coordinator;
 pub use cmux_cookie_sync::ffi as cookie_sync;
 pub use cmux_daemon_conn_core::ffi as daemon_conn;
 pub use cmux_daemon_launch_core::ffi as daemon_launch;
