@@ -1,0 +1,170 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44896787164",
+  "recorded_at": "2026-11-21T11:08:16Z",
+  "reason": "cmux-tui b2d467b085f2 changes the image's cmux-tui (pinned dc6f7a40fec6)",
+  "dry_run": false,
+  "cmux_tui": "b2d467b085f200d69ea52a25f283b93aed5e0f1f",
+  "fixes": [
+    {
+      "sha": "b2d467b085f200d69ea52a25f283b93aed5e0f1f",
+      "mergedAt": "2026-11-21T10:34:22Z",
+      "subject": "base-red-20: fix cmux-tui panic ratchet red (#48455)"
+    },
+    {
+      "sha": "f9f5ddd560c3c238ba0188a62a15063c0bcb14bb",
+      "mergedAt": "2026-11-21T10:13:23Z",
+      "subject": "Screen Sharing ▸ in the new tab ⌄ menu lists every machine; one click opens it (replaces #46794) (#48791)"
+    },
+    {
+      "sha": "7c7a9e8901cad518a50877974b44d34a0221f978",
+      "mergedAt": "2026-11-21T09:55:30Z",
+      "subject": "cmux-auth-coordinator: every answer is checked against what it answers (#48784)"
+    },
+    {
+      "sha": "9220a9de7b68284e07c1133787470cd707d9e0c4",
+      "mergedAt": "2026-11-21T09:53:09Z",
+      "subject": "acpmux send: refuse a harness name as a session key; send relay finds lane-gh in ~/.local/bin (#48755)"
+    },
+    {
+      "sha": "25e5c81963723745a6ce4612493198aa5fb93580",
+      "mergedAt": "2026-11-21T01:48:23-08:00",
+      "subject": "fix(open beside chat): a browser opened in an agent's workspace goes right of its chat (#47261)"
+    },
+    {
+      "sha": "7a3104325dcef7bbf73ac4ff78cac072eec9954b",
+      "mergedAt": "2026-11-21T09:34:09Z",
+      "subject": "Agent chat: tool headings read loops and variables, never $var; a running turn folds nothing until it ends (#48766)"
+    },
+    {
+      "sha": "b52e37a24930af2526250bbbd4552709a04c2059",
+      "mergedAt": "2026-11-21T01:25:11-08:00",
+      "subject": "Import extensions from another browser (#48466)"
+    },
+    {
+      "sha": "1bbd2b3ec49f935b411150ab5bb5fc9c95f3874f",
+      "mergedAt": "2026-11-21T01:23:19-08:00",
+      "subject": "Action exports: drop the 4 Share Screen with Chief rows now that the pin has none"
+    },
+    {
+      "sha": "ca616a68ab13f2d3aa7a2a4aa569419c8643a6e0",
+      "mergedAt": "2026-11-21T08:52:28Z",
+      "subject": "clippy: fix base's three cmux-tui lints (unused qualification, missing semicolon, no-effect comparison) (#48729)"
+    },
+    {
+      "sha": "97069dfb49aa8e3eca0cd92c42bef96743d95829",
+      "mergedAt": "2026-11-21T08:51:57Z",
+      "subject": "cmux-rd bench --present: key press to the frame on the display (#48673)"
+    },
+    {
+      "sha": "f7230898ddfeed39c0f2b7a7c84869c92009b54d",
+      "mergedAt": "2026-11-21T00:46:50-08:00",
+      "subject": "automation Cloud CLI journey test: a 20-minute command is a start step and 14 waits of at most 90 s (the waits went from 280 s to 90 s; the test still counted 5)"
+    },
+    {
+      "sha": "0c23bf202eeac5f28579cdc123c947a4c3c19d77",
+      "mergedAt": "2026-11-21T00:46:49-08:00",
+      "subject": "automation teleport: exec:PROGRAM destination (the spec on the program's stdin; exit 0 with an id moves it, exit 2 refuses and clears the fence, anything else or a 120 s timeout keeps the fence for a re-run with the same handoff id)"
+    },
+    {
+      "sha": "da0a2ba5cc032aba469b37dc7a02a01312a6b26c",
+      "mergedAt": "2026-11-21T00:46:49-08:00",
+      "subject": "automation teleport to Cloud: a cron in a named zone keeps its zone (it went as UTC, so the Cloud ran it at the wrong hour); local is named by this machine's zone, UTC stays UTC"
+    },
+    {
+      "sha": "26dc808052feeb87574b601f775c780db93b409f",
+      "mergedAt": "2026-11-21T08:44:14Z",
+      "subject": "Cloud start: a team in inference gateway mode with its gateway online serves the chat (hq#15762) (#48584)"
+    },
+    {
+      "sha": "da318d451e32cba4ac2078b0c4790e4db89c6153",
+      "mergedAt": "2026-11-21T00:08:13-08:00",
+      "subject": "acpmux: protocol IR and web types for the chat task list (taskList, _acpmux/task_list/*)"
+    },
+    {
+      "sha": "2642372be86c879998c6eac74993d04398a310c6",
+      "mergedAt": "2026-11-21T00:08:13-08:00",
+      "subject": "acpmux: a fork and a resolved chat start with no task list"
+    },
+    {
+      "sha": "914ddaa6dff00cf860ae92fcd00ea255a2c9b184",
+      "mergedAt": "2026-11-21T00:08:12-08:00",
+      "subject": "Chief: control tasks keeps a subagent chat's task list"
+    },
+    {
+      "sha": "400389748775b40bd19f5047b286ca6f7a74ef68",
+      "mergedAt": "2026-11-21T00:08:12-08:00",
+      "subject": "acpmux: a chat's task list, kept across turns, in the chat and the sidebar"
+    },
+    {
+      "sha": "77ecf135382700564721ecda6af1c7eebe8b769e",
+      "mergedAt": "2026-11-21T00:08:12-08:00",
+      "subject": "acpmux: red test, a chat's task list stays on the chat across turns"
+    },
+    {
+      "sha": "d7bfb10a9df487cf18937fc369f8ef691da14ee8",
+      "mergedAt": "2026-11-21T08:07:08Z",
+      "subject": "acpmux process owner, left-behind, kill --pid: which session owns a process, end only yours or left-behind (#48459)"
+    },
+    {
+      "sha": "fca3bff70b480b2673d4e65ea60aaa3a783b6cfa",
+      "mergedAt": "2026-11-20T23:51:33-08:00",
+      "subject": "acpmux: deliver into a Claude Code chat through its own child (inbox relay) (#48563)"
+    },
+    {
+      "sha": "f104658c9f3a09550f6eecfcfa6dc3179a8cf520",
+      "mergedAt": "2026-11-20T23:41:39-08:00",
+      "subject": "acpmux: session names follow their task, former names still resolve (#48403)"
+    },
+    {
+      "sha": "4cc0f0d86fdfae9f53cf6dec5b71c04dd42da305",
+      "mergedAt": "2026-11-20T23:39:59-08:00",
+      "subject": "who_else card: a topic match says what the session works on, never the matched words (#48551)"
+    },
+    {
+      "sha": "b46b4dac1c64ffe377958c084d011fc50ffde70c",
+      "mergedAt": "2026-11-21T07:39:33Z",
+      "subject": "cmux-tui: an abandoned terminal host counts the time the Mac slept (#48608)"
+    },
+    {
+      "sha": "22e6b92ea5464ba94fcbfeb1e3681a052f377d04",
+      "mergedAt": "2026-11-20T23:26:39-08:00",
+      "subject": "Merge origin/feat-cmux-next (58956955eee3) into feat-cmux-next"
+    },
+    {
+      "sha": "f02f3067fad110dd5689af2f2cb9358feafb0a65",
+      "mergedAt": "2026-11-20T20:55:47-08:00",
+      "subject": "safe-push train: merge 1cc8c18a331f (feat-cmux-next-oss-brains-land)"
+    },
+    {
+      "sha": "cc128ef8d8cd60202afafa857a9afbec03453635",
+      "mergedAt": "2026-11-20T20:41:15-08:00",
+      "subject": "cloud: Environment Secrets Playground, three directions of the env variables and secrets page (DEV only)"
+    },
+    {
+      "sha": "8d68fefabc9dece1af52aa6796fcf3e052532ef2",
+      "mergedAt": "2026-11-20T20:40:17-08:00",
+      "subject": "acpmux: one acpmux MCP process per chat (5 -> 1), the rest served by the daemon; a test holds the budget (#48374)"
+    },
+    {
+      "sha": "d19e222f2bde5cdf2dbdf1fa00f5e9250a1d44ba",
+      "mergedAt": "2026-11-20T20:40:05-08:00",
+      "subject": "fix(cmux-tui): an owner no client reached for a day stops, so its terminal hosts can end (#48370)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-21T11:08:16Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
