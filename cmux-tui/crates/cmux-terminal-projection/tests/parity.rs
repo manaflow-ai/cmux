@@ -57,10 +57,15 @@ struct Key {
     bg: ColorSpec,
     attrs: u16,
     underline: Option<UnderlineStyle>,
+    /// The cell carries an OSC 8 link (Ghostty reads presence, not the URI).
+    link: bool,
 }
 
+/// A cell as read, with its link flag.
+type Read = (Cell, bool);
+
 impl Key {
-    fn of(cell: &Cell) -> Key {
+    fn of((cell, link): &Read) -> Key {
         let text = if cell.text.is_empty() { " ".to_string() } else { cell.text.clone() };
         let blank = text == " ";
         let mut key = Key {
@@ -74,6 +79,7 @@ impl Key {
             } else {
                 None
             },
+            link: *link,
         };
         if blank {
             // What a blank shows: its background, or its foreground when
@@ -93,6 +99,7 @@ impl Key {
             && self.bg == ColorSpec::Default
             && self.attrs == 0
             && self.underline.is_none()
+            && !self.link
     }
 
     fn label(&self) -> String {
@@ -109,6 +116,9 @@ impl Key {
         if let Some(u) = self.underline {
             let _ = write!(s, " ul={u:?}");
         }
+        if self.link {
+            s.push_str(" link");
+        }
         s
     }
 }
@@ -118,7 +128,7 @@ impl Key {
 
 struct Snapshot {
     /// Every retained row of the active screen, oldest first: cells and wrap.
-    rows: Vec<(Vec<Cell>, bool)>,
+    rows: Vec<(Vec<Read>, bool)>,
     /// Cursor row (in `rows`) and column.
     cursor: (usize, usize),
     cursor_visible: bool,
@@ -132,7 +142,9 @@ fn snapshot(term: &Vt) -> Snapshot {
     let mut rows = Vec::with_capacity(total as usize);
     for y in 0..total {
         match term.styled_screen_row(y) {
-            Some(row) => rows.push(row),
+            Some((cells, links, wraps)) => {
+                rows.push((cells.into_iter().zip(links).collect(), wraps))
+            }
             None => break,
         }
     }
@@ -165,7 +177,7 @@ fn logical_lines(snap: &Snapshot) -> Lines {
         }
         let mut row_columns = 0;
         for cell in cells {
-            match cell.width {
+            match cell.0.width {
                 CellWidth::SpacerTail | CellWidth::SpacerHead => {}
                 CellWidth::Wide => {
                     row_columns += 2;
@@ -324,7 +336,7 @@ fn glyphs(snap: &Snapshot) -> Vec<Key> {
     snap.rows
         .iter()
         .flat_map(|(cells, _)| cells.iter())
-        .filter(|c| !matches!(c.width, CellWidth::SpacerTail | CellWidth::SpacerHead))
+        .filter(|c| !matches!(c.0.width, CellWidth::SpacerTail | CellWidth::SpacerHead))
         .map(Key::of)
         .filter(|k| k.text != " ")
         .collect()

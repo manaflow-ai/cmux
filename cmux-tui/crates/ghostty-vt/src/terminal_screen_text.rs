@@ -40,9 +40,10 @@ impl Terminal {
     }
 
     /// The styled cells of one screen row (row 0 is the oldest retained
-    /// row) and its soft-wrap flag, or `None` past the last retained row.
-    /// The projection parity harness reads the Mac's grid with it.
-    pub fn styled_screen_row(&self, row: u64) -> Option<(Vec<crate::Cell>, bool)> {
+    /// row), whether each cell carries an OSC 8 hyperlink, and the row's
+    /// soft-wrap flag; `None` past the last retained row. The projection
+    /// parity harness reads the Mac's grid with it.
+    pub fn styled_screen_row(&self, row: u64) -> Option<(Vec<crate::Cell>, Vec<bool>, bool)> {
         let cols = self.cols();
         let tag = sys::GHOSTTY_POINT_TAG_SCREEN;
         let first = self.grid_ref(tag, 0, row)?;
