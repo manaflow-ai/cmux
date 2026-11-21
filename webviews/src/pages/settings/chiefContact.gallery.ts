@@ -24,7 +24,7 @@ export default componentEntry<ContactGalleryProps>({
       import("../shared/desktop.css"),
       import("../../ui/ui.css"),
       import("../../ui/popupSurface.css"),
-      import("./styles.css"),
+      import("./page.css"),
       import("./chiefContact.css"),
     ]),
   variants: {
