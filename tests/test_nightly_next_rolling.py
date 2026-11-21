@@ -386,6 +386,56 @@ TIP = "c" * 40
 IDLE = [run(21, 40, status="completed", head_sha=HEAD)]
 
 
+class SignerSlotsTests(unittest.TestCase):
+    """vars.NIGHTLY_NEXT_SIGNER_SLOTS 2: each signer Mac is its own push slot, so one building run leaves the other
+    Mac free; the second start waits half a build (SIGNER_STAGGER_MINUTES) so the two finish apart."""
+
+    def decide(self, starts, slots=2, waiting=True):
+        return rolling.decide(NOW, head=HEAD, head_runs=[r for r in starts if r.get("head_sha") == HEAD],
+                              jobs_of=lambda r: BUILDING, promotions=[],
+                              oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=5)) if waiting else None,
+                              starts=starts, slots=slots)
+
+    def test_a_free_slot_with_nothing_waiting_waits(self):
+        go, reason = self.decide([run(45, 20, head_sha=HEAD)], waiting=False)
+        self.assertFalse(go, reason)
+        self.assertIn("no feat-cmux-next commit waits", reason)
+
+    def test_one_build_half_done_promotes_onto_the_other_mac(self):
+        go, reason = self.decide([run(40, 20, head_sha=HEAD)])
+        self.assertTrue(go, reason)
+        self.assertIn("1 of 2 signer slots is free", reason)
+
+    def test_one_build_just_started_waits_half_a_build(self):
+        go, reason = self.decide([run(41, 12, head_sha=HEAD)])
+        self.assertFalse(go, reason)
+        self.assertIn("started 12 of 16 min ago", reason)
+
+    def test_two_building_wait(self):
+        go, reason = self.decide([run(42, 30, head_sha="e" * 40), run(43, 20, head_sha=HEAD)])
+        self.assertFalse(go, reason)
+        self.assertIn("runs/42", reason)
+        self.assertIn("runs/43", reason)
+
+    def test_one_slot_is_unchanged(self):
+        go, reason = self.decide([run(44, 20, head_sha=HEAD)], slots=1)
+        self.assertFalse(go, reason)
+        self.assertIn("one concurrency group", reason)
+
+    def test_main_reads_the_variable(self):
+        seen = {}
+        original = rolling.evaluate
+        rolling.evaluate = lambda *a, **k: (seen.update(k), (False, "x"))[1]
+        try:
+            for value, slots in (("2", 2), ("", 1), ("3", 1)):
+                rolling.main(["--repo", "o/r", "--tip", HEAD, "--signer-slots", value])
+                self.assertEqual(seen["slots"], slots, value)
+            rolling.main(["--repo", "o/r", "--tip", HEAD])
+            self.assertEqual(seen["slots"], 1)
+        finally:
+            rolling.evaluate = original
+
+
 class Api:
     """Answers by path prefix, as `gh api` does; a value that is an exception is raised."""
 

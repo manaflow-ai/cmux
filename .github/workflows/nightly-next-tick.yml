@@ -182,8 +182,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           WINDOW_MINUTES: ${{ vars.NIGHTLY_NEXT_ROLLING_MINUTES || '10' }}
+          # 2: each signer Mac is its own push slot (nightly_next_rolling.py SIGNER_STAGGER_MINUTES).
+          SIGNER_SLOTS: ${{ vars.NIGHTLY_NEXT_SIGNER_SLOTS }}
           GH_BUDGET_WAIT_ATTEMPTS: "1"
-        run: python3 .tick-tooling/scripts/ci/nightly_next_rolling.py --repo "$GITHUB_REPOSITORY" --tip "$(git rev-parse HEAD)" --window-minutes "$WINDOW_MINUTES"
+        run: python3 .tick-tooling/scripts/ci/nightly_next_rolling.py --repo "$GITHUB_REPOSITORY" --tip "$(git rev-parse HEAD)" --window-minutes "$WINDOW_MINUTES" --signer-slots "$SIGNER_SLOTS"
 
       - name: Request nightly-next promotion on main
         if: vars.NIGHTLY_NEXT_TRAIN != 'on' && steps.rolling.outputs.go != 'false'

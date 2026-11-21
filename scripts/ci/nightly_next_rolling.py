@@ -67,7 +67,7 @@ may wait at the push slot, and a promotion would get GitHub to cancel its pendin
 read, promotes, with a warning: the promotion ignores a request that does not
 move nightly-next forward.
 
-usage: nightly_next_rolling.py --repo OWNER/NAME --tip SHA [--window-minutes 10]
+usage: nightly_next_rolling.py --repo OWNER/NAME --tip SHA [--window-minutes 10] [--signer-slots 2]
 Writes go=true|false and reason=... to $GITHUB_OUTPUT when it is set.
 """
 from __future__ import annotations
@@ -117,6 +117,14 @@ LEAVE_STEPS = {RESOLVE_JOB: LEAVE_SLOT_STEP, ONE_JOB: LEAVE_ONE_STEP}
 # and publish instead of after it (4.7 min, 21:38:45 to 21:43:25; push runs 43634178843, 43642011551, 43644053566
 # waited 19.6-26.8 min from landing to run created). The promoted run's nightly-next-one waits pending on
 # nightly-next-one-push until the slot frees (finishing, below).
+# feat-cmux-next's vars.NIGHTLY_NEXT_SIGNER_SLOTS 2: each signer Mac (ultra1, cmux15) is its own push slot
+# (nightly-next-one-push-<mac>, scripts/ci/nightly_next_signer_slot.py there), so a promotion beside ONE building run
+# takes the other Mac and replaces nothing. The second start waits until the first has run SIGNER_STAGGER_MINUTES,
+# half the measured build (run 44907462015: 33.6 min from run start to nightly-next-one's end): two builds started
+# together finish together, and a landing just after them waits for both. Replaying the 809 feat-cmux-next landings of
+# 2026-11-20 15:00Z to 2026-11-21 15:00Z with that build: p95 merge-to-feed 66.2 min on one slot, 58.1 on two started
+# at once, 50.1 on two half a build apart.
+SIGNER_STAGGER_MINUTES = 16.0
 FINISH_STEPS = ("Ask main's nightly-next tick at notarization", "Notarize app ticket through final DMG")
 
 
@@ -196,7 +204,7 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
            promotions: list[dict], oldest_waiting,
            window_minutes: float = WINDOW_MINUTES,
            promotion_minutes: float = PROMOTION_MINUTES,
-           starts: list[dict] | None = None) -> tuple[bool, str]:
+           starts: list[dict] | None = None, slots: int = 1) -> tuple[bool, str]:
     """(promote now, why). head: nightly-next's commit; head_runs: nightly.yml runs on nightly-next
     for it; promotions: recent nightly.yml workflow_dispatch runs on main; oldest_waiting: the
     oldest feat-cmux-next commit after head and when it landed, None when nothing waits, or
@@ -207,7 +215,10 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
     buildable commit (the request walks from the tip). Measuring the window only from landing
     let every tick after a cmux-tui tree stall promote again (2026-10-29 04:25-04:30: three
     starts in four minutes, five builds in flight on contended runners); now the newest start
-    must be a window old too. A started build is never cancelled."""
+    must be a window old too. A started build is never cancelled.
+
+    slots 2 (the signer Macs' own push slots): a start waits only while two runs build, or while the one building
+    started under SIGNER_STAGGER_MINUTES ago."""
     if not head:
         return True, "nightly-next is unreadable; asking as before"
     # Every open loop run, counted before the retry_of filter below: a retry of the head pending at the slot is
@@ -250,6 +261,7 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
             except (KeyError, TypeError, ValueError):
                 pass
             open_runs.append(run)
+        holders = []
         for run in open_runs:
             jobs = jobs_of(run)
             # A finishing holder lets ONE run be promoted: only while no other loop run is open (a retry of the head
@@ -260,9 +272,20 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
                      and (run.get("head_sha") or "").lower() == head.lower())
             if (watch.run_holds_group(run, jobs, now) and not leaving_slot(jobs)
                     and not (alone and finishing(jobs))):
-                building = (f"nightly-next run {run.get('html_url', run.get('id'))} is building "
-                            f"{(run.get('head_sha') or head)[:12]}")
-                break
+                holders.append(f"nightly-next run {run.get('html_url', run.get('id'))} is building "
+                               f"{(run.get('head_sha') or head)[:12]}")
+                if len(holders) >= max(1, slots):
+                    break
+        if len(holders) >= max(1, slots):
+            building = "; ".join(holders)
+        elif holders and oldest_waiting is None:
+            return False, f"{holders[0]}, and no feat-cmux-next commit waits after it"
+        elif holders and since_start is not None and since_start < SIGNER_STAGGER_MINUTES:
+            return False, (f"{holders[0]}, and it started {since_start:.0f} of {SIGNER_STAGGER_MINUTES:g} min ago; the "
+                           f"other signer Mac's build starts half a build after it, so the two finish apart")
+        elif holders:
+            return True, (f"{holders[0]}, and {slots - len(holders)} of {slots} signer slots is free; promoting the "
+                          "newest buildable commit onto it now")
     if not building:
         return True, f"nothing is building nightly-next ({head[:12]}); promoting the newest buildable commit now"
     if oldest_waiting is None:
@@ -365,7 +388,8 @@ def gh_api(path: str):
 
 
 def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
-             window_minutes: float = WINDOW_MINUTES, ls_remote=None, local_gap=None) -> tuple[bool, str]:
+             window_minutes: float = WINDOW_MINUTES, ls_remote=None, local_gap=None,
+             slots: int = 1) -> tuple[bool, str]:
     """Read the head with `ls_remote` (main passes git ls-remote) and then the API, the rest
     through the API (the job's token), and decide. The gap to the tip comes from `local_gap`
     (main passes git_oldest_after, the tick's checkout) when it can answer, else the compare API.
@@ -430,7 +454,7 @@ def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
 
         return decide(now, head=head, head_runs=head_runs, jobs_of=jobs_of, promotions=promotions,
                       oldest_waiting=gap(), window_minutes=window_minutes,
-                      starts=recent)
+                      starts=recent, slots=slots)
     except Exception as error:  # noqa: BLE001
         if since_start is not None and since_start < window_minutes:
             print(f"::warning title=nightly-next rolling rule::could not read the running builds ({error!r}); "
@@ -452,9 +476,11 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--repo", required=True)
     parser.add_argument("--tip", required=True, help="the feat-cmux-next commit the tick checked out")
     parser.add_argument("--window-minutes", type=float, default=WINDOW_MINUTES)
+    parser.add_argument("--signer-slots", default="", help="vars.NIGHTLY_NEXT_SIGNER_SLOTS: 2 for two signer slots")
     args = parser.parse_args(argv)
+    slots = 2 if args.signer_slots.strip() == "2" else 1
     go, reason = evaluate(dt.datetime.now(dt.timezone.utc), args.repo, args.tip, window_minutes=args.window_minutes,
-                          ls_remote=watch.ls_remote_sha, local_gap=git_oldest_after)
+                          ls_remote=watch.ls_remote_sha, local_gap=git_oldest_after, slots=slots)
     print(f"rolling rule: {'promote' if go else 'wait'}: {reason}")
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
