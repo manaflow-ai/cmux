@@ -169,6 +169,129 @@ python3 tests/test_ci_cache_restore_receipt.py
 python3 scripts/check-test-determinism.py --roots tests/test_ci_cache_restore_receipt.py --strict
 '''
 
+# Checks whose pull request runs each had a job of their own (labels-sync.yml's validate job, cmux-next-shim-cpp.yml, cmux-next-chromium-currency.yml,
+# swift-acpmux-protocol.yml). Those workflows keep their push, dispatch and post-merge runs; a pull
+# request runs them here. `inputs` is each one's former pull_request path filter. A step whose
+# workflow ran its checks under `if: !cancelled()` runs every one and fails if any failed.
+[step.labels-manifest]
+job = "linux"
+timeout = 120
+title = "Labels manifest"
+about = "the label manifest (.github/labels.json) parses and fits GitHub's limits; labels-sync.yml applies it on main"
+inputs = [
+  ".github/labels.json",
+  "scripts/ci/sync_labels.py",
+]
+run = "python3 scripts/ci/sync_labels.py --dry-run"
+
+# Header-only C++ with no CEF and no Apple SDK: scripts/cmux-next/lib/cxx.sh picks clang++ on Linux.
+# Every scripts/cmux-next/test-*-cpp.sh runs (tests/test_ci_step_table.py holds it).
+[step.shim-cpp]
+job = "linux"
+timeout = 300
+title = "CEF shim C++ tests"
+about = "the CEF shim's header-only rules (downloads, password reveal, switches, local files, agent URLs, proxies, DevTools, cmux-page://, the host wire, file chooser, helper signals, Web Store), compiled and run with clang++"
+inputs = [
+  "Packages/macOS/CmuxNext/CEFShim/**",
+  "scripts/cmux-next/test-shim-downloads-cpp.sh",
+  "scripts/cmux-next/test-password-reveal-relay-cpp.sh",
+  "scripts/cmux-next/test-shim-switches-cpp.sh",
+  "scripts/cmux-next/test-auth-callback-policy-cpp.sh",
+  "scripts/cmux-next/test-permission-prompt-policy-cpp.sh",
+  "scripts/cmux-next/test-local-file-handoff-cpp.sh",
+  "schemas/local-file-handoff/vectors.json",
+  "scripts/cmux-next/test-local-file-scope-cpp.sh",
+  "schemas/local-file-scope/vectors.json",
+  "scripts/cmux-next/test-agent-url-policy-cpp.sh",
+  "schemas/agent-url-policy/vectors.json",
+  "scripts/cmux-next/test-context-proxy-cpp.sh",
+  "scripts/cmux-next/test-shim-devtools-id-cpp.sh",
+  "scripts/cmux-next/test-shim-devtools-dock-cpp.sh",
+  "scripts/cmux-next/test-shim-devtools-ready-cpp.sh",
+  "scripts/cmux-next/test-shim-devtools-call-target-cpp.sh",
+  "scripts/cmux-next/test-cmux-page-path-cpp.sh",
+  "scripts/cmux-next/test-chromium-host-wire-cpp.sh",
+  "scripts/cmux-next/test-shim-file-dialog-cpp.sh",
+  "scripts/cmux-next/test-shim-helper-signals-cpp.sh",
+  "scripts/cmux-next/test-shim-webstore-cpp.sh",
+  "scripts/cmux-next/lib/cxx.sh",
+  "tests/test_cmux_next_shim_cpp_linux.py",
+]
+run = '''
+rc=0
+./scripts/cmux-next/test-shim-downloads-cpp.sh || rc=1
+./scripts/cmux-next/test-password-reveal-relay-cpp.sh || rc=1
+./scripts/cmux-next/test-shim-switches-cpp.sh || rc=1
+./scripts/cmux-next/test-auth-callback-policy-cpp.sh || rc=1
+./scripts/cmux-next/test-permission-prompt-policy-cpp.sh || rc=1
+./scripts/cmux-next/test-local-file-handoff-cpp.sh || rc=1
+./scripts/cmux-next/test-local-file-scope-cpp.sh || rc=1
+./scripts/cmux-next/test-agent-url-policy-cpp.sh || rc=1
+./scripts/cmux-next/test-context-proxy-cpp.sh || rc=1
+./scripts/cmux-next/test-shim-devtools-id-cpp.sh || rc=1
+./scripts/cmux-next/test-shim-devtools-dock-cpp.sh || rc=1
+./scripts/cmux-next/test-shim-devtools-ready-cpp.sh || rc=1
+./scripts/cmux-next/test-shim-devtools-call-target-cpp.sh || rc=1
+./scripts/cmux-next/test-cmux-page-path-cpp.sh || rc=1
+./scripts/cmux-next/test-chromium-host-wire-cpp.sh || rc=1
+./scripts/cmux-next/test-shim-file-dialog-cpp.sh || rc=1
+./scripts/cmux-next/test-shim-helper-signals-cpp.sh || rc=1
+./scripts/cmux-next/test-shim-webstore-cpp.sh || rc=1
+exit "$rc"
+'''
+
+# Chrome ships its security fixes in stable first (CVE-2026-106378 was fixed in Chrome 155 while cmux
+# shipped 154). One HTTPS request to Google's version history API.
+[step.chromium-currency]
+job = "linux"
+timeout = 300
+title = "Shipped Chromium is at most one stable milestone behind"
+about = "the Chromium cmux-next ships (scripts/cmux-next/cef-manifest.json) is at most one Chrome stable milestone behind, and no sandbox-weakening switch reaches Chromium"
+inputs = [
+  "scripts/cmux-next/cef-manifest.json",
+  "scripts/cmux-next/check-chromium-currency.py",
+  "scripts/cmux-next/tests/chromium-currency.test.sh",
+]
+run = '''
+rc=0
+# The check itself (fixed versions).
+bash scripts/cmux-next/tests/chromium-currency.test.sh || rc=1
+# A pull request that leaves the pin alone inherits the pin's age from the base: it warns. One that
+# changes the pin is judged (cmuxterm-hq#5745). HEAD^1 is the base side of the merge commit; when it
+# can't be read, the step judges.
+if git diff --quiet HEAD^1 HEAD -- scripts/cmux-next/cef-manifest.json; then
+  python3 scripts/cmux-next/check-chromium-currency.py \
+    || echo "::warning::The base's Chromium pin is behind stable; this PR does not change it."
+else
+  python3 scripts/cmux-next/check-chromium-currency.py || rc=1
+fi
+# Sandbox-weakening switches never reach Chromium.
+./scripts/cmux-next/test-shim-switches-cpp.sh || rc=1
+exit "$rc"
+'''
+
+# acpmux's wire contract is cmux-tui/crates/acpmux/spec/acpmux-protocol.json; the app's Swift side
+# names acpmux methods and param keys by hand. swift-acpmux-protocol.yml keeps its post-merge batch run.
+[step.swift-acpmux-protocol]
+job = "linux"
+timeout = 300
+title = "Swift acpmux calls are in the protocol"
+about = "every acpmux method and param key the Swift app names is in the acpmux protocol, or in the allowlist with its reason"
+inputs = [
+  "Packages/macOS/CmuxNext/Sources/**",
+  "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
+  "scripts/ci/check-swift-acpmux-protocol.py",
+  "scripts/ci/swift-acpmux-protocol-allowlist.txt",
+  "tests/test_check_swift_acpmux_protocol.py",
+]
+run = '''
+rc=0
+# Red on a planted drifted method, pane method and param key, and on a stale allowlist entry.
+python3 -I tests/test_check_swift_acpmux_protocol.py || rc=1
+python3 -I scripts/ci/check-swift-acpmux-protocol.py || rc=1
+exit "$rc"
+'''
+
 # The description lints from pr-body-checks.yml. They judge the description, not the code, and only
 # ever warned (Leo, 2026-11-01: "keep only what catches real breakage"; cmuxterm-hq#5745).
 [step.design-spec]
