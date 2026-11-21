@@ -15,6 +15,9 @@ phone on another Mac (another tag's dev build on the account) says which, by nam
                     --session auto_login|restored|signed_out [--mac-id ID] [--git-sha SHA] [--dev-tag TAG]
       signed_out (--no-auth): the receipt says signed out and names no account or Mac; for the
       other sessions a signed-out receipt means "not yet" (exit 1)
+      --build-space SPACE: the receipt's build_space (the cloud data space the app's requests carry) must
+      be SPACE, the tagged Mac's (review_mac.py space); another space is refused at once (exit 3), since
+      a phone in another space never lists its tag's Mac
       --git-sha / --dev-tag: the receipt must come from the build of this run's head and tag
       (Info.plist CmuxMobileSourceCommit, CmuxMobileTag), not an older install of the bundle.
       exit 0: valid (prints one line); 1: not this launch's yet (keep waiting);
@@ -79,6 +82,13 @@ def check(a):
         reject("the receipt names another client id (another phone or simulator)")
     if receipt["bundle_id"] != a.bundle_id:
         reject(f"the receipt is from {receipt['bundle_id']}, not {a.bundle_id}")
+    if a.build_space is not None:
+        have = receipt.get("build_space")
+        if not isinstance(have, str):
+            reject("the receipt names no build_space (an app from before build spaces)")
+        if have != a.build_space:
+            reject(f"the app's build space is {have or 'the default space'!r}, not the tagged Mac's "
+                   f"{a.build_space or 'the default space'!r}: it lists none of that Mac's devices")
     for key, want in (("git_sha", a.git_sha), ("dev_tag", a.dev_tag)):
         if want and receipt.get(key) != want:
             reject(f"the installed app is another build: its {key} is {receipt.get(key)!r}, this run's is {want!r}")
@@ -91,10 +101,16 @@ def check(a):
             # The build's own backend: an override review.sh or the app kept from an earlier run (a tag's
             # stack or a preview) must be gone.
             host = (urlparse(have).hostname or "").lower()
-            if host.endswith(".ts.net") or host.startswith("cmux-api-preview-"):
+            if host.endswith(".ts.net") or host.endswith(".wdev.cmux.dev") or host.startswith("cmux-api-preview-"):
                 reject(f"the app still uses the kept Cloud backend {have}")
         elif have.rstrip("/").lower() != a.cloud_backend.rstrip("/").lower():
             reject(f"the app uses the Cloud backend {have}, not {a.cloud_backend}")
+    # A tag's stack (review.sh --backend tag-stack) brings its own mobile Worker, where the tag's Mac registers:
+    # the phone must use it too (CloudBackendOverride.mobileAPI), or it never finds that Mac.
+    if a.mobile_api:
+        have = receipt.get("api_base_url")
+        if not isinstance(have, str) or have.rstrip("/").lower() != a.mobile_api.rstrip("/").lower():
+            reject(f"the app uses the mobile service {have or 'none'}, not the tag stack's {a.mobile_api}")
     signed_out = receipt.get("signed_in") is False or receipt["session_source"] == "signed_out"
     if a.session == "signed_out":
         # --no-auth: the app must sit at the welcome screen, signed in to no account.
@@ -243,6 +259,8 @@ def main(argv=None):
     c.add_argument("--git-sha", default="")
     c.add_argument("--dev-tag", default="")
     c.add_argument("--cloud-backend", default="")
+    c.add_argument("--mobile-api", default="")
+    c.add_argument("--build-space", default=None)
     i = sub.add_parser("phone-ids")
     i.add_argument("receipt")
     e = sub.add_parser("env-value")
