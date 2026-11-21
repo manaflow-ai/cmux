@@ -211,6 +211,36 @@ def check_recheck():
            f"an owner whose hand-off never ends: the wait is bounded ({out.strip()!r}, {log.count('sleep')} sleeps)")
 
 
+def check_skipped_gate_descendants():
+    """push-gate is skipped on every trunk push and dispatch (it gates lane
+    pushes only). A job condition with no status function carries an implicit
+    success(), which is false when any ancestor was skipped, so every job
+    downstream of push-gate needs one. tree-owner-wait had none from #45997 on
+    and never ran on feat-cmux-next: run 44849576551 deferred to no owner and
+    wrote no cmux-tui/<sha>/manifest.json."""
+    jobs = yaml.safe_load(open(WORKFLOW, encoding="utf-8"))["jobs"]
+
+    def needs(name):
+        value = jobs[name].get("needs") or []
+        return [value] if isinstance(value, str) else value
+
+    def ancestors(name, seen):
+        for parent in needs(name):
+            if parent not in seen:
+                seen.add(parent)
+                ancestors(parent, seen)
+        return seen
+
+    status = ("always()", "cancelled()", "failure()", "success()")
+    missing = sorted(name for name in jobs
+                     if "push-gate" in ancestors(name, set())
+                     and not any(fn in str(jobs[name].get("if", "")) for fn in status))
+    _check(not missing, "every job downstream of the skipped push-gate states a status function in its if "
+           f"(none: {', '.join(missing) or '-'})")
+    _check("!cancelled()" in str(jobs["tree-owner-wait"]["if"]),
+           "tree-owner-wait runs on a trunk push, whose push-gate is skipped")
+
+
 def check_lease():
     """A live owner holds its key for a bounded lease, not until its job timeout.
 
@@ -400,6 +430,7 @@ def main():
 
     check_lease()
     check_recheck()
+    check_skipped_gate_descendants()
 
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")
