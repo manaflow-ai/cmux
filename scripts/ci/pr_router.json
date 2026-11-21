@@ -25,9 +25,12 @@
     "clients/ts/**",
     "scripts/*webviews*",
     "Native/OptChat/optchat-chief/inspector/**",
-    ".github/workflows/cmux-next-size-budget.yml"
+    ".github/workflows/cmux-next-size-budget.yml",
+    "Packages/Shared/**",
+    "cmux-tui/**/*.rs",
+    "cmux-tui/frontends/web/**"
    ],
-   "affects_why": "bundle-size-pr.py check measures three inputs (scripts/cmux-next/bundle-size-budget.json pull_request): files under tree_paths (Resources, Packages/macOS/*/Sources/*/Resources, Assets.xcassets), the web bundles (inputs: web-bundle-key.py --routed, a superset here by directory), and the crates of shipped Rust binaries (Cargo manifests and lockfiles); plus the tool itself under scripts/cmux-next. A change touching none of them adds nothing to the app.",
+   "affects_why": "bundle-size-pr.py check measures three inputs (scripts/cmux-next/bundle-size-budget.json pull_request): files under tree_paths (Resources, Packages/macOS/*/Sources/*/Resources, Assets.xcassets), the web bundles (inputs: web-bundle-key.py --routed, a superset here by directory), and the crates of shipped Rust binaries (Cargo manifests and lockfiles); plus the tool itself under scripts/cmux-next. A change touching none of them adds nothing to the app. The same job shows the advisory source budget (source-growth-pr.py, gates nothing), whose inputs are NEXT app source: Swift under Packages/macOS and Packages/Shared, Rust under cmux-tui, TS under webviews and cmux-tui/frontends/web.",
    "skip_docs_only": true
   },
   "classic-api-guard.yml": {

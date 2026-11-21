@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "about": "The advisory source budget of one pull request into feat-cmux-next (scripts/cmux-next/source-growth-pr.py, a step of workflow cmux-next-size-budget.yml). It gates nothing: a change that adds more than allowance_bytes net of NEXT app source (Swift, Rust, web; tests, fixtures, galleries, vendor and generated code left out) gets a warning and a table, never a red check.",
+  "reason": "cmuxterm-hq goals/next-code-shrinks.md, 2026-11-16: 'growth rate, and an advisory per-PR budget'. NEXT's app source grows by many small merges; 20,000 bytes is about 500 lines at 40 bytes a line, so an ordinary fix or feature passes and a large addition is asked for its offset. Leo, 2026-11-09: 'yeah dude we can ofc adjust the goal as we go'.",
+  "allowance_bytes": 20000
+}

@@ -165,6 +165,42 @@ jobs:
           persist-credentials: false
           fetch-depth: 2
 
+      # The advisory source budget (cmuxterm-hq goals/next-code-shrinks.md, 2026-11-16): the net bytes of NEXT
+      # app source the change adds. It gates nothing: a warning over the allowance, never a red check. Like the
+      # size check below, it runs the base commit's script and budget, written out with `git show`, and reads
+      # the head only through git.
+      - name: Source growth (advisory)
+        if: ${{ needs.plan.outputs.tool == 'true' }}
+        continue-on-error: true
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -uo pipefail
+          if ! git cat-file -e HEAD^1:scripts/cmux-next/source-growth-pr.py 2>/dev/null; then
+            # The pull request that adds the budget: its base has none to run yet.
+            echo "::notice::The base has no scripts/cmux-next/source-growth-pr.py yet; no source budget to show."
+            { echo '### Source growth (advisory)'; echo 'The base has no source budget yet; nothing to show.'; } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git show HEAD^1:scripts/cmux-next/source-growth-pr.py > "$RUNNER_TEMP/source-growth-pr.py"
+          git show HEAD^1:scripts/cmux-next/source-growth-budget.json > "$RUNNER_TEMP/source-growth-budget.json"
+          printf '%s\n' "$BODY" > "$RUNNER_TEMP/source-body.md"
+          rc=0
+          python3 -I "$RUNNER_TEMP/source-growth-pr.py" check --repo "$GITHUB_WORKSPACE" \
+            --budget "$RUNNER_TEMP/source-growth-budget.json" --base HEAD^1 --head HEAD \
+            --body-file "$RUNNER_TEMP/source-body.md" --json "$RUNNER_TEMP/source-growth.json" \
+            > "$RUNNER_TEMP/source-growth.md" || rc=$?
+          if (( rc != 0 )); then
+            echo "::notice::The source budget could not be measured (exit $rc)."
+            exit 0
+          fi
+          cat "$RUNNER_TEMP/source-growth.md"
+          { echo '### Source growth (advisory)'; cat "$RUNNER_TEMP/source-growth.md"; } >> "$GITHUB_STEP_SUMMARY"
+          if python3 -I -c 'import json, sys; sys.exit(0 if json.load(open(sys.argv[1]))["over"] else 1)' "$RUNNER_TEMP/source-growth.json"; then
+            echo "::warning title=Source growth over the allowance (advisory)::$(head -1 "$RUNNER_TEMP/source-growth.md" | tr -d '*`')"
+          fi
+          exit 0
+
       - name: Check the size budget
         env:
           TOOL: ${{ needs.plan.outputs.tool }}
