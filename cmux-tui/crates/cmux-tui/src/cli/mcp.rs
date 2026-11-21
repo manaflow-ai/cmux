@@ -374,7 +374,7 @@ impl Backend for LiveBackend {
 
     #[cfg(unix)]
     fn customize(&self, words: &[String]) -> Result<Value, CallFailure> {
-        super::customize::run_json(words, "mcp").map_err(|error| CallFailure {
+        super::customize::run_json(&self.global, words, "mcp").map_err(|error| CallFailure {
             kind: FailureKind::Rejected,
             error,
             idempotency_key: None,
