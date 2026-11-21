@@ -51,6 +51,9 @@ VARIABLES = {"LINUX_RUNNER": ["blacksmith-4vcpu-ubuntu-2404"], "CI_CLOUD_OVERFLO
 
 # (workflow, job) -> why its attempt-1 route may still reach Blacksmith Linux for a same-repository run.
 ALLOWED: dict[tuple[str, str], str] = {
+    ("cloudflare-relay.yml", "cloudflare-relay"): (
+        "`cargo install worker-build` builds openssl-sys, and the owned Linux image has no OpenSSL headers and no "
+        "sudo to add them (docs: root-step-on-a-no-sudo-runner); it moves once the image carries them"),
     ("cmux-tui-artifacts.yml", "cmux-next-daemon-tests"): (
         "owned-first census route (tests/test_ci_owned_first_not_census_frozen.py): an owned GCP label on the "
         "nightly path, the pool only past it; its spill design is its own change"),
