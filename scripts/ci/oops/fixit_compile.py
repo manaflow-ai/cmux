@@ -275,7 +275,13 @@ def tsc_plan(errors: list[dict], cwd: Path, repo: Path) -> dict:
         tail = (proc.stderr or proc.stdout).strip().splitlines()[-3:]
         return {"errors": len(errors), "fixable": 0, "unfixable": [f"tsc-fixits failed: {' '.join(tail)}"],
                 "edits": {}}
-    plan = json.loads(proc.stdout)
+    try:
+        plan = json.loads(proc.stdout)
+    except ValueError:
+        # A runner that exits 0 with no plan (a stand-in bun, a wrapper that ate the output) fixes nothing.
+        return {"errors": len(errors), "fixable": 0, "unfixable": ["tsc-fixits printed no JSON plan"], "edits": {}}
+    if not isinstance(plan, dict):
+        return {"errors": len(errors), "fixable": 0, "unfixable": ["tsc-fixits printed no JSON plan"], "edits": {}}
     edits = {}
     for path, file_edits in (plan.get("edits") or {}).items():
         real = Path(path).resolve()
