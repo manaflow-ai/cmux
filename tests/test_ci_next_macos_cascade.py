@@ -2906,6 +2906,59 @@ class BlacksmithPrRescue(unittest.TestCase):
         # pr-rescue never turns the repository-wide switch on.
         self.assertFalse(cascade.blacksmith_on(rescue_env()))
 
+    def test_dispatch_rescue_routes_the_measured_daemon_and_scheme_jobs(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        placement = jobs["macos-placement"]
+        step = next(step for step in placement["steps"] if step.get("id") == "rescue-dispatch")
+        place_env = next(step["env"] for step in placement["steps"] if step.get("id") == "place")
+        context = github_context("workflow_dispatch", CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=SIDE,
+                                 CI_BLACKSMITH_MACOS=RESCUE)
+        sha = "a" * 40
+        context["github"].update(ref_type="branch", sha=sha, run_attempt="2", triggering_actor=RERUN_BOT)
+        context["needs"] = {"path_route": {"outputs": {"daemon": "true", "scheme": "true", "tree_state": "ready"}}}
+        same_tree = dict(same_tree_sha="b" * 40, same_tree_origin="pull_request", same_tree_status_sha=sha,
+                         same_tree_state="ready", same_tree_tiers="daemon,scheme")
+        for inputs in (*NOT_A_PULL_DISPATCH, {**same_tree, "same_tree_status_sha": "c" * 40},
+                       {**same_tree, "same_tree_state": "failed"}):
+            self.assertFalse(evaluate(step["if"], {**context, "inputs": inputs}), inputs)
+        seen = cascade.seen(snapshot(), NOW)
+        counts = {LARGE: 0, SMALL: 0}
+        for inputs in ({}, same_tree):
+            context["inputs"] = inputs
+            self.assertTrue(evaluate(step["if"], context), inputs)
+            context["steps"] = {"rescue-dispatch": {"outputs": {"eligible": "true"}}}
+            variables = rescue_env(GITHUB_EVENT_NAME="workflow_dispatch", GITHUB_TRIGGERING_ACTOR=RERUN_BOT,
+                                   GITHUB_RUN_ATTEMPT="2")
+            for key in ("PR_RESCUE_DISPATCH", "CASCADE_RUNS", "CASCADE_JOBS"):
+                variables[key] = evaluate(place_env[key], context)
+            self.assertEqual(set(variables["CASCADE_RUNS"].split()), {"cmux-scheme-compile", "daemon-test"})
+            chosen = cascade.place(variables, (), counts, counts, seen, saturated=True, route_wait=45)
+            with tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "out"
+                cascade.write(chosen, {"GITHUB_OUTPUT": str(output)})
+                outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            context["steps"]["place"] = {"outputs": outputs}
+            daemon = evaluate(placement["outputs"]["dispatch_daemon_placed"], context)
+            self.assertTrue(daemon)
+            for placed in ("1", "2"):
+                context["needs"]["macos-placement"] = {"outputs": {
+                    **outputs, "dispatch_daemon_placed": "true", "placed_attempt": placed}}
+                for key in ("cmux-scheme-compile", "daemon-test"):
+                    for expression in (jobs[key]["runs-on"], jobs[key]["env"]["CMUX_NEXT_RUNNER"]):
+                        self.assertEqual(evaluate(expression, context), LARGE if placed == "2" else SIDE)
+            for live, waiting, observed, age in ((counts, counts, seen, 44), (None, counts, seen, 45),
+                    (counts, None, seen, 45), (counts, counts, None, 45),
+                    (cascade.CAPACITY, counts, seen, 90)):
+                result = cascade.place(variables, (), live, waiting, observed, saturated=True, route_wait=age)
+                self.assertEqual((result.jobs, result.retry_jobs), (none_placed(), ()))
+            previous = {**variables, "PR_RESCUE_PREVIOUS_WAIT_SECONDS": "2700"}
+            self.assertEqual(cascade.place(previous, (), counts, counts, seen, route_wait=0).jobs, chosen.jobs)
+            self.assertEqual(cascade.place({**previous, "PR_RESCUE_PREVIOUS_WAIT_SECONDS": "2699"},
+                                           (), counts, counts, seen, route_wait=0).jobs, none_placed())
+            for overrides in ({"GITHUB_TRIGGERING_ACTOR": "a-person"}, {"GITHUB_RUN_ATTEMPT": "1"},
+                              {"PR_RESCUE_DISPATCH": ""}):
+                self.assertFalse(cascade.pr_rescue({**variables, **overrides}))
+
     def test_placement_overflows_only_past_the_owned_route_threshold_under_the_cap(self):
         full, busy = DeadEndRoute.FULL, DeadEndRoute.BUSY_SMALL
         seen = DeadEndRoute.INCIDENT
