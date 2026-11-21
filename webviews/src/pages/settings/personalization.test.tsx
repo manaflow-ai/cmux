@@ -225,9 +225,11 @@ test("without art to pick, Background still draws the shuffle interval Appearanc
 // sets in Text and Density. The density card draws it right under Text Size, and it is the same setting:
 // a pick here is the one write, and the Sidebar page, which still draws the row, shows it.
 test("Text and Density draws Sidebar Text Size under Text Size, and it is the Sidebar page's setting", async () => {
-  const page = await renderPage({ path: "/settings/personalization?part=text" });
+  const page = await renderPage({ path: "/settings/personalization?focus=sidebar.textSize" });
   await settle();
   const card = () => page.container.querySelector<HTMLElement>('[data-part="text"] [data-card="density"]')!;
+  // A link to the row on this page opens Text and Density, and the page draws it once.
+  expect(rowKeys(page.container).filter((key) => key === "sidebar.textSize")).toHaveLength(1);
   const densityRows = rowKeys(card());
   expect(densityRows).toContain("sidebar.textSize");
   expect(densityRows.indexOf("sidebar.textSize")).toBe(densityRows.indexOf("appearance.metrics.chromeFontSize") + 1);
