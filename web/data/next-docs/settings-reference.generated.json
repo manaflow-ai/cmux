@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 645,
+  "count": 647,
   "sections": [
     {
       "id": "general",
@@ -2013,6 +2013,8 @@
             "source-sans",
             "geist",
             "cmux-sans",
+            "cmux-sans-squat",
+            "cmux-sans-candy",
             "hanken",
             "atkinson"
           ]
@@ -2990,6 +2992,14 @@
             "shared",
             "perPane"
           ]
+        },
+        {
+          "key": "appearance.previousGlass",
+          "title": "Previous Glass Look",
+          "help": "Draws menus, popovers, the composer and cards with the glass from before November 2026.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Window Background"
         },
         {
           "key": "appearance.rotateFavoriteThemes",
@@ -3986,11 +3996,12 @@
         {
           "key": "sidebar.groupHeader.background",
           "title": "Group Background",
-          "help": "How a group's background draws. Sections shows plain headings instead.",
+          "help": "How a group draws. Folders shows plain folders; Sections shows plain headings.",
           "kind": "choice",
-          "default": "auto",
+          "default": "folder",
           "group": "Sidebar",
           "values": [
+            "folder",
             "auto",
             "glass",
             "solid",
@@ -6954,6 +6965,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Developer Tools"
+        },
+        {
+          "key": "experiments.composerV2",
+          "title": "Composer Refresh",
+          "help": "A glass composer with mode chips, mention chips and a round send button. Still being shaped.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
         },
         {
           "key": "experiments.glassToolbarGroups",
