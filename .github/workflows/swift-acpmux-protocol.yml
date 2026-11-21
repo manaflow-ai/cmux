@@ -4,8 +4,9 @@ name: Swift acpmux calls are in the protocol
 # Rust method registry (cmux-tui-spec.yml acpmux-protocol-ir keeps it current, and the webviews
 # generate their client from it). The app's Swift side names acpmux methods and the agent pane's
 # allowed param keys by hand; scripts/ci/check-swift-acpmux-protocol.py checks every one against
-# the protocol, so a drifted method or param fails here instead of at the daemon. It runs when
-# either side changes: seconds, no build.
+# the protocol, so a drifted method or param fails here instead of at the daemon. A pull request
+# that changes either side runs it as the swift-acpmux-protocol step of ci/steps.toml
+# (pr-pipeline.yml): seconds, no build.
 on:
   # feat-cmux-next runs this in the post-merge batch (cmux-next-post-merge.yml, suite
   # swift-acpmux-protocol in .github/post-merge-batch.json), not once per merge: sha is the commit to
@@ -20,14 +21,6 @@ on:
         description: Run only this job id (a bisect probe); empty runs every job.
         type: string
         default: ""
-  pull_request:
-    paths:
-      - "Packages/macOS/CmuxNext/Sources/**"
-      - "cmux-tui/crates/acpmux/spec/acpmux-protocol.json"
-      - "scripts/ci/check-swift-acpmux-protocol.py"
-      - "scripts/ci/swift-acpmux-protocol-allowlist.txt"
-      - "tests/test_check_swift_acpmux_protocol.py"
-      - ".github/workflows/swift-acpmux-protocol.yml"
   workflow_dispatch:
 
 concurrency:
