@@ -298,11 +298,13 @@ class DailyPickerTests(unittest.TestCase):
         result = self.daily([slot("cmux8s-glaeda-2", busy=True), slot("cmux11s-glaeda-2")], self.records(cmux8s=0, cmux11s=9))
         self.assertEqual(result["host"], "cmux11s")
 
-    def test_without_a_claimable_warm_host_the_shared_slot_label_then_side_then_blacksmith(self):
+    def test_without_a_claimable_warm_host_the_shared_slot_label_then_blacksmith_never_side(self):
         result = self.daily([slot("cmux8s-glaeda-2"), runner("cmux13s-glaeda-9", SIDE)], {})
         self.assertEqual((json.loads(result["runs_on"]), result["pool"], result["host"]), (FRESH, "owned", ""))
+        # An idle side runner in the listing is no place in line: the side label's queue is handed out oldest first
+        # (run 44941204257, 2026-11-21: 76 min behind about 130 PR jobs on it, then refused for capacity).
         result = self.daily([slot("cmux8s-glaeda-2", busy=True), runner("cmux13s-glaeda-9", SIDE)], self.records(cmux8s=1))
-        self.assertEqual((json.loads(result["runs_on"]), result["pool"]), (SIDE, "owned"))
+        self.assertEqual((json.loads(result["runs_on"]), result["runner_label"], result["pool"]), (SMALL, SMALL, "blacksmith"))
         result = self.daily([slot("cmux8s-glaeda-2", status="offline"), runner("cmux13s-glaeda-9", SIDE, busy=True)],
                             self.records(cmux8s=1))
         self.assertEqual((json.loads(result["runs_on"]), result["runner_label"], result["pool"]), (SMALL, SMALL, "blacksmith"))
@@ -363,10 +365,15 @@ class DailyPickerTests(unittest.TestCase):
         result = self.daily(busy, {}, counted({SMALL: 56, LARGE: 5}, 60))
         self.assertEqual(json.loads(result["runs_on"]), SMALL)
 
-    def test_an_idle_owned_runner_always_beats_blacksmith(self):
-        result = self.daily([slot("cmux8s-glaeda-2", busy=True), runner("cmux13s-glaeda-9", SIDE)], {},
+    def test_an_idle_dev_slot_beats_blacksmith_but_an_idle_side_runner_never_places_it(self):
+        result = self.daily([slot("cmux8s-glaeda-2"), runner("cmux13s-glaeda-9", SIDE)], {},
                             snapshot({SMALL: 0, LARGE: 0}))
-        self.assertEqual((json.loads(result["runs_on"]), result["pool"]), (SIDE, "owned"))
+        self.assertEqual((json.loads(result["runs_on"]), result["pool"]), (FRESH, "owned"))
+        for snap in (snapshot({SMALL: 0, LARGE: 0}), snapshot({SMALL: 49, LARGE: 30}), None):
+            with self.subTest(snapshot=snap):
+                result = self.daily([slot("cmux8s-glaeda-2", busy=True), runner("cmux13s-glaeda-9", SIDE)], {}, snap)
+                self.assertNotEqual(json.loads(result["runs_on"]) if result["runs_on"] else "", SIDE)
+                self.assertNotEqual(result.get("runner_label"), SIDE)
 
     def test_unreadable_runners_or_owned_pools_off_keep_the_route(self):
         def refused():
