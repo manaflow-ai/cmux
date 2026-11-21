@@ -39,6 +39,21 @@ fn a_persons_cmd_t_opens_the_page_where_agent_tabs_live() {
     assert_eq!(new_tab_kind(&agent), NewTabKind::Terminal);
 }
 
+#[test]
+fn a_terminal_first_persons_cmd_t_opens_a_terminal() {
+    let user = NewTabFacts { user: true, follows_setting: true, terminal_first: true, ..facts() };
+    assert_eq!(new_tab_kind(&user), NewTabKind::Terminal);
+    // Even on a chat or a browser: Cmd-T is the person's terminal key.
+    assert_eq!(new_tab_kind(&NewTabFacts { agent: true, ..user.clone() }), NewTabKind::Terminal);
+    let browser = NewTabFacts { selected_kind: SelectedKind::Browser, ..user };
+    assert_eq!(new_tab_kind(&browser), NewTabKind::Terminal);
+    // New <Kind> Tab and scripts still follow the selected tab.
+    assert_eq!(
+        new_tab_kind(&NewTabFacts { follows_setting: false, ..browser }),
+        NewTabKind::Browser { engine: None }
+    );
+}
+
 fn resolved(url: &str) -> Resolution {
     Resolution { url: url.into(), ..Resolution::default() }
 }
@@ -220,6 +235,35 @@ fn toggle_swaps_a_session_between_its_terminal_and_its_chat() {
     assert_eq!(
         terminal_chat_toggle(&facts(false, false, Some("claude"), Some("s"))),
         TerminalChatToggle::NotAgentTab
+    );
+}
+
+// Leo, 2026-11-17: "why is this even a behaviour that happens / just... stop showijg the toggle
+// on gui." A chat no terminal runs, on a device that cannot start one, is only a chat: the
+// route refuses it (no toggle), never a face that answers "No terminal runs this chat".
+#[test]
+fn a_chat_no_terminal_runs_where_none_can_start_offers_no_toggle() {
+    let chat = ToggleFacts {
+        chat: true,
+        agent: Some("codex".into()),
+        session: Some("s".into()),
+        cannot_start_terminal: true,
+        ..Default::default()
+    };
+    assert_eq!(terminal_chat_toggle(&chat), TerminalChatToggle::NoTerminal);
+    assert_eq!(
+        terminal_chat_toggle(&ToggleFacts { busy: true, ..chat.clone() }),
+        TerminalChatToggle::NoTerminal
+    );
+    // A terminal that runs the session still shows: the toggle stays where it works.
+    assert_eq!(
+        terminal_chat_toggle(&ToggleFacts { running: true, ..chat.clone() }),
+        TerminalChatToggle::ToTerminal { harness: "codex".into(), session: "s".into() }
+    );
+    // A terminal reads none of it: its chat face is the toggle that works.
+    assert_eq!(
+        terminal_chat_toggle(&ToggleFacts { terminal: true, chat: false, ..chat }),
+        TerminalChatToggle::ToChat { harness: "codex".into(), session: "s".into() }
     );
 }
 
@@ -478,4 +522,37 @@ fn terminal_tables() {
     assert_eq!(panes::clear_failure_kind("error: not connected to host"), "not connected");
     assert_eq!(panes::clear_failure_kind("/Users/x/secret"), "other");
     assert_eq!(panes::shell_quoted("/tmp/it's here.png"), "'/tmp/it'\\''s here.png'");
+}
+
+#[test]
+fn a_gui_chat_no_terminal_runs_shows_no_toggle() {
+    let chat = ToggleFacts {
+        chat: true,
+        agent: Some("claude".into()),
+        session: Some("s".into()),
+        ..Default::default()
+    };
+    // A chat no terminal runs is a GUI chat: no toggle, mid-turn or not.
+    assert!(!terminal_chat_toggle(&chat).shows_toggle());
+    assert!(!terminal_chat_toggle(&ToggleFacts { busy: true, ..chat.clone() }).shows_toggle());
+    // Half of a live pair shows it: a chat a terminal runs, a terminal running its session.
+    assert!(terminal_chat_toggle(&ToggleFacts { running: true, ..chat.clone() }).shows_toggle());
+    let terminal = ToggleFacts { terminal: true, chat: false, ..chat.clone() };
+    assert!(terminal_chat_toggle(&terminal).shows_toggle());
+    // A hand-off an earlier Toggle started still shows it, so the new terminal is reachable.
+    let hand_off = HandOff { deadline: 160.0, tab: None };
+    assert!(
+        terminal_chat_toggle(&ToggleFacts { hand_off: Some(hand_off), now: 100.0, ..chat })
+            .shows_toggle()
+    );
+    // No session, an unsupported harness, not an agent tab, nowhere to start a terminal: none.
+    for route in [
+        TerminalChatToggle::NotAgentTab,
+        TerminalChatToggle::NoSession,
+        TerminalChatToggle::UnsupportedHarness,
+        TerminalChatToggle::Busy,
+        TerminalChatToggle::NoTerminal,
+    ] {
+        assert!(!route.shows_toggle(), "{route:?}");
+    }
 }

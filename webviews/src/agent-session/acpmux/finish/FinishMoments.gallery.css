@@ -6,9 +6,6 @@
   padding: 24px;
   color: var(--agent-text);
 }
-.acpmux-finish-stage__row {
-  width: 360px;
-}
 .acpmux-finish-stage__header {
   display: flex;
   align-items: center;
@@ -20,34 +17,6 @@
 }
 .acpmux-finish-stage__replay {
   align-self: flex-start;
-}
-
-/* Turn: the label alone, or a sweep, with no check. */
-[data-finish-look="tint"] .cv-finish-check,
-[data-finish-look="shine"] .cv-finish-check {
-  display: none;
-}
-[data-finish-look="tint"] .cv-worked[data-finish] > .cv-worked__chevron,
-[data-finish-look="shine"] .cv-worked[data-finish] > .cv-worked__chevron {
-  opacity: 1;
-  animation: none;
-}
-/* The rejected tint: the label in the success ink, which the shipped row never draws. */
-[data-finish-look="tint"] .cv-worked[data-finish] > .cv-worked__label {
-  color: var(--agent-status-success);
-}
-[data-finish-look="shine"] .cv-worked[data-finish] > .cv-worked__label {
-  color: inherit;
-  animation: none;
-}
-[data-finish-look="shine"] .cv-worked[data-finish] {
-  background: linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--agent-status-success) 18%, transparent) 50%, transparent 70%) no-repeat;
-  background-size: 200% 100%;
-  animation: finish-gallery-shine var(--cmux-finish-short) var(--cmux-ease-out) both; /* motion-allow: gallery-only comparison look */
-}
-@keyframes finish-gallery-shine {
-  from { background-position: 150% 0; }
-  to { background-position: -50% 0; }
 }
 
 /* Green checks: text tint alone, or the dot growing into a check. */

@@ -218,6 +218,8 @@ pub struct Camera {
     snap_until_us: Option<u64>,
     /// The best focus the shot since the last cut has framed.
     shot: Option<Rank>,
+    /// The time of the last full redraw: its other rects are dropped too.
+    redraw_at: Option<u64>,
 }
 
 /// How much a focus says about where the person looks, least first.
@@ -248,6 +250,7 @@ impl Camera {
             damage: VecDeque::new(),
             snap_until_us: None,
             shot: None,
+            redraw_at: None,
         };
         camera.size = camera.zoom_size(config.zoom);
         camera.center_on(source_w / 2.0, source_h / 2.0, true);
@@ -303,7 +306,11 @@ impl Camera {
         match event.signal {
             Signal::Source { w, h } => {
                 self.source = (w, h);
-                self.size = self.zoom_size(self.config.zoom);
+                // The person's crop keeps its size (inside the new screen).
+                self.size = match self.mode {
+                    Mode::Manual => (self.size.0.min(w), self.size.1.min(h)),
+                    Mode::Follow => self.zoom_size(self.config.zoom),
+                };
                 self.cut(t);
             }
             Signal::Pointer { x, y } => {
@@ -327,9 +334,17 @@ impl Camera {
                 }
             }
             Signal::Damage { x, y, w, h } => {
+                // A redraw arrives as many rects at one time: judge the
+                // share of the screen the whole instant covers, not each rect.
                 let rect = Rect::new(x, y, w, h);
-                let screen = self.source.0 * self.source.1;
-                if rect.area() > 0.0 && rect.area() <= screen * self.config.damage_max_share {
+                let limit = self.source.0 * self.source.1 * self.config.damage_max_share;
+                let instant: f64 =
+                    self.damage.iter().filter(|(at, _)| *at == t).map(|(_, r)| r.area()).sum();
+                if self.redraw_at == Some(t) {
+                } else if instant + rect.area() > limit {
+                    self.damage.retain(|(at, _)| *at != t);
+                    self.redraw_at = Some(t);
+                } else if rect.area() > 0.0 {
                     if self.damage.len() == MAX_DAMAGE {
                         self.damage.pop_front();
                     }

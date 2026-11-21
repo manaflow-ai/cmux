@@ -20,7 +20,6 @@ nonisolated extension RefusalStrings {
     static var browserReopenNeedsWindow: String { text("handlers.refusal.browserReopenNeedsWindow", "browser tabs reopen only in a pane shown in a window") }
     public static var browserFindClosesWithEscape: String { text("handlers.refusal.browserFindClosesWithEscape", "the browser find bar closes with Escape") }
     public static var nothingSelected: String { text("handlers.refusal.nothingSelected", "nothing is selected") }
-    public static var noActiveFind: String { text("handlers.refusal.noActiveFind", "no find is active; use Find first") }
     public static var textArgumentRequired: String { text("handlers.refusal.textArgumentRequired", "a text argument is required") }
     public static var noScreenshot: String { text("handlers.refusal.noScreenshot", "no screenshot found in the screenshot folder") }
     public static var noWorkingDirectory: String { text("handlers.refusal.noWorkingDirectory", "the tab has no known working directory") }

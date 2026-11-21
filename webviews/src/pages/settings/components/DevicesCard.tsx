@@ -5,6 +5,7 @@
 // only draws and forwards. A relay secret typed in the editor lives in that form's state until it
 // is sent, never in the store, is cleared after Save, and is never drawn back.
 import { useCallback, useId, useState, type ReactNode } from "react";
+import { RemoteHostsExperiment } from "./RemoteHostsExperiment";
 import { Button } from "../../../ui/Button";
 import { Icon } from "../icons";
 import { Input } from "../../../ui/Input";
@@ -39,6 +40,7 @@ export function DevicesCard() {
     <div className="devices" data-card="devices" ref={mounted}>
       {devices && <DevicesBody state={devices} join={join} />}
       {!devices && join && <JoinGroup join={join} />}
+      <RemoteHostsExperiment />
     </div>
   );
 }
@@ -51,6 +53,12 @@ export function DevicesCard() {
 function JoinGroup({ join }: { join: DevicesJoinState }) {
   const store = useStore();
   const [setting, setSetting] = useState<string | null>(null);
+  // The host's refusal of the last switch press itself (not the person's own click): shown, never silent.
+  const [refusal, setRefusal] = useState<string | null>(null);
+  // Both when they differ: a later host error (a failed read) never hides behind an older refusal.
+  const errors = [refusal, join.error].filter(
+    (text, index, all): text is string => !!text && all.indexOf(text) === index,
+  );
   const titleId = useId();
   return (
     <section className="group" data-devices-group="join">
@@ -80,20 +88,24 @@ function JoinGroup({ join }: { join: DevicesJoinState }) {
                   labelId={`${titleId}-${item.surface}`}
                   onToggle={(on) => {
                     setSetting(item.surface);
-                    void store.setJoinConsent(item.surface, on).finally(() => setSetting(null));
+                    setRefusal(null);
+                    void store
+                      .setJoinConsent(item.surface, on)
+                      .then(setRefusal)
+                      .finally(() => setSetting(null));
                   }}
                 />
               </div>
             </div>
           </div>
         ))}
-        {join.error && (
-          <div className="row">
+        {errors.map((error) => (
+          <div className="row" key={error}>
             <div className="row-help" role="alert">
-              {join.error}
+              {error}
             </div>
           </div>
-        )}
+        ))}
         {join.revoke_all && (
           <div className="row">
             <div className="row-control">

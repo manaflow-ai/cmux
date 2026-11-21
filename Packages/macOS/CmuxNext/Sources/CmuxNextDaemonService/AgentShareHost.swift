@@ -18,6 +18,10 @@ public protocol AgentShareHost: AnyObject {
     func shareConnection(holding tab: TabModel) -> DaemonConnection?
     /// Whether `tab` is on this Mac's daemon, the only one that makes and lists shares.
     func shareIsOnThisMac(_ tab: TabModel) -> Bool
+    /// For a chat on a Cloud machine: whether the signed-in person owns that machine, read from the
+    /// Cloud link's owner answer at each call (cloud multiplayer lane C). Only the owner shares a
+    /// Cloud chat; nil for a tab on no Cloud machine.
+    func shareCloudOwner(_ tab: TabModel) -> (@MainActor @Sendable () async -> Bool)?
     /// This Mac's daemon connection (list, revoke and kick act on this Mac's shares).
     var shareLocalConnection: DaemonConnection? { get }
     /// A fresh cmux install token of the signed-in owner (`/v1/auth/token`, ES256) from `api`, the API the
@@ -45,6 +49,8 @@ public protocol AgentShareHost: AnyObject {
 }
 
 public extension AgentShareHost {
+    /// A host with no Cloud machines shares this Mac's chats only.
+    func shareCloudOwner(_ tab: TabModel) -> (@MainActor @Sendable () async -> Bool)? { nil }
     /// Fail closed: a host with no consent sheet never lets automation make a link.
     func shareAskOwner(_ ask: AgentShareConsentAsk) async -> Bool { false }
     /// A host with no sheet shows nothing.
