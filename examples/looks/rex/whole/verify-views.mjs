@@ -15,8 +15,21 @@ host.handlers["action.run"] = () => ok({})
 function mount(id, iface) {
   assert.equal(host.mount(id, manifest.implements[iface].export), "")
 }
+// Only nodes still attached under the root count; a detached subtree can stay in the store.
+function attached(id, pred) {
+  const { root, nodes } = host.tree(id)
+  const stack = [root]
+  while (stack.length) {
+    const key = stack.pop()
+    const n = nodes.get(key)
+    if (!n) continue
+    if (pred(n)) return key
+    stack.push(...n.children)
+  }
+  return undefined
+}
 function nodeIn(id, label) {
-  return host.findNode(id, n => [n.props.text, n.props.title, n.props.placeholder].includes(label))
+  return attached(id, n => [n.props.text, n.props.title, n.props.placeholder].includes(label))
 }
 async function dispatch(id, label, event = "tap", payload = {}) {
   const node = nodeIn(id, label)
@@ -55,6 +68,15 @@ await action("tab", allSearch, "agent.openSessionTab", { session: "same-id" }, "
 await dispatch("tab", allSearch, "edit", { text: "" })
 await dispatch("tab", "Show activity")
 assert.ok(nodeIn("tab", "Remote build") && !nodeIn("tab", "Local draft"))
+await dispatch("hosts", "Show activity")
+assert.ok(nodeIn("hosts", "Working") && nodeIn("hosts", "Remote build") && !nodeIn("hosts", "Local draft"))
+assert.ok(!nodeIn("hosts", "Add Host…") && !nodeIn("hosts", "Done"))
+await action("hosts", "Remote build", "agent.openSessionTab", { session: "same-id", host: "lab" })
+await dispatch("hosts", "By priority")
+assert.ok(nodeIn("hosts", "By project") && nodeIn("hosts", "lab"))
+await dispatch("hosts", "Show hosts")
+assert.ok(nodeIn("hosts", "Add Host…"))
+assert.equal(listReads(), 1)
 host.global.__cmuxAppUnmount("hosts")
 await host.settle()
 assert.equal(host.subscriptions.size, 1)

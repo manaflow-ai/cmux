@@ -5,9 +5,9 @@ import json
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-PACKS = ("appearance", "toolbar", "new-tab", "hosts", "session-picker", "panes",
+PACKS = ("appearance", "toolbar", "new-tab", "hosts", "activity", "session-picker", "panes",
          "terminal", "tabs", "palette", "preferences", "session-operations", "pane-operations")
-VIEWS = {"new-tab", "hosts", "session-picker"}
+VIEWS = {"new-tab", "hosts", "activity", "session-picker"}
 APP_FILES = ("customize/cmux-app.json", "customize/main.js")
 
 
@@ -99,7 +99,7 @@ def compose(root):
     for path in APP_FILES:
         merge(files, path, (HERE / path).read_text(), "combined app")
     files["keybindings.json"] = encode(bindings)
-    description = "Open and find sessions, browse chats by host, and use the combined terminal, window and appearance settings."
+    description = "Open and find sessions, browse chats by host or by activity, and use the combined terminal, window and appearance settings."
     setup = dict(cmuxSetup=1, cmuxProfile=1, id="manaflow-ai/rex-whole", name="Rex",
                  version="1.0.0", description=description, settings=settings)
     profile = dict(cmuxProfile=1, name="rex-whole", description=description,

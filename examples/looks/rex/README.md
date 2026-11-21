@@ -1,11 +1,12 @@
 # Rex workspace looks
 
-Install [the whole setup](whole) for the creation page, host list, session search, window proportions, keyboard controls and appearance. Each feature also installs independently.
+Install [the whole setup](whole) for the creation page, host list and activity, session search, window proportions, keyboard controls and appearance. Each feature also installs independently.
 
 | Feature | What you can do |
 | --- | --- |
 | [New Tab](new-tab) | Start a terminal in this workspace, create a local workspace, choose a machine or add a remote host. |
 | [Hosts](hosts) | Browse chats by host, start a chat on that host and open host setup. |
+| [Activity](activity) | Watch chats that need input, failed, finished unread or are working, by priority or project. |
 | [Session picker](session-picker) | Search chats by name, host, project or folder, and filter by activity. |
 | [Tabs and windows](tabs) | Open and move tabs, select by number, open and close windows, and toggle full screen. |
 | [Session operations](session-operations) | Cycle between workspaces in a group, return to the last workspace, rename or close the selection. |
@@ -21,6 +22,6 @@ Install [the whole setup](whole) for the creation page, host list, session searc
 cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/whole@lane/rex-feature-looks
 ```
 
-From the repository root, preview any feature with `cmux customize use examples/looks/rex/FEATURE/profile.json`. Run `cmux customize check`, then `cmux customize apply` to keep it or `cmux customize discard` to restore the previous configuration. Hosts, Session picker and New Tab each supply their own customize app. The whole setup combines those views.
+From the repository root, preview any feature with `cmux customize use examples/looks/rex/FEATURE/profile.json`. Run `cmux customize check`, then `cmux customize apply` to keep it or `cmux customize discard` to restore the previous configuration. Hosts, Activity, Session picker and New Tab each supply their own customize app. The whole setup combines those views.
 
 [Source workspace image](https://www.superlogical.com/rex-screenshot@2x.webp) · [Measurements and coverage](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/research/competitor-maps/rex.md)
