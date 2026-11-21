@@ -1,18 +1,27 @@
 #!/usr/bin/env python3
 """Route a diff to the step table's steps and run one job's steps (ci/steps.toml).
 
-  ci_steps.py route --paths-file F            the routed steps by job, as JSON
-  ci_steps.py run --job JOB [--paths-file F] [--label NAME]
+  ci/run route --paths-file F            the routed steps by job, as JSON
+  ci/run run --job JOB [--paths-file F] [--label NAME]
 
-`run` starts the job's routed steps at once, each as `bash -euo pipefail -c RUN` in the
-current directory with the caller's environment, and prints each one's output in a log
-group when it ends. It exits 1 only when a step with `blocks = true` failed. A step with
+`ci/run` is the entry (it calls this file). `run` starts the job's routed steps, as many at
+once as the machine has CPUs, each as `bash -euo pipefail -c RUN` in the current directory
+with the caller's environment, and prints each one's output in a log group when it ends.
+When the table has a `[setup]` command for the job it runs first, once, and only when a step
+is routed: it fills `$CI_TOOLS` (a directory of this run; `$CI_TOOLS/bin` leads the steps'
+PATH) with what the job's steps share, where a warm machine would already hold it. A setup
+that fails fails the job. It exits 1 only when a step with `blocks = true` failed. A step with
 `blocks = false` that fails or runs past its timeout is a warning annotation: an advisory
 step never turns its job red. `--label NAME` says the event is a label change of NAME;
 then only the steps that list NAME in `labels` run.
 
 The table's rules (checked on load): every step names one of the table's jobs, there are
 at most 8 jobs, and a step that does not block runs in the `advisory` job in class `idle`.
+
+A step's `inputs` are path globs (`**` crosses `/`, `*` and `?` do not). A change routes the
+step when it touches one of them; a step with no inputs, an unknown change, and a change to
+the pipeline itself (PIPELINE_PATHS: the table, this runner, the entry, the workflow) route it
+always.
 """
 
 from __future__ import annotations
@@ -24,6 +33,7 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
@@ -33,6 +43,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 TABLE = ROOT / "ci" / "steps.toml"
 MAX_JOBS = 8
+SETUP_TIMEOUT = 600
+# The pipeline's own definition: a change to any of them routes every step, so the change runs what it moved.
+PIPELINE_PATHS = ("ci/steps.toml", "ci/run", "scripts/ci/ci_steps.py", ".github/workflows/pr-pipeline.yml")
 ADVISORY_JOB = "advisory"
 CLASSES = ("feed", "named", "pr", "batch", "idle")
 
@@ -59,6 +72,7 @@ class Step:
 class Table:
     jobs: dict[str, str]
     steps: dict[str, Step]
+    setup: dict[str, str]
 
 
 def glob_pattern(glob: str) -> re.Pattern[str]:
@@ -90,6 +104,12 @@ def parse(doc: dict) -> Table:
         raise TableError("[jobs] names each job with a one-line description")
     if len(jobs) > MAX_JOBS:
         raise TableError(f"[jobs] has {len(jobs)} jobs; the PR pipeline has at most {MAX_JOBS}")
+    setup = doc.get("setup") or {}
+    for job, command in setup.items():
+        if job not in jobs:
+            raise TableError(f"[setup] {job!r} is not one of [jobs] {sorted(jobs)}")
+        if not isinstance(command, str) or not command.strip():
+            raise TableError(f"[setup] {job}: a command")
     steps: dict[str, Step] = {}
     known = set(Step.__dataclass_fields__) - {"name", "klass"} | {"class"}
     for name, raw in (doc.get("step") or {}).items():
@@ -123,8 +143,10 @@ def parse(doc: dict) -> Table:
             raise TableError(f"step {name}: job {ADVISORY_JOB!r} holds only steps that do not block")
         if not isinstance(step.timeout, int) or step.timeout <= 0:
             raise TableError(f"step {name}: `timeout` is a positive number of seconds")
+        if not all(isinstance(g, str) and g and not g.startswith(("/", "!")) for g in step.inputs):
+            raise TableError(f"step {name}: `inputs` are repo-relative path globs")
         steps[name] = step
-    return Table(jobs=dict(jobs), steps=steps)
+    return Table(jobs=dict(jobs), steps=steps, setup=dict(setup))
 
 
 def load(path: Path = TABLE) -> Table:
@@ -133,7 +155,7 @@ def load(path: Path = TABLE) -> Table:
 
 def routed(step: Step, paths: list[str] | None) -> bool:
     """Whether a diff of `paths` needs the step. No inputs, or an unknown diff, routes it."""
-    if not step.inputs or paths is None:
+    if not step.inputs or paths is None or any(p in PIPELINE_PATHS for p in paths):
         return True
     patterns = [glob_pattern(g) for g in step.inputs]
     return any(p.match(path) for path in paths for p in patterns)
@@ -200,14 +222,27 @@ def report(results: list[Result], job: str, out=sys.stdout) -> str:
     return "\n".join(rows) + "\n"
 
 
-def run_job(table: Table, job: str, paths: list[str] | None, label: str | None = None, out=sys.stdout) -> int:
+def run_job(table: Table, job: str, paths: list[str] | None, label: str | None = None, out=sys.stdout,
+            workers: int | None = None) -> int:
     names = route(table, paths, label).get(job, [])
     steps = [table.steps[n] for n in names]
     if not steps:
         print(f"No step of job {job} is routed for this change.", file=out)
         return 0
-    with ThreadPoolExecutor(max_workers=len(steps)) as pool:
-        results = list(pool.map(run_step, steps))
+    results: list[Result] = []
+    with tempfile.TemporaryDirectory(prefix="ci-tools-", dir=os.environ.get("RUNNER_TEMP") or None) as tools:
+        env = dict(os.environ, CI_TOOLS=tools, PATH=f"{tools}/bin{os.pathsep}{os.environ.get('PATH', '')}")
+        ready = True
+        if job in table.setup:
+            setup = run_step(Step(name=f"setup ({job})", job=job, run=table.setup[job], timeout=SETUP_TIMEOUT,
+                                  title=f"{job} setup"), env)
+            results.append(setup)
+            ready = setup.ok
+        if ready:
+            # Advisory steps wait on the network, not a CPU: they all start at once, as before.
+            limit = len(steps) if job == ADVISORY_JOB else min(len(steps), workers or os.cpu_count() or 1)
+            with ThreadPoolExecutor(max_workers=limit) as pool:
+                results += pool.map(lambda step: run_step(step, env), steps)
     summary = report(results, job, out)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
@@ -234,6 +269,7 @@ def main(argv: list[str] | None = None) -> int:
     x.add_argument("--job", required=True)
     x.add_argument("--paths-file")
     x.add_argument("--label", default="", help="the label of a labeled or unlabeled event; empty for other events")
+    x.add_argument("--workers", type=int, default=0, help="steps at once (default: the machine's CPUs)")
     args = parser.parse_args(argv)
     table = load(Path(args.table))
     paths = read_paths(args.paths_file)
@@ -242,7 +278,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.job not in table.jobs:
         parser.error(f"--job {args.job!r} is not one of {sorted(table.jobs)}")
-    return run_job(table, args.job, paths, args.label or None)
+    return run_job(table, args.job, paths, args.label or None, workers=args.workers or None)
 
 
 if __name__ == "__main__":

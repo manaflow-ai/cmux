@@ -24,6 +24,9 @@ pr_router.json lists each routed workflow ("callee") with what used to start it:
              a change of only prose and images does not start it;
   affects    optional, narrower: globs (same syntax) of the inputs the workflow actually reads; when given, a
              change must also touch one of them;
+  table_jobs for the step table's workflow (pr-pipeline.yml): the jobs of ci/steps.toml it runs. It starts
+             when the change routes a step of one of them (scripts/ci/ci_steps.py, each step's `inputs`);
+             a table that cannot be read starts it;
   labels     labels whose `labeled` event starts it whatever the paths (full-ci always does);
   draft      true for a workflow that also runs on a draft head (scripts/ci/head_tier.py's cheap tier);
              any other callee starts on a draft only with full-ci, and runs when the PR is marked ready
@@ -46,6 +49,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+import ci_steps  # noqa: E402
 import docs_only_paths  # noqa: E402
 import head_tier  # noqa: E402
 import workflow_paths_cover_inputs as filters  # noqa: E402
@@ -92,6 +96,15 @@ def affects(config: dict, files: list[str]) -> bool:
     return any(filters.admits("paths", globs, f) for f in files)
 
 
+def table_steps(config: dict, files: list[str], table: Path | None = None) -> list[str] | None:
+    """The steps of the callee's `table_jobs` this change routes; None when the table cannot be read."""
+    try:
+        routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files)
+    except (OSError, ValueError):
+        return None
+    return [step for job in config["table_jobs"] for step in routed.get(job, [])]
+
+
 def route(event: dict, callees: dict, files: list[str] | None,
           draft_switch: str = "1") -> tuple[list[str], dict[str, str]]:
     """(the callee files to start, a reason per callee) for one pull_request event."""
@@ -126,6 +139,14 @@ def route(event: dict, callees: dict, files: list[str] | None,
         if not affects(config, files):
             why[name] = "no changed file is one of its inputs"
             continue
+        if "table_jobs" in config:
+            steps = table_steps(config, files)
+            if steps == []:
+                why[name] = "the change routes no step of " + ", ".join(config["table_jobs"])
+                continue
+            start.append(name)
+            why[name] = "the step table could not be read: starts" if steps is None else "routes " + ", ".join(steps)
+            continue
         start.append(name)
         why[name] = "a changed file reaches it"
     return start, why
@@ -153,6 +174,15 @@ def check(callees: dict, entry_text: str, workflows: Path) -> list[str]:
         if not callees[name].get("draft") and "ready_for_review" not in callees[name].get("types", []):
             problems.append(f"{name}: skips drafts but does not listen to ready_for_review, so a draft marked"
                             " ready would never run it")
+    for name, config in callees.items():
+        if "table_jobs" in config:
+            try:
+                unknown = sorted(set(config["table_jobs"]) - set(ci_steps.load(ci_steps.TABLE).jobs))
+            except (OSError, ValueError) as error:
+                problems.append(f"{name}: the step table does not load: {error}")
+            else:
+                if unknown:
+                    problems.append(f"{name}: table_jobs {unknown} are not jobs of ci/steps.toml")
     for name in jobs:
         if name not in callees:
             problems.append(f"{name}: pr-router.yml calls it but pr_router.json does not route it")

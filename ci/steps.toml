@@ -6,12 +6,14 @@
 #
 # A step is one command. It names the job that runs it (one of `jobs` below, at most 8), the paths that
 # route it (`inputs`, globs; none means every change), whether it blocks, its class and its timeout.
-# scripts/ci/ci_steps.py routes a diff to steps and runs one job's steps in parallel. A step with
-# `blocks = false` runs in the `advisory` job, in class `idle`, and its failure is a warning: the job
-# still passes. tests/test_ci_step_table.py holds both rules.
+# `ci/run` (scripts/ci/ci_steps.py) routes a diff to steps and runs one job's steps in parallel. A step
+# with `blocks = false` runs in the `advisory` job, in class `idle`, and its failure is a warning: the
+# job still passes. tests/test_ci_step_table.py holds both rules.
 #
-# Steps run from the base branch's checkout, never the pull request's code. They read the event from
-# the environment the calling workflow step sets (BODY, TITLE, LABELS, PATHS_LISTED, ...).
+# `linux` steps run on the pull request's merge commit, in pr-pipeline.yml's one job, which pr-router.yml
+# starts only when a step's inputs changed. `advisory` steps run from the base branch's checkout, never
+# the pull request's code, and read the event from the environment the calling workflow step sets (BODY,
+# TITLE, LABELS, PATHS_LISTED, ...).
 
 # The PR pipeline's jobs (the design's table). A step names one of these; there is no ninth.
 [jobs]
@@ -21,6 +23,147 @@ mac = "a Mac holding the app tree: incremental compile and the changed targets' 
 ios = "a mini with simulators, only when routed"
 advisory = "every blocks = false step, class idle, posts warnings, never fails"
 verdict = "no machine: the one check may_merge reads"
+
+# What a job's steps share, made once before them and only when one is routed. It fills $CI_TOOLS, whose
+# bin leads the steps' PATH. A warm tree will hold this already; until then it is a few seconds a job.
+[setup]
+linux = '''
+# The workflow parser the contract tests import (PyYAML), beside whatever the machine's python3 has.
+python3 -m venv --system-site-packages "$CI_TOOLS"
+"$CI_TOOLS/bin/python" -m pip install --disable-pip-version-check --no-input --quiet PyYAML==6.0.3
+'''
+
+# Python contract tests that each had a workflow, a runner and a checkout of their own
+# (indexnow-tests.yml, vendored-agent-cursor.yml, r2-upload-tests.yml, cmux-skill-contract.yml,
+# ci-cache-receipts.yml). `inputs` is each one's former path filter.
+[step.indexnow]
+job = "linux"
+timeout = 300
+title = "IndexNow notification tests"
+about = "the IndexNow notifier's tests (scripts/ci/notify-indexnow.py)"
+inputs = [
+  ".github/workflows/indexnow.yml",
+  "scripts/ci/notify-indexnow.py",
+  "tests/test_indexnow_notification.py",
+  "tests/workflow_jobs.py",
+  "scripts/ci/gh_expressions.py",
+  "web/app/lib/indexnow.ts",
+]
+run = "python3 tests/test_indexnow_notification.py"
+
+# Packages/Shared/CmuxAgentCursor is vendored verbatim from manaflow-ai/cmux-cua at CMUX_CUA_PINNED_SHA
+# (scripts/cmux_agent_cursor_vendor.py). This fails when the copy was edited by hand or the pin moved
+# without a re-sync.
+[step.vendored-agent-cursor]
+job = "linux"
+timeout = 300
+title = "Vendored agent cursor"
+about = "Packages/Shared/CmuxAgentCursor is the pinned upstream copy, unedited"
+inputs = [
+  "Packages/Shared/CmuxAgentCursor/**",
+  "scripts/cmux_agent_cursor_vendor.py",
+  "tests/test_vendored_cmux_agent_cursor.py",
+  "tests/git_fixture_env.py",
+]
+run = "python3 tests/test_vendored_cmux_agent_cursor.py"
+
+[step.r2-upload]
+job = "linux"
+timeout = 300
+title = "R2 upload tests"
+about = "the release uploaders and publishers: R2 object upload, GitHub release publication, the cmux-tui artifact retry, Mac live delivery"
+inputs = [
+  ".github/workflows/nightly.yml",
+  ".github/workflows/release.yml",
+  ".github/workflows/cmux-tui-artifacts.yml",
+  "scripts/ci/publish-release-assets.py",
+  "scripts/ci/finalize-release.py",
+  "tests/test_github_release_publication.py",
+  "scripts/ci/upload-r2-object.py",
+  "tests/test_ci_r2_upload_python.sh",
+  "tests/test_r2_upload_requests.py",
+  ".github/workflows/cmux-tui-artifacts-retry.yml",
+  "scripts/ci/cmux_tui_artifacts_retry.py",
+  "tests/test_cmux_tui_artifacts_retry.py",
+  "tests/test_mac_live_delivery.py",
+  # What test_mac_live_delivery.py reads through tests/runs_on_labels.py.
+  "tests/runs_on_labels.py",
+  "tests/workflow_jobs.py",
+  "tests/test_ci_fleet_rule_lints.py",
+  "tests/fleet-rule-allowlist.json",
+  "scripts/ci/gh_expressions.py",
+  "scripts/ci/repair-nightly-appcast-content-types.py",
+]
+run = '''
+bash tests/test_ci_r2_upload_python.sh
+python3 tests/test_github_release_publication.py
+# finalize-release.py runs only at real publish time; at least prove it loads.
+python3 scripts/ci/finalize-release.py publish --help
+python3 scripts/ci/finalize-release.py download --help
+python3 tests/test_cmux_tui_artifacts_retry.py
+python3 tests/test_mac_live_delivery.py
+# The uploader's CLI and the headers R2 receives (scripts/ci/upload-r2-object.py).
+python3 tests/test_r2_upload_requests.py
+'''
+
+[step.skill-contracts]
+job = "linux"
+timeout = 300
+title = "cmux skill contracts"
+about = "the browser, settings and bug-triage skills agree with the CLI, the settings schema and their fixtures"
+inputs = [
+  "skills/cmux-browser/**",
+  "skills/cmux-settings/**",
+  "web/data/cmux.schema.json",
+  "tests/test_cmux_settings_supported_paths.py",
+  "tests/git_fixture_env.py",
+  ".agents/skills",
+  ".claude/skills/**",
+  "skills.sh",
+  "scripts/validate-cmux-browser-skill.py",
+  "tests/test_cmux_browser_skill.py",
+  "tests/test_cmux_settings_jsonc.py",
+  "tests/test_cmux_settings_transactions.py",
+  "skills/cmux-bug-triage/**",
+  "skills/*/SKILL.md",
+  "tests/fixtures/bug-triage/**",
+  "tests/test_cmux_bug_triage.py",
+  "tests/test_socket_control_schema.py",
+]
+run = '''
+python3 scripts/validate-cmux-browser-skill.py
+python3 tests/test_cmux_browser_skill.py
+python3 tests/test_cmux_settings_jsonc.py
+python3 tests/test_cmux_settings_transactions.py
+python3 tests/test_cmux_settings_supported_paths.py
+# These two run whatever the first of them says, as they did under `if: !cancelled()`.
+rc=0
+python3 tests/test_socket_control_schema.py || rc=1
+python3 tests/test_cmux_bug_triage.py || rc=1
+exit "$rc"
+'''
+
+[step.cache-receipts]
+job = "linux"
+timeout = 300
+title = "CI cache receipt contract"
+about = "cache restore receipts classify a restore, and their test is deterministic"
+inputs = [
+  ".github/actions/cache-restore/action.yml",
+  ".github/actions/cache-save/action.yml",
+  ".github/workflows/ci.yml",
+  ".github/workflows/ci-macos.yml",
+  ".github/workflows/nightly.yml",
+  ".github/workflows/seed-derived-data.yml",
+  "scripts/ci/cache_restore_receipt.py",
+  "scripts/check-test-determinism.py",
+  "tests/test_ci_cache_restore_receipt.py",
+  "tests/test_ci_pull_request_caches_are_read_only.py",
+]
+run = '''
+python3 tests/test_ci_cache_restore_receipt.py
+python3 scripts/check-test-determinism.py --roots tests/test_ci_cache_restore_receipt.py --strict
+'''
 
 # The description lints from pr-body-checks.yml. They judge the description, not the code, and only
 # ever warned (Leo, 2026-11-01: "keep only what catches real breakage"; cmuxterm-hq#5745).
