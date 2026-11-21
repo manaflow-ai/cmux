@@ -37,6 +37,7 @@
 use super::*;
 use crate::cli::session_move_carry::{self as carry, Carry};
 use crate::cli::session_move_plan::{self as plan, Checkout, Folder};
+use crate::placement::move_targets::ranked;
 use crate::ssh_forward::Forward;
 #[cfg(test)]
 use crate::ssh_forward::forward_argv;
@@ -46,11 +47,16 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
 
+#[path = "session_move_preflight.rs"]
+mod preflight;
+
 pub(crate) struct MoveArgs {
     pub sessions: Vec<String>,
     pub host: String,
     pub all_idle: bool,
     pub interrupt: bool,
+    /// `--after-turn`: a running turn ends on its own first; the chat moves at its end.
+    pub after_turn: bool,
     pub leave_dirty: bool,
     /// `--carry-changes`: the checkout's uncommitted work goes with the chat
     /// (`session_move_carry.rs`).
@@ -104,6 +110,8 @@ struct Outcome {
     /// With `--carry-changes`: what was carried (`Carry::record`).
     carried: Option<Value>,
     error: Option<String>,
+    error_code: Option<&'static str>,
+    preflight: preflight::Preflight,
 }
 
 pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
@@ -149,11 +157,8 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
         _ => None,
     };
     let mut targets = Targets::with_here(&args.host, &peers, here_target)?;
-    if let Source::Peer { name, .. } = &source
-        && targets.named.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(name))
-    {
-        bail!("the chats are on {name} already: name another machine");
-    }
+    targets.observer = Some(local);
+    targets.exclude_source(&source, crate::placement::load_registry().as_ref())?;
     let mut outcomes = Vec::new();
     for key in &ids {
         let outcome = move_one_from(&src, &source, key, &args, &home, &mut targets).await;
@@ -169,7 +174,8 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
             .map(|o| {
                 json!({"sessionId": o.session, "name": o.name, "host": o.host, "cwd": o.cwd,
                        "moved": o.moved, "dryRun": args.dry_run, "carried": o.carried,
-                       "error": o.error})
+                       "error": o.error, "errorCode": o.error_code,
+                       "preflight": o.preflight, "targetSessionId": o.there})
             })
             .collect();
         print_json(&json!({"moves": rows, "failed": failed}));
@@ -224,6 +230,7 @@ pub(crate) async fn move_off_interactive(src: &Client, id: &str) -> Result<Moved
         host: "auto".into(),
         all_idle: false,
         interrupt: false,
+        after_turn: false,
         leave_dirty: false,
         carry_changes: false,
         cwd: None,
@@ -289,6 +296,8 @@ async fn move_one_from(
         resumed: Ok(false),
         carried: None,
         error: None,
+        error_code: None,
+        preflight: preflight::Preflight::default(),
     };
     if let Err(e) = move_steps(src, source, key, args, home, targets, &mut o).await {
         o.error = Some(format!("{e:#}"));
@@ -308,15 +317,13 @@ async fn move_steps(
     let id = resolve_id(src, key).await?;
     o.session = id.clone();
     let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+    o.preflight.running = plan::running(&info);
     o.name = info.get("name").and_then(Value::as_str).unwrap_or(&id).to_owned();
     if info.get("peer").is_some_and(|p| !p.is_null()) {
         bail!(
             "it runs on {}, not here: move it from there",
             info.get("peer").unwrap_or(&Value::Null)
         );
-    }
-    if let Some(why) = plan::refusal(&info, args.interrupt) {
-        bail!("{why}");
     }
     let cwd = PathBuf::from(info.get("cwd").and_then(Value::as_str).unwrap_or_default());
     // With --cwd nothing of the folder here is carried, so it need not exist any more.
@@ -335,6 +342,15 @@ async fn move_steps(
         })?
     };
     let checkout = checkout_unless_named(&cwd, args, source).await?;
+    o.preflight.dirty = Some(checkout.as_ref().is_some_and(|c| c.dirty));
+    // A dry run is the preflight: it names a running turn even with --after-turn, so the caller
+    // can offer Move after this turn or Move now. A real --after-turn move goes on, and
+    // transfer_begin waits for the turn under its lock.
+    let running_ok = args.interrupt || (args.after_turn && !args.dry_run);
+    if let Some(why) = plan::refusal(&info, running_ok) {
+        o.error_code = preflight::session_refusal_code(&info, running_ok);
+        bail!("{why}");
+    }
     let home = match source {
         Source::Here => home.canonicalize().unwrap_or_else(|_| home.to_path_buf()),
         Source::Peer { .. } => home.to_path_buf(),
@@ -368,7 +384,19 @@ async fn move_steps(
         args.leave_dirty || args.carry_changes,
         target_cwd,
     )
-    .map_err(|e| anyhow!(e))?;
+    .map_err(|e| {
+        // Only classify a dirty refusal when accepting dirt makes this same plan valid.
+        // A detached HEAD or missing origin must never be shown as a proceed button.
+        if o.preflight.dirty == Some(true)
+            && !args.leave_dirty
+            && !args.carry_changes
+            && plan::plan_folder(&cwd, &home, checkout.as_ref(), &remote.home, true, target_cwd)
+                .is_ok()
+        {
+            o.error_code = Some("dirty_worktree");
+        }
+        anyhow!(e)
+    })?;
     if args.dry_run {
         o.cwd = Some(match &planned {
             Folder::Plain { cwd } => cwd.clone(),
@@ -389,7 +417,8 @@ async fn move_steps(
         }
         Source::Peer { .. } => None,
     };
-    let begun = super::transfer::begin_move(src, &id, watch, args.interrupt).await?;
+    let begun =
+        super::transfer::begin_move(src, &id, watch, (args.interrupt, args.after_turn)).await?;
     let prepared = prepare(&cwd, &home, &target, &remote, args, source, o).await;
     let (record, forward, dst, dst_init) = match prepared {
         Ok(p) => p,
@@ -781,14 +810,28 @@ fn prepare_folder(host: &str, folder: &Folder) -> Result<String> {
     };
     let host = if host.is_empty() { "this machine" } else { host };
     if !out.ok {
-        let last = out.stderr.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("");
-        bail!("making the folder on {host} failed: {}", last.trim());
+        return Err(folder_failure(host, &out));
     }
     let path = out.stdout.lines().last().unwrap_or_default().trim().to_owned();
     if !(path.starts_with('/') && crate::cli::hosts::plain_path(&path)) {
         bail!("{host} answered no plain folder path for the chat");
     }
     Ok(path)
+}
+
+/// Explain a remote folder command failure without dropping the only useful diagnostic. SSH
+/// wrappers occasionally leave stderr empty while the script writes its reason to stdout, and a
+/// quiet non-zero exit must still be distinguishable from a successful empty answer.
+fn folder_failure(host: &str, out: &crate::cli::hosts::RemoteOut) -> anyhow::Error {
+    let detail = out
+        .stderr
+        .lines()
+        .chain(out.stdout.lines())
+        .rfind(|line| !line.trim().is_empty())
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .unwrap_or("remote command returned no diagnostic output");
+    anyhow!("making the folder on {host} failed (non-zero exit status): {detail}")
 }
 
 /// Runs one of the fixed scripts on this machine, `input` on its stdin.
@@ -851,6 +894,8 @@ struct Targets {
     unreachable: HashMap<String, String>,
     /// This machine, when it is the named target (`--machine local` with `--from`).
     here: Option<Target>,
+    /// Placement must describe the initiating daemon's peers, even when the chat lives elsewhere.
+    observer: Option<std::sync::Arc<Client>>,
 }
 
 impl Targets {
@@ -882,6 +927,7 @@ impl Targets {
                 placed: HashMap::new(),
                 unreachable: HashMap::new(),
                 here: Some(t),
+                observer: None,
             });
         }
         let named = (host != "auto").then(|| host.to_owned());
@@ -892,12 +938,32 @@ impl Targets {
         }
         Ok(Self {
             here: None,
+            observer: None,
             named,
             peers,
             by_group: HashMap::new(),
             placed: HashMap::new(),
             unreachable: HashMap::new(),
         })
+    }
+
+    /// The source cannot also be a destination, including saved aliases for its SSH endpoint.
+    fn exclude_source(&mut self, source: &Source, registry: Option<&Value>) -> Result<()> {
+        let Source::Peer { name, ssh } = source else { return Ok(()) };
+        let identity = crate::placement::move_targets::identity;
+        let source_id = identity(registry, name);
+        let is_source = |peer: &str, endpoint: &str| {
+            identity(registry, peer) == source_id || endpoint.eq_ignore_ascii_case(ssh)
+        };
+        if let Some(named) = &self.named
+            && self.peers.iter().any(|(peer, endpoint)| {
+                peer.eq_ignore_ascii_case(named) && is_source(peer, endpoint)
+            })
+        {
+            bail!("the chats are on {name} already: name another machine");
+        }
+        self.peers.retain(|(peer, endpoint)| !is_source(peer, endpoint));
+        Ok(())
     }
 
     fn target(&self, name: &str) -> Option<Target> {
@@ -919,8 +985,10 @@ impl Targets {
         }
         // A machine a person works at is never a target: moving there is what a move off one
         // avoids (`server/place.rs`). A named one is the caller's choice.
-        let verdict =
-            src.request("_acpmux/place", json!({"work": "agent", "offInteractive": true})).await?;
+        let observer = self.observer.as_deref().unwrap_or(src);
+        let verdict = observer
+            .request("_acpmux/place", json!({"work": "agent", "offInteractive": true}))
+            .await?;
         let hosts = verdict.get("hosts").and_then(Value::as_array).cloned().unwrap_or_default();
         // The registry's one reader of holds and reservations (`placement::held`); placement
         // already refuses such a host, and a named one is checked the same way.
@@ -1063,47 +1131,6 @@ fn walk(
         w.pick = Some(t);
     }
     w
-}
-
-/// The hosts that may take the move, best first, and every other host with why it was passed
-/// over: hosts that take the work first (`ok`), else those passed over only for load (`load`,
-/// as `place` does: load caps only warn), by most room left, less the chats this run put there,
-/// then fewer agents. Never this machine, never one placement refuses for its role or
-/// `unusable` names a reason for.
-pub(crate) fn ranked(
-    hosts: &[Value],
-    placed: &HashMap<String, f64>,
-    unusable: impl Fn(&str) -> Option<String>,
-) -> (Vec<String>, Vec<(String, String)>) {
-    let name = |h: &Value| h.get("name").and_then(Value::as_str).unwrap_or_default().to_owned();
-    let mine = |h: &Value| placed.get(&name(h)).copied().unwrap_or(0.0);
-    let room = |h: &Value| h.get("room").and_then(Value::as_f64).unwrap_or(-1.0) - mine(h);
-    // Fewer agents (live there, plus this run's) breaks a tie in room.
-    let busy = |h: &Value| h.get("live").and_then(Value::as_f64).unwrap_or(f64::MAX) + mine(h);
-    let mut usable_hosts: Vec<&Value> = Vec::new();
-    let mut skipped = Vec::new();
-    for h in hosts {
-        if h.get("local").and_then(Value::as_bool) == Some(true) {
-            continue;
-        }
-        let ok = h.get("ok").and_then(Value::as_bool) == Some(true);
-        let load = h.get("load").and_then(Value::as_bool) == Some(true);
-        if !ok && !load {
-            let why = h.get("refused").and_then(Value::as_str).unwrap_or("refused by placement");
-            skipped.push((name(h), why.to_owned()));
-            continue;
-        }
-        if let Some(why) = unusable(&name(h)) {
-            skipped.push((name(h), why));
-            continue;
-        }
-        usable_hosts.push(h);
-    }
-    usable_hosts.sort_by(|a, b| {
-        let fits = |h: &Value| h.get("ok").and_then(Value::as_bool) == Some(true) && room(h) >= 1.0;
-        fits(b).cmp(&fits(a)).then(room(b).total_cmp(&room(a))).then(busy(a).total_cmp(&busy(b)))
-    });
-    (usable_hosts.iter().map(|h| name(h)).collect(), skipped)
 }
 
 /// The first of [`ranked`]: the host with the most room left.
