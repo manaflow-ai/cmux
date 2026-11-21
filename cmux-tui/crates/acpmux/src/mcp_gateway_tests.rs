@@ -504,3 +504,84 @@ fn a_gateway_server_is_an_http_entry_for_claude_code_and_acp() {
     assert!(!crate::agent_tools::takes_http(Some(&json!({"mcpCapabilities": {"http": false}}))));
     assert!(!crate::agent_tools::takes_http(None));
 }
+
+/// A listener bound as `TcpListener::bind` does, without asking to reuse the address: the control
+/// for the test below, so it cannot pass on a kernel that would have let any bind through.
+fn listen_without_reuse(port: u16) -> std::io::Result<std::net::TcpListener> {
+    let socket = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, None)?;
+    socket.bind(&std::net::SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, port)).into())?;
+    socket.listen(16)?;
+    Ok(socket.into())
+}
+
+#[tokio::test]
+async fn the_next_daemon_takes_the_port_the_chats_configs_name_over_the_one_before_it() {
+    // A restart's shape: the daemon before it served the port and had answered a chat, so the
+    // accepted connection sits in TIME_WAIT when the next daemon binds.
+    let before = listen(0).unwrap();
+    let port = before.local_addr().unwrap().port();
+    let client = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    let (served, _) = before.accept().await.unwrap();
+    drop(before);
+    drop(served);
+    drop(client);
+    // The control: that same bind without SO_REUSEADDR is refused, which is what moved the port
+    // on every acpmux restart on big-red on 2026-11-21 and stranded every live chat's tools.
+    until("the port is held by the closing connection", async || {
+        listen_without_reuse(port).is_err()
+    })
+    .await;
+    let again = keep_port(port, Duration::from_secs(5), Duration::from_millis(10))
+        .await
+        .expect("the next daemon takes the port its chats' configs name");
+    assert_eq!(again.local_addr().unwrap().port(), port);
+}
+
+#[tokio::test]
+async fn a_port_this_gateway_had_to_give_up_is_served_again_once_it_frees() {
+    let home = tempfile::tempdir().unwrap();
+    // The kept port is held by something that is not the daemon before it, so the gateway cannot
+    // have it at its start.
+    let holder = listen(0).unwrap();
+    let port = holder.local_addr().unwrap().port();
+    let kept = Listener { port, key: encode_hex(&[7u8; 32]) };
+    crate::agent_tools::write_private(
+        &home.path().join("run").join("mcp-gateway.json"),
+        &serde_json::to_vec(&kept).unwrap(),
+    )
+    .unwrap();
+    let waits = Waits {
+        keep_port_for: Duration::from_millis(100),
+        keep_port_every: Duration::from_millis(10),
+        adopt_for: Duration::from_secs(10),
+        adopt_every: Duration::from_millis(25),
+    };
+    let g = bind_with(
+        home.path(),
+        crate::config::socket_path(),
+        IDLE_STOP,
+        Duration::from_millis(50),
+        waits,
+    )
+    .await
+    .expect("gateway binds");
+    assert_ne!(g.port(), port, "the kept port was taken at the start");
+    assert_eq!(g.ports(), vec![g.port()]);
+    g.keep("chat-adopt", launch(home.path())).unwrap();
+    drop(holder);
+    until("the gateway serves the port it had to give up", async || g.ports().contains(&port))
+        .await;
+    // A chat that holds the old url from its start reaches its tools there, with its own token.
+    let auth = g.endpoint("chat-adopt").authorization;
+    let (status, body) = request(
+        port,
+        "POST",
+        "/mcp/chat-adopt",
+        &[("authorization", &auth), ("content-type", "application/json")],
+        &call(1).to_string(),
+    )
+    .await;
+    assert!(status.contains("200"), "{status}: {body}");
+    let answer: Value = serde_json::from_str(&body).expect("one JSON message");
+    assert!(!text(&answer).is_empty(), "{answer}");
+}

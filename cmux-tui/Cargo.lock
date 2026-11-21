@@ -101,6 +101,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "signal-hook-registry",
+ "socket2",
  "syn 2.0.119",
  "syntect",
  "tar",
