@@ -12004,6 +12004,10 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/key": {
+        "ty": "string",
+        "nullable": true
+      },
       "/paste": {
         "ty": "boolean"
       },

@@ -113,15 +113,21 @@ final class TooltipContentView: NSView {
         let key = keycapSize
         let trailing = keycap == nil ? padInline : TooltipMetrics.keycapInset * scale + key.width + TooltipMetrics.keycapGap * scale
         text.preferredMaxLayoutWidth = max(1, bounds.width - padInline - trailing)
+        // The label's frame: its lines plus its own line padding (LabelText.padding) each side of the glyphs.
         let textSize = text.fittingSize
         // The text sits in the middle of the surface; with one line that centres it on the keycap.
-        let textY = ((bounds.height - textSize.height) / 2).rounded()
-        text.frame = NSRect(x: padInline, y: textY, width: ceil(textSize.width), height: ceil(textSize.height))
+        let middleY = (bounds.height - textSize.height) / 2
+        let textY = middleY.rounded()
+        // The frame starts the label's padding early, so its glyphs (not its frame) start at the inline padding
+        // and end where fittingSurfaceSize measured them, the keycap gap before the keycap. The width is not rounded
+        // up: the origin is whole, so the glyphs stay sharp, and a rounded width would reach past the gap.
+        text.frame = NSRect(x: padInline - LabelText.padding, y: textY, width: textSize.width, height: ceil(textSize.height))
         if let keycap {
-            // On the first line: centred on it, as a menu's shortcut is.
-            let lineHeight = TooltipMetrics.lineHeight * scale
-            let firstLine = min(bounds.height, textY + lineHeight)
-            let y = max(TooltipMetrics.keycapInset * scale, ((textY + firstLine - key.height) / 2).rounded())
+            // On the first line: centred on it, as a menu's shortcut is. The label's own line height (the font's, in
+            // whole points), not the nominal ``TooltipMetrics/lineHeight``; and from the text's unrounded place, so
+            // an odd line (15 pt at 12 pt) does not round the text and then the keycap down a point each.
+            let firstLine = min(textSize.height, text.naturalSize.height)
+            let y = max(TooltipMetrics.keycapInset * scale, (middleY + (firstLine - key.height) / 2).rounded())
             keycap.frame = NSRect(x: bounds.width - TooltipMetrics.keycapInset * scale - key.width, y: y,
                                   width: key.width, height: key.height)
         }
