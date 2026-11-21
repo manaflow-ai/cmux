@@ -1,0 +1,138 @@
+<!doctype html>
+<!--
+  Art-aware crop gallery: centre crop next to cmux-follow-cam's `fit` crop for
+  each artwork at 21:9, 16:10, 9:19.5 and 1:1, with the salient regions on a
+  small key. Data comes from data.js (written by build.js from the Rust
+  example `art_crop`). Open with ?art=NAME to show one artwork.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<title>Art-aware crop</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #111214; color: #e8e6e3; font: 13px/1.4 -apple-system, "Inter", "Helvetica Neue", Arial, sans-serif; }
+  section { padding: 28px 32px 32px; width: 1800px; box-sizing: border-box; border-bottom: 1px solid #26282c; }
+  header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 18px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  .meta { color: #8b8f96; }
+  .body { display: flex; gap: 28px; align-items: flex-start; }
+  .key { width: 320px; flex: none; }
+  .key canvas { width: 320px; border-radius: 6px; display: block; }
+  .key p { color: #8b8f96; margin: 8px 0 0; }
+  .grid { display: grid; grid-template-columns: 96px repeat(4, auto); column-gap: 18px; row-gap: 14px; align-items: center; }
+  .head { color: #8b8f96; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; align-self: end; }
+  .rowlabel { font-weight: 600; }
+  .rowlabel small { display: block; font-weight: 400; color: #8b8f96; }
+  .rowlabel.center { color: #e6a08a; }
+  .rowlabel.fit { color: #8fd6a4; }
+  .rowlabel.framed { color: #9fb8f0; }
+  .tile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; }
+  .tile small { color: #8b8f96; font-size: 11px; font-variant-numeric: tabular-nums; }
+  .tile.framed canvas { box-shadow: 0 0 0 2px #5a78c0; }
+  .tile canvas { border-radius: 5px; display: block; box-shadow: 0 0 0 1px #2c2f34; }
+  .tile.fit canvas { box-shadow: 0 0 0 2px #4f9e68; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="data.js"></script>
+<script>
+  const ART_DIR = '../../Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/';
+  const SHOWN = ['21:9', '16:10', '9:19.5', '1:1'];
+  // Each aspect's tile box: the crop is drawn as large as fits.
+  const BOX = { '21:9': [440, 260], '16:10': [340, 260], '9:19.5': [130, 280], '1:1': [270, 270] };
+  const ROWS = {
+    center: '<div class="rowlabel center">Centre crop<small>today</small></div>',
+    fit: '<div class="rowlabel fit">Art-aware<small>saliency + fit()</small></div>',
+    framed: '<div class="rowlabel framed">Hand-framed<small>focus + bleed</small></div>',
+  };
+
+  function load(src) {
+    return new Promise((ok, err) => { const i = new Image(); i.onload = () => ok(i); i.onerror = err; i.src = src; });
+  }
+
+  function cropCanvas(img, scale, r, box) {
+    const k = Math.min(box[0] / r.w, box[1] / r.h);
+    const c = document.createElement('canvas');
+    const dpr = 2;
+    c.width = Math.round(r.w * k * dpr); c.height = Math.round(r.h * k * dpr);
+    c.style.width = Math.round(r.w * k) + 'px'; c.style.height = Math.round(r.h * k) + 'px';
+    const g = c.getContext('2d');
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(img, r.x * scale, r.y * scale, r.w * scale, r.h * scale, 0, 0, c.width, c.height);
+    return c;
+  }
+
+  function keyCanvas(img, art) {
+    const W = 320, H = Math.round(W * art.source.h / art.source.w), dpr = 2;
+    const c = document.createElement('canvas');
+    c.width = W * dpr; c.height = H * dpr; c.style.height = H + 'px';
+    const g = c.getContext('2d');
+    g.drawImage(img, 0, 0, c.width, c.height);
+    g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(0, 0, c.width, c.height);
+    const k = c.width / art.source.w;
+    art.regions.forEach((r, i) => {
+      g.strokeStyle = `rgba(255,255,255,${0.35 + 0.4 * r.weight})`;
+      g.lineWidth = 2;
+      g.setLineDash([6, 4]);
+      g.strokeRect(r.x * k, r.y * k, r.w * k, r.h * k);
+      g.setLineDash([]);
+      g.fillStyle = 'rgba(255,255,255,0.8)';
+      g.font = `${11 * dpr}px sans-serif`;
+      g.fillText(`${i + 1} · ${(r.weight * 100).toFixed(0)}%`, r.x * k + 6, r.y * k + 16 * dpr);
+    });
+    if (art.framing) {
+      const [l, t, r, b] = art.framing.bleed;
+      g.fillStyle = 'rgba(90,120,192,0.28)';
+      g.fillRect(0, 0, c.width * l, c.height);
+      g.fillRect(c.width * (1 - r), 0, c.width * r, c.height);
+      g.fillRect(0, 0, c.width, c.height * t);
+      g.fillRect(0, c.height * (1 - b), c.width, c.height * b);
+      if (art.framing.focus) {
+        const [fx, fy] = art.framing.focus;
+        g.strokeStyle = '#9fb8f0'; g.lineWidth = 2 * dpr;
+        g.beginPath(); g.arc(fx * c.width, fy * c.height, 7 * dpr, 0, Math.PI * 2); g.stroke();
+      }
+    }
+    return c;
+  }
+
+  async function render() {
+    const only = new URLSearchParams(location.search).get('art');
+    const root = document.getElementById('root');
+    for (const art of window.ART_CROP.artworks) {
+      if (only && art.name !== only) continue;
+      const img = await load(ART_DIR + art.file);
+      const scale = img.naturalWidth / art.source.w;
+      const sec = document.createElement('section');
+      sec.id = art.name;
+      sec.innerHTML = `<header><h1>${art.title}</h1><span class="meta">${art.source.w}×${art.source.h} · ${art.regions.length} salient regions · saliency ${(art.saliency_us / 1000).toFixed(1)} ms (64-cell grid)</span></header>`;
+      const body = document.createElement('div'); body.className = 'body';
+      const key = document.createElement('div'); key.className = 'key';
+      key.appendChild(keyCanvas(img, art));
+      key.insertAdjacentHTML('beforeend', '<p>Full picture with the salient regions found by <code>saliency_rgb</code> (dashed, with weight).'
+        + (art.framing ? ' Blue: the hand-set bleed (kept off screen) and focus point.' : '') + '</p>');
+      body.appendChild(key);
+      const grid = document.createElement('div'); grid.className = 'grid';
+      grid.insertAdjacentHTML('beforeend', '<div></div>' + SHOWN.map(a => `<div class="head">${a}</div>`).join(''));
+      for (const kind of art.framing ? ['center', 'fit', 'framed'] : ['center', 'fit']) {
+        grid.insertAdjacentHTML('beforeend', ROWS[kind]);
+        for (const a of SHOWN) {
+          const crop = art.crops.find(c => c.name === a)[kind];
+          const tile = document.createElement('div'); tile.className = 'tile ' + kind;
+          tile.appendChild(cropCanvas(img, scale, crop, BOX[a]));
+          tile.insertAdjacentHTML('beforeend', `<small>kept ${(crop.kept * 100).toFixed(0)}% · ${crop.enlargement.toFixed(2)}×</small>`);
+          grid.appendChild(tile);
+        }
+      }
+      body.appendChild(grid);
+      sec.appendChild(body);
+      root.appendChild(sec);
+    }
+    document.body.dataset.ready = '1';
+  }
+  render();
+</script>
+</body>
+</html>
