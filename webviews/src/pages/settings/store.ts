@@ -69,6 +69,8 @@ import {
   type IntegrationsState,
   type McpServersRun,
   type McpServersState,
+  type AgentMcpRun,
+  type AgentMcpState,
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
@@ -796,6 +798,18 @@ export class SettingsStore {
     return this.mcpServersState();
   }
 
+  /** Settings > MCP Servers, Claude Code and Codex; null when the host has none. */
+  async agentMcpState(): Promise<AgentMcpState | null> {
+    const reply = await this.request("cmux.settings.agentMcp.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Claude Code / Codex MCP gesture, then the groups as they are after it (null: the host has none). */
+  async runAgentMcp(run: AgentMcpRun): Promise<AgentMcpState | null> {
+    await this.request("cmux.settings.agentMcp.run", run);
+    return this.agentMcpState();
+  }
+
   /** Reads Settings > Models (a host without it rejects, and the part stays null). */
   async refreshModels(): Promise<void> {
     await this.fetchNative(settingsKeys.models);
@@ -876,7 +890,7 @@ export class SettingsStore {
     return reply.ok ? reply.value : null;
   }
 
-  /** Personalization > Customization Library: one `cmux customize library` verb. Answers the
+  /** Appearance > Customization Library: one `cmux customize library` verb. Answers the
    * library after it (null when the host has no CLI or did not answer) and the CLI's refusal in its
    * own words (a toggle while a preview is open), else null. */
   async customizeLibrary(run: LibraryRun): Promise<{ library: LibraryListing | null; refusal: string | null }> {
