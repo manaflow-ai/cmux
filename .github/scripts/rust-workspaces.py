@@ -58,6 +58,7 @@ DEPENDENCY_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
 INCLUDE = re.compile(r'include_(?:str|bytes)!\(\s*(concat!\(\s*)?"([^"]+)"')
 # Any other "../..." string literal: a helper's join or a build script's const. It counts
 # when it names a tracked path from the source's directory or one above it.
+AFFECTED_READS = re.compile(r"//\s*affected-reads:([^\n]*)")
 PARENT_LITERAL = re.compile(r'"((?:\.\./)+[^"\s{}*]+)"')
 MANIFEST_DIR = re.compile(
     r'(?:env!\(\s*"CARGO_MANIFEST_DIR"\s*\)\s*\)?\s*\.join\(\s*|concat!\(\s*env!\(\s*"CARGO_MANIFEST_DIR"\s*\)\s*,\s*)"([^"]+)"')
@@ -176,14 +177,22 @@ class Tree:
                     queue.append((dependency, ("dependencies", "build-dependencies")))
         return seen
 
-    def read_paths(self, directories: set[str]) -> set[str]:
+    def read_paths(self, directories: set[str], built_only: set[str] = frozenset()) -> set[str]:
         """Repository paths outside `directories`' own trees that their Rust sources read by literal path. A file
         inside a nested workspace below one of them is outside its own tree, so it counts (cmux#41767 review F2:
-        `include_str!("../tool/data.txt")` in solo read a file of the nested solo/tool workspace)."""
+        `include_str!("../tool/data.txt")` in solo read a file of the nested solo/tool workspace).
+
+        In `built_only` (the path dependencies, not the workspace's own packages) only what the workspace builds
+        counts: their tests/, benches/ and examples/ are built by their own workspace's `cargo test`, never by this
+        one's. cmux-action-catalog's tests join CARGO_MANIFEST_DIR with "../../.." (the repository root), which
+        read as a read of the whole tree and planned five workspaces that use it on every change."""
         found = set()
         for directory in directories:
             for source in self.sources:
                 if not self.owns(directory, source) or not (self.repo / source).is_file():
+                    continue
+                if directory in built_only and PurePosixPath(source).relative_to(directory).parts[0] in (
+                        "tests", "benches", "examples"):
                     continue
                 text = (self.repo / source).read_text(encoding="utf-8", errors="replace")
                 # A concat! prefix may stop inside a file name: watch its directory.
@@ -196,10 +205,25 @@ class Tree:
                         path = os.path.normpath(str(base / literal))
                         if path in self.tracked:
                             paths.add(path)
+                if "." in paths:
+                    paths = (paths - {"."}) | set(self.root_reads(text))
                 for path in paths:
                     if not path.startswith("..") and not any(self.owns(d, path) for d in directories):
                         found.add(path)
         return found
+
+    def root_reads(self, text: str) -> list[str]:
+        """What a source that names the repository root (CARGO_MANIFEST_DIR/../../..) reads under it: the paths
+        its `// affected-reads: PATH...` comments list (`none`: no repo path), else "." (every path); a listed
+        path that does not exist reads as ".". The same rule as scripts/ci/cargo_affected.py's root_reads: a
+        root reference read as the whole tree ran this workflow's cmux-app-ffi, cmux-remote-browser-host, cloud
+        server, ssh-terminal and optchat-chief jobs on 325 of 327 merged pull requests (2026-11-17)."""
+        listed = " ".join(AFFECTED_READS.findall(text)).split()
+        if not listed:
+            return ["."]
+        if listed == ["none"]:
+            return []
+        return sorted(set(listed)) if all((self.repo / p).exists() for p in listed) else ["."]
 
     def owns(self, directory: str, path: str) -> bool:
         """`path` is in `directory`'s tree with no other workspace root in between: a Cargo.toml below it with a
@@ -264,8 +288,13 @@ def under(path: str, directory: str) -> bool:
 
 
 def plan(repo: Path, base: str) -> list[dict]:
+    return plan_paths(repo, changed(repo, base))
+
+
+def plan_paths(repo: Path, paths: list[str] | None) -> list[dict]:
+    """The `run = true` workspaces these changed paths reach (None: every one). scripts/ci/affected_tests.py
+    plans the same workspaces for a change, so `cmux-ci test --affected` runs what this workflow would."""
     tree = Tree(repo)
-    paths = changed(repo, base)
     if paths is not None and any(path in EVERYTHING for path in paths):
         paths = None
     jobs = []
@@ -279,7 +308,8 @@ def plan(repo: Path, base: str) -> list[dict]:
             watched = reach | {f"{above}/Cargo.toml" for above in map(tree.workspace_above, reach) if above}
             # Files named explicitly (read by literal path, or listed as inputs) count wherever they are, inside a
             # nested workspace too: no workspace boundary stops a file a source reads (cmux#41767 review F2).
-            explicit = tree.read_paths(reach) | set(entry.get("inputs", []))
+            explicit = tree.read_paths(reach, built_only=reach - tree.members(root) - {root}) \
+                | set(entry.get("inputs", []))
             if not any(tree.owns(directory, path) for path in paths for directory in watched) \
                     and not any(under(path, named) for path in paths for named in explicit):
                 continue
