@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 641,
+  "count": 640,
   "sections": [
     {
       "id": "general",
@@ -4376,7 +4376,7 @@
           "title": "Show Spaces",
           "help": "",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Sidebar"
         },
         {

@@ -51,6 +51,9 @@ pub struct RpcError {
     pub data: Option<Value>,
 }
 
+/// `data.reason` of [`RpcError::no_peer`].
+pub const NO_PEER: &str = "no_peer";
+
 impl RpcError {
     pub fn new(code: i64, message: impl Into<String>) -> Self {
         Self { code, message: message.into(), data: None }
@@ -70,6 +73,13 @@ impl RpcError {
     }
     pub fn not_found(message: impl Into<String>) -> Self {
         Self::new(-32002, message)
+    }
+    /// A request for a machine `name` that names no peer of this daemon. `data.reason` is
+    /// [`NO_PEER`] and `data.peer` the name, so a client tells it from a peer that is only down
+    /// (`cli/new_relay.rs`).
+    pub fn no_peer(name: &str) -> Self {
+        Self::not_found(format!("no peer {name:?}"))
+            .with_data(serde_json::json!({"reason": NO_PEER, "peer": name}))
     }
     /// A request whose handler waited on an agent past its deadline
     /// (cx-m5up). `data.reason` is `deadline_exceeded`, `data.wait` names
