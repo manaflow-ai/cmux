@@ -83,7 +83,7 @@ def chrome():
 
 
 def first_pane():
-    found = sorted(chrome().get("panes") or [], key=lambda p: p["strip"][0])
+    found = sorted((p for p in chrome().get("panes") or [] if p.get("strip")), key=lambda p: p["strip"][0])
     return found[0] if found else {}
 
 
@@ -129,7 +129,10 @@ def shoot(name, pane):
         path = os.path.join(opts.out, f"{name}-{mode}.png")
         rpc("debug.window_snapshot", {"path": path})
         if os.path.exists(path) and pane:
-            scale = chrome().get("scale") or 2
+            # The snapshot's own pixels per point (a 1x capture on a 2x screen is common under nx-remote).
+            out = subprocess.run(["sips", "-g", "pixelWidth", path], capture_output=True, text=True).stdout.split()
+            width = (rpc("debug.window_frame") or {}).get("frame", [0, 0, 0, 0])[2] or 1
+            scale = (int(out[-1]) / width) if out and out[-1].isdigit() else (chrome().get("scale") or 2)
             sx, sy, sw, sh = pane["strip"]
             tool = (pane.get("toolbar") or {}).get("frame") or [sx + sw, sy, 0, sh]
             right = max(sx + sw, tool[0] + tool[2])
@@ -163,14 +166,16 @@ report = {}
 try:
     if not wait(lambda: os.path.exists(SOCKET) and first_pane(), 180):
         sys.exit("the tagged app did not come up")
+    # A new launch shows Home (the Chief); a terminal workspace is the tab bar these shots are about.
+    safe_print("new workspace", json.dumps(rpc("action.run", {"action": "workspace.newAtBottom", "origin": "script", "focus": True}))[:200], flush=True)
+    wait(lambda: any(p.get("toolbar") for p in chrome().get("panes") or []) and ids("term_"), 30)
     terminal = wait(focused_terminal, 30)
     safe_print("terminal", terminal, flush=True)
     # A second tab, so the bar reads as a bar of tabs; the terminal stays the pair's half.
     pane_ids = ids("pane_")
     with open(os.path.join(opts.out, "snapshot.json"), "w") as f:
         json.dump({"snapshot": rpc("snapshot.get"), "surfaces": rpc("debug.surfaces")}, f, indent=1)
-    added = rpc("action.run", {"action": "newTab", "origin": "script", "focus": True,
-                               **({"target": f"pane:{pane_ids[0]}"} if pane_ids else {})})
+    added = rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})
     safe_print("panes", pane_ids, "newTab", json.dumps(added)[:200], flush=True)
     wait(lambda: len((first_pane().get("tab_slots") or [])) >= 2, 15)
     payload = json.dumps({"session_id": "5a7e5a7e-0000-4000-8000-0000000000aa", "prompt": "shot"})

@@ -22,7 +22,7 @@ extension AppControl {
                     "user_id": user.map { .string($0.id) } ?? .null,
                     "team_id": cloud.auth.teamID.map(JSONValue.string) ?? .null,
                     "backend": .string(cloud.configuration.ownerAPIBaseURL().absoluteString),
-                    "cloud_environment": cloud.configuration.runtimeSelection.map { .string($0.name) } ?? .null,
+                    "cloud_environment": cloud.configuration.runtimeSelection.map { .string($0.name) } ?? .null, "backend_label": cloud.configuration.runtimeSelection?.developerBackendLabel.map(JSONValue.string) ?? .null,
                     "client_config_source": cloud.configuration.runtimeSelection?.configSource.map(JSONValue.string) ?? .null,
                     "client_config_version": cloud.configuration.runtimeSelection?.clientConfigVersion.map { .number(Double($0)) } ?? .null,
                     "cloud_unavailable": cloud.unavailableReason.map(JSONValue.string) ?? .null,
@@ -86,12 +86,11 @@ extension AppControl {
         #endif
     }
 
-    /// One Cloud machine's row of `cloud.machines` (and of the Cloud
-    /// diagnostics' details): its record, stage, daemon link state and the
-    /// capability negotiation of its daemon.
     /// The daemon capability that serves file ops over a Cloud machine's home (cmux-tui `FS_CAPABILITY`).
     static let cloudFileOpsCapability = "fs-v1"
 
+    /// One Cloud machine's row of `cloud.machines` (and of the Cloud diagnostics' details): its record and team, stage,
+    /// daemon link state and the capability negotiation of its daemon.
     static func cloudMachineRow(_ session: CloudMachineSession, _ machines: MachineRegistry) -> [String: JSONValue] {
         let store = session.daemon.store
         let state: String = switch store.connectionState {
@@ -117,6 +116,7 @@ extension AppControl {
             // so `cmux machine list` lists a connected machine once.
             "machine_id": session.daemon.identity?.machineResourceID.map { .string($0.rawValue) } ?? .null,
             "title": .string(session.machine.title),
+            "team": session.machine.team.map(JSONValue.string) ?? .null, // the machine's own team, which the app's dial sends (the active team may be another)
             // The record's status, except a connected daemon is running (cx-lu8f).
             "status": .string(session.effectiveStatus.rawValue),
             "api_status": .string(session.machine.status.rawValue),
@@ -137,7 +137,6 @@ extension AppControl {
             "missing_required": .array((compat?.missingRequired ?? []).map(JSONValue.string)),
             "missing_features": .array((compat?.missingOptional ?? []).map(JSONValue.string)),
             "file_ops": fileOps.map(JSONValue.bool) ?? .null,
-            "harness_login": session.harnessLogin.map { .string($0.summary) } ?? .null,
             "workspaces": .array(store.workspaces.map { $0.cloudMachineWorkspaceRow }),
         ]
     }

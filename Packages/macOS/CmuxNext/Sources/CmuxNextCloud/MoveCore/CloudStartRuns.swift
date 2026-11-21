@@ -49,11 +49,14 @@ public final class CloudStartRuns<Answer: Sendable, Machine: Sendable> {
     private var runs: [Key: Run] = [:]
     /// Creations of a machine by name and account, each with its own token: two asks for one new
     /// name create one machine.
-    private var creations: [Creation: (token: UUID, task: Task<Machine, any Error>, joined: Bool)] = [:]
+    /// A creation's machine, whether its own `create` made it (``creatingOwn(_:account:_:)``), and whether another ask joined it.
+    private var creations: [Creation: (token: UUID, task: Task<(Machine, Bool), any Error>, joined: Bool)] = [:]
     /// Counts ``forgetAll()`` calls: a creation that ends after one is never handed out.
     private var forgets = 0
     /// Called when an ask joins a creation already going on (tests wait on it).
     public var joinedCreation: @MainActor (String) -> Void = { _ in }
+    /// Called as a new run starts, before its work: the App warms the person's spare there (a Cloud start is coming).
+    public var began: @MainActor (Key) -> Void = { _ in }
     public var now: @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }
     /// The caller's wait: a one-shot sleep, cancelled when the run ends first.
     public var sleep: @MainActor (Duration) async -> Void = { duration in
@@ -78,41 +81,33 @@ public final class CloudStartRuns<Answer: Sendable, Machine: Sendable> {
         creations.keys.filter { $0.account == account }.map(\.name).sorted()
     }
 
-    public struct CreationResult: Sendable {
-        public var machine: Machine
-        /// True when this call owns the creation task; false for a caller that joined it.
-        public var made: Bool
-        /// True when another caller joined the same creation. The owner must not tear down a
-        /// machine that a joined start may still be using.
-        public var shared: Bool
-    }
-
     public func creating(_ name: String, account: [String?], _ create: @escaping @MainActor () async throws -> Machine) async throws -> Machine {
-        try await creatingWithOwnership(name, account: account, create).machine
+        try await creatingOwn(name, account: account) { (try await create(), true) }.machine
     }
 
-    /// As ``creating`` but preserves whether this creation was shared by another start. A
-    /// caller that joins gets `made == false`; the creator gets `shared == true` if a joined
-    /// caller could still be using the machine after creation completes.
-    public func creatingWithOwnership(_ name: String, account: [String?], _ create: @escaping @MainActor () async throws -> Machine) async throws -> CreationResult {
+    /// ``creating(_:account:_:)``, and whether this caller's own creation made the machine (`made`): `create`'s
+    /// own answer (false: it found one made elsewhere) for the caller that started it, false for every caller
+    /// that joined it, and false for the starter too once another ask joined (that ask may run its agent there). Only a machine
+    /// made by this very call, for it alone, can be known to run nothing of anyone's yet, and only it may be deleted on a failure.
+    public func creatingOwn(_ name: String, account: [String?], _ create: @escaping @MainActor () async throws -> (Machine, Bool)) async throws -> (machine: Machine, made: Bool) {
         let key = Creation(name: name, account: account)
         let asked = forgets
-        let unforgotten = { [self] (machine: Machine) throws -> Machine in
+        let unforgotten = { [self] (machine: Machine, made: Bool) throws -> (machine: Machine, made: Bool) in
             guard forgets == asked else { throw CancellationError() }
-            return machine
+            return (machine, made)
         }
         if let running = creations[key] {
             creations[key]?.joined = true
             joinedCreation(name)
-            return CreationResult(machine: try unforgotten(await running.task.value), made: false, shared: true)
+            return try unforgotten(await running.task.value.0, false)
         }
         let token = UUID()
         // task-owner: one creation per name and account; removed when it ends or by forgetAll().
-        let task = Task<Machine, any Error> { @MainActor in try await create() }
+        let task = Task<(Machine, Bool), any Error> { @MainActor in try await create() }
         creations[key] = (token, task, false)
         defer { if creations[key]?.token == token { creations[key] = nil } }
-        let machine = try unforgotten(await task.value)
-        return CreationResult(machine: machine, made: true, shared: creations[key]?.joined == true)
+        let (machine, made) = try await task.value
+        return try unforgotten(machine, made && creations[key]?.joined != true)
     }
 
     /// The end of `key`'s run, or `pending` once `within` has passed (the run goes on): a kept
@@ -123,6 +118,7 @@ public final class CloudStartRuns<Answer: Sendable, Machine: Sendable> {
     public func answer(_ key: Key, within: Duration, pending: Fields, forgotten: any Error, early: Bool = false,
                 _ work: @escaping @MainActor () async throws -> Fields) async throws -> Fields {
         let (run, started) = take(key, work)
+        if started { began(key) }
         if let outcome = run.outcome { return try outcome.get() }
         let caller = UUID()
         let (ends, continuation) = AsyncStream<Outcome?>.makeStream(bufferingPolicy: .bufferingOldest(1))
@@ -250,15 +246,13 @@ public struct CloudStartRunKey: Hashable, Sendable {
     public var caller: String?
     /// The user and team signed in when it was asked (the App's `CloudService.account`).
     public var account: [String?]
-    /// The run's `--login` word; nil for none. Runs that differ in it are different runs.
-    public var login: String?
     /// The folder on this Mac the run copies (`--from-folder`); nil for none. Runs that differ in it are different runs.
     public var fromFolder: String?
     /// The run's `--model`; nil for none. Runs that differ in it are different runs.
     public var model: String?
 
-    public init(machine: String, agent: String, cwd: String?, caller: String?, account: [String?], login: String? = nil, fromFolder: String? = nil, model: String? = nil) {
-        (self.machine, self.agent, self.cwd, self.caller, self.account, self.login) = (machine, agent, cwd, caller, account, login)
+    public init(machine: String, agent: String, cwd: String?, caller: String?, account: [String?], fromFolder: String? = nil, model: String? = nil) {
+        (self.machine, self.agent, self.cwd, self.caller, self.account) = (machine, agent, cwd, caller, account)
         (self.fromFolder, self.model) = (fromFolder, model)
     }
 }

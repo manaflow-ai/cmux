@@ -39,16 +39,17 @@ final class QuitCoordinator {
     /// Holds each quit step to its limit and marks its end in the launch marks.
     let steps = QuitStepLimiter(mark: { DebugTimings.markLaunch($0) })
     /// Chromium's close, the quit's last engine step (tests replace it). An app quit closes every page
-    /// without its beforeunload (`cmux_shim_close_all` answers any question with Leave). The windows
-    /// go away before CefShutdown blocks the main thread (2 to 3.4 s under load, cmuxterm-hq#6338),
-    /// so a decided quit looks done instead of a frozen window; the deadline ends the process after.
+    /// without its beforeunload (`cmux_shim_close_all` answers any question with Leave), then `engineWillStop`.
     lazy var closeEngines: @MainActor () async -> Void = { [weak self] in
-        await self?.services.cache.cef.shutdown(timeout: QuitDeadline.engineCloseWait, beforeEngineStop: QuitCoordinator.hideWindowsForEngineStop)
+        await self?.services.cache.cef.shutdown(timeout: QuitDeadline.engineCloseWait, beforeEngineStop: { await self?.engineWillStop() })
     }
 
-    /// Orders out every visible window: the quit is decided and its saves ran (`stopBrowserEngines`).
-    static func hideWindowsForEngineStop() {
-        for window in NSApp?.windows ?? [] where window.isVisible { window.orderOut(nil) }
+    /// Right before CefShutdown, which never returned before the 4 s deadline in the quit hang files (cmuxterm-hq#8608, #11994): the windows
+    /// go (a decided quit looks done), the drafts the closing pages queued reach disk, and the process ends `engineShutdownLimit` later.
+    func engineWillStop(hide: () -> Void = { for window in NSApp?.windows ?? [] where window.isVisible { window.orderOut(nil) } }) async {
+        hide()
+        await services.stateFilesDrained()
+        deadline.endSooner(after: QuitDeadline.engineShutdownLimit, reason: "CefShutdown began")
     }
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.quit {wedge_engine_stop: true}`: the next quit's engine stop
@@ -198,11 +199,10 @@ final class QuitCoordinator {
                 // before the engines stop: nothing the user asked for comes after that (QuitSteps).
                 // Nothing is written when nothing changed.
                 await services.home.flushCacheForQuit()
+                await services.windows.recordSaver.launchRecord.flush()
                 guard let self else { return }
-                // CefShutdown runs on the main thread and can block it for
-                // good: from here the quit ends by a deadline whatever it
-                // does (a keep quit's deadline is armed already and stays),
-                // and a debug build reports that hang, never asserts it.
+                // CefShutdown runs on the main thread and can block it for good: from here the quit ends by a deadline whatever it
+                // does (a keep quit's deadline is armed already and stays), and a debug build reports that hang, never asserts it.
                 deadline.arm(after: QuitDeadline.engineStopLimit)
                 watchdog?.endHangAssertions()
                 #if DEBUG || CMUX_BENCH_HOOKS

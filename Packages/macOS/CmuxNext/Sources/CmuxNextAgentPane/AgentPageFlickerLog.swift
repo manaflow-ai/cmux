@@ -18,7 +18,9 @@ nonisolated private let flickerLogger = Logger(subsystem: "com.cmuxterm.app.next
 ///   rows from before), `remount` (a row drew again from nothing), `reply-unpainted` (a turn ended
 ///   with a reply the followed view did not paint), `long-frame` (a frame over 100 ms while visible) and `frames`
 ///   (at most once a second while the page changes: its frame intervals' `p50`, `p95` and `max`, and
-///   `miss120` and `miss60`, the frames a 120 Hz or a 60 Hz display would miss; `cmux perf record` reads them).
+///   `miss120` and `miss60`, the frames a 120 Hz or a 60 Hz display would miss; `cmux perf record` reads them),
+///   `focus-lost`, and `first-load` (how a shown chat page loaded: whether a drawn copy showed first, when
+///   content and the final state first painted, and the frames that moved the composer or bottom row).
 ///
 /// The file is a two-file ring under the app's state root:
 /// `<Application Support>/<bundle id>/diagnostics/agent-page-flicker.ndjson`, which becomes
@@ -47,7 +49,7 @@ nonisolated private let flickerLogger = Logger(subsystem: "com.cmuxterm.app.next
     /// here and never reached the file (Leo, 2026-11-15: "now there's just no response from you?").
     nonisolated static let pageKinds: Set<String> = [
         "page-load", "visibility", "transcript-mount", "transcript-replace", "remount", "reply-unpainted",
-        "long-frame", "frames", "focus-lost",
+        "long-frame", "frames", "focus-lost", "first-load",
     ]
     nonisolated static let maximumPageEvents = 32
 

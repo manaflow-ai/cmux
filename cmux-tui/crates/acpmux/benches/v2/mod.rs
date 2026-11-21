@@ -365,7 +365,7 @@ mod tests {
     use super::*;
 
     /// Rows intentionally left without a source writer while a later PR owns their gate.
-    const WAITS_ON_ANOTHER_PR: &[&str] = &[];
+    const WAITS_ON_ANOTHER_PR: &[&str] = &["v2.pr12.follow_driver_views"];
 
     /// A gate name as a source spells it. A `{..}` hole is a name built by `format!`. A PR's
     /// part is its number and then any letters and digits (`03a3`).
@@ -647,6 +647,7 @@ mod tests {
 
     /// The repository's root, where the nightly's gate script and its lines are.
     fn repository() -> PathBuf {
+        // affected-reads: scripts/cmux-next cmux-tui
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
     }
 
@@ -1392,6 +1393,7 @@ mod gate_failed_tests {
     #[cfg(unix)]
     #[test]
     fn the_gate_script_marks_a_failed_filters_rows_red() {
+        // affected-reads: scripts/cmux-next cmux-tui
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
         let measures = tempfile::NamedTempFile::new().unwrap();
         let status = std::process::Command::new("bash")

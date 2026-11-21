@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextDesign
 @testable import CmuxNextApp
+import CmuxNextDesign
 @testable import CmuxNextTabs
 import CmuxNextTestSupport
 import Foundation
@@ -171,21 +171,23 @@ typealias ZoomStripID = CmuxNextTabs.TabID
         }
     }
 
-    /// A zoom shows the bar's one Exit Zoom button in its trailing slot (no pinned buttons appear), and the tab bar's
-    /// right-click still offers Toggle Pane Zoom (its More, the pane's rows) now that the pane's "…" is gone.
-    @Test func aZoomShowsOnlyExitZoom() throws {
+    /// A zoom adds no pinned button: the bar's one Exit Zoom shows left of "…", which is lit, and "…"'s menu
+    /// still offers Toggle Pane Zoom.
+    @Test func aZoomShowsExitZoomLeftOfALitMore() throws {
         let harness = Toolbar()
         let toolbar = harness.toolbar
         toolbar.update(target: "tab0", kind: .terminal, paneKinds: [.terminal])
-        #expect(toolbar.view.intrinsicContentSize.width == 0, "nothing pinned: the strip has the whole row")
-        #expect(toolbar.view.reservedCount == 0)
+        let width = toolbar.view.intrinsicContentSize.width
+        #expect(toolbar.view.reservedCount == 1)
 
         toolbar.update(target: "tab0", kind: .terminal, zoomed: true, paneKinds: [.terminal])
         #expect(toolbar.view.buttons.isEmpty, "the indicator is the pane's, not a toolbar button")
+        #expect(toolbar.view.reservedCount == 1)
         #expect(!toolbar.view.zoomButton.isHidden)
-        #expect(toolbar.view.intrinsicContentSize.width == PaneToolbarView.trailingGap + TitlebarBandButton.side)
-        let more = try #require(harness.registry.makeTabStripMenu(target: ActionTargetRef(kind: .pane, id: "p")).items.last?.submenu)
-        #expect(more.items.contains { ActionRegistry.menuRun(of: $0)?.id == "toggleSplitZoom" })
+        #expect(toolbar.view.intrinsicContentSize.width == width + TitlebarBandButton.side + Metrics.space1 / 2, "Exit Zoom's slot and its gap only")
+        #expect(toolbar.view.lit)
+        let menu = try #require(toolbar.view.moreMenu?())
+        #expect(menu.items.contains { ActionRegistry.menuRun(of: $0)?.id == "toggleSplitZoom" })
     }
 
     /// A chat selected in a zoomed pane keeps the same room: selecting it moves no tab.
@@ -193,10 +195,10 @@ typealias ZoomStripID = CmuxNextTabs.TabID
         let harness = Toolbar()
         let toolbar = harness.toolbar
         toolbar.update(target: "tab0", kind: .terminal, zoomed: true, paneKinds: [.terminal])
-        let width = toolbar.view.intrinsicContentSize.width
+        #expect(toolbar.view.reservedCount == 1)
         toolbar.update(target: "chat", kind: nil, zoomed: true, paneKinds: [.terminal])
         #expect(toolbar.view.items.isEmpty)
-        #expect(toolbar.view.intrinsicContentSize.width == width, "the strip's width does not follow the selection")
+        #expect(toolbar.view.reservedCount == 1, "the strip's width does not follow the selection")
     }
 
     /// A pinned zoom gives way to the bar's one Exit Zoom button while the pane is zoomed, so the pane shows one zoom

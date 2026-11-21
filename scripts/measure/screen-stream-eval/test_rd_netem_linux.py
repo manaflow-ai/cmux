@@ -133,6 +133,12 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(rdnl.pct_over(times, 50), 50.0)
         self.assertIsNone(rdnl.pct_over(None, 50))
 
+    def test_first_seconds_max_counts_only_the_first_two_seconds(self):
+        times = [{'sent_ns': s * 1_000_000_000, 'decoded_ns': s * 1_000_000_000 + ms * 1_000_000}
+                 for s, ms in ((0.0, 20), (0.5, 230), (1.9, 30), (2.5, 400))]
+        self.assertEqual(rdnl.first_seconds_max(times), 230.0)
+        self.assertIsNone(rdnl.first_seconds_max([]))
+
     def test_seconds_to_level(self):
         self.assertEqual(rdnl.seconds_to([None, 9, 15, 20], 15), 3)
         self.assertIsNone(rdnl.seconds_to([1, 2], 15))
@@ -140,7 +146,7 @@ class ParseTests(unittest.TestCase):
 
 class TableTests(unittest.TestCase):
     def test_table_has_one_row_per_result_and_marks_errors(self):
-        good = {'commit': 'a' * 40, 'profile': 'jitter-5',
+        good = {'commit': 'a' * 40, 'profile': 'jitter-5', 'openh264': 'cisco',
                 'key': {'p50_ms': 20.0, 'p95_ms': 40.0, 'lost': 0, 'stage_ledger': LEDGER},
                 'passive': {'mbps_per_s': [8.0, 1.0, 1.2], 'target_kbps_per_s': [8000, 1000, 1000],
                             'decoded_fps_per_s': [30.0, 10.0, 20.0], 'target_s_to_15mbps': None,
@@ -165,7 +171,29 @@ class TableTests(unittest.TestCase):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 self.assertEqual(rdnl.main(['table', str(p)]), 0)
-            self.assertIn('`cccccccccccc` | clean | – / – (–) | – |', out.getvalue())
+            self.assertIn('`cccccccccccc` (source-built, about 3x slower) | clean | – / – (–) | – |', out.getvalue())
+
+    def test_rows_say_which_openh264_encoded(self):
+        self.assertEqual(rdnl.rd_cell({'commit': 'd' * 40, 'openh264': 'cisco'}), '`dddddddddddd`')
+        for source in ({'commit': 'd' * 40, 'openh264': 'source'}, {'commit': 'd' * 40}):
+            self.assertEqual(rdnl.rd_cell(source), '`dddddddddddd` (source-built, about 3x slower)')
+
+    def test_openh264_flags_for_the_host(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            fake = Path(d) / 'cmux-rd'
+            fake.write_text('#!/bin/sh\necho "fetching"\necho "$3/libopenh264.so"\n')
+            fake.chmod(0o755)
+            try:
+                rdnl.OPENH264[:] = ['source']
+                self.assertEqual(rdnl.openh264_lib(fake, Path(d)), [])
+                rdnl.OPENH264[:] = ['/opt/libopenh264.so']
+                self.assertEqual(rdnl.openh264_lib(fake, Path(d)), ['--openh264-lib', '/opt/libopenh264.so'])
+                rdnl.OPENH264[:] = ['cisco']
+                self.assertEqual(rdnl.openh264_lib(fake, Path(d)),
+                                 ['--openh264-lib', f'{d}/openh264/libopenh264.so'])
+            finally:
+                rdnl.OPENH264[:] = ['cisco']
 
 
 if __name__ == '__main__':

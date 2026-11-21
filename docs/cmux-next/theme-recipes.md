@@ -3,6 +3,7 @@
 A whole look for cmux NEXT (colors, the sidebar, glass, borders, motion, fonts, the wallpaper) is one
 file: `~/.config/cmux/themes/<name>.json`. You don't need a build or a restart, and a mistake can't
 break the app. This page gives the steps, the shipped looks to start from, and how to undo a look.
+Ready-made changes you try with one click: [customize recipes](customize-recipes.md).
 The full key list is in [the cmux-customization skill](../../skills/cmux-customization/SKILL.md#rice-cmux).
 
 ## Five steps
@@ -50,17 +51,69 @@ a view"). A view whose script fails shows its error in its own place with a Relo
 rest of the app keeps working. If a code change of your own breaks the app, go back a build from the
 palette with **Roll Back to Previous Version**, or run `cmux settings rollback-update --confirm`.
 
+## Install a theme from a repository
+
+A theme someone shared lives in a git repository: a `cmux-theme.json` at its root and theme files
+under `themes/`. One command installs it and puts it on, wallpapers included:
+
+```sh
+cmux theme install github.com/teamleaderleo/teal-twin-theme
+```
+
+cmux shows one line (what it is, where it comes from, that no code runs) and asks first; an agent
+passes `--yes` after asking you. The look changes at once, and the output names the theme now in
+use. `cmux apps install github.com/OWNER/REPO` (the line cmux.com's install page shows) and
+`cmux theme import github.com/OWNER/REPO` do the same for a theme or snippet repository.
+`cmux theme remove OWNER/REPO` (or `cmux customize rollback`) puts back the look you had, and
+`cmux theme update` follows new releases. A snippet (look settings and surface stylesheets, such
+as a set of fonts) installs the same way with `cmux snippet install`.
+
+`cmux theme import FILE` only copies one theme file into the themes folder; add `--use` to put it
+on, or run the `cmux theme use NAME` it prints.
+
+## Share a theme so people find it
+
+1. Make a repository: `cmux theme export --save NAME` writes your look as `themes/NAME.json`; add a
+   `cmux-theme.json` beside `themes/` (`"cmuxTheme": 1`, an `id` starting with your GitHub name, a
+   `name`, a `description`, a `version`, and `"use"` naming the theme file to put on).
+   [Teal Twin](https://github.com/teamleaderleo/teal-twin-theme) is a full example.
+2. `cmux theme check .` in the folder reports anything cmux would not load.
+3. Tag a release with the version (`1.0.0`).
+4. Add the topics. cmux.com lists repositories with the topic `cmux-extension` as candidates; add
+   `cmux-theme` (or `cmux-snippet`) and `cmux` too, so people searching GitHub find it. On the
+   repository page, click the gear beside **About**, type each topic under **Topics**, and save. From
+   a terminal signed in to GitHub:
+   `gh repo edit OWNER/REPO --add-topic cmux-extension --add-topic cmux-theme --add-topic cmux`.
+5. To list it on cmux.com and in the App Store's Community source, open a pull request adding it to
+   `themes.json` (a snippet: `snippets.json`) in
+   [manaflow-ai/cmux-extensions](https://github.com/manaflow-ai/cmux-extensions); a merge there is
+   the review.
+
 ## Keep it fast
 
 A theme file costs nothing per frame: it's read once on each save. Code you add to the app is a
 different matter. [modding-kit.md](modding-kit.md) lists the rules the dev server checks on save and
 the primitives that keep a mod fast.
 
+## The thinking look (settings a look sets)
+
+A look's setup can set how the running line and Jump to latest move while an agent works. All four
+are agent-settable settings (`cmux settings set`, the palette, MCP `settings_set`); each default
+draws what cmux draws without a look, and a change applies at once:
+
+| Key | Values | Default | What it does |
+| --- | --- | --- | --- |
+| `agentPane.display.thinking.shimmer` | `cadenced`, `continuous` | `cadenced` | `continuous`: the light band crosses the running line's words and running tool rows pass after pass, eased in and out, as Claude's desktop app draws it. `cadenced` is one one-second pass every four seconds |
+| `agentPane.display.thinking.shimmerPeriod` | 600 to 4000 ms | 1250 | One continuous pass |
+| `agentPane.display.thinking.shimmerBand` | 0 to 240 px | 0 | The band's lit width on any line; 0 keeps the band half the line wide |
+| `agentPane.display.thinking.jumpButton` | `arrow`, `dots` | `arrow` | `dots`: while the agent works, Jump to latest shows three dots in the theme accent that trade size between the middle and the ends; the arrow shows on hover and once the agent stops |
+
+Reduce Motion, static status indicators and animations off hold all of them still. The Claude look
+sets `continuous`, 1250, 80 and `dots`.
+
 ## Not in a theme file yet
 
 These parts of a look are still built into the app:
 
 - the thinking indicator's look in the agent pane (a Debug setting today, `StatusWorkingLook`)
-- the motion of the jump to latest button
-- shared looks and views from a vetted source; [the extension RFC](../rfcs/extension-ecosystem.md)
-  proposes packs with exact-source trust
+- the motion of the jump to latest button, beyond `agentPane.display.thinking.jumpButton` above

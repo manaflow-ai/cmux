@@ -97,6 +97,9 @@ tmux-*.log
 /Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/*
 !/Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/GENERATED.md
 /Resources/markdown-viewer/webviews-app/
+# The App Store packages the app bundles (samples/apps and first-party-apps with a STORE marker):
+# build output of scripts/cmux-next/sync-app-runtime.sh --store, which build-web-bundles.sh runs.
+/Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/store/
 # The React pages' strings tables: build output of webviews/scripts/pages/gen-strings.mjs, written
 # by bun install, the webviews test preload and every bundle build from the xcstrings catalogs
 # (#21946). Committed copies collided in every pull request that touched a catalog.
@@ -111,6 +114,8 @@ tmux-*.log
 /webviews/src/**/generated/*.tmp
 
 # nested-groups prototype gallery output
+Packages/macOS/CmuxNext/mac-screen-devices-gallery/
+Packages/macOS/CmuxNext/mac-screen-devices-gallery.tar
 Packages/macOS/CmuxNext/nested-groups-gallery/
 Packages/macOS/CmuxNext/nested-groups-gallery.tar
 Packages/macOS/CmuxNext/group-line-gallery/

@@ -37,9 +37,8 @@ sidebar-owner.md. The reorder-to-first bug belongs to another agent and is not t
    CLI `space open-in-new-window`, MCP. The new window shows the space; the original keeps it. A
    drag of a space dot out of the switcher and released outside every window runs the same action;
    a drop inside the switcher still reorders (the drag only turns into "open" once the pointer
-   leaves the window). Until rule 6's second view exists, a workspace is in one window: the new window
-   takes the space's workspaces that no window showing the space lists (hidden ones), else starts with
-   a new workspace of the space. Default picked: the drop must be outside the window (as a browser tab
+   leaves the window). The new window lists the space's workspaces as rule 6 says: the ones no window
+   owns become its own, the ones the original window owns show in both. Default picked: the drop must be outside the window (as a browser tab
    tears off), so a drop inside the window never opens one by accident.
 5. **A Home per space.** The Home chat (Chief and DMs) is one, shared by every space. What a person
    builds around it (a split, a browser opened with Cmd-D in Home) belongs to the space's Home only:
@@ -54,9 +53,27 @@ sidebar-owner.md. The reorder-to-first bug belongs to another agent and is not t
    - Chat and diff views: decided, they may show twice. Both are read-only projections of one
      model (the transcript and the diff), so two views cost only their view memory and let a person
      read the top and bottom of a diff at once. Scroll position is per view.
-   - Today a workspace belongs to exactly one window (`WindowRegistry`). Showing one workspace in
-     two windows needs a second view of the same workspace (a parked companion in the second
-     window, as multi-view already builds). Not built yet (Open).
+   - Built 2026-11-15 (Lawrence: "if i switch to that space from original window, and view a
+     terminal, that terminal must be shared"). A window is a view of a space. Each workspace keeps
+     one owner window (it saves and restores it); every other open normal window on the same space
+     lists it as a guest (`WindowRegistry.Window.guests`, set only by
+     `WindowManager.shareSpaces` in each membership transition and each space a window enters). A
+     window that goes to a space another window shows gets that space's workspaces, never a new
+     workspace beside them.
+   - A terminal in a guest window is a view of its own (own Ghostty surface, own attach,
+     `TabContentCache.guestTerminal`): to the daemon it is one more participant, so the grid follows
+     the daemon's size rule (the smaller view by default; the larger shows the "sized for another
+     window" chip).
+   - A tab with one view (browser, agent chat, page, conversation) stays in the window that showed
+     it first. The other window shows "This tab is shown in another window" with Show Here
+     (`TabShownElsewhereView`), which takes the view. No snapshot yet.
+   - The default space is a space like every other: two windows on it list each other's workspaces, also for a
+     person who made no space. Before, each such window listed only its own.
+   - Not restored yet: a window that owns no workspace (it shows only guests) has no record, so a relaunch does not
+     bring it back; a window that owns some comes back on the space of what it owns.
+   - The owner's window closes: the first open window that lists the workspace as a guest owns it
+     from then on (`WindowRegistry.close`), and the closed window's group keeps only what no window
+     shows. An incognito window never shares (rule 2).
 7. **Every space action on every surface.** Each `space.*` action, the space keys, Pin/Unpin
    Workspace, Move to Space, Hide / Show Spaces and New Window have a Cmd-Shift-P entry, a `cmux space …`
    CLI verb and an MCP tool. No exemption is allowed for them; `SpaceSurfacesTests` checks all
@@ -107,10 +124,10 @@ as its swatch does, at full strength; the current space has its chip. Gallery: `
   shared Chief conversation tab in each, keyed so the store never duplicates a conversation.
   Splits and browsers made in Home land in that space's Home workspace. A daemon without the field
   keeps one Home for every space.
-- **Two windows on one space (rule 6).** `WindowRegistry` gives a workspace one owner. A second
-  window on the same space gets view-only companions of the owner's workspaces (the multi-view
-  parked controllers), drawing the same daemon terminals. Browser tabs in a companion show the
-  last snapshot and a Show Here button that moves the live page (the existing tab move path).
+- **Two windows on one space (rule 6).** Built, less the browser snapshot: the window without the
+  live page shows a notice and Show Here, not the page's last frame. Next: delete the owner window
+  from the model (a workspace belongs to its space only, and a window record saves its space),
+  which removes `guests` and the hand-over at close.
 
 ## Slices
 
@@ -124,5 +141,6 @@ as its swatch does, at full strength; the current space has its chip. Gallery: `
 
 ## Open
 
-- Rules 5 and 6 are designed here and not built.
+- Rule 5 is designed here and not built. Rule 6 is built (live check:
+  `scripts/cmux-next/shared-space-windows-e2e.py`), less the browser snapshot.
 - The drag-out gesture needs a running-app check on a GUI host.
