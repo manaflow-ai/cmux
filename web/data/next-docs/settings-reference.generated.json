@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 640,
+  "count": 641,
   "sections": [
     {
       "id": "general",
@@ -6942,6 +6942,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Developer Tools"
+        },
+        {
+          "key": "labs.agentCustomization",
+          "title": "Claude Code and Codex Customization",
+          "help": "Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
         },
         {
           "key": "labs.liveCode",

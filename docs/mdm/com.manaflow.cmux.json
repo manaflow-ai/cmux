@@ -3672,6 +3672,12 @@
       "title" : "Connect iMessage",
       "type" : "boolean"
     },
+    "labs.agentCustomization" : {
+      "default" : false,
+      "description" : "Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files.",
+      "title" : "Claude Code and Codex Customization",
+      "type" : "boolean"
+    },
     "labs.liveCode" : {
       "default" : false,
       "description" : "Swift changes you compile apply to the running app. Takes effect after cmux restarts.",

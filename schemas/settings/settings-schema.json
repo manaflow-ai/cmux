@@ -1485,6 +1485,7 @@
         },
         "trail" : [
           "agentTools",
+          "agentSkills",
           "harnesses",
           "agentHarnesses",
           "agentIntegrations",
@@ -2221,6 +2222,7 @@
               "labs.machineJoin",
               "labs.liveCode",
               "customize.fromTheApp",
+              "labs.agentCustomization",
               "appearance.experimentalControls"
             ],
             "title" : {
@@ -33730,7 +33732,7 @@
         false
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -33797,7 +33799,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -33809,9 +33811,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -101241,7 +101245,7 @@
         "glow"
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -101320,7 +101324,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -101332,9 +101336,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -104193,6 +104199,145 @@
       "title" : {
         "key" : "settings.labs.customizeFromTheApp",
         "text" : "Customize From the Window"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.agentCustomization.help",
+        "text" : "Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.agentCustomization",
+      "keywords" : [
+        "labs",
+        "claude",
+        "codex",
+        "mcp",
+        "servers",
+        "skills",
+        "commands",
+        "slash",
+        "customize",
+        "agent",
+        "agents",
+        "config"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "agentCustomization"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:labs.agentCustomization"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.labs.agentCustomization",
+        "text" : "Claude Code and Codex Customization"
       },
       "validation" : "portable"
     },
