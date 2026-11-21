@@ -23,6 +23,7 @@
 //! `cargo test -p acpmux-book --release --lib god_vs_small -- --ignored --nocapture`
 //! The kill-at-every-byte tests are in `recover_tests.rs` and run with the ordinary suite.
 
+use crate::gate_rounds::{self, best_p95};
 use crate::log::{Anchor, Edge, Log, MAX_PAGE_BYTES, RawRange, StateWriter, section};
 use crate::testkit::{open, text};
 use std::fmt::Write as _;
@@ -54,21 +55,19 @@ struct Dist {
     /// The lowest p95 of `ROUNDS` equal groups of the samples, in the order they were taken:
     /// what the 1.2x bars compare, so one noisy stretch of a shared CI machine fails nothing.
     best_p95: u64,
+    /// Those groups, for [`gate_rounds::report`].
+    rounds: Vec<Vec<u128>>,
 }
 
 fn dist(samples: &[u64]) -> Dist {
     let mut sorted = samples.to_vec();
     sorted.sort_unstable();
-    let best_p95 = samples
+    let rounds: Vec<Vec<u128>> = samples
         .chunks(samples.len().div_ceil(ROUNDS))
-        .map(|group| {
-            let mut group = group.to_vec();
-            group.sort_unstable();
-            percentile(&group, 0.95)
-        })
-        .min()
-        .unwrap();
-    Dist { p50: percentile(&sorted, 0.5), p95: percentile(&sorted, 0.95), best_p95 }
+        .map(|group| group.iter().copied().map(u128::from).collect())
+        .collect();
+    let best_p95 = best_p95(&rounds) as u64;
+    Dist { p50: percentile(&sorted, 0.5), p95: percentile(&sorted, 0.95), best_p95, rounds }
 }
 
 /// Append, rather than replace, so one runner can collect several crate-local gates.
@@ -93,6 +92,7 @@ fn gate_p95(small: &Dist, god: &Dist) -> (u64, u64) {
 }
 
 fn emit_timing(name: &str, small: &Dist, god: &Dist) {
+    gate_rounds::report(name, &[("small", &small.rounds), ("god", &god.rounds)]);
     let (small, god) = gate_p95(small, god);
     emit_measure(name, small, god, "ns");
 }
@@ -223,7 +223,7 @@ struct FirstWindow {
 fn first_window(dir: &Path, rows: usize) -> FirstWindow {
     let start = Instant::now();
     let (mut log, _) = open(dir);
-    let window = log.window(Anchor::End, rows, WINDOW_BYTES);
+    let window = log.window(Anchor::End, rows, WINDOW_BYTES).unwrap();
     let (mut buf, mut at) = (Vec::new(), Vec::new());
     let reads = log.fill(&window.rows, &mut buf, &mut at).unwrap();
     let nanos = nanos(start);
@@ -253,7 +253,7 @@ fn rss_probe_entry() {
         return print(0);
     }
     let (mut log, _) = open(Path::new(&dir));
-    let window = log.window(Anchor::End, 400, WINDOW_BYTES);
+    let window = log.window(Anchor::End, 400, WINDOW_BYTES).unwrap();
     let (mut buf, mut at) = (Vec::new(), Vec::new());
     log.fill(&window.rows, &mut buf, &mut at).unwrap();
     print(at.len());
@@ -438,7 +438,7 @@ fn god_vs_small() {
     let (mut buf, mut at) = (Vec::new(), Vec::new());
     let (mut page_rows, mut page_bytes, mut most_reads) = (0usize, 0usize, 0u32);
     for anchor in (1..=200u64).map(|step| step * (GOD_ROWS / 200)) {
-        let page = log.page(Edge::Before(anchor), MAX_PAGE_BYTES);
+        let page = log.page(Edge::Before(anchor), MAX_PAGE_BYTES).unwrap();
         let reads = log.fill(&page.rows, &mut buf, &mut at).unwrap();
         most_reads = most_reads.max(reads);
         page_rows += page.rows.len();
@@ -454,7 +454,7 @@ fn god_vs_small() {
             if log.row(middle).unwrap().seg < seg { low = middle + 1 } else { high = middle }
         }
         for anchor in [low + 1, low + 50, low + 2000] {
-            let page = log.page(Edge::Before(anchor), MAX_PAGE_BYTES);
+            let page = log.page(Edge::Before(anchor), MAX_PAGE_BYTES).unwrap();
             assert!(!page.rows.is_empty());
             most_reads = most_reads.max(log.fill(&page.rows, &mut buf, &mut at).unwrap());
             at_segment_ends += 1;
@@ -462,7 +462,7 @@ fn god_vs_small() {
     }
     let small_page = {
         let (mut small_log, _) = open(&small_dir);
-        let page = small_log.page(Edge::Before(SMALL_ROWS + 1), MAX_PAGE_BYTES);
+        let page = small_log.page(Edge::Before(SMALL_ROWS + 1), MAX_PAGE_BYTES).unwrap();
         let reads = small_log.fill(&page.rows, &mut buf, &mut at).unwrap();
         (page.rows.len(), at.iter().map(|range| range.len()).sum::<usize>(), reads)
     };

@@ -61,7 +61,8 @@ enum DebugPaneChrome {
                     }
                     fields["toolbar"] = .object([
                         "frame": rect(topLeft(toolbar.convert(toolbar.bounds, to: nil))), "revealed": .bool(toolbar.reveal.isRevealed),
-                        "more_alpha": .number(Double(toolbar.moreButton.alphaValue)),
+                        "more_alpha": .number(Double(toolbar.moreButton.isHidden ? 0 : toolbar.moreButton.alphaValue)),
+                        "more_frame": rect(topLeft(toolbar.moreButton.convert(toolbar.moreButton.bounds, to: nil))),
                         "buttons": .array(toolbar.buttons.map { .string($0.accessibilityLabel() ?? "") }), "more_menu": .array(rows(toolbar.moreMenu?())),
                     ])
                 }

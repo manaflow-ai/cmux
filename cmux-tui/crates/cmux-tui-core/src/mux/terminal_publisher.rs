@@ -304,6 +304,9 @@ impl Mux {
     pub(crate) fn settle_terminal_publications(&self, surface: &Arc<Surface>) {
         let jobs = self.terminal_publisher.settle(surface);
         self.forget_terminal_tail(surface);
+        if let Some(runtime) = surface.terminal_runtime_id() {
+            self.forget_terminal_ports(runtime);
+        }
         surface.publish_pending_directory();
         surface.publish_pending_state();
         // The latest state is published above: a queued publication of the

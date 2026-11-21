@@ -124,6 +124,29 @@ impl Facts {
             ),
         }
     }
+
+    /// Grants and sandbox after a confirmed install: exactly what the
+    /// consent card listed and the person confirmed (`AppsPageConfirmations`
+    /// lists `scopes`, and `optionalScopes` too when the install asks for
+    /// them). Two kinds stay out because the card does not grant them: an
+    /// elevated scope keeps its own confirmation sheet, and a scope the
+    /// tier may never hold (restricted for an unverified app) is refused at
+    /// any time. The sandbox stays the tier's default (unverified starts
+    /// sandboxed) unless the card granted a scope that reaches out (`net:`,
+    /// `integration:`): the person allowed that, so the app may use it.
+    pub fn confirmed_install(&self, grant_optional: bool) -> (BTreeSet<String>, bool) {
+        let optional = self.optional.iter().filter(|_| grant_optional);
+        let grants: BTreeSet<String> = self
+            .requested
+            .iter()
+            .chain(optional)
+            .filter(|s| !is_elevated(s) && self.tier_may_hold(s))
+            .cloned()
+            .collect();
+        let reaches_out = grants.iter().any(|s| cmux_app_manifest::scope_reaches_out(s));
+        let sandboxed = self.tier == Tier::Unverified && !reaches_out;
+        (grants, sandboxed)
+    }
 }
 
 /// Elevated scopes (scope-classes.json): never granted at install, for any
@@ -246,6 +269,10 @@ pub struct SetOp {
     pub sandboxed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grant: Option<(String, bool)>,
+    /// With `installed: true`: the consent card also listed the manifest's
+    /// `optionalScopes`, so the install grants them too.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub grant_optional: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -496,9 +523,15 @@ fn reduce_set(mirror: &Mirror, set: &SetOp, facts: Option<&Facts>) -> Result<Out
     let installing = set.installed == Some(true) && !before.installed;
     let uninstalling = set.installed == Some(false) && before.installed;
     let mut effects = Vec::new();
-    let mut record = if installing {
-        let source = if facts.source == Source::Local { Source::Local } else { Source::User };
-        fresh(facts, source)
+    let mut record = if installing && facts.source == Source::Local {
+        // A local app is the person's own folder, added without a consent
+        // card: it starts with the tier's defaults (sandboxed, read scopes).
+        fresh(facts, Source::Local)
+    } else if installing {
+        // Installing needs origin user: the person confirmed the consent
+        // card, so the app gets what the card listed.
+        let (grants, sandboxed) = facts.confirmed_install(set.grant_optional);
+        Record { grants, sandboxed, ..fresh(facts, Source::User) }
     } else if uninstalling {
         effects.push(Effect::StopHost(set.app.clone()));
         effects.push(Effect::ClearStorage(set.app.clone()));
@@ -578,3 +611,7 @@ fn commit(
     }
     Outcome { mirror: next, effects, replayed: false, changed }
 }
+
+#[cfg(test)]
+#[path = "mirror_tests.rs"]
+mod tests;

@@ -99,7 +99,8 @@ final class CEFHostView: NSView {
     override func viewWillStartLiveResize() {
         super.viewWillStartLiveResize()
         liveResizeWillStart?()
-        layerHosting.windowLiveResize(active: true)
+        // Only a resize a person drags (a mouse button down) detaches the page; a display change also starts one.
+        layerHosting.windowLiveResize(active: true, byPerson: NSEvent.pressedMouseButtons != 0)
         updateBackground()
     }
 
@@ -107,6 +108,14 @@ final class CEFHostView: NSView {
         super.viewDidEndLiveResize()
         layerHosting.windowLiveResize(active: false)
         updateBackground()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let wasEmpty = bounds.isEmpty
+        super.setFrameSize(newSize)
+        // After super: the fork's tracker resized the page window in the frame notice, so its compositor has the new
+        // size the window's resize fence asks for (fork API 32, ``CEFLayerHosting/pageViewResized()``).
+        if !wasEmpty, newSize.width > 0, newSize.height > 0 { layerHosting.pageViewResized() }
     }
 
     /// Once the page's own background is known (`pageBackdrop`) the page area takes it, so the gap beside a page that is
@@ -309,6 +318,8 @@ final class CEFHostView: NSView {
     /// `geometryOnly`: a layout motion frame that changed no clip shape (`browserPagesGeometryOnlyKey`); a page whose
     /// ``PlacementKey`` is the one the fork last read works out no geometry then (O(moved pages) builds per frame).
     func pagesNeedUpdate(force: Bool, geometryOnly: Bool = false) { // perf-hot: 0.05ms cef-geometry (every page, every motion frame)
+        // A page parked away comes back when its view does (`CEFLayerHosting.isParkedAway`): its geometry no fork reads.
+        if layerHosting.isParkedAway { layerHosting.placementChanged() }
         let key = PlacementKey(of: self)
         if geometryOnly, !force, readGeometry != nil, key == readPlacement {
             Self.trackerStats.geometrySkips += 1
@@ -362,6 +373,9 @@ final class CEFHostView: NSView {
     /// Tells the tracker about moves AppKit does not report (layer
     /// transforms, manual frame animation in an ancestor).
     func postGeometryChange() { // perf-hot: 0.2ms cef-geometry (each post makes the fork re-place one page window)
+        // Before the fork's update: a view now wholly outside its window detaches its page, so the fork never orders
+        // a page window in 100,000 points off the window (a window share of it then gets no frame).
+        layerHosting.placementChanged()
         invalidateOcclusionMemo()
         // Something the key does not see may have changed (an own occlusion, a direct post): the next frame builds in full.
         readPlacement = nil
@@ -405,6 +419,12 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// motion, and the page waits at the size it rests at instead of laying out at every frame's size
     /// (``CEFTabContentView/paneMotionWillRest(sizeChange:)``). True from the spring's start to its landing or first retarget.
     var pageRestHold = false
+    /// The size the page took ahead of its pane's next layout commit, on an engine with no resize fence
+    /// (`CEFTabContentView+PaneCommit`); nil otherwise. The page holds it (``heldPageSize``) until this view takes a
+    /// new size (the commit showed), the change goes, or its wait lets it go.
+    var commitAheadSize: CGSize?
+    /// The wait for the page's layout at ``commitAheadSize``; nil when none runs.
+    var commitWait: CEFCommitPageWait?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -430,6 +450,8 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     override func setFrameSize(_ newSize: NSSize) {
         let wasEmpty = bounds.isEmpty
         super.setFrameSize(newSize)
+        // The pane's commit showed: the page has the size it took ahead (or lays out at this one).
+        if commitAheadSize != nil { endCommitAhead() }
         tab?.deviceEmulationViewDidResize()
         tab?.pageWindowHostDidResize(wasEmpty: wasEmpty)
     }
@@ -437,6 +459,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
+            leaveCommitAhead()
             dropHold()
             // A container leaving the window (its tab closed or moved mid-resize) may never hear the resize's end.
             endAllPageSync()
@@ -457,6 +480,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// shared host view go, as when it leaves the window, at no window move.
     override func viewDidHide() {
         super.viewDidHide()
+        leaveCommitAhead()
         dropHold(keepingKeyHold: true)
         refreshSyncedDrag()
         tab?.contentDidDisappear()

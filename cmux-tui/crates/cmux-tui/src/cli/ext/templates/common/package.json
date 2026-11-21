@@ -1,0 +1,10 @@
+{
+  "name": "{{NAME}}",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A cmux extension made with cmux ext new.",
+  "dependencies": {
+    "cmux-extension-sdk": "file:./sdk"
+  }
+}

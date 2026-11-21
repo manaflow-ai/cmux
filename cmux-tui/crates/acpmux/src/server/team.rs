@@ -23,10 +23,10 @@ pub(super) async fn handle(
     let mesh =
         hub.mesh.get().ok_or_else(|| RpcError::internal("the mesh relay is not configured"))?;
     match method {
-        crate::rpc::method::MUX_TEAM_SEND => send(hub, conn, mesh, params).await,
-        crate::rpc::method::MUX_TEAM_INBOX => inbox(hub, conn, mesh, params).await,
-        crate::rpc::method::MUX_TEAM_READ => read(hub, conn, mesh, params).await,
-        crate::rpc::method::MUX_TEAM_ACK => ack(hub, conn, mesh, params).await,
+        crate::rpc::method::MUX_TEAM_SEND => send(hub, conn, &mesh, params).await,
+        crate::rpc::method::MUX_TEAM_INBOX => inbox(hub, conn, &mesh, params).await,
+        crate::rpc::method::MUX_TEAM_READ => read(hub, conn, &mesh, params).await,
+        crate::rpc::method::MUX_TEAM_ACK => ack(hub, conn, &mesh, params).await,
         _ => Err(RpcError::method_not_found(method)),
     }
 }

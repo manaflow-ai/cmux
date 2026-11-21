@@ -246,6 +246,7 @@ impl Mux {
         // drop the ones whose TTL passed while the daemon was down.
         crate::state::status_owners::resume(self);
         self.clear_stale_terminal_tails();
+        self.reconcile_terminal_ports();
         let ephemeral = self.read_registry_state(crate::state::store::ephemeral_workspaces)?;
         for workspace_id in ephemeral {
             self.close_ephemeral_workspace(&workspace_id, TerminalCloseGuard::None)?;
