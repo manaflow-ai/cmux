@@ -742,7 +742,8 @@ async fn a_prompt_to_a_watched_codex_desktop_chat_is_queued_and_its_answer_shown
 
     let opts = PromptOptions {
         prompt_id: Some("p-codex".into()),
-        agent: Some("desktop cmux".into()),
+        // A `HOST/NAME` sender `acpmux send` reaches, so the hint names the answer command.
+        agent: Some("vm-1/desktop-cmux".into()),
         ..Default::default()
     };
     let blocks = vec![json!({"type": "text", "text": "ping from claude"})];
@@ -761,7 +762,7 @@ async fn a_prompt_to_a_watched_codex_desktop_chat_is_queued_and_its_answer_shown
     assert_eq!(added[0]["threadId"], thread);
     let sent = added[0]["input"][0]["text"].as_str().unwrap();
     assert!(
-        sent.starts_with("From another agent (desktop cmux), not the person:\nping from claude\n\n[Answer desktop cmux"),
+        sent.starts_with("From another agent (vm-1/desktop-cmux), not the person:\nping from claude\n\n[Answer vm-1/desktop-cmux"),
         "{sent}"
     );
     let events = hub.store.events(&session.id, 0, usize::MAX).unwrap();
