@@ -3,10 +3,12 @@
 // need to be real good like just ultra braindead". The engine owns the clock and the revert (it
 // reverts at the first look after the end time, the app's start included); this bar only shows
 // the time left and the two ways out.
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Button } from "../../../ui/Button";
 import { useSettingsState, useStore } from "../context";
 import type { CustomizeTryOn } from "../ops";
+import { LIBRARY_KEY } from "../sectionQueries";
 import { t } from "../strings";
 
 /** The gallery's three looks; `row` ships. */
@@ -62,14 +64,28 @@ export function TryOnBar({
 export function TryOnSlot() {
   const store = useStore();
   const { connected } = useSettingsState();
+  const queryClient = useQueryClient();
   const [tryOn, setTryOn] = useState<CustomizeTryOn | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
+  // A try-on that starts or ends (kept, reverted, run out) changed the library: the engine put its
+  // entry on, or took it out or turned it off again, so the Customization Library reads it again
+  // instead of showing what it was.
+  const shown = useRef<CustomizeTryOn | null>(null);
+  const show = useCallback(
+    (next: CustomizeTryOn | null) => {
+      const changed = next?.generation !== shown.current?.generation;
+      shown.current = next;
+      setTryOn(next);
+      if (changed) void queryClient.invalidateQueries({ queryKey: LIBRARY_KEY });
+    },
+    [queryClient],
+  );
   const read = useCallback(async () => {
     const next = await store.customize("status");
     setNow(Date.now());
-    setTryOn(next);
-  }, [store]);
+    show(next);
+  }, [store, show]);
   useEffect(() => {
     if (!connected) return;
     void read();
@@ -101,7 +117,7 @@ export function TryOnSlot() {
     setBusy(true);
     void store
       .customize(verb)
-      .then(setTryOn)
+      .then(show)
       .finally(() => setBusy(false));
   };
   return <TryOnBar tryOn={tryOn} now={now} busy={busy} onKeep={() => run("keep")} onRevert={() => run("revert")} />;

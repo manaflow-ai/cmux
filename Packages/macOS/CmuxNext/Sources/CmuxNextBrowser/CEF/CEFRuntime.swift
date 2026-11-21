@@ -60,6 +60,9 @@ final class CEFRuntime {
     /// The cmux pages' spare window (`CEFSpareWindow`, the pages' off-the-record store), from the first
     /// page on (`usePageSpareWindow`); nil before.
     private(set) var pageSpareWindow: CEFSpareWindow?
+    /// Agent chat pages draw a key's frame at once (fork API 35, Debug Settings; `CEFDrawOnInput`). Made at the first
+    /// browser, once the shim is loaded.
+    private(set) lazy var drawOnInput = CEFDrawOnInput(shim: shim, apiVersion: forkAPIVersion)
     /// Collects the garbage closed cmux pages leave in the renderer they shared (`CEFPageRendererGC`).
     private(set) lazy var pageRendererGC = CEFPageRendererGC(
         pages: { [weak self] in
@@ -210,6 +213,8 @@ final class CEFRuntime {
     let keyReturn = AgentRenderKeyReturn()
     /// The App's sign-in tabs (`adopt`): the shim's AUTH_CALLBACK events go here.
     private(set) var signInCallbacks = CEFSignInCallbacks()
+    /// Omnibox edits each profile's predictor could not learn yet (its database loads after start-up).
+    var omniboxPendingLearns: [BrowserProfileID: OmniboxPendingLearns] = [:]
 
     /// Maps the shim and the framework (``loadLibrary(_:signatureChecker:)``). Called only from the detached
     /// load task of ``start(layout:environment:trigger:)`` and ``preload(layout:)``, never on the main thread:
@@ -220,19 +225,29 @@ final class CEFRuntime {
     /// A load begun from any thread before any page asked (`CEFEngine.beginEarlyLoad`, handed over by the engine with
     /// its stores, `adopt(earlyLoad:)`); the first start or preload of its layout takes it instead of loading again.
     private(set) var earlyLoad: CEFEarlyLoad?
+    /// Runs this runtime's deadlines (an extension popup window no panel attached, `CEFPaneHost+PopupWindows`);
+    /// tests pass a manual clock.
+    let clock: any Clock<Duration>
 
-    private init() { libraryLoader = { CEFRuntime.loadLibrary($0) } }
+    private init() {
+        libraryLoader = { CEFRuntime.loadLibrary($0) }
+        clock = ContinuousClock()
+    }
 
     /// An idle runtime whose framework load is `libraryLoader`, its profiles under `storage` (tests).
     init(libraryLoader: @escaping LibraryLoader, storage: CEFProfileStorage? = nil) {
         self.libraryLoader = libraryLoader
         if let storage { self.storage = storage }
+        clock = ContinuousClock()
     }
 
     /// The disk work `CefInitialize` needs done first, read off the main thread once the first window frame has
     /// committed (``initializeAfter``; at once when no gate is set), so the main thread's start does none of it
     /// and nothing of it competes with the window's build: a profiled A/B with this prep running during the build
-    /// put the first frame 17 ms later. ``start(layout:environment:trigger:)`` awaits it before `CefInitialize`:
+    /// put the first frame 17 ms later. Once the gate opens it runs at user-initiated priority: every Chromium start
+    /// awaits it, and at utility priority its file reads were throttled behind the framework's map, which put
+    /// `cef.initialize_start` ~1.4 s after the first frame in Leo's NIGHTLY (~230 ms before #45010).
+    /// ``start(layout:environment:trigger:)`` awaits it before `CefInitialize`:
     /// the profile root exists, the last run's log is kept (``CEFProfileStorage/prepareForLaunch()``), and the
     /// person's own uBlock Origin is looked up (``CEFBuiltInExtensions/personAdBlocker(profiles:fileManager:)``
     /// reads and parses each profile's preference files), and so is the built-in one's manifest (``CEFLaunchPrep``).
@@ -244,7 +259,7 @@ final class CEFRuntime {
         let storage = storage
         let gate = initializeAfter
         let resources = Bundle.main.resourceURL
-        let task = Task.detached(priority: .utility) { () -> CEFLaunchPrep in
+        let task = Task.detached(priority: .userInitiated) { () -> CEFLaunchPrep in
             _ = await CEFRuntime.waitForInitializeGate(gate)
             return CEFLaunchPrep(preparing: storage, resources: resources)
         }
@@ -310,9 +325,10 @@ final class CEFRuntime {
 
     /// A runtime over `shim` that never loads or starts Chromium, its profiles under `storage`
     /// (tests drive panes against a spy shim).
-    init(shim: CEFShimLibrary, storage: CEFProfileStorage) {
+    init(shim: CEFShimLibrary, storage: CEFProfileStorage, clock: any Clock<Duration> = ContinuousClock()) {
         self.shim = shim
         self.storage = storage
+        self.clock = clock
         libraryLoader = { _ in .failure(.notEmbedded) }
         state = .ready
     }
@@ -386,6 +402,7 @@ final class CEFRuntime {
         let loaded = await task.value
         if let outcome = await keychain.value { logger.notice("keychain item: \(String(describing: outcome), privacy: .public)") }
         let read = await prep.value
+        CEFStartSteps.shared.point("launch_prep_read")
         if await Self.waitForInitializeGate(initializeAfter) { CEFStartSteps.shared.point("first_frame_waited") }
         // Another awaiter finished first, or the app began to quit.
         if let error = startError() { throw error }

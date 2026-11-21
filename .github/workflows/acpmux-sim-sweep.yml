@@ -7,10 +7,12 @@ name: acpmux simulation sweep
 #
 # A schedule fires only from the default branch's copy of this file, so landings on
 # feat-cmux-next that touch acpmux run it too.
+#
+# Pull requests no longer run this sweep (an advisory check nothing read, ci-time-map cut, 2026-11-21): the per-change
+# run in cmux-tui-spec.yml (acpmux-sim) covers a pull request; the push to feat-cmux-next keeps the full sweep. (Its schedule was dropped: a schedule fires only from main's copy of this file,
+# and main has none, so it never fired.)
 
 on:
-  schedule:
-    - cron: "17 7 * * *"
   push:
     branches:
       - feat-cmux-next
@@ -36,16 +38,18 @@ on:
 # still keeps at most one sweep running and one waiting, the newest.
 concurrency:
   group: acpmux-sim-sweep-${{ github.ref }}
-  cancel-in-progress: false
+  # A pull request's newer push replaces its older sweep.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
   sweep:
-    name: acpmux simulation sweep (${{ matrix.faults }}${{ matrix.resend == '0' && ', bare resend' || '' }}${{ matrix.known_gap && ', known gap' || '' }})
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
-    timeout-minutes: 90
+    name: ${{ github.event_name == 'pull_request' && 'sim sweep' || 'acpmux simulation sweep' }} (${{ matrix.faults }}${{ matrix.resend == '0' && ', bare resend' || '' }}${{ matrix.known_gap && ', known gap' || '' }})${{ github.event_name == 'pull_request' && ' (advisory)' || '' }}
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && fromJSON(vars.RUNNER_POOLS).linux_4 || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 90 }}
     strategy:
       fail-fast: false
       matrix:
@@ -85,7 +89,9 @@ jobs:
       - name: Run the seeds
         working-directory: cmux-tui
         env:
-          SIM_SEEDS: ${{ inputs.seeds || '4000' }}
+          # A pull request runs a quarter of the sweep: enough seeds past cmux-tui-spec's fixed window to catch a
+          # new fault path, in a time a 4 vCPU runner fits.
+          SIM_SEEDS: ${{ inputs.seeds || (github.event_name == 'pull_request' && '1000') || '4000' }}
           # Past the per-change window, a new window every run.
           SIM_SEED_BASE: ${{ github.run_number }}0000
           SIM_FAULTS: ${{ github.event_name == 'workflow_dispatch' && inputs.faults || matrix.faults }}

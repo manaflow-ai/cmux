@@ -31,7 +31,8 @@ export function sideAwayFromChat(
 /// (`resolveUiSide`) flips above only when that side fits or has more room. Either way the side is
 /// decided once on open and stays fixed while filtering or refreshing rows. `listCap`: the menu's own
 /// list cap when it is not the shared one (the folder menu's taller list, FOLDER_MENU_LIST_CAP).
-/// `shortest`: its own shortest useful height (the folder menu's, FOLDER_MENU_MIN_HEIGHT).
+/// `shortest`: its own shortest useful height at the default Text Size; `setOpen(true, height)`
+/// gives it for this open instead (the folder menu's, `folderMenuShortest` of the rows it has now).
 export function useLocationPopover({
   listCap = LOCATION_FOLDERS_CAP,
   shortest = LOCATION_MENU_MIN_HEIGHT,
@@ -48,8 +49,8 @@ export function useLocationPopover({
   );
   const [state, setState] = useState<{ open: boolean; side: UiPopupSide }>({ open: false, side: "bottom" });
   const setOpen = useCallback(
-    (open: boolean) => {
-      const side = open ? locationMenuSide(control.current, window.innerHeight, listCap, shortest) : undefined;
+    (open: boolean, shortestNow = shortest) => {
+      const side = open ? locationMenuSide(control.current, window.innerHeight, listCap, shortestNow) : undefined;
       setState((last) => (last.open === open ? last : { open, side: side ?? last.side }));
     },
     [listCap, shortest],
@@ -95,11 +96,25 @@ const LOCATION_MENU_CHROME = 60;
 /// All rows, so all of it follows Text Size.
 const LOCATION_MENU_MIN_HEIGHT = 220;
 
-/// The folder menu's (FolderPopover) shortest useful size at the default Text Size: the search field
-/// and padding, its six actions (Add folder…, the GitHub row, Add another folder…, New worktree,
-/// New project, No folder) and three folder rows. On a side with less room its list is squeezed
-/// away, so that side is taken only when the other has less still.
-export const FOLDER_MENU_MIN_HEIGHT = 320;
+/// The folder menu's (FolderPopover) shortest size that cuts nothing, at the default Text Size: the
+/// search field with the menu's padding and rule, up to three of its `listRows` folder rows and every
+/// one of its `actions` (Add folder…, the GitHub row, No folder and the like). The side away from the
+/// chat is taken when this fits there (a New Tab menu with a few rows opens up, as designed); on a
+/// side with less room the list is squeezed and the actions scroll, so that side is taken only when
+/// the other has less still.
+export function folderMenuShortest(listRows: number, actions: number): number {
+  return (
+    FOLDER_MENU_FRAME +
+    Math.min(3, Math.max(0, listRows)) * FOLDER_MENU_LIST_ROW +
+    Math.max(0, actions) * FOLDER_MENU_ACTION_ROW
+  );
+}
+
+/// The folder menu around its rows: the search field, the rule over the actions and the padding.
+const FOLDER_MENU_FRAME = 54;
+/// A folder row with the gap under it (the chat's list; New Tab's rows are 28), and an action's row.
+const FOLDER_MENU_LIST_ROW = 30;
+const FOLDER_MENU_ACTION_ROW = 28;
 
 /// The heights that pick a location menu's side at interface scale `scale`, CSS px: at its tallest
 /// (the list at its cap) and at its shortest useful size. The rows grow with Text Size, so a side
