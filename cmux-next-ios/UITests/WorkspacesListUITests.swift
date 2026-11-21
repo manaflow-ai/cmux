@@ -17,8 +17,7 @@ final class WorkspacesListUITests: XCTestCase {
         app.launchArguments += ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-no-restore"]
         app.launch()
         // First run of mock data: pick the team whose Macs hold the workspaces.
-        let choose = app.scrollViews["setup.teams.choose"]
-        if choose.waitForExistence(timeout: 10) { app.buttons["Manaflow"].tap() }
+        app.passFirstRunSetup()
         return app
     }
 

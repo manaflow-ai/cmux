@@ -165,7 +165,7 @@ final class ScreenSharingLiveUITests: XCTestCase {
         let deadline = Date().addingTimeInterval(90)
         while Date() < deadline, !app.tabBars.firstMatch.exists {
             if app.buttons["setup.teams.personal"].exists { app.buttons["setup.teams.personal"].tap(); continue }
-            if let button = ["Not now", "Continue", "Skip", "Done", "Allow"].lazy.map({ app.buttons[$0].firstMatch }).first(where: \.isHittable) {
+            if let button = ["Not now", "Continue", "Skip for now", "Skip", "Done", "Allow"].lazy.map({ app.buttons[$0].firstMatch }).first(where: \.isHittable) {
                 button.tap()
                 continue
             }

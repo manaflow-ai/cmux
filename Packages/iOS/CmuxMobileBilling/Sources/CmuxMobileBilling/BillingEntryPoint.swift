@@ -7,4 +7,6 @@ public enum BillingEntryPoint: String, Sendable, Equatable {
     case settings
     /// An upgrade action in the Cloud machine sheet.
     case cloudUpgrade = "cloud_upgrade"
+    /// The plans page in first-run setup.
+    case onboarding
 }

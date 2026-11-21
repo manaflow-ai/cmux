@@ -637,14 +637,14 @@ custom popover. Alerts follow `claude-04-new-session-alert`: title, body, two bu
 
 No carousel and no feature copy. The structure follows Claude's welcome
 (`verify/login-claude-reference.md`): a small brand lockup at the top, one illustration and one
-serif line in the middle, the sign-in stack at the bottom. Layout on `bg`:
+SF Pro headline in the middle, the sign-in stack at the bottom. Layout on `bg`:
 
 - Lockup, centered under the status bar (6 pt): the cmux chevron (the launch mark's image,
   the app icon's chevron layer), 22 pt tall, 7 pt gap, "cmux" in `welcomeWordmark` (`title2` semibold) `label`.
 - Hero, centered in the space between the lockup and the buttons: the illustration (a Mac and an
   iPhone drawn as one 3.3 pt round-capped `label` line, 291 x 233 pt), a gradient `>_` prompt on
   the Mac's screen and the gradient chevron (30 pt, soft `#2AA0F9` glow) on the phone's screen.
-  26 pt below it, centered `welcomeTitle` (`title`, serif, regular) `label`: "Your Macs, in your
+  26 pt below it, centered `welcomeTitle` (`title`, SF Pro semibold; never a serif, Aziz 2026-11-18) `label`: "Your Macs, in your
   pocket."
 - Bottom stack, 20 pt margins, 10 pt spacing, all 52 h capsules (ChatGPT's order, Apple first and
   no smaller than the others, as the HIG requires):
@@ -710,17 +710,30 @@ and code boxes would vanish:
 Each step is a full-screen page in a `NavigationStack` with a back circle; progress is implicit
 (no dots). Skippable steps have a "Not now" `TextCTA` under the primary.
 
-1. Team (only if the user has 2+ teams and none chosen): list of `SidebarTeamRow`s, tap to pick.
+1. "Your Mac, live on your phone": the welcome art at rest, then four rows (icon + title + detail)
+   naming what the phone does on the Mac, never what a signed-in person already knows: "Type in
+   your Mac's terminals", "Run agent sessions", "Hand work to Chief", "Use your Mac's browser"
+   (its tabs stream here). Primary "Continue".
+2. Team (only if the user has 2+ teams and none chosen): list of `SidebarTeamRow`s, tap to pick.
    Zero teams: "Create your team" with a name field and the color/emoji editor inline.
-2. Pair a Mac (only if the team has no Macs owned by the user): the Codex setup screen
+3. Pair a Mac (only if the team has no Macs owned by the user): the Codex setup screen
    (`chatgpt-10-codex-setup-onboarding`): 48 pt `desktopcomputer` glyph, title "Set up cmux on
    your Mac", two explanatory rows (icon 22 + `body`): "Install cmux on your Mac and sign in with
    this account." / "Your Mac appears here when it's online." Primary "I'm signed in on my Mac"
    (goes to 5.6), secondary glass "Email me a download link".
-3. Notifications priming: glyph `bell.badge` 48, title "Know when an agent needs you", rows:
-   "Questions and permission requests", "Finished tasks", "Live Activities for running
-   agents". Primary "Turn on notifications" (system prompt), "Not now".
-4. Done → Shell, Home tab, with a one-time crossfade (`gentle`).
+4. Notifications priming: a real screenshot of three cmux notifications in Notification Center
+   (`OnboardingPushes`, from `OnboardingPushShotUITests` on a simulator; never a drawing), radius
+   28 continuous, clipped, hairline `separator` stroke. Title "See what needs you, as it happens",
+   one line under it. Primary "Turn on notifications" (system prompt), "Not now".
+5. Plans (only on a build that sells plans, for an account on Free that can buy in the app):
+   title "Keep agents running with your Mac closed" and one line, then a segmented Pro / Max
+   switcher (Pro picked; Go is retired and never offered), Yearly and Monthly cards side by side
+   (yearly first, with a "Save N%" badge from the StoreKit prices when N >= 5), the plan's
+   allowances on one line, then Restore, Terms and Privacy in one row over the renewal
+   disclosure. One primary "Subscribe to <plan>" with the charge under it; "Not now" in the
+   navigation bar. No trial toggle (App Review 3.1.2). At accessibility sizes the primary scrolls
+   with the page.
+6. "Start your first agent", then Shell, Home tab, with a one-time crossfade (`gentle`).
 
 ### 5.6 Pairing a Mac (Codex flow, `chatgpt-05` to `chatgpt-11`)
 

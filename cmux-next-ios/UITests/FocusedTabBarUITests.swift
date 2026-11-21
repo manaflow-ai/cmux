@@ -41,8 +41,7 @@ final class FocusedTabBarUITests: XCTestCase {
         // The app's DEBUG tab bar probe: the real UITabBar's state, not the accessibility tree's.
         app.launchArguments += ["-cmux-mobile-tabbar-probe"]
         app.launch()
-        let choose = app.scrollViews["setup.teams.choose"]
-        if choose.waitForExistence(timeout: 10) { app.buttons["Manaflow"].tap() }
+        app.passFirstRunSetup()
         return app
     }
 

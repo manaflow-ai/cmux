@@ -22,8 +22,7 @@ final class TabReorderUITests: XCTestCase {
         app.launch()
 
         // First run of mock data: pick the team whose Mac holds the workspace.
-        let choose = app.scrollViews["setup.teams.choose"]
-        if live == nil, choose.waitForExistence(timeout: 10) { app.buttons["Manaflow"].tap() }
+        if live == nil { app.passFirstRunSetup() }
         let row = app.buttons["workspace.row.\(live ?? "ws-cmux")"]
         XCTAssertTrue(row.waitForExistence(timeout: 30), "workspace row\n\(app.debugDescription)")
         row.tap()

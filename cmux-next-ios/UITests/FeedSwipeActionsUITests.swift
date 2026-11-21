@@ -18,8 +18,7 @@ final class FeedSwipeActionsUITests: XCTestCase {
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmux-mobile-tab", "feed", "-cmux-mobile-no-restore"]
         app.launch()
-        let choose = app.scrollViews["setup.teams.choose"]
-        if choose.waitForExistence(timeout: 10) { app.buttons["Manaflow"].tap() }
+        app.passFirstRunSetup()
 
         // The Feed is a UITableView: UIKit owns its rows' swipe actions.
         let list = app.tables["feed.list"]

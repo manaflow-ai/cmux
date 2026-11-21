@@ -96,9 +96,17 @@ final class AppReviewGateUITests: XCTestCase {
         let app = launch(setupComplete: false)
         defer { app.terminate() }
         var seen: [String] = []
-        for step in 0..<8 {
+        for step in 0..<10 {
             if app.tabBars.firstMatch.exists { break }
-            if app.scrollViews["setup.teams.choose"].exists, app.buttons["Manaflow"].exists {
+            if app.buttons["setup.intro.continue"].exists {
+                seen.append("intro")
+                capture("onboarding-\(step)-intro", app)
+                app.buttons["setup.intro.continue"].tap()
+            } else if app.buttons["setup.first-chat.skip"].exists {
+                seen.append("first-chat")
+                capture("onboarding-\(step)-first-chat", app)
+                app.buttons["setup.first-chat.skip"].tap()
+            } else if app.scrollViews["setup.teams.choose"].exists, app.buttons["Manaflow"].exists {
                 seen.append("team")
                 capture("onboarding-\(step)-team", app)
                 app.buttons["Manaflow"].tap()
@@ -114,7 +122,8 @@ final class AppReviewGateUITests: XCTestCase {
                 app.buttons["Not now"].tap()
             } else {
                 _ = waitForAny([app.tabBars.firstMatch, app.scrollViews["setup.teams.choose"],
-                                app.buttons["setup.pair-mac.cta"], app.buttons["Not now"]], timeout: 10)
+                                app.buttons["setup.pair-mac.cta"], app.buttons["Not now"],
+                                app.buttons["setup.intro.continue"], app.buttons["setup.first-chat.skip"]], timeout: 10)
             }
         }
         XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 10),
@@ -130,7 +139,8 @@ final class AppReviewGateUITests: XCTestCase {
     func testOnboardingHasNoDeadControls() throws {
         let dead = walkControls(screen: "onboarding", reach: {
             let app = self.launch(setupComplete: false)
-            XCTAssertTrue(self.waitForAny([app.scrollViews["setup.teams.choose"], app.buttons["setup.pair-mac.cta"]], timeout: 20),
+            XCTAssertTrue(self.waitForAny([app.buttons["setup.intro.continue"], app.scrollViews["setup.teams.choose"],
+                                           app.buttons["setup.pair-mac.cta"]], timeout: 20),
                           "onboarding must show; on screen: \(self.onScreen(app))")
             return app
         }, skip: ["setup.sign-out", "Sign out", "Sign Out"])

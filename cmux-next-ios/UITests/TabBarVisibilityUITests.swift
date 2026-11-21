@@ -35,8 +35,7 @@ final class TabBarVisibilityUITests: XCTestCase {
         app.launchArguments += ["-cmux-mobile-tab", tab, "-cmux-mobile-no-restore"] + extraArguments
         app.launch()
         // First run of mock data: pick the team.
-        let choose = app.scrollViews["setup.teams.choose"]
-        if choose.waitForExistence(timeout: 10) { app.buttons["Manaflow"].tap() }
+        app.passFirstRunSetup()
 
         let buttons = Self.tabs.map { app.tabBars.buttons[$0] }
         XCTAssertTrue(buttons[0].waitForExistence(timeout: 30), "tab bar\n\(app.debugDescription)")

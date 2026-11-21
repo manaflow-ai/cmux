@@ -735,6 +735,12 @@ public final class ChiefSession {
     /// Text that was not sent goes into Chief's composer: the open Chief screen's field now
     /// (``unsentTextSink``), else the next Chief screen's, with what it carries
     /// (``takeUnsentText()``). Memory only: there is no outbox.
+    /// ``keepUnsent(_:)`` for one text, from outside Chief: setup's first agent task when it
+    /// could not be sent.
+    public func keepUnsent(text: String) {
+        keepUnsent([text])
+    }
+
     func keepUnsent(_ texts: [String]) {
         let kept = texts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         guard !kept.isEmpty else { return }

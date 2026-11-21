@@ -15,8 +15,7 @@ final class CreateTeamUITests: XCTestCase {
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmux-mobile-tab", "home", "-cmux-mobile-no-restore"]
         app.launch()
-        let choose = app.scrollViews["setup.teams.choose"]
-        if choose.waitForExistence(timeout: 10) { app.buttons["Manaflow"].tap() }
+        app.passFirstRunSetup()
 
         let teams = app.buttons["Teams"].firstMatch
         XCTAssertTrue(teams.waitForExistence(timeout: 30), "Teams button\n\(app.debugDescription)")

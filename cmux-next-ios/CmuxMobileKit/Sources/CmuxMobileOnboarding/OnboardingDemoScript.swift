@@ -5,7 +5,8 @@ import Foundation
 /// DEBUG-only (`-cmux-mobile-demo onboarding`, signed out with `CMUX_MOBILE_CLEAR_AUTH=1
 /// CMUX_MOBILE_MOCK_AUTH=1` and setup not complete): Welcome, the email sheet, the
 /// email typed and sent, the six-digit code typed (the mock accepts 424242),
-/// then setup (team pick, notifications "Not now") into the shell. Each step
+/// then setup (Here's how cmux works, team pick, notifications "Not now", the
+/// first agent's starter) into Chief on Home. Each step
 /// goes through the screen's own action. Pauses pace the recording.
 @MainActor
 enum OnboardingDemoScript {
@@ -47,8 +48,10 @@ enum OnboardingDemoScript {
             await step(.onboardingSendCode, then: 1.8)
             await step(.onboardingTypeCode("424242"), then: 3.0)
         }
+        await step(.setupContinue, then: 2.4)
         await step(.setupPickTeam(index: 0), then: 2.2)
         await step(.setupNotNow, then: 2.0)
+        await step(.setupFirstChat(index: 0), then: 2.0)
     }
 }
 #endif

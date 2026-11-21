@@ -5,12 +5,17 @@ import Foundation
 
 /// Localized name and feature bullets for one cmux plan, matching the web
 /// pricing page.
-struct BillingPlanCopy: Equatable {
+public struct BillingPlanCopy: Equatable {
     /// The plan this copy describes.
-    let planID: BillingPlanID
+    public let planID: BillingPlanID
+
+    /// Creates the copy for `planID`.
+    public init(planID: BillingPlanID) {
+        self.planID = planID
+    }
 
     /// The localized plan name; an unknown plan shows its capitalized id.
-    var name: String {
+    public var name: String {
         switch planID {
         case .free: L10n.string("mobile.billing.plan.free", defaultValue: "Free")
         case .go: L10n.string("mobile.billing.plan.go", defaultValue: "Go")
@@ -21,7 +26,7 @@ struct BillingPlanCopy: Equatable {
     }
 
     /// The plan's Cloud VM allowances, one line each.
-    var features: [String] {
+    public var features: [String] {
         switch planID {
         case .go:
             [

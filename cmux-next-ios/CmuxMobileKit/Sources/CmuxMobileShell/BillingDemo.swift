@@ -47,7 +47,7 @@ private actor DemoBillingServer: BillingAPI {
     }
 
     func accountToken() async throws -> BillingAccount {
-        let products = state == "unavailable" ? [] : [BillingPlanID.go, .pro, .max].flatMap { plan in
+        let products = state == "unavailable" ? [] : [BillingPlanID.pro, .max].flatMap { plan in
             BillingPeriod.allCases.map { period in
                 BillingProductReference(productID: "\(bundleIdentifier).\(plan.rawValue).\(period.rawValue)",
                                         planID: plan, billingPeriod: period)

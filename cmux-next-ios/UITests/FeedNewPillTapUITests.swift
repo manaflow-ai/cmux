@@ -123,14 +123,13 @@ final class FeedNewPillTapUITests: XCTestCase {
     }
 }
 
-/// Past the setup screen to the Feed: taps the Manaflow space whenever the space chooser shows
+/// Past the setup screens to the Feed: taps through first-run setup whenever a page shows
 /// (it can appear after a slow launch), until the Feed's chips are there.
 @MainActor func feedChipsAfterSetup(_ app: XCUIApplication, timeout: TimeInterval = 60) -> XCUIElement {
     let all = app.buttons["All"].firstMatch
-    let manaflow = app.buttons["Manaflow"].firstMatch
     let ready = NSPredicate { _, _ in
         if all.exists { return true }
-        if app.scrollViews["setup.teams.choose"].exists, manaflow.exists, manaflow.isHittable { manaflow.tap() }
+        app.tapFirstRunSetupPage()
         return false
     }
     let wait = XCTNSPredicateExpectation(predicate: ready, object: nil)

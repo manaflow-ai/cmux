@@ -40,16 +40,25 @@ final class AllUIStatesShellCaptureUITests: UIStateCaptureCase {
             },
             Scene(group: g, id: "onboarding-demo", args: ["-cmux-mobile-demo", "onboarding"], env: Self.signedOut, signedIn: false, settle: 0,
                   frames: [("onboarding-welcome", 1.5), ("onboarding-email", 3.5), ("onboarding-code", 6.5),
-                           ("onboarding-team", 10), ("onboarding-notifications", 14), ("onboarding-shell", 19)]),
+                           ("onboarding-intro", 9.5), ("onboarding-team", 12), ("onboarding-first-chat", 16.5),
+                           ("onboarding-chief", 21)]),
             Scene(group: g, id: "setup-teams-loading", args: ["-cmux-mobile-no-restore", "-cmuxMobile.setupComplete", "NO"],
-                  env: ["CMUX_MOBILE_MOCK_AUTH": "1", "CMUX_MOBILE_MOCK_TEAMS_DELAY": "60"], signedIn: false, settle: 3),
+                  env: ["CMUX_MOBILE_MOCK_AUTH": "1", "CMUX_MOBILE_MOCK_TEAMS_DELAY": "60"], signedIn: false, settle: 3) { app in
+                C.tap(app.buttons["setup.intro.continue"], "intro Continue")
+            },
             Scene(group: g, id: "setup-teams-choose", args: ["-cmux-mobile-no-restore", "-cmuxMobile.setupComplete", "NO"],
                   env: ["CMUX_MOBILE_MOCK_AUTH": "1"], signedIn: false, settle: 3) { app in
-                C.wait(app.scrollViews["setup.teams.choose"], "team chooser")
+                C.steps([
+                    { C.tap(app.buttons["setup.intro.continue"], "intro Continue") },
+                    { C.wait(app.scrollViews["setup.teams.choose"], "team chooser") },
+                ])
             },
             Scene(group: g, id: "setup-create-team", args: ["-cmux-mobile-no-restore", "-cmuxMobile.setupComplete", "NO"],
                   env: ["CMUX_MOBILE_MOCK_AUTH": "1"], signedIn: false, settle: 3) { app in
-                C.tap(C.any(app, "setup.teams.create"), "Create team row")
+                C.steps([
+                    { C.tap(app.buttons["setup.intro.continue"], "intro Continue") },
+                    { C.tap(C.any(app, "setup.teams.create"), "Create team row") },
+                ])
             },
             Scene(group: g, id: "setup-signout-confirm", args: ["-cmux-mobile-no-restore", "-cmuxMobile.setupComplete", "NO"],
                   env: ["CMUX_MOBILE_MOCK_AUTH": "1"], signedIn: false, settle: 3) { app in

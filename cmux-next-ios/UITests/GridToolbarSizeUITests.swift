@@ -16,8 +16,7 @@ final class GridToolbarSizeUITests: XCTestCase {
         app.launchArguments += ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-no-restore"]
         app.launch()
 
-        let choose = app.scrollViews["setup.teams.choose"]
-        if choose.waitForExistence(timeout: 10) { app.buttons["Manaflow"].tap() }
+        app.passFirstRunSetup()
         let row = app.buttons["workspace.row.ws-cmux"]
         XCTAssertTrue(row.waitForExistence(timeout: 30), "workspace row\n\(app.debugDescription)")
         row.tap()

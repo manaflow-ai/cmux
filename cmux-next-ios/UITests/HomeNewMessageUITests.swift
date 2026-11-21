@@ -24,8 +24,7 @@ final class HomeNewMessageUITests: XCTestCase {
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmuxMobile.settings.appearance", look.rawValue,
                                 "-cmux-mobile-demo", demo] + extra
         app.launch()
-        let choose = app.scrollViews["setup.teams.choose"]
-        if choose.waitForExistence(timeout: 6) { app.buttons["Manaflow"].firstMatch.tap() }
+        app.passFirstRunSetup(appearTimeout: 6)
         return app
     }
 
