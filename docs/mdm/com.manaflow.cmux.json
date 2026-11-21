@@ -2249,6 +2249,24 @@
       "title" : "Title Area",
       "type" : "string"
     },
+    "appearance.twoTone" : {
+      "default" : "off",
+      "description" : "The sidebar and tab bar in one tone, the panes in another. Works with every window style and theme.",
+      "enum" : [
+        "off",
+        "auto",
+        "inkSakura",
+        "charcoalRose",
+        "inkMagenta",
+        "creamForest",
+        "navySand",
+        "boneOxblood",
+        "slateMatcha",
+        "plumAmber"
+      ],
+      "title" : "Two-Tone",
+      "type" : "string"
+    },
     "appearance.wallpaperTint" : {
       "default" : true,
       "description" : "The glass takes the colors of your desktop picture.",

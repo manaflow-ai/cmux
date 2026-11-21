@@ -19,6 +19,7 @@
 
 mod colors;
 pub mod render;
+pub mod two_tone;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
