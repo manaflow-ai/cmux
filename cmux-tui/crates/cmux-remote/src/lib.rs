@@ -25,6 +25,7 @@ mod mux_lanes;
 pub mod observability;
 mod owner_lock;
 mod per_lane;
+mod port_holder;
 pub mod provider;
 pub mod secret_file;
 pub mod secrets;
