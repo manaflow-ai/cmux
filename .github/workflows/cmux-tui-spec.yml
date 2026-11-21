@@ -31,6 +31,8 @@ on:
       - "scripts/ci/affected_jobs_replay.py"
       - "scripts/ci/tree_result.py"
       - ".github/actions/tree-result/**"
+      - ".github/actions/rust-compile-cache/**"
+      - "scripts/ci/rust_compile_cache.py"
       - "tests/test_ci_tree_result.py"
       - "tests/test_ci_affected_jobs.py"
       # Files outside cmux-tui that acpmux or its path dependencies include_str!
@@ -335,6 +337,15 @@ jobs:
           shared-key: cmux-tui-acpmux-lib-test
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
+      # Every cargo step below compiles through sccache on the shared store; a crate compiled from the
+      # same inputs by any earlier job is downloaded (.github/actions/rust-compile-cache).
+      - name: Shared Rust compile cache
+        if: ${{ steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/rust-compile-cache
+        with:
+          mode: start
+          job: acpmux protocol IR
+
       # `protocol::` selects exactly the protocol module's tests (src/protocol/tests.rs);
       # a filter that matches none (a moved module) fails rather than passing empty.
       - name: "cargo test -p acpmux --lib -- protocol::"
@@ -353,6 +364,13 @@ jobs:
             echo "::error title=acpmux protocol tests::the protocol:: filter matched no test; fix this step's filter"
             exit 1
           fi
+
+      - name: Report the shared compile cache
+        if: ${{ always() && steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/rust-compile-cache
+        with:
+          mode: report
+          job: acpmux protocol IR
 
       - name: Record this green result for its input tree
         if: ${{ success() && steps.tree.outputs.hit != 'true' }}
@@ -447,6 +465,15 @@ jobs:
           shared-key: cmux-tui-acpmux-tests
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
+      # Every cargo step below compiles through sccache on the shared store; a crate compiled from the
+      # same inputs by any earlier job is downloaded (.github/actions/rust-compile-cache).
+      - name: Shared Rust compile cache
+        if: ${{ steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/rust-compile-cache
+        with:
+          mode: start
+          job: acpmux tests
+
       - name: v2 bench home emits all gate rows
         if: ${{ steps.tree.outputs.hit != 'true' }}
         working-directory: cmux-tui
@@ -530,6 +557,13 @@ jobs:
           echo "acpmux tests: red head run judged after $((SECONDS - started)) s" >> "$GITHUB_STEP_SUMMARY"
           python3 "$verdict" judge --head "$head_log" --retry "$retry_log" --base "$base_log" --job "$JOB"
 
+      - name: Report the shared compile cache
+        if: ${{ always() && steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/rust-compile-cache
+        with:
+          mode: report
+          job: acpmux tests
+
       # A red the judge excused (a flake that passed alone, a test red on the merge parent too) is green
       # for this base only: it is not kept for the tree.
       - name: Record this green result for its input tree
@@ -581,6 +615,15 @@ jobs:
           shared-key: cmux-tui-acpmux-sim
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
+      # Every cargo step below compiles through sccache on the shared store; a crate compiled from the
+      # same inputs by any earlier job is downloaded (.github/actions/rust-compile-cache).
+      - name: Shared Rust compile cache
+        if: ${{ steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/rust-compile-cache
+        with:
+          mode: start
+          job: acpmux simulation
+
       - name: cargo test -p acpmux --features sim --test sim
         if: ${{ steps.tree.outputs.hit != 'true' }}
         working-directory: cmux-tui
@@ -600,6 +643,13 @@ jobs:
         if: ${{ steps.tree.outputs.hit != 'true' }}
         working-directory: cmux-tui
         run: cargo clippy --locked -p acpmux --features sim --test sim -- -D warnings
+
+      - name: Report the shared compile cache
+        if: ${{ always() && steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/rust-compile-cache
+        with:
+          mode: report
+          job: acpmux simulation
 
       - name: Record this green result for its input tree
         if: ${{ success() && steps.tree.outputs.hit != 'true' }}
@@ -670,6 +720,15 @@ jobs:
           shared-key: cmux-tui-carrier-sim
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
+      # Every cargo step below compiles through sccache on the shared store; a crate compiled from the
+      # same inputs by any earlier job is downloaded (.github/actions/rust-compile-cache).
+      - name: Shared Rust compile cache
+        if: ${{ steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/rust-compile-cache
+        with:
+          mode: start
+          job: carrier simulation
+
       - name: cargo test -p cmux-remote --test carrier_sim
         if: ${{ steps.tree.outputs.hit != 'true' }}
         working-directory: cmux-tui
@@ -681,6 +740,13 @@ jobs:
           set -o pipefail
           cargo test --locked -p cmux-remote --test carrier_sim -- --nocapture 2>&1 | tee "$RUNNER_TEMP/sim.log"
           grep -E '^sim: ' "$RUNNER_TEMP/sim.log" >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Report the shared compile cache
+        if: ${{ always() && steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/rust-compile-cache
+        with:
+          mode: report
+          job: carrier simulation
 
       - name: Record this green result for its input tree
         if: ${{ success() && steps.tree.outputs.hit != 'true' }}

@@ -612,6 +612,16 @@ jobs:
           path: /home/runner/machine-channel-warm
           commit: on-change
 
+      # Every cargo build below compiles through sccache on the shared store, keyed by each compile's inputs:
+      # a dependency or an unchanged workspace crate any earlier leg built is downloaded
+      # (.github/actions/rust-compile-cache). Not on the warm sticky-disk paths: their target dir is warm already.
+      - name: Shared Rust compile cache
+        if: matrix.cross == true && runner.os == 'Linux' && !matrix.darwin_on_linux && inputs.lto != 'thin' && steps.fat-warm-x86_64.outcome != 'success' && steps.fat-warm-aarch64.outcome != 'success'
+        uses: ./.github/actions/rust-compile-cache
+        with:
+          mode: start
+          job: cmux-tui artifacts ${{ matrix.target }}
+
       - name: Build cmux-tui (Linux cross)
         if: matrix.cross == true && runner.os == 'Linux' && !matrix.darwin_on_linux
         env:
@@ -806,6 +816,16 @@ jobs:
           key: ${{ steps.darwin-cross.outputs.key }}-${{ hashFiles('scripts/ci/macos-cross.sh', 'scripts/ci/macos-stubs/**', 'first-party-apps/cloud/server/Cargo.lock', 'cmux-tui/bindings/examples/rust-agent-screen-detection/Cargo.lock') }}
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
+      # Every cargo build below compiles through sccache on the shared store, keyed by each compile's inputs:
+      # a dependency or an unchanged workspace crate any earlier leg built is downloaded
+      # (.github/actions/rust-compile-cache). Not on the warm sticky-disk paths: their target dir is warm already.
+      - name: Shared Rust compile cache
+        if: matrix.darwin_on_linux && runner.os == 'Linux' && inputs.lto != 'thin' && steps.fat-warm-darwin-aarch64.outcome != 'success'
+        uses: ./.github/actions/rust-compile-cache
+        with:
+          mode: start
+          job: cmux-tui artifacts ${{ matrix.target }} on Linux
+
       - name: Build the macOS binaries on Linux (no Apple SDK)
         # Every binary the macOS legs below build (cmux-tui, cmux-tui-hook, cmux-tui-host,
         # cmux-holder, cmux-app-host, cmux-relay, chatmux-relay, acpmux, cmux-cloud,
@@ -863,6 +883,13 @@ jobs:
               --manifest-path "$plugin_manifest" \
               --release --locked --target "$AGENT_PLUGIN_TARGET"
           fi
+
+      - name: Report the shared compile cache
+        if: ${{ always() && env.RCC_SCCACHE != '' }}
+        uses: ./.github/actions/rust-compile-cache
+        with:
+          mode: report
+          job: cmux-tui artifacts ${{ matrix.target }}
 
       - name: Stage binary
         env:
