@@ -57,9 +57,6 @@
   "ci-artifact-transport.yml": {
    "transport": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
   },
-  "ci-cache-receipts.yml": {
-   "receipt-contract": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
-  },
   "ci-pr-closed-cancel.yml": {
    "cancelled": "reads pull request metadata or the base (github.event.action), not only the tree"
   },
@@ -259,9 +256,6 @@
    "live-windows-host": "writes to GitHub (a write permission): a side effect, not a verdict on the tree",
    "live-macos-viewer": "writes to GitHub (a write permission): a side effect, not a verdict on the tree"
   },
-  "cmux-skill-contract.yml": {
-   "browser-skill": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
-  },
   "cmux-tui-sdks.yml": {
    "contract": "its outputs feed later jobs; a skipped run leaves them empty; needed by conformance, consumers, packages, rust-msrv: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.labels), not only the tree",
    "packages": "matrix: a job-level skip cannot see one leg's receipt",
@@ -346,9 +340,6 @@
   "fleet-rd-host-macos.yml": {
    "check": "below break-even: 3 runs, 0 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves"
   },
-  "indexnow-tests.yml": {
-   "notification-tests": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
-  },
   "ios-e2e.yml": {
    "route": "its outputs feed later jobs; a skipped run leaves them empty; needed by backend, ios-e2e-status, mac-ios-e2e: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.number), not only the tree",
    "backend": "needed by ios-e2e-status: a skip would skip them or read as no verdict; reads secrets; writes to GitHub (a write permission): a side effect, not a verdict on the tree",
@@ -420,9 +411,6 @@
    "ui-review": "reads pull request metadata or the base (github.event.action, github.event.pull_request.base.sha, github.event.pull_request.body), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit; judges other jobs (if: always() or failure())",
    "split": "reads pull request metadata or the base (github.event.action, github.event.pull_request.base.sha, github.event.pull_request.head.sha), not only the tree; checks out ${{ github.event.pull_request.head.sha }}, not the run's commit; judges other jobs (if: always() or failure())"
   },
-  "r2-upload-tests.yml": {
-   "r2-upload-tests": "publish, release, deploy, live or cloud work (by its name)"
-  },
   "relay-tls.yml": {
    "diagnostic-presentation": "below break-even: 1 runs, 4 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves",
    "system-keychain": "below break-even: 1 runs, 2 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves"
@@ -473,9 +461,6 @@
   "thunderdome-label.yml": {
    "label": "pull_request_target only: runs the base's workflow with write access, not the tree under test; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.pull_request.labels, github.event.pull_request.number, github.event.pull_request.title), not only the tree"
   },
-  "vendored-agent-cursor.yml": {
-   "check": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
-  },
   "web-complexity-trusted.yml": {
    "complexity": "reads pull request metadata or the base (github.event.before, github.event.pull_request.base.sha, github.event.pull_request.head.sha), not only the tree; checks out ${{ env.TRUSTED_SHA }}, not the run's commit"
   },
@@ -494,7 +479,8 @@
    "size-budget": "calls a reusable workflow: no step here can record its pass",
    "classic-api-guard": "calls a reusable workflow: no step here can record its pass",
    "swift-linux-packages": "calls a reusable workflow: no step here can record its pass",
-   "web-validation": "calls a reusable workflow: no step here can record its pass"
+   "web-validation": "calls a reusable workflow: no step here can record its pass",
+   "pipeline": "calls a reusable workflow: no step here can record its pass"
   }
  }
 }
