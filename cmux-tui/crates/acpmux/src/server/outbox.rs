@@ -124,7 +124,11 @@ pub(super) async fn handle(
     }
     // A session here, one a peer lists, or one on a peer that is down now: anything else is no
     // session, said at once.
-    if hub.resolve(&target).is_err()
+    let local = hub.resolve(&target);
+    if let Ok(session) = &local {
+        hub.check_finished(session)?;
+    }
+    if local.is_err()
         && hub.resolve_remote(&target).is_none()
         && hub.peer_down_for(&target).is_none()
         && hub.no_session_is_final(&target)

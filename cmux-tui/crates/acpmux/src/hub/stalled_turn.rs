@@ -344,6 +344,7 @@ mod loop_episode_tests {
             doing: Default::default(),
             notice: false,
             persons: false,
+            prompted_by_person: false,
             accepted: true,
             device: None,
         });

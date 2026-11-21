@@ -719,7 +719,9 @@ impl Hub {
             cwd: m.cwd.to_string_lossy().into_owned(),
             status: m.status.to_string(),
             // A Stop's turn that has not ended yet (`cancel.rs`): never read as running on.
-            state: if stopping {
+            state: if m.finished.is_some() {
+                "finished".to_owned()
+            } else if stopping {
                 "stopping".to_owned()
             } else if stuck.is_some() {
                 "stuck".to_owned()

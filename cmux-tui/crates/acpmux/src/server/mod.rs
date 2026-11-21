@@ -1817,7 +1817,16 @@ async fn serve_connection_from(
                     ));
                     continue;
                 }
-                let slot = match try_request_slot(&request_slots, &m) {
+                // A trusted daemon's fleet wait is bounded by the authority's one-hour
+                // queue deadline. It must not consume finite-work slots: 64 queued retries
+                // on one link would otherwise prevent that link from sending pause/release.
+                let fleet_wait = m == crate::hub::finished::METHOD
+                    && params.as_ref().is_some_and(|p| {
+                        p["op"] == "fleet_acquire" && session_lifecycle::fleet_peer(&conn, p)
+                    });
+                let admission =
+                    if fleet_wait { Ok(None) } else { try_request_slot(&request_slots, &m) };
+                let slot = match admission {
                     Ok(slot) => slot,
                     Err(()) => {
                         let error = RpcError::new(-32000, "connection request limit reached")
@@ -2455,6 +2464,7 @@ mod prompt_coach;
 pub(crate) mod queue_gauge;
 mod review_queue;
 mod run_elsewhere;
+mod session_lifecycle;
 mod sign_in_follow;
 mod ssh_carry;
 mod task_list;

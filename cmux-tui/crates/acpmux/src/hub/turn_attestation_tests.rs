@@ -55,6 +55,7 @@ fn fixture_with_status(status: SessionStatus) -> (Arc<Hub>, Arc<Session>) {
         doing: Default::default(),
         notice: false,
         persons: false,
+        prompted_by_person: false,
         accepted: true,
         device: None,
     });
@@ -141,6 +142,7 @@ fn turn_attestation_signs_enrolled_identity_and_existing_journal_sequence_only()
         doing: Default::default(),
         notice: false,
         persons: false,
+        prompted_by_person: false,
         accepted: true,
         device: None,
     });

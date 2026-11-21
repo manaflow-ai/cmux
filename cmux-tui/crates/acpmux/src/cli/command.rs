@@ -128,6 +128,38 @@ pub(super) mod aliases {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Pin this daemon to one shared admission authority (local creates a paused authority).
+    FleetBind { peer: String },
+    /// Read the shared pause and outstanding reservations from the pinned authority.
+    FleetStatus,
+    /// Pause automatic admissions across every enrolled daemon; fresh user work remains available.
+    FleetPause {
+        #[arg(long)]
+        reason: String,
+    },
+    /// Resume automatic work through the staggered admission queue.
+    FleetResume {
+        #[arg(long)]
+        reason: String,
+    },
+    /// Finish a session durably. Sends and retries cannot wake it.
+    Finish {
+        session: String,
+        #[arg(long)]
+        handoff: String,
+    },
+    /// Intentionally reopen a finished session, recording why.
+    Wake {
+        session: String,
+        #[arg(long)]
+        reason: String,
+    },
+    /// Start a new session with a finished session's handoff as its unsent draft.
+    Fresh {
+        session: String,
+        #[arg(long)]
+        name: String,
+    },
     /// Run a task on several models in separate worktrees and compare the reviewer's winner.
     #[command(subcommand)]
     Race(crate::cli::race::RaceCmd),

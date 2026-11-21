@@ -111,6 +111,7 @@ export interface AcpmuxRequests {
   "_acpmux/bg/stop": { params: unknown; result: unknown };
   "_acpmux/run_elsewhere/plan": { params: unknown; result: unknown };
   "_acpmux/run_elsewhere/start": { params: unknown; result: unknown };
+  "_acpmux/session_lifecycle": { params: unknown; result: unknown };
   "_acpmux/goal/set": { params: unknown; result: unknown };
   "_acpmux/goal/update": { params: unknown; result: unknown };
   "_acpmux/goal/get": { params: unknown; result: unknown };
@@ -497,6 +498,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/bg/stop", kind: "request", acp: false, typed: false },
   { name: "_acpmux/run_elsewhere/plan", kind: "request", acp: false, typed: false },
   { name: "_acpmux/run_elsewhere/start", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/session_lifecycle", kind: "request", acp: false, typed: false },
   { name: "_acpmux/goal/set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/goal/update", kind: "request", acp: false, typed: false },
   { name: "_acpmux/goal/get", kind: "request", acp: false, typed: false },

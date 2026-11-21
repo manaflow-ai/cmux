@@ -630,6 +630,7 @@ impl Hub {
         // MDM's off as this start begins: its one read, before it waits on anything (review 123),
         // which every check of the start takes, so an off that comes and goes while it starts
         // still holds for it (reviews 73, 75 and 77 of #23322).
+        self.check_finished(session)?;
         let off = self.off_latch();
         #[cfg(test)]
         super::full_access_bound::operation_entry(self);
@@ -646,6 +647,7 @@ impl Hub {
         self.touch(session);
         let _using = session.harness_use.read().await;
         let _spawning = self.spawn_lease(session).await;
+        self.check_finished(session)?;
         // Stopped since the request: it starts nothing and touches no agent. One a later request
         // started after the stop is that request's (it reopened the session).
         // A chat being deleted starts nothing either, whatever stop count its request read

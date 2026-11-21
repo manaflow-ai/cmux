@@ -36,6 +36,7 @@ fn fixture() -> (Arc<Hub>, Arc<Session>, String) {
         doing: Default::default(),
         notice: false,
         persons: false,
+        prompted_by_person: false,
         accepted: true,
         device: None,
     });
@@ -114,6 +115,7 @@ fn concurrent_steers_from_two_phones_leave_no_one_devices_turn() {
             doing: Default::default(),
             notice: false,
             persons: false,
+            prompted_by_person: false,
             accepted: true,
             device: None,
         });

@@ -789,6 +789,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/session_lifecycle",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/goal/set",
       "params": true,
       "result": true
