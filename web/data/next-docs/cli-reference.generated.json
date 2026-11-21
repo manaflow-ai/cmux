@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 887,
-    "mcp": 803
+    "verbs": 893,
+    "mcp": 809
   },
   "nouns": [
     {
@@ -49,6 +49,18 @@
           "id": "accounts.show",
           "mcp": true,
           "mcpTool": "app_accounts_show"
+        }
+      ]
+    },
+    {
+      "noun": "action",
+      "verbs": [
+        {
+          "command": "cmux action customize-reset",
+          "title": "Reset Element to Defaults",
+          "id": "customize.reset",
+          "mcp": true,
+          "mcpTool": "app_action_customize_reset"
         }
       ]
     },
@@ -110,6 +122,13 @@
           "id": "agentPane.editInstructions",
           "mcp": true,
           "mcpTool": "app_agent_edit_instructions"
+        },
+        {
+          "command": "cmux agent forget-computer-use-approval",
+          "title": "Forget a Computer Use Approval",
+          "id": "computerUse.approval.forget",
+          "mcp": true,
+          "mcpTool": "app_agent_forget_computer_use_approval"
         },
         {
           "command": "cmux agent fork-conversation",
@@ -292,6 +311,13 @@
           "id": "agentPane.runInBackground",
           "mcp": true,
           "mcpTool": "app_agent_run_in_background"
+        },
+        {
+          "command": "cmux agent set-computer-use-approval",
+          "title": "Change a Computer Use Approval",
+          "id": "computerUse.approval.set",
+          "mcp": true,
+          "mcpTool": "app_agent_set_computer_use_approval"
         },
         {
           "command": "cmux agent set-effort",
@@ -2263,6 +2289,13 @@
           "mcpTool": "app_home_send"
         },
         {
+          "command": "cmux home setup",
+          "title": "Set Up cmux…",
+          "id": "home.showSetup",
+          "mcp": true,
+          "mcpTool": "app_home_setup"
+        },
+        {
           "command": "cmux home show-hidden",
           "title": "Show Hidden Conversations",
           "id": "home.showHiddenConversations",
@@ -2805,6 +2838,13 @@
           "mcpTool": "app_pane_new_column_left"
         },
         {
+          "command": "cmux pane new-floating",
+          "title": "New Floating Pane",
+          "id": "newFloatingPane",
+          "mcp": true,
+          "mcpTool": "app_pane_new_floating"
+        },
+        {
           "command": "cmux pane new-row",
           "title": "New Row",
           "id": "newRow",
@@ -3090,6 +3130,13 @@
           "id": "toggleCanvasLayout",
           "mcp": true,
           "mcpTool": "app_pane_toggle_canvas_layout"
+        },
+        {
+          "command": "cmux pane toggle-floating",
+          "title": "Float Pane",
+          "id": "toggleFloatingPane",
+          "mcp": true,
+          "mcpTool": "app_pane_toggle_floating"
         },
         {
           "command": "cmux pane toggle-tab-bar",
