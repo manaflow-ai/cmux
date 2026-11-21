@@ -114,6 +114,13 @@ struct CloudSetupTests {
         #expect(await rule.decide(harness: "codex", model: nil) == .start)
         #expect(CloudSetup.Choice.gateway(family: "claude").connectionID == nil)
         #expect(await rule.waitUntilServed(family: "claude"))
+        // A start on it that reached no model route: the card, and Set up Cloud no longer passes on the gateway alone.
+        let unrouted = setup(Connections(.init(personal: [], organization: [])))
+        unrouted.gateway = { ["claude"] }
+        let card = await unrouted.unrouted(harness: "claude", model: "m", account: nil)
+        #expect(card?.family == "claude" && card?.model == "m")
+        #expect(unrouted.unroutedGateway == ["claude"])
+        #expect(await unrouted.decide(harness: "claude", model: nil) == .setup(family: "claude", model: nil))
         // Off, offline (empty) or unread (nil): the card again.
         for value in [Set<String>(), nil] {
             served = value

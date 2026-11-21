@@ -189,10 +189,16 @@ public final class CloudSetup {
         return .gateway(family: family)
     }
 
-    /// Whether the active team's gateway serves `family` now (``gateway``); false when it is unread.
+    /// Whether the active team's gateway serves `family` now (``gateway``); false when it is unread, or when a start on it
+    /// this run found no model route (``unrouted(harness:model:account:)``).
     private func gatewayServes(_ family: String) async -> Bool {
-        await gateway?()?.contains(family) == true
+        guard !unroutedGateway.contains(family) else { return false }
+        return await gateway?()?.contains(family) == true
     }
+
+    /// The families whose team gateway a start found unrouted: for the rest of this run Set up Cloud waits for a
+    /// connection of the person's own instead of starting again on the same gateway, as ``unroutedOrganization`` does.
+    public private(set) var unroutedGateway: Set<String> = []
 
     /// The families whose organization shared key a start found unrouted (``organizationUnrouted(_:)``).
     public private(set) var unroutedOrganization: Set<String> = []
@@ -207,12 +213,15 @@ public final class CloudSetup {
     }
 
     /// A start on `harness`, `model` and `account` reached a machine whose agent reaches no model and carried no connection
-    /// (`CloudMachineRoute.NeedsConnection`): when it ran on the organization's shared key, that key is unrouted
-    /// (``organizationUnrouted(_:)``), and the answer is the Set up Cloud card's family and model where the next choice
+    /// (`CloudMachineRoute.NeedsConnection`): when it ran on the organization's shared key or the team's gateway, that one is
+    /// unrouted (``organizationUnrouted(_:)``, ``unroutedGateway``), and the answer is the Set up Cloud card's family and model where the next choice
     /// is that card. Nil for anything else (connections unread, an agent Cloud does not serve): the card could never pass.
     public func unrouted(harness: String?, model: String?, account: String?) async -> (family: String, model: String?)? {
-        guard case .organization(let family) = await choose(harness: harness, model: model, account: account) else { return nil }
-        organizationUnrouted(family)
+        switch await choose(harness: harness, model: model, account: account) {
+        case .organization(let family): organizationUnrouted(family)
+        case .gateway(let family): unroutedGateway.insert(family); connectionsChanged()
+        default: return nil
+        }
         guard case .setup(_, let model) = await choose(harness: harness, model: model, account: account) else { return nil }
         return (family, model)
     }
