@@ -10,6 +10,24 @@ import { composerStatePlays } from "../composerStatePlays";
 import { newTabComposerTrailingGap } from "./composerGap.experiment";
 import { MODEL_PICKER } from "../composerSelectors";
 import { translateNewTab } from "./strings";
+import type { SlashCommand } from "../slashCommands";
+
+/// An agent's whole `/` list as Claude Code reports it: its own commands, one with an argument hint,
+/// and skills, which the list labels as such beside cmux's own rows.
+const SLASH_COMMANDS: SlashCommand[] = [
+  { name: "add-dir", description: "Add a new working directory", hint: "<path>" },
+  { name: "agents", description: "Manage agent configurations" },
+  { name: "clear", description: "Clear conversation history and free up context" },
+  { name: "compact", description: "Clear conversation history but keep a summary in context" },
+  { name: "config", description: "Open the config panel" },
+  { name: "cost", description: "Show the total cost and duration of the current session" },
+  { name: "doctor", description: "Diagnose and verify your installation" },
+  { name: "init", description: "Initialize a new CLAUDE.md file with codebase documentation" },
+  { name: "memory", description: "Edit memory files" },
+  { name: "review", description: "Review a pull request", source: "skill" },
+  { name: "security-review", description: "Complete a security review of the pending changes", source: "skill" },
+  { name: "status", description: "Show the version, model, account and connectivity" },
+];
 
 /// Favicons as the host sends them (cx-d0d.8): small inline PNGs.
 const SITE_ICON =
@@ -496,6 +514,27 @@ export default agentPaneEntry({
         await ctx.waitFor(() =>
           [...ctx.document.querySelectorAll('[role="option"]')].some((row) => row.textContent?.includes("customize")),
         );
+      },
+    },
+    // David Beyer (2026-11-20): the `/` menu on the main screen had a messy font and ran over the
+    // screen's edge. The agent's whole command list, the cmux and skill rows among them, on the
+    // default (Minimal) page; slash-menu-fits.browser.test.ts opens it at several window sizes.
+    "slash-menu-full": {
+      note: "Typing / lists every command in the composer's own type and corners, on the side of the box with room, inside the window.",
+      ready: newTab({ template: "minimal" }),
+      snapshot: noChat([], { commands: SLASH_COMMANDS }),
+      play: async (ctx) => {
+        await typePrompt(ctx, "/");
+        await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu [role='option']"));
+      },
+    },
+    "slash-menu-cards": {
+      note: "The / list on the Cards page: the same list, on its box's edges.",
+      ready: newTab({ template: "cards" }),
+      snapshot: noChat([], { commands: SLASH_COMMANDS }),
+      play: async (ctx) => {
+        await typePrompt(ctx, "/");
+        await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu [role='option']"));
       },
     },
     "customize-refused-elsewhere": {

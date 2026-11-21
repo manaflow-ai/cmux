@@ -220,7 +220,8 @@ import Testing
             sidebar.frame = NSRect(x: 0, y: 0, width: width, height: 900)
             // Clear of the pointer, so no row starts hovered: only the tests that hover a row do.
             let pointer = NSEvent.mouseLocation
-            window = NSWindow(contentRect: NSRect(x: pointer.x + 40, y: pointer.y - 450, width: width, height: 900), styleMask: [.borderless],
+            // 2x whatever the display (a fleet runner's is 1x): the marks' half-pixel tolerance is a 2x pixel's.
+            window = TwoXWindow(contentRect: NSRect(x: pointer.x + 40, y: pointer.y - 450, width: width, height: 900), styleMask: [.borderless],
                               backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.contentView?.addSubview(sidebar)

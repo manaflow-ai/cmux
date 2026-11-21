@@ -62,9 +62,6 @@ extension ChiefDockSetting {
     public nonisolated static let stylePath = ["home", "chiefPanel", "style"]
     public nonisolated static let styleDefault = "composeBar"
     public nonisolated static let styleValues = ["composeBar", "pill", "card", "panel", "bubble", "seeThrough", "seeThroughBar"]
-    /// `home.chiefPanel.seesScreen`: On: the eye in the panel shows it, and a click turns it off (user 2026-11-07, default picked by the Chief).
-    public nonisolated static let seesScreenPath = ["home", "chiefPanel", "seesScreen"]
-    public nonisolated static let seesScreenDefault = true
     /// `home.chiefDock.openBeside`: On: a link clicked in the Chief opens its workspace with the Chief floating over it. Off by default (cmux#45889): a link opens only its target.
     public nonisolated static let openBesidePath = ["home", "chiefDock", "openBeside"]
     public nonisolated static let openBesideDefault = false
@@ -284,16 +281,6 @@ nonisolated enum HomeSettingsSchema {
                 ]),
                 default: .string(ChiefDockSetting.styleDefault),
                 keywords: ["chief", "floating", "style", "compose", "pill", "card", "panel", "bubble", "minimal", "home"]
-            ),
-            SettingDescriptor(
-                ChiefDockSetting.seesScreenPath,
-                section: .home,
-                group: group,
-                title: SettingsText.keyed("settings.home.chiefPanelSeesScreen", "Chief Sees Your Screen When It Opens"),
-                help: SettingsText.keyed("settings.home.chiefPanelSeesScreen.help", "The floating Chief takes one look at your screen when it opens. The eye turns it off."),
-                kind: .toggle,
-                default: .bool(ChiefDockSetting.seesScreenDefault),
-                keywords: ["chief", "screen", "see", "context", "screenshot", "eye", "floating", "privacy", "home"]
             ),
             SettingDescriptor(
                 ChiefDockSetting.openBesidePath,

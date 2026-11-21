@@ -50,6 +50,12 @@ pub(crate) mod platform;
 pub(crate) const COMPUTER_USE_CAPABILITY: &str = "computer-use-v1";
 /// The worker's hidden mode (cmux-tui `computer_use_worker.rs`).
 pub const WORKER_MODE: &str = "__computer-use-worker";
+/// `1` in the worker's environment: the worker takes away its own right to
+/// gain privileges (Linux `PR_SET_NO_NEW_PRIVS`), so neither it nor an app it
+/// starts can run sudo or another setuid program. A machine's desktop starter
+/// sets it (a cmux Cloud VM, whose agents must not install software through
+/// Computer Use, `computer_use_host/linux.rs`).
+pub const NO_NEW_PRIVS_ENV: &str = "CMUX_CU_NO_NEW_PRIVS";
 /// How long `computer-use-endpoint` waits for a starting worker.
 pub(crate) const ENDPOINT_WAIT: Duration = Duration::from_secs(10);
 /// A worker that ran at least this long restarts at the first backoff delay.
