@@ -384,14 +384,10 @@ class Driver:
             return f"error: {error}"
 
     def action(self, name, args=None, target=None, timeout=60):
-        params = {"action": name, "args": args or {}, "focus": True}
-        if target:
-            # The trace's pane id as a target; an action that takes no pane target (or another id) runs on the
-            # focused pane, which the caller clicked first.
-            reply = self.rpc("action.run", {**params, "target": target}, timeout=timeout)
-            if "error" not in reply or reply.get("unreachable"):
-                return reply  # a timed-out action may have run: never send it twice
-        return self.rpc("action.run", params, timeout=timeout)
+        # The trace's pane ids are layout ids, not the `pane:` targets actions resolve (a target can name a pane of
+        # another workspace): the caller clicks the pane first, and the action runs on the focused pane.
+        del target
+        return self.rpc("action.run", {"action": name, "args": args or {}, "focus": True}, timeout=timeout)
 
     def rest(self) -> dict:
         """One trace sample of the window at rest."""
@@ -456,6 +452,8 @@ class Driver:
                     grew = True
                     break
             if not grew:
+                surfaces = sum(len(w.get("panes") or []) for w in (self.rpc("debug.surfaces") or {}).get("windows") or [])
+                self.log.append(f"split refused at {len(panes)} shown panes (debug.surfaces: {surfaces} panes)")
                 refused += 1
                 if refused >= 3:
                     break
@@ -592,6 +590,10 @@ class Driver:
             self._remove(record)
         verdict = judge_drop(drop)
         verdict["up_from"] = "journal" if journal else "send"
+        verdict["samples"] = len((drop.get("trace") or {}).get("samples") or [])
+        print("PANE-DRAG drop " + json.dumps({k: verdict.get(k) for k in (
+            "gesture", "kind", "drop", "landed", "note", "error", "panes_before", "panes_after", "drop_ms", "lift_ms",
+            "blank_frames", "jumps", "up_from", "samples", "pixel_measured")}), flush=True)
         time.sleep(0.4)  # bench: idle between drops
         return verdict
 
@@ -742,6 +744,7 @@ def main(argv=None) -> int:
         time.sleep(3)  # bench: launch work settles
         driver.learn_scale()
         report["pixels"] = bool(driver.pixels)
+        print(f"PANE-DRAG pixels={driver.pixels} scale={driver.scale} log={json.dumps(driver.log[-4:])[:800]}", flush=True)
         report["scale"] = driver.scale
         for count in [int(c) for c in opts.counts.split(",") if c.strip()]:
             if driver.left() < 120:
@@ -749,6 +752,7 @@ def main(argv=None) -> int:
                 break
             built = driver.build(count, scratch)
             entry: dict = {"asked": count, "setup": {k: v for k, v in built.items() if k != "kind_of"}}
+            print("PANE-DRAG setup " + json.dumps(entry["setup"]) + " log " + json.dumps(driver.log[-6:])[:1500], flush=True)
             if "error" in built:
                 entry["error"] = built["error"]
                 print(f"PANE-DRAG setup count={count}: {built['error']}; log: " + json.dumps(driver.log[-6:])[:1500], flush=True)
@@ -772,6 +776,7 @@ def main(argv=None) -> int:
                 driver.action("closeWorkspace")
             time.sleep(1.5)  # bench: the workspace's content goes
         report["log"] = driver.log[-40:]
+        print("PANE-DRAG log " + json.dumps(driver.log[-25:])[:4000], flush=True)
         write()
     finally:
         app.stop()
