@@ -142,10 +142,16 @@ final class SidebarFooterBand {
     /// account control and the Search button centered on it, whose taller control ends on
     /// `SidebarStyle.bottomInset` (Leo 2026-10-20: the line sat too high, the section's own
     /// padding stacked on the margin): no padding under a row as tall as the button, half the
-    /// difference under a shorter one, which the button overhangs.
+    /// difference under a shorter one, which the button overhangs. The row then starts on a
+    /// device pixel: a density scaled by one factor (#44449) makes the margin under it a half
+    /// point at Compact and Comfortable, which put the avatar between pixels on a 1x screen and
+    /// Search, centered a pixel under it, rounded half a point further down.
     func footerBottomPadding(rowHeight: CGFloat) -> CGFloat {
         guard host?.design.sidebarSections.showSearchButton == true else { return 0 }
-        return max(0, (Self.searchButtonSide - rowHeight) / 2 + searchLensDrop)
+        let padding = max(0, (Self.searchButtonSide - rowHeight) / 2 + searchLensDrop)
+        // The row's top is `bottomInset + padding + rowHeight` over the sidebar's bottom edge.
+        let scale = host?.window?.backingScaleFactor ?? 2, under = SidebarStyle.bottomInset + rowHeight
+        return max(0, SidebarStyle.pixelSnapped(under + padding, scale: scale) - under)
     }
 
     /// How far the Search button sits under the avatar's center line: one device pixel. The eye

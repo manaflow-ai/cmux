@@ -76,6 +76,10 @@ import Testing
         #expect(frame.maxX <= h.sidebar.bounds.maxX - band.inside + 0.51,
                 "search \(frame) reaches into the resize band \(band)")
         #expect(abs(frame.midY - avatarFrame.midY) <= 1, "search \(frame) on the avatar's line \(avatarFrame)")
+        // The avatar's row starts on a device pixel at every density, not between two (#44449's scaled margins).
+        let scale = h.window.backingScaleFactor
+        #expect(abs(avatarFrame.minY * scale - (avatarFrame.minY * scale).rounded()) < 0.001,
+                "avatar \(avatarFrame) on the \(scale)x pixel grid")
         // The spaces dots never cover it.
         if !h.sidebar.profileBar.isHidden {
             #expect(!h.frame(of: h.sidebar.profileBar).intersects(frame) || h.sidebar.profileBar.leadingInset != nil,
