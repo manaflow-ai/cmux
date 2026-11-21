@@ -231,7 +231,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     await services.agentPaneStateLoss.showNotices(in: window, pairedSealCleared: { await services.iphone.pairedSealClearedForCutOff() })
                 }
             }
-            CATransaction.setMainCompletion { [weak self] in
+            DebugTimings.markLaunch("frame.commit_start"); CATransaction.setMainCompletion { [weak self] in
                 DebugTimings.markLaunch("first_window_frame_committed")
                 TerminalLaunchFrames.closeLaunches() // the terminals that asked by now are this frame's
                 self?.firstFrame.open()
