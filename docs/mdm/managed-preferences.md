@@ -613,7 +613,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `home.chiefPetMascot` | string | `"orb"` | `fox`, `machine`, `machine-cyan`, `machine-blue`, `moon`, `moon-blue`, `mochi`, `captain`, `sprout`, `bolt`, `fox-arctic`, `machine-violet`, `machine-gold`, `moon-rose`, `orb`, `orb-spark`, `orb-hood` | Character |
 | `home.chiefDock.edge` | string | `"left"` | `left`, `right`, `top`, `bottom` | Dock Edge. The window edge the Chief docks to. |
 | `home.chiefPanel.style` | string | `"composeBar"` | `composeBar`, `pill`, `card`, `panel`, `bubble`, `seeThrough`, `seeThroughBar` | Floating Chief Style. How the Chief looks floating over a workspace. Drag any style by its grip. |
-| `home.chiefPanel.seesScreen` | boolean | `true` |  | Chief Sees Your Screen When It Opens. The floating Chief takes one look at your screen when it opens. The eye turns it off. |
 | `home.chiefDock.openBeside` | boolean | `false` |  | Show Chief When Opening Workspaces. Links in the Chief open their workspace with the Chief over it. Esc hides it. |
 | `home.chiefEngine` | string | `"auto"` | `auto`, `local`, `hosted` | Engine. Auto uses this Mac's Chief while it runs, else the Hosted Chief. |
 | `chief.reactionsCanWake` | boolean | `true` |  | Reactions Can Wake the Chief. A reaction on a Chief message can start a turn, such as ? on a question. |
@@ -678,6 +677,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `labs.machineJoin` | boolean | `false` |  | Screen Sharing for Joined Machines. Shows Screen sharing and Control in Settings > Devices once this Mac joins. |
 | `labs.liveCode` | boolean | `false` |  | Live Code. Swift changes you compile apply to the running app. Takes effect after cmux restarts. |
 | `customize.fromTheApp` | boolean | `false` |  | Customize From the Window. Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both. |
+| `labs.agentCustomization` | boolean | `false` |  | Claude Code and Codex Customization. Show and edit the MCP servers Claude Code and Codex use, in their own config files. |
 | `feed.github.enabled` | boolean | `false` |  | GitHub Inbox. Inbox shows your GitHub notifications |
 | `feed.github.pollIntervalSeconds` | real | `120` | 60 to 900 | Refresh Interval. Seconds between GitHub refreshes. Refresh in the Inbox runs immediately. |
 | `agentPane.links.outsideRoots` | string | `"open"` | `confirm`, `text`, `open` | Files Outside the Project. What a link to a file outside the chat's folders does. Keys and .env files never open. |
@@ -707,8 +707,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `app.internalDeveloperMode` | boolean | `false` |  | Internal Developer Mode. Shows "Debug: …" commands in the Command Palette. |
 | `macScreen.systemShortcuts` | boolean | `false` |  | Send System Shortcuts to the Remote Mac. Shortcuts like ⌘Tab and ⌘Space go to the other Mac. Needs Accessibility. |
 | `macScreen.shareWithoutAsking` | boolean | `false` |  | Share This Mac Without Asking. Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies. |
-| `macScreen.defaultQuality` | string | `"auto"` | `auto`, `smooth`, `low`, `medium`, `high` | Default Quality. The quality a new Mac Screen session starts with. The session's toolbar still changes it. |
-| `macScreen.defaultAccess` | string | `"full"` | `full`, `view` | Default Access. What Connect asks another Mac for. View Only shows the screen; Full Control also sends your clicks and keys. |
 | `macScreen.debug.relayOnly` | boolean | `false` |  | Relay Only. Mac Screen tabs connect only through the relay, to test it. |
 | `remote.endSharingOnQuit` | boolean | `false` |  | End Sharing When cmux Quits. Off: this Mac stays available to your devices while cmux is quit. |
 | `remote.ultra` | string | `"auto"` | `off`, `auto`, `always` | Ultra Connection Mode. Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data. |

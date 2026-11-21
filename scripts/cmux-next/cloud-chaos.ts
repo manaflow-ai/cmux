@@ -63,6 +63,12 @@ export type ChaosContext = {
   session: string;
   /** The harness the client's chat runs (`agent-session-start`), as the journey's `--agent`. */
   harness?: string;
+  /**
+   * The person's model connection, which the app gives each chat's agent at its start (`agent-session-start`'s
+   * `credentials`, cmux#40159: the machine holds no login). The journey's launch credential; none when the machine has
+   * a login of its own.
+   */
+  credentials?: { env: Record<string, string> };
   tag: string;
   log?: (line: string) => void;
 };
@@ -476,7 +482,8 @@ export class ChatClient {
    */
   async start(harness: string): Promise<any> {
     if (this.surface === null) throw new Error("start before openTab");
-    return this.dial.request({ cmd: "agent-session-start", surface: this.surface, harness, vm_kind: "owner" }, 120_000);
+    const credentials = this.ctx.credentials ? { credentials: this.ctx.credentials } : {};
+    return this.dial.request({ cmd: "agent-session-start", surface: this.surface, harness, vm_kind: "owner", ...credentials }, 120_000);
   }
 
   /**

@@ -10,6 +10,7 @@
 // for the CLI's own login and lists every account routing may use under it (ProviderAccounts).
 import { useCallback, useEffect, useId } from "react";
 import { Button } from "../../../ui/Button";
+import { Switch } from "../../../ui/Switch";
 import { agentDisplayName } from "../../../agent-session/acpmux/agents";
 import { installName, oneRowPerInstall } from "../../../agent-session/acpmux/harnessInstalls";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
@@ -141,16 +142,14 @@ function Row({ row, family }: { row: HarnessRow; family: string | null }) {
           )}
           {row.update && !row.update.elevated && (
             <label className="row-help harness-auto">
-              <input
-                type="checkbox"
+              <Switch
+                size="sm"
                 data-harness-auto=""
                 aria-label={t("settingsWindow.harnesses.autoUpdate")}
                 checked={row.autoUpdate ?? false}
                 aria-describedby={titleId}
-                onChange={(event) =>
-                  void store.runHarnesses({ action: "autoUpdate", id: row.id, on: event.currentTarget.checked })
-                }
-              />{" "}
+                onCheckedChange={(on) => void store.runHarnesses({ action: "autoUpdate", id: row.id, on })}
+              />
               {t("settingsWindow.harnesses.autoUpdate")}
             </label>
           )}

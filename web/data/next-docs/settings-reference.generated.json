@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 642,
+  "count": 640,
   "sections": [
     {
       "id": "general",
@@ -1121,33 +1121,6 @@
           "kind": "toggle",
           "default": false,
           "group": "Columns"
-        },
-        {
-          "key": "macScreen.defaultAccess",
-          "title": "Default Access",
-          "help": "What Connect asks another Mac for. View Only shows the screen; Full Control also sends your clicks and keys.",
-          "kind": "choice",
-          "default": "full",
-          "group": "Mac Screen",
-          "values": [
-            "full",
-            "view"
-          ]
-        },
-        {
-          "key": "macScreen.defaultQuality",
-          "title": "Default Quality",
-          "help": "The quality a new Mac Screen session starts with. The session's toolbar still changes it.",
-          "kind": "choice",
-          "default": "auto",
-          "group": "Mac Screen",
-          "values": [
-            "auto",
-            "smooth",
-            "low",
-            "medium",
-            "high"
-          ]
         },
         {
           "key": "navigation.history.scope",
@@ -6242,14 +6215,6 @@
           ]
         },
         {
-          "key": "home.chiefPanel.seesScreen",
-          "title": "Chief Sees Your Screen When It Opens",
-          "help": "The floating Chief takes one look at your screen when it opens. The eye turns it off.",
-          "kind": "toggle",
-          "default": true,
-          "group": "Chief Dock"
-        },
-        {
           "key": "home.chiefPanel.style",
           "title": "Floating Chief Style",
           "help": "How the Chief looks floating over a workspace. Drag any style by its grip.",
@@ -6969,6 +6934,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Developer Tools"
+        },
+        {
+          "key": "labs.agentCustomization",
+          "title": "Claude Code and Codex Customization",
+          "help": "Show and edit the MCP servers Claude Code and Codex use, in their own config files.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
         },
         {
           "key": "labs.liveCode",
