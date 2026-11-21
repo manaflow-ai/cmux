@@ -64,6 +64,7 @@ import Testing
         let sidebar = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
         sidebar.update(HomeLoneChiefRailTests.model(chiefs: 2))
         let split = HomeSidebarSplitView(sidebar: sidebar, content: NSView(), widths: HomeSidebarWidth(defaults: defaults))
+        split.showsList = true // the person showed the list (folded by default: ChiefReplacesHomeTests)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

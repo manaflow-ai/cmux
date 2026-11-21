@@ -18,7 +18,6 @@
 //! the same errors. A tag or a batch answers with `results`, one row per recipient.
 
 use super::*;
-use crate::prompt_provenance::{MAX_NAME_CHARS, MAX_NOTICE_TITLE_CHARS};
 use cmux_json::JsonSet as _;
 use futures::{FutureExt as _, StreamExt as _};
 use std::collections::{BTreeMap, BTreeSet};
@@ -35,7 +34,7 @@ const RESOLVE_WAIT: Duration = crate::rpc::ANSWER_WAIT;
 pub(super) fn tool() -> Value {
     json!({
         "name": "send",
-        "description": "Message another agent session: a lane, a coordinator, or a chat on a peer (host/name). Use it instead of running `cmux agent send` in a shell; to message several sessions, batch them in one call with messages instead of a shell loop. It goes through this daemon's outbox, like `cmux agent send --no-wait`: it returns within seconds with the message's promptId and delivery id, and a slow target or a peer that is down is retried; it does not wait for a reply. With class question or block, the receiver's turn that answers it comes back to you as a report from that session (only for a session on this machine), so do not poll last or ask again; otherwise read a reply later with last. The receiver's chat shows the message as yours; with notice it shows as a tool's notice (severity, sender, title, links) and text, if any, is its body. By default it steers: an agent in the middle of a turn reads it at its next tool step; steer: false queues it behind that turn. With messages or tag, the result has one row per recipient (to, ok, promptId, deliveryId, status, error); one bad recipient does not stop the others.",
+        "description": "Message another agent session: a lane, a coordinator, or a chat on a peer (host/name). Use the `cmux agent send` front door instead of running a shell command; to message several sessions, batch them in one call with messages instead of a shell loop. It goes through this daemon's outbox, like the engine's queued send: it returns within seconds with the message's promptId and delivery id, and a slow target or a peer that is down is retried; it does not wait for a reply. With class question or block, the receiver's turn that answers it comes back to you as a report from that session (only for a session on this machine), so do not poll last or ask again; otherwise read a reply later with last. The receiver's chat shows the message as yours; with notice it shows as a tool's notice (severity, sender, title, links) and text, if any, is its body. By default it steers: an agent in the middle of a turn reads it at its next tool step; steer: false queues it behind that turn. With messages or tag, the result has one row per recipient (to, ok, promptId, deliveryId, status, error); one bad recipient does not stop the others.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -46,8 +45,8 @@ pub(super) fn tool() -> Value {
                 "pr": {"type": "integer", "description": "The pull request this message is about: the receiver's inbox threads it with the others about it."},
                 "thread": {"type": "string", "description": "The thread this message goes in, a topic or a threadId from inbox_read (default: your messages about the PR its first line names, else all your messages)."},
                 "file": {"type": "string", "description": "Instead of text: a file of yours containing the message. Small UTF-8 text is sent inline; larger files are uploaded automatically as attachments for the receiver to open. Any size. Best an absolute path; a relative one is read from the folder your agent runs in."},
-                "attach": {"type": "array", "items": {"type": "string"}, "description": "Files to send with the message, as absolute paths on this machine (a screenshot, a log), of any size and number, as cmux agent send --attach: an image reaches the receiver and its chat as an image (a preview), any other file as a link to its saved copy. Hand over an image this way, never as a provider's own file id (libfile_...), which nobody here can open."},
-                "tag": {"type": "string", "description": "Instead of to: every live session carrying this tag, key or key=value (as cmux agent send --tag), not yourself."},
+                "attach": {"type": "array", "items": {"type": "string"}, "description": "Files to send with the message, as absolute paths on this machine (a screenshot, a log), of any size and number, as acpmux send --attach: an image reaches the receiver and its chat as an image (a preview), any other file as a link to its saved copy. Hand over an image this way, never as a provider's own file id (libfile_...), which nobody here can open."},
+                "tag": {"type": "string", "description": "Instead of to: every live session carrying this tag, key or key=value (as acpmux send --tag), not yourself."},
                 "supersede": {"type": "string", "description": "A key: your message still queued at the receiver under the same key is replaced by this one, so a correction is never read after the order it corrects."},
                 "notice": notice_schema("Send it as a tool's or reconciler's notice: the receiver's chat draws a notice row (severity mark, sender, title, links) and the agent reads `[notice from SENDER on HOST · FIRE] TITLE`, the body (text, optional here), then the links."),
                 "messages": {
@@ -81,10 +80,10 @@ fn notice_schema(description: &str) -> Value {
         "type": "object",
         "description": description,
         "properties": {
-            "sender": {"type": "string", "maxLength": MAX_NAME_CHARS, "description": format!("Who sends it, a tool or role, one line of at most {MAX_NAME_CHARS} characters (default: this session's name).")},
-            "host": {"type": "string", "maxLength": MAX_NAME_CHARS, "description": format!("The machine it comes from, at most {MAX_NAME_CHARS} characters of letters, digits, '.', '-' or '_' (default: this one).")},
+            "sender": {"type": "string", "description": "Who sends it, a tool or role, one line of at most 64 characters (default: this session's name)."},
+            "host": {"type": "string", "description": "The machine it comes from (default: this one)."},
             "severity": {"type": "string", "enum": crate::prompt_provenance::NOTICE_SEVERITIES},
-            "title": {"type": "string", "maxLength": MAX_NOTICE_TITLE_CHARS, "description": format!("One line, at most {MAX_NOTICE_TITLE_CHARS} characters.")},
+            "title": {"type": "string", "description": "One line, at most 200 characters."},
             "links": {
                 "type": "array",
                 "maxItems": crate::prompt_provenance::MAX_NOTICE_LINKS,
@@ -249,7 +248,7 @@ fn item_of(own: &Value, defaults: Option<&Value>) -> Result<Item, String> {
             .map(str::trim)
             .filter(|t| !t.is_empty())
             .map(str::to_owned),
-        notice: notice_arg(field("notice"), |k| std::env::var(k).ok())?,
+        notice: notice_arg(field("notice"), crate::tool_env::var)?,
     };
     match (&item.to, &item.tag) {
         (Some(_), Some(_)) => return Err("give to or tag, not both".to_owned()),
@@ -423,7 +422,7 @@ pub(super) fn read_message_file(path: &str) -> Result<(String, Option<Arc<Messag
         ));
     }
     let text = String::from_utf8(bytes).map_err(|_| {
-        format!("{shown} is not UTF-8 text: send a binary file with cmux agent send --attach")
+        format!("{shown} is not UTF-8 text: send a binary file with acpmux send --attach")
     })?;
     Ok((text, None))
 }
@@ -743,7 +742,7 @@ async fn tag_recipients(
             Some(listed.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default());
     }
     let all = sessions.as_deref().unwrap_or_default();
-    let own = std::env::var(SESSION_ENV).ok();
+    let own = crate::tool_env::var(SESSION_ENV);
     let found = crate::cli::run::fanout::tag_targets(all, tag, own.as_deref());
     if found.is_empty() {
         return Err(format!("no live session carries the tag {tag}"));
@@ -776,8 +775,8 @@ pub(super) async fn relay(
     let relay = crate::cli::send_relay::configured()?;
     // The session's name when its environment has one, else its id (an MCP server's environment
     // carries ACPMUX_SESSION_ID alone), so the relay always names the sender.
-    let from = crate::cli::send_relay::sender(None, |k| std::env::var(k).ok()).or_else(|| {
-        std::env::var(SESSION_ENV).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
+    let from = crate::cli::send_relay::sender(None, crate::tool_env::var).or_else(|| {
+        crate::tool_env::var(SESSION_ENV).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
     });
     // The subagent that made the call (`subagent_call.rs`), named to the relay as a label.
     // parse_item already validated the explicit class; aliases use the canonical wire value.
