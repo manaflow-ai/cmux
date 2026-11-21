@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
@@ -182,5 +183,27 @@ import Testing
         let sorted = us.sorted()
         print("SIDEBAR-CHAT-FAN-OUT tick n=\(count) maps=\(maps.reduce(0, +))/20 frame_us p50=\(sorted[10]) max=\(sorted.last ?? 0)")
         #expect(maps.allSatisfy { $0 <= 1 }, "a streaming tick mapped \(maps) rows of \(count)")
+    }
+
+    /// A subagent pane's page names what it shows (`chat.subagentShown`, many a minute while subagents stream): its
+    /// own tab's title changes, and no chat row reads it again, at 40 rows as at 400. Each chat row's title reads
+    /// `SubagentTabTitles` for its own tab; before, a write for any tab woke every one.
+    @Test(arguments: [40, 400]) func aSubagentPaneShowingAnotherSubagentMapsNoChatRow(count: Int) throws {
+        let fixture = try Fixture(count: count, recorded: count)
+        defer { fixture.tearDown() }
+        let tab = "chat-fan-out-subagent-pane-\(UUID().uuidString)"
+        var maps: [Int] = []
+        for step in 0..<10 {
+            let shown = fixture.timedCost {
+                SubagentTabTitles.shared.show("subagent \(step)", inTab: tab, tone: step % 3, mark: nil)
+                SubagentTabTitles.shared.showFacts(nil, inTab: tab)
+            }
+            maps.append(shown.mapped)
+        }
+        let again = fixture.cost { SubagentTabTitles.shared.show("subagent 9", inTab: tab, tone: 0, mark: nil) }
+        print("SIDEBAR-CHAT-FAN-OUT subagent-shown n=\(count) maps=\(maps) same-value=\(again)")
+        #expect(maps.allSatisfy { $0 == 0 }, "a subagent pane's subagentShown mapped \(maps) of \(count) chat rows")
+        #expect(again.mapped == 0)
+        SubagentTabTitles.shared.bind("none", of: "none", toTab: tab) { $0 != tab }
     }
 }
