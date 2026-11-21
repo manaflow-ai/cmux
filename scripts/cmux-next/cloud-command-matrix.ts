@@ -132,6 +132,9 @@ export function judge(row: Row, code: number | null, out: string, parentOut: str
   return "ok";
 }
 
+/** The binary a row runs could not be started (missing, not executable). */
+export class SpawnError extends Error {}
+
 export function runRows(rows: Row[], bins: Record<Bin, string>): Result[] {
   const home = mkdtempSync(path.join(os.tmpdir(), "cmd-matrix-home-"));
   // A fresh box: no app socket, no config, no cmux login, no acpmux daemon to reach.
@@ -146,6 +149,8 @@ export function runRows(rows: Row[], bins: Record<Bin, string>): Result[] {
     const r = spawnSync(bins[bin], words, { env, encoding: "utf8", timeout: budgetMs, input: "" });
     const ms = Math.round(performance.now() - t0);
     const timedOut = r.error !== undefined && /ETIMEDOUT/.test(String(r.error));
+    // A binary that never started judged nothing: stop, never 193 `error` rows that read as a result.
+    if (r.error !== undefined && !timedOut) throw new SpawnError(`${bins[bin]}: ${r.error.message}`);
     const v = { code: r.status, out: `${r.stdout ?? ""}${r.stderr ?? ""}`, ms, timedOut };
     cache.set(key, v);
     return v;
@@ -187,7 +192,14 @@ if (import.meta.main) {
     process.exit(0);
   }
   const bins = { cmux: arg("--cmux", argv) ?? process.env.CMUX_BIN ?? "cmux", acpmux: arg("--acpmux", argv) ?? process.env.ACPMUX_BIN ?? "acpmux" };
-  const results = runRows(rows, bins);
+  let results: Result[];
+  try {
+    results = runRows(rows, bins);
+  } catch (error) {
+    if (!(error instanceof SpawnError)) throw error;
+    console.error(`cloud-command-matrix: nothing judged: ${error.message}`);
+    process.exit(2);
+  }
   const rev = spawnSync("git", ["-C", ROOT, "rev-parse", "--short=12", "HEAD"], { encoding: "utf8" }).stdout.trim();
   const meta = { harness: rev || "?", host: `${os.platform()}-${os.arch()}`, rows: String(results.length) };
   const md = markdown(results, meta);

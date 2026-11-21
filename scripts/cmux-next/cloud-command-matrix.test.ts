@@ -27,3 +27,11 @@ describe("cloud-command-matrix", () => {
     expect(judge(row, null, "", "overview", true)).toBe("timeout");
   });
 });
+
+describe("cloud-command-matrix spawn", () => {
+  test("a binary that cannot start stops the run instead of filling it with error rows", async () => {
+    const { runRows, SpawnError } = await import("./cloud-command-matrix");
+    const row = { bin: "cmux" as const, words: ["--help"], cls: "help" };
+    expect(() => runRows([row], { cmux: "/nonexistent/cmux", acpmux: "/nonexistent/acpmux" })).toThrow(SpawnError);
+  });
+});
