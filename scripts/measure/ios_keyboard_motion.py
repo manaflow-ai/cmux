@@ -291,13 +291,14 @@ def netcond_lines(report):
     """The mobile benches' shared line shape (scripts/measure/ios-network-conditions-report.py):
     one line per measured value; surface terminal|terminal-vim|chat|chief|search, profile none@1 (no
     network shaping), phase show|hide|drag, run the step's round, and `method` (tap|key|drag|tti) as an
-    extra key. A value a step did not reach is null (a miss); a tti step carries interactive_ms only."""
+    extra key. A value a step did not reach is null (a miss); a tti step carries kbd_hide_tti_ms or kbd_show_tti_ms only."""
     for name, s in report["surfaces"].items():
         if "error" in s:
             yield f"NETCOND-ERROR {name}: {s['error']}"
             continue
         for step in s["steps"]:
-            pairs = [("interactive_ms", "tti_ms")] if step["method"] == "tti" else NETCOND_METRICS
+            # ios-input-responsiveness reads these two names (kbd_hide_tti_ms, kbd_show_tti_ms) for its items 1-2.
+            pairs = ([(f"kbd_{step['direction']}_tti_ms", "tti_ms")] if step["method"] == "tti" else NETCOND_METRICS)
             for metric, key in pairs:
                 if key == "motion_ms":
                     moves = [step[k] for k in ("field_ms", "content_ms") if step.get(k) is not None]

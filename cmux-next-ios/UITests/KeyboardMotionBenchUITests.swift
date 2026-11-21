@@ -48,7 +48,10 @@ final class KeyboardMotionBenchUITests: XCTestCase {
         var types = true
     }
 
-    private static let base = ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-kbd-pin-trace"]
+    // -cmux-mobile-hitch-trace: ios-input-responsiveness's DEBUG main-thread hitch tracer
+    // (Documents/hitch-trace.jsonl, stacks for run-loop iterations over 4 and 8 ms); a build
+    // without it ignores the argument.
+    private static let base = ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-kbd-pin-trace", "-cmux-mobile-hitch-trace"]
 
     @MainActor
     func testTerminalShell() throws {
