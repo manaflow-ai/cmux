@@ -743,6 +743,12 @@ fn the_chief_has_a_move_tool_and_a_dry_run_changes_nothing() {
 type Calls = std::sync::Arc<std::sync::Mutex<Vec<(String, String, Value)>>>;
 
 fn fake_cloud() -> (String, Calls) {
+    fake_cloud_skewed(0)
+}
+
+/// The fake cloud; once its brain is on, its memory reads `skew` more messages
+/// than were copied (the move's final check fails after the brain went on).
+fn fake_cloud_skewed(skew: u64) -> (String, Calls) {
     use std::io::{BufRead, BufReader, Read, Write as _};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
@@ -847,9 +853,10 @@ fn fake_cloud() -> (String, Calls) {
                 } else {
                     "importing"
                 };
+                let count = memory + if brain { skew } else { 0 };
                 (
                     200,
-                    serde_json::json!({"ok": true, "value": {"count": memory, "state": state}}),
+                    serde_json::json!({"ok": true, "value": {"count": count, "state": state}}),
                 )
             } else {
                 (404, serde_json::json!({"ok": false}))
@@ -1010,6 +1017,49 @@ fn a_move_to_the_cloud_copies_history_and_memory_and_turns_the_brain_on() {
         .find(|c| c.0 == "PUT" && c.1.contains("/brain"))
         .unwrap();
     assert_eq!(last_brain.2["enabled"], false);
+}
+
+#[test]
+fn a_cloud_move_that_fails_its_check_after_the_brain_went_on_turns_it_off_again() {
+    // The hosted brain goes on before the final memory check (migrate_cloud.rs
+    // move_to_cloud); a failed check thaws this copy, so the hosted Chief must
+    // be off again: one Chief answers, as after `move rollback`.
+    let dir = tempfile::tempdir().unwrap();
+    let src = cloud_ready_home(dir.path());
+    let (base, seen) = fake_cloud_skewed(1);
+    let token = dir.path().join("session");
+    std::fs::write(&token, "test-session\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&token, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let out = Command::new(BIN)
+        .args([
+            "move",
+            "--to",
+            &format!("cloud:{base}"),
+            "--session-token-file",
+            token.to_str().unwrap(),
+            "--home",
+            src.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "the move fails its check");
+    let text = String::from_utf8_lossy(&out.stderr);
+    assert!(text.contains("the cloud memory holds"), "{text}");
+    assert!(!src.join("state/moved.json").exists(), "this copy answers again");
+    assert!(!src.join("state/shutdown").exists(), "its start is not held");
+    let calls = seen.lock().unwrap().clone();
+    let enabled: Vec<bool> = calls
+        .iter()
+        .filter(|c| c.0 == "PUT" && c.1.contains("/brain") && c.2.get("enabled").is_some())
+        .map(|c| c.2["enabled"] == true)
+        .collect();
+    assert!(enabled.contains(&true), "the brain went on: {enabled:?}");
+    assert_eq!(
+        enabled.last(),
+        Some(&false),
+        "the hosted brain is off again after the failed move: {enabled:?}"
+    );
 }
 
 #[test]
