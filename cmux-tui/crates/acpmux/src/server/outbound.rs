@@ -34,6 +34,7 @@
 use super::*;
 use std::collections::VecDeque;
 use std::sync::atomic::AtomicUsize;
+use std::time::Instant;
 use tokio::sync::{Notify, watch};
 
 /// The bytes of the bulk lane the transport's channel may hold: what a read answered now waits
@@ -94,6 +95,12 @@ pub(super) const OUTBOUND_BYTE_BOUND: usize = 64 << 20;
 pub(super) const TOTAL_BYTE_BOUND: usize = 1 << 30;
 /// What a connection may hold when the daemon is past [`TOTAL_BYTE_BOUND`].
 pub(super) const FAIR_SHARE: usize = 4 << 20;
+/// How long a reader over [`FAIR_SHARE`] may take nothing before the daemon-wide bound ends it.
+/// One that is taking lines is slow, not stuck, and keeps its connection up to its own bound: on
+/// cosmic-gray the cut fell on the app's coordinator chats mid-replay, each cut cost a re-attach of
+/// the whole chat (99 s for the largest), and the re-attach queued the same bytes again
+/// (cmuxterm-hq `docs/handbook/gui-chat-loses-its-agent-session.md`).
+pub(super) const READER_STALL: Duration = Duration::from_secs(10);
 /// The bytes every live queue holds now (the sum of their [`State::held`]).
 pub(crate) static TOTAL_HELD: AtomicUsize = AtomicUsize::new(0);
 
@@ -143,6 +150,9 @@ struct State {
     sent: VecDeque<(usize, Option<super::controls::Ticket>)>,
     /// The sum of [`State::sent`].
     sent_bytes: usize,
+    /// When the transport's reader last took a line, or the queue held nothing for it to take:
+    /// the daemon-wide bound ends only a reader stalled past [`READER_STALL`].
+    progress_at: Instant,
     /// Lines the pump took and has not sent yet (waiting for the durable gate, or for room).
     taken: usize,
     /// The transport, to read its room. Weak: once the pump ends, nothing holds it open.
@@ -179,6 +189,9 @@ impl State {
             return;
         };
         let in_channel = self.capacity.saturating_sub(transport.capacity());
+        if self.sent.len() > in_channel {
+            self.progress_at = Instant::now();
+        }
         while self.sent.len() > in_channel {
             let Some((size, _ticket)) = self.sent.pop_front() else { break };
             self.sent_bytes -= size;
@@ -236,6 +249,8 @@ struct Shared {
     /// [`TOTAL_BYTE_BOUND`] and [`FAIR_SHARE`], or a test's.
     total_bound: usize,
     fair_share: usize,
+    /// [`READER_STALL`], or a test's.
+    reader_stall: Duration,
 }
 
 impl Shared {
@@ -249,9 +264,14 @@ impl Shared {
             return false;
         }
         let size = line.text.len();
+        // A reader with nothing left to take is not behind.
+        if state.held == 0 {
+            state.progress_at = Instant::now();
+        }
         let over_total = |state: &State| {
             state.held + size > self.fair_share
                 && TOTAL_HELD.load(Ordering::Relaxed) + size > self.total_bound
+                && state.progress_at.elapsed() >= self.reader_stall
         };
         if state.held + size > self.bound || over_total(state) {
             state.settle();
@@ -530,10 +550,11 @@ pub(super) fn start_bounded(
     transport: mpsc::Sender<String>,
     bound: usize,
 ) -> (Arc<Outbound>, Option<Arc<durable_gate::Gate>>) {
-    start_limited(scope, durability, transport, bound, TOTAL_BYTE_BOUND, FAIR_SHARE)
+    start_limited(scope, durability, transport, bound, TOTAL_BYTE_BOUND, FAIR_SHARE, READER_STALL)
 }
 
-/// [`start_bounded`] with the daemon-wide limits given: [`TOTAL_BYTE_BOUND`] and [`FAIR_SHARE`].
+/// [`start_bounded`] with the daemon-wide limits given: [`TOTAL_BYTE_BOUND`], [`FAIR_SHARE`] and
+/// [`READER_STALL`].
 pub(super) fn start_limited(
     scope: &cmux_scope::Scope,
     durability: Option<crate::store::Durability>,
@@ -541,6 +562,7 @@ pub(super) fn start_limited(
     bound: usize,
     total_bound: usize,
     fair_share: usize,
+    reader_stall: Duration,
 ) -> (Arc<Outbound>, Option<Arc<durable_gate::Gate>>) {
     let (closed, _) = watch::channel(false);
     let shared = Arc::new(Shared {
@@ -550,6 +572,7 @@ pub(super) fn start_limited(
             held: 0,
             sent: VecDeque::new(),
             sent_bytes: 0,
+            progress_at: Instant::now(),
             taken: 0,
             transport: transport.downgrade(),
             capacity: transport.max_capacity(),
@@ -562,6 +585,7 @@ pub(super) fn start_limited(
         bound,
         total_bound,
         fair_share,
+        reader_stall,
     });
     let pump = Pump { shared: Arc::clone(&shared), transport };
     let gate = match durability {

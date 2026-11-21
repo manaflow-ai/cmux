@@ -177,9 +177,9 @@ async fn past_the_daemon_wide_bound_a_reader_over_its_fair_share_is_disconnected
     let (t1, _rx1) = mpsc::channel(1);
     let (t2, _rx2) = mpsc::channel(1);
     let (t3, _rx3) = mpsc::channel(1);
-    let (big, _) = start_limited(&scope, None, t1, OWN, total, FAIR);
-    let (other, _) = start_limited(&scope, None, t2, OWN, total, FAIR);
-    let (small, _) = start_limited(&scope, None, t3, OWN, total, FAIR);
+    let (big, _) = start_limited(&scope, None, t1, OWN, total, FAIR, Duration::ZERO);
+    let (other, _) = start_limited(&scope, None, t2, OWN, total, FAIR, Duration::ZERO);
+    let (small, _) = start_limited(&scope, None, t3, OWN, total, FAIR, Duration::ZERO);
     let mut queued = 0;
     while big.push(note(queued)) {
         queued += 1;
@@ -196,6 +196,53 @@ async fn past_the_daemon_wide_bound_a_reader_over_its_fair_share_is_disconnected
         assert!(small.push(note(i)), "a reader under its fair share is served");
     }
     assert!(!small.is_closed());
+}
+
+/// cosmic-gray, 2026-11-21 (ask-0e0d5a479b): past the daemon-wide bound, the cut fell on the app's
+/// coordinator chats while they read a huge replay, and each cut cost a whole re-attach. A reader
+/// that is taking lines keeps its connection up to its own bound; one that took nothing for the
+/// stall bound is still disconnected.
+#[tokio::test]
+async fn past_the_daemon_wide_bound_a_reader_taking_lines_keeps_its_connection() {
+    const FAIR: usize = 8 << 10;
+    const OWN: usize = 1 << 20;
+    const STALL: Duration = Duration::from_millis(300);
+    let scope = cmux_scope::Scope::new("outbound-test");
+    let total = TOTAL_HELD.load(Ordering::Relaxed) + (16 << 10);
+    let (t1, mut reading) = mpsc::channel(4);
+    let (t2, _stuck) = mpsc::channel(1);
+    let (pane, _) = start_limited(&scope, None, t1, OWN, total, FAIR, STALL);
+    let (cli, _) = start_limited(&scope, None, t2, OWN, total, FAIR, STALL);
+    // The stuck reader fills the daemon-wide bound; it is new, so not yet stalled.
+    let mut n = 0;
+    while cli.push(note(n)) && n * 200 < OWN / 2 {
+        n += 1;
+    }
+    assert!(!cli.is_closed(), "a reader within its stall bound is kept");
+    // The pane reads a little every third of the stall bound while its queue keeps growing: far
+    // past its fair share and the total, over several stall bounds, it is served.
+    let mut sent = 0;
+    for _round in 0..10 {
+        for _ in 0..10 {
+            assert!(pane.push(note(sent)), "a reader taking lines is served past its fair share");
+            sent += 1;
+        }
+        tokio::task::yield_now().await;
+        for _ in 0..2 {
+            let _ = reading.try_recv();
+        }
+        tokio::time::sleep(STALL / 3).await;
+    }
+    assert!(pane.held() > FAIR, "the pane's queue grew past its fair share");
+    assert!(!pane.is_closed());
+    // The stuck one, past its stall bound, is disconnected at its next line.
+    tokio::time::sleep(STALL + Duration::from_millis(50)).await;
+    let mut more = 0;
+    while cli.push(note(n + more)) {
+        more += 1;
+        assert!(more < 10, "the stalled reader over its share is disconnected");
+    }
+    assert!(cli.is_closed());
 }
 
 mod flood_bulk;
