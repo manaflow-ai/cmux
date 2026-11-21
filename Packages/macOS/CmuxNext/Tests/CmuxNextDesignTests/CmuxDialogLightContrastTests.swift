@@ -74,6 +74,25 @@ import CmuxNextDesignTokens
         }
     }
 
+    /// A gray button outside any card sits on the window: in a see-through window over the worst desktop its title
+    /// reads at least as well as the theme's own text there (Hot Dog Stand's Cancel, fit to the dialog card, read
+    /// 1.65:1 on its see-through window), and in an opaque window at 4.5:1.
+    @Test(arguments: [1.0, 0.6])
+    func aGrayButtonOnTheWindowReadsAsTheThemeTextDoes(opacity: Double) {
+        let hotDogStand = ThemeInput(background: ThemeRGB(hex: 0xEA3323), foreground: ThemeRGB(hex: 0xFFFFFF))
+        for var input in [Self.light, Self.dark, hotDogStand] {
+            input.backgroundOpacity = opacity
+            let tokens = ThemeTokens.derive(from: input)
+            let ground = CmuxDialogButtonLook.windowSurfaces(tokens)[0]
+            let floor = min(CmuxDialogButtonLook.minimumContrast, tokens.textPrimary.withAlpha(1).contrast(with: ground))
+            for role in [CmuxDialogButton.Role.cancel, .normal] {
+                let look = CmuxDialogButtonLook(role: role, tokens: tokens, card: CmuxDialogButtonLook.windowSurfaces(tokens))
+                let ratio = look.title.contrast(with: look.fill.composited(over: ground))
+                #expect(ratio + 0.05 >= floor, "\(role) at opacity \(opacity): \(ratio):1 under \(floor):1")
+            }
+        }
+    }
+
     /// a1273: a button on a popover's menu glass (the bookmark bubble) has no scrim under it, so whatever page shows
     /// through can be the brightest or the darkest: every ink still reads at 4.5:1, in each role and state, light, dark
     /// and a theme with its own accent, and a gray button keeps a fill that reads as a button.

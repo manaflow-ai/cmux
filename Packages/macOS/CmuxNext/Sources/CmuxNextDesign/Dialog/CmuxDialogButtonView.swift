@@ -226,8 +226,12 @@ public final class CmuxDialogButtonView: ClickableButton {
             // A quiet button is a destructive one, or a stacked request's Deny (its cancel answer) in the same red text.
             let lift = ChromeTunables.opaqueOverlayLift.value
             // On a menu or popover's glass (the bookmark bubble) the page shows through unscrimmed: fit to any page.
-            let card = enclosingSurface?.tintLevel == .menu ? CmuxDialogButtonLook.menuCardSurfaces(tokens, lift: lift)
-                : CmuxDialogButtonLook.cardSurfaces(tokens, lift: lift)
+            // Outside any card the button sits on the window, see-through or not.
+            let card = switch enclosingSurface?.tintLevel {
+            case nil: CmuxDialogButtonLook.windowSurfaces(tokens)
+            case .menu?: CmuxDialogButtonLook.menuCardSurfaces(tokens, lift: lift)
+            default: CmuxDialogButtonLook.cardSurfaces(tokens, lift: lift)
+            }
             return CmuxDialogButtonLook(role: isQuiet ? .destructive : button.role, tokens: tokens, state: state, quiet: isQuiet,
                                         isEnabled: isEnabled, card: card)
         }
