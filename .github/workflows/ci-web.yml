@@ -16,6 +16,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # Warnings never fail a pull request's compile or lint (Leo, 2026-11-19); merge queues, pushes, nightly and
+  # release keep them errors. A called workflow does not inherit the caller's env. scripts/ci/warnings_policy.py.
+  CI_WARNINGS: ${{ github.event_name == 'pull_request' && 'soft' || 'deny' }}
+
 jobs:
   web-subarea-scope:
     if: ${{ inputs.web == 'true' || inputs.macos == 'true' }}
@@ -273,7 +278,13 @@ jobs:
 
       - name: Oxlint webviews
         working-directory: webviews
-        run: bun run lint:ci
+        # lint:ci is lint plus --deny-warnings; a pull request runs lint and keeps the warnings (warnings_policy.py).
+        run: |
+          if [[ "${CI_WARNINGS:-deny}" == soft ]]; then
+            python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- bun run lint
+          else
+            bun run lint:ci
+          fi
 
       - name: React Doctor
         working-directory: webviews
@@ -312,8 +323,8 @@ jobs:
       - name: Check Rust sidecar
         run: |
           ./scripts/run-diff-sidecar-cargo.sh fmt --manifest-path Native/DiffSidecar/Cargo.toml --all --check
-          ./scripts/run-diff-sidecar-cargo.sh clippy --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --locked --no-default-features -- -D warnings
-          ./scripts/run-diff-sidecar-cargo.sh clippy --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --all-features --locked -- -D warnings
+          python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- ./scripts/run-diff-sidecar-cargo.sh clippy --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --locked --no-default-features -- -D warnings
+          python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- ./scripts/run-diff-sidecar-cargo.sh clippy --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --all-features --locked -- -D warnings
           ./scripts/run-diff-sidecar-cargo.sh test --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --locked --no-default-features
           ./scripts/run-diff-sidecar-cargo.sh test --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --all-features --locked
 

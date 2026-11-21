@@ -346,7 +346,8 @@ package_args() {
   # second package build or changing the existing startup retry.
   case "$pkg" in
     CMUXAgentLaunch|CmuxAgentJournal)
-      swift_test_args+=(-Xswiftc -warnings-as-errors)
+      # A pull request keeps warnings soft (CI_WARNINGS=soft, scripts/ci/warnings_policy.py; Leo, 2026-11-19).
+      [[ "${CI_WARNINGS:-deny}" == soft ]] || swift_test_args+=(-Xswiftc -warnings-as-errors)
       ;;
   esac
 }
