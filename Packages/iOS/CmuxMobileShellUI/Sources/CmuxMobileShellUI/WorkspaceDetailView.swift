@@ -1294,7 +1294,8 @@ struct WorkspaceDetailView: View {
         if dismissKeyboard {
             dismissTerminalKeyboardForChrome()
         }
-        // A streamed tab last switched to "On iPhone" reopens there.
+        // A streamed tab opens "On iPhone" unless the user chose Streamed
+        // for it (or as the default in Settings).
         if openStreamPanelOnDeviceIfPreferred(panelID) { return }
         browserCreateRequest = nil
         browserStore.closeBrowser(for: workspace.id.rawValue)

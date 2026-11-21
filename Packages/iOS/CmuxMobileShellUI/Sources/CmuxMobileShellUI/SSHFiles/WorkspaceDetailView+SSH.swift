@@ -125,11 +125,24 @@ extension WorkspaceDetailView {
         }
     }
 
-    /// Opens a streamed tab "On iPhone" when that was its last mode.
-    /// Returns whether it did.
+    /// Whether a Mac browser tab the user never switched opens "On iPhone":
+    /// the Settings default, only in a Mac (or Cloud) workspace whose
+    /// computer can serve "On iPhone" now. SSH (cmux-tui) tabs stay streamed.
+    private var opensMacBrowserTabsOnDeviceByDefault: Bool {
+        guard displaySettings.browserTabsOpenOnDevice, sshHostID == nil else { return false }
+        return isCloudWorkspace || macOnDeviceUnavailableReason == nil
+    }
+
+    /// Opens a streamed tab "On iPhone" when that was its last mode, or, for
+    /// a Mac tab never switched, when the default mode in Settings is "On
+    /// iPhone". Returns whether it did. A Mac that cannot serve "On iPhone"
+    /// (older cmux, no tunnel lanes, not connected) keeps the tab streamed.
     func openStreamPanelOnDeviceIfPreferred(_ panelID: String) -> Bool {
         guard (browserServerRoute != nil || isCloudWorkspace),
-              browserStore.prefersOnDevice(panelID: panelID) else { return false }
+              browserStore.prefersOnDevice(
+                  panelID: panelID,
+                  byDefault: opensMacBrowserTabsOnDeviceByDefault
+              ) else { return false }
         let url = browserStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue)
             .first { $0.panelID == panelID }?.url
         openStreamPanelOnDevice(panelID, url: url)
