@@ -4630,18 +4630,24 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-251
       # Why: docs/ci/cmux-next-workflow-notes.md#note-385
       - name: Keep Swift package builds on this owned Mac
+        id: spm-root
         if: ${{ contains(runner.name, '-glaeda') }}
         continue-on-error: true
+        env:
+          CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_DAEMON_TEST_OWNED_SEED || vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}
         run: |
-          python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+          python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-378
       - name: Compute the fast-tier seed keys
         id: seed-key
-        if: ${{ !contains(runner.name, '-glaeda') }}
+        if: ${{ !contains(runner.name, '-glaeda') || steps.spm-root.outputs.seed == '1' }}
         continue-on-error: true
-        run: scripts/cmux-next/fast-tier-cache-key.sh >> "$GITHUB_OUTPUT"
+        env:
+          # The seed's key holds the path it was built at: the seed root on an owned mini.
+          CMUX_FAST_CACHE_WORKSPACE: ${{ steps.spm-root.outputs.root || github.workspace }}
+        run: scripts/cmux-next/fast-tier-cache-key.sh "$CMUX_FAST_CACHE_WORKSPACE" >> "$GITHUB_OUTPUT"
 
       - name: Restore the CmuxNext build the base seeded
         id: seed-restore
@@ -4652,16 +4658,20 @@ jobs:
           CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
           backend: r2
-          path: Packages/macOS/CmuxNext/.build
+          path: ${{ format('{0}/Packages/macOS/CmuxNext/.build', steps.spm-root.outputs.root || github.workspace) }}
           key: ${{ steps.seed-key.outputs.swift-key }}
           restore-keys: ${{ steps.seed-key.outputs.swift-prefix }}
 
       - name: Replay the seed's input times
         if: ${{ steps.seed-restore.outputs.cache-matched-key != '' }}
         continue-on-error: true
+        env:
+          ROOT: ${{ steps.spm-root.outputs.root || github.workspace }}
+          SEED_ROOT: ${{ steps.spm-root.outputs.seed }}
         run: |
-          python3 scripts/ci/owned_spm_scratch.py drop-bundles Packages/macOS/CmuxNext/.build
-          python3 -I scripts/ci/e2e_warm_derived_data.py replay "$GITHUB_WORKSPACE" Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json
+          python3 scripts/ci/owned_spm_scratch.py drop-bundles "$ROOT/Packages/macOS/CmuxNext/.build"
+          python3 -I scripts/ci/e2e_warm_derived_data.py replay "$ROOT" "$ROOT/Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json"
+          if [[ "$SEED_ROOT" == 1 ]]; then python3 scripts/ci/owned_spm_scratch.py seeded; fi
 
       - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -4720,15 +4730,17 @@ jobs:
 
       - name: Install the restored web bundles
         if: steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true' || steps.web-bundle-artifact.outcome == 'success'
-        run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
+        run: scripts/cmux-next/build-web-bundles.sh --from "$GITHUB_WORKSPACE/web-bundles-out"
 
       - name: Build the web bundles
         if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success'
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
         run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Build package and tests
         id: build-tests
-        working-directory: Packages/macOS/CmuxNext
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}/Packages/macOS/CmuxNext
         env:
           CMUX_METRICS_WEB_CACHE_OUTCOME: ${{ steps.web-bundle-cache.outcome }}
           CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-r2.outputs.cache-hit == 'true' && 'true' || steps.web-bundle-cache.outputs.cache-hit }}
@@ -4749,7 +4761,7 @@ jobs:
         id: actions
         if: ${{ env.CMUX_NEXT_FOLD_GENERATED == 'true' }}
         continue-on-error: true
-        working-directory: Packages/macOS/CmuxNext
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}/Packages/macOS/CmuxNext
         env:
           CMUX_ACTION_SURFACES_SKIP_BUILD: "1"
           CMUX_NEXT_JOB_BUILT: plain
@@ -4761,6 +4773,7 @@ jobs:
         continue-on-error: true
         env:
           CMUX_NEXT_JOB_BUILT: plain
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
         run: scripts/cmux-next/check-settings-exports.sh
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-258
@@ -4769,6 +4782,7 @@ jobs:
         if: ${{ env.CMUX_NEXT_FOLD_GENERATED == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && format('{0}', vars.CMUX_NEXT_BASE_EXPORTS_PACK) != '0' }}
         continue-on-error: true
         timeout-minutes: 10
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
         env:
           CMUX_STRINGS_BEST_EFFORT: "1"
           CMUX_NEXT_JOB_BUILT: plain
@@ -4793,11 +4807,12 @@ jobs:
           retention-days: 1
 
       - name: Compile string catalogs into the resource bundles
-        working-directory: Packages/macOS/CmuxNext
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}/Packages/macOS/CmuxNext
         run: ../../../scripts/cmux-next/compile-string-catalogs.sh
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-57
       - name: Clean generated layout-reducer FFI lockfile
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
         run: |
           lock=cmux-tui/crates/cmux-app-ffi/Cargo.lock
           if git ls-files --error-unmatch "$lock" >/dev/null 2>&1; then
@@ -4807,6 +4822,7 @@ jobs:
           fi
 
       - name: Fetch the same-tree cmux-tui
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
         timeout-minutes: 50
         env:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-259
@@ -4818,12 +4834,13 @@ jobs:
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
       - name: Check the same-tree cmux-tui serves the app's daemon capabilities
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
         timeout-minutes: 2
         run: scripts/cmux-next/check-daemon-capabilities.sh
 
       - name: Run the live-daemon suites
         timeout-minutes: 20
-        working-directory: Packages/macOS/CmuxNext
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}/Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
           SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "6"
@@ -4832,7 +4849,7 @@ jobs:
       - name: Run state-resource regressions
         if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}
         timeout-minutes: 10
-        working-directory: Packages/macOS/CmuxNext
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}/Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "480"
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter BranchStateResourcesTests
@@ -4840,6 +4857,7 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-58
       - name: Regenerate stale files
         id: regenerate
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
         if: ${{ !cancelled() && (steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure') }}
         run: |
           set -euo pipefail

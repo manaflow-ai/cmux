@@ -2382,8 +2382,15 @@ job left (scripts/ci/reset-stale-submodules.sh), as on a fresh checkout.
 
 Above `daemon-test: Keep Swift package builds on this owned Mac` in `.github/workflows/cmux-next.yml`.
 
-Checkout removes .build. Link the owned Mac's kept build after Xcode
-selection so its fingerprint uses the compiler that runs this job.
+Checkout removes .build. Lease a build root after Xcode selection, as the fast
+tier does (owned_spm_scratch.py lease): the mini's seed root when it is free and
+CI_DAEMON_TEST_OWNED_SEED (else CI_FAST_TIER_OWNED_SEED) is not "0", else a shared
+root, else this runner's own linked build as before. `link` alone started cold on
+the minis ("starts cold (evicted, 0.0 GiB kept)", generated-files fixture logs of
+2026-11-14), so every daemon test compiled the package from nothing: 1,558 s on
+cmux22-glaeda-2 (job 136775309202, 2026-11-21) against the fast tier's seeded 6.9
+min. Every step that builds, checks or tests then works in the root
+(steps.spm-root.outputs.root, else the workspace): SwiftPM records absolute paths.
 
 ## note-252
 
@@ -3508,7 +3515,7 @@ the run and 300 s with no test finished, or above the suite's own
 
 Above the `Compute the fast-tier seed keys` step of `daemon-test` in `.github/workflows/cmux-next.yml`.
 
-Off the owned Macs, start from the build a feat-cmux-next push seeded for the fast tier
+Off the owned Macs, and in the mini's seed root on one (note-251), start from the build a feat-cmux-next push seeded for the fast tier
 (cmux-next-fast-tier-seed.yml): the same `swift build --build-tests` of this package at a
 recent base, at the same workspace path. With the seed's input times replayed, only what
 this change touched compiles, so a daemon-only change compiles no Swift and goes straight
