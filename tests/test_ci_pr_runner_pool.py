@@ -3230,7 +3230,8 @@ class IOSRouting(unittest.TestCase):
                                          {"id": 9, "status": "queued"}],
                         "ios-screenshots.yml": [{"id": 3, "status": "queued"}], "cmux-next-ios-kit.yml": [],
                         "ios-reliability-matrix.yml": [{"id": 4, "status": "in_progress",
-                                                        "path": ".github/workflows/ios-reliability-matrix.yml"}]}[workflow]
+                                                        "path": ".github/workflows/ios-reliability-matrix.yml"}],
+                        "ios-review-gate.yml": []}[workflow]
         # Untitled runs are charged in full: two in flight, two simulators each; the
         # reliability matrix holds one simulator, like the kit.
         self.assertEqual(ios_pool.ios_runs_since(Client(), "2026-09-24T10:00:00Z", exclude_run_id=9), 5)
@@ -3566,7 +3567,7 @@ class IOSRouting(unittest.TestCase):
                 return {"test-ios.yml": [{"id": n, "status": "in_progress", "run_attempt": 1,
                                           "display_title": title, "created_at": old} for n in (1, 2, 3)],
                         "ios-screenshots.yml": [], "cmux-next-ios-kit.yml": [],
-                        "ios-reliability-matrix.yml": []}[workflow]
+                        "ios-reliability-matrix.yml": [], "ios-review-gate.yml": []}[workflow]
         since = "2026-09-24T10:00:00Z"
         self.assertEqual(ios_pool.ios_runs_since(Client(), since, exclude_run_id=None), 6)
         placed = ios_pool.Placements(frozenset({2}))
