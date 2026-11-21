@@ -16,6 +16,7 @@ extension Workspace {
         command: String?,
         workingDirectory: String? = nil,
         tmuxStartCommand: String? = nil,
+        startupEnvironment: [String: String] = [:],
         focus: Bool? = nil,
         waitAfterCommand: Bool? = nil,
         replayScrollback: String? = nil,
@@ -67,8 +68,12 @@ extension Workspace {
         // workspace.
         let oldSeededWorkspaceEnvironment = oldPanel.seededWorkspaceEnvironment
         // The welcome banner key is one-shot: a respawned shell must not reprint it.
-        let initialEnvironmentOverrides = oldPanel.surface.respawnInitialEnvironmentOverrides
+        let inheritedOverrides = oldPanel.surface.respawnInitialEnvironmentOverrides
             .filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value && $0.key != WelcomeBannerDelivery.environmentKey }
+        // Explicit caller environment takes precedence over inherited surface values.
+        let initialEnvironmentOverrides = inheritedOverrides.merging(
+            Self.sanitizedWorkspaceEnvironment(startupEnvironment)
+        ) { _, new in new }
         var additionalEnvironment = startupEnvironmentMergingWorkspaceEnvironment(
             oldPanel.surface.respawnAdditionalEnvironment.filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value }
         )
