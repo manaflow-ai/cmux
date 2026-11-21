@@ -491,7 +491,8 @@ async fn an_adopted_turns_timer_counts_from_the_turns_start() {
 
 /// Another agent's message the inbox holds under the cap (`inbox.rs`: the person's prompt waits,
 /// so no inbox notice steers in, and past the cap none does) waits for the turn too: the timer
-/// sends the notice at the cap.
+/// sends the notice at the cap. It names its class: an unclassified one is an FYI (#48040), which
+/// asks for no notice (`past_the_cap_an_fyi_waits_and_asks_for_no_notice`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_inbox_message_held_under_the_cap_gets_the_notice_at_the_cap() {
     let mut f = fixture().await;
@@ -501,7 +502,6 @@ async fn an_inbox_message_held_under_the_cap_gets_the_notice_at_the_cap() {
     let turn_id = f.session.turn().unwrap().turn_id;
     let (person, _next) = f.send("next from the person", None, false, false).await;
     assert_eq!(person.unwrap()["queued"], true);
-    // An action: a message that names no class is an FYI, which asks for no cap notice.
     let opts = PromptOptions {
         agent: Some("lane-a".into()),
         inbox: true,

@@ -46,6 +46,8 @@ cmux customize use ~/.local/state/cmux/customize/recipes/glass.json
 
 Or ask: "make the window see-through glass"
 
+To put glass behind a piece of a view of your own, see [glass.md](glass.md).
+
 ## Layout
 
 ### A compact sidebar

@@ -1127,6 +1127,23 @@ HOME_REPO = "manaflow-ai/cmux"
 OTHER_REPO_ROLLUPS = {
     "manaflow-ai/cmuxterm-hq": {"run": (("skills-tests.yml", "tests"),), "routed": ()},
 }
+# The repo whose base runs are another repo's base verdict of record (2026-11-21). A repo whose base pushes run no job
+# has no verdict of its own to compare a red with: teamleaderleo/glaeda's ci.yml gates every job of its Verify
+# workflow on `github.event_name == 'pull_request' || github.repository == 'manaflow-ai/glaeda'`, so a push to main
+# there skips the whole workflow, and that file's own comment says the fork's Verify at a commit is "that commit's
+# check of record in both repositories" (sync-main.yml keeps both mains at the same commits); scripts/glaeda-gh
+# already reads a teamleaderleo/glaeda head's verdict that way. This script did not, so every red of every PR in that
+# repo was refused as "'scripts': no main run of its workflow has a verdict for it to compare with": exit 1 for every
+# red in the repo, which no push could ever change, and which the landing rules read as "no lander may merge and none
+# may call the red base by judgment" (glaeda#2314 and #2320, 2026-11-21: main was red from 09:16Z to 09:53Z and two
+# lanes each reproduced it by hand). Only the base runs, their job lists and those jobs' logs are read from the value;
+# the head, the merge-base and the base's own commits stay the PR's repo, which holds the same main commits. A verdict
+# whose run tested a commit the PR's repo does not have is older than the merge-base (before_merge_base) and refuses
+# as before, so two mains that have drifted apart excuse nothing. The readings this skips are the ones no mapped repo
+# can reach: guard_group (GUARD_GROUP_JOB, a cmux-next job name), journey (JOURNEY_WORKFLOWS paths), the web shard and
+# gallery verdicts, and base_dispatch / base_caller (HOME_REPO-gated); each keeps the PR's repo, so a mapping for a
+# repo that is not a cmux fork would have to thread them too.
+BASE_VERDICT_REPO = {"teamleaderleo/glaeda": "manaflow-ai/glaeda"}
 # A called workflow's base verdict, from the workflow that calls it on base pushes (2026-11-07). ci.yml runs on pull
 # requests only; on feat-cmux-next the same ci-web.yml runs from cmux-next-web.yml's `web` job, under the same
 # 'web / ...' check names. ci.yml's newest feat-cmux-next run was a 2026-10-06 dispatch, so every web shard red on a
@@ -2403,7 +2420,8 @@ def step_only_verdict(name: str, why: str, head: UnplacedSignature, found: Unpla
 def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, found: UnplacedSignature,
                      base_run: dict, *, why: str | None = None) -> str:
     """The audit line for an unplaced red job NAME whose whole-log signature HEAD is FOUND's, the newest red base
-    verdict's (the rule above); raises Refused naming what differs."""
+    verdict's (the rule above); raises Refused naming what differs. REPO is the base run's own repo, which is the
+    PR's unless the base is verified in another (BASE_VERDICT_REPO): nothing but BASE_RUN's URL is read from it."""
     why = UNPLACED_WHY if why is None else why
     url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
     where = f"{base} run {base_run['id']} ({url})"
@@ -2989,11 +3007,15 @@ def touched_by(path: str, changed: list[str]) -> list[str]:
 
 def compile_errors_verdict(repo: str, base: str, sha: str, name: str, job: dict, view: "FailedView | Unplaced",
                            head: "CompileErrors | None", unplaced: "UnplacedSignature | None", same_job: dict | None,
-                           runs: list[dict], base_jobs: dict, github, run_reads: dict) -> str | None:
+                           runs: list[dict], base_jobs: dict, github, run_reads: dict,
+                           verdict_repo: str | None = None) -> str | None:
     """The audit line for red job NAME (JOB, its failed_view VIEW, its whole-log UNPLACED, and HEAD, read_head's
     compile_errors of it) when every compiler error it prints is one red base job's in a file the PR does not change
     (the rule above); None when the rule does not apply or no base job shows it. SAME_JOB: the base verdict of the
-    same job; RUNS: the workflow's base runs, newest first."""
+    same job; RUNS: the workflow's base runs, newest first. VERDICT_REPO: the repo whose runs are the base's
+    verdict of record (Evidence.verdict_repo), REPO when None; every base read below is of it, while the paths this
+    PR changes stay REPO's."""
+    vrepo = verdict_repo or repo
     if view is UNPLACED:
         if unplaced is None or unplaced.tests or unplaced.crashes or unplaced.unnamed:
             return None
@@ -3044,7 +3066,7 @@ def compile_errors_verdict(repo: str, base: str, sha: str, name: str, job: dict,
             if reads >= BASE_WINDOW:
                 break
             reads += 1
-            base_jobs[run["id"]] = base_run_jobs(repo, run, github)
+            base_jobs[run["id"]] = base_run_jobs(vrepo, run, github)
         jobs = base_jobs[run["id"]]
         passed = {other.get("name") for other in jobs if other.get("conclusion") == "success"}
         for other in jobs:
@@ -3053,9 +3075,9 @@ def compile_errors_verdict(repo: str, base: str, sha: str, name: str, job: dict,
             if compared >= COMPILE_ERROR_LOGS:
                 return None
             compared += 1
-            theirs = compile_base_evidence(repo, run, other, github, run_reads)
+            theirs = compile_base_evidence(vrepo, run, other, github, run_reads)
             if all(theirs.counts[error] >= n for error, n in head.counts.items()):
-                url = run.get("html_url") or f"https://github.com/{repo}/actions/runs/{run['id']}"
+                url = run.get("html_url") or f"https://github.com/{vrepo}/actions/runs/{run['id']}"
                 return (f"excused '{name}': every compiler error it prints is one {base} run {run['id']}'s red "
                         f"'{other.get('name')}' prints ({url}), in files this PR does not change: "
                         f"{'; '.join(sorted(signature_text(error) for error in head.located))[:400]}")
@@ -4987,7 +5009,13 @@ def base_verdicts(repo: str, workflow, name: str, github, evidence: "Evidence", 
     mini, so a run with no verdict for the job is passed over, and one its check suite shows has none costs no job
     read and is not counted toward BASE_JOB_READS (cmux#42047). Every run is EVIDENCE's (Evidence: the base's, or a stacked parent's at its head)."""
     seen: set[int] = set()
-    suites = suites or SuiteChecks(github, repo)
+    # Every read below is of a base run, so it reads the repo whose runs are the base's verdict of record, which is
+    # REPO for every repo that runs its own base pushes (Evidence.verdict_repo, BASE_VERDICT_REPO).
+    repo = evidence.verdict_repo
+    if suites is None or getattr(suites, "repo", repo) != repo:
+        # A caller's SuiteChecks reads the PR's repo; a base in another repo needs that repo's, once per judge, so
+        # both verdict searches of one judge (the PR run's workflow and its base caller's) share the one reader.
+        suites = evidence.cache.setdefault(("suites", repo), SuiteChecks(github, repo))
     runs = evidence.runs(workflow)
     for index, candidate_run in enumerate(runs):
         if never_carries(candidate_run, name) or cancelled_tier_without_verdict(suites, runs, index, name):
@@ -5672,7 +5700,7 @@ def fixed_on_base_pull(repo: str, base: str, sha: str, name: str, merge_base: st
 
 
 def fixed_on_base(repo: str, base: str, sha: str, name: str, head: "FailedView | Unplaced", base_run: dict,
-                  github, evidence: "Evidence") -> str:
+                  github, evidence: "Evidence", verdict_repo: str | None = None) -> str:
     """The audit line for a red job whose every failing test is fixed on the base (the rule above); raises Refused
     with the reason it is not. BASE_RUN is the newest base run with a verdict for the job, and that verdict passed."""
     package = PACKAGE_JOBS.get(name)
@@ -5713,7 +5741,9 @@ def fixed_on_base(repo: str, base: str, sha: str, name: str, head: "FailedView |
             raise Refused(f"{test} reads paths the PR changes: {'; '.join(hit[:5])}")
         reads.extend(r for r in test_reads if r not in reads)
     pull = fixed_on_base_pull(repo, base, sha, name, merge_base, github)
-    url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
+    # The base run is the verdict repo's when the base is verified there (BASE_VERDICT_REPO); every other read in
+    # this function is the PR's own repo.
+    url = base_run.get("html_url") or f"https://github.com/{verdict_repo or repo}/actions/runs/{base_run['id']}"
     return (f"excused '{name}': fixed on base (passes at {tested[:12]} in {base} run {base_run['id']}, after the "
             f"merge-base {merge_base[:12]}; PR does not touch {', '.join(reads)}; {pull}) ({url}): "
             f"{'; '.join(sorted(tests))[:400]}")
@@ -5978,16 +6008,19 @@ def first_base_verdict(repo: str, runs: list[dict], name: str, github, base_jobs
 
 
 def prior_base_verdict(repo: str, workflow, name: str, merge_base: str, when: str, github,
-                       base_jobs: dict, evidence: "Evidence", suites: SuiteChecks | None = None
-                       ) -> tuple[dict, dict] | None:
+                       base_jobs: dict, evidence: "Evidence", suites: SuiteChecks | None = None,
+                       verdict_repo: str | None = None) -> tuple[dict, dict] | None:
     """(run, job NAME) of BASE's verdict for NAME on WORKFLOW at the merge-base: the newest completed run that tested
     the merge-base itself (whenever it was created: a push run starts after its commit, #41117's review F3), and only
     when it has none, the newest that tested a commit before it, of the STEP_PRIOR_RUNS runs created at or before the
     merge-base's commit time WHEN. A run whose check suite shows no verdict for NAME costs no job read (may_hold, as
     base_verdicts reads them): a base's runs mix pushes, the base tier and DEV daily dispatches, and only some carry a
     job (cmux#40984's 'cmux-next generated files'). At most STEP_PRIOR_JOB_READS job lists in all; None when none is
-    found. Every run is EVIDENCE's (Evidence.queried)."""
-    suites = suites or SuiteChecks(github, repo)
+    found. Every run is EVIDENCE's (Evidence.queried). VERDICT_REPO: the repo whose
+    runs are the base's verdict of record (Evidence.verdict_repo), REPO when None; the compare below stays REPO's, so
+    a verdict at a commit the PR's repo does not have is never read as being at or before the merge-base."""
+    vrepo = verdict_repo or repo
+    suites = suites or SuiteChecks(github, vrepo)
     reads = [0]
 
     def listed(query: str) -> list[dict]:
@@ -5997,11 +6030,11 @@ def prior_base_verdict(repo: str, workflow, name: str, merge_base: str, when: st
                       key=lambda run: run.get("created_at") or "", reverse=True)
 
     own = [run for run in listed(f"head_sha={merge_base}") if tested_sha(run) == merge_base]
-    if (found := first_base_verdict(repo, own, name, github, base_jobs, suites, reads)) is not None:
+    if (found := first_base_verdict(vrepo, own, name, github, base_jobs, suites, reads)) is not None:
         return found
     older = [run for run in listed(f"created=%3C%3D{urllib.parse.quote(when, safe='')}")
              if str(run.get("created_at") or "") <= when and tested_sha(run) != merge_base]
-    found = first_base_verdict(repo, older, name, github, base_jobs, suites, reads)
+    found = first_base_verdict(vrepo, older, name, github, base_jobs, suites, reads)
     if found is None:
         return None
     tested = tested_sha(found[0])
@@ -6014,14 +6047,18 @@ def prior_base_verdict(repo: str, workflow, name: str, merge_base: str, when: st
 def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, view: "FailedView | Unplaced",
                           workflow_info: dict, base_run: dict, base_job: dict, github, *,
                           base_jobs: dict, run_reads: dict, others: list[dict], evidence: "Evidence",
-                          suites: SuiteChecks | None = None, base_workflow=None, base_name=None) -> str:
+                          suites: SuiteChecks | None = None, base_workflow=None, base_name=None,
+                          verdict_repo: str | None = None) -> str:
     """The audit line for red head JOB (VIEW: its failed_view; WORKFLOW_INFO: its run) when each of its failing steps
     is fixed on base by the rule above, BASE_RUN and BASE_JOB being the base's newest verdict for it, from
     BASE_WORKFLOW (the head's own workflow when None; a base caller's otherwise, whose runs then give the merge-base's
     verdict too, #41104's review F2, under BASE_NAME: a batch suite's check name). OTHERS: the head's red jobs; one of
     NAME in another workflow makes the job's identity unknown. Its failures must also be the merge-base verdict's:
     each failing step's test ids and `file:line` compiler errors (a continue-on-error check's: the job's file error annotations) among that run's, so a
-    new failure in a step red at the merge-base is never excused (#41117's review F1). Raises Refused with why not."""
+    new failure in a step red at the merge-base is never excused (#41117's review F1). VERDICT_REPO: the repo whose
+    runs are the base's verdict of record (Evidence.verdict_repo), REPO when None; the head's own reads stay REPO's.
+    Raises Refused with why not."""
+    vrepo = verdict_repo or repo
     workflow = workflow_info.get("workflow_id")
     base_workflow = workflow if base_workflow is None else base_workflow
     # The workflow by its file (a run's name may carry a tested sha: "cmux-next · <sha>"), else GitHub's id.
@@ -6040,7 +6077,7 @@ def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, 
                           f"{other.get('run_id')}), so which job a step belongs to is unknown")
     not_green = []
     for step_name, quiet in sorted(failing.items()):
-        said = step_conclusion(repo, base_job, step_name, quiet, rollups, "base", github, notes)
+        said = step_conclusion(vrepo, base_job, step_name, quiet, rollups, "base", github, notes)
         if said != "success":
             not_green.append(f"'{step_name}' is {said}")
     if not_green:
@@ -6054,7 +6091,7 @@ def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, 
     if not re.fullmatch(r"\d{4}-\d\d-\d\dT[\d:]+Z", when):
         raise Refused(f"the merge-base {merge_base[:12]} came back without its commit time")
     prior = prior_base_verdict(repo, base_workflow, name if base_name is None else base_name, merge_base, when,
-                               github, base_jobs, evidence, suites)
+                               github, base_jobs, evidence, suites, verdict_repo=vrepo)
     if prior is None:
         raise Refused(f"no {base} verdict for it at or before the merge-base {merge_base[:12]} shows the red was the "
                       f"base's (of the {STEP_PRIOR_RUNS} newest runs created before it, read the job lists of up to "
@@ -6071,7 +6108,7 @@ def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, 
                 str(step.get("name")) == step_name for step in prior_steps):  # step-name: classify
             absent.append(step_name)
             continue
-        said = step_conclusion(repo, prior_job, step_name, quiet, rollups, "merge-base", github, notes)
+        said = step_conclusion(vrepo, prior_job, step_name, quiet, rollups, "merge-base", github, notes)
         if said != "failure":
             own.append(f"'{step_name}' is {said}")
     if own:
@@ -6083,7 +6120,9 @@ def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, 
         if step_name in absent:
             continue  # no merge-base lines to match: absent there, green on the base's newest run is the whole rule
         if quiet:
-            head_notes, prior_notes = (job_annotations(repo, found, github, notes) for found in (job, prior_job))
+            # One is the head's job and the other the merge-base verdict's: each is read from its own repo.
+            head_notes = job_annotations(repo, job, github, notes)
+            prior_notes = job_annotations(vrepo, prior_job, github, notes)
             if head_notes is None or prior_notes is None:
                 new.append(f"'{step_name}': the error annotations cannot all be read")
                 continue
@@ -6098,14 +6137,14 @@ def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, 
             new.append(f"'{step_name}': no failing test id or file:line error of its own to match")
             continue
         if not prior_view:
-            prior_view.append(base_evidence(repo, base, name, prior_run, prior_job, github, run_reads)[1])
+            prior_view.append(base_evidence(vrepo, base, name, prior_run, prior_job, github, run_reads)[1])
         theirs = step_evidence(prior_view[0], step_name) or (set(), set())
         if missing := sorted((mine[0] - theirs[0]) | (mine[1] - theirs[1])):
             new.append(f"'{step_name}': " + "; ".join(missing))
     if new:
         raise Refused(f"failures not in {base} run {prior_run['id']} at the merge-base, so not the base's: "
                       + " | ".join(new)[:600])
-    url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
+    url = base_run.get("html_url") or f"https://github.com/{vrepo}/actions/runs/{base_run['id']}"
     steps = ", ".join(f"'{step_name}'" for step_name in sorted(failing))
     red = ", ".join(f"'{step_name}'" for step_name in sorted(failing) if step_name not in absent)
     gone = ", ".join(f"'{step_name}'" for step_name in absent)
@@ -6127,7 +6166,7 @@ def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, 
 # in the head run's workflow (base_verdicts), a success (not skipped or neutral), at or after the merge-base, from a
 # run created after the head's red run.
 def green_since(repo: str, base: str, sha: str, name: str, job: dict, workflow_info: dict, base_run: dict,
-                base_job: dict, github, evidence: "Evidence") -> str:
+                base_job: dict, github, evidence: "Evidence", verdict_repo: str | None = None) -> str:
     """The audit line for red head JOB when the base's newest verdict for it passed in a run made after the head's
     (the rule above); raises Refused with why not."""
     if base_job.get("conclusion") != "success":
@@ -6145,7 +6184,9 @@ def green_since(repo: str, base: str, sha: str, name: str, job: dict, workflow_i
         raise Refused(f"{base} run {base_run['id']} ({base_run.get('created_at')}) is not newer than the red run "
                       f"{job.get('run_id')} ({workflow_info.get('created_at')})")
     tested = tested_sha(base_run)
-    url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
+    # The base run is the verdict repo's when the base is verified there (BASE_VERDICT_REPO); every other read in
+    # this function is the PR's own repo.
+    url = base_run.get("html_url") or f"https://github.com/{verdict_repo or repo}/actions/runs/{base_run['id']}"
     where = f"workflow {workflow_info.get('path') or workflow_info.get('workflow_id')}"
     # The fixed_on_base prefix the update_branch guard reads, keyed by the head run ("run ID / JOB").
     return (f"excused '{name}': fixed on base (run {job.get('run_id')} / {name}, job {job.get('id')}, {where}; green "
@@ -6406,7 +6447,9 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_view: Fail
     on some red base verdict of WINDOW (newest first: (run, its failed_view, signature[, step_errors])); raises Refused
     naming the first that is on none, Final when the newest verdict alone (the Chromium check, a process signal, the
     panic ratchet) refuses it. With HEAD_PAIRS (step_errors), each compared head error must be printed on a base by a
-    failed step of the same name. Every line it reads, head and base alike, is a failed_view's."""
+    failed step of the same name. Every line it reads, head and base alike, is a failed_view's. REPO is the base
+    run's own repo, which is the PR's unless the base is verified in another (BASE_VERDICT_REPO): nothing but a base
+    run's URL is read from it."""
     base_run, base_view, *_ = window[0]
     runs = f"run {base_run['id']}" if len(window) == 1 else "any of runs " + ", ".join(str(w[0]["id"]) for w in window)
     head_steps, head_tests, head_errors = head
@@ -7401,6 +7444,16 @@ def list_base_runs(repo: str, base: str, workflow, github, base_runs: dict) -> N
         key=lambda run: run.get("created_at") or "", reverse=True)
 
 
+def workflow_file(run: dict) -> str | None:
+    """RUN's workflow file name (`ci.yml`), the one repo-independent way to name a workflow: a workflow's id is per
+    repo, so another repo's runs of the same workflow are listed by this name (Evidence.listed, list_base_runs take
+    either). None when the run came back without a workflow path under .github/workflows/."""
+    path = run.get("path") if isinstance(run, dict) else None
+    if not isinstance(path, str) or not path.startswith(".github/workflows/"):
+        return None
+    return path.removeprefix(".github/workflows/").split("@", 1)[0]
+
+
 def post_merge_probe(run: dict) -> bool:
     """Whether RUN is a post-merge batch probe (POST_MERGE_PROBE_TITLE), which is no base verdict."""
     return (str(run.get("path") or "").startswith(f".github/workflows/{POST_MERGE_WORKFLOW}")
@@ -7494,10 +7547,9 @@ def base_dispatch(repo: str, base: str, run: dict, runs: list[dict], github, now
     """For RUN's workflow in BASE_DISPATCH: the state of its base dispatch, starting one when none is running and
     none started within BASE_DISPATCH_EVERY (RUNS: its BASE runs, newest first, as list_base_runs read them). None for
     any other workflow, base or repo."""
-    path = run.get("path") if isinstance(run, dict) else None
-    if repo != HOME_REPO or not isinstance(path, str) or not path.startswith(".github/workflows/"):
+    file = workflow_file(run)
+    if repo != HOME_REPO or file is None:
         return None
-    file = path.removeprefix(".github/workflows/").split("@", 1)[0]
     if (base, file) not in BASE_DISPATCH:
         return None
     dispatched = [found for found in runs if found.get("event") == "workflow_dispatch"]
@@ -8210,6 +8262,15 @@ class Evidence:
         """BASE's stacked parent (stacked_parent), or None; Refused as stacked_parent refuses."""
         return stacked_parent(self.repo, self.base, self.github, self.cache)
 
+    @property
+    def verdict_repo(self) -> str:
+        """The repo whose runs are this base's verdict of record (BASE_VERDICT_REPO), which is REPO itself for every
+        repo that runs its own base pushes. A stacked parent's verdict is its own PR's checks at its head, which
+        exist only in the PR's repo, so a parent keeps REPO whatever the mapping says."""
+        if self.parent is not None:
+            return self.repo
+        return BASE_VERDICT_REPO.get(self.repo, self.repo)
+
     def allows(self, run) -> bool:
         """Whether RUN can be this source's evidence at all (its event, and for a parent its head)."""
         if not isinstance(run, dict):
@@ -8223,7 +8284,7 @@ class Evidence:
         """WORKFLOW's runs, newest first: the base's window (list_base_runs), or the parent's at its head."""
         if workflow not in self.listed:
             if self.parent is None:
-                list_base_runs(self.repo, self.base, workflow, self.github, self.listed)
+                list_base_runs(self.verdict_repo, self.base, workflow, self.github, self.listed)
             else:
                 listed = self.github.json(f"repos/{self.repo}/actions/workflows/{workflow}/runs?"
                                           f"head_sha={self.parent.head}&per_page=100")
@@ -8238,8 +8299,8 @@ class Evidence:
         for a parent, its runs at its head (runs), which the caller filters by the same query's terms."""
         if self.parent is not None:
             return list(self.runs(workflow))
-        found = self.github.json(f"repos/{self.repo}/actions/workflows/{workflow}/runs?branch={self.base}&{query}"
-                                 f"&per_page={per_page}")
+        found = self.github.json(f"repos/{self.verdict_repo}/actions/workflows/{workflow}/runs?"
+                                 f"branch={self.base}&{query}&per_page={per_page}")
         return [run for run in (found.get("workflow_runs") if isinstance(found, dict) else None) or []
                 if self.allows(run) and not post_merge_probe(run)]
 
@@ -8248,8 +8309,8 @@ class Evidence:
         it still queues or runs: TREE_JOBS); none for a parent, whose verdict is its PR's own checks (F2)."""
         if self.parent is not None:
             return []
-        listed = self.github.json(f"repos/{self.repo}/actions/workflows/{workflow}/runs?branch={self.base}"
-                                  f"&event=workflow_dispatch&per_page={BASE_RUNS_PAGE}")
+        listed = self.github.json(f"repos/{self.verdict_repo}/actions/workflows/{workflow}/runs?"
+                                  f"branch={self.base}&event=workflow_dispatch&per_page={BASE_RUNS_PAGE}")
         return (listed.get("workflow_runs") if isinstance(listed, dict) else None) or []
 
     def status_commits(self, per_page: int = BASE_STATUS_COMMITS) -> list[str]:
@@ -8621,6 +8682,15 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             # never `actions/workflows/None/runs` (cmux#37033's 404): a run whose workflow is unread has no base
             raise Refused(f"'{name}': run {job['run_id']} came back without its workflow_id; nothing to compare "
                           "with the base")
+        if (vrepo := evidence.verdict_repo) != repo:
+            # The base verdict is another repo's (BASE_VERDICT_REPO), where this workflow has a different id: name it
+            # by its file, which every base-run read takes. A run that came back without its workflow path cannot be
+            # named there, so the search finds nothing and the no-verdict refusal below stands, naming that repo.
+            if (file := workflow_file(workflow_info)) is None:
+                raise Refused(f"'{name}': run {job['run_id']} came back without its workflow path, so its workflow "
+                              f"cannot be named in {vrepo}, where {repo}'s {base} is verified; nothing to compare "
+                              "with the base")
+            workflow = file
         # This supplement uses only measured base observations with an active public quarantine issue. It can
         # bridge a green base run; it never changes the deterministic comparison when state is absent or invalid.
         known = ({} if view is UNPLACED
@@ -8676,7 +8746,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 raise Refused(cut_refusal(name, base, cut))
             dispatch = base_dispatch(repo, base, workflow_info, evidence.runs(workflow), github)
             raise Refused(f"'{name}': no {base} run of its workflow has a verdict for it to compare with "
-                          f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists, "
+                          + (f"in {vrepo}, where {repo}'s {base} is verified (BASE_VERDICT_REPO), "
+                             if vrepo != repo else "")
+                          + f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists, "
                           f"and its tip suite runs)" + (f": {dispatch}" if dispatch else "")
                           + f"; not a setup red other PRs share: {why_not}")
         if name == GUARD_GROUP_JOB:
@@ -8695,10 +8767,12 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             return fixed_on_base_by_step(repo, base, sha, name, job, view, workflow_info, base_run, base_job, github,
                                          base_jobs=base_jobs, run_reads=run_reads,
                                          others=jobs, evidence=evidence, suites=suites,
-                                         base_workflow=base_workflow, base_name=base_name)
+                                         base_workflow=base_workflow, base_name=base_name,
+                                         verdict_repo=vrepo)
         if base_job.get("conclusion") != "failure":
             try:
-                audit.append(fixed_on_base(repo, base, sha, name, view, base_run, github, evidence))
+                audit.append(fixed_on_base(repo, base, sha, name, view, base_run, github, evidence,
+                                           verdict_repo=vrepo))
             except Refused as why:
                 try:
                     audit.append(by_step())
@@ -8709,7 +8783,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 # (pr_only_step_verdict), red here only on tests another base job fails (the menu cap deadlock,
                 # 2026-11-11: cmux#41086, #40991). A green job has no failed step, test or error line of its own.
                 if got.unplaced is not None and (only := pr_only_step_verdict(
-                        repo, base, name, got.unplaced,
+                        vrepo, base, name, got.unplaced,
                         [(base_run, base_job, UnplacedSignature(Counter(), Counter(), Counter()))],
                         evidence.runs(workflow), base_jobs, github)) is not None:
                     audit.append(only)
@@ -8719,13 +8793,13 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 # files this PR does not change (compile_errors_verdict; cmux#40935's acpmux simulation clippy step).
                 if aside is None and (same := compile_errors_verdict(
                         repo, base, sha, name, job, view, got.compile, got.unplaced, base_job, evidence.runs(workflow),
-                        base_jobs, github, run_reads)) is not None:
+                        base_jobs, github, run_reads, verdict_repo=vrepo)) is not None:
                     audit.append(same)
                     continue
                 if purpose == PER_STEP_PURPOSE:
                     try:
                         audit.append(green_since(repo, base, sha, name, job, workflow_info, base_run, base_job,
-                                                 github, evidence))
+                                                 github, evidence, verdict_repo=vrepo))
                         continue
                     except Refused as green_why:
                         why = Refused(f"{why}; green since: {green_why}")
@@ -8771,12 +8845,12 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 newest, read, seen, newest_job = created(base_run), 1, [], base_job
                 while True:
                     try:
-                        theirs = unplaced_base_evidence(repo, base_job, github)
+                        theirs = unplaced_base_evidence(vrepo, base_job, github)
                         # A pin the rules set aside leaves both sides: the base's own pin red (cmux#41086's base) is no
                         # difference, and identity still holds for all the rest.
                         theirs = unplaced_without_ffi_pin(theirs) if aside is not None else theirs
                         seen.append((base_run, base_job, theirs))
-                        audit.append(unplaced_verdict(repo, name, base, mine, theirs, base_run, why=why_whole)
+                        audit.append(unplaced_verdict(vrepo, name, base, mine, theirs, base_run, why=why_whole)
                                      + (f"; {aside}" if aside is not None else ""))
                         break
                     except Final:
@@ -8786,14 +8860,16 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                         if (run is None or found.get("conclusion") != "failure"
                                 or (newest and created(run)
                                     and newest - created(run) > timedelta(hours=BASE_WINDOW_HOURS))):
-                            if (only := pr_only_step_verdict(repo, base, name, mine, seen, evidence.runs(workflow),
+                            if (only := pr_only_step_verdict(vrepo, base, name, mine, seen,
+                                                             evidence.runs(workflow),
                                                              base_jobs, github)) is not None:
                                 audit.append(only + (f"; {aside}" if aside is not None else ""))
                                 pr_only.add((job.get("run_id"), name))
                                 break
                             if aside is None and (same := compile_errors_verdict(
                                     repo, base, sha, name, job, view, got.compile, got.unplaced, newest_job,
-                                    evidence.runs(workflow), base_jobs, github, run_reads)) is not None:
+                                    evidence.runs(workflow), base_jobs, github, run_reads,
+                                    verdict_repo=vrepo)) is not None:
                                 audit.append(same)
                                 break
                             # Out of verdicts because the cap cut the search, with older runs unread (#47971's review
@@ -8805,7 +8881,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                                               f"{mismatch}") from None
                             # Last, so it pre-empts no excuse: a refusal that says the base ran and passed the check
                             # the head fails, and to merge the base (passed_on_base_verdict).
-                            passed_on_base_verdict(repo, base, name, mine, seen, github)
+                            passed_on_base_verdict(vrepo, base, name, mine, seen, github)
                             raise
                         read += 1
                         base_run, base_job = run, found
@@ -8824,14 +8900,14 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         # The window: the newest verdict first, then older red ones, up to BASE_WINDOW verdicts within
         # BASE_WINDOW_HOURS of it, read only while a head failure is on none so far. A green verdict ends it.
         def red(run: dict, found: dict) -> tuple:
-            return base_evidence(repo, base, name, run, found, github, run_reads)
+            return base_evidence(vrepo, base, name, run, found, github, run_reads)
         try:
             window, newest, read = [red(base_run, base_job)], created(base_run), 1
         except BaseUnplaced as unplaced:
             # The newest red base verdict's log is not placed (hq#13746): this head is compared whole with it, as an
             # unplaced head is (unplaced_verdict, only within it), then per step; never refused as the head's own.
             mine = unplaced_head_evidence(repo, job, github)
-            theirs = unplaced_base_evidence(repo, base_job, github)
+            theirs = unplaced_base_evidence(vrepo, base_job, github)
             if aside is not None:
                 mine, theirs = unplaced_without_ffi_pin(mine), unplaced_without_ffi_pin(theirs)
             try:
@@ -8842,7 +8918,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 if not head[1]:
                     raise Refused(f"'{name}': {BASE_UNPLACED_WHY}, and this head's failed steps name no failing test, "
                                   "so its error lines are not compared with a whole base log")
-                audit.append(unplaced_verdict(repo, name, base, mine, theirs, base_run, why=BASE_UNPLACED_WHY)
+                audit.append(unplaced_verdict(vrepo, name, base, mine, theirs, base_run, why=BASE_UNPLACED_WHY)
                              + (f"; {aside}" if aside is not None else ""))
                 continue
             except Final:
@@ -8857,7 +8933,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                     raise Refused(f"{whole}; per step: {step_why}; {unplaced}") from None
         while True:
             try:
-                audit.append(compare_window(repo, base, name, head, view, window, chromium_without_diagnostics,
+                audit.append(compare_window(vrepo, base, name, head, view, window, chromium_without_diagnostics,
                                             flake_state=flake_state, workflow=workflow_info.get("name", ""),
                                             head_pairs=step_errors(view))
                              + (f"; {aside}" if aside is not None else ""))
@@ -8879,7 +8955,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                     # BASE_JOB: the newest verdict's job, as read from the jobs API (never the window's view).
                     if (same := compile_errors_verdict(repo, base, sha, name, job, view, got.compile, got.unplaced,
                                                        base_job, evidence.runs(workflow), base_jobs, github,
-                                                       run_reads)) is not None:
+                                                       run_reads, verdict_repo=vrepo)) is not None:
                         audit.append(same)
                         break
                     try:
