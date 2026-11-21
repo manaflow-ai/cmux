@@ -1,5 +1,5 @@
-// Rows behind More Options and rows Personalization draws stay reachable: by the keyboard only while
-// they show, and by a link (search, the CLI, the palette, MCP) on the page that draws them.
+// Rows behind More Options stay reachable: by the keyboard only while they show, and by a link
+// (search, the CLI, the palette, MCP) on the page that draws them.
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { installDom } from "./testDom";
@@ -18,12 +18,15 @@ afterEach(() => {
   page = null;
 });
 
-test("a link to a key Personalization draws opens Personalization, from any page", () => {
-  expect(routeSection("notifications", "notifications.sound")).toBe("personalization");
-  expect(routeSection("appearance", "appearance.backgroundOpacity")).toBe("personalization");
-  // Text Size is drawn by the density card there.
-  expect(routeSection("appearance", "appearance.metrics.chromeFontSize")).toBe("personalization");
+test("a link to a key opens its home; an old Personalization link opens the page that draws it now", () => {
+  expect(routeSection("notifications", "notifications.sound")).toBe("notifications");
+  expect(routeSection("appearance", "appearance.backgroundOpacity")).toBe("appearance");
+  // Text Size is drawn by Appearance's density card.
+  expect(routeSection("general", "appearance.metrics.chromeFontSize")).toBe("appearance");
   expect(routeSection("general", "app.quitBehavior")).toBe("general");
+  expect(routeSection("personalization", "personalization.sounds")).toBe("notifications");
+  expect(routeSection("personalization", "personalization.chief")).toBe("chief");
+  expect(routeSection("personalization", null)).toBe("appearance");
 });
 
 test("Appearance's undo and reset cover only real categories, never General by fallback", () => {
