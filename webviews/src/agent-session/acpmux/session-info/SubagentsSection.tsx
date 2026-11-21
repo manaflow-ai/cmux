@@ -16,6 +16,7 @@ import { Icon } from "../icons/Icon";
 
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
+import { SubagentCardBody } from "../subagents/SubagentPreview";
 import { ResumeControl, type ResumeActions } from "../subagents/ResumeControl";
 import { useSenderIconLook } from "../subagents/senderIconLook";
 import { useAgentProgress } from "../subagents/agentProgressStore";
@@ -259,21 +260,21 @@ export function SubagentsSection({
 
 function AgentCard({ item }: { item: Line }) {
   const progress = useAgentProgress(item.agent) ?? item.progress;
+  // The one subagent card (subagents/SubagentPreview.tsx), which a subagent's name chip shows too.
   return (
-    <span className="acpmux-agent-card">
-      <span className="acpmux-agent-card__name">{item.name}</span>
-      <span className="acpmux-agent-card__state" data-status={item.status}>
-        {[
-          item.state,
-          item.time,
-          item.kind,
-          progress,
-          item.status === "running" || item.status === "waiting" ? item.detail : undefined,
-        ]
-          .filter(Boolean)
-          .join(" · ")}
-      </span>
-      {item.task && item.task !== item.name && <span className="acpmux-agent-card__task">{item.task}</span>}
-    </span>
+    <SubagentCardBody
+      name={item.name}
+      status={item.status}
+      state={[
+        item.state,
+        item.time,
+        item.kind,
+        progress,
+        item.status === "running" || item.status === "waiting" ? item.detail : undefined,
+      ]
+        .filter(Boolean)
+        .join(" · ")}
+      task={item.task && item.task !== item.name ? item.task : undefined}
+    />
   );
 }

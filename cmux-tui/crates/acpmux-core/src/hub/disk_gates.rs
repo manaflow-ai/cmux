@@ -2,12 +2,14 @@
 //! Startup crosses an exec boundary so it includes the daemon's open-to-first-window path.
 
 use super::*;
+use acpmux_book::gate_rounds::{self, all_p95, best_p95, p95};
 use acpmux_book::index::{
     DiskSnapshot, HOT_WINDOW_MS, IndexLog, ListFilter, ReadSide, SortedSnapshot,
 };
 use serde_json::value::RawValue;
-use std::fs::OpenOptions;
+use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
+use std::path::Path;
 use std::process::Command;
 use tempfile::{TempDir, tempdir};
 
@@ -79,10 +81,8 @@ fn millisecond_fixture_keeps_the_page_byte_budget_exact() {
 
 fn full_tail_fixture(count: usize, generations: usize) -> (TempDir, u64) {
     let (dir, _) = fixture(count, false, false);
-    let trigger = std::fs::metadata(dir.path().join("index.snap"))
-        .expect("snapshot size")
-        .len()
-        .max(1024 * 1024);
+    let trigger =
+        fs::metadata(dir.path().join("index.snap")).expect("snapshot size").len().max(1024 * 1024);
     let mut log = IndexLog::open(dir.path().join("index.log")).expect("open full tail");
     for generation in 0..generations {
         let mut n = 0;
@@ -110,20 +110,15 @@ fn report_tail(label: &str, duration_ns: u128, bytes: u64) {
     eprintln!("PR5b {label}: duration_ns={duration_ns} tail_bytes={bytes}");
 }
 
-fn p95(values: &mut [u128]) -> u128 {
-    values.sort_unstable();
-    values[((values.len() * 95).saturating_add(99) / 100).saturating_sub(1)]
-}
-fn best_p95(rounds: &[Vec<u128>]) -> u128 {
-    rounds.iter().map(|round| p95(&mut round.clone())).min().unwrap_or(1)
-}
-fn all_p95(rounds: &[Vec<u128>]) -> u128 {
-    p95(&mut rounds.iter().flatten().copied().collect::<Vec<_>>())
-}
-
-fn round_stats(samples: &[u128]) -> (u128, u128) {
-    let best = samples.chunks_exact(SAMPLES).map(|round| p95(&mut round.to_vec())).min().unwrap();
-    (best, p95(&mut samples.to_vec()))
+/// One row's samples, taken in `SAMPLES`-long rounds, through [`gate_rounds::report`]: each
+/// side's best round p95 and every god sample's p95.
+fn round_stats(name: &str, small: &[u128], god: &[u128]) -> (u128, u128, u128) {
+    let rounds = |samples: &[u128]| -> Vec<Vec<u128>> {
+        samples.chunks_exact(SAMPLES).map(<[u128]>::to_vec).collect()
+    };
+    let (small, god) = (rounds(small), rounds(god));
+    gate_rounds::report(name, &[("small", &small), ("god", &god)]);
+    (best_p95(&small), best_p95(&god), all_p95(&god))
 }
 
 fn gate(name: &str, small: u128, god: u128, god_all: u128, unit: &str) {
@@ -139,7 +134,7 @@ fn gate(name: &str, small: u128, god: u128, god_all: u128, unit: &str) {
 }
 
 fn rss_kb() -> u64 {
-    std::fs::read_to_string("/proc/self/status")
+    fs::read_to_string("/proc/self/status")
         .ok()
         .and_then(|status| {
             status.lines().find_map(|line| {
@@ -152,7 +147,7 @@ fn rss_kb() -> u64 {
 }
 
 pub(super) fn rss_fields_kb() -> (u64, u64, u64) {
-    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    let status = fs::read_to_string("/proc/self/status").unwrap_or_default();
     let field = |name: &str| {
         status
             .lines()
@@ -192,8 +187,7 @@ fn child_startup() {
         .expect("child boot")
         .parse::<u64>()
         .expect("numeric child boot");
-    let (hub, mut writer) =
-        Hub::open(std::path::Path::new(&dir), boot, || 19).expect("open disk hub");
+    let (hub, mut writer) = Hub::open(Path::new(&dir), boot, || 19).expect("open disk hub");
     let mut sub = Sub::new("child", "list");
     sub.window = Some(PAGE_ROWS as u16);
     let frame = hub.list_window(&sub).expect("first window");
@@ -271,7 +265,7 @@ fn child_startup() {
     println!("V2_GATE_CHILD_RSS_KB={}", rss_kb());
 }
 
-fn exec_child(dir: &std::path::Path, test_name: &str, boot: u64, mode: &str) -> (u128, u64, u64) {
+fn exec_child(dir: &Path, test_name: &str, boot: u64, mode: &str) -> (u128, u64, u64) {
     let start = std::time::Instant::now();
     let mut child = Command::new(std::env::current_exe().expect("test executable"))
         .arg("--exact")
@@ -316,12 +310,7 @@ fn exec_child(dir: &std::path::Path, test_name: &str, boot: u64, mode: &str) -> 
 }
 
 #[cfg(feature = "allocation-metrics")]
-fn exec_attribution_child(
-    dir: &std::path::Path,
-    test_name: &str,
-    boot: u64,
-    mode: &str,
-) -> Vec<String> {
+fn exec_attribution_child(dir: &Path, test_name: &str, boot: u64, mode: &str) -> Vec<String> {
     let mut child = Command::new(std::env::current_exe().expect("test executable"))
         .arg("--exact")
         .arg(test_name)
@@ -357,7 +346,7 @@ fn exec_attribution_child(
     points
 }
 
-fn make_disk_index(dir: &std::path::Path, index: &SummaryIndex) -> SummaryIndex {
+fn make_disk_index(dir: &Path, index: &SummaryIndex) -> SummaryIndex {
     SortedSnapshot::write(dir.join("index.snap"), index).expect("write page fixture");
     SummaryIndex::from_disk(
         DiskSnapshot::open(dir.join("index.snap")).expect("open snapshot"),
@@ -415,6 +404,10 @@ fn pr05b_startup_pages_and_hot_index_gate() {
             god_rss.push(god_kb as u128);
         }
     }
+    gate_rounds::report(
+        "v2.pr05b.start_first_window",
+        &[("small", &small_start), ("god", &god_start)],
+    );
     let small_start_p95 = best_p95(&small_start);
     let god_start_p95 = best_p95(&god_start);
     let god_start_all = all_p95(&god_start);
@@ -429,8 +422,8 @@ fn pr05b_startup_pages_and_hot_index_gate() {
     if god_start_p95 > 200_000_000 {
         failures.push(format!("startup god p95 exceeds 200ms: {god_start_p95}"));
     }
-    let small_rss_p95 = p95(&mut small_rss);
-    let god_rss_p95 = p95(&mut god_rss);
+    let small_rss_p95 = p95(&small_rss);
+    let god_rss_p95 = p95(&god_rss);
     gate("v2.pr05b.start_rss", small_rss_p95, god_rss_p95, god_rss_p95, "kB");
     if god_rss_p95 > small_rss_p95.saturating_mul(12) / 10 {
         failures.push(format!("startup RSS ratio: small={small_rss_p95} god={god_rss_p95}"));
@@ -484,11 +477,12 @@ fn pr05b_startup_pages_and_hot_index_gate() {
         }
     }
     for (position, label) in ["first", "middle", "last"].iter().enumerate() {
-        let (small_time, _) = round_stats(&small_page[position]);
-        let (god_time, god_all) = round_stats(&god_page[position]);
-        let small_read = p95(&mut small_bytes[position]);
-        let god_read = p95(&mut god_bytes[position]);
-        gate(&format!("v2.pr05b.page_{label}"), small_time, god_time, god_all, "ns");
+        let name = format!("v2.pr05b.page_{label}");
+        let (small_time, god_time, god_all) =
+            round_stats(&name, &small_page[position], &god_page[position]);
+        let small_read = p95(&small_bytes[position]);
+        let god_read = p95(&god_bytes[position]);
+        gate(&name, small_time, god_time, god_all, "ns");
         gate(&format!("v2.pr05b.page_{label}_bytes"), small_read, god_read, god_read, "bytes");
         if page_time_failed(label, small_time, god_time, god_all) {
             failures.push(format!("page {label} time ratio: small={small_time} god={god_time}"));
@@ -528,9 +522,10 @@ fn pr05b_startup_pages_and_hot_index_gate() {
         }
     }
     for (position, label) in ["first", "middle", "last"].iter().enumerate() {
-        let (small_time, _) = round_stats(&small_filter[position]);
-        let (god_time, god_all) = round_stats(&god_filter[position]);
-        gate(&format!("v2.pr05b.page_{label}_filter"), small_time, god_time, god_all, "ns");
+        let name = format!("v2.pr05b.page_{label}_filter");
+        let (small_time, god_time, god_all) =
+            round_stats(&name, &small_filter[position], &god_filter[position]);
+        gate(&name, small_time, god_time, god_all, "ns");
         if page_time_failed(label, small_time, god_time, god_all) {
             failures
                 .push(format!("filtered page {label} ratio: small={small_time} god={god_time}"));
@@ -571,10 +566,10 @@ fn pr05b_startup_pages_and_hot_index_gate() {
             failures.push(format!("god compaction retained {god_evict_hot} hot rows"));
         }
     }
-    let hydration_small_rss = p95(&mut clean_small_rss);
-    let hydration_god_rss = p95(&mut clean_god_rss);
-    let small_hot_rss = p95(&mut evict_small_rss);
-    let god_hot_rss = p95(&mut evict_god_rss);
+    let hydration_small_rss = p95(&clean_small_rss);
+    let hydration_god_rss = p95(&clean_god_rss);
+    let small_hot_rss = p95(&evict_small_rss);
+    let god_hot_rss = p95(&evict_god_rss);
     eprintln!(
         "PR5b hydration_rss_kb small={hydration_small_rss} god={hydration_god_rss}; post_compaction_rss_kb small={small_hot_rss} god={god_hot_rss}"
     );

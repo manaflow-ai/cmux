@@ -266,6 +266,17 @@
         "scripts/cmux-next/react-pages.tsv"
       ],
       "severity": "high"
+    },
+    {
+      "id": "cmux-pressed-state-fill-only",
+      "rule": "Flag a pressed (mousedown, touch, :active, held-frame, SwiftUI isPressed, AppKit isPressed/isHighlighted) state that changes anything but the background fill: the label's weight (bold on press), font, size or letter spacing; the button's size, padding or place (transform, scale, translate, scaleEffect, offset, a press sink or shrink); the label's or icon's opacity, or a different symbol; a pressed look set from a helper or a pointerdown/mousedown JavaScript handler; a new SwiftUI .buttonStyle(.plain), .borderless or .link (they dim the label); or an on toggle (aria-pressed=true, data-pressed) that changes weight or size. Require the shared looks: ChromeHover (AppKit), .buttonStyle(.cmuxPressFill) (SwiftUI on macOS and iOS), .ui-btn (web). Pass for a different fill or a wash over the rest fill, a press rule that repeats the hover look or removes a ring or shadow, an on toggle's selected fill and ink, drag handles and sliders, a reasoned pressed-state: allow exception, and tests, galleries and prototypes. The rule is .github/review-bot-rules/pressed-state.md and design/pressed-state.md.",
+      "scope": [
+        "Packages/macOS/CmuxNext/Sources/**/*.swift",
+        "cmux-next-ios/**/*.swift",
+        "webviews/src/**",
+        "agent-chat/src/**"
+      ],
+      "severity": "high"
     }
   ]
 }

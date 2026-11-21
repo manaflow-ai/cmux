@@ -113,12 +113,37 @@ fn login_and_logout_are_the_apps_sign_in_verbs() {
 #[test]
 fn whoami_names_the_user_and_team_never_the_token() {
     let answer = json!({"access_token": "tok-secret", "team": "team_1", "user": "user_1"});
-    let found = identity(Some(&answer));
-    assert_eq!(found, json!({"signed_in": true, "user": "user_1", "team": "team_1"}));
+    let found = identity(Some(&answer), None);
+    assert_eq!(
+        found,
+        json!({"signed_in": true, "user": "user_1", "team": "team_1", "email": null})
+    );
     assert!(!found.to_string().contains("tok-secret"));
     let line = identity_line(&found);
     assert!(line.contains("user_1") && line.contains("team_1"), "{line}");
-    let no_team = identity(None);
+    let no_team = identity(None, None);
     assert_eq!(no_team["team"], Value::Null);
     assert!(identity_line(&no_team).contains("no team"));
+}
+
+/// `whoami --json` carries the account email from the app's local `auth.status`, so launch tooling
+/// can check which account a tagged dev build signed in as (`scripts/lib/mobile-attach.sh`).
+/// The email is normalized; a signed-out or unreadable status leaves it null, and the human line
+/// is unchanged.
+#[test]
+fn whoami_adds_the_signed_in_email_from_auth_status() {
+    let token = json!({"access_token": "tok-secret", "team": "team_1", "user": "user_1"});
+    let status = json!({"signed_in": true, "email": " Person@Example.com ", "user_id": "u"});
+    let found = identity(Some(&token), Some(&status));
+    assert_eq!(found["email"], json!("person@example.com"));
+    assert_eq!(found["user"], json!("user_1"));
+    assert!(!found.to_string().contains("tok-secret"));
+    assert_eq!(identity_line(&found), identity_line(&identity(Some(&token), None)));
+    let signed_out = json!({"signed_in": false, "email": "person@example.com"});
+    assert_eq!(identity(Some(&token), Some(&signed_out))["email"], Value::Null);
+    assert_eq!(
+        identity(Some(&token), Some(&json!({"signed_in": true, "email": ""})))["email"],
+        Value::Null
+    );
+    assert_eq!(identity(None, Some(&status))["email"], json!("person@example.com"));
 }

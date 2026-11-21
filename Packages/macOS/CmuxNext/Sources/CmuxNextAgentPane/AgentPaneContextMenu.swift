@@ -368,9 +368,7 @@ enum AgentPaneContextMenu {
         // A reply's menu opens on its non-interactive date and time header (not a selection's).
         let header: [NSMenuItem]
         if target?.markdown != nil, let time = target?.replyTime {
-            let item = NSMenuItem(title: time, action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            header = [item]
+            header = [AgentPaneMenuTimeHeader.item(time)]
         } else {
             header = []
         }

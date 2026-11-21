@@ -1,5 +1,6 @@
 import CmuxConnectivityTelemetry
 import CmuxMobileAgentChat
+import CmuxMobileTransport
 import Foundation
 import OSLog
 
@@ -22,11 +23,18 @@ extension AcpmuxHub {
 
     /// The watch, on, with the newest ``firstPageRows`` rows and the cursor of the rest (nil:
     /// the list is whole).
-    nonisolated static func firstPage(_ connection: AcpmuxConnection, timeout: Duration) async throws -> (rows: [JSONValue], cursor: String?) {
-        let reply = try await connection.request("_acpmux/watch", .object([
-            "enabled": .bool(true), "limit": .number(Double(firstPageRows)),
-        ]), timeout: timeout)
-        return (try AcpmuxConnection.pageRows(reply), try AcpmuxConnection.nextCursor(reply))
+    nonisolated static let firstPageParams: JSONValue = .object([
+        "enabled": .bool(true), "limit": .number(Double(firstPageRows)),
+    ])
+
+    /// The answer to a ``AcpmuxConnection/submit(_:_:)``ed request, within `timeout`.
+    nonisolated static func reply(_ connection: AcpmuxConnection, _ id: Int, _ method: String,
+                                  timeout: Duration) async throws -> JSONValue {
+        try await LinkDeadline.run(
+            timeout: timeout,
+            timeoutError: LinkError(code: "timeout", message: "no reply to \(method)"),
+            operation: { try await connection.reply(to: id) }
+        )
     }
 
     /// Puts the first page in `sessions` and returns its ids. A whole list replaces what an

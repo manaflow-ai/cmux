@@ -63,12 +63,12 @@ extension DaemonLauncher {
                 throw ReplaceRefusal(code: failure.code, message: failure.message)
             }
             let ensured = try Self.parseEnsure(result)
-            health?.note(.ready(pid: ensured.pid))
+            note?.end(.ready(pid: ensured.pid))
             ensureOutcome.note(nil, pid: ensured.pid)
             return ensured
         } catch {
             // A refused replace stopped nothing: the old owner (restoring, maybe) still runs.
-            if !(error is ReplaceRefusal) { health?.note(.exited) }
+            note?.end(error is ReplaceRefusal ? nil : .exited)
             throw error
         }
     }

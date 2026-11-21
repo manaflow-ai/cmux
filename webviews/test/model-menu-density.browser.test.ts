@@ -8,6 +8,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("model-menu-density.browser.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -107,7 +108,7 @@ await requireBrowserLane("model-menu-density.browser.test.ts", async () => {
     const page = await opened();
     await page.keyboard.press("Escape");
     await page.locator(".acpmux-quick-menu").waitFor({ state: "detached" });
-    await page.click(".acpmux-model .acpmux-picker-button");
+    await page.click(MODEL_PICKER);
     const shown = await page.$eval(".acpmux-quick-menu", (menu) => ({
       opacity: getComputedStyle(menu).opacity,
       animations: menu.getAnimations({ subtree: false }).length,
