@@ -26,3 +26,16 @@ def step_run(step: dict) -> str:
     run = str(step.get("run") or "")
     call = STEP_CALL.match(run.strip())
     return step_body(call.group(1)) if call else run
+
+
+STEP_CALL_LINE = re.compile(r"^( *)run: bash -e (scripts/ci/cmux-next-steps/[A-Za-z0-9_.-]+\.sh)$", re.MULTILINE)
+
+
+def inline_steps(text: str) -> str:
+    """Workflow TEXT with each moved step's script put back as the `run: |` block it was."""
+    def inline(match: re.Match) -> str:
+        indent = match.group(1) + "  "
+        body = "".join(indent + line if line.strip() else line
+                       for line in step_body(match.group(2)).splitlines(keepends=True))
+        return f"{match.group(1)}run: |\n{body.rstrip(chr(10))}"
+    return STEP_CALL_LINE.sub(inline, text)

@@ -29,6 +29,8 @@ from cmux_next_route import matches as route_matches  # noqa: E402
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cmux_next_step_text import step_run  # noqa: E402
 _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
@@ -1803,7 +1805,7 @@ class RouteLabels(unittest.TestCase):
                    "EVENT_LABELS": "full-ci,risk:low", "RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(out),
                    "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary"), "DEV_DAILY": "false",
                    "DEV_DAILY_SHA": "", "SAME_TREE_SHA": "", "GH_TOKEN": "t"}
-            result = subprocess.run(["bash", "-e", "-c", step["run"]], cwd=repo, env=env,
+            result = subprocess.run(["bash", "-e", "-c", step_run(step)], cwd=repo, env=env,
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             labels = (repo / "scripts/ci/labels.txt").read_text()
@@ -2102,7 +2104,7 @@ class HotAwareWorkflows(unittest.TestCase):
 
     def guards_route(self, changed: list[str], labels: str = "") -> dict:
         step = workflow_step("cmux-next-guards.yml", "portable-placement", "Route the pull request (cmux_next_route.py --hot-only)")
-        done, values, _ = self.run_step(step["run"], ROOT, changed, labels)
+        done, values, _ = self.run_step(step_run(step), ROOT, changed, labels)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         return values
 
@@ -2165,7 +2167,7 @@ class HotAwareWorkflows(unittest.TestCase):
                 (ci / "cmux_next_route.py").symlink_to(ROOT / "scripts" / "ci" / "cmux_next_route.py")
             else:
                 (ci / "cmux_next_route.py").write_text(router, encoding="utf-8")
-            done, values, summary = self.run_step(step["run"], Path(work), changed, labels)
+            done, values, summary = self.run_step(step_run(step), Path(work), changed, labels)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         return done, values, summary
 
