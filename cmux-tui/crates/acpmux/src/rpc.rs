@@ -51,6 +51,9 @@ pub struct RpcError {
     pub data: Option<Value>,
 }
 
+/// `data.reason` of [`RpcError::no_peer`].
+pub const NO_PEER: &str = "no_peer";
+
 impl RpcError {
     pub fn new(code: i64, message: impl Into<String>) -> Self {
         Self { code, message: message.into(), data: None }
@@ -70,6 +73,13 @@ impl RpcError {
     }
     pub fn not_found(message: impl Into<String>) -> Self {
         Self::new(-32002, message)
+    }
+    /// A request for a machine `name` that names no peer of this daemon. `data.reason` is
+    /// [`NO_PEER`] and `data.peer` the name, so a client tells it from a peer that is only down
+    /// (`cli/new_relay.rs`).
+    pub fn no_peer(name: &str) -> Self {
+        Self::not_found(format!("no peer {name:?}"))
+            .with_data(serde_json::json!({"reason": NO_PEER, "peer": name}))
     }
     /// A request whose handler waited on an agent past its deadline
     /// (cx-m5up). `data.reason` is `deadline_exceeded`, `data.wait` names
@@ -462,6 +472,9 @@ pub mod method {
     /// `acpmux register NAME`: the session the caller's shell runs in takes a stable name
     /// (`hub/register.rs`). Local unix socket only.
     pub const MUX_REGISTER: &str = "_acpmux/register";
+    /// A Claude Code session's own MCP server polls for the deliveries into that session's inbox
+    /// and writes them itself (`claude_inbox_relay.rs`). Local unix socket only.
+    pub const MUX_INBOX_RELAY: &str = "_acpmux/inbox_relay";
     pub const MUX_KILL: &str = "_acpmux/kill";
     pub const MUX_KEEP: &str = "_acpmux/keep";
     pub const MUX_WATCH_TAKE_OVER: &str = "_acpmux/watch_take_over";
@@ -876,6 +889,10 @@ pub mod method {
     pub const MUX_GOAL_SET: &str = "_acpmux/goal/set";
     pub const MUX_GOAL_UPDATE: &str = "_acpmux/goal/update";
     pub const MUX_GOAL_GET: &str = "_acpmux/goal/get";
+    /// A chat's task list across its turns (`server/task_list.rs`, `task_list.rs`): kept by its
+    /// agent or its Chief when the harness writes no plan of its own, and read back.
+    pub const MUX_TASK_LIST_SET: &str = "_acpmux/task_list/set";
+    pub const MUX_TASK_LIST_GET: &str = "_acpmux/task_list/get";
     /// Building an approved plan here, in a new worktree, or on two agents to compare
     /// (`server/plan_build.rs`, `hub/plan_build.rs`).
     pub const MUX_PLAN_BUILD: &str = "_acpmux/plan/build";

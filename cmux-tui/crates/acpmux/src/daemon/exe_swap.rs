@@ -168,7 +168,13 @@ impl Swap for ExeSwap {
         }
         let (stdout, stderr) = successor_output(&crate::config::home().join("daemon.log"));
         // Its own session, so this daemon's stop does not end it.
-        let mut child = cmux_process::Command::new(&self.installed)
+        let mut successor = cmux_process::Command::new(&self.installed);
+        // A daemon started from a chat's shell by an older build kept that chat's marks; the
+        // successor drops them (`STARTER_SESSION_MARKS`).
+        for k in super::STARTER_SESSION_MARKS {
+            successor.env_remove(k);
+        }
+        let mut child = successor
             .args(handover_args(&self.args))
             .stdin(cmux_process::Stdio::null())
             .stdout(stdout)
