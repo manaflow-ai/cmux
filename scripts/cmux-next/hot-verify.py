@@ -111,6 +111,11 @@ WEB_BASE = os.environ.get("CMUX_WEB_BUNDLES_BASE") or "https://files.cmux.com/cm
 EXIT_LOOKED, EXIT_FAILED, EXIT_USAGE, EXIT_NEEDS_BUILD = 0, 1, 2, 3
 DEFAULT_SIDE = "hot-verify"
 SIDE_LABEL = "cmux hot-verify"
+# The copy is a DEV build (side-instance.sh, #48637), and a DEV build's acpmux daemon ends its hosted chats once
+# its executable is replaced (acpmux app_orphan.rs ends_agents). The rust layer goes into a copy that already
+# runs, so its acpmux daemons restart onto the new build right away (hosted sessions kept and resumed) instead of
+# lingering on the replaced one and ending their chats when it exits.
+RESTART_ACPMUX = ("--restart-acpmux",)
 STATE_FILE = "hot-verify.json"
 # hot-apply.py _plan's `left` keys this engine reads, and the build reasons it names for the others.
 LEFT_WEB = "web (not published for a branch)"
@@ -1381,7 +1386,7 @@ def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, sc
     onto = planned.get("daemon_from")
     if onto:
         argv = [sys.executable, str(rules / "scripts/cmux-next/hot-apply.py"), "apply", onto, "--branch",
-                "--parts", "rust", "--app", str(side.app()), "--repo", str(rules)]
+                "--parts", "rust", "--app", str(side.app()), "--repo", str(rules), *RESTART_ACPMUX]
         if given is None and not hot().published(planned["tree_key"]):
             raise LookError(f"the daemon of the change applied onto the app's commit ({onto[:12]}) is not "
                             "published: build that commit's cmux-tui and pass it as --rust-binary")
@@ -1391,7 +1396,7 @@ def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, sc
                else "published tree build of the change applied onto the app's commit")
         return run_hot_apply_rust(argv, side, how)
     argv = [sys.executable, str(rules / "scripts/cmux-next/hot-apply.py"), "apply", planned["head"], "--branch",
-            "--parts", "rust", "--app", str(side.app()), "--repo", str(rules)]
+            "--parts", "rust", "--app", str(side.app()), "--repo", str(rules), *RESTART_ACPMUX]
     if given is not None:
         # The look's own plan has no daemon_from, so a binary built for one (the worker's plan) is not this change's
         # daemon: swapping it in would label another daemon as the head's.

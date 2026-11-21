@@ -113,7 +113,7 @@ clear_state() {
     "$HOME/.cmux/chief/$bundle" "$HOME/.cmux/chief/$bundle@"* "$HOME/Library/Preferences/$bundle.plist" \
     "$HOME/Library/Caches/$bundle" "$HOME/Library/HTTPStorages/$bundle" "$HOME/Library/WebKit/$bundle" \
     "$HOME/Library/Saved Application State/$bundle.savedState" "$HOME/Library/Application Support/$bundle" \
-    "$HOME/Library/Application Support/cmux-next/$bundle"; do
+    "$HOME/Library/Application Support/cmux-next/$bundle" "$HOME/Library/Caches/cmux-next/builds/$key"; do
     if [[ -e "$path" ]]; then rm -rf "$path"; fi
   done
 }
@@ -147,6 +147,7 @@ case "$cmd" in
     # try-x" (cmux app try .) "cmux DEV try-x", any other label "cmux DEV <label>".
     case "$label" in
       "cmux DEV "*) ;;
+      "cmux DEV" | cmux) label="cmux DEV $name" ;;
       "cmux "*) label="cmux DEV ${label#cmux }" ;;
       *) label="cmux DEV $label" ;;
     esac
@@ -169,7 +170,9 @@ case "$cmd" in
     original="$("$buddy" -c "Print :CFBundleIdentifier" "$plist")"
     # A DEV identity (#48637), whatever the original is: under com.cmuxterm.app.nightly the app reads
     # itself as NIGHTLY (BuildIdentity.kind, CrashReportingPolicy), shares NIGHTLY's cloud data space
-    # (CMUXBuildSpaceState) and shows NIGHTLY's icon. The hash keeps two roots' NAMEs (a measurement's and
+    # (CMUXBuildSpaceState) and shows NIGHTLY's icon. As every DEV build, it defaults to the development
+    # Cloud (cmux-cloud-environment default_environment), on purpose: production ignores the build-space
+    # header, so a copy signed in there would read and change NIGHTLY's real data. The hash keeps two roots' NAMEs (a measurement's and
     # yours) apart, and a copy remade from another app gets another identity, whose state make clears.
     hash="$(printf '%s\n%s' "$root" "$original" | shasum | cut -c1-6)"
     side_tag="side-$name-$hash"

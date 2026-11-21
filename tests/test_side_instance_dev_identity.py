@@ -95,7 +95,8 @@ class SideInstanceDevIdentityTests(unittest.TestCase):
     def test_the_label_always_says_dev(self):
         app = self.app("cmux NEXT", "com.cmuxterm.app.nightly.cmux-next", "cmux-next")
         for label, shown in (("cmux PR #35", "cmux DEV PR #35"), ("cmux hot-verify", "cmux DEV hot-verify"),
-                             ("cmux DEV probe", "cmux DEV probe"), ("look", "cmux DEV look")):
+                             ("cmux DEV probe", "cmux DEV probe"), ("look", "cmux DEV look"),
+                             ("cmux", "cmux DEV pr-35"), ("cmux DEV", "cmux DEV pr-35")):
             with self.subTest(label=label):
                 ident, info, _ = self.make(app, "pr-35", "--label", label)
                 self.assertEqual(info["CFBundleName"], shown)
@@ -111,6 +112,16 @@ class SideInstanceDevIdentityTests(unittest.TestCase):
         other = self.make(app)[0]["bundle"]
         self.assertNotEqual(other, first["bundle"])
         self.assertTrue(re.fullmatch(r"com\.cmuxterm\.app\.debug\.side-try-x-[0-9a-f]{6}", other))
+
+    def test_remove_clears_the_dev_build_caches_folder(self):
+        """A DEV build keeps caches in ~/Library/Caches/cmux-next/builds/<key> (BuildStatePaths.ownCaches), which a
+        nightly-kind copy never made; remove must clear it too."""
+        ident, _, _ = self.make(self.app("cmux NEXT", "com.cmuxterm.app.nightly.cmux-next", "cmux-next"))
+        caches = self.tmp / "home/Library/Caches/cmux-next/builds" / ident["key"]
+        caches.mkdir(parents=True)
+        subprocess.run(["bash", str(SCRIPT), "remove", "try-x"], env=self.env, check=True, capture_output=True,
+                       text=True)
+        self.assertFalse(caches.exists())
 
     def test_without_the_icon_set_the_copy_keeps_its_icon_and_says_so(self):
         self.env["SIDE_INSTANCE_DEV_ICONSET"] = str(self.tmp / "missing")
