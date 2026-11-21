@@ -6760,6 +6760,13 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/bg/output", { sessionId, id, fromByte });
   }
 
+  /// The last `maxBytes` of chat `sessionId`'s background task `id`'s output, with its record
+  /// (`command`, `state`, `exitCode`, `startedAt`, `endedAt`; hub/bg_tasks.rs `bg_output`): what a
+  /// "Background task finished: bg-…" line opens to (BackgroundTurnLine.tsx).
+  bgTail(sessionId: string, id: string, maxBytes: number): Promise<unknown> {
+    return this.request("_acpmux/bg/output", { sessionId, id, maxBytes });
+  }
+
   /// Stops chat `sessionId`'s background task `id`.
   bgStop(sessionId: string, id: string): Promise<unknown> {
     return this.request("_acpmux/bg/stop", { sessionId, id }, 15_000);
@@ -10312,7 +10319,7 @@ export class AcpmuxDirectClient {
         // reason `prompt`). Leo, 2026-11-21, on a five-paragraph answer to his message that never
         // drew, the finish's turn having closed quiet over it: "things dont get rendeed?".
         if (msg.steer === true && this.bgDoneTurns.size > 0 && incoming === undefined && !received)
-          for (const id of [...this.bgDoneTurns.keys()]) this.endBgDoneTurn(event, id, "prompt");
+          for (const id of Array.from(this.bgDoneTurns.keys())) this.endBgDoneTurn(event, id, "prompt");
         const shown =
           incoming?.kind === "message"
             ? {

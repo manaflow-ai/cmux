@@ -5338,21 +5338,11 @@ button.cv-video-frames__frame:focus-visible {
   background: var(--cv-rule);
   pointer-events: none;
 }
-/* Inner calls in an opened group keep their disclosure slot, but the quiet chevron only appears
-   when that row is under the pointer (Leo, 2026-11-01). The group header keeps its own disclosure.
-   A focused or opened row keeps its chevron revealed while its menu or body is open, never a
-   lifted tone: its words light on hover only, its glyph never (Lucas, 2026-11-06, above). */
-:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool > .cv-tool__chevron {
-  opacity: 0;
-  transition: var(--cv-row-reveal-out);
-}
-:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:hover > .cv-tool__chevron,
-:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:has([data-popup-open]) > .cv-tool__chevron,
-:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:is(:focus-within, [aria-expanded="true"], [data-popup-open], :has([aria-expanded="true"]))
-  > .cv-tool__chevron {
-  opacity: 1;
-  transition: none;
-}
+/* One chevron rule for every row that opens (design/chat-row-anatomy.md; Leo, 2026-11-21: "inconsistent
+   chevrons"): a row's chevron is there at rest, in the quiet tone, right after its words, whether the
+   row heads the transcript or sits inside an opened group. Inner calls hid theirs until the pointer
+   came (Leo, 2026-11-01), while message, failure and group lines beside them kept theirs, so the
+   same list read two ways (frames 07, 09, 12 of his 05:30Z video). A row that opens nothing draws none. */
 /* A thought step's brain glyph puts its words on the rows' text column; its opened text sits there too. */
 .cv-step-thought__body,
 .cv-step > .cv-tool-error {
