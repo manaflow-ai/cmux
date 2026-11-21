@@ -328,6 +328,7 @@ extension AppActions {
             return
         }
         if services.machines.local.store.personal.isLoaded { return movePersonalWorkspace(services, invocation, by: offset) }
+        if let workspace = scope(services, invocation).workspace, services.windows.active?.sidebar.model.selectableWorkspaces.contains(where: { $0.id.rawValue == workspace.id }) != true, (try? moveBandWorkspace(workspace, services, origin: invocation.origin, { _ in .step(offset) })) == true { return } // pinned, no list row: among Pinned's items
         let store = services.activeDaemon.store
         guard let workspace = scope(services, invocation).workspace, let key = workspace.key,
               let index = store.workspaces.firstIndex(where: { $0 === workspace }) else { return }

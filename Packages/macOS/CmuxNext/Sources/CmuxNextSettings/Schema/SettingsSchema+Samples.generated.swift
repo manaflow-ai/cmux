@@ -313,6 +313,24 @@ extension SettingsSchemaSamples {
                 .object(["07:00": .string("__not_a_backdrop__")]), .object(["07:00": .number(1)]),
             ]
         ),
+        "domain:backdrop_memory": SampleSet(
+            accept: [
+                .object([:]),
+                .object(["rotate": .string("folder:/Users/Shared/Wallpapers"), "folder": .string("folder:/Users/Shared/Wallpapers"), "off": .string("file:/Users/Shared/Harbor.png")]),
+                .object(["rotate": .string("daily"), "folder": .string("folder:/Users/Shared/Wallpapers"), "off": .string("none")]),
+                .object(["off": .string("munch-scream")]),
+                .object(["off": .string("system:/System/Library/Desktop Pictures/Sonoma.heic")]),
+            ],
+            refuse: [
+                .string("folder:/Users/Shared/Wallpapers"), .array([]), .object(["rotate": .string("munch-scream")]),
+                .object(["rotate": .string("appearance")]), .object(["folder": .string("daily")]),
+                .object(["folder": .string("folder:/")]), .object(["folder": .string("folder:relative")]),
+                .object(["off": .string("daily")]), .object(["off": .string("schedule")]),
+                .object(["off": .string("folder:/Users/Shared/Wallpapers")]),
+                .object(["off": .string("__not_a_backdrop__")]), .object(["light": .string("munch-scream")]),
+                .object(["rotate": .number(1)]),
+            ]
+        ),
         "domain:backdrop_location": SampleSet(
             accept: [
                 .string("37.77,-122.42"), .string("-33.87, 151.21"), .string("69.65,18.96"),

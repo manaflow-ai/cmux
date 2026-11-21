@@ -87,6 +87,8 @@ import Testing
             let start = clock.now
             r.field.insertText(String(c), replacementRange: r.field.selectedRange())
             r.window.contentView?.layoutSubtreeIfNeeded()
+            // The key's drawing too: the field's text is drawn on the display pass, not by the layout.
+            r.window.displayIfNeeded()
             CATransaction.flush()
             times.append(clock.now - start)
         }
@@ -116,6 +118,29 @@ import Testing
         #expect((r.field.string as NSString).length > 10_000)
         #expect(long < short * 3,
                 "a key at a 10,000 character draft takes \(long), at a 200 character draft \(short) (want under 3x)")
+    }
+
+    /// One long paragraph, the shape of a long prompt typed or pasted as one block: TextKit 2 lays out
+    /// and draws a paragraph as one piece, so each key at its end laid out, measured the caret in and
+    /// drew all of it again (typing-frame-bench.py home --prefill 3000, one paragraph: the key's own
+    /// work 2.9 ms empty, 7.5 to 10.3 ms at 3000 characters on cmux21, Lawrence 2026-11-20 "typing
+    /// still lags").
+    @Test func aKeyAtTheEndOfOneLongParagraphCostsWhatAKeyInAShortOneDoes() async throws {
+        let r = try await rig()
+        defer { r.close() }
+        r.window.makeFirstResponder(r.field)
+        let sentence = "the chief reads your note and starts on the work in a new workspace "
+        let words = "and then it reports back with what it found "
+        r.field.insertText(String(repeating: sentence, count: 3), replacementRange: r.field.selectedRange())
+        r.frame()
+        let short = medianKey(r, typing: words)
+        r.field.insertText(String(repeating: sentence, count: 120), replacementRange: NSRange(location: 0, length: 0))
+        r.field.setSelectedRange(NSRange(location: (r.field.string as NSString).length, length: 0))
+        r.frame()
+        let long = medianKey(r, typing: words)
+        #expect(!r.field.string.contains("\n") && (r.field.string as NSString).length > 8_000)
+        #expect(long < short * 3,
+                "a key at the end of an 8,000 character paragraph takes \(long), in a 250 character one \(short) (want under 3x)")
     }
 
     @Test func theFieldsLineCountFollowsTypingAndMatchesAFullLayout() async throws {
