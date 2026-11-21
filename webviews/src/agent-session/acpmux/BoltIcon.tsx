@@ -1,5 +1,5 @@
-/// The composer's bolt glyph (FastToggle.tsx draws the same one for Codex's speed toggle): the `/`
-/// menu's Fast row (Composer.tsx SlashMenu) shows it beside the plain name Fast, in the row's ink.
+/// The composer's bolt glyph: the `/` menu's Fast row (Composer.tsx SlashMenu) shows it beside the
+/// plain name Fast, in the row's ink.
 export function BoltIcon({ size = 16 }: { size?: number }) {
   return (
     <svg

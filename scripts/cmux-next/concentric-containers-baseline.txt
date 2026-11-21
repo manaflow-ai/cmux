@@ -89,7 +89,6 @@ webviews/src/pages/changelog/styles.css: .cln-card { border-radius: 12px }
 webviews/src/pages/changelog/updateSurfaces.css: .wn-card { border-radius: var(--cmux-sidebar-card-radius, 10px) }
 webviews/src/pages/changelog/updateSurfaces.css: .wn-card.wn-updated { border-radius: var(--composer-material-radius) }
 webviews/src/pages/changelog/updateSurfaces.css: .wn-card[data-decoration="doodle"] { border-radius: var(--composer-material-radius) }
-webviews/src/pages/chief-usage/styles.css: .cu-tile, .cu-card { border-radius: var(--ds-radius-lg) }
 webviews/src/pages/chief-usage/styles.css: .cu-tooltip { border-radius: var(--ds-radius-lg) }
 webviews/src/pages/chief-views/styles.css: .cv-card { border-radius: var(--cv-radius) }
 webviews/src/pages/cloud-progress/styles.css: .cloud-progress__card { border-radius: var(--ds-radius-xl) }

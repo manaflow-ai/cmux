@@ -241,7 +241,6 @@ export default agentPaneEntry({
   anchors: [{ selector: ".acpmux-header" }, { selector: ".acpmux-composer" }],
   covers: [
     "agent-session/acpmux/subagents/SubagentGroup.tsx",
-    "agent-session/acpmux/subagents/AgentsPill.tsx#AgentsPill",
     "agent-session/acpmux/subagents/SubagentComposer.tsx#SubagentComposer",
     "agent-session/acpmux/summary/SummaryButton.tsx#SummaryButton",
     "agent-session/acpmux/summary/SummaryCard.tsx#SummaryCard",

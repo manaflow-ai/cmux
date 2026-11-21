@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture subagent names, not shipped UI.
 // The agents pill's list puts a nested agent right under the agent that spawned it, keeping the
-// section's order (subagents/AgentsPill.tsx `nestAgents`).
+// section's order (subagents/agentsPillModel.ts `nestAgents`).
 import { describe, expect, test } from "bun:test";
 import { nestAgents } from "../src/agent-session/acpmux/subagents/agentsPillModel";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
