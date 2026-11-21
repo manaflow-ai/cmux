@@ -63,6 +63,9 @@ PINNED: dict[str, tuple[str, set[str]]] = {
     'ci-queue-janitor-watchdog.yml': ("watches the sweep's label from off it: cmux-fleet-linux-x64 while the sweep is on "
                                       'ubuntu-24.04, ubuntu-24.04 when CI_QUEUE_JANITOR_ON_FLEET=1 (test_ci_janitor_watchdog_route)',
      {'watch'}),
+    'ci-cloud-overflow-probe.yml': ('the overflow watch must run while the pools it judges start nothing: GitHub-hosted '
+                                    'ubuntu-24.04, like the queue janitor (github-hosted-required comment on its runs-on)',
+     {'watch'}),
     'cmux-next-cua-helper-dev-sign.yml': ('DEV Computer Use helper signing: an ephemeral label the signing rule checks literally',
      {'sign'}),
     'cmux-next-dev-daily.yml': ('DEV signing and publish: an ephemeral label the signing rule checks literally',
