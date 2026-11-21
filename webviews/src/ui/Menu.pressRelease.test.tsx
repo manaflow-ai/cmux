@@ -238,6 +238,7 @@ test("an App-drawn menu leaves the release to the App: no page row under it runs
         </MenuPopup>
       </Menu>
       {/* A page list row that happens to lie under the App's panel. */}
+      {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/prefer-tag-over-role, jsx-a11y/interactive-supports-focus -- a bare page row fixture: the test clicks it through the panel */}
       <div role="option" aria-selected="false" onClick={() => pageRows.push("clicked")}>
         Page row
       </div>
