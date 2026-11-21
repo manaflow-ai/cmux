@@ -285,15 +285,32 @@ fn keyed(kind: LayoutOpKind) -> LayoutOp {
 
 /// I1 (stated without the crate's checker), I2 and I3, no reliance on the
 /// `Reject::Invariant` safety net, and I5 for every applied op.
-fn check_op(state: &LayoutState, op: &LayoutOp) -> bool {
-    let after = match apply(state, op) {
-        Ok((after, _)) => after,
+///
+/// `work` is a copy of `state` that every op of the layout runs on in place:
+/// a rejected op must leave it equal to `state`, and an accepted one takes
+/// it as its result and leaves a fresh copy.
+fn check_op(state: &LayoutState, work: &mut LayoutState, op: &LayoutOp) -> bool {
+    match apply_mut(work, op) {
+        Ok(_) => {}
         Err(Reject::Invariant(violations)) => {
             panic!("valid state reached the invariant check: {op:?} on {state:?}: {violations:?}")
         }
-        Err(_) => return false,
-    };
-    assert!(check_state(&after).is_empty(), "{op:?} on {state:?} broke I2/I3: {after:?}");
+        Err(_) => {
+            // A rejection in place puts back everything the op changed.
+            assert_eq!(&*work, state, "a rejected {op:?} changed the state");
+            return false;
+        }
+    }
+    let after = std::mem::replace(work, state.clone());
+    // The whole-state check: `state` is valid, so `apply_mut`'s scoped check
+    // accepting the op (above) must mean this finds nothing either.
+    let whole = introduced_violations_creating(
+        state,
+        &after,
+        &op.kind.closed_tabs(),
+        &op.kind.created_tabs(),
+    );
+    assert!(whole.is_empty(), "{op:?} on {state:?} broke I1-I3 ({whole:?}): {after:?}");
     match op.kind {
         LayoutOpKind::CloseTab { tab } => {
             assert!(!after.tabs.contains_key(&tab), "{op:?} kept its tab");
@@ -365,8 +382,28 @@ fn check_own_place(state: &LayoutState) {
     }
 }
 
+/// Turns off `apply_mut`'s own scoped-against-whole comparison on this thread
+/// while it lives. `check_op` makes that comparison once per op instead: a
+/// valid state never reaches `Reject::Invariant`, and the whole-state check
+/// of every accepted result must be empty.
+struct CrossCheckInCheckOp;
+
+impl CrossCheckInCheckOp {
+    fn new() -> Self {
+        CROSS_CHECK.with(|on| on.set(false));
+        Self
+    }
+}
+
+impl Drop for CrossCheckInCheckOp {
+    fn drop(&mut self) {
+        CROSS_CHECK.with(|on| on.set(true));
+    }
+}
+
 #[test]
 fn exhaustive_small_layouts_keep_invariants() {
+    let _cross_check = CrossCheckInCheckOp::new();
     let started = std::time::Instant::now();
     let shapes = shapes();
     let (mut layouts, mut cases, mut applied) = (0usize, 0usize, 0usize);
@@ -376,9 +413,10 @@ fn exhaustive_small_layouts_keep_invariants() {
         assert!(check_state(&state).is_empty(), "{shape:?}");
         layouts += 1;
         check_own_place(&state);
+        let mut work = state.clone();
         for kind in ops(&state, next) {
             cases += 1;
-            applied += usize::from(check_op(&state, &keyed(kind)));
+            applied += usize::from(check_op(&state, &mut work, &keyed(kind)));
         }
         // Invariant 3 over every runtime assignment and dead flag.
         let tab_count = state.tabs.len();

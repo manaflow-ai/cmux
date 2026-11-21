@@ -215,8 +215,11 @@ impl Mux {
         let unchanged = self.with_state(|state| {
             let (workspace, screen, index) =
                 column_location(state, column).ok_or(RowsError::ColumnNotFound { column })?;
-            cmux_layout_reducer::apply(&layout_invariants::project(state), &op)
-                .map_err(|reject| RowsError::from_reject(reject, column))?;
+            cmux_layout_reducer::apply_mut(
+                &mut layout_invariants::project_for(state, &op.kind),
+                &op,
+            )
+            .map_err(|reject| RowsError::from_reject(reject, column))?;
             let screen = &state.workspaces[workspace].screens[screen];
             let rows = &screen.layout_columns[index].rows;
             let unchanged = rows.iter().all(|row| heights.contains(&(row.id, row.height)));
