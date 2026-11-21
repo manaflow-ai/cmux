@@ -128,6 +128,15 @@ enum SidebarStyle {
             : Metrics.densityToken("sidebarIconColumn").map { _ in iconColumnBox }
         return SidebarOpticalGlyph(target: rowGlyphOpticalSide, box: tabBox)
     }
+    /// The side a page favicon's ink fills (``SidebarRowTuning/faviconSize``): the tab's favicon box, grown with the
+    /// sidebar's text size, so a favicon reads as large in its row as in its tab (https://github.com/manaflow-ai/cmux/issues/48586).
+    /// The line glyphs (Home's house, a pin, the globe) keep ``rowGlyphOpticalSide``.
+    static var rowFaviconOpticalSide: CGFloat { SidebarRowTuning.faviconSize.value }
+    /// The fit a favicon takes: its ink fills ``rowFaviconOpticalSide`` and centers in that square from the column's
+    /// leading edge, so it starts where the other glyphs and text-only titles start and fills the icon column.
+    static var rowFaviconOptics: SidebarOpticalGlyph {
+        SidebarOpticalGlyph(target: rowFaviconOpticalSide, box: rowGlyphOptics.box)
+    }
     /// Reserve the icon column only when a visible icon precedes the title.
     static func titleTextX(leading: CGFloat, iconSide: CGFloat, swatch: Bool = false) -> CGFloat {
         columns(rowWidth: 0, leadingOffset: leading - titleLeading).text(hasLeadingMark: iconSide > 0)

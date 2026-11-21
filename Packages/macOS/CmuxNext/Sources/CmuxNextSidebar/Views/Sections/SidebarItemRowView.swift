@@ -553,8 +553,15 @@ class SidebarItemRowView: NSView {
         }
         return performWithTheme {
             let ground = style == .favorite ? Palette.elevatedBackground : SidebarStyle.ground
-            return faviconRenditions.drawing(favicon, side: side, scale: window?.backingScaleFactor ?? 2,
-                                             ground: SidebarFaviconRenditions.groundLuminance(ground)).image
+            let scale = window?.backingScaleFactor ?? 2, luminance = SidebarFaviconRenditions.groundLuminance(ground)
+            // A favicon beside a title fills the tab's favicon box (`rowFaviconOptics`, #48586), drawn at the side whose
+            // ink fills it so the fit draws it pixel for pixel.
+            guard style == .builtIn, !isRailButton else {
+                return faviconRenditions.drawing(favicon, side: side, scale: scale, ground: luminance).image
+            }
+            let key = glyphKey
+            return faviconRenditions.fittedDrawing(favicon, side: side, target: SidebarStyle.rowFaviconOpticalSide, scale: scale,
+                                                   ground: luminance, inkKey: { "\(key)|\($0)" }).image
         }
     }
 
@@ -626,8 +633,8 @@ class SidebarItemRowView: NSView {
     private func inkColumnGlyphFrame(side: CGFloat, column: NSRect) -> NSRect {
         let scale = window?.backingScaleFactor ?? 2
         if let image = icon.image, let ink = SidebarGlyphInk.shared.box(of: image, glyph: glyphKey),
-           let frame = SidebarStyle.rowGlyphOptics.frame(imageSize: image.size, ink: ink, leading: column.minX,
-                                                         centerY: column.midY, flipped: isFlipped, scale: scale) {
+           let frame = (info.favicon == nil ? SidebarStyle.rowGlyphOptics : SidebarStyle.rowFaviconOptics)
+               .frame(imageSize: image.size, ink: ink, leading: column.minX, centerY: column.midY, flipped: isFlipped, scale: scale) {
             return frame
         }
         let snap = { (value: CGFloat) in (value * scale).rounded() / scale }

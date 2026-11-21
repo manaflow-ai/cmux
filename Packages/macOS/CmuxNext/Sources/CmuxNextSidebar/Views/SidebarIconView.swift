@@ -78,6 +78,7 @@ final class SidebarIconView: NSView {
         isHidden = !Self.showsIcon(icon)
         emoji.isHidden = true
         faviconDrawing = nil
+        faviconDrawnFor = []
         switch icon {
         case let .emoji(text, chip)?:
             emoji.text = text
@@ -153,7 +154,7 @@ final class SidebarIconView: NSView {
 
     override func layout() {
         super.layout()
-        if let favicon = shownFavicon, faviconDrawing?.pixels != faviconPixels { showFavicon(favicon) }
+        if let favicon = shownFavicon, faviconDrawnFor != faviconPixels { showFavicon(favicon) }
         // A row's icon column can be wider than the glyph (the comfortable 20 pt box): the glyph keeps its own
         // `iconBox` square, centered in the column, so density moves the column and not the glyph's size.
         // `leadsWithInk`: each glyph's drawn ink starts at x 0 by `SidebarStyle.iconColumnGlyphX`; the chip, the dot and
@@ -193,8 +194,10 @@ final class SidebarIconView: NSView {
     private func leadingImageFrame(side: CGFloat) -> CGRect? {
         guard let image = imageView.image, image.size.width > 0, image.size.height > 0,
               let ink = SidebarGlyphInk.shared.box(of: image, glyph: inkKey) else { return nil }
-        return SidebarStyle.rowGlyphOptics.frame(imageSize: image.size, ink: ink, leading: 0, centerY: bounds.midY,
-                                                 flipped: isFlipped, scale: window?.backingScaleFactor ?? 2)
+        // A favicon is a full picture: it fills the tab's favicon box (`rowFaviconOptics`), not the line glyphs' ink (#48586).
+        let optics = shownFavicon == nil ? SidebarStyle.rowGlyphOptics : SidebarStyle.rowFaviconOptics
+        return optics.frame(imageSize: image.size, ink: ink, leading: 0, centerY: bounds.midY,
+                            flipped: isFlipped, scale: window?.backingScaleFactor ?? 2)
     }
 
     // MARK: Favicon (Lawrence msg 19869: legible on light and dark)
@@ -211,19 +214,29 @@ final class SidebarIconView: NSView {
     private var faviconSide: CGFloat {
         max(1 / backingScale, snap(SidebarStyle.rowGlyphOptics.box ?? SidebarStyle.rowGlyphOpticalSide * 4 / 3))
     }
-    /// The pixel side the favicon's bitmap is made at now (`SidebarFaviconRenditions.drawing`).
-    private var faviconPixels: Int { max(1, Int((faviconSide * max(2, backingScale)).rounded())) }
+    /// The pixel side the favicon's first bitmap is made at now (`SidebarFaviconRenditions.fittedDrawing`), and the
+    /// favicon size it was fitted to: a change of either draws it again.
+    private var faviconPixels: [Int] {
+        [max(1, Int((faviconSide * max(2, backingScale)).rounded())), Int((SidebarStyle.rowFaviconOpticalSide * 4).rounded())]
+    }
+    /// ``faviconPixels`` when the shown favicon was drawn.
+    private var faviconDrawnFor: [Int] = []
 
     /// Hands the image view `favicon` as the favicon style draws it on the sidebar ground in this view's theme, and
     /// lays out again when the drawing changed (its ink box, `SidebarGlyphInk`, is keyed by the treatment).
     private func showFavicon(_ favicon: SidebarFavicon) {
         renditions.onStyleChange = { [weak self] in self?.faviconStyleChanged() }
+        let key = { (treatment: SidebarFaviconTreatment) in
+            "favicon|\(UInt(bitPattern: ObjectIdentifier(favicon.image).hashValue))|\(treatment)"
+        }
+        // Drawn at the side its ink fills the favicon size at, so the fit draws every bitmap pixel on one screen pixel.
         let drawing = performWithTheme {
-            renditions.drawing(favicon, side: faviconSide, scale: backingScale,
-                               ground: SidebarFaviconRenditions.groundLuminance(SidebarStyle.ground))
+            renditions.fittedDrawing(favicon, side: faviconSide, target: SidebarStyle.rowFaviconOpticalSide, scale: backingScale,
+                                     ground: SidebarFaviconRenditions.groundLuminance(SidebarStyle.ground), inkKey: key)
         }
         faviconDrawing = drawing
-        inkKey = "favicon|\(UInt(bitPattern: ObjectIdentifier(favicon.image).hashValue))|\(drawing.treatment)"
+        faviconDrawnFor = faviconPixels
+        inkKey = key(drawing.treatment)
         if imageView.image !== drawing.image {
             imageView.image = drawing.image
             needsLayout = true
@@ -241,7 +254,7 @@ final class SidebarIconView: NSView {
     /// The original treatment keeps the frame it always had.
     private func layoutFavicon(content: CGRect) {
         guard let drawing = faviconDrawing, drawing.treatment != .original else { return }
-        let side = SidebarStyle.rowGlyphOpticalSide
+        let side = min(SidebarStyle.rowFaviconOpticalSide, content.width)
         // Leading with ink, `leadingImageFrame` already sized it to the optical size.
         if !leadsWithInk {
             imageView.frame = CGRect(x: snap(content.midX - side / 2), y: snap(content.midY - side / 2), width: side, height: side)
