@@ -30,6 +30,9 @@ import SwiftUI
 ///   not a sentence. stop layout shifting"): A, the top-center toast the terminal shows,
 ///   in its four states; B, the chip just above the composer at the leading edge (the
 ///   agent chat's); C, symbol only at the trailing edge.
+/// - `chiplist`: a list's connection state (the Workspaces list, Home, Agent Chats) as a chip over
+///   the rows, which never move: A, top center (the one `cmuxMobileBanner` draws), in the link
+///   states and over the signed-out banner; B, top leading; C, symbol only at the top trailing edge.
 /// - `reconnect`: a list riding out a dropped or quiet connection to the Mac with its rows kept
 ///   (Leo 2026-11-21: no "didn't answer in time"): A, the line the Chats list shows
 ///   (`ListStatusRow`), in its three states, then the variants it was picked from, B and C.
@@ -71,6 +74,8 @@ public struct RecoveryGalleryRoot: View {
                 reconnect
             case "chip":
                 connectionChips
+            case "chiplist":
+                listChips
             case "theme-mocha", "theme-solarized", "theme-wallpaper":
                 MacThemeGallery(variant: scene)
             default:
@@ -274,6 +279,60 @@ public struct RecoveryGalleryRoot: View {
             .padding(.vertical, 60)
         }
         .accessibilityIdentifier("recoveryGallery.reconnect.variants")
+        .background(CmuxMobileTheme.standard.colors.bg.color)
+    }
+
+    private var listChips: some View {
+        let rows = ["cmux · Fix the login redirect", "api · Bump the parser to 2.4", "web · Why is CI slow on arm64?",
+                    "cmux · Land the chip", "infra · Rotate runners"]
+        func list<Chip: View>(_ alignment: Alignment, @ViewBuilder chip: () -> Chip) -> some View {
+            List {
+                // visible-only: a fixed gallery of five rows.
+                ForEach(rows, id: \.self) { Text($0) }
+            }
+            .listStyle(.insetGrouped)
+            .scrollDisabled(true)
+            .frame(height: 280)
+            .overlay(alignment: alignment) { chip().padding(.top, 8).padding(.horizontal, 20) }
+        }
+        let states: [ConnectionBannerState] = [.reconnecting(to: "Mac Studio"), .macOffline("Mac Studio"), .offline]
+        return ScrollView {
+            VStack(spacing: 12) {
+                // visible-only: three fixed link states.
+                ForEach(states, id: \.self) { state in
+                    galleryLabel("A · top center · \(state.chip?.word ?? state.text)")
+                    List {
+                        // visible-only: a fixed gallery of five rows.
+                        ForEach(rows, id: \.self) { Text($0) }
+                    }
+                    .listStyle(.insetGrouped)
+                    .scrollDisabled(true)
+                    .frame(height: 280)
+                    .cmuxMobileBanner(state, retry: {})
+                }
+                galleryLabel("A · signed out: the banner, also over the rows")
+                List {
+                    ForEach(rows, id: \.self) { Text($0) }
+                }
+                .listStyle(.insetGrouped)
+                .scrollDisabled(true)
+                .frame(height: 280)
+                .cmuxMobileBanner(.signedOut, retry: {})
+                galleryLabel("B · top leading")
+                list(.topLeading) { ConnectionChip(ConnectionBannerState.reconnecting(to: "Mac Studio").chip!) }
+                galleryLabel("C · symbol only, top trailing")
+                list(.topTrailing) {
+                    Image(systemName: "moon.zzz")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 30, height: 26)
+                        .glassEffect(.regular, in: .capsule)
+                        .accessibilityLabel(Text(verbatim: "Mac Studio is offline"))
+                }
+            }
+            .padding(.vertical, 60)
+        }
+        .accessibilityIdentifier("recoveryGallery.chiplist.variants")
         .background(CmuxMobileTheme.standard.colors.bg.color)
     }
 
