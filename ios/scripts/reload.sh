@@ -404,8 +404,6 @@ fi
 CMUX_IOS_SIMULATOR_API_BASE_URL_VALUE="$(cmux_ios_resolve_api_base_url simulator)"
 CMUX_IOS_DEVICE_API_BASE_URL_VALUE="$(cmux_ios_resolve_api_base_url physical_device)"
 CMUX_IOS_IROH_BROKER_BASE_URL_VALUE="$(cmux_ios_resolve_iroh_broker_base_url)"
-CMUX_IROH_V2_ENVIRONMENT_VALUE="${CMUX_IROH_V2_ENVIRONMENT:-development}"
-CMUX_IROH_V2_BASE_URL_VALUE="${CMUX_IROH_V2_BASE_URL:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -420,6 +418,8 @@ fi
 # sanitize_tag call below.
 # shellcheck source=../../scripts/lib/mobile-attach.sh
 source "$IOS_DIR/../scripts/lib/mobile-attach.sh"
+CMUX_IROH_V2_ENVIRONMENT_VALUE="$(cmux_attach_resolve_iroh_v2_environment "$PROD_AUTH")"
+CMUX_IROH_V2_BASE_URL_VALUE="${CMUX_IROH_V2_BASE_URL:-}"
 # Fail before building if the tag would collide with a fallback/reserved identity
 # or exceed the cloud presence limit.
 if ! cmux_attach_validate_dev_tag "$TAG"; then

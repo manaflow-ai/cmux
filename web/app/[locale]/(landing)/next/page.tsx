@@ -1,6 +1,6 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { CMUX_NEXT_NIGHTLY_DMG_URL } from "@/app/lib/nightly-downloads";
+import { CMUX_NEXT_DOWNLOAD_PATH } from "@/app/lib/nightly-downloads";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { AppleMark } from "@/app/[locale]/components/apple-mark";
 import { GitHubButton } from "@/app/[locale]/components/github-button";
@@ -67,7 +67,7 @@ export default function NextLandingPage() {
 
   const download = (
     <a
-      href={CMUX_NEXT_NIGHTLY_DMG_URL}
+      href={CMUX_NEXT_DOWNLOAD_PATH}
       className={`${ctaButtonBase} ${ctaButtonDefaultSize}`}
       style={ctaButtonStyle}
     >

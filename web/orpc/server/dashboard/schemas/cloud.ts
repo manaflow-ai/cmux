@@ -23,15 +23,20 @@ const cloudDeviceSchema = z.object({
 export const cloudDevicesSchema = z.object({ devices: z.array(cloudDeviceSchema) });
 
 /** One Cloud machine the dashboard can set a network policy on. */
+const cloudMachineStatusSchema = z.enum(["provisioning", "running", "failed", "paused", "destroyed"]);
+
 const cloudMachineSchema = z.object({
   id: z.string(),
   name: z.string(),
-  status: z.enum(["provisioning", "running", "failed", "paused", "destroyed"]),
+  status: cloudMachineStatusSchema,
   /** The team that owns the machine; null for a personal machine. */
   teamId: nullableString,
 });
 
 export const cloudMachinesSchema = z.object({ machines: z.array(cloudMachineSchema) });
+
+/** `POST /api/vm/{id}/resume`: the machine and the status it reached. */
+export const cloudMachineResumeSchema = z.object({ id: z.string(), status: cloudMachineStatusSchema });
 
 const networkPolicyRangeSchema = z.object({
   cidr: z.string(),

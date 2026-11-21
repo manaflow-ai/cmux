@@ -114,10 +114,19 @@ public struct CloudVMResizePlanValidator: Sendable {
             // preflight sizes the server will reject for that account.
             productMemoryCeiling = 8 * 1_024
         }
-        let advertisedMemoryMb = positiveLimit(rawLimits["maxMemoryMb"])
+        let explicitMemoryMb = positiveLimit(rawLimits["maxMemoryMb"])
+        let advertisedMemoryMb = explicitMemoryMb
             ?? maxMemoryFromLadder
             ?? productMemoryCeiling
-        let maxMemoryMb = min(advertisedMemoryMb, productMemoryCeiling)
+        // A control plane that sends `lockedMemoryOptionsMb` computes
+        // `maxMemoryMb` itself, including a team's custom deal above the tier
+        // (#41335), so only the largest machine size bounds it.
+        let maxMemoryMb: Int
+        if rawLimits["lockedMemoryOptionsMb"] is [Any], let explicitMemoryMb {
+            maxMemoryMb = min(explicitMemoryMb, 64 * 1_024)
+        } else {
+            maxMemoryMb = min(advertisedMemoryMb, productMemoryCeiling)
+        }
         let advertisedVcpus = positiveLimit(rawLimits["maxVcpus"])
             ?? max(1, maxMemoryMb / 2_048)
         let maxVcpus = min(advertisedVcpus, max(1, maxMemoryMb / 2_048))

@@ -61,7 +61,7 @@ jobs:
   route:
     # Cheap Linux layer so every PR gets a routed conclusion once the trigger
     # is promoted. The classifier integration remains intentionally explicit.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
       run_e2e: ${{ steps.decide.outputs.run_e2e }}
@@ -133,7 +133,7 @@ jobs:
       success()
       && needs.route.outputs.run_e2e == 'true'
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 150
     environment: ios-e2e
     permissions:
@@ -340,8 +340,11 @@ jobs:
           brew_bin="$(brew --prefix)/bin"
           export PATH="$brew_bin:$PATH"
           echo "$brew_bin" >> "$GITHUB_PATH"
-          if ! command -v axe >/dev/null 2>&1; then
-            brew install cameroncooke/axe/axe
+          # Not the Homebrew tap: its formula's install DSL fails on the
+          # runners' Homebrew (job 132861077367). The installer puts axe on
+          # GITHUB_PATH for later steps; this step reads it from its output.
+          if axe_home="$(./scripts/install-axe-ci.sh)"; then
+            export PATH="$axe_home:$PATH"
           fi
           command -v axe >/dev/null 2>&1 || {
             echo "::error::[infra-preflight] axe is missing from the simulator runner"
@@ -558,7 +561,7 @@ jobs:
     # jobs cannot run there.
     needs: [route, backend, mac-ios-e2e]
     if: always()
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Aggregate

@@ -2,13 +2,13 @@
   "metadataTitle": "Política de Privacidade — cmux",
   "metadataDescription": "Política de privacidade para cmux",
   "title": "Política de Privacidade",
-  "lastUpdated": "Última atualização: 1º de setembro de 2026",
+  "lastUpdated": "Última atualização: 17 de novembro de 2026",
   "sections": [
     {
       "paragraphs": [
-        "Manaflow (a \"Empresa\") está comprometida em manter proteções robustas de privacidade para seus usuários. Esta Política de Privacidade explica como coletamos, usamos e protegemos as informações que você nos fornece.",
+        "Manaflow, Inc. (a \"Empresa\") está comprometida em manter proteções robustas de privacidade para seus usuários. Esta Política de Privacidade explica como coletamos, usamos e protegemos as informações que você nos fornece.",
         "Nesta política, \"Site\" significa o site da Empresa em [cmux.com](https://cmux.com). \"Aplicativo\" significa o aplicativo de desktop cmux para macOS e o aplicativo móvel cmux para iPhone e iPad. \"Serviço\" significa o Site e o Aplicativo juntos. \"Nós\", \"nos\" e \"nosso\" significam a Empresa. \"Você\" significa um usuário do nosso Serviço.",
-        "Ao utilizar nosso Serviço, você aceita esta Política de Privacidade e nossos [Termos de Serviço](https://cmux.com/terms-of-service) e concorda com a coleta, armazenamento, uso e divulgação descritos aqui."
+        "Esta Política de Privacidade informa como coletamos, usamos e divulgamos informações. Ela é um aviso: não pede o seu consentimento, a menos que diga isso expressamente. Nossos [Termos de Serviço](https://cmux.com/terms-of-service) se aplicam ao seu uso do Serviço."
       ]
     },
     {
@@ -71,7 +71,7 @@
         "Slack: notificações internas privadas. Se você ingressar em uma lista de espera de plataforma, o e-mail e as plataformas enviadas serão enviados para nosso espaço de trabalho privado Slack."
       ],
       "afterBullets": [
-        "Cada serviço tem sua própria política de privacidade. Quando um terceiro processa Informações Pessoais para cmux, exigimos salvaguardas pelo menos tão protetoras quanto esta política e limitamos o uso ao fornecimento de serviços para cmux."
+        "Cada serviço tem sua própria política de privacidade. Exceto conforme a seção do cmux Cloud indica, quando um terceiro processa Informações Pessoais para cmux, exigimos salvaguardas pelo menos tão protetoras quanto esta política e limitamos o uso ao fornecimento de serviços para cmux."
       ]
     },
     {
