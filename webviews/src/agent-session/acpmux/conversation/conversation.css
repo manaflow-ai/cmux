@@ -3637,15 +3637,18 @@ pre.cv-math-source {
    if it were that row's second line (Leo, 2026-11-03, on "Thinking · 1m 23s total" under "Sent a
    message, finished 3 background tasks": "the indent looks bad"). It took the text column after
    "weird indenting /cut off text?" earlier that day (#33157). */
+/* Its row is the footer's slot (transcriptGrid.ts MARK_FOOTER_SLOT): its 32 line, 8 under a reply. Its words are drawn
+   in the live line's box at the top of that slot (transcriptGrid.ts TRANSCRIPT_LIVE_LINE_BOX, --cv-live-line-box), the
+   same box under a run, a reply or a prompt, so the row over it switching moves neither its top nor its words; the
+   rest of the slot is its row's room under it (below). Never a length here. */
 .cv-worked.is-below {
-  /* The footer's slot (transcriptGrid.ts MARK_FOOTER_SLOT): its 32 line, 8 under a reply. */
-  height: var(--cv-footer-row);
+  height: var(--cv-live-line-box, var(--cv-footer-row));
   padding-top: 0;
 }
-/* Right under a step row (model.ts isLiveStep) its box is transcriptGrid.ts's TRANSCRIPT_LIVE_STEP_BOX, set on the
+/* Right under a step row (model.ts isLiveStep) its row is transcriptGrid.ts's TRANSCRIPT_LIVE_STEP_BOX, set on the
    scroller as --cv-live-step-height (transcriptLiveVars): never a length here. Its ⌃B hint stays on its line. */
 .acpmux-row--below.acpmux-row--after-step > .cv-worked.is-below {
-  height: var(--cv-live-step-height);
+  height: min(var(--cv-live-line-box, var(--cv-footer-row)), var(--cv-live-step-height));
 }
 /* Its "⌃B to run in background" keeps its room while it is offered, and pointing at the line changes
    only its opacity, on every live line (backgroundHintRoom.experiment.ts). It used to take its room
@@ -3708,7 +3711,12 @@ pre.cv-math-source {
    last footer's 32px and its estimate's (model.ts fallbackRowHeight). */
 .acpmux-row:is(.acpmux-thinking, .acpmux-working):has(> .cv-worked.is-below) {
   min-height: 0;
-  padding-bottom: 0;
+  padding-bottom: calc(var(--cv-footer-row) - var(--cv-live-line-box, var(--cv-footer-row)));
+}
+.acpmux-row--below.acpmux-row--after-step:is(.acpmux-thinking, .acpmux-working):has(> .cv-worked.is-below) {
+  padding-bottom: calc(
+    var(--cv-live-step-height) - min(var(--cv-live-line-box, var(--cv-footer-row)), var(--cv-live-step-height))
+  );
 }
 /* The live line waits, its height kept, while the answer streams over it (Thinking.tsx). */
 .cv-worked.is-quiet {
@@ -5338,21 +5346,11 @@ button.cv-video-frames__frame:focus-visible {
   background: var(--cv-rule);
   pointer-events: none;
 }
-/* Inner calls in an opened group keep their disclosure slot, but the quiet chevron only appears
-   when that row is under the pointer (Leo, 2026-11-01). The group header keeps its own disclosure.
-   A focused or opened row keeps its chevron revealed while its menu or body is open, never a
-   lifted tone: its words light on hover only, its glyph never (Lucas, 2026-11-06, above). */
-:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool > .cv-tool__chevron {
-  opacity: 0;
-  transition: var(--cv-row-reveal-out);
-}
-:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:hover > .cv-tool__chevron,
-:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:has([data-popup-open]) > .cv-tool__chevron,
-:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:is(:focus-within, [aria-expanded="true"], [data-popup-open], :has([aria-expanded="true"]))
-  > .cv-tool__chevron {
-  opacity: 1;
-  transition: none;
-}
+/* One chevron rule for every row that opens (design/chat-row-anatomy.md; Leo, 2026-11-21: "inconsistent
+   chevrons"): a row's chevron is there at rest, in the quiet tone, right after its words, whether the
+   row heads the transcript or sits inside an opened group. Inner calls hid theirs until the pointer
+   came (Leo, 2026-11-01), while message, failure and group lines beside them kept theirs, so the
+   same list read two ways (frames 07, 09, 12 of his 05:30Z video). A row that opens nothing draws none. */
 /* A thought step's brain glyph puts its words on the rows' text column; its opened text sits there too. */
 .cv-step-thought__body,
 .cv-step > .cv-tool-error {
@@ -8468,7 +8466,7 @@ a.cv-sha:focus-visible {
   padding-bottom: 0;
 }
 .acpmux-row.acpmux-activityLine.acpmux-row--below .cv-activity {
-  min-height: var(--cv-footer-row);
+  min-height: var(--cv-live-line-box, var(--cv-footer-row));
 }
 /* Right under a step row it takes the live line's box in a run, as the Thinking line does (transcriptGrid.ts
    TRANSCRIPT_LIVE_STEP_BOX, --cv-live-step-height). */
@@ -8476,7 +8474,7 @@ a.cv-sha:focus-visible {
   height: var(--cv-live-step-height);
 }
 .acpmux-row.acpmux-activityLine.acpmux-row--below.acpmux-row--after-step .cv-activity {
-  min-height: var(--cv-live-step-height);
+  min-height: min(var(--cv-live-line-box, var(--cv-footer-row)), var(--cv-live-step-height));
 }
 
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
