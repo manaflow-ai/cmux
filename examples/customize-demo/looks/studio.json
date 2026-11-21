@@ -12,7 +12,6 @@
       "agentPane.searchChats"
     ],
     "sidebar.groupBy": "folder",
-    "sidebar.settleFinished": true,
     "sidebar.showSpaces": false,
     "sidebar.cards.tips": false,
     "sidebar.groupHeader.background": "sections",
