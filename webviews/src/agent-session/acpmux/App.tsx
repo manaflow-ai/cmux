@@ -7711,6 +7711,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       "customize",
     ]);
     if (snapshot.summary) enabledCmuxActions.add("status");
+    // /rename is the header's Rename on a chat's own tab; Quick Chat's panel is no tab to rename.
+    if (snapshot.sessionId && !quick) enabledCmuxActions.add("rename");
     if (!quick) enabledCmuxActions.add("cd");
     if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
     // A working chat offers /side too: its fork is of the chat as it is now (#38042).
@@ -10508,6 +10510,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
     if (command.action === "status") {
       setStatusCardOpen(true);
+      return true;
+    }
+    // /rename opens the tab's name editor, as ⌘R and the header's Rename do. New Tab has no chat tab.
+    if (command.action === "rename") {
+      if (fresh || quick || !snapshot.sessionId) return t("composer.cmuxUnavailable");
+      runHeaderAction(HEADER_ACTIONS.rename);
       return true;
     }
     // /resume: the chats search, the same page Show all chats and Cmd-K open, where an earlier chat
