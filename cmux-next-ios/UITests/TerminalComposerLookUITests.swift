@@ -46,6 +46,10 @@ final class TerminalComposerLookUITests: XCTestCase {
             lumas[count] = luma
             print("composer-look variant=\(variant) lines=\(count) frame=\(field.frame) luma=\(String(format: "%.2f", luma))")
         }
+        let numbers = XCTAttachment(string: lumas.sorted { $0.key < $1.key }.map { "composer-look variant=\(variant) lines=\($0.key) luma=\(String(format: "%.2f", $0.value))" }.joined(separator: "\n"))
+        numbers.name = "composer-look-\(variant)"
+        numbers.lifetime = .keepAlways
+        add(numbers)
         let one = try XCTUnwrap(lumas[1])
         for count in [3, 4, 8] {
             let luma = try XCTUnwrap(lumas[count])
