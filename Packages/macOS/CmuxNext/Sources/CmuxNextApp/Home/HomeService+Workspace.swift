@@ -196,9 +196,16 @@ extension HomeService {
     /// starts the local mux's brain host once per launch.
     func tabView(for tab: TabModel) -> HomeHostView? {
         guard tab.kind == .conversation, let conversation = tab.snapshot.conversation?.conversation else { return nil }
-        if let view = tabViews[tab.id] { return view }
+        return hostView(tab.id, conversation)
+    }
+
+    /// The Chief panel's own Chief chat with the docked Home, whose page is all of Home (23f42b1); kept, so a hide keeps its draft.
+    func chiefPanelView() -> HomeHostView? { messageRouting.chiefConversation.map { hostView("chiefPanel:" + $0.rawValue, $0.rawValue) } }
+
+    private func hostView(_ key: String, _ conversation: String) -> HomeHostView {
+        if let view = tabViews[key] { return view }
         let view = HomeHostView(services: services, conversation: conversation)
-        tabViews[tab.id] = view
+        tabViews[key] = view
         // A cloud Chief's brain runs in the cloud or on its server: no local brain host for its tab.
         if cloudChiefs.chief(for: conversation) == nil { homeDidOpen(asked: true) }
         return view

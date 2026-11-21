@@ -334,9 +334,10 @@ extension WindowController {
         chiefPanelView?.yieldKeys(to: window); if let target = pane.currentContent?.focusTarget, window.firstResponder !== target { window.makeFirstResponder(target) }
     }
 
-    /// The view of Home's Chief tab: the Home page in its pinned chat dock (its live view), else a conversation tab.
+    /// The Chief chat: the docked Home's own (its page is all of Home, list and chat), else the classic Home's Chief tab view.
     private func homeChiefView() -> NSView? {
         guard let home = frameHome, let (workspace, daemon) = services.machines.workspace(id: home) else { return nil }
+        if !services.home.dock.isClassic { return services.home.chiefPanelView() }
         return workspace.chiefPanelTabs.lazy.compactMap { tab -> NSView? in tab.page == nil ? self.services.home.tabView(for: tab)
             : self.services.pages.existingView(tab.id) ?? self.services.pages.view(forStoreTab: tab, in: daemon.store, local: daemon.isLocal, window: self) }.first
     }
