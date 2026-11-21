@@ -113,16 +113,34 @@ jobs:
     needs: build
     # The NEXT nightly's signing identity: release-next, a deployment whose branch policy keeps it on nightly-next.
     environment: release-next
-    # A literal ephemeral label (tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py rule 7), as
-    # cmux-tui-team-signed.yml signs: it never takes the nightly's signing Mac.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 90
+    # The nightly's own signing runner, as nightly.yml's signing jobs take it (promote-nightly-next): never
+    # Blacksmith (nightlies never use Blacksmith, Lawrence 2026-10-30), ending on a literal label
+    # (tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py rule 7). It runs after the nightly published.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || vars.CI_NIGHTLY_SIGN_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
+    # Room for glaeda's capacity wait on the mini, as nightly.yml gives its signing jobs there.
+    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 190 || 90 }}
     permissions:
       contents: read
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
+      # First, before any checkout or secret: the whole mini (glaeda's exclusive class), as nightly.yml's signing jobs.
+      - name: Hold the whole Mac before any credential
+        id: claim-gate
+        shell: bash
+        run: |
+          owned=""
+          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
+          if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
+          if [ -n "$owned" ]; then
+            if [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
+              echo "::error title=Signing runner::This owned Mac did not give the job the whole mini, so this job fails; nightly signing runs only on a trusted signing runner, never on Blacksmith."
+              exit 1
+            fi
+            echo "claim=owned" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout this workflow's signing tools
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
