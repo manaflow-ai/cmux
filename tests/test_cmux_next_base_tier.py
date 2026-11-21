@@ -1221,7 +1221,7 @@ class Workflows(unittest.TestCase):
         self.assertIn("scripts/ci/github_quota_client.py", checkout["with"]["sparse-checkout"])
 
     def test_sleeping_dispatcher_reads_the_linux_pool(self):
-        # A pure Python timer/API call reads the reconciled Linux pool, never a fixed
+        # A pure Python timer/API call takes the one own-branch Linux label, never a fixed
         # Blacksmith size that can stall (tests/test_ci_linux_single_size.py).
         cells = workflow_jobs.runs_on_cells(workflow_jobs.jobs(KICK)["kick"])
         self.assertIsNotNone(cells, "kick runs-on reads a matrix value nothing resolves")
@@ -1230,7 +1230,7 @@ class Workflows(unittest.TestCase):
         self.assertIn("'ubuntu-24.04'", expression)
         self.assertNotIn("32vcpu", expression)
         self.assertNotIn("vars.LINUX_RUNNER", expression)
-        self.assertTrue(expression.rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"), expression)
+        self.assertTrue(expression.rstrip().endswith("|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"), expression)
 
     def test_the_push_and_the_kick_read_the_same_switch(self):
         env = route_step()["env"]

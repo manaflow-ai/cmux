@@ -131,6 +131,9 @@ def blacksmith_linux_term(term: str, pools: dict[str, list[str]] | None = None,
     return bool(blacksmith) and all(member in blacksmith or member in POOL_FLEET_MEMBERS for member in members)
 
 
+# An own-branch Linux job's last two route terms: the CI v2 overflow switch, then the one Linux label.
+OWN_LINUX_TAIL = ("vars.CI_OVERFLOW_LINUX", "'cmux-linux'")
+
 # The owned Linux label a declared x64 pool may lead with (.github/runners.json, #47803).
 POOL_FLEET_MEMBERS = ("cmux-fleet-linux-x64",)
 
@@ -186,7 +189,8 @@ def portable_order(runs_on: str, nightly: bool = False, pools: dict[str, list[st
 
     The order (Leo's rulebook, 2026-10-31): fleet Linux, then a free mini, then Blacksmith as the
     overflow. A nightly route instead ends on ``NIGHTLY_OVERFLOW``: nightlies never run on Blacksmith. The value terms must read portable placement's linux_runner before its mini_runner,
-    and end on a Blacksmith Linux label.
+    and end on a Blacksmith Linux label, or on the own-branch tail ``OWN_LINUX_TAIL`` (``vars.CI_OVERFLOW_LINUX ||
+    'cmux-linux'``, c-ab6690acae).
     """
     expressions = EXPRESSION.findall(json.loads(runs_on) if runs_on.startswith('"') else runs_on)
     if len(expressions) != 1:
@@ -233,6 +237,10 @@ def portable_order(runs_on: str, nightly: bool = False, pools: dict[str, list[st
         return "it takes the mini before fleet Linux"
     if nightly:
         return "" if nightly_overflow_term(terms[-1]) else "it does not end on an overflow that is never Blacksmith"
+    # The one own-branch Linux label, Blacksmith only through the CI v2 overflow switch (Leo c-ab6690acae,
+    # junctions 2026-11-20).
+    if terms[mini + 1:][-2:] == list(OWN_LINUX_TAIL):
+        return ""
     if not blacksmith_linux_term(terms[-1], pools) or not any(
             blacksmith_linux_term(term, pools) for term in terms[mini + 1:]):
         return "it does not end on a Blacksmith Linux label after the mini"

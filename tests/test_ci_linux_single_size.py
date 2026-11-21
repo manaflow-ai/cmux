@@ -316,7 +316,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(cells), 1, cells)
         runs_on = cells[0]
         self.assertFalse(single_size(runs_on))
-        self.assertTrue(runs_on.rstrip().endswith("fromJSON(vars.RUNNER_POOLS).linux }}"), runs_on)
+        self.assertTrue(runs_on.rstrip().endswith("|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"), runs_on)
 
     def test_web_subarea_scope_reads_the_linux_pool(self) -> None:
         # Run 41275619982 (2026-11-01): job 124762739841 waited 50 minutes unassigned on LINUX_RUNNER's
@@ -327,7 +327,7 @@ class WorkflowTests(unittest.TestCase):
         runs_on = cells[0]
         self.assertFalse(single_size(runs_on))
         self.assertNotIn("LINUX_RUNNER", runs_on)
-        self.assertTrue(runs_on.rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"), runs_on)
+        self.assertTrue(runs_on.rstrip().endswith("|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"), runs_on)
 
     def test_no_workflow_adds_a_single_size_linux_job(self) -> None:
         found = counts()

@@ -220,7 +220,11 @@ jobs:
         label = cells[0]
         config = (ROOT / ".github" / "actionlint.yaml").read_text(encoding="utf-8")
         pool = re.fullmatch(r"\$\{\{\s*fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)\s*\}\}", label)
-        if pool:
+        # The own-branch route: the overflow switch, else the one literal Linux label (c-ab6690acae).
+        route = re.fullmatch(r"\$\{\{\s*vars\.CI_OVERFLOW_LINUX \|\| '([^']+)'\s*\}\}", label)
+        if route:
+            self.assertRegex(config, rf"(?m)^\s*-\s*{re.escape(route.group(1))}\s*$")
+        elif pool:
             self.assertEqual(pool.group(1), "linux_32")
             runners = json.loads((ROOT / ".github" / "runners.json").read_text(encoding="utf-8"))
             for member in runners["pools"][pool.group(1)]["members"]:

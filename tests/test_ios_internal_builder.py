@@ -633,10 +633,9 @@ class TriggerRunnerTests(unittest.TestCase):
         # (tests/test_ci_linux_single_size.py).
         self.assertNotIn("32vcpu", runs_on)
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
-        # Only a member of the Linux pool, so the nightly runner label policy can read it (HQ
-        # tests/test_runner_label_policy.py); a stale or unset pool takes the 4 vCPU member.
-        self.assertIn("contains(fromJSON('[\"cmux-fleet-linux-x64\",\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\"]'), fromJSON(vars.RUNNER_POOLS).linux) && fromJSON(vars.RUNNER_POOLS).linux", runs_on)
-        self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), runs_on)
+        # The one own-branch Linux label, or the CI v2 overflow switch (Leo c-ab6690acae, junctions 2026-11-20).
+        self.assertNotIn("RUNNER_POOLS", runs_on)
+        self.assertTrue(runs_on.endswith("|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"), runs_on)
 
     def test_a_persons_dispatch_is_not_replaced_by_the_next_push(self):
         """Run 44328490608: a person's dispatch waited behind a running decide and the next push replaced it."""
