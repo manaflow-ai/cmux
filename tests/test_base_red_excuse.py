@@ -16185,6 +16185,152 @@ class HeadCheckNamedAnotherWay(unittest.TestCase):
             self.found("Web tests (2/4)", statuses=[status])
 
 
+class SameNamedChecksTellApartByWorkflow(unittest.TestCase):
+    """Several workflows each have a job of one name, so one name is several check runs at one head (2026-11-21,
+    hq#17005 at 7d52c802): `--check 'lane-gh-broker tests / tests'` came back "not excused: 'tests' is success ...
+    re-run it", a verdict about a *different* check run of another workflow. latest_checks kept one check run per
+    name, the highest id, so the rest were invisible: the name was read as whichever of them GitHub listed last, and
+    spelled_check's refusal for a name two check runs answer to could never fire for them. The checks page's
+    '<workflow> / <check>' form names one of them, and the workflow of each one's run is in the one
+    `actions/runs?head_sha=` read the head already makes (head_runs); where it cannot tell them apart, none is judged.
+    Two runs of one workflow at one head are not ambiguous: the newest is the verdict, as everywhere else here."""
+
+    SHA = "7d52c80222b041a35c8b4b42e9f1746d9dc1cb5e"
+    # run id -> (workflow name, check run and job id, conclusion). All three red, so no green path is in the way of
+    # the question asked here: which check run a name names.
+    BROKER, SKILLS, RECONCILERS = 44918143341, 44916267116, 44918143439
+    WORKFLOWS = {BROKER: "lane-gh-broker tests", SKILLS: "Skills tests", RECONCILERS: "fleet-reconcilers tests"}
+    JOBS = {BROKER: 131000000001, SKILLS: 131000000002, RECONCILERS: 131000000003}
+
+    class Fake:
+        def __init__(self, runs, check_name="tests"):
+            # runs: run id -> workflow name, one check run of CHECK_NAME each. A check run's own name carries the
+            # caller job of a reusable workflow ahead of the job's name ('web / Web tests (2/4)'), which is the
+            # spelling cmux#38644 is about, so it is a parameter here rather than always the plain job name.
+            self.runs, self.check_name, self.routes = runs, check_name, []
+
+        def json(self, route, *, paginate=False):
+            self.routes.append(route)
+            outer = SameNamedChecksTellApartByWorkflow
+            if route.endswith("/check-runs?filter=all&per_page=100"):
+                return [{"check_runs": [outer.check_run(run, self.check_name) for run in self.runs]}]
+            if "/actions/jobs/" in route:
+                return outer.job(int(route.rsplit("/", 1)[1]), self.check_name)
+            if route.endswith("/status?per_page=100"):
+                return {"statuses": []}
+            if "/actions/runs?head_sha=" in route:
+                return [{"workflow_runs": [{"id": run, "name": name, "head_sha": outer.SHA, "path":
+                                            f".github/workflows/{run}.yml", "event": "push", "workflow_id": run,
+                                            "status": "completed", "conclusion": "failure"}
+                                           for run, name in self.runs.items()]}]
+            raise AssertionError(route)
+
+    @classmethod
+    def check_run(cls, run, check_name="tests"):
+        job = cls.JOBS[run]
+        return {"app": {"slug": "github-actions"}, "check_suite": {"id": 900000 + run}, "id": job, "name": check_name,
+                "status": "completed", "conclusion": "failure", "head_sha": cls.SHA,
+                "details_url": f"https://github.com/{REPO}/actions/runs/{run}/job/{job}"}
+
+    @classmethod
+    def job(cls, job_id, check_name="tests"):
+        run = next(run for run, found in cls.JOBS.items() if found == job_id)
+        return {"id": job_id, "run_id": run, "name": check_name, "status": "completed", "conclusion": "failure",
+                "head_sha": cls.SHA, "steps": [{"name": "Run tests", "status": "completed", "conclusion": "failure"}]}
+
+    def found(self, name, runs=None, check_name="tests"):
+        gh = self.Fake(runs if runs is not None else dict(self.WORKFLOWS), check_name)
+        audit: list[str] = []
+        jobs = excuse.head_jobs(REPO, self.SHA, [], [name], gh, excused=audit)
+        return [job["id"] for job in jobs], audit, gh
+
+    def test_the_newest_check_run_of_the_name_is_not_every_check_run_of_it(self):
+        """What collapsed: three check runs named 'tests', and the highest id answered for all three."""
+        gh = self.Fake(dict(self.WORKFLOWS))
+        at_head = excuse.check_runs_at(REPO, self.SHA, gh)
+        self.assertEqual(sorted(check["id"] for check in at_head["tests"]), sorted(self.JOBS.values()))
+        # latest_checks keeps its own meaning, the newest of the name, for every caller that asks only that.
+        self.assertEqual(excuse.latest_checks(REPO, self.SHA, gh)["tests"]["id"], max(self.JOBS.values()))
+
+    def test_the_name_is_read_as_its_own_workflows_check_run_not_the_newest_of_the_name(self):
+        for run, workflow in self.WORKFLOWS.items():
+            with self.subTest(workflow=workflow):
+                jobs, audit, _ = self.found(f"{workflow} / tests")
+                self.assertEqual(jobs, [self.JOBS[run]])
+                # The audit says *why* this check run, not only which name was asked for: an echo of the request
+                # would read the same under the old code, which had no workflow to name.
+                said = [line for line in audit if f"in workflow '{workflow}'" in line]
+                self.assertEqual(len(said), 1, audit)
+                self.assertIn(f"(job {self.JOBS[run]})", said[0])
+
+    def test_the_workflow_comes_from_the_read_the_head_already_makes(self):
+        _, _, gh = self.found("Skills tests / tests")
+        heads = [route for route in gh.routes if "/actions/runs?head_sha=" in route]
+        self.assertEqual(len(heads), 1, gh.routes)  # one read for every candidate, shared through SEEN
+
+    def test_the_name_as_written_names_three_check_runs_so_none_is_judged(self):
+        """'tests' alone cannot mean one of them; answering about the newest judged a check nobody asked about."""
+        with self.assertRaisesRegex(excuse.Refused, r"3 check runs.*lane-gh-broker tests / tests") as caught:
+            self.found("tests")
+        self.assertIn("name it in full", str(caught.exception))
+
+    def test_a_workflow_that_is_not_at_the_head_has_not_run_rather_than_the_wrong_check(self):
+        with self.assertRaisesRegex(excuse.Refused, "names 3 check runs|has not run on exact head"):
+            self.found("web / tests")
+
+    def test_two_runs_of_one_workflow_at_one_head_are_the_newest_of_them(self):
+        """Not ambiguity: a name's newest completed run is its verdict everywhere else here, and stays so."""
+        runs = {self.BROKER: "lane-gh-broker tests", self.RECONCILERS: "lane-gh-broker tests"}
+        jobs, _, _ = self.found("lane-gh-broker tests / tests", runs=runs)
+        self.assertEqual(jobs, [max(self.JOBS[run] for run in runs)])
+
+    def test_the_bare_name_of_two_runs_of_one_workflow_is_still_the_newest_of_them(self):
+        """The one-group fallback, which the test above reaches through the named branch instead. A bare 'tests' with
+        every candidate in one workflow must keep answering, as it did before this change: refusing here would be the
+        regression, since the only thing the name leaves open is which run, and the newest run is the verdict."""
+        runs = {self.BROKER: "lane-gh-broker tests", self.RECONCILERS: "lane-gh-broker tests"}
+        jobs, audit, _ = self.found("tests", runs=runs)
+        self.assertEqual(jobs, [max(self.JOBS[run] for run in runs)])
+        # Nothing is disclosed here, and that is right: this name named a check run as written, so nothing was read
+        # as another name. The audit line above belongs to spelled_check's path, where the name given and the check
+        # name differ. Asserting it here would demand a disclosure for a name that needed no interpreting.
+        self.assertEqual(audit, [])
+
+    def test_a_named_workflow_that_is_none_of_the_only_groups_has_not_run(self):
+        """The one-group fallback must not answer a name whose workflow it can read and contradicts. With every
+        candidate in 'lane-gh-broker tests', a caller naming 'web / tests' is asking about a check that is not there;
+        handing back the broker's run would be this PR's own bug, committed by the code that fixes it. Refusing on
+        ambiguity needs more than one group, so this case can only be told by the prefix."""
+        runs = {self.BROKER: "lane-gh-broker tests", self.RECONCILERS: "lane-gh-broker tests"}
+        with self.assertRaisesRegex(excuse.Refused, "has not run on exact head"):
+            self.found("web / tests", runs=runs)
+
+    def test_the_caller_job_spelling_still_answers_when_its_workflow_ran_twice(self):
+        """cmux#38644's spelling, at a head where the workflow ran more than once -- the ordinary shape, 20 of the 92
+        names at 8375182a4233. A reusable workflow's check run carries its caller job first ('web / Web tests (2/4)')
+        and a caller names the inner part, so spelled_check feeds one_check a name that is deliberately not the check
+        run's own name. Telling a contradicted workflow apart by the prefix must not swallow that: the group's
+        workflow is readable and is not what this name spells either, but the name is the tail of the check name, so
+        the part the caller left off is a caller job, not a workflow that says no. Refusing here would answer 'has
+        not run on exact head' for a check that did run, which is the complaint this class exists for."""
+        runs = {self.BROKER: "CI", self.RECONCILERS: "CI"}
+        jobs, audit, _ = self.found("Web tests (2/4)", runs=runs, check_name="web / Web tests (2/4)")
+        self.assertEqual(jobs, [max(self.JOBS[run] for run in runs)])
+        self.assertTrue(any("read 'Web tests (2/4)' as check run 'web / Web tests (2/4)'" in line for line in audit),
+                        audit)
+
+    def test_a_workflow_no_run_list_names_degrades_to_the_newest_rather_than_refusing(self):
+        """When the run list cannot name the workflows, every candidate of one check name groups as one: the answer is
+        the newest, exactly what this file did before. Refusing instead would break judging a plain rerun, which is
+        indistinguishable from this without the workflow name."""
+        gh = self.Fake(dict(self.WORKFLOWS))
+        gh.json = lambda route, *, paginate=False: ([{"workflow_runs": []}]
+                                                    if "/actions/runs?head_sha=" in route
+                                                    else type(gh).json(gh, route, paginate=paginate))
+        jobs = [job["id"] for job in excuse.head_jobs(REPO, self.SHA, [], ["tests"], gh)]
+        self.assertEqual(jobs, [max(self.JOBS.values())])
+
+
 OTHER_PR_SETUP_FIXTURES = ROOT / "tests/fixtures/base_red_excuse_other_pr_setup"
 
 
