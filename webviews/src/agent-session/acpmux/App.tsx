@@ -179,7 +179,7 @@ import {
   type HarnessCatalogSource,
   useMachineHarnesses,
 } from "./catalog";
-import { usePickerCatalog } from "./modelCatalogHost";
+import { usePickerCatalog, reloadModelCatalog } from "./modelCatalogHost";
 import { isDefaultChoice } from "./defaultChoice";
 import { applySwitch, browserSwitchClock, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
 import { liveAsk } from "./liveAsk";
@@ -189,6 +189,7 @@ import {
   CloudTypingPrewarm,
   cloudIdentityKept,
   cloudTypingMachineID,
+  sameNewChat,
   type CloudIdentityView,
 } from "./cloudTypingPrewarm";
 import { CloudComposeReservation, reservedCloudCall } from "./cloudComposeReservation";
@@ -578,6 +579,7 @@ import { HarnessStatusCard } from "./HarnessStatusCard";
 import type { LocalCommand } from "./localCommands";
 import {
   cloudPageRefusal,
+  pageOnOtherMachine,
   cloudRunsHere,
   composerAgentLocal,
   cloudFolderGrants,
@@ -599,7 +601,7 @@ import {
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
-import { folderRunLocation, newChatRunLocation } from "./runLocationDefault";
+import { defaultFolderFor, folderRunLocation, newChatRunLocation } from "./runLocationDefault";
 import {
   lastNewChatPlace,
   pickedRunLocation,
@@ -4853,6 +4855,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     snapshot.isWorking,
     snapshot.summary?.machine,
   ]);
+  /// The page's chat runs on another machine (cloudRun.ts): Cloud is never this new chat's choice there (cmux#47679).
+  const onOtherMachinePage = pageOnOtherMachine({ cloudMachineID, origin: snapshot.origin, summary: snapshot.summary });
   /// Run as is a new chat's choice, in a pane with tabs (not the floating chat).
   /// Not once a chat is starting here (a harness pick, a deferred start): its session would replace
   /// the sandbox's result. The host refuses `sandbox.run` then too (AcpmuxPaneReplacements). Not
@@ -4900,7 +4904,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   });
   /// Cloud as where this new chat runs: wherever Sandboxed is, in an empty local chat, and on a page
   /// that holds only a pick.
-  const cloudOfferable = sandboxOfferable || emptyLocalChat || pickOnlyChat;
+  const cloudOfferable = !onOtherMachinePage && (sandboxOfferable || emptyLocalChat || pickOnlyChat);
   const cloudOffered = sandbox.checked && cloudOfferable;
   /// The chat a Cloud reserve made here names as the one its Send replaces: the empty local chat, else none.
   const cloudReserveReplaces = emptyLocalChat ? (snapshot.sessionId ?? undefined) : undefined;
@@ -5033,7 +5037,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// refusal said here, also while Cloud is picked but not offered now (as `sandboxPickedNotOffered`).
   /// The host says its own progress and failures (toasts), and the chat shows the start under the
   /// message as it goes (CloudStartView; the host's `cloudStartProgress` pushes fill it in).
-  const cloudPicked = sandbox.mode === "cloud" && (!snapshot.sessionId || emptyLocalChat);
+  /// Never on a page of another machine (`onOtherMachinePage`): a Cloud pick carried over from the chat before
+  /// is no Cloud start there, the send starts the chat in this pane on that machine.
+  const cloudPicked = sandbox.mode === "cloud" && !onOtherMachinePage && (!snapshot.sessionId || emptyLocalChat);
   // The permission mode picked for that Cloud start (cloudModePick.ts).
   const cloudModePick = useCloudModePick();
   // A warm machine is reserved wherever Cloud is offered: before a chat opened here, or in an empty local chat,
@@ -5548,15 +5554,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // The empty chat's own first session (a model pick of another agent opened it at once, `emptyLocalChat`) is
     // still this new chat: a Cloud start sent from it keeps its card, its held prompt and its reservation here.
     // Dropping them hid the start and its failure, and the prompt with it (cmux#45774).
+    // Any such session, with either place picked: a model pick never resets where the chat runs (cmux#47677).
     const shown = cloudShownView.current;
-    if (
-      shown.session === undefined &&
-      shown.generation === newTabGeneration &&
-      snapshot.sessionId !== undefined &&
-      sandbox.mode === "cloud" &&
-      emptyLocalChat
-    ) {
-      cloudShownView.current = { session: snapshot.sessionId, generation: newTabGeneration };
+    const next = { ...(snapshot.sessionId ? { session: snapshot.sessionId } : {}), generation: newTabGeneration };
+    if (sameNewChat(shown, next, emptyLocalChat, snapshot.switching !== undefined)) {
+      cloudShownView.current = next;
       return;
     }
     setSandboxDraftMoved(false);
@@ -7747,12 +7749,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- read again per new chat, not per render
     [snapshot.sessionId, newTabGeneration],
   );
+  /// The folder the default reads: this chat's first, so a later folder pick never moves the chat
+  /// between This Mac and Cloud (cmux#47677).
+  const [defaultFolder, setDefaultFolder] = useState<{ chat: string; folder: string } | undefined>(undefined);
+  const defaultFolderNow = defaultFolderFor(
+    defaultFolder,
+    `${snapshot.sessionId ?? ""}:${newTabGeneration}`,
+    composerSnapshot.summary?.cwd ?? newTab?.cwd,
+  );
+  if (defaultFolderNow !== defaultFolder) setDefaultFolder(defaultFolderNow);
   const folderRunDefault = useMemo(
     () =>
       sandboxOffered && !onOtherMachine
         ? newChatRunLocation(
             newChatsIn,
-            folderRunLocation(composerSnapshot.summary?.cwd ?? newTab?.cwd, snapshot.sessions, snapshot.peerKinds),
+            folderRunLocation(defaultFolderNow?.folder, snapshot.sessions, snapshot.peerKinds),
             pickedRunLocation(lastPlace),
           )
         : undefined,
@@ -7761,8 +7772,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       sandboxOffered,
       onOtherMachine,
       newChatsIn,
-      composerSnapshot.summary?.cwd,
-      newTab?.cwd,
+      defaultFolderNow?.folder,
       snapshot.sessions,
       snapshot.peerKinds,
     ],
@@ -8848,7 +8858,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         catalogClientId.current += 1;
         setCatalogSource({ id: catalogClientId.current, client });
         // A refreshed harness list or live model list re-reads the catalog (no polling).
-        followHarnessChanges(client, queryClient, catalogClientId.current);
+        followHarnessChanges(client, queryClient, catalogClientId.current, () => {
+          if (cancelled || directClient.current !== client) return;
+          void reloadModelCatalog().catch(() => undefined);
+        });
         connectedAt = Date.now();
         // A mock session is not one the host can reopen.
         const persistSession = (sessionId?: string) =>
@@ -10042,6 +10055,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             };
           },
         };
+        // The first catalog request can race the connection: useModelCatalogState subscribes before
+        // this action table exists, so retry once the direct client can serve catalog.get.
+        void reloadModelCatalog().catch(() => undefined);
         // An adoption that came while this page was still connecting runs on this client.
         runPendingAdoption.current();
         // The host may now hand this page (a prewarmed New Tab page) to a tab opening an existing
@@ -13385,7 +13401,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             })}
             localName={thisMacName(localMachineName, machineName, composerSnapshot.summary)}
             environments
-            {...(cloudOffered ? { runMode: composerModeRows } : {})}
+            // Where the new chat runs is settable as soon as Cloud may be offered here, not only once the
+            // host's check answered: before, the Where menu's Cloud row ran New Cloud Machine meanwhile
+            // and made a workspace on the click (cmux#47677). A send before the check waits for it
+            // (cloud_checking, cloudSendAfterCheck). A page on another machine starts no Cloud chat. Cloud
+            // still picked while it is briefly not offered (a pending selection, a switch) stays shown, so
+            // the menu never reads This Mac while Return goes to Cloud (cmux#47679).
+            {...((cloudOfferable && !onOtherMachine) || cloudPickedNotOffered ? { runMode: composerModeRows } : {})}
             onBrowseFolder={
               canMove ? () => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd) : undefined
             }

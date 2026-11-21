@@ -1673,6 +1673,11 @@ pub struct Config {
     /// default): such a send is refused as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub send_relay: Option<SendRelay>,
+    /// `newRelay`: `{"argv": [...]}`, the command `acpmux new --machine HOST` hands the start to
+    /// when this daemon refuses it because HOST names no peer (`cli/new_relay.rs`). Unset (the
+    /// default): such a start is refused as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_relay: Option<NewRelay>,
     /// `meshRelay`: `{"url", "tokenCommand", "controlFrom", "teamMessaging"}`, the team hub this
     /// daemon heartbeats its sessions to, takes messages for them from, and sends a message to a
     /// name nobody here resolves through (`mesh_http.rs`, `server/mesh_relay.rs`). Unset (the
@@ -1790,6 +1795,14 @@ pub struct SendRelay {
     pub argv: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ls_argv: Option<Vec<String>>,
+}
+
+/// `newRelay`: the relay command's argv; the CLI appends `--machine HOST` and the caller's other
+/// `new` words (see the module doc of `cli/new_relay.rs`, which re-exports it).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct NewRelay {
+    pub argv: Vec<String>,
 }
 
 mod config_impl;
