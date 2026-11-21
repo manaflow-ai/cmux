@@ -7,7 +7,7 @@
 //! `bg_stop` in `acpmux_mcp_bg.rs`.
 //!
 //! `output` and `stop` are here because the MCP server is not the only thing that can be down.
-//! 2026-11-21 on big-red the `acpmux` MCP server would not connect (ECONNREFUSED dialing its
+//! 2026-11-21 on an agent host the `acpmux` MCP server would not connect (ECONNREFUSED dialing its
 //! endpoint) while the daemon served the CLI fine, and with no `bg output` there was no route at
 //! all to a finished task's result: every backgrounded test sweep, push or CI wait had to be run
 //! again. A task's output and its stop reach the same daemon either way, so the shell is the

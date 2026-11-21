@@ -236,7 +236,7 @@ pub fn route_of_word(word: &str) -> Option<Route> {
 
 /// The call that reads task `id`'s output through the chat's own route to acpmux's MCP server,
 /// and the shell command that reads the same task from the daemon directly. The MCP server is
-/// not the only thing that can be down (2026-11-21 on big-red it would not connect while the
+/// not the only thing that can be down (2026-11-21 on an agent host it would not connect while the
 /// daemon served the CLI fine), so this next step never names only a route that can be dead.
 pub fn read_call(route: Option<&Route>, id: &str) -> String {
     let args = json!({"id": id});
