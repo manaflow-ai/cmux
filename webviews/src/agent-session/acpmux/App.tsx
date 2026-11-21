@@ -1,4 +1,5 @@
 import { composerHealthHarness } from "./composerPickerEntries";
+import { FORK_ICON } from "./icons/forkIcon";
 import { forkMenuRows } from "./header/forkMenu";
 import { openFork, openInOwnTab } from "./conversation/openFork";
 import { setSessionRefResolver } from "./conversation/sessionRefs";
@@ -757,7 +758,7 @@ import {
   newChatFolder,
 } from "./startFolderModel";
 import { useSyncedRef } from "../../diff-viewer/useSyncedRef";
-import { WorktreeSetupNotice, useWorktreeSetupStart } from "./worktreeSetup";
+import { rememberWorktreeSetup, WorktreeSetupNotice, useWorktreeSetupStart } from "./worktreeSetup";
 import { NewTabFolderAsk } from "./NewTabFolderAsk";
 import { MissingFolder } from "./missingFolder";
 import { chooseChatFolder } from "./missingFolderModel";
@@ -1648,12 +1649,23 @@ export function AcpmuxApp({ initialChat }: { initialChat?: InitialChat } = {}) {
 /// No projects known (a stable value, so memos keyed on it hold).
 const NO_PROJECTS: Project[] = [];
 
+async function selectSessionWorktree(source: { session_id: string } | { cwd: string; select: true }): Promise<string> {
+  const reply = (await callNative("git.worktree.create", {
+    ...source,
+    idempotency_key: crypto.randomUUID(),
+  })) as { value?: { root?: string; setup?: unknown } };
+  const root = reply?.value?.root;
+  if (!root?.startsWith("/")) throw new Error(translate("worktree.failed"));
+  rememberWorktreeSetup(root, reply.value?.setup);
+  return root;
+}
+
 function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Debug measurement (acpmuxPerf): the pane's own render, before its children.
   const paneRenderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.render("pane");
   const t = useT();
-  const { scrollToBottomOnSend, newChatsIn } = useComposerSettings();
+  const { scrollToBottomOnSend, newChatsIn, sessionWorktrees } = useComposerSettings();
   const scrollToBottomOnSendRef = useRef(scrollToBottomOnSend);
   scrollToBottomOnSendRef.current = scrollToBottomOnSend;
   /// A new chat's Run as (hq#3367): Persistent is the chat as before; Sandboxed runs the
@@ -9731,10 +9743,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // A fork and a started Continue In… open in a tab of their own, so the chat keeps its tab
           // and stays in the sidebar (Leo 2026-10-13). A host that opens none (an older app, the
           // floating chat) gets the new chat in this tab, as before.
-          "chat.fork": async ({ throughSeq, placement }) => {
+          "chat.fork": async ({ throughSeq, placement, worktreeSession }) => {
             harnessSwitch.cancel();
             const chat = client.selectedSession;
-            const forked = await client.fork(Number(throughSeq), undefined, true);
+            if (worktreeSession !== undefined && (!chat || worktreeSession !== chat)) return undefined;
+            const forked =
+              worktreeSession === undefined
+                ? await client.fork(Number(throughSeq), undefined, true)
+                : await client.fork("live", chat, true, async (sessionId) => {
+                    return selectSessionWorktree({ session_id: sessionId });
+                  });
             return openFork(forked, chat, placement, {
               open: openOwnTab,
               selected: () => client.selectedSession,
@@ -11191,6 +11209,23 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // Fork immediately; destination choices are a separate action and Option-click shortcut.
     const fork =
       forkable && lastForkSeq !== undefined ? forkMenuRows(lastForkSeq, () => turnActions.fork?.(lastForkSeq), t) : [];
+    if (
+      sessionWorktrees !== "off" &&
+      !forkRefusal(snapshot) &&
+      snapshot.canForkInFolder &&
+      snapshot.sessionId &&
+      !onOtherMachinePage &&
+      localCwd &&
+      hasNativeHost()
+    ) {
+      const worktreeSession = snapshot.sessionId;
+      fork.push({
+        key: "forkWorktree",
+        label: t("chatMenu.forkWorktree"),
+        icon: FORK_ICON,
+        onSelect: () => ignoreFailure(callNative("chat.fork", { worktreeSession })),
+      });
+    }
     // New side chat, New terminal and New browser: something new beside the chat, every time.
     const opensBeside = opensBesideRows({ sideChat, quick }, { terminal: newTerminal, browser: newBrowser }, t);
     const continueIn: ChatMenuItem[] =
@@ -14003,6 +14038,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       ? client.newProject(name)
                       : Promise.reject(new NewProjectUnsupported());
                   }}
+                  {...(!quick && !onOtherMachinePage
+                    ? {
+                        onSessionWorktree: (cwd: string) => selectSessionWorktree({ cwd, select: true }),
+                      }
+                    : {})}
                   onNewWorktree={(cwd) => {
                     let folder: string | undefined;
                     return newWorktree(callNative, cwd, (used) => {

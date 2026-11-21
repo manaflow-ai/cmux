@@ -287,7 +287,7 @@ fn expand(
         }
     };
     for (name, is_directory) in candidates {
-        if name == ".git" {
+        if name == ".git" || (relative.as_os_str().is_empty() && name == super::worktree::PROJECT_TREES) {
             continue;
         }
         let path = relative.join(&name);
@@ -321,7 +321,8 @@ fn children(root: &Path, relative: &Path, budget: &mut Budget) -> Vec<(String, b
         .filter_map(|entry| {
             let name = entry.file_name().into_string().ok()?;
             let is_directory = entry.file_type().ok()?.is_dir();
-            (name != ".git").then_some((name, is_directory))
+            (name != ".git" && !(relative.as_os_str().is_empty() && name == super::worktree::PROJECT_TREES))
+                .then_some((name, is_directory))
         })
         .collect();
     listed.sort();

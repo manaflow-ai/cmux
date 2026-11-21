@@ -41,6 +41,9 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     case push(sessionId: String, expectedHead: String?, setUpstream: Bool, key: String)
     /// A new chat's own worktree of `cwd`, the chat's folder (cx-lyqio.2).
     case worktree(cwd: String, name: String?, key: String)
+    /// Select the resulting worktree for a new chat or a fork of the current chat.
+    case sessionWorktree(cwd: String, key: String)
+    case forkWorktree(sessionId: String, key: String)
     /// The chat's worktree work, onto its main checkout (cx-lyqio.4).
     case worktreeApply(sessionId: String, key: String)
     /// The chat's worktree removed; `discard` removes work found nowhere
@@ -61,7 +64,7 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
         switch self {
         case .commit: "git.commit"
         case .push: "git.push"
-        case .worktree: "git.worktree.create"
+        case .worktree, .sessionWorktree, .forkWorktree: "git.worktree.create"
         case .worktreeApply: "git.worktree.apply"
         case .worktreeRemove: "git.worktree.remove"
         }
@@ -70,7 +73,8 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     /// The page's idempotency key for this user action.
     public var key: String {
         switch self {
-        case .commit(_, _, _, _, _, let key), .push(_, _, _, let key), .worktree(_, _, let key), .worktreeApply(_, let key),
+        case .commit(_, _, _, _, _, let key), .push(_, _, _, let key), .worktree(_, _, let key), .sessionWorktree(_, let key),
+             .forkWorktree(_, let key), .worktreeApply(_, let key),
              .worktreeRemove(_, _, let key): key
         }
     }
@@ -80,8 +84,8 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     public var sessionId: String? {
         switch self {
         case .commit(let sessionId, _, _, _, _, _), .push(let sessionId, _, _, _), .worktreeApply(let sessionId, _),
-             .worktreeRemove(let sessionId, _, _): sessionId
-        case .worktree: nil
+             .forkWorktree(let sessionId, _), .worktreeRemove(let sessionId, _, _): sessionId
+        case .worktree, .sessionWorktree: nil
         }
     }
 
@@ -103,7 +107,17 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     public init?(method: String, params: [String: Any]?) {
         guard let params, let key = params["idempotency_key"] as? String, Self.isKey(key) else { return nil }
         if method == "git.worktree.create" {
+            if let id = params["session_id"] {
+                guard let session = id as? String, Self.isKey(session), params["cwd"] == nil, params["name"] == nil else { return nil }
+                self = .forkWorktree(sessionId: session, key: key)
+                return
+            }
             guard let cwd = params["cwd"] as? String, cwd.hasPrefix("/"), !cwd.contains("\0") else { return nil }
+            if params["select"] as? Bool == true {
+                guard params["name"] == nil else { return nil }
+                self = .sessionWorktree(cwd: cwd, key: key)
+                return
+            }
             switch params["name"] {
             case nil, is NSNull: self = .worktree(cwd: cwd, name: nil, key: key)
             case let name as String where (1...Self.maximumNameCharacters).contains(name.count):

@@ -36,6 +36,7 @@ use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
 use cmux_json::JsonSet as _;
 
+pub(super) const PROJECT_TREES: &str = ".cmux-worktrees";
 const OPERATION: &str = "git.worktree.create";
 pub(super) const BRANCH_PREFIX: &str = "cmux/";
 const MAX_NAME_CHARS: usize = 48;
@@ -69,7 +70,13 @@ pub(super) fn dispatch(
         let attempt = match journal.attempt::<Attempt>(&fingerprint) {
             Some(attempt) => attempt,
             None => {
-                let attempt = plan(repository, target.common_dir(), &request.fields)?;
+                let location = cmux_config::Target::Key("agentPane.sessionWorktrees".into());
+                let in_project = mux.with_settings(|state| {
+                    state.get(&location).row.and_then(|row| row.value).as_ref().and_then(Value::as_str)
+                        == Some("project")
+                });
+                let folder = storage_folder(target.common_dir(), in_project)?;
+                let attempt = plan(repository, &folder, &request.fields)?;
                 journal.start(&fingerprint, &attempt)?;
                 attempt
             }
@@ -102,10 +109,48 @@ pub(super) fn dispatch(
     })
 }
 
+/// The location is resolved once. Recovery uses the absolute path already in the journal.
+fn storage_folder(common_dir: &Path, in_project: bool) -> Result<PathBuf, ResourceError> {
+    if in_project {
+        let main = main_root(common_dir).ok_or_else(|| {
+            refused(OPERATION, "no_project_folder", "this repository has no main checkout", Value::Null)
+        })?;
+        let folder = main.join(PROJECT_TREES);
+        let fail = |error: std::io::Error| {
+            refused(OPERATION, "no_worktree_root", format!("{}: {error}", folder.display()), Value::Null)
+        };
+        match std::fs::create_dir(&folder) {
+            Ok(()) => {
+                // The ignore file also ignores itself. Never edit the user's repository settings.
+                use std::io::Write;
+                std::fs::File::create_new(folder.join(".gitignore"))
+                    .and_then(|mut file| file.write_all(b"*\n"))
+                    .map_err(fail)?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                if !std::fs::symlink_metadata(&folder).map_err(fail)?.is_dir() {
+                    return Err(fail(std::io::Error::other("expected a directory")));
+                }
+            }
+            Err(error) => return Err(fail(error)),
+        }
+        return Ok(folder);
+    }
+    let Some(home) = crate::platform::home_dir() else {
+        let message = "the session host has no home folder for worktrees";
+        return Err(refused(OPERATION, "no_home", message, Value::Null));
+    };
+    let root = cmux_git::worktree_root::worktree_root(&home).map_err(|error| {
+        let message = format!("cannot prepare ~/.cmux/worktrees: {error}");
+        refused(OPERATION, "no_worktree_root", message, Value::Null)
+    })?;
+    Ok(root.join(project(common_dir)))
+}
+
 /// The base, and the first free name in this project's worktree folder.
 fn plan(
     repository: &Repository,
-    common_dir: &Path,
+    folder: &Path,
     fields: &Map<String, Value>,
 ) -> Result<Attempt, ResourceError> {
     let base = match fields.get("base").and_then(Value::as_str) {
@@ -126,15 +171,6 @@ fn plan(
     // A branch is recorded by name, so the later diff follows it; anything
     // else (`HEAD~1`, a tag that may move) by the commit it names now.
     let base = if repository.branch_ref(&base).is_some() { base } else { base_commit.clone() };
-    let Some(home) = crate::platform::home_dir() else {
-        let message = "the session host has no home folder for worktrees";
-        return Err(refused(OPERATION, "no_home", message, Value::Null));
-    };
-    let root = cmux_git::worktree_root::worktree_root(&home).map_err(|error| {
-        let message = format!("cannot prepare ~/.cmux/worktrees: {error}");
-        refused(OPERATION, "no_worktree_root", message, Value::Null)
-    })?;
-    let folder = root.join(project(common_dir));
     let name = fields
         .get("name")
         .and_then(Value::as_str)
@@ -143,7 +179,7 @@ fn plan(
         .unwrap_or_else(generated_name);
     let free = |candidate: &str| {
         let branch = format!("refs/heads/{BRANCH_PREFIX}{candidate}");
-        !folder.join(candidate).exists() && repository.commit(&branch).is_none()
+        std::fs::symlink_metadata(folder.join(candidate)).is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound) && repository.commit(&branch).is_none()
     };
     let chosen = std::iter::once(name.clone())
         .chain((2..=MAX_SUFFIX).map(|suffix| format!("{name}-{suffix}")))

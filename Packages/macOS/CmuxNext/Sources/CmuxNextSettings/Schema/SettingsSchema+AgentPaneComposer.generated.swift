@@ -167,7 +167,7 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 title: SettingsText.keyed("settings.agentPane.sessionWorktrees", "Session Worktrees"),
                 help: SettingsText.keyed("settings.agentPane.sessionWorktrees.help", "Choose where to keep worktrees for local chats and forks."),
                 kind: .choice([
-                    SettingChoice(AgentPaneSessionWorktrees.off.rawValue, SettingsText.keyed("settings.choice.sessionWorktreesOff", "Off")),
+                    SettingChoice(AgentPaneSessionWorktrees.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
                     SettingChoice(AgentPaneSessionWorktrees.shared.rawValue, SettingsText.keyed("settings.choice.sessionWorktreesShared", "Shared Worktree Folder")),
                     SettingChoice(AgentPaneSessionWorktrees.project.rawValue, SettingsText.keyed("settings.choice.sessionWorktreesProject", "Inside Project")),
                 ]),

@@ -397,7 +397,7 @@
             {
               "value": "off",
               "title": {
-                "key": "settings.choice.sessionWorktreesOff",
+                "key": "settings.choice.off",
                 "text": "Off"
               }
             },

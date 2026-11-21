@@ -13,6 +13,10 @@ enum AgentPaneGitWriteReply {
         guard let onGitWrite = model.onGitWrite else { return AgentPaneModel.gitFailure(.notConnected, message: message) }
         // New Worktree runs on the chat's machine: this Mac for a local chat, that machine for a
         // Cloud or SSH chat, never this Mac's disk for one (cmuxterm-hq#7856).
+        if case .sessionWorktree(let cwd, _) = write {
+            guard !model.remoteChat, model.gitWritesHere?() == true else { return AgentPaneModel.gitFailure(.noSessionFolder, message: message) }
+            return await newWorktree(write, in: cwd, model: model)
+        }
         if case .worktree(let cwd, _, _) = write {
             let onChatMachine = model.remoteChat ? model.gitWritesOnChatMachine?() == true : model.gitWritesHere?() == true
             guard onChatMachine else { return AgentPaneModel.gitFailure(.noSessionFolder, message: message) }
@@ -24,7 +28,7 @@ enum AgentPaneGitWriteReply {
         guard write.sessionId == sessionId else { return AgentPaneModel.gitFailure(.sessionChanged, message: message) }
         // Apply changes the user's own checkout and Remove deletes a folder: only on their click.
         switch write {
-        case .worktreeApply, .worktreeRemove:
+        case .worktreeApply, .worktreeRemove, .forkWorktree:
             if !model.transport.gestures.consume() { return AgentPaneModel.transportFailure(.gestureRequired) }
         default:
             break
@@ -37,6 +41,10 @@ enum AgentPaneGitWriteReply {
         }
         guard let folder, folder.isLocal, folder.cwd.hasPrefix("/") else {
             return AgentPaneModel.gitFailure(.noSessionFolder, message: message)
+        }
+        if case .forkWorktree = write {
+            guard !model.remoteChat, model.sessionId == sessionId else { return AgentPaneModel.gitFailure(.sessionChanged, message: message) }
+            return await createAndPick(write, source: folder.cwd, session: sessionId, model: model)
         }
         return await AgentPaneModel.gitReply(message: message) { try await onGitWrite(write, folder.cwd) }
     }
@@ -60,8 +68,33 @@ enum AgentPaneGitWriteReply {
               let folder = value["cwd"] as? String, folder.hasPrefix("/") else {
             return AgentPaneModel.gitFailure(.noSessionFolder, message: message)
         }
+        guard model.sessionId == nil else { return AgentPaneModel.gitFailure(.sessionChanged, message: message) }
+        if case .sessionWorktree = write {
+            return await createAndPick(write, source: folder, session: nil, model: model)
+        }
         guard case .worktree(_, let name, let key) = write else { return AgentPaneModel.gitFailure(.failed, message: message) }
         let named = AgentPaneGitWrite.worktree(cwd: folder, name: name, key: key)
         return await AgentPaneModel.gitReply(message: message) { try await onGitWrite(named, folder) }
+    }
+
+    /// The same click selects the resulting local worktree even when checkout outlasts its gesture.
+    /// Only the Git host supplies the new root. A late reply cannot grant it to another chat.
+    private static func createAndPick(_ write: AgentPaneGitWrite, source: String, session: String?, model: AgentPaneModel) async -> [String: Any] {
+        let message = AgentPaneModel.gitWriteFailedMessage
+        guard let onGitWrite = model.onGitWrite else { return AgentPaneModel.gitFailure(.notConnected, message: message) }
+        let reply = await AgentPaneModel.gitReply(message: message) { try await onGitWrite(write, source) }
+        guard let mutation = reply["value"] as? [String: Any], let value = mutation["value"] as? [String: Any],
+              let root = value["root"] as? String else { return reply }
+        let home = model.transport.homeFolder
+        let canonical = await Task.detached { () -> String? in
+            guard let path = AcpmuxPathPolicy.canonical(root), let home = home.flatMap(AcpmuxPathPolicy.canonical),
+                  !AgentHome.isHomeOrAbove(path, home: home), AcpmuxPathPolicy.isDirectory(path),
+                  let info = try? FileManager.default.attributesOfItem(atPath: root), info[.type] as? FileAttributeType == .typeDirectory else { return nil }
+            return path
+        }.value
+        guard model.sessionId == session, !model.remoteChat else { return AgentPaneModel.gitFailure(.sessionChanged, message: message) }
+        guard let canonical else { return AgentPaneModel.gitFailure(.noSessionFolder, message: message) }
+        await model.transport.grantPicked(canonical)
+        return reply
     }
 }

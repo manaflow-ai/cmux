@@ -3592,6 +3592,7 @@ export class AcpmuxDirectClient {
   private clockOffset?: number;
   /// acpmux lists `acp.session.fork` among the operations it serves.
   private canFork = false;
+  private canForkInFolder = false;
   private handoffSupported = false;
   private readonly peerEvents = new PeerStateEvents();
   /// The `_acpmux/*` methods acpmux's `initialize` lists (`_meta.acpmux.extensions`).
@@ -4458,6 +4459,7 @@ export class AcpmuxDirectClient {
         AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS,
       );
       this.canFork = servesOperation(initialized, FORK_OP);
+      this.canForkInFolder = servesOperation(initialized, "acp.session.fork.liveCwd");
       const features = initialized?._meta?.acpmux?.features;
       this.features = new Set(
         Array.isArray(features) ? features.filter((value): value is string => typeof value === "string") : [],
@@ -11750,6 +11752,7 @@ export class AcpmuxDirectClient {
       // Only a peer runs on another clock; this computer's own sessions need no correction.
       ...(summary?.peer && this.clockOffset !== undefined ? { clockOffsetMs: this.clockOffset } : {}),
       canFork: this.canFork,
+      canForkInFolder: this.canForkInFolder,
       ...(this.features.has(SIDE_CHAT_FEATURE) ? { sideChatOnMachine: true as const } : {}),
       canHandoff: this.handoffSupported,
       handoff: this.handoff.state,
@@ -15154,7 +15157,13 @@ export class AcpmuxDirectClient {
   /// stays there. `stay` keeps this chat open and only answers the fork, for its own tab: the pane
   /// shows its pending line meanwhile (ForkPendingLine), whose Cancel is `cancelFork`.
   /// `"live"`: the whole chat as it is now, also while its turn runs (Fork Conversation).
-  async fork(throughSeq: number | "live", from?: string, stay = false): Promise<string | undefined> {
+  async fork(
+    throughSeq: number | "live",
+    from?: string,
+    stay = false,
+    worktree?: (sessionId: string) => Promise<string>,
+  ): Promise<string | undefined> {
+    if (worktree && (!this.canForkInFolder || throughSeq !== "live" || from !== this.actingSessionId)) return undefined;
     if (!this.canFork || !this.actingSessionId || this.forking) return undefined;
     this.forking = true;
     this.forkCancelled = false;
@@ -15169,7 +15178,13 @@ export class AcpmuxDirectClient {
     }
     try {
       const boundary = throughSeq === "live" ? { sessionId, live: true } : { sessionId, throughSeq };
-      const result = await this.request(FORK_OP, cancelToken ? { ...boundary, cancelToken } : boundary);
+      const cwd = worktree ? await worktree(sessionId) : undefined;
+      if (this.forkCancelled || generation !== this.selectionGeneration) return undefined;
+      const result = await this.request(FORK_OP, {
+        ...boundary,
+        ...(cancelToken ? { cancelToken } : {}),
+        ...(cwd ? { cwd } : {}),
+      });
       if (this.forkCancelled) {
         if (result?.sessionId) this.takeBackFork(String(result.sessionId));
         return undefined;

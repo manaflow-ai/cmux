@@ -45,6 +45,7 @@ import { errorMessage, isStartCancelled, knownRefusalText, startErrorMessage } f
 import { logStartFailure, startFailureCause, startFailureCode } from "../startFailure";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunMode, type RunModeRows } from "../sandboxRun";
+import { Switch } from "../../../ui/Switch";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
 import { useSavedEnvironments } from "./savedEnvironments";
 import {
@@ -224,6 +225,7 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// The location row's machine list opened, and every few seconds while it stays open: the host
   /// reads acpmux's machines again (`_acpmux/status`).
   onRefreshMachines?(): void;
+  onSessionWorktree?(cwd: string): Promise<string>;
   /// With `environments`, New Worktree beside the folder: the host makes a worktree of `cwd` and
   /// this resolves to the folder the chat starts in (startFolder.tsx newWorktree); rejects with the
   /// host's reason.
@@ -784,8 +786,10 @@ export function NewTabScreen(props: Props) {
   /// answers (and a hidden live line says "Starting Claude Code…"), so a slow start never reads as
   /// Return having done nothing, and nothing around the composer moves.
   const [starting, setStarting] = useState<string>();
+  const [makingTree, setMakingTree] = useState(false);
+  const [draftTree, setDraftTree] = useState<{ source: string; folder: string }>();
   const requestChat = (...args: Parameters<NewTabScreenActions["onAsk"]>) => {
-    if (asking.current) return;
+    if (asking.current || makingTree) return;
     const request = ++askCount.current;
     asking.current = request;
     setStartError(undefined);
@@ -1021,7 +1025,7 @@ export function NewTabScreen(props: Props) {
     [shell, commandQuery, text],
   );
   useEffect(() => {
-    if (!wantsCommands) {
+    if (!wantsCommands || makingTree) {
       requestedCommands.current = undefined;
       return;
     }
@@ -1030,7 +1034,7 @@ export function NewTabScreen(props: Props) {
       requestedCommands.current = key;
       onCommands?.(harness, chatFolder);
     }
-  }, [wantsCommands, harness, chatFolder, snapshot.summary?.sessionId, onCommands]);
+  }, [wantsCommands, makingTree, harness, chatFolder, snapshot.summary?.sessionId, onCommands]);
   // A dismiss (a press outside the composer, Escape, or the host's: another app, a resize) hides
   // the rows until the text changes or the field is pressed; the text stays (Leo 10-13).
   const [dismissed, setDismissed] = useState<string>();
@@ -1158,7 +1162,7 @@ export function NewTabScreen(props: Props) {
   const chrome = useComposerChrome();
   // The chat composer's footer look (composerSettings.ts plainFooter): the New Tab row draws the
   // same plain chips, so the two composers never disagree (composerLocation.css).
-  const { plainFooter, spellChecking, attachmentView } = useComposerSettings();
+  const { plainFooter, spellChecking, attachmentView, sessionWorktrees } = useComposerSettings();
   // The quiet row's labels step down with the composer's width, as the chat's (composerRowFit.ts).
   const foot = useRef<HTMLDivElement>(null);
   // Every template keeps Claude's composer and its quiet footer.
@@ -1977,6 +1981,27 @@ export function NewTabScreen(props: Props) {
       },
     );
   };
+  // Select the host's folder before a model pick, slash lookup or prompt starts its harness.
+  const toggleWorktree = async (source: string, checked: boolean) => {
+    if (!checked && draftTree) {
+      pickProject(draftTree.source);
+      return;
+    }
+    if (makingTree || !props.onSessionWorktree) return;
+    const choice = ++projectChoice.current;
+    setMakingTree(true);
+    setWorktreeError(undefined);
+    try {
+      const folder = draftTree?.source === source ? draftTree.folder : await props.onSessionWorktree(source);
+      if (choice !== projectChoice.current) return;
+      pickProject(folder);
+      setDraftTree({ source, folder });
+    } catch {
+      if (choice === projectChoice.current) setWorktreeError({});
+    } finally {
+      if (browseAlive.current) setMakingTree(false);
+    }
+  };
   const browseProject = (request?: BrowseRequest) => {
     if (!browseAlive.current) return Promise.resolve(undefined);
     if (browsePending.current) return Promise.resolve(BROWSE_BUSY);
@@ -2140,6 +2165,25 @@ export function NewTabScreen(props: Props) {
             }
           : {})}
       />
+      {sessionWorktrees !== "off" &&
+        props.onSessionWorktree &&
+        askFolder &&
+        !homeOrAbove(askFolder) &&
+        !isAgentHome(askFolder) &&
+        !runsElsewhere &&
+        !environment &&
+        !newProject &&
+        !shell && (
+          <label className="acpmux-env-check">
+            <Switch
+              size="sm"
+              aria-label={t("environment.useWorktree")}
+              checked={makingTree || askFolder === draftTree?.folder}
+              onCheckedChange={(checked) => void toggleWorktree(askFolder, checked)}
+            />
+            <span>{t(makingTree ? "worktree.creating" : "environment.useWorktree")}</span>
+          </label>
+        )}
     </div>
   );
   // The SSH machines a saved environment can name (acpmux's `ssh://` peers) and each one's folders.
@@ -2614,6 +2658,8 @@ export function NewTabScreen(props: Props) {
   const page = (
     <div
       ref={screen}
+      inert={makingTree || undefined}
+      aria-busy={makingTree || undefined}
       className="nt-screen"
       data-shell={shell || undefined}
       data-template={template}

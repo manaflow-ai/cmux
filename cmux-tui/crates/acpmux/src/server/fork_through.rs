@@ -19,8 +19,11 @@ use crate::no_panic::JsonExt;
 use crate::store::SessionStatus;
 
 /// Advertised in `initialize` as `_meta.acpmux.operations`.
-pub const FORK_OPERATIONS: [&str; 2] =
-    [method::ACP_SESSION_FORK, "acp.session.fork.beforePromptId"];
+pub const FORK_OPERATIONS: [&str; 3] = [
+    method::ACP_SESSION_FORK,
+    "acp.session.fork.beforePromptId",
+    "acp.session.fork.liveCwd",
+];
 
 /// `acp.session.fork` as the `session/fork` it becomes. Any other method
 /// stays as it is, less a `throughSeq`: only `acp.session.fork` names one.
@@ -35,6 +38,17 @@ pub(super) async fn as_session_fork<'m>(
     params: &mut Value,
 ) -> Result<&'m str, RpcError> {
     if m == method::ACP_SESSION_FORK {
+        if let Some(cwd) = params.get("cwd") {
+            if !plain_live(params) || !cwd.as_str().is_some_and(|s| std::path::Path::new(s).is_absolute())
+                || names_a_peers_chat(hub, params)
+            {
+                return Err(RpcError::invalid_params("cwd requires a live local fork and an absolute folder"));
+            }
+            let cwd = cwd.clone();
+            *params = to_session_fork(hub, params).await?;
+            params.set("cwd", cwd);
+            return Ok(method::SESSION_FORK);
+        }
         if names_a_peers_chat(hub, params) && !plain_live(params) {
             return Ok(m);
         }

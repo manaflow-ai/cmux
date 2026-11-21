@@ -69,6 +69,7 @@ export type ComposerSettings = {
   harnessPlacement: HarnessPlacement;
   harnessSwitch: boolean;
   showMachineLoadWarnings: boolean;
+  sessionWorktrees: "off" | "project" | "shared";
   newChatsIn: NewChatPlace;
   composerRing: ComposerRing;
   cloudEnvironments: boolean;
@@ -88,6 +89,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   harnessPlacement: "symbols",
   harnessSwitch: false,
   showMachineLoadWarnings: true,
+  sessionWorktrees: "off",
   newChatsIn: "local",
   composerRing: "context",
   cloudEnvironments: false,
@@ -130,6 +132,8 @@ export function readComposerSettings(value: unknown): ComposerSettings {
         : "symbols",
     harnessSwitch: flag("harnessSwitch"),
     showMachineLoadWarnings: flag("showMachineLoadWarnings"),
+    sessionWorktrees:
+      raw.sessionWorktrees === "project" || raw.sessionWorktrees === "shared" ? raw.sessionWorktrees : "off",
     newChatsIn: raw.newChatsIn === "cloud" ? "cloud" : "local",
     composerRing: raw.composerRing === "planUsage" ? "planUsage" : "context",
     cloudEnvironments: flag("cloudEnvironments"),
