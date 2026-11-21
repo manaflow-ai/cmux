@@ -67,7 +67,7 @@ import Testing
         defer { design.densityTokens = saved }
         design.densityTokens = preset.tokens
         _ = NSApplication.shared
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = TwoXWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
@@ -143,7 +143,7 @@ import Testing
         defer { design.densityTokens = saved }
         design.densityTokens = preset.tokens
         _ = NSApplication.shared
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = TwoXWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
@@ -190,7 +190,7 @@ import Testing
         defer { design.densityTokens = saved }
         design.densityTokens = preset.tokens
         _ = NSApplication.shared
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = TwoXWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
@@ -227,7 +227,7 @@ import Testing
         defer { design.densityTokens = saved }
         design.densityTokens = preset.tokens
         _ = NSApplication.shared
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = TwoXWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))

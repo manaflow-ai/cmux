@@ -89,6 +89,8 @@ extension BackdropSelectionSetting {
     public nonisolated static let dynamicDefault: BackdropDynamicMode = .appearance
     /// `appearance.backgroundLocation`: LAT,LON in degrees for sun events and solar frames; unset: the system time zone's coordinates from /usr/share/zoneinfo/zone.tab (no location permission).
     public nonisolated static let locationPath = ["appearance", "backgroundLocation"]
+    /// `appearance.backgroundMemory`: What Background's modes last showed, so switching modes never loses one (Leo, 2026-11-19: "it lost the folder ... i couldn't get back into it"): rotate is Rotate's last shuffle (daily or folder:<path>), folder the last folder it shuffled, off the picture Off last showed (none for No Wallpaper). The Settings page's Background card writes it when the background moves to another mode and reads it back in a new page or after a restart; the app's engine never reads it.
+    public nonisolated static let memoryPath = ["appearance", "backgroundMemory"]
     /// `appearance.displayBackgrounds`.
     public nonisolated static let displayBackgroundsPath = ["appearance", "displayBackgrounds"]
     /// `appearance.displayBackgroundRotations`.
@@ -110,6 +112,12 @@ extension ReducedBackgroundsSetting {
 extension AgentGlowSetting {
     /// `appearance.agentGlow`.
     public nonisolated static let configPath = ["appearance", "agentGlow"]
+    public nonisolated static let fallback = false
+}
+
+extension PreviousGlassSetting {
+    /// `appearance.previousGlass`: Web pages only: on sends glassLevels "previous" with the web theme (WebTheme), data-glass-levels="previous" on <html>, and webviews ui/glass/glass.css (PREVIOUS GLASS) restores the glass numbers from before the one glass system (design/glass-system.md, cmux#48174). Off (default) draws the one glass system.
+    public nonisolated static let configPath = ["appearance", "previousGlass"]
     public nonisolated static let fallback = false
 }
 
@@ -183,7 +191,7 @@ extension UIScaleSetting {
 extension InterfaceSizeSetting {
     /// `appearance.metrics.chromeFontSize`.
     public nonisolated static let configPath = ["appearance", "metrics", "chromeFontSize"]
-    public nonisolated static let range: ClosedRange<Double> = 10...16
+    public nonisolated static let range: ClosedRange<Double> = 10...20
     public nonisolated static let placeholder: Double = 12
 }
 
@@ -266,6 +274,12 @@ extension TitleAreaContrastSetting {
     public nonisolated static let fallback: Double = 1
     public nonisolated static let range: ClosedRange<Double> = 0...2
     public nonisolated static let placeholder: Double = 1
+}
+
+extension CornerFlushSetting {
+    /// `appearance.cornerFlush`: How the selected tab meets the content card (CornerFlush, CmuxNextDesign). A missing key is the default, flush with no goo, drawn only over the stock chrome (CornerFlush.defaultFits); a set value draws over any chrome, as a Debug Settings pick of chrome.cornerFlush does, which still overrides it in DEV and NIGHTLY. Compact density keeps the pill under every value. Leo 2026-11-13: "lawrence wanted no goo by default"; Leo 2026-11-18: the gooey look is a toggle a theme or a setup can pick.
+    public nonisolated static let configPath = ["appearance", "cornerFlush"]
+    public nonisolated static let fallback: CornerFlush = .flush
 }
 
 extension PaneAnimationsSetting {

@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""scripts/measure/nightly-fresh-launch.py `--arms update`: the arm cmuxterm-hq's next-dogfood runs for
+app_update_launch_ms (nightly_dogfood.update_launch_reading reads the `prewarm-update-moved` rows: before.main_start_at,
+before.chromium_exit 0, then a launch that rendered Home). On 2026-11-20 the dogfood's call failed at argparse
+("invalid choice: 'update'") because no such arm existed, and the row read STALE.
+
+No Mac: the smoke module, the launches and the pre-warm runs are fakes. So this proves which arms run, with which
+pre-warm, from which folder, NOT what a launch on a Mac measures.
+Run: python3 -I scripts/measure/tests/nightly-fresh-launch-update-arm.test.py"""
+import importlib.util, os, shutil, subprocess, tempfile, unittest
+from pathlib import Path
+from unittest import mock
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+spec = importlib.util.spec_from_file_location("nfl", os.path.join(HERE, "..", "nightly-fresh-launch.py"))
+M = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(M)
+
+
+class FakeSmoke:
+    def __init__(self, root: Path):
+        self.root = root
+
+    def copy_app(self, source, root):
+        dest = Path(root) / "app" / "cmux NIGHTLY.app"
+        (dest / "Contents" / "MacOS").mkdir(parents=True)
+        return dest
+
+    class DefaultsAside:
+        def __init__(self, *_):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+    def stop(self, *_):
+        pass
+
+    def own_pids(self, *_):
+        return []
+
+
+class UpdateArm(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="nfl-update-test-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.smoke = FakeSmoke(self.tmp)
+        self.launched = []
+
+    def fake_launch(self, smoke, root, app, executable, home, seconds, label, sample=False):
+        self.launched.append((label, Path(app)))
+        return {"exit": None, "rendered_at": 3.0, "phases": {}, "marks": {"main_start": 50.0}, "repeats": []}
+
+    def run_round(self, arms: str):
+        more = {"update": M.UPDATE_ARMS, "prewarm": M.PREWARM_ARMS}[arms]
+        chromium = subprocess.CompletedProcess([], 0, "loaded", "")
+        with mock.patch.object(M, "launch", self.fake_launch), \
+                mock.patch.object(M, "prewarm_until_main", return_value={"seconds": 0.4, "main_start_at": 0.3}), \
+                mock.patch.object(M, "run_text", return_value="ok"), \
+                mock.patch.object(M, "facts", return_value={}), \
+                mock.patch.object(M.subprocess, "run", return_value=chromium):
+            return M.round_once(self.smoke, Path("/Volumes/x/cmux NIGHTLY.app"), "com.cmuxterm.app.nightly", "cmux",
+                                0.0, 1, {}, more=more, base=arms != "update")
+
+    def test_update_runs_only_the_update_arm(self):
+        rows = self.run_round("update")
+        self.assertEqual([r["arm"] for r in rows], ["prewarm-update-moved"])
+        self.assertEqual([label for label, _ in self.launched], ["measured"])
+
+    def test_update_arm_has_the_fields_the_dogfood_reader_needs(self):
+        row = self.run_round("update")[0]
+        self.assertEqual(row["before"]["main_start_at"], 0.3)
+        self.assertEqual(row["before"]["chromium_exit"], 0)
+        self.assertEqual(row["rendered_at"], 3.0)
+        self.assertIsNone(row["exit"])
+
+    def test_update_arm_launches_the_copy_moved_out_of_its_staging_folder(self):
+        self.run_round("update")
+        _, app = self.launched[0]
+        self.assertEqual(app.parent.name, "app")
+        self.assertEqual(app.parent.parent.name, "placed")
+
+    def test_other_modes_still_run_the_base_arms_first(self):
+        rows = self.run_round("prewarm")
+        self.assertEqual([r["arm"] for r in rows][:3], list(M.ARMS))
+        self.assertNotIn("prewarm-update-moved", [r["arm"] for r in rows])
+
+    def test_the_cli_accepts_update(self):
+        with mock.patch.object(M, "load_smoke", side_effect=SystemExit(9)):
+            with self.assertRaises(SystemExit) as raised:
+                M.main(["--dmg", "x.dmg", "--out", str(self.tmp / "o"), "--arms", "update", "--rounds", "1"])
+        self.assertEqual(raised.exception.code, 9)  # past argparse: an unknown choice exits 2 before load_smoke
+
+
+if __name__ == "__main__":
+    unittest.main()

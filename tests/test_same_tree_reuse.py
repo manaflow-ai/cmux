@@ -10,6 +10,7 @@ Run: python3 tests/test_same_tree_reuse.py
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import subprocess
 import sys
@@ -22,20 +23,31 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import same_tree_reuse as s  # noqa: E402
 
+
+def _load_git_fixture_env():
+    """tests/git_fixture_env.py by path, so `python3 -I` (no script folder on sys.path) runs this file too."""
+    spec = importlib.util.spec_from_file_location("git_fixture_env", Path(__file__).resolve().parent / "git_fixture_env.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # importing it disables git auto maintenance
+    return module
+
+
+git_fixture_env = _load_git_fixture_env()
+
 TREE = "a" * 40
 BLOB = "b" * 40
 
 
 def git(cwd: Path, *args: str) -> str:
     return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=cwd, check=True,
-                          capture_output=True, text=True).stdout.strip()
+                          capture_output=True, text=True, env=git_fixture_env.fixture_env()).stdout.strip()
 
 
 class Keys(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.repo = Path(self.dir.name)
-        git(self.repo, "init", "-q")
+        git_fixture_env.init_repo(self.repo)
         (self.repo / ".github" / "workflows").mkdir(parents=True)
         (self.repo / ".github" / "workflows" / "w.yml").write_text("on: pull_request\n")
         (self.repo / "src.txt").write_text("one\n")
@@ -127,7 +139,7 @@ class Decide(unittest.TestCase):
         out = subprocess.run([sys.executable, "-I", str(ROOT / "scripts/ci/same_tree_reuse.py"), "decide",
                               "--keys", json.dumps({"kit-tests": self.key}), "--hits", "kit-tests=true",
                               "--receipts", str(self.receipts), "--audit-percent", "0"],
-                             capture_output=True, text=True, check=True, env={"PATH": "/usr/bin:/bin"}).stdout
+                             capture_output=True, text=True, check=True, env=git_fixture_env.fixture_env({"PATH": "/usr/bin:/bin"})).stdout
         self.assertTrue(out.startswith("same_tree="), out)
         self.assertTrue(json.loads(out.split("=", 1)[1])["kit-tests"]["reuse"])
 
@@ -160,6 +172,10 @@ class Rules(unittest.TestCase):
     def test_each_impurity_blocks(self):
         jobs = WORKFLOW["jobs"]
         self.assertTrue(any("metadata" in b for b in s.blockers(WORKFLOW, "body")))
+        # A label read in the job's own if: (run unless labeled) decides only whether it runs, not its verdict.
+        labeled = {"on": {"pull_request": {}}, "jobs": {"j": {
+            "if": "${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}", "steps": []}}}
+        self.assertFalse(any("metadata" in b for b in s.blockers(labeled, "j")))
         self.assertTrue(any("live" in b for b in s.blockers(WORKFLOW, "deploy-staging")))
         self.assertTrue(any("secrets" in b for b in s.blockers(WORKFLOW, "secret")))
         self.assertTrue(any("checks out" in b for b in s.blockers(WORKFLOW, "base")))
