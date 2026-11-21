@@ -60,11 +60,13 @@ jobs:
             scripts/ci/receipt_grammar.py
           sparse-checkout-cone-mode: false
       # The base's last 9 days of history, for the check that flags taking back a change another
-      # pull request merged recently (a stale base). A fresh repository with full blobs, not the
-      # sparse checkout above: actions/checkout makes that a blobless partial clone, and blame in
-      # one fetches blobs one by one, past its timeout on busy files. This takes about 60 s and
-      # 270 MB, then blame takes seconds. Capped at 120 s so the job (8 min) always finishes: a
-      # slow fetch skips the check with a warning instead of turning the check red.
+      # pull request merged recently (a stale base). A fresh blobless repository, not the sparse
+      # checkout above: commits and trees only, about 16 MB in 5 to 14 s. Blame there would fetch
+      # each blob version lazily, one round trip apiece (a 40-line blame on a busy file ran past
+      # 60 s), so risk_tier.py's prefetch_blobs first fetches every version of the files it blames
+      # in one batch (under a second), then blame takes well under a second. Capped at 120 s so the
+      # job (8 min) always finishes: a slow fetch skips the check with a warning instead of turning
+      # the check red.
       # The pull request's head goes in the same repository, as data that is never checked out, so
       # the classifier takes the merge base from git instead of a `compare` call on every run. When it
       # can't (a slow fetch, or a merge base past the window), the classifier calls `compare` as before.
