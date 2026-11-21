@@ -100,6 +100,7 @@ on:
       - "design/agent-icons/manifest.json"
       - "docs/chief-setup-prompts.md"
       - "docs/cmux-next/customize-recipes.md"
+      - "examples/looks/claude-code/notification-levels/cmux-setup.json"
       - "docs/cmux-next/sidebar-customization/**"
       - "docs/remote-agents-and-cloud.md"
       - "examples/extensions/web-pane/**"
@@ -172,6 +173,7 @@ on:
       # Windows check read these, so a change to them must start this workflow
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "docs/cmux-next/customize-recipes.md"
+      - "examples/looks/claude-code/notification-levels/cmux-setup.json"
       - "schemas/settings/source/mcp-servers.json"
       - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
       - "skills/cmux-customization/templates/clock-weather/main.js"
@@ -269,6 +271,7 @@ on:
       - "design/agent-icons/manifest.json"
       - "docs/chief-setup-prompts.md"
       - "docs/cmux-next/customize-recipes.md"
+      - "examples/looks/claude-code/notification-levels/cmux-setup.json"
       - "docs/cmux-next/sidebar-customization/**"
       - "docs/remote-agents-and-cloud.md"
       - "examples/extensions/web-pane/**"
@@ -341,6 +344,7 @@ on:
       # Windows check read these, so a change to them must start this workflow
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "docs/cmux-next/customize-recipes.md"
+      - "examples/looks/claude-code/notification-levels/cmux-setup.json"
       - "schemas/settings/source/mcp-servers.json"
       - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
       - "skills/cmux-customization/templates/clock-weather/main.js"
