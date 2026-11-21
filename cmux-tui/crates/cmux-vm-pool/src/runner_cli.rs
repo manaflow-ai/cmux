@@ -94,7 +94,7 @@ fn parse(words: &[String]) -> Result<Args, String> {
             "--owner" => a.owner = Some(value(flag)?.to_lowercase()),
             "--timeout" => {
                 a.timeout_s =
-                    value(flag)?.parse().map_err(|_| "--timeout: not a number".to_owned())?
+                    value(flag)?.parse().map_err(|_| "--timeout: not a number".to_owned())?;
             }
             "--size" => {
                 let v = value(flag)?;
@@ -369,10 +369,11 @@ async fn wait_for_job(
             }
             Err(e) => say(&format!("runner status: {e}")),
         }
-        if busy && record.is_none() {
-            if let Ok(r) = fleet.exec(vm, "cat /tmp/fsr-job", None, 20_000).await {
-                record = runner::parse_job_record(&r.stdout);
-            }
+        if busy
+            && record.is_none()
+            && let Ok(r) = fleet.exec(vm, "cat /tmp/fsr-job", None, 20_000).await
+        {
+            record = runner::parse_job_record(&r.stdout);
         }
         if Instant::now() >= deadline {
             break "timeout";
