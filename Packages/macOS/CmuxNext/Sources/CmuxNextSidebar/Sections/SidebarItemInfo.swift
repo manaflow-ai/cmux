@@ -198,7 +198,7 @@ extension SidebarBuiltIn {
     /// Localized title.
     public var title: String {
         switch self {
-        case .home: SectionStrings.chief
+        case .home: SectionStrings.home
         case .settings: SectionStrings.settings
         case .account: SectionStrings.account
         case .notifications: SectionStrings.notifications
