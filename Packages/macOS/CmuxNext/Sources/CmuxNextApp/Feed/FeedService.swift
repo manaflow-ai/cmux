@@ -82,7 +82,6 @@ final class FeedService {
             on(workspace, NSWorkspace.screensDidSleepNotification, false),
             on(workspace, NSWorkspace.sessionDidResignActiveNotification, false),
             MainActorObservation(NSWorkspace.willSleepNotification, center: workspace) { [socket = acpmuxEnvironment?.socketPath] in update(false); AcpmuxSleepHandoff(socketPath: socket).notify() },
-            // After a wake the socket may be dead without an error: probe it.
             on(workspace, NSWorkspace.didWakeNotification, nil),
             on(workspace, NSWorkspace.screensDidWakeNotification, nil),
             on(workspace, NSWorkspace.sessionDidBecomeActiveNotification, nil),
