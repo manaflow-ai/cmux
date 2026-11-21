@@ -584,6 +584,15 @@ function Columns({
   // Until the arrows or the pointer move it, the running model's row is the one shown, else the
   // first one: the settings column always shows the model its rows apply to, never an empty column.
   const firstIndex = rows.findIndex((model) => !model.disabled);
+  // The chat's own tab with no row for the running model (its catalog has not loaded, or does not
+  // list it: a model newer than the harness's catalog) still shows the session's levels and Fast,
+  // as the list menu's Effort row did. Its first row never stands in for the running model: Fast
+  // there landed that model (Leo 2026-11-20: Fast on a Codex chat "turned it to terra").
+  const sessionRow: QuickModel | undefined =
+    runningIndex < 0 && current && families.current && (!shown || shown.id === families.current)
+      ? { id: current, name: current, family: families.current }
+      : undefined;
+  // A search still leads with its first match, which Enter lands.
   const hl =
     modelHl >= 0 && modelHl < rows.length
       ? modelHl
@@ -591,13 +600,9 @@ function Columns({
         ? heldIndex
         : runningIndex >= 0
           ? runningIndex
-          : firstIndex;
-  // The chat's own tab with no row for the running model (its catalog has not loaded, or does not
-  // list it) still shows the session's levels and Fast, as the list menu's Effort row did.
-  const sessionRow: QuickModel | undefined =
-    hl < 0 && current && families.current && (!shown || shown.id === families.current)
-      ? { id: current, name: current, family: families.current }
-      : undefined;
+          : sessionRow && !query
+            ? -1
+            : firstIndex;
   const focus = hl >= 0 ? rows[hl] : sessionRow;
   const focusRuns = !!focus && isRunning(focus);
   // The running model's levels are the session's (Ultracode included); another model's are its catalog's,
@@ -1379,6 +1384,7 @@ function Columns({
         data-popup-open={open ? "" : undefined}
         aria-label={chip.label}
         title={chip.title}
+        data-tooltip-shortcut={chip["data-tooltip-shortcut"]}
         {...press}
         // A mouse press never focuses the chip, as the list menu's button: a press that closes the
         // menu and lands a pick leaves the keyboard in the prompt the picker focused.
