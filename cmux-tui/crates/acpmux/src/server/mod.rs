@@ -2352,18 +2352,14 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         let full = attached || conn.watch_tools.load(Ordering::SeqCst);
         let [list_row, full_row] = &ev.row.cells;
         let row = if full { full_row } else { list_row };
-        let summary = match row.get() {
-            Some(summary) => Some(summary),
-            None => hub.resolve(&ev.session_id).ok().map(|s| {
-                row.get_or_init(|| {
-                    if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) }
-                })
-            }),
-        };
+        let summary = row.get_or_build(|| {
+            let s = hub.resolve(&ev.session_id).ok()?;
+            Some(if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) })
+        });
         if let Some(summary) = summary {
             conn.send(&Message::notification(
                 method::MUX_SESSION_CHANGED,
-                json!({"sessionId": ev.session_id, "session": summary, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq}),
+                json!({"sessionId": ev.session_id, "session": *summary, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq}),
             ));
         }
         // A watcher that is not attached still learns a permission is waiting.
@@ -2400,6 +2396,9 @@ mod cancel_classes_tests;
 #[cfg(test)]
 #[path = "cancel_prompt_tests.rs"]
 mod cancel_prompt_tests;
+#[cfg(test)]
+#[path = "chatgpt_import_tests.rs"]
+mod chatgpt_import_tests;
 mod client_request;
 mod computer_use_relay;
 #[cfg(test)]
@@ -2464,6 +2463,7 @@ mod ssh_carry;
 mod task_list;
 pub use pairing::serve_connection_device;
 pub(crate) mod host_power;
+mod move_targets;
 pub mod peer_auth;
 mod peer_forward;
 pub(crate) mod peer_status;

@@ -37,14 +37,20 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
     public static let fallback = AgentPaneDisplaySetting()
 
     /// Reads the chat's keys and the followed Markdown viewer keys from a cmux.json root, keeping
-    /// each value its row accepts and dropping the rest.
+    /// each value its row accepts and dropping the rest. With `fontFaces`, `agentPane.display.font.faces`
+    /// arrives as each good face's data URL (``ChatFontFaces``), which reads the font files: build
+    /// it off the main thread (``read(fileRoot:managedHarnessPlacement:fontFaces:)``). Without, the
+    /// key is left out and no file is read.
     ///
     /// - Parameters:
     ///   - fileRoot: The settings file's root object.
     ///   - lookRoot: The effective root (theme file applied), which the transcript look keys
     ///     (``themedPaths``) are read from, so a theme file can carry a transcript look. Nil reads them
     ///     from `fileRoot` too.
-    public init(fileRoot: JSONValue, lookRoot: JSONValue? = nil, managedHarnessPlacement: JSONValue? = nil) {
+    ///   - managedHarnessPlacement: The managed `agentPane.display.harnessPlacement`, if any.
+    ///   - fontFaces: The loader that reads the face files; nil leaves the faces out.
+    public init(fileRoot: JSONValue, lookRoot: JSONValue? = nil, managedHarnessPlacement: JSONValue? = nil,
+                fontFaces: ChatFontFaces.Loader? = nil) {
         var values: [String: JSONValue] = [:]
         let followed = Set(Self.followedMarkdownPaths.map { $0.joined(separator: ".") })
         let rows = AgentPaneDisplaySettingsSchema.descriptors
@@ -60,8 +66,29 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
             else { continue }
             values[descriptor.id] = value
         }
+        // The page gets the face files as data URLs (`{family[:italic]: data URL}`), never paths.
+        let facesKey = AgentPaneDisplaySettingsSchema.facesPath.joined(separator: ".")
+        if let faces = values.removeValue(forKey: facesKey)?.objectValue, let fontFaces {
+            let loaded = fontFaces.dataURLs(faces)
+            if !loaded.isEmpty { values[facesKey] = .object(loaded.mapValues(JSONValue.string)) }
+        }
         values["agentPane.display.harnessPlacement.managed"] = managedHarnessPlacement
         self.init(values: values)
+    }
+
+    /// The chat's look with its face files read, off the main thread.
+    ///
+    /// - Parameters:
+    ///   - fileRoot: The settings file's root object, with the theme file over it
+    ///     (``SettingsController/chatDisplayInputs``).
+    ///   - lookRoot: The effective root the transcript look keys are read from (``themedPaths``).
+    ///   - managedHarnessPlacement: The managed `agentPane.display.harnessPlacement`, if any.
+    ///   - fontFaces: The loader that reads and caches the face files.
+    /// - Returns: The look the page gets.
+    @concurrent public static func read(fileRoot: JSONValue, lookRoot: JSONValue? = nil, managedHarnessPlacement: JSONValue?,
+                                        fontFaces: ChatFontFaces.Loader) async -> AgentPaneDisplaySetting {
+        AgentPaneDisplaySetting(fileRoot: fileRoot, lookRoot: lookRoot, managedHarnessPlacement: managedHarnessPlacement,
+                                fontFaces: fontFaces)
     }
 
     /// The page's value: the map as a JSON object.

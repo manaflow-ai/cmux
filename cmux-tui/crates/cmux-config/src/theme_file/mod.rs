@@ -76,8 +76,10 @@ pub fn exceptions_in(root: &Value) -> BTreeSet<String> {
         .map(|keys| keys.iter().filter_map(Value::as_str).map(str::to_string).collect())
         .unwrap_or_default()
 }
-const LOOK_PREFIXES: [&str; 7] = [
+const LOOK_PREFIXES: [&str; 8] = [
     "appearance.",
+    // The agent chat's typography: a font pack's families and face files.
+    "agentPane.display.font.",
     "ui.animation",
     "ui.calm",
     "ui.paneAnimations",
@@ -85,14 +87,16 @@ const LOOK_PREFIXES: [&str; 7] = [
     "browser.omnibar.glass",
     "app.uiScale",
 ];
-/// Look keys outside those prefixes: the terminal font; the sidebar's shape,
-/// edges, text, group headers and buttons; the tab strip's and titlebar's
-/// buttons and inactive tabs; pane corners; the agent chat's text sizes,
-/// sender marks and Session Info; and the transcript look and its tokens
+/// Look keys outside those prefixes: the terminal font and the chat code font;
+/// the sidebar's shape, edges, text, group headers and buttons, and the sidebar
+/// look (`sidebar_look`); the tab strip's and titlebar's buttons and inactive
+/// tabs; pane corners; the agent chat's text sizes, sender marks and Session
+/// Info; and the transcript look and its tokens
 /// (docs/cmux-next/transcript-customization.md). Keep in step with Swift
 /// `ThemeFileOverlay.lookKeys`.
-const LOOK_KEYS: [&str; 37] = [
+const LOOK_KEYS: [&str; 39] = [
     "terminal.fontFamily",
+    "agentPane.display.code.family",
     "terminal.fontSize",
     "sidebar.style",
     "sidebar.border",
@@ -100,6 +104,7 @@ const LOOK_KEYS: [&str; 37] = [
     "sidebar.sectionLook",
     "agentPane.display.transcriptLook",
     "agentPane.display.transcriptTokens",
+    "sidebar.look",
     "sidebar.density",
     "sidebar.textSize",
     "sidebar.groupHeader.background",
@@ -376,6 +381,31 @@ impl ThemeFile {
     pub fn keys(&self) -> Vec<String> {
         self.values.iter().map(|(path, _)| dotted(path)).collect()
     }
+
+    /// Each `agentPane.display.font.faces` entry the app would skip (a bad
+    /// key, a missing, oversized or mistyped file), as a diagnostic of this
+    /// file: `cmux theme check` reports them; the read itself never stats
+    /// the files.
+    pub fn face_diagnostics(&self) -> Vec<ThemeDiagnostic> {
+        let path = key_path(crate::font_faces::SETTING_KEY);
+        let Some(Value::Object(faces)) =
+            self.values.iter().find(|(at, _)| *at == path).map(|(_, value)| value)
+        else {
+            return Vec::new();
+        };
+        let (_, problems) = crate::font_faces::check_all(faces);
+        problems
+            .into_iter()
+            .map(|problem| ThemeDiagnostic {
+                kind: ThemeDiagnosticKind::InvalidValue,
+                path: format!("{}.{}", crate::font_faces::SETTING_KEY, problem.key),
+                message: problem.message,
+                file: Some(format!("{FOLDER_NAME}/{}.{FILE_EXTENSION}", self.name)),
+                line: None,
+                value: faces.get(&problem.key).map(compact),
+            })
+            .collect()
+    }
 }
 
 struct Reader<'a> {
@@ -459,6 +489,14 @@ impl<'a> Reader<'a> {
             Validation::Domain(DomainKind::BackdropSelection | DomainKind::BackdropPicture)
         ) {
             self.picture(written)
+        } else if row.key == crate::font_faces::SETTING_KEY {
+            // A font pack's face files resolve as pictures do: `file:../fonts/x.woff2`.
+            match written {
+                Value::Object(faces) => Value::Object(
+                    faces.iter().map(|(key, value)| (key.clone(), self.picture(value))).collect(),
+                ),
+                other => other.clone(),
+            }
         } else {
             written.clone()
         };

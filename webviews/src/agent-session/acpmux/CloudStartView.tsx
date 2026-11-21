@@ -23,7 +23,6 @@ import {
   CLOUD_PLAN_IDS,
   CLOUD_PLANS,
   cloudPlanMachineWords,
-  cloudSizeWords,
   sizeFits,
   type CloudPlanId,
   type CloudPlanView,

@@ -6,6 +6,39 @@ extension AgentPaneDisplaySettingsSchema {
         let group = SettingsText.keyed("settings.group.agentChat", "Agent Chat")
         return [
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.thinkingShimmerPeriodPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.thinking.shimmerPeriod", "Shimmer Speed"),
+                help: SettingsText.keyed("settings.agentPane.display.thinking.shimmerPeriod.help", "How long one continuous pass of the shimmer takes."),
+                kind: .number(SettingNumber(AgentPaneDisplaySettingsSchema.thinkingShimmerPeriodRange, step: 50, unit: .milliseconds, placeholder: AgentPaneDisplaySettingsSchema.thinkingShimmerPeriodPlaceholder)),
+                default: .number(AgentPaneDisplaySettingsSchema.thinkingShimmerPeriodDefault),
+                keywords: ["agent", "chat", "acp", "display", "thinking", "shimmer", "speed", "period", "duration", "animation", "claude"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.thinkingShimmerBandPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.thinking.shimmerBand", "Shimmer Width"),
+                help: SettingsText.keyed("settings.agentPane.display.thinking.shimmerBand.help", "The width of the shimmer's light band. 0 uses half the line."),
+                kind: .number(SettingNumber(AgentPaneDisplaySettingsSchema.thinkingShimmerBandRange, step: 4, unit: .points, placeholder: AgentPaneDisplaySettingsSchema.thinkingShimmerBandPlaceholder)),
+                default: .number(AgentPaneDisplaySettingsSchema.thinkingShimmerBandDefault),
+                keywords: ["agent", "chat", "acp", "display", "thinking", "shimmer", "band", "width", "animation", "claude"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.thinkingJumpButtonPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.thinking.jumpButton", "Jump to Latest While Working"),
+                help: SettingsText.keyed("settings.agentPane.display.thinking.jumpButton.help", "What the Jump to latest button shows while the agent works."),
+                kind: .choice([
+                    SettingChoice("arrow", SettingsText.keyed("settings.choice.thinkingJumpArrow", "Arrow")),
+                    SettingChoice("dots", SettingsText.keyed("settings.choice.dots", "Dots")),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.thinkingJumpButtonDefault),
+                keywords: ["agent", "chat", "acp", "display", "thinking", "jump", "latest", "scroll", "button", "arrow", "dots", "claude"]
+            ),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.harnessPlacementPath,
                 section: .appearance,
                 group: group,

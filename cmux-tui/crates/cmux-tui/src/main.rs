@@ -53,6 +53,8 @@ mod codex_wrapper;
 mod computer_use_worker;
 mod config;
 mod daemon_build;
+#[cfg(unix)]
+mod files_lister;
 mod headless;
 mod heap_profile;
 #[cfg(unix)]
@@ -65,6 +67,8 @@ mod own_build_helpers;
 mod page_listener;
 mod private_mode;
 mod screen_detection_status;
+#[cfg(unix)]
+mod scroll_probe;
 #[cfg(unix)]
 mod share_room;
 #[cfg(unix)]

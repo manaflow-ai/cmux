@@ -136,6 +136,18 @@ def git(*argv: str, cwd: Path | None = None) -> str:
     return out.stdout
 
 
+def start_branch(repo: str, branch: str, sha: str, api=gh_api) -> None:
+    """Creates branch at sha, a commit GitHub already has, through the REST API. The revert then reaches it as an
+    update, which GitHub checks for workflow changes over that one commit; a git push that creates the branch is
+    checked against the whole branch and timed out every time on this repository (drill-5 run 44897813534,
+    drill-6 run 44906887225, four tries each). A branch left by an earlier try is reused."""
+    try:
+        api(f"repos/{repo}/git/refs", method="POST", fields={"ref": f"refs/heads/{branch}", "sha": sha})
+    except RuntimeError as error:
+        if "already exists" not in str(error):
+            raise
+
+
 def push_branch(url: str, refspec: str, run=git, sleep=time.sleep, waits: tuple[int, ...] = (15, 45, 90)) -> None:
     """Pushes refspec, retrying GitHub's own timeout. A token with no `workflows` scope makes GitHub check
     whether the push changes a workflow file, and that check can time out on this repository ("Unable to
@@ -279,6 +291,8 @@ def cmd_tick(args: argparse.Namespace) -> int:
 
 
 def tick(args: argparse.Namespace) -> int:
+    # No web tick: the batch's `web` suite gives the base its web verdict, so cmux-next-web.yml's coalescing
+    # tick (#49173) would run the same checks a second time.
     tip = gh_api(f"repos/{args.repo}/commits/{args.branch}")["sha"]
     runs = list_runs(args.repo, args.branch)
     action, reason = tick_decision(tip, runs, datetime.now(timezone.utc), window_minutes(args.window_minutes))
@@ -592,7 +606,8 @@ def cmd_revert(args: argparse.Namespace) -> int:
         summary(args.summary, f"Reverting `{culprit[:11]}` conflicts with the tip of {args.branch}; left to its owner.")
         return 0
     if not args.dry_run:
-        push_branch(args.push_url, f"HEAD:refs/heads/{branch}")
+        start_branch(args.repo, branch, git("rev-parse", "HEAD^").strip())
+        push_branch(args.push_url, f"+HEAD:refs/heads/{branch}")
     origin = f"{args.server_url}/{args.repo}/actions/runs/{args.origin}" if args.origin else "(unknown)"
     this = f"{args.server_url}/{args.repo}/actions/runs/{args.run_id}"
     who = f"#{pr}" if pr else f"`{culprit[:12]}`"
