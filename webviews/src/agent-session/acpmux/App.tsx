@@ -21,7 +21,7 @@ import { ShareDialogHost } from "./share/ShareControl";
 import { ShareNudge } from "./share/ShareNudge";
 import { useShareNudge } from "./share/shareNudgeModel";
 import { paneTipHost } from "./featureTipsModel";
-import { type CaptureMode, composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
+import { composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS, type CaptureMode } from "./composerPlusRegistry";
 import { takeCapture } from "./composer/screenCapture";
 import { holdComposerPlace } from "./composer/composerHandover";
 import { chatOnThisMac, chatPlace, chatMachine as chatMachineOf } from "./chatMachine";
@@ -109,7 +109,6 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
-  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -118,21 +117,22 @@ import {
   useSessionAdoption,
   type SessionAdoption,
   withHandshakeNewTab,
+  useLostSharedPart,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {
   heldPick,
-  withCloudStartFolder,
   withDraftFolder,
+  withCloudStartFolder,
   shownCloudStartPick,
   withCloudStartPick,
 } from "./newtab/draftFolder";
 import {
   cloudModePickFor as cloudModeFor,
-  cloudSendAgent,
   cloudStartModePick,
   holdCloudModePick,
   useCloudModePick,
+  cloudSendAgent,
 } from "./cloudModePick";
 import { configurationSessionMatches, pickEffort } from "./configurationActions";
 import { rememberRecentFolders } from "./newtab/recentProject";
@@ -141,7 +141,7 @@ import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from ".
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { hatPlanOf } from "./chatTaskList";
 import { goalHatPlace } from "./goalHat.experiment";
-import { githubFolder, githubFolderRepo } from "./githubRepos";
+import { githubFolderRepo, githubFolder } from "./githubRepos";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "./newtab/templates";
@@ -232,7 +232,7 @@ import { PICKER_LABELS } from "./composerPickerModel";
 import { openComposerControl } from "./composerControls";
 import { chatAccessGrants, revokeAccessRows } from "./header/grantsMenu";
 import { openPicker } from "./pickerOpeners";
-import { SIGN_IN_REQUIRED, startRefusalRoute } from "./startRefusal";
+import { startRefusalRoute, SIGN_IN_REQUIRED } from "./startRefusal";
 import { EmptyState, type EmptyStateProjects } from "./EmptyState";
 import { isNewChat, projectName } from "./emptyStateModel";
 import { TourStartContext } from "./repoTour/TourBlock";
@@ -278,12 +278,12 @@ import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
 import {
   cloudMachineAsleep,
-  currentCloudPlan,
-  readCloudPlanFresh,
   readUntilMoved,
   refreshCloudMachines,
   useCloudMachines,
   type CloudMachine,
+  currentCloudPlan,
+  readCloudPlanFresh,
 } from "./cloudMachines";
 import { usePeerCloudMachine } from "./peerCloudMachine";
 import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
@@ -294,8 +294,8 @@ import { bindsHeldSendNow } from "./heldSendBinding";
 import {
   StartingSends,
   type StartingSend,
-  startingQueueEntry,
   queuedStartingSends,
+  startingQueueEntry,
   withStartingPrompt,
   startingIn,
 } from "./startingSends";
@@ -593,14 +593,14 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
   type CloudStartAnswer,
   cloudSendAfterCheck,
   heldPromptShown,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
   cloudPickExtras,
   composerCloudStartFolder,
   pageOnOtherMachine,
@@ -619,12 +619,12 @@ import { harnessLabel } from "./subagents/agentRuns";
 import {
   cloudStartBegun,
   cloudStartEnded,
-  cloudStartPlanHeld,
   cloudStartPushed,
   cloudStartStalled,
   watchCloudStartStall,
   cloudStartSignedIn,
   type CloudStartProgress,
+  cloudStartPlanHeld,
 } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
 import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
@@ -688,9 +688,9 @@ import {
   oneKeyPerMessageRun,
   withHeldFolds,
   withoutHeldCalls,
-  lastTurnWorkedKeys,
   rowsToHold,
   withoutHeldRows,
+  lastTurnWorkedKeys,
 } from "./conversation/turnEndHold";
 import { HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type HarnessHealth, type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
@@ -717,8 +717,8 @@ import {
   nextRetryDelay,
   offersAcpmuxRestart,
   readHostRestoring,
-  hostSelfRetrying,
   lostRetryDelay,
+  hostSelfRetrying,
   jitteredDelay,
   quickRetry,
 } from "./hostRetry";
