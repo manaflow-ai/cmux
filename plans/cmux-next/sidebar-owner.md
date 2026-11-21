@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-20 (a-rolling-summaries): Sidebar-Look: user, 2026-11-20, from David Beyer's notes: "rolling summaries of every chat
+  with a next action for each"; "each rolling chat summary should also show a next action for that chat". Compact rows
+  are unchanged (one line). The hover card names the chat's rolling summary (`Fact.summaryKind`, chat-list icon, up to
+  3 lines) and, under it, "Next: …" (`Fact.nextActionKind`, `.actionGo`, up to 2 lines) right after the task fact, in
+  place of the raw last reply; the minimal, log and timeline layouts keep both (`keptOverHistory`). An Expanded row's
+  detail line reads "summary → next" after an unread notification and the description, before the last reply
+  (`WorkspaceRowContent.summaryLine`). Source: acpmux `rollingSummary` on the chat's row. Tests:
+  `SidebarRollingSummaryTests`.
 - 2026-11-19 (lane/needs-you-glow): Sidebar-Look: Leo, 2026-11-19, on eight new features: "all of them" and "some of
   them maybe just as customizations lol if it affects default looks". "Needs you" as motion, off by default: with
   `notifications.attention.mark` `glow` (default `badge`, no change), a workspace row that waits for the person (an
