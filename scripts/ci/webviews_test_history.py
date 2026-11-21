@@ -77,6 +77,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 import subprocess
@@ -120,6 +121,37 @@ def load(path: str | Path) -> list[dict]:
 EXTRA_INPUTS = ("scripts/ci/pin-browser-test-font.sh",)
 
 
+# Where the webview suite's own code lives: a test, a helper, a bench or a webviews script there may read a repository
+# path at runtime (`path.resolve(repo, "Packages/macOS/CmuxNext/Sources")`, `schemas/theme/...json`) that no list
+# above routes.
+RUNTIME_READERS = ("webviews/test", "webviews/scripts", "webviews/bench")
+
+
+def runtime_reads(root: str) -> list[str]:
+    """Every repository path outside webviews/ that a file under RUNTIME_READERS names, as HEAD has it.
+
+    A test that reads the Swift sources, a schema or a plan's tool turns red when that path changes, so a base push's
+    verdict carries to the merge parent only when those paths match too. Names are found by text: a name split over
+    several arguments (`join(root, "Packages", "macOS")`) is not seen."""
+    tops = subprocess.run(["git", "-C", root, "ls-tree", "--name-only", "HEAD"],
+                          check=True, capture_output=True, text=True).stdout.split()
+    tops = [t for t in tops if t != "webviews"]
+    if not tops:
+        return []
+    pattern = r"(^|[^A-Za-z0-9_.-])(" + "|".join(re.escape(t) for t in tops) + r")/[A-Za-z0-9_./-]*[A-Za-z0-9_-]"
+    found = subprocess.run(["git", "-C", root, "grep", "-h", "-o", "-I", "-E", pattern, "HEAD", "--", *RUNTIME_READERS],
+                           capture_output=True, text=True)
+    if found.returncode not in (0, 1):
+        raise SystemExit(f"webview test history: cannot read runtime reads: {found.stderr.strip()}")
+    names = {re.sub(r"^HEAD:", "", line).lstrip("\"'`( =,:").rstrip("/.") for line in found.stdout.splitlines()}
+    names = {n[n.index(t):] for n in names for t in tops if t + "/" in n}
+    if not names:
+        return []
+    present = subprocess.run(["git", "-C", root, "ls-tree", "-r", "-t", "--name-only", "HEAD", "--", *sorted(names)],
+                             check=True, capture_output=True, text=True).stdout.split("\n")
+    return sorted(names & set(present))
+
+
 def inputs(root: str | Path = ".") -> str:
     """HEAD's webview test inputs key: the git ids of every path the router runs the suite on.
 
@@ -142,6 +174,10 @@ def inputs(root: str | Path = ".") -> str:
                             check=True, capture_output=True, text=True).stdout.split()
     listed += subprocess.run(["git", "-C", str(root), "ls-files", "-s", "--", *routed],
                              check=True, capture_output=True, text=True).stdout
+    named = runtime_reads(root)
+    if named:
+        listed += subprocess.run(["git", "-C", str(root), "ls-tree", "HEAD", "--", *named],
+                                 check=True, capture_output=True, text=True).stdout
     if "webviews" not in listed:
         raise SystemExit(f"webview test history: no webview inputs listed under {root}")
     return hashlib.sha256(listed.encode()).hexdigest()[:20]
