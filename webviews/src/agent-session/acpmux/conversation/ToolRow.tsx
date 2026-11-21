@@ -48,6 +48,7 @@ import { fetchedPage, webSources, withoutLinks } from "./webSourceList";
 import { ToolLabel } from "./ToolVerb";
 import { callOutput, rowFailed, toolFailure } from "./toolFailure";
 import { RepoRecoveryCard } from "./RepoRecoveryCard";
+import { GitHubConnectRecovery } from "./GitHubConnectRecovery";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord, useInStep } from "./toolFailureCauseModel";
 import { ChevronRight } from "./icons";
@@ -291,6 +292,7 @@ export const ToolRow = memo(function ToolRow({
       <WrittenArtifactButtons tools={[tool]} />
       <WebSources sources={sources} fetched={fetched} />
       {recovery && <RepoRecoveryCard recovery={recovery} />}
+      <GitHubConnectRecovery key={tool.id} tool={tool} />
       <ToolFailureCause failure={failure} />
       {shell && <RunElsewhereBelow toolCallId={tool.id} command={tool.command} />}
       {/* Its images show once the row opens, a small one at its edge until then (ToolVisualRow): a run
