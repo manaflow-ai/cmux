@@ -53,11 +53,11 @@ afterEach(async () => {
 });
 
 function Box({ open, text }: { open: boolean; text: string }) {
-  const fold = useFold(open);
+  const { present, ref } = useFold(open);
   return (
     <div>
-      {fold.present ? (
-        <div ref={fold.ref} className="cv-fold">
+      {present ? (
+        <div ref={ref} className="cv-fold">
           {text}
         </div>
       ) : null}
