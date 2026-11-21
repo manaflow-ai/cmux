@@ -39,7 +39,7 @@ const TOOLTIP = /tooltip|\.ui-hint\b|\.ui-card\b|hover-?card|\[role=["']?tooltip
 // (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS.").
 // The hover previews, suggestion lists, hover action bars and toasts that still drew the solid popup
 // surface a month after that ask (Leo 2026-10-21: "WHERE IS THE GLASS EVERYWHERE ALL THESE STUPID
-// FUCKIGN HOVER TOOLTIPS AND HOVER PREVIEW SHIT") are named here too, so none goes solid again.
+// F***ING HOVER TOOLTIPS AND HOVER PREVIEW SHIT") are named here too, so none goes solid again.
 const REQUIRED_GLASS_CLASSES = new Set([
   "acpmux-omni",
   "page-menu",
