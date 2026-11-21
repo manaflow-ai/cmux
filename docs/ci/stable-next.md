@@ -97,7 +97,9 @@ on any other chip. Stable's signing job runs on a hosted macOS runner; the night
 [landing](landing.md#ci-runners-and-nightlies)).
 
 The repository rule against new CI gates (Lawrence 2026-10-23, lifted 2026-11-18) was about push, pull
-request and nightly paths. This workflow adds nothing to them: it runs only on its schedule, a
+request and nightly paths. Lawrence's separate perf decision still stands: no perf run blocks or slows a push,
+a pull request merge or a nightly ([perf-lead.md](../../plans/cmux-next/perf-lead.md) F9), so the `perf-budgets`
+`--gate` step stays off them. This workflow adds nothing to them: it runs only on its schedule, a
 dispatch, or a push to `stable-next-dry-run`.
 
 ## Slack
