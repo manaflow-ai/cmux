@@ -191,6 +191,12 @@
       "status": "committed"
     },
     {
+      "id": "app-store-packages",
+      "generator": "scripts/cmux-next/sync-app-runtime.sh",
+      "outputs": ["Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/store/**"],
+      "status": "build"
+    },
+    {
       "id": "app-pack",
       "generator": "cmux app pack",
       "outputs": [

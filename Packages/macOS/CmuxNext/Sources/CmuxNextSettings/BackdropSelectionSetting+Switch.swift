@@ -64,6 +64,22 @@ extension BackdropSelectionSetting {
         }
     }
 
+    /// Whether a value is valid for `appearance.backgroundMemory`, what each background mode last
+    /// showed: an object with at most `rotate` (`daily` or a folder), `folder` (a folder) and `off`
+    /// (`none` or a fixed picture). The Settings page reads and writes it; the engine never does.
+    static func acceptsMemory(_ value: JSONValue) -> Bool {
+        guard let members = value.objectValue else { return false }
+        return members.allSatisfy { name, value in
+            guard let text = value.stringValue else { return false }
+            switch name {
+            case "rotate": return text == dailyID || folderPath(text) != nil
+            case "folder": return folderPath(text) != nil
+            case "off": return text == "none" || picture(text) != nil
+            default: return false
+            }
+        }
+    }
+
     /// Whether a value is valid for `appearance.backgroundLocation`: `"LAT,LON"`.
     static func acceptsLocation(_ value: JSONValue) -> Bool {
         value.stringValue.flatMap(BackdropLocation.init(text:)) != nil
