@@ -1,14 +1,11 @@
-// l10n-allow-file: test fixtures (sample asks), not shipped UI.
-// Waiting on you's rows (queue/QueueScreen.tsx) render only when their own item changed: the pane
-// handing in new action functions (each of its renders) draws no row, a new read that changes one
-// item draws that row alone (its new time redraws only the age labels), and moving the cursor draws
-// the two rows it moved between. Counted from React's commits (support/rowRenders.ts).
-import { createRoot, rowRenders } from "./support/rowRenders";
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { createRoot, rowRenders } = await importWithDom(() => import("./support/rowRenders"));
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",

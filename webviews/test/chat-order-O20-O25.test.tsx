@@ -8,8 +8,10 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { useFold } from "../src/agent-session/acpmux/conversation/fold";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { useFold } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/fold"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

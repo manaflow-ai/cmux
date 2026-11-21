@@ -6,15 +6,17 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { AgentOptionsMenu } from "./AgentOptionsMenu";
-import { ComposerPlusMenu } from "./ComposerPlusMenu";
-import { composerPlusRegistry } from "./composerPlusRegistry";
-import { FolderPopover } from "./FolderPopover";
-import { openComposerControl, PLAN_TOGGLE_OPENER } from "./composerControls";
-import { translate } from "./i18n";
-import { registerPicker } from "./pickerOpeners";
-import { ShortcutsContext } from "./shortcuts";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { AgentOptionsMenu } = await importWithDom(() => import("./AgentOptionsMenu"));
+const { ComposerPlusMenu } = await importWithDom(() => import("./ComposerPlusMenu"));
+const { composerPlusRegistry } = await importWithDom(() => import("./composerPlusRegistry"));
+const { FolderPopover } = await importWithDom(() => import("./FolderPopover"));
+const { openComposerControl, PLAN_TOGGLE_OPENER } = await importWithDom(() => import("./composerControls"));
+const { translate } = await importWithDom(() => import("./i18n"));
+const { registerPicker } = await importWithDom(() => import("./pickerOpeners"));
+const { ShortcutsContext } = await importWithDom(() => import("./shortcuts"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

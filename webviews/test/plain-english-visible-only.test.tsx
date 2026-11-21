@@ -12,6 +12,7 @@ import type { HunkRef, SummaryFileDiff } from "../src/diff-viewer/hunkSummaries"
 import { settleReact } from "./support/domTeardown";
 import { mountedRowRenders } from "./support/mountedRowRenders";
 import { installVirtualSizes } from "./support/virtualSizes";
+import { importWithDom } from "./support/importWithDom";
 
 const scope = globalThis as Record<string, unknown>;
 const names = [
@@ -85,8 +86,8 @@ afterAll(async () => {
 });
 
 const { createRoot } = await import("react-dom/client");
-const { PlainEnglishView } = await import("../src/diff-viewer/PlainEnglishView");
-const { SummaryStore } = await import("../src/diff-viewer/hunkSummaries");
+const { PlainEnglishView } = await importWithDom(() => import("../src/diff-viewer/PlainEnglishView"));
+const { SummaryStore } = await importWithDom(() => import("../src/diff-viewer/hunkSummaries"));
 
 /** `count` files of `hunks` hunks each. */
 function files(count: number, hunks: number): PlainEnglishFile[] {

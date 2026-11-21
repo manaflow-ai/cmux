@@ -9,10 +9,12 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { popupItems } from "../../ui/popupHost";
-import { SlashMenu } from "./SlashMenu";
 import type { SlashMatch } from "./slashCommands";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { popupItems } = await importWithDom(() => import("../../ui/popupHost"));
+const { SlashMenu } = await importWithDom(() => import("./SlashMenu"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

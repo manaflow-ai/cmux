@@ -9,18 +9,23 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
-import { SubagentDoneLine } from "../src/agent-session/acpmux/subagents/SubagentDoneLine";
-import {
-  RetryAffordanceContext,
-  doneLineControls,
-  spawnRefused,
-  type RetryAffordance,
-} from "../src/agent-session/acpmux/subagents/subagentDoneLineModel";
-import { TurnActionsContext, type TurnActions } from "../src/agent-session/acpmux/conversation/turnActions";
-import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
+import type { RetryAffordance } from "../src/agent-session/acpmux/subagents/subagentDoneLineModel";
+import type { TurnActions } from "../src/agent-session/acpmux/conversation/turnActions";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { SubagentDoneLine } = await importWithDom(
+  () => import("../src/agent-session/acpmux/subagents/SubagentDoneLine"),
+);
+const { RetryAffordanceContext, doneLineControls, spawnRefused } = await importWithDom(
+  () => import("../src/agent-session/acpmux/subagents/subagentDoneLineModel"),
+);
+const { TurnActionsContext } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/turnActions"),
+);
+const { SUBAGENT_DONE } = await importWithDom(() => import("../src/agent-session/acpmux/subagents/subagentRows"));
 
 const REFUSAL =
   "Concurrent subagent limit reached. You can run 40 subagents at once. Do not retry. If the user wants more concurrent subagents, ask them to increase CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS.";

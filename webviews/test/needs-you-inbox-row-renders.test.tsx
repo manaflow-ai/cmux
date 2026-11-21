@@ -1,4 +1,3 @@
-import { createRoot, rowRenders } from "./support/rowRenders";
 // l10n-allow-file: test fixture asks and chat names, not shipped UI.
 // Unchanged rows do not draw again (visible-only re-renders, rule 2) in the header's Needs you list
 // (needsYou/NeedsYou.tsx NeedsYouRow), the home's inbox (HomeInbox.tsx InboxRow) and its Ready for
@@ -17,6 +16,9 @@ import type { NeedsYouActions } from "../src/agent-session/acpmux/needsYou/needs
 import type { NeedsYouItem, WatchedAsk } from "../src/agent-session/acpmux/needsYou/model";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { createRoot, rowRenders } = await importWithDom(() => import("./support/rowRenders"));
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",

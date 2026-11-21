@@ -13,9 +13,13 @@
 // - O14 a held Worked closing on return: the capture is taken without a live line and plays the fold
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { captureTurnEnd, playTurnEnd, settleTurnEnd } from "../src/agent-session/acpmux/conversation/turnEndFold";
-import { LIVE_THINKING } from "../src/agent-session/acpmux/conversation/turns";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { importWithDom } from "./support/importWithDom";
+
+const { captureTurnEnd, playTurnEnd, settleTurnEnd } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/turnEndFold"),
+);
+const { LIVE_THINKING } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/turns"));
 
 type Played = {
   node: HTMLElement;

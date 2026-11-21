@@ -16,18 +16,19 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { layoutConversation, type AcpmuxActivity, type AcpmuxRow } from "./model";
-import { TranscriptDisclosureProvider } from "./conversation/transcriptDisclosure";
-import {
-  callDisclosureKey,
-  resetTranscriptDisclosure,
-  useTranscriptDisclosure,
-  type DisclosureSetter,
-} from "./conversation/transcriptDisclosureModel";
-import { thoughtChoices } from "./conversation/thoughtChoices";
-import { setCardOpen } from "./turnChanges/openStore";
-import { setEditedFilesSettings } from "./turnChanges/settings";
+import type { AcpmuxActivity, AcpmuxRow } from "./model";
+import type { DisclosureSetter } from "./conversation/transcriptDisclosureModel";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { layoutConversation } = await importWithDom(() => import("./model"));
+const { TranscriptDisclosureProvider } = await importWithDom(() => import("./conversation/transcriptDisclosure"));
+const { callDisclosureKey, resetTranscriptDisclosure, useTranscriptDisclosure } = await importWithDom(
+  () => import("./conversation/transcriptDisclosureModel"),
+);
+const { thoughtChoices } = await importWithDom(() => import("./conversation/thoughtChoices"));
+const { setCardOpen } = await importWithDom(() => import("./turnChanges/openStore"));
+const { setEditedFilesSettings } = await importWithDom(() => import("./turnChanges/settings"));
 
 const CHAT = "reader-state";
 const SPACING = 4;

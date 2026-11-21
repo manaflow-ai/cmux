@@ -2,11 +2,14 @@ import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { WIDGET_OPS, type WidgetTilePlacement } from "../../../apps/scene/widgetsClient";
-import { MockWidgetsHost } from "../../../apps/scene/widgetsMock";
+import type { WidgetTilePlacement } from "../../../apps/scene/widgetsClient";
 import { teardownDom } from "../../../../test/support/domTeardown";
-import { NewTabWidgets } from "./NewTabWidgets";
-import { droppedCell, moveEdit, movedCell } from "./widgetEditingModel";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { WIDGET_OPS } = await importWithDom(() => import("../../../apps/scene/widgetsClient"));
+const { MockWidgetsHost } = await importWithDom(() => import("../../../apps/scene/widgetsMock"));
+const { NewTabWidgets } = await importWithDom(() => import("./NewTabWidgets"));
+const { droppedCell, moveEdit, movedCell } = await importWithDom(() => import("./widgetEditingModel"));
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
 const globals = globalThis as Record<string, unknown>;

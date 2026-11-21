@@ -9,10 +9,12 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "./model";
-import { ComposerPickers } from "./ComposerPickers";
-import { rememberStartMode, resetStartModesForTests } from "./startMode";
-import { clearCloudModePick } from "./cloudModePick";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { ComposerPickers } = await importWithDom(() => import("./ComposerPickers"));
+const { rememberStartMode, resetStartModesForTests } = await importWithDom(() => import("./startMode"));
+const { clearCloudModePick } = await importWithDom(() => import("./cloudModePick"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

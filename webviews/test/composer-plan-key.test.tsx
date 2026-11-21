@@ -3,8 +3,10 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
-import { noChat } from "../src/gallery/fixtures/acpmux";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();

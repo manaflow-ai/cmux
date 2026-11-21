@@ -1,13 +1,12 @@
-// The Machines section's rows render only when their own machine changed: the host sends every row
-// on each change, and a snapshot that changes one machine draws that row alone (an unchanged one
-// draws none). Counted from React's commits (support/rowRenders.ts), not from the rows.
-import { createRoot, rowRenders } from "./support/rowRenders";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { teardownDom } from "./support/domTeardown";
 import type { MachineRow, MachinesSnapshot } from "../src/pages/machines/types";
+import { importWithDom } from "./support/importWithDom";
+
+const { createRoot, rowRenders } = await importWithDom(() => import("./support/rowRenders"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;

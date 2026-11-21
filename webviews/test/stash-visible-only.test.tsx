@@ -11,6 +11,7 @@ import type { StashRecord } from "../src/pages/stash/types";
 import { settleReact } from "./support/domTeardown";
 import { mountedRowRenders } from "./support/mountedRowRenders";
 import { installVirtualSizes } from "./support/virtualSizes";
+import { importWithDom } from "./support/importWithDom";
 
 const scope = globalThis as Record<string, unknown>;
 const names = [
@@ -68,15 +69,15 @@ afterAll(async () => {
 });
 
 const { createRoot } = await import("react-dom/client");
-const { StashPage } = await import("../src/pages/stash/StashPage");
-const { UiProvider } = await import("../src/ui/UiProvider");
-const { createStrings } = await import("../src/pages/shared/i18n");
+const { StashPage } = await importWithDom(() => import("../src/pages/stash/StashPage"));
+const { UiProvider } = await importWithDom(() => import("../src/ui/UiProvider"));
+const { createStrings } = await importWithDom(() => import("../src/pages/shared/i18n"));
 const table = (await import("../src/pages/stash/generated/strings.json")).default as Record<
   string,
   Record<string, string>
 >;
-const { MockStashProvider } = await import("../src/pages/stash/mockProvider");
-const { StashStore } = await import("../src/pages/stash/store");
+const { MockStashProvider } = await importWithDom(() => import("../src/pages/stash/mockProvider"));
+const { StashStore } = await importWithDom(() => import("../src/pages/stash/store"));
 
 const NOW = Date.UTC(2026, 10, 18, 12);
 const PER_GROUP = 10;

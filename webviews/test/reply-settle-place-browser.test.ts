@@ -4,9 +4,13 @@
 // compared before and after the fold change without relying on a real display refresh.
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { captureTurnEnd, playTurnEnd, settleTurnEnd } from "../src/agent-session/acpmux/conversation/turnEndFold";
-import { LIVE_THINKING } from "../src/agent-session/acpmux/conversation/turns";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { importWithDom } from "./support/importWithDom";
+
+const { captureTurnEnd, playTurnEnd, settleTurnEnd } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/turnEndFold"),
+);
+const { LIVE_THINKING } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/turns"));
 
 type Sample = {
   id: string;

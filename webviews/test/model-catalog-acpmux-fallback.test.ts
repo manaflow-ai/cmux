@@ -4,15 +4,15 @@
 // carries the public feed's newer models. A model released today reaches the picker without a page
 // or app update (user 2026-11-19: "gemini neon didn't automatically appear in model picker for us").
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { setNativeHost } from "../src/agent-session/acpmux/native";
-import { NativeError } from "../src/agent-session/acpmux/nativeError";
-import {
-  loadModelCatalog,
-  modelCatalogStateForTests,
-  resetModelCatalogForTests,
-  reloadModelCatalog,
-} from "../src/agent-session/acpmux/modelCatalogHost";
-import { BUNDLED_MODEL_CATALOG, buildPickerCatalog } from "../src/agent-session/acpmux/modelCatalogData";
+import { importWithDom } from "./support/importWithDom";
+
+const { setNativeHost } = await importWithDom(() => import("../src/agent-session/acpmux/native"));
+const { NativeError } = await importWithDom(() => import("../src/agent-session/acpmux/nativeError"));
+const { loadModelCatalog, modelCatalogStateForTests, resetModelCatalogForTests, reloadModelCatalog } =
+  await importWithDom(() => import("../src/agent-session/acpmux/modelCatalogHost"));
+const { BUNDLED_MODEL_CATALOG, buildPickerCatalog } = await importWithDom(
+  () => import("../src/agent-session/acpmux/modelCatalogData"),
+);
 
 const scope = globalThis as { window?: unknown };
 /** A stand-in window: the page's i18n follows the window's language events. */

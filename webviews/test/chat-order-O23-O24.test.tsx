@@ -8,9 +8,11 @@
 //   makes the line enter again: the same node, the same classes, no remount.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
-import { LIVE_THINKING } from "../src/agent-session/acpmux/conversation/turns";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { LIVE_THINKING } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/turns"));
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",

@@ -8,12 +8,14 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { Menu, MenuButton, MenuItem, MenuPopup } from "./Menu";
-import { UiProvider } from "./UiProvider";
 import type { PopupHost } from "./popupHost";
 import type { NativePopupTransport } from "./nativePopup";
-import { PRESS_CLICK_MS } from "./pressRelease";
 import { settleReact } from "../../test/support/domTeardown";
+import { importWithDom } from "../../test/support/importWithDom";
+
+const { Menu, MenuButton, MenuItem, MenuPopup } = await importWithDom(() => import("./Menu"));
+const { UiProvider } = await importWithDom(() => import("./UiProvider"));
+const { PRESS_CLICK_MS } = await importWithDom(() => import("./pressRelease"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

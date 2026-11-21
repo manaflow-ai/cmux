@@ -3,10 +3,13 @@
 // placement), printed as a table and asserted (Leo, 2026-11-21: "the spacing is just insanely shit here. way too
 // close. no way. we can measure all of these. we can deterministically see when these come in").
 import { expect, test } from "bun:test";
-import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
-import { WORKED } from "./conversation/turns";
-import { layoutConversation, MESSAGE_RUN, type AcpmuxRow } from "./model";
-import { type RowGapLook } from "./transcriptGrid";
+import type { AcpmuxRow } from "./model";
+import type { RowGapLook } from "./transcriptGrid";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { BACKGROUND_TURN } = await importWithDom(() => import("./conversation/backgroundTurns"));
+const { WORKED } = await importWithDom(() => import("./conversation/turns"));
+const { layoutConversation, MESSAGE_RUN } = await importWithDom(() => import("./model"));
 
 const row = (id: string, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,

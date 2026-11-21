@@ -10,9 +10,13 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { ENTRANCE_MOUNT_MS } from "../src/agent-session/acpmux/conversation/pendingEntrances";
 import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { ENTRANCE_MOUNT_MS } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/pendingEntrances"),
+);
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",

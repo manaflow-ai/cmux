@@ -3,13 +3,13 @@
 // height, a click on a tile picks it, a size slider's drag resizes the tiles before the release writes,
 // and a font family row draws a sample of the picked family at its size.
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import { FONT_PREVIEWS, familyStack } from "./fontPreviewModel";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
 
 const restore = installDom();
 afterAll(() => restore());
 const { changeValue, click, fire, ops, renderPage, rowElement, run } = await import("./testing");
+const { FONT_PREVIEWS, familyStack } = await import("./fontPreviewModel");
 
 let page: Rendered | null = null;
 afterEach(() => {

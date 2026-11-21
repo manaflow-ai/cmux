@@ -4,10 +4,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
 import { settleReact } from "../../../../test/support/domTeardown";
-import { ChatCards } from "./ChatCards";
-import { experimentArm } from "../../../experiments/experiment";
-import { homeCardGlow, homeCardTint } from "./homeCardGlow.experiment";
 import type { ChatCard } from "./screenModel";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { ChatCards } = await importWithDom(() => import("./ChatCards"));
+const { experimentArm } = await importWithDom(() => import("../../../experiments/experiment"));
+const { homeCardGlow, homeCardTint } = await importWithDom(() => import("./homeCardGlow.experiment"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

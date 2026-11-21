@@ -1,9 +1,3 @@
-// The Cloud page's machine rows render only when their own machine changed: a minute passing
-// redraws the running cost lines alone (each keeps its own clock) and neither the list nor a row,
-// the mirror's rebuilt rows over unchanged machines draw nothing, one machine's event draws its row
-// alone, and a selection draws the two rows whose selection flipped. Counted from React's commits
-// (support/rowRenders.ts), not from the rows.
-import { createRoot, rowRenders } from "./support/rowRenders";
 import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -12,6 +6,9 @@ import type { MachineRow } from "../src/pages/cloud/model";
 import type { CloudMachine } from "../src/pages/cloud/ops";
 import type { Strings } from "../src/pages/shared/i18n";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { createRoot, rowRenders } = await importWithDom(() => import("./support/rowRenders"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;

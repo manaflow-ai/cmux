@@ -1,8 +1,3 @@
-// The Chief views' rows render only when their own data changed: a minute passing draws no row (each
-// "4 min" stamp keeps its own clock and wakes when its words change), and the app's agents stream,
-// which sends every agent on each change, draws only the changed agent's row. Counted from React's
-// commits (support/rowRenders.ts), not from the rows.
-import { createRoot, rowRenders } from "./support/rowRenders";
 import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -10,6 +5,9 @@ import type { Root } from "react-dom/client";
 import type { PageClient } from "../src/pages/shared/pageClient";
 import type { ChiefAgent, LandingReply } from "../src/pages/chief-views/types";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { createRoot, rowRenders } = await importWithDom(() => import("./support/rowRenders"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "localStorage", "IS_REACT_ACT_ENVIRONMENT"] as const;

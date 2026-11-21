@@ -3,9 +3,11 @@
 // "not signed in" empties the Cloud inbox. Before, an unanswered `cloud-session-status` read was
 // taken as signed out and the Cloud rows went blank until some later relist.
 import { expect, test } from "bun:test";
-import { CloudHome } from "../src/pages/home-channels/cloudHome";
-import { conversation } from "../src/pages/home-channels/daemonHome";
 import type { DaemonSocket } from "../src/pages/shared/daemonSocket";
+import { importWithDom } from "./support/importWithDom";
+
+const { CloudHome } = await importWithDom(() => import("../src/pages/home-channels/cloudHome"));
+const { conversation } = await importWithDom(() => import("../src/pages/home-channels/daemonHome"));
 
 type Answer = (cmd: string) => unknown;
 

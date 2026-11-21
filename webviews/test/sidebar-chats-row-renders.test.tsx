@@ -7,6 +7,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import { teardownDom } from "./support/domTeardown";
 import { mountedRowRenders } from "./support/mountedRowRenders";
+import { importWithDom } from "./support/importWithDom";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -43,8 +44,10 @@ afterAll(async () => {
   await teardownDom(saved, { scope });
 });
 
-const { mountSidebarChats } = await import("../src/pages/sidebar-chats/mount");
-const { FIXTURE_STRINGS, fixtureBlock, fixtureRows } = await import("../src/pages/sidebar-chats/fixtures");
+const { mountSidebarChats } = await importWithDom(() => import("../src/pages/sidebar-chats/mount"));
+const { FIXTURE_STRINGS, fixtureBlock, fixtureRows } = await importWithDom(
+  () => import("../src/pages/sidebar-chats/fixtures"),
+);
 type Block = ReturnType<typeof fixtureBlock>;
 
 const mounted: Array<{ unmount(): void }> = [];

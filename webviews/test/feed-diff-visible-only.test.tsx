@@ -11,6 +11,7 @@ import type { FeedAttachment } from "../src/pages/feed/types";
 import { settleReact } from "./support/domTeardown";
 import { mountedRowRenders } from "./support/mountedRowRenders";
 import { installVirtualSizes } from "./support/virtualSizes";
+import { importWithDom } from "./support/importWithDom";
 
 const scope = globalThis as Record<string, unknown>;
 const names = [
@@ -72,7 +73,7 @@ afterAll(async () => {
 });
 
 const { createRoot } = await import("react-dom/client");
-const { DiffPreview } = await import("../src/pages/feed/parts");
+const { DiffPreview } = await importWithDom(() => import("../src/pages/feed/parts"));
 
 const diffLines = (n: number) =>
   Array.from({ length: n }, (_, index) =>

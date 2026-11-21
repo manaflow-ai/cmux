@@ -13,6 +13,7 @@ import type { Strings } from "../src/pages/shared/i18n";
 import { settleReact } from "./support/domTeardown";
 import { mountedRowRenders } from "./support/mountedRowRenders";
 import { installVirtualSizes } from "./support/virtualSizes";
+import { importWithDom } from "./support/importWithDom";
 
 const scope = globalThis as Record<string, unknown>;
 const names = [
@@ -75,9 +76,9 @@ afterAll(async () => {
 });
 
 const { createRoot } = await import("react-dom/client");
-const { FilesSection } = await import("../src/pages/cloud/FilesSection");
-const { FilesReader } = await import("../src/pages/cloud/files");
-const { CloudOps } = await import("../src/pages/cloud/ops");
+const { FilesSection } = await importWithDom(() => import("../src/pages/cloud/FilesSection"));
+const { FilesReader } = await importWithDom(() => import("../src/pages/cloud/files"));
+const { CloudOps } = await importWithDom(() => import("../src/pages/cloud/ops"));
 
 const strings: Strings = { language: "en", t: (key) => key, format: (key) => key };
 const FOLDER = "/home/cmux";

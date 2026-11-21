@@ -12,16 +12,18 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { layoutConversation, type AcpmuxActivity, type AcpmuxRow } from "./model";
-import { TranscriptDisclosureProvider } from "./conversation/transcriptDisclosure";
-import {
-  resetTranscriptDisclosure,
-  useTranscriptDisclosure,
-  type DisclosureSetter,
-} from "./conversation/transcriptDisclosureModel";
-import { groupDisclosureKey, runDisclosureKey } from "./conversation/turnRowsModel";
-import { runStretches, toolGroups } from "./conversation/toolGroups";
+import type { AcpmuxActivity, AcpmuxRow } from "./model";
+import type { DisclosureSetter } from "./conversation/transcriptDisclosureModel";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { layoutConversation } = await importWithDom(() => import("./model"));
+const { TranscriptDisclosureProvider } = await importWithDom(() => import("./conversation/transcriptDisclosure"));
+const { resetTranscriptDisclosure, useTranscriptDisclosure } = await importWithDom(
+  () => import("./conversation/transcriptDisclosureModel"),
+);
+const { groupDisclosureKey, runDisclosureKey } = await importWithDom(() => import("./conversation/turnRowsModel"));
+const { runStretches, toolGroups } = await importWithDom(() => import("./conversation/toolGroups"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

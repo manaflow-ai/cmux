@@ -9,16 +9,20 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { JSDOM } from "jsdom";
-import { EXIT_LEAD_MS, exitLeadMs, exitThenClose } from "../src/agent-session/acpmux/conversation/exitLead";
-import { captureTurnEnd, playTurnEnd, settleTurnEnd } from "../src/agent-session/acpmux/conversation/turnEndFold";
-import {
-  playTurnFold,
-  settleTurnFold,
-  startTurnFold,
-  type PlacedRows,
-} from "../src/agent-session/acpmux/conversation/turnFold";
-import { LIVE_THINKING } from "../src/agent-session/acpmux/conversation/turns";
+import type { PlacedRows } from "../src/agent-session/acpmux/conversation/turnFold";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { importWithDom } from "./support/importWithDom";
+
+const { EXIT_LEAD_MS, exitLeadMs, exitThenClose } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/exitLead"),
+);
+const { captureTurnEnd, playTurnEnd, settleTurnEnd } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/turnEndFold"),
+);
+const { playTurnFold, settleTurnFold, startTurnFold } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/turnFold"),
+);
+const { LIVE_THINKING } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/turns"));
 
 type Played = { node: HTMLElement; keyframes: Keyframe[]; delay: number; duration: number };
 

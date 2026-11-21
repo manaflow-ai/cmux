@@ -3,7 +3,11 @@
 // edge fade, and a strip that fits (the wide pane's column) is left alone.
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { followStripWheel, revealInStrip, revealOffset, STRIP_REVEAL_INSET } from "./components/sectionStrip";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { followStripWheel, revealInStrip, revealOffset, STRIP_REVEAL_INSET } = await importWithDom(
+  () => import("./components/sectionStrip"),
+);
 
 const dom = new JSDOM("<nav></nav>");
 const { window } = dom;

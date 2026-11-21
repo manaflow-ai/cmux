@@ -4,11 +4,11 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
-import { DENSITY_KEY, TEXT_SIZE_KEY } from "./density";
 
 const restore = installDom();
 afterAll(() => restore());
 const { click, renderPage } = await import("./testing");
+const { DENSITY_KEY, TEXT_SIZE_KEY } = await import("./density");
 let page: Rendered | null = null;
 afterEach(() => {
   page?.unmount();

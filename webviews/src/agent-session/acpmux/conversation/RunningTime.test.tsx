@@ -10,13 +10,15 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxBackgroundState } from "../model";
-import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
-import { CommandRow } from "./CommandRow";
-import { ToolRow } from "./ToolRow";
-import { McpCallRow } from "./McpCallRows";
-import { Thinking } from "./Thinking";
 import { settleReact } from "../../../../test/support/domTeardown";
-import { subscribePageSecond } from "../../../ui/pageClock";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { resetTranscriptDisclosure } = await importWithDom(() => import("./transcriptDisclosureModel"));
+const { CommandRow } = await importWithDom(() => import("./CommandRow"));
+const { ToolRow } = await importWithDom(() => import("./ToolRow"));
+const { McpCallRow } = await importWithDom(() => import("./McpCallRows"));
+const { Thinking } = await importWithDom(() => import("./Thinking"));
+const { subscribePageSecond } = await importWithDom(() => import("../../../ui/pageClock"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

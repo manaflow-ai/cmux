@@ -5,16 +5,17 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { installDom } from "../settings/testDom";
-import { createStrings } from "../shared/i18n";
-import { makeItYoursState } from "./fixtures";
 import table from "./generated/strings.json";
 import type { MakeItYoursLook } from "./MakeItYoursStep";
-import { OnboardingPage } from "./Onboarding";
-import { OPS, type OnboardingState } from "./ops";
-import { OnboardingStore } from "./store";
+import type { OnboardingState } from "./ops";
 
 const restore = installDom();
 afterAll(restore);
+const { createStrings } = await import("../shared/i18n");
+const { makeItYoursState } = await import("./fixtures");
+const { OnboardingPage } = await import("./Onboarding");
+const { OPS } = await import("./ops");
+const { OnboardingStore } = await import("./store");
 
 const strings = createStrings(table, ["en"]);
 

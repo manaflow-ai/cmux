@@ -12,8 +12,10 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { TRANSCRIPT_ROW } = await importWithDom(() => import("../src/agent-session/acpmux/transcriptSelectors"));
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, { had: boolean; value: unknown }>();

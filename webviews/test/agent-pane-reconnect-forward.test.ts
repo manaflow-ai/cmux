@@ -8,7 +8,9 @@
 // against a daemon that pages as acpmux's `_acpmux/attach` does (server/requests.rs: `afterSeq`
 // alone pages forward, oldest first).
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+import { importWithDom } from "./support/importWithDom";
+
+const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
 
 const CHAT = "0190a000-0000-7000-8000-00000000f0f0";
 const START = Date.UTC(2026, 10, 19, 9, 0, 0);

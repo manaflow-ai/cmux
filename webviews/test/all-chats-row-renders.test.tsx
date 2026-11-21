@@ -1,4 +1,3 @@
-import { createRoot, rowRenders } from "./support/rowRenders";
 // All chats (New Tab, History): a row renders only when its own chat changed. Selecting or opening
 // one chat, a push that changes one chat, a scroll step, a pointer over a row, a minute of the
 // clock, and a page render with the same chats render no other row. Each chat row is ChatRow; a
@@ -9,6 +8,9 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { createRoot, rowRenders } = await importWithDom(() => import("./support/rowRenders"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;

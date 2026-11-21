@@ -9,10 +9,14 @@
 // messages, read a file, ran a command, received a message") and opens to the rows as they drew.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { layoutConversation } from "../src/agent-session/acpmux/model";
-import { translate } from "../src/agent-session/acpmux/i18n";
-import { hiddenRowFolds, turnView } from "../src/agent-session/acpmux/conversation/turns";
-import { toolGroups } from "../src/agent-session/acpmux/conversation/toolGroups";
+import { importWithDom } from "./support/importWithDom";
+
+const { layoutConversation } = await importWithDom(() => import("../src/agent-session/acpmux/model"));
+const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
+const { hiddenRowFolds, turnView } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/turns"),
+);
+const { toolGroups } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/toolGroups"));
 
 // Claude's in-place runs (claudeTurnFold.experiment.ts arm "runs"): these tests cover that arm. The
 // default folds a Claude turn under "Worked for", as Codex does (turnFoldStyle.test.ts).

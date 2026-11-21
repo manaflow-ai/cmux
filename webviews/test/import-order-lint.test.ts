@@ -27,7 +27,9 @@ export const PURE_HELPERS = new Set([
   "test/support/domTeardown", // React's scheduler only (resolved from react-dom's folder)
   "test/support/importWithDom", // jsdom only: the fix itself
   "test/support/jsdomScroller",
+  "test/support/mountedRowRenders", // imports nothing: reads React's fibers off the DOM it is given
   "test/support/paintedFrames", // a Playwright page script
+  "test/support/virtualSizes", // imports nothing: defines sizes on the window it is given
   "test/support/until",
   // The settings pages' DOM install (a top-level `installDom()`, then `await import` of the rest). It
   // loads the settings string table first, a plain lookup that reads no global when it loads.

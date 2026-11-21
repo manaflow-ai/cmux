@@ -11,8 +11,10 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { turnView } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/turns"));
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 // The whole transcript renders once per frame; jsdom is slow at it.
 setDefaultTimeout(60_000);

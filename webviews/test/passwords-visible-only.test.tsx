@@ -12,6 +12,7 @@ import type { SavedPassword } from "../src/pages/passwords/types";
 import { settleReact } from "./support/domTeardown";
 import { mountedRowRenders } from "./support/mountedRowRenders";
 import { installVirtualSizes } from "./support/virtualSizes";
+import { importWithDom } from "./support/importWithDom";
 
 const scope = globalThis as Record<string, unknown>;
 const names = [
@@ -75,15 +76,15 @@ afterAll(async () => {
 });
 
 const { createRoot } = await import("react-dom/client");
-const { PasswordsPage } = await import("../src/pages/passwords/PasswordsPage");
-const { createStrings } = await import("../src/pages/shared/i18n");
+const { PasswordsPage } = await importWithDom(() => import("../src/pages/passwords/PasswordsPage"));
+const { createStrings } = await importWithDom(() => import("../src/pages/shared/i18n"));
 const table = (await import("../src/pages/passwords/generated/strings.json")).default as Record<
   string,
   Record<string, string>
 >;
-const { MockPasswordsProvider, sampleData } = await import("../src/pages/passwords/mockProvider");
-const { PasswordsStore } = await import("../src/pages/passwords/store");
-const { PasswordOps } = await import("../src/pages/passwords/types");
+const { MockPasswordsProvider, sampleData } = await importWithDom(() => import("../src/pages/passwords/mockProvider"));
+const { PasswordsStore } = await importWithDom(() => import("../src/pages/passwords/store"));
+const { PasswordOps } = await importWithDom(() => import("../src/pages/passwords/types"));
 
 const NOW = Date.UTC(2026, 10, 18, 12);
 
