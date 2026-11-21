@@ -170,47 +170,10 @@ python3 tests/test_ci_cache_restore_receipt.py
 python3 scripts/check-test-determinism.py --roots tests/test_ci_cache_restore_receipt.py --strict
 '''
 
-# Checks whose pull request runs each had a job of their own (cmux-next-crash-class.yml,
-# labels-sync.yml's validate job, cmux-next-shim-cpp.yml, cmux-next-chromium-currency.yml,
+# Checks whose pull request runs each had a job of their own (labels-sync.yml's validate job, cmux-next-shim-cpp.yml, cmux-next-chromium-currency.yml,
 # swift-acpmux-protocol.yml). Those workflows keep their push, dispatch and post-merge runs; a pull
 # request runs them here. `inputs` is each one's former pull_request path filter. A step whose
 # workflow ran its checks under `if: !cancelled()` runs every one and fails if any failed.
-[step.crash-class]
-job = "linux"
-timeout = 300
-title = "cmux-next crash-class rules"
-about = "isolated deinits, task locals outside a task, synchronous NSWorkspace opens and pipe reads in a readabilityHandler (red only for the files the pull request changes), the unrecognized-selector rule and the Chromium Objective-C contract"
-inputs = [
-  "Packages/macOS/CmuxNext/Sources/**",
-  "Packages/macOS/CmuxNext/Package.swift",
-  "scripts/cmux-next/check-concurrency.sh",
-  "scripts/cmux-next/check-main-actor-work.py",
-  "scripts/cmux-next/swift_scope.py",
-  "tests/test_check_concurrency_generic_deinit.py",
-  "tests/test_check_concurrency_pipe_reads.py",
-  "scripts/ci/crash-class-gate.sh",
-  "scripts/ci/pr_owned_findings.py",
-  "scripts/cmux-next/check-objc-selectors.py",
-  "scripts/cmux-next/objc-selector-table.json",
-  "scripts/cmux-next/check-cef-objc-contract.py",
-  "scripts/cmux-next/chromium-objc-contract.json",
-  "scripts/cmux-next/cef-manifest.json",
-]
-run = '''
-rc=0
-# The merge commit with its parents: only findings in the files the pull request changes fail it.
-scripts/ci/crash-class-gate.sh --pr || rc=1
-# The generic-class rule is red on #23050's shape and green with `nonisolated deinit`.
-python3 -I tests/test_check_concurrency_generic_deinit.py || rc=1
-# The pipe-read rule is red on availableData in a readabilityHandler and green with readReady().
-python3 -I tests/test_check_concurrency_pipe_reads.py || rc=1
-# Every `super.<member>` reaches a selector its framework superclass answers, or is guarded.
-python3 -I scripts/cmux-next/check-objc-selectors.py || rc=1
-# Every selector Chromium can send to NSApp or its delegate has a reviewed verdict for the pinned engine.
-python3 -I scripts/cmux-next/check-cef-objc-contract.py || rc=1
-exit "$rc"
-'''
-
 [step.labels-manifest]
 job = "linux"
 timeout = 120

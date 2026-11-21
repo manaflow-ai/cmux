@@ -131,9 +131,6 @@
    "linux": "its outputs feed later jobs; a skipped run leaves them empty; checks out ${{ needs.plan.outputs.head }}, not the run's commit",
    "mac": "its outputs feed later jobs; a skipped run leaves them empty; checks out ${{ needs.plan.outputs.head }}, not the run's commit"
   },
-  "cmux-next-chromium-currency.yml": {
-   "currency": "checks out ${{ github.event_name == 'schedule' && 'feat-cmux-next' || '' }}, not the run's commit"
-  },
   "cmux-next-crash-class.yml": {
    "crash-class": "below break-even: 26 runs, 20 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves"
   },
@@ -207,9 +204,6 @@
   "cmux-next-shell-integration.yml": {
    "shell-integration": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for",
    "zsh-head-watch": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
-  },
-  "cmux-next-shim-cpp.yml": {
-   "shim-downloads-cpp": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
   },
   "cmux-next-terminal.yml": {
    "rust-terminal-linux": "new on feat-cmux-next after this map's 52-PR replay: no runs measured yet, so a receipt write is not shown to pay; wire it in a later slice once its pull-request minutes are known",
@@ -374,10 +368,6 @@
    "backend": "needed by deploy-development: a skip would skip them or read as no verdict",
    "deploy-development": "reads secrets; publish, release, deploy, live or cloud work (by its name)"
   },
-  "labels-sync.yml": {
-   "validate": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for",
-   "apply": "writes to GitHub (a write permission): a side effect, not a verdict on the tree"
-  },
   "language-boundaries.yml": {
    "language-boundaries": "pull_request_target only: runs the base's workflow with write access, not the tree under test; reads pull request metadata or the base (github.event.pull_request.base.sha, github.event.pull_request.head.sha, github.event.pull_request.labels), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit"
   },
@@ -454,9 +444,6 @@
    "real-import-plan": "its outputs feed later jobs; a skipped run leaves them empty; needed by real-import: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.before, github.event.pull_request.base.sha, github.event.pull_request.head.sha), not only the tree",
    "real-import": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for",
    "bash32-syntax": "below break-even: 6 runs, 4 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves"
-  },
-  "swift-acpmux-protocol.yml": {
-   "check": "below break-even: 25 runs, 16 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves"
   },
   "terminal-hang-diagnostics.yml": {
    "release-gate": "publish, release, deploy, live or cloud work (by its name)",
