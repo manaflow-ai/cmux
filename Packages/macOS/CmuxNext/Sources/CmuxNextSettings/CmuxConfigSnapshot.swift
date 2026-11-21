@@ -99,6 +99,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var liveCode = CmuxConfigSnapshot.liveCodeDefault
     /// `customize.fromTheApp`: the Customize Inspector (hold Option) and right-click Customize…; off when unset.
     public var customizeFromTheApp = CmuxConfigSnapshot.customizeFromTheAppDefault
+    /// `labs.agentCustomization`: Settings shows and edits Claude Code's and Codex's own MCP servers (`cmux agent-config`); off when unset.
+    public var agentCustomization = CmuxConfigSnapshot.agentCustomizationDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`, `browser.freezeHiddenTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
@@ -202,6 +204,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `ui.reducedBackgrounds`: off when unset or invalid. On, windows draw the plain theme
     /// background; ``backdropSelection`` and ``windowBackground`` keep the person's values.
     public var reducedBackgrounds: Bool = ReducedBackgroundsSetting.fallback
+    /// `appearance.agentGlow`: off when unset or invalid. On, the window background stays calm while
+    /// agents are idle and glows softly in the machine's color when an agent needs you.
+    public var agentGlow: Bool = AgentGlowSetting.fallback
     /// `appearance.experimentalControls`; off unless explicitly enabled.
     public var experimentalAppearance = false
     /// `appearance.glassTransparency`, `appearance.hue` and
@@ -380,6 +385,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(Self.parseLabsToggle(root, path: machineJoinPath, fallback: machineJoinDefault), \.machineJoin)
         snapshot.take(Self.parseLabsToggle(root, path: liveCodePath, fallback: liveCodeDefault), \.liveCode)
         snapshot.take(Self.parseLabsToggle(root, path: customizeFromTheAppPath, fallback: customizeFromTheAppDefault), \.customizeFromTheApp)
+        snapshot.take(Self.parseLabsToggle(root, path: agentCustomizationPath, fallback: agentCustomizationDefault), \.agentCustomization)
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
         snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
         snapshot.take(LinkRouting.parse(root), \.linkRouting)
@@ -424,6 +430,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.backdropSelection = BackdropSelectionSetting().parse(root, diagnostics: &snapshot.diagnostics)
         if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art } else { snapshot.backdropArt = nil }
         snapshot.take(ReducedBackgroundsSetting.parse(root), \.reducedBackgrounds)
+        snapshot.take(AgentGlowSetting.parse(root), \.agentGlow)
         snapshot.take(FontSmoothingSetting.parse(root), \.fontSmoothing)
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)

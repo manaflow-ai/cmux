@@ -45,6 +45,23 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
+    # lane = "manual" in tests/test-execution.d/app.toml (no new CI tests, CLAUDE.md). It checks that the app FFI release's Linux control jobs take the nightly lane's reserved label first, never the bulk route alone; it reads app-ffi-repin.yml and app-ffi-release.yml only as data. Run it by hand
+    # when those workflows change. Exit: as below.
+    "tests/test_app_ffi_release_linux_route.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). It checks that a setup-bun step on a route that can reach an owned runner skips the Bun cache off the Blacksmith layout; it reads every workflow's setup-bun steps only as data. Run it by hand
+    # when those workflows change. Exit: as below.
+    "tests/test_ci_setup_bun_cache_layout.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). It checks that every pool job in rust-workspaces, cmux-next-guards and the cloud VM image bake/roll removes a reused workspace left sparse or broken before checkout; it runs that step on fixture repos and reads the workflows as data. Run it by hand
+    # when those workflows change. Exit: as below.
+    "tests/test_ci_reused_sparse_checkout.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). Policy tests of
+    # scripts/ci/shed_superseded_runs.py over fixture runs (#47662); it reads ci-shed-superseded-runs.yml only as data.
+    # Run it by hand when the script or that workflow changes. Exit: as below.
+    "tests/test_ci_shed_superseded_runs.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). It checks that a feat-cmux-next
+    # push's Linux control jobs start on the JIT nightly label (#47764, #47905); it reads the workflows as data. Run it
+    # by hand when those runs-on lines change. Exit: as below.
+    "tests/test_cmux_next_push_roots_on_nightly_jit.py",
     # lane = "manual" (no new CI tests, CLAUDE.md). It runs scripts/cmux-next/cargo-locks.py in a throwaway
     # repository and reads rust-workspaces.yml only as data (that the workflow calls the script). Run it by hand
     # when the script or that workflow changes. Exit: as below.
@@ -57,6 +74,10 @@ UNWIRED: set[str] = {
     # scripts/install-axe-ci.sh's sha256 refusal and reads ios-e2e.yml only to check it calls that script, not the
     # Homebrew tap. Run it by hand when either changes. Exit: as below.
     "tests/test_install_axe_ci.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). It evaluates every PR- and
+    # merge-queue-reachable runs-on, runner input and env against the reserved cmux-gcp-nightly(-jit)-x64 labels.
+    # Run it by hand when a PR-triggered or reusable workflow's runner changes. Exit: as below.
+    "tests/test_ci_nightly_labels_reserved.py",
     # lane = "manual" (no new CI tests, CLAUDE.md). It checks pool reads against .github/runners.json and that
     # copy against main's; run it by hand when a pool read or the pools change. Exit: as below.
     "tests/test_ci_runner_pools_copy.py",
@@ -73,6 +94,12 @@ UNWIRED: set[str] = {
     # No new CI tests (CLAUDE.md): #44697 added it with no step. It reads test-ios.yml only as data (a bot's re-run
     # on a cmux-next lane takes the picker's Blacksmith route); run it by hand when that route changes. Exit: as below.
     "tests/test_ci_ios_bot_rerun_route.py",
+    # lane = "manual": no new CI tests (AGENTS.md:214, Lawrence 2026-10-23). Both read the workflows only as data
+    # (the receipt jobs' verifier calls; each pull-request job's same-tree reuse or denial in
+    # scripts/ci/same_tree_reuse.json); run them by hand when ci_receipt.py, same_tree_reuse.py, its map or a
+    # covered workflow changes. Exit: as below.
+    "tests/test_ci_receipt.py",
+    "tests/test_same_tree_reuse.py",
     # Both are lane = "manual" in tests/test-execution.toml: CLAUDE.md forbids adding CI tests (Lawrence
     # 2026-10-23: "not to add gates/tests in CI, but you have to run them yourself"). Each reads a workflow
     # only as data (a fixture nightly.yml; cmux-next.yml for stamp readers). Exit: wire it here if that
@@ -195,6 +222,15 @@ UNWIRED: set[str] = {
     # artifacts.yml, cmux-tui-build-package.yml and cmux-tui-tree-request.yml as data. Run it by hand after changing
     # apt-ensure.sh or those install steps. Exit: as above.
     "tests/test_ci_apt_ensure.py",
+    # lane = "manual" (tests/test-execution.d/ci.toml; no new CI tests, CLAUDE.md). It names .github/workflows/ paths
+    # only as data in its fixture runs: scripts/ci/ci_receipt.py accepts a same-tree cmux-ci test run as the fast gates
+    # only from fast-checks.yml (fe0f9593). Run it by hand after changing ci_receipt.py. Exit: as above.
+    "tests/test_ci_receipt.py",
+    # lane = "manual" (tests/test-execution.d/ci.toml; no new CI tests, CLAUDE.md). It runs the Mac build steps of cmux-
+    # tui-build-package.yml with a fake cargo and sysctl and checks their cargo builds run at once at 40 GiB or more
+    # (#46073). Run it by hand after changing those steps, cmux-tui-mac-cargo-builds.sh or cargo-groups.sh. Exit: as
+    # above.
+    "tests/test_ci_cmux_tui_mac_legs_cargo_groups.py",
     # lane = "manual" (no new CI tests, CLAUDE.md). It checks that fast-checks.yml's setup=kernel-free Mac job: its
     # owned label, trust boundary and receipt (#46651). Run it by hand after changing that job. Exit: as above.
     "tests/test_ci_fast_checks_kernel_free.py",
