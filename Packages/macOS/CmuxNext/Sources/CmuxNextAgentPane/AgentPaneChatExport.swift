@@ -18,7 +18,9 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "export_failed", message: "The daemon returned no export")
             }
             let kind: AgentPaneSave.Kind = format == "markdown" ? .markdown : .json
-            let save = AgentPaneSave(text: text, suggestedName: all ? "chats" : "chat", kind: kind)!
+            guard let save = AgentPaneSave(text: text, suggestedName: all ? "chats" : "chat", kind: kind) else {
+                return AgentPaneReply.failure(code: "export_too_large", message: "The chat export is too large to save")
+            }
             return AgentPaneReply.success(try await onSaveFile(save))
         } catch {
             return AgentPaneReply.failure(code: "export_failed", message: error.localizedDescription)
