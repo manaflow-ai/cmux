@@ -1161,7 +1161,7 @@
   margin-inline-end: var(--grid-base);
   padding-inline: var(--grid-half-step);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--cv-text) 7%, transparent);
+  background: var(--ds-surface-inset);
 }
 .cv-user__versions .cv-user__version-count {
   min-width: 32px;
@@ -1211,7 +1211,65 @@
 :root[data-fork-switcher-look="head-pill"] .cv-user__versions[data-version-slot="head"] {
   padding-inline: var(--grid-half-step);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--cv-text) 7%, transparent);
+  background: var(--ds-surface-inset);
+}
+/* The switcher's two slots (VersionSwitcher.tsx): the footer's is shown, the head's is not, unless the
+   page asks for another look (`data-fork-switcher-look`, the gallery's A/B variants; Leo, 2026-11-21). */
+.cv-user__versions[data-version-slot="head"] {
+  display: none;
+}
+:root[data-fork-switcher-look="head"] .cv-user__versions[data-version-slot="footer"],
+:root[data-fork-switcher-look="head-pill"] .cv-user__versions[data-version-slot="footer"] {
+  display: none;
+}
+/* B, the pill: the footer's slot in a quiet capsule, so it reads as one control and not three glyphs. */
+:root[data-fork-switcher-look="pill"] .cv-user__versions[data-version-slot="footer"] {
+  margin-inline-end: var(--grid-base);
+  padding-inline: var(--grid-half-step);
+  border-radius: 999px;
+  background: var(--ds-surface-inset);
+}
+:root[data-fork-switcher-look="pill"] .cv-user__versions .cv-user__version-count {
+  min-width: 32px;
+  color: var(--cv-text);
+}
+/* E, the outlined capsule: a hairline instead of a fill, the count in full ink at the body's caption size. */
+:root[data-fork-switcher-look="outline"] .cv-user__versions[data-version-slot="footer"] {
+  margin-inline-end: var(--grid-base);
+  padding-inline: var(--grid-half-step);
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cv-text) 16%, transparent);
+}
+:root[data-fork-switcher-look="outline"] .cv-user__versions .cv-user__version-count {
+  min-width: 32px;
+  color: var(--cv-text);
+}
+/* F, the roomy capsule: B with a wider count ("2 of 3" spaced as a fraction) and the arrows apart, a
+   bigger target for the click that matters most in the row. */
+:root[data-fork-switcher-look="roomy"] .cv-user__versions[data-version-slot="footer"] {
+  margin-inline-end: var(--grid-base);
+  padding-inline: var(--grid-base);
+  border-radius: 999px;
+  background: var(--ds-surface-inset);
+}
+:root[data-fork-switcher-look="roomy"] .cv-user__versions .cv-user__version-count {
+  min-width: 44px;
+  color: var(--cv-text);
+}
+/* C and D, the head: over the bubble's right edge, where the prompt it belongs to starts, shown with
+   the bubble and not only under it. C is the plain arrows; D the same in the pill. */
+:root[data-fork-switcher-look="head"] .cv-user__versions[data-version-slot="head"],
+:root[data-fork-switcher-look="head-pill"] .cv-user__versions[data-version-slot="head"] {
+  display: inline-flex;
+  margin-bottom: var(--grid-half-step);
+}
+:root[data-fork-switcher-look="head-pill"] .cv-user__versions[data-version-slot="head"] {
+  padding-inline: var(--grid-half-step);
+  border-radius: 999px;
+  background: var(--ds-surface-inset);
+}
+:root[data-fork-switcher-look="head-pill"] .cv-user__versions .cv-user__version-count {
+  color: var(--cv-text);
 }
 /* The prompt open for editing: the bubble's place and shape, its text editable, Cancel and Send under it.
    The bubble's glass (UserBubble.tsx PromptEditor adds .ui-glass; the glass rules above), its 12

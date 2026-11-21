@@ -267,7 +267,8 @@ body {
   max-width: min(var(--tooltip-max-width), calc(100vw - var(--tooltip-edge) - var(--tooltip-edge)));
   /* The rim sits inside the box, as the native glass's does: the padding is measured from the box's
      edge, so a tooltip is as tall as the native one (TooltipMetrics: line height + 2 x padding).
-     Chromium lays out a hairline border (0.5px at 2x) as a whole 1px (--tooltip-rim-layout-width). */
+     Chromium lays out a hairline border (0.5px at 2x) as a whole 1px, hence the max(). */
+  --tooltip-rim-layout-width: max(var(--tooltip-rim-width), 1px);
   padding: calc(var(--tooltip-pad-block) - var(--tooltip-rim-layout-width))
     calc(var(--tooltip-pad-inline) - var(--tooltip-rim-layout-width));
   border: var(--tooltip-rim-width) solid
@@ -719,8 +720,6 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --tooltip-tint: var(--cmux-tooltip-tint, color-mix(in srgb, var(--surface-popup) var(--ds-glass-chip-tint), transparent));
   --tooltip-blur: var(--ds-glass-chip-blur);
   --tooltip-rim-width: var(--cmux-hairline);
-  /* The width Chromium lays the rim out at: a hairline (0.5px at 2x) takes a whole 1px. */
-  --tooltip-rim-layout-width: max(var(--tooltip-rim-width), 1px);
   --tooltip-shadow: var(--elevation-1);
   --tooltip-max-width: calc(var(--grid-base) * 80);
   /* TooltipMetrics.swift's numbers, on the 4px grid, following interface zoom: 12/16 text, 4px above
