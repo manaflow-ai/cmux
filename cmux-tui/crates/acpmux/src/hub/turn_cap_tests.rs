@@ -501,8 +501,13 @@ async fn an_inbox_message_held_under_the_cap_gets_the_notice_at_the_cap() {
     let turn_id = f.session.turn().unwrap().turn_id;
     let (person, _next) = f.send("next from the person", None, false, false).await;
     assert_eq!(person.unwrap()["queued"], true);
-    let opts =
-        PromptOptions { agent: Some("lane-a".into()), inbox: true, ..PromptOptions::default() };
+    // An action: a message that names no class is an FYI, which asks for no cap notice.
+    let opts = PromptOptions {
+        agent: Some("lane-a".into()),
+        inbox: true,
+        class: Some(crate::prompt_class::PromptClass::Result),
+        ..PromptOptions::default()
+    };
     let (held, _held) = f.send_with("from lane a", false, opts).await;
     held.unwrap();
     let in_inbox = |f: &Fixture| f.session.inbox().items.iter().any(|i| !i.noticed);
