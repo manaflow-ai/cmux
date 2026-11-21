@@ -1931,7 +1931,13 @@ function TranscriptView({
   /// Where the warm rows were built from (warmAnchor), held while a fast scroll outruns them (below).
   const heldWarmAt = useRef<string | undefined>(undefined);
   const scrollLeadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const [, setScroll] = useState(scrollRef.current);
+  const [, setScrollRaw] = useState(scrollRef.current);
+  const setScroll = (v: { top: number; delta: number }) => {
+    (window as unknown as { __mark?: (w: string) => void }).__mark?.(
+      `setScroll ${JSON.stringify(v)} ${String(new Error().stack).split("\n").slice(2, 14).map((l) => l.trim()).join(" < ")}`,
+    );
+    setScrollRaw(v);
+  };
   const scheduleScrollLeadReset = () => {
     clearTimeout(scrollLeadTimer.current);
     if (scrollRef.current.delta === 0) {

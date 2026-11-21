@@ -153,6 +153,7 @@ export function useKeptAttachments(
           const others = keep ? held.filter((chip) => !back.some((k) => k.id === chip.id)) : [];
           return back.length || others.length !== held.length ? [...back, ...others] : held;
         });
+        (window as unknown as { __mark?: (w: string) => void }).__mark?.("keptAttachments setReadFor");
         setReadFor(sessionId);
       });
     return () => {
