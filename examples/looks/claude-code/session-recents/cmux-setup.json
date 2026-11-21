@@ -8,5 +8,6 @@
   "version": "1.0.0",
   "license": "MIT",
   "repository": "https://github.com/manaflow-ai/cmux",
+  "screenshots": ["screenshots/preview.png"],
   "settings": {}
 }

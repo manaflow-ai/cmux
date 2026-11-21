@@ -4,7 +4,7 @@ const lastActivity = (chat) => Math.max(Number(chat.updated_ms) || 0, Number(cha
 const week = 7 * 24 * 60 * 60 * 1000
 const title = (chat) => chat.title || chat.id
 const byAge = (a, b) => lastActivity(b) - lastActivity(a) || key(a).localeCompare(key(b))
-const target = (chat) => ({ chat: chat.id, ...(chat.machine ? { machine: chat.machine } : {}) })
+const target = (chat) => ({ chat: chat.id, peer: chat.machine || null })
 
 function childrenByParent(chats) {
   const children = new Map()
@@ -131,15 +131,18 @@ function renderRecents() {
     if (busy()) return
     setBusy(true)
     setError("")
-    let completed = 0
     try {
-      for (const chat of items) {
-        if (Boolean(chat.archived) === value) continue
-        await cmux.call("chat.archive", { ...target(chat), archived: value })
-        completed++
+      const targets = items.filter((chat) => Boolean(chat.archived) !== value).map(target)
+      if (!targets.length) return
+      const results = await cmux.call("chat.archive", { targets, archived: value })
+      const failed = results.filter((r) => r.error != null)
+      if (failed.length) {
+        const first = failed[0]
+        const where = first.peer ? first.peer + "/" + first.chat : first.chat
+        setError(`${results.length - failed.length} ${value ? "archived" : "restored"}, ${failed.length} failed. ${where}: ${first.error}`)
       }
     } catch (e) {
-      setError(`${completed} ${value ? "archived" : "restored"}. ${problem(e)}`)
+      setError(problem(e))
     } finally {
       setBusy(false)
     }
@@ -195,6 +198,7 @@ function renderRecents() {
     () => !archived() && pins().length ? Text("Pinned").secondary() : null,
     Reorderable({ items: () => archived() ? [] : pinPages.visible(), key, onMove: movePin }, (c) => row(c, () => 0)),
     () => archived() ? null : pinPages.controls(),
+    () => !archived() && view() === "Sessions" && pins().length && rows().length ? Text("Recents").secondary() : null,
     ForEach({ items: recentPages.visible, key: (r) => r.group === undefined ? key(r.chat) : "group:" + r.group }, (r) =>
       r().group === undefined ? row(() => r().chat, () => r().depth) : Text(() => r().group).secondary()),
     recentPages.controls,

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 import test from "node:test"
 import { FakeHost } from "./fake-host.ts"
 
-const profile = new URL("../../../../../examples/looks/session-recents/", import.meta.url)
+const profile = new URL("../../../../../examples/looks/claude-code/session-recents/", import.meta.url)
 const manifest = JSON.parse(readFileSync(new URL("customize/cmux-app.json", profile)))
 const source = readFileSync(new URL("customize/" + manifest.runtime.main, profile), "utf8")
 const now = Date.UTC(2026, 10, 21)
@@ -79,4 +79,90 @@ test("moving pins with the same id persists the order through a remount", async 
   await host.settle()
   assert.deepEqual(storage["session-recents.pin-order"], [pinKey("peer", "p"), pinKey("", "p")])
   assert.deepEqual(titles(await mount(chats, storage)), ["Peer pin", "Local pin"])
+})
+
+function archiveHandler(host, chats, refuses = () => false) {
+  host.handlers["chat.archive"] = ({ targets, archived }, options) => {
+    assert.equal(options.gesture, "from-click")
+    const result = targets.map(({ chat, peer }) => {
+      const row = chats.find((r) => r.id === chat && (r.machine ?? null) === peer)
+      assert.ok(row, "qualified archive target")
+      const error = refuses(row) ? "unavailable" : null
+      if (!error) row.archived = archived
+      return { chat, peer, error }
+    })
+    host.emit("chat.changed")
+    return ok(result)
+  }
+}
+const calls = (host, name) => host.calls.filter((c) => c.name === name)
+
+test("age archive uses last activity, skips pins and unknown ages, and preserves younger children", async () => {
+  const chats = [
+    { id: "old", created_ms: String(now - 2 * week) },
+    { id: "new", parent: "old", updated_ms: String(now) },
+    { id: "active", created_ms: now - 2 * week, since_ms: now },
+    { id: "boundary", updated_ms: now - week },
+    { id: "unknown" }, { id: "pin", pinned: true, created_ms: now - 3 * week },
+    { id: "archived", archived: true, created_ms: now - 2 * week },
+  ]
+  const host = await mount(chats)
+  archiveHandler(host, chats)
+  await choose(host, "Menu", "Archive", "Archive older than a week")
+  assert.deepEqual(calls(host, "chat.archive").map((c) => c.params), [{ targets: [{ chat: "old", peer: null }], archived: true }])
+  assert.equal(node(host, "Row", "new").props.padding.leading, 0)
+  await choose(host, "Menu", "Archive", "Archive all recent sessions")
+  assert.deepEqual(titles(host), ["pin"])
+  await choose(host, "Menu", "Archive", "Show archived")
+  assert.deepEqual(titles(host).sort(), ["active", "archived", "boundary", "new", "old", "unknown"])
+})
+
+test("explicit nested archive and restore stay on the selected peer through partial failure and retry", async () => {
+  const chats = [
+    { id: "root", title: "Local" },
+    { id: "root", title: "Remote", machine: "peer" },
+    { id: "child", title: "Nested", machine: "peer", parent: "root" },
+    { id: "child", title: "Local child", parent: "root" },
+  ]
+  const host = await mount(chats)
+  archiveHandler(host, chats, (r) => r.title === "Nested")
+  await choose(host, "Row", "Remote", "Archive with nested sessions")
+  assert.deepEqual(calls(host, "chat.archive")[0].params.targets, [{ chat: "root", peer: "peer" }, { chat: "child", peer: "peer" }])
+  assert.ok(headings(host).some((s) => s.includes("1 archived, 1 failed") && s.includes("peer/child")))
+  archiveHandler(host, chats)
+  await choose(host, "Row", "Nested", "Archive")
+  await choose(host, "Menu", "Archive", "Show archived")
+  assert.deepEqual(titles(host), ["Remote", "Nested"])
+  await choose(host, "Row", "Remote", "Restore with nested sessions")
+  assert.deepEqual(titles(host), [])
+  assert.ok(headings(host).includes("No archived sessions"))
+  assert.equal(chats.filter((r) => r.archived).length, 0)
+})
+
+test("pinning a peer uses its exact selector; the new pin appears on chat.changed", async () => {
+  const chats = [{ id: "one", title: "Local" }, { id: "one", machine: "other", title: "Remote" }]
+  const host = await mount(chats)
+  host.handlers["chat.pin"] = (params, options) => {
+    assert.deepEqual(params, { chat: "one", peer: "other", pinned: true })
+    assert.equal(options.gesture, "from-click")
+    chats[1].pinned = true
+    host.emit("chat.changed")
+    return ok(null)
+  }
+  await choose(host, "Row", "Remote", "Pin")
+  assert.deepEqual(titles(host), ["Remote", "Local"])
+  assert.ok(headings(host).includes("Pinned"))
+})
+
+test("second pin page reorders using the full list", async () => {
+  const chats = Array.from({ length: 21 }, (_, i) => ({ id: String(i), pinned: true, updated_ms: now - i }))
+  const storage = {}
+  const host = await mount(chats, storage)
+  host.dispatch("recents", node(host, "Button", "Next").id, "tap")
+  await host.settle()
+  assert.deepEqual(titles(host), ["17", "18", "19", "20"])
+  host.dispatch("recents", node(host, "Reorderable").id, "move", { id: pinKey("", "20"), index: 0 })
+  await host.settle()
+  assert.equal(storage["session-recents.pin-order"].length, chats.length)
+  assert.deepEqual(titles(host), ["20", "17", "18", "19"])
 })
