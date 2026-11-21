@@ -256,7 +256,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         attentionObservation = Task { [weak self] in
             for await marks in ObservationStream({ notifications.attentionMarks(for: workspace, shownTab: shownTab) }) {
                 guard let self else { return }
-                guard self.layoutModel.attention != marks else { continue }
+                guard self.layoutModel.attentionMarks != marks else { continue }
                 // A ring read by going into its pane blinks out (classic's dismiss flash); one cleared any other way fades.
                 let removed = Set(self.layoutModel.attention.keys).subtracting(marks.keys)
                 self.layoutModel.setAttention(marks, readByEntry: notifications.takeEntryReads(removed: removed, in: workspace))

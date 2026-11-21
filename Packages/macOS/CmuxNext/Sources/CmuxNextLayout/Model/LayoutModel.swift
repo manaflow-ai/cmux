@@ -160,6 +160,8 @@ public final class LayoutModel {
     /// The ring generation of each pane the focus entered (``enterAttention(_:click:)``): its ring stays out
     /// while the read is on its way, and comes back only with a newer one.
     @ObservationIgnored var enteredAttention: [PaneID: UInt64] = [:]
+    /// The App's marks as last set (``setAttention(_:readByEntry:)``), before the entered rings are left out.
+    @ObservationIgnored public internal(set) var attentionMarks: [PaneID: AttentionMark] = [:]
 
     /// Panes whose frame currently intersects the visible viewport of the
     /// active screen. Hosted views stay alive while not visible; use this to
@@ -376,7 +378,6 @@ public final class LayoutModel {
                 lastFocusSource = source
                 dismissFocusRing()
             }
-            enterAttention(pane)
             return
         }
         lastFocusSource = source

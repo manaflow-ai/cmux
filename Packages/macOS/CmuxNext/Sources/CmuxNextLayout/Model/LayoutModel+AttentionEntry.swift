@@ -10,6 +10,7 @@ extension LayoutModel {
     /// The App's attention marks. `readByEntry`: panes whose mark this change removes because the
     /// person went into them. A pane the focus entered keeps its ring out while its generation holds.
     public func setAttention(_ marks: [PaneID: AttentionMark], readByEntry: Set<PaneID>) {
+        attentionMarks = marks
         enteredAttention = enteredAttention.filter { marks[$0.key]?.generation == $0.value }
         let shown = marks.filter { enteredAttention[$0.key] == nil }
         // A ring that went by entry blinks whenever the chrome draws it going; it leaves the set when it rings again.
@@ -18,14 +19,14 @@ extension LayoutModel {
         if attention != shown { attention = shown }
     }
 
-    /// The person went into `pane` (the focus entered it, or `click`): a ring the App reads so blinks out
+    /// The person went into `pane` (the focus moved into it, or `click`): a ring the App reads so goes
     /// now, in the pass that moves the focus or takes the click, not when the read comes back or the
-    /// pane's content loads. True when it did.
+    /// pane's content loads; it blinks out unless the flash is off (`notifications.attention.flash`). True when it did.
     @discardableResult
     public func enterAttention(_ pane: PaneID, click: Bool = false) -> Bool {
         guard let mark = attention[pane], readsAttentionOnEntry(pane, click) else { return false }
         enteredAttention[pane] = mark.generation
-        attentionReadByEntry.insert(pane)
+        if DesignSettings.shared.attention.flashesOnRead { attentionReadByEntry.insert(pane) }
         attention[pane] = nil
         return true
     }

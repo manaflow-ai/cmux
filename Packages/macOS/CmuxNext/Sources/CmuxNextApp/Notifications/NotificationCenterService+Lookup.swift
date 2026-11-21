@@ -223,13 +223,13 @@ extension NotificationCenterService {
 
     /// A viewed tab reads its notifications and needs-you requests at once (cmux#42210), so it draws no ring (a mark stays).
     func readsOnSight(_ t: TabModel) -> Bool { reads(.focus, t) && isViewed(t.id) }
-    /// Going into `t`'s pane by `trigger` reads its ring by the policy: an unread notification, a needs-you request, a mark (a click), a finished turn (`turn`).
-    func reads(_ trigger: NotificationTrigger, _ t: TabModel, turn: Bool = false) -> Bool { let p = NotificationPolicy(prefs: preferences); return turn && agentFinished[t.id] != nil && p.clears(trigger, for: .agent) || trigger == .click && t.markedUnread || (t.hasUnread || t.attention != nil) && !t.markedUnread && (!t.hasUnread || p.clears(trigger, for: source(of: t))) && (t.attention == nil || p.clears(trigger, for: .agent)) }
-    /// The person went into ringing `pane` (a focus, a click) in the window they work in: read it now, not once a loading chat's page holds the keys (cmux#46908).
+    /// Going into `t`'s pane by `trigger` reads its ring by the policy: an unread notification, a needs-you request, a mark (a click), a finished turn's ring (`turn`).
+    func reads(_ trigger: NotificationTrigger, _ t: TabModel, turn: Bool = false) -> Bool { let p = NotificationPolicy(prefs: preferences); return turn && agentFinished[t.id] != nil && t.agentSession != nil && DesignSettings.shared.attention.rings(agentChat: true) && p.clears(trigger, for: .agent) || trigger == .click && t.markedUnread || (t.hasUnread || t.attention != nil) && !t.markedUnread && (!t.hasUnread || p.clears(trigger, for: source(of: t))) && (t.attention == nil || p.clears(trigger, for: .agent)) }
+    /// The person went into ringing `pane` (a focus, a click) in the window they look at, its keys or a loading chat's page not attached yet: read it now (cmux#46908). A press reads by its click, after a strip press holds it.
     func readOnEntry(_ pane: LayoutPaneID, click: Bool, in content: WorkspaceContentController) -> Bool {
-        guard let services, services.appActiveSource(), let window = services.windows.active, window.content === content, window.shownTopPage == nil,
-              let model = content.paneModel(key: pane.rawValue), let id = shownTab(of: model), !viewHolds.contains(id),
-              let tab = model.tabs.first(where: { $0.id == id }), reads(click ? .click : .focus, tab, turn: true) else { return false }
+        guard let services, services.appActiveSource(), click || NSApp?.currentEvent.map({ [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains($0.type) }) != true,
+              let window = services.windows.controllers.first(where: { $0.content === content }), window.shownTopPage == nil, ownsKey(window) || services.windows.active === window && services.keyWindowSource().map({ services.windows.owner(of: $0) == nil }) == true,
+              let model = content.paneModel(key: pane.rawValue), let id = shownTab(of: model), !viewHolds.contains(id), let tab = model.tabs.first(where: { $0.id == id }), reads(click ? .click : .focus, tab, turn: true) else { return false }
         interacted(click ? .click : .focus, tab: tab); return true
     }
     /// Of the panes in `removed` (their mark just went away), those the person went into, focus included (cmux#42210: its
