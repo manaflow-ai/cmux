@@ -45,7 +45,7 @@ struct AgentPaneChatActionsMenuTests {
         #expect(titles[save + 1] == "Translate")
         #expect(titles[save - 1] == "—")
         // Every row of the menu without extensions keeps its place around the new group.
-        #expect(titles.filter { $0 != "Save to Notes" && $0 != "Translate" } .count == plain.count + 1)
+        #expect(titles.filter { $0 != "Save to Notes" && $0 != "Translate" }.count == plain.count + 1)
         let item = try #require(menu.items.first { $0.title == "Save to Notes" })
         #expect(item.image != nil)
         _ = (item.target as? AgentPaneMenuAction)?.run()
