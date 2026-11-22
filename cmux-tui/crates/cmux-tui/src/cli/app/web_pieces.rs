@@ -39,7 +39,7 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 const ETAG_MAX: usize = 256;
 
 /// English like the JSON it documents: the app, not a person, runs this.
-pub(in crate::cli) const USAGE: &str = "usage: cmux app web-pieces check --state <dir> --channel <every-merge|nightly> [--base <url>] [--active <key>] [--kept <key>]... [--offline]\n       cmux app web-pieces status --state <dir>\ncheck reads the signed switch file of cmux's web updates (<base>ota/pieces-<channel>.json; base\ndefaults to https://files.cmux.com/cmux-next-web/) and prints one JSON line: what each web piece serves\n(the live update, the last good one or the app's bundle). --active is the key of the update the app serves,\n--kept the keys of the older ones it holds, newest first; --offline plans from the kept state with no\nnetwork. It keeps web-pieces.json and web-pieces.log.jsonl in --state. status prints both; no network.";
+pub(in crate::cli) const USAGE: &str = "usage: cmux app web-pieces check --state <dir> --channel <every-merge|nightly> [--base <url>] [--active <key>] [--kept <key>]... [--offline]\n       cmux app web-pieces status --state <dir>\ncheck reads the signed switch file of cmux's web updates (<base>ota/pieces-<channel>.json; base\ndefaults to https://files.cmux.com/cmux-next-web/) and prints one JSON line: what each web piece serves\n(the live update, the last good one or the app's bundle). --active is the key of the web update served now,\n--kept the keys of the older ones on disk, newest first; --offline plans from the kept state with no\nnetwork. It keeps web-pieces.json and web-pieces.log.jsonl in --state. status prints both; no network.";
 
 #[derive(Debug, PartialEq, Eq)]
 pub(in crate::cli) enum Command {
