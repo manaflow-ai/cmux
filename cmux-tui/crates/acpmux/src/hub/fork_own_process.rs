@@ -91,7 +91,8 @@ impl Hub {
         *fork.agent_fork.lock().unwrap_or_else(|e| e.into_inner()) =
             Some(AgentFork { parent, hold: Some(hold) });
         let weak = Arc::downgrade(fork);
-        tokio::spawn(async move {
+        // Cancelled with the hub: the hold then goes with the hub itself.
+        self.scope.spawn_until_cancelled("agent-fork-hold", async move {
             tokio::time::sleep(HOLD_MAX).await;
             if let Some(fork) = weak.upgrade() {
                 fork.release_agent_fork_hold();
