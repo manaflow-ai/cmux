@@ -141,9 +141,19 @@ extension NewTabKeySessionWalkTests {
     /// so). The second key's page is the shown one: its view is made at a frame after the keys, before or after
     /// the kept rows got the change; it must show the changed row in both orders.
     ///
+    /// Before the select the row counts the shown New Tab page as used (`NewTabOpenFramesTests.useEachNewTabPage`):
+    /// a tab that the pane shows next takes the view of an untouched New Tab page that the pane leaves
+    /// (`AgentTabStore.idlePage`), and then no view is made after the change. That the view is a new one is a
+    /// condition of the setup.
+    ///
     /// Before the rows were kept, a page's lists came from a walk of the session in the key's call, so the
     /// page of a key after a change had the change (by a read; this file does not compile there).
-    @Test func aPageWhoseViewIsMadeAfterAChangeShowsTheChangedRow() async throws {
+    ///
+    /// `used` false, the second form (`NewTabHoldMovesItsPageTests+IdleStart.swift`): the shown page stays untouched,
+    /// so the first key's tab takes that page's view at its select and no view is made. That it took that view is a
+    /// condition of the setup. No page loads here, and the row sets no handshake mark: a tab takes an untouched page
+    /// view with or without it. Want: the view that the tab took lists the changed row.
+    @Test(arguments: [true, false]) func aPageWhoseViewIsMadeAfterAChangeShowsTheChangedRow(used: Bool) async throws {
         try await Self.withPane { start in
             let services = start.services
             let tabs = services.agentTabs
@@ -182,14 +192,33 @@ extension NewTabKeySessionWalkTests {
             let shownRows = others.compactMap { tabs.views[$0.key] }.first?.model.newTab?.omnibar.tabs
             let shownHas = shownRows?.contains(where: { $0.title == "late row" })
 
-            // The test's own step: the first key's tab is selected, so its page view is made now.
+            // The test's own step: the first key's tab is selected, so its page view is made now. The shown page counts
+            // as used first: else the first key's tab takes that page's view (`AgentTabStore.idlePage`), and no view is made.
             let id = try #require(start.pane.orderedIDs.first(where: { $0.rawValue == first.key }),
                                   "setup: the strip does not list the first key's tab")
+            if !used {
+                let shown = try #require(start.pane.currentTabKey.flatMap { tabs.existingView($0) }, "setup: the tab that the pane shows has no page view before the select")
+                try #require(shown.isUntouchedNewTab, "setup: the page that the pane shows is no untouched New Tab page before the select")
+                start.pane.select(id)
+                await Self.frame(services)
+                let took = tabs.views[first]
+                let rows = took?.model.newTab?.omnibar.tabs ?? []
+                let has = rows.contains(where: { $0.title == "late row" })
+                print("new tab key, \(start.workspaces) workspaces, a title change and 2 New Tab keys in one turn, the second form: the first key's tab "
+                    + "has a page view one frame after its select: \(took != nil), the view of the tab that the pane left: \(took === shown); "
+                    + "it lists \(rows.count) tab rows and the change: \(has); the shown page listed the change before the select: \(shownHas.map { "\($0)" } ?? "it had no view")")
+                try #require(took === shown, "setup: the first key's tab did not take the page view of the tab that the pane left, so this form says nothing")
+                #expect(has, "the page view that a tab took after the change lists the tab's title of before the change")
+                return
+            }
+            NewTabOpenFramesTests.useEachNewTabPage(services)
+            let viewsBefore = tabs.views.values.map { $0 }
             start.pane.select(id)
             await Self.frame(services)
             let byFrame = tabs.views[first]
             let made = byFrame ?? tabs.view(for: first.key, machine: first.machine)
             let view = try #require(made, "setup: the first key's tab gets no page view after its select")
+            try #require(!viewsBefore.contains { $0 === view }, "setup: the view of the first key's tab was there before its select, so it was not made after the change")
             let rows = view.model.newTab?.omnibar.tabs ?? []
             let has = rows.contains(where: { $0.title == "late row" })
             let shownText = shownHas.map { "\($0)" } ?? "it has no view"
@@ -202,13 +231,50 @@ extension NewTabKeySessionWalkTests {
         }
     }
 
+    /// The second form of the key's part of `aChangeWithThreeOpenPagesMapsOneWorkspaceAtMostAfterIt`
+    /// (`NewTabHoldMovesItsPageTests+IdleStart.swift`): the pane shows an untouched New Tab page, so the key's tab
+    /// takes that page's view. That it took that view is a condition of the setup. No page loads here, and the row
+    /// sets no handshake mark. Want: after the key's call the main actor maps one workspace at most.
+    ///
+    /// The title change's part of that row has the first form only: it has no New Tab key.
+    @Test func aNewTabKeyThatTakesAnIdlePageViewMapsOneWorkspaceAtMostAfterIt() async throws {
+        try await Self.withPane { start in
+            let tabs = start.services.agentTabs
+            let opened = Self.newTab(start)
+            try #require(opened.ran && opened.made == 1, "setup: the setup's New Tab key \(opened.ran ? "ran" : "was refused") and the strip has \(opened.made) new tabs")
+            await Self.frame(start.services)
+            await LargeSessionWindowFixture.drainMain()
+            let left = start.pane.currentTabKey
+            let idle = try #require(left.flatMap { tabs.existingView($0) }, "setup: the tab of the setup's New Tab key has no page view after its frame")
+            try #require(idle.isUntouchedNewTab, "setup: the page view of the setup's New Tab key is no untouched New Tab page")
+
+            _ = start.visits.takeByWorkspace()
+            let key = Self.newTab(start)
+            try #require(key.ran && key.made == 1, "setup: the New Tab key \(key.ran ? "ran" : "was refused") and the strip has \(key.made) new tabs")
+            let inCall = start.visits.takeByWorkspace()
+            await LargeSessionWindowFixture.drainMain()
+            let afterKey = start.visits.takeByWorkspace()
+            let keyMaps = afterKey.values.reduce(0, +)
+            await Self.frame(start.services)
+            let took = start.pane.currentTabKey.flatMap { $0 == left ? nil : tabs.existingView($0) }
+            print("new tab key, \(start.workspaces) workspaces, the second form (the key's tab takes the page view of the tab that the pane left: "
+                + "\(took === idle)): the key's call mapped \(inCall.count) different workspaces; after the call the main actor mapped "
+                + "\(afterKey.count) different workspaces in \(keyMaps) maps")
+            try #require(took === idle, "setup: the key's tab did not take the page view of the tab that the pane left, so this row says nothing")
+            #expect(afterKey.count <= 1,
+                    "after a New Tab key whose tab took an idle page view the main actor mapped \(afterKey.count) workspaces in \(keyMaps) maps, want its own at most")
+        }
+    }
+
     /// A New Tab page whose view is a prewarmed page, taken after a change of a row, shows the changed row.
     ///
     /// The steps are those of `aPageWhoseViewIsMadeAfterAChangeShowsTheChangedRow`, with one more. The keys get no
     /// prewarmed page. After the kept rows got the change, the tab store has one prewarmed page to hand out: the
     /// test's own, made by the store's maker, given to the first tab that asks. Then the test selects the first key's
     /// tab, so its view is that prewarmed page, which takes the tab's page value of the key's turn. That the view is
-    /// the prewarmed page is a condition of the setup.
+    /// the prewarmed page is a condition of the setup. Before the select the row counts the shown New Tab page as
+    /// used (`NewTabOpenFramesTests.useEachNewTabPage`): a tab that the pane shows next takes the view of an untouched
+    /// New Tab page that the pane leaves before a prewarmed page (`AgentTabStore.idlePage`).
     @Test func aPageWhoseViewIsAPrewarmedPageTakenAfterAChangeShowsTheChangedRow() async throws {
         try await Self.withPane { start in
             let services = start.services
@@ -255,6 +321,8 @@ extension NewTabKeySessionWalkTests {
             tabs.takeSpare = { _ in tabs.views.entries.contains(where: { $0.value === spare }) ? nil : spare }
             let id = try #require(start.pane.orderedIDs.first(where: { $0.rawValue == first.key }),
                                   "setup: the strip does not list the first key's tab")
+            // The shown page counts as used: else the first key's tab takes that page's view before the prewarmed page (`AgentTabStore.idlePage`).
+            NewTabOpenFramesTests.useEachNewTabPage(services)
             start.pane.select(id)
             await Self.frame(services)
             let byFrame = tabs.views[first]

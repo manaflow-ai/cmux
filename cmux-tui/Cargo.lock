@@ -62,9 +62,11 @@ dependencies = [
  "cmux-server-core",
  "cmux-signed-bundle",
  "cmux-source-scan",
+ "cmux-stack-auth",
  "cmux-supervise-core",
  "cmux-tailnet",
  "cmux-transport",
+ "cmux-tui-hooks",
  "cmux-tui-platform",
  "cmux-unix-socket",
  "cmux-usage-patterns",
@@ -2112,6 +2114,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "objc2-app-kit",
+ "png",
  "windows-sys 0.61.2",
 ]
 
@@ -2678,6 +2681,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.3.4",
  "ghostty-vt",
+ "ghostty-vt-sys",
  "glob",
  "libc",
  "notify",
