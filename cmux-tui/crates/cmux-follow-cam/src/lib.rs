@@ -24,6 +24,9 @@
 //! rate (the motion steps at [`STEP_US`]). Coordinates are the shared
 //! screen's pixels, origin top left.
 
+pub mod damage;
+pub mod video;
+
 use std::collections::VecDeque;
 
 use serde::{Deserialize, Serialize};
