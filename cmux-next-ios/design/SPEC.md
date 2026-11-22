@@ -766,6 +766,11 @@ pill (Chief model is configured on the Mac). Everything below applies to both un
   bottom content inset = composer height + 16.
 - Empty (new session): centered glyph (agent avatar 48) + `title3` "What should <agent> do?"
   + `rowSubtitle` "<workspace> on <Mac>". Composer focused only if the user tapped "new".
+  The first time a new chat shows, the mark, title, subtitle and composer rise in
+  (`NewChatEntrance.rise`: 10-14 pt + fade, mark from 90%, 50 ms apart, spring response 0.5 /
+  damping 0.84, settled by ~450 ms). Render only: the composer takes typing from frame 0; the
+  start pose holds through the first drawn frame; Reduce Motion draws it at rest. At launch the
+  shell arrives from 104% on a 0.55 / 0.86 spring as the launch mark leaves.
   (`claude-05-composer-focused`, Grok "Ask Anything" home `grok-01`.)
 - History loads newest-first in pages of 50 turns; older pages prepend while keeping the scroll
   offset (anchor on the first visible turn id). Top-of-history: `meta` "Session started
