@@ -30,7 +30,8 @@ await requireBrowserLane("feel-thought-row.test.ts", async () => {
     return;
   }
 
-  const ROW = "button.cv-thought";
+  // A thought that opens is a button; one its line holds whole is a plain row with the same class.
+  const ROW = ".cv-thought";
   const LINE = `${ROW} .cv-thought__preview`;
   const SPEC: ProbeSpec = {
     // `rest` is the fold's wrapper, the box the morph sizes; it is in the page only while open.
