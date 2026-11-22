@@ -33,8 +33,9 @@ import UIKit
     }
 
     /// The list in a key window, in a plain holder clear of the safe areas (a transform on the holder
-    /// moves the list on screen with no layout pass and no inset change).
-    final class Host {
+    /// moves the list on screen with no layout pass and no inset change). Main actor like the suite:
+    /// a nested type does not take its enclosing type's isolation.
+    @MainActor final class Host {
         let window: UIWindow
         let holder: UIView
         let controller: PagedListController<Row, RowView>
