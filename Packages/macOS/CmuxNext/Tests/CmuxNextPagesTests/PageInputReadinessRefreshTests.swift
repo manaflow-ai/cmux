@@ -85,6 +85,42 @@ struct PageInputReadinessRefreshTests {
         #expect(readiness.focusEpoch == 4)
     }
 
+    /// The composer mounts again right after the page reported ready (a new chat attaching at launch): the text typed
+    /// before was refused at the old element's epoch and dropped, the first 1 to 9 of 600 keys per launch (hq#15723).
+    /// Now the page is read again and the text goes to the new composer.
+    @Test func textRefusedWhenTheComposerMountsAgainGoesToTheNewOne() async throws {
+        let page = Page()
+        defer { page.window.closeAfterTest() }
+        await page.load()
+        _ = try await page.webView.callAsyncJavaScript("document.getElementById('composer').focus()", arguments: [:], in: nil, contentWorld: .page)
+        #expect(await eventually { page.readiness.isReady })
+        let queuedAt = page.readiness.focusEpoch
+        _ = try await page.webView.callAsyncJavaScript("""
+            const old = document.getElementById('composer'); const next = document.createElement('textarea');
+            old.replaceWith(next); next.id = 'composer'; next.focus();
+            """, arguments: [:], in: nil, contentWorld: .page)
+        #expect(await page.readiness.insert("hi", expectedEpoch: queuedAt) == false)
+        let moved = await page.readiness.epochAfterRefusedInsert(at: queuedAt)
+        #expect(moved != nil && moved != queuedAt)
+        #expect(await page.readiness.insert("hi", expectedEpoch: moved))
+        let value = try await page.webView.callAsyncJavaScript("return document.getElementById('composer').value", arguments: [:], in: nil, contentWorld: .page)
+        #expect(value as? String == "hi")
+    }
+
+    /// A refused insert whose page now has no editable element focused stays dropped.
+    @Test func textRefusedWithNoEditableFocusedStaysDropped() async throws {
+        let page = Page()
+        defer { page.window.closeAfterTest() }
+        await page.load()
+        _ = try await page.webView.callAsyncJavaScript("document.getElementById('composer').focus()", arguments: [:], in: nil, contentWorld: .page)
+        #expect(await eventually { page.readiness.isReady })
+        let queuedAt = page.readiness.focusEpoch
+        _ = try await page.webView.callAsyncJavaScript("""
+            const b = document.createElement('button'); document.body.appendChild(b); b.focus();
+            """, arguments: [:], in: nil, contentWorld: .page)
+        #expect(await page.readiness.epochAfterRefusedInsert(at: queuedAt) == nil)
+    }
+
     /// Whether `condition` holds within 5 s, looked at every 10 ms.
     private func eventually(_ condition: () -> Bool) async -> Bool {
         for _ in 0..<500 {

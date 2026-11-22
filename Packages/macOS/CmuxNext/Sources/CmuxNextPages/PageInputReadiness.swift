@@ -205,6 +205,29 @@ public final class PageInputReadiness {
         }
     }
 
+    /// Inserts `text`, typed before the page took keys, at focus epoch `expected`; when that is refused because the
+    /// page moved its focus to another editable element (``epochAfterRefusedInsert(at:)``), once more there. The epoch
+    /// the text landed at, for the Deletes after it; nil when it did not land.
+    public func insertTypedAhead(_ text: String, expectedEpoch expected: Int) async -> Int? {
+        if await insert(text, expectedEpoch: expected) { return expected }
+        guard let moved = await epochAfterRefusedInsert(at: expected), await insert(text, expectedEpoch: moved) else { return nil }
+        return moved
+    }
+
+    /// The focus epoch to insert queued text at after an insert at `expected` was refused, or nil to drop the text:
+    /// the page's state is read again, and when its focus moved since `expected` to another editable element, text
+    /// typed before the page took keys goes there. A chat composer that mounts again at launch (a new chat
+    /// attaching) moves the focus right after the page reports ready, and the first keys typed were dropped with
+    /// the old element (1 to 9 of 600 per launch, hq#15723).
+    public func epochAfterRefusedInsert(at expected: Int) async -> Int? {
+        let before = notReadyReports
+        guard let state = Self.parseState(await readState()), notReadyReports == before else { return nil }
+        receive(state)
+        guard isReady, isEditableFocused, focusEpoch != expected else { return nil }
+        trace("refused insert at \(expected), page at \(focusEpoch)")
+        return focusEpoch
+    }
+
     /// How long ``refresh()`` waits between reads of a page that is not ready yet.
     public var refreshInterval: Duration = .milliseconds(100)
     static let refreshLimit = 50
