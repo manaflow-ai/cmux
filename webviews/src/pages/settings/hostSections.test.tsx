@@ -25,6 +25,68 @@ test("Sidebar lists the spaces and Browser the browser profiles, with no open-in
   browser.unmount();
 });
 
+test("with one space the Sidebar page draws no Spaces card; a second space brings it back", async () => {
+  // Hide Spaces (a1283, a1315 2026-11-20): with one space no part of cmux names spaces, Settings neither.
+  const page = await renderPage({ path: "/settings/rooms" });
+  const card = () => page.container.querySelector('[data-card="rooms"]');
+  const rooms = page.provider.host.rooms!;
+  expect(card()).not.toBeNull();
+  await act(async () => {
+    page.provider.setHost({ ...page.provider.host, rooms: rooms.slice(0, 1) });
+  });
+  await settle();
+  expect(card()).toBeNull();
+  await act(async () => {
+    page.provider.setHost({ ...page.provider.host, rooms: null });
+  });
+  await settle();
+  expect(card()).toBeNull();
+  await act(async () => {
+    page.provider.setHost({ ...page.provider.host, rooms });
+  });
+  await settle();
+  expect(page.container.querySelectorAll('[data-card="rooms"] [data-host-row]').length).toBe(2);
+  page.unmount();
+});
+
+test("with one space no Settings page shows a Spaces row or button; a second space brings them back", async () => {
+  // Hide Spaces (a1283, 2026-11-21): the Sidebar page's Show Spaces, position and visibility rows, its
+  // New Space button and Appearance's Set Space Theme… name spaces too. Search still finds the rows.
+  const SPACE_ROWS = ["sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility"];
+  const sidebar = await renderPage({ path: "/settings/sidebar" });
+  const rooms = sidebar.provider.host.rooms!;
+  const shown = (page: typeof sidebar) => ({
+    rows: SPACE_ROWS.filter((key) => page.container.querySelector(`[data-row-key="${key}"]`)),
+    buttons: [...page.container.querySelectorAll("[data-action]")]
+      .map((button) => button.getAttribute("data-action")!)
+      .filter((id) => id.startsWith("space.")),
+  });
+  // Two spaces: Show Spaces and New Space show (the position and visibility rows follow their own switches).
+  const several = shown(sidebar);
+  expect(several.rows).toContain("sidebar.showSpaces");
+  expect(several.buttons).toEqual(["space.new"]);
+  await act(async () => {
+    sidebar.provider.setHost({ ...sidebar.provider.host, rooms: rooms.slice(0, 1) });
+  });
+  await settle();
+  expect(shown(sidebar)).toEqual({ rows: [], buttons: [] });
+  await act(async () => {
+    sidebar.provider.setHost({ ...sidebar.provider.host, rooms });
+  });
+  await settle();
+  expect(shown(sidebar)).toEqual(several);
+  sidebar.unmount();
+
+  const appearance = await renderPage({ path: "/settings/appearance" });
+  await act(async () => {
+    appearance.provider.setHost({ ...appearance.provider.host, rooms: rooms.slice(0, 1) });
+  });
+  await settle();
+  expect(shown(appearance).buttons).toEqual([]);
+  expect(appearance.container.querySelector('[data-action="workspace.setTheme"]')).not.toBeNull();
+  appearance.unmount();
+});
+
 test("Machines lists the saved machines; a host change updates the list without a reload", async () => {
   const page = await renderPage({ path: "/settings/machines" });
   expect(page.container.textContent).toContain("build-mac");

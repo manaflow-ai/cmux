@@ -22,6 +22,9 @@ public final class AgentPaneExternalAttach {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.external-attach")
     /// The chat that last took files: `chat.composer.get` reads it back.
     private weak var last: AgentPaneView?
+    /// When ``last`` took its files (wall clock): `chat.composer.get`'s `attached_at_ms`, so a probe
+    /// times a door from the app's own stamp rather than from how often it reads the composer.
+    private var lastAttachedAt: Date?
     /// Files waiting for the new chat opened for them: more that come meanwhile join them, rather
     /// than open a second chat. One older than ``openingLimit`` is a chat that never came. `attempt`
     /// names the chat opened for them.
@@ -90,6 +93,7 @@ public final class AgentPaneExternalAttach {
 
     private func deliver(_ urls: [URL], claimed: String?, to view: AgentPaneView, show: @MainActor (AgentPaneView) -> Void) {
         last = view
+        lastAttachedAt = Date()
         show(view)
         view.attachExternal(urls, claimed: claimed)
         view.focusComposer()
@@ -97,10 +101,19 @@ public final class AgentPaneExternalAttach {
 
     /// `chat.composer.get`: what the composer holds of the chat that last took files from another
     /// app, else of `focused`: `{session, attachments: [{name, mimeType, bytes, source}], text}`,
-    /// `session` null for a chat not started yet, and all empty without a chat.
+    /// `session` null for a chat not started yet, and all empty without a chat. The chat that last
+    /// took files also answers `attached_at_ms`: the Unix ms its composer took them.
     public func composerState(focused: AgentPaneView?) async -> JSONValue {
-        guard let view = last ?? focused else { return Self.noComposer }
-        return await view.composerReadback()
+        if let last { return Self.stamped(await last.composerReadback(), attachedAt: lastAttachedAt) }
+        guard let focused else { return Self.noComposer }
+        return await focused.composerReadback()
+    }
+
+    /// `state` with `attached_at_ms` (Unix ms of `attachedAt`) added, unchanged without a stamp or an object.
+    public nonisolated static func stamped(_ state: JSONValue, attachedAt: Date?) -> JSONValue {
+        guard let attachedAt, case .object(var fields) = state else { return state }
+        fields["attached_at_ms"] = .number((attachedAt.timeIntervalSince1970 * 1000).rounded())
+        return .object(fields)
     }
 
     public nonisolated static let noComposer: JSONValue = .object(["session": .null, "attachments": .array([]), "text": .string("")])

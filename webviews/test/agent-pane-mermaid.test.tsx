@@ -5,6 +5,7 @@
 // and why; markup in labels never reaches the page.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -120,6 +121,25 @@ test("a mermaid fence draws as SVG through Ondine, not a code block", async () =
   expect(svg?.textContent).toContain("Valid?");
   expect(svg?.textContent).toContain("Done");
   expect(host.textContent).toContain("Here is the flow:");
+});
+
+test("the user's front-door chart draws through Ondine", async () => {
+  // The chart from the user's Nov 20 screenshot: subgraphs, <br/> labels, quoted labels with braces,
+  // ::: classes and classDef lines.
+  const chart = readFileSync(join(import.meta.dir, "fixtures", "mermaid-front-door.mmd"), "utf8").trimEnd();
+  mermaidCalls.length = 0;
+  await show("```mermaid\n" + chart + "\n```");
+  // The previous test's diagram stays until this one replaces it.
+  // Ondine wraps long node labels into several lines; a subgraph title stays whole.
+  await settleUntil(
+    () => diagramSvg()?.textContent?.includes("Read path - the only front door") === true,
+    "the diagram",
+  );
+  const svg = diagramSvg()!;
+  expect(svg.getAttribute("class") ?? "").toContain("ondine");
+  expect(svg.textContent).toContain("log each decrypt");
+  expect(host.querySelector(".cv-diagram__error")).toBeNull();
+  expect(mermaidCalls.length).toBe(0);
 });
 
 test("a mermaid fence still streaming stays code", async () => {

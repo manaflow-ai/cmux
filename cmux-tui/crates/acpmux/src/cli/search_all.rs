@@ -4,6 +4,7 @@
 //! enumerates the daemon's session rows, asks that existing RPC for each row, and formats
 //! the combined result. Peer rows use the same RPC through the mesh read transport.
 
+use crate::cli::list_read::{self, Via};
 use crate::cli::output::print_json;
 pub use crate::cli::session_search::HistoryQuery as SearchArgs;
 use crate::client::Client;
@@ -25,8 +26,20 @@ pub async fn run(client: Arc<Client>, args: SearchArgs, json_out: bool) -> Resul
     params["withTurnTime"] = json!(true);
     let limit =
         crate::session_search::Query::from_params(&params).map_err(anyhow::Error::msg)?.limit;
-    let listed = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
-    let rows = listed.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
+    let status = client.request(method::MUX_STATUS, json!({})).await.ok();
+    let source = if list_read::closed_remote_listed(status.as_ref()) {
+        None
+    } else {
+        let peers = status.as_ref().and_then(|status| status["peers"].as_array());
+        Via::daemon().open_knowing(&client, peers.map(Vec::as_slice)).await?
+    };
+    let rows = match source {
+        Some(mut source) => source.rows(acpmux_client::wire::ListView::All, &|_| true).await?,
+        None => {
+            let listed = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
+            listed.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default()
+        }
+    };
     let session_count = rows.len();
     let local_host = crate::pairing::machine_name();
     let offline_peers = Mutex::new(HashSet::<String>::new());

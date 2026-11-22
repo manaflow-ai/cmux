@@ -37,6 +37,7 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         case .importData: OnboardingStrings.importTitle
         case .computerUse: OnboardingStrings.computerUseTitle
         case .agentTools: OnboardingStrings.agentToolsTitle
+        case .makeItYours: OnboardingStrings.makeItYoursTitle
         }
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false

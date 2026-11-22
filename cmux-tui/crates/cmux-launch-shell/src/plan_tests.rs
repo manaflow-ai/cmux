@@ -22,6 +22,7 @@ fn window(id: &str, key: &str) -> SavedWindow {
         screen_frame: SCREEN,
         fullscreen: false,
         image_key: key.into(),
+        registry_id: String::new(),
     }
 }
 
@@ -43,7 +44,7 @@ fn store(id: &str, width: u32, height: u32) -> tempdir::Dir {
 }
 
 fn now(appearance: Appearance, displays: &[Display]) -> Now<'_> {
-    Now { build: BUILD, appearance, displays }
+    Now { build: BUILD, appearance, displays, registry_id: None }
 }
 
 const RETINA: [Display; 1] = [Display { frame: SCREEN, scale: 2.0 }];
@@ -204,6 +205,27 @@ fn full_screen_makes_no_window_and_a_v1_record_the_plain_shell() {
 }
 
 #[test]
+fn another_sessions_windows_get_the_plain_shell_at_the_default_frame() {
+    let dir = store("w1", 2200, 1440);
+    let mut w = window("w1", &format!("{BUILD}/w1/7"));
+    w.registry_id = "reg-old".into();
+    let with = |registry_id| Now { registry_id, ..now(Appearance::Dark, &RETINA) };
+    let p = plan(Some(std::slice::from_ref(&w)), dir.path(), &with(Some("reg-new")));
+    assert_eq!((p.reason, p.image), (Reason::SessionDiffers, None));
+    assert!(p.reason.shows_window() && p.reason.uses_default_frame() && !p.reason.shows_bare());
+    // The same session, or either id unknown: the image is drawn as before.
+    for (saved, current) in [("reg-old", Some("reg-old")), ("", Some("reg-new")), ("reg-old", None)]
+    {
+        w.registry_id = saved.into();
+        let p = plan(Some(std::slice::from_ref(&w)), dir.path(), &with(current));
+        assert_eq!(p.reason, Reason::Image, "{saved:?} {current:?}");
+    }
+    // Only the bare launch's own cases show its content.
+    assert!(Reason::FreshInstall.shows_bare() && Reason::NoWindows.shows_bare());
+    assert!(!Reason::BuildDiffers.shows_bare());
+}
+
+#[test]
 fn only_the_front_window_is_planned() {
     let dir = store("front", 2200, 1440);
     let windows = [window("front", &format!("{BUILD}/front/7")), window("back", "x")];
@@ -249,7 +271,7 @@ proptest! {
         (w.backing_scale, w.appearance, w.appearance_follows_system, w.fullscreen) =
             (scale, Appearance::from_u8(dark as u8), follows, full);
         let displays = [Display { frame: SCREEN, scale: now_scale }];
-        let now = Now { build: &build, appearance: Appearance::from_u8(now_dark as u8), displays: &displays };
+        let now = Now { build: &build, appearance: Appearance::from_u8(now_dark as u8), displays: &displays, registry_id: None };
         let p = plan(Some(&[w]), dir.path(), &now);
         if let Some(image) = &p.image {
             prop_assert!(image.starts_with(dir.path()));

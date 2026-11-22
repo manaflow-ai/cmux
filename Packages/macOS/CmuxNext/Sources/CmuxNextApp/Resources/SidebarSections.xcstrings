@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "sidebarSections.priority.archivedToast": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت أرشفة “%@”"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arhivirano “%@”"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arkiverede “%@”"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ archiviert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archived “%@”"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se archivó “%@”"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« %@ » archivé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” archiviata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」をアーカイブしました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានទុកក្នុងបណ្ណសារ “%@”"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” 보관됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arkiverte «%@»"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zarchiwizowano „%@”"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” arquivado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» в архиве"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เก็บถาวร “%@” แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” arşivlendi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» заархівовано"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã lưu trữ “%@”"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已归档“%@”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已封存「%@」"
+          }
+        }
+      }
+    },
     "sidebarSections.priority.noSuchChat": {
       "extractionState": "manual",
       "localizations": {
@@ -531,127 +662,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Home is already in the sidebar"
+            "value": "Chief is already in the sidebar"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ホームはすでにサイドバーにあります"
+            "value": "Chiefはすでにサイドバーにあります"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الرئيسية موجودة بالفعل في الشريط الجانبي"
+            "value": "Chief موجود بالفعل في الشريط الجانبي"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Početna je već u bočnoj traci"
+            "value": "Chief je već u bočnoj traci"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hjem er allerede i sidepanelet"
+            "value": "Chief er allerede i sidepanelet"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Start ist bereits in der Seitenleiste"
+            "value": "Chief ist bereits in der Seitenleiste"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inicio ya está en la barra lateral"
+            "value": "Chief ya está en la barra lateral"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Accueil est déjà dans la barre latérale"
+            "value": "Chief est déjà dans la barre latérale"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Home è già nella barra laterale"
+            "value": "Chief è già nella barra laterale"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ទំព័រដើមមាននៅក្នុងរបារចំហៀងរួចហើយ"
+            "value": "Chief មាននៅក្នុងរបារចំហៀងរួចហើយ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "홈이 이미 사이드바에 있습니다"
+            "value": "Chief가 이미 사이드바에 있습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hjem er allerede i sidepanelet"
+            "value": "Chief er allerede i sidepanelet"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Start jest już na pasku bocznym"
+            "value": "Chief jest już na pasku bocznym"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Início já está na barra lateral"
+            "value": "Chief já está na barra lateral"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "«Главная» уже в боковой панели"
+            "value": "Chief уже в боковой панели"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "หน้าแรกอยู่ในแถบด้านข้างแล้ว"
+            "value": "Chief อยู่ในแถบด้านข้างแล้ว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ana Sayfa zaten kenar çubuğunda"
+            "value": "Chief zaten kenar çubuğunda"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "«Головна» вже на бічній панелі"
+            "value": "Chief уже на бічній панелі"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Trang chủ đã có trong thanh bên"
+            "value": "Chief đã có trong thanh bên"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "主页已在边栏中"
+            "value": "Chief 已在边栏中"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "首頁已在側邊欄中"
+            "value": "Chief 已在側邊欄中"
           }
         }
       }
@@ -662,127 +793,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Home is not in the sidebar"
+            "value": "Chief is not in the sidebar"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ホームはサイドバーにありません"
+            "value": "Chiefはサイドバーにありません"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الرئيسية ليست في الشريط الجانبي"
+            "value": "Chief ليس في الشريط الجانبي"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Početna nije u bočnoj traci"
+            "value": "Chief nije u bočnoj traci"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hjem er ikke i sidepanelet"
+            "value": "Chief er ikke i sidepanelet"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Start ist nicht in der Seitenleiste"
+            "value": "Chief ist nicht in der Seitenleiste"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inicio no está en la barra lateral"
+            "value": "Chief no está en la barra lateral"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Accueil n'est pas dans la barre latérale"
+            "value": "Chief n’est pas dans la barre latérale"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Home non è nella barra laterale"
+            "value": "Chief non è nella barra laterale"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ទំព័រដើមមិនមាននៅក្នុងរបារចំហៀងទេ"
+            "value": "Chief មិនមាននៅក្នុងរបារចំហៀងទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "홈이 사이드바에 없습니다"
+            "value": "Chief가 사이드바에 없습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hjem er ikke i sidepanelet"
+            "value": "Chief er ikke i sidepanelet"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Start nie jest na pasku bocznym"
+            "value": "Chief nie jest na pasku bocznym"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Início não está na barra lateral"
+            "value": "Chief não está na barra lateral"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "«Главной» нет в боковой панели"
+            "value": "Chief нет в боковой панели"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "หน้าแรกไม่ได้อยู่ในแถบด้านข้าง"
+            "value": "Chief ไม่ได้อยู่ในแถบด้านข้าง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ana Sayfa kenar çubuğunda değil"
+            "value": "Chief kenar çubuğunda değil"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "«Головної» немає на бічній панелі"
+            "value": "Chief немає на бічній панелі"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Trang chủ không có trong thanh bên"
+            "value": "Chief không có trong thanh bên"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "主页不在边栏中"
+            "value": "Chief 不在边栏中"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "首頁不在側邊欄中"
+            "value": "Chief 不在側邊欄中"
           }
         }
       }

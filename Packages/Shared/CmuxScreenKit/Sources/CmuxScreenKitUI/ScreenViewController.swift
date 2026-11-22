@@ -202,6 +202,9 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     /// Stream mode: the video view fills the content; its pixel size is the frame size.
     private func installVideo() {
         let video = ScreenVideoView(frame: content.bounds)
+        #if DEBUG
+        session.debugVideoProbe?.watch(video)
+        #endif
         video.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         content.insertSubview(video, at: 0)
         videoView = video

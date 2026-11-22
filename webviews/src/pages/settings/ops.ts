@@ -1393,6 +1393,130 @@ export type McpServersState = {
 /** One MCP Servers gesture; sign in and remove run only on a click. */
 export type McpServersRun = { action: "refresh" } | { action: "signin" | "remove"; name: string };
 
+/** A coding agent whose own settings Settings > Agents > Claude Code & Codex shows. */
+export type AgentConfigAgent = "claude" | "codex";
+
+/** One config file the agent reads (`cmux agent-config settings get`): its scope (`managed`,
+ * `user`, `project`, `local`, `profile:NAME`), whether it exists and how many keys it holds. */
+export type AgentConfigFile = {
+  scope: string;
+  label: string;
+  path: string;
+  exists: boolean;
+  writable: boolean;
+  keys: number;
+  error: string | null;
+};
+
+/** One effective leaf setting: `display` is short and already masked for secrets (`masked`). */
+export type AgentConfigEntry = {
+  key: string;
+  display: string;
+  scope: string;
+  path: string;
+  overridden: { scope: string; display: string }[];
+  masked: boolean;
+  curated: boolean;
+};
+
+/** One setting the card edits: `choice` offers only `choices`; for `text` they are suggestions.
+ * `value` and `scope` are null when unset (the agent's default applies). */
+export type AgentConfigCurated = {
+  key: string;
+  title: string;
+  kind: "text" | "choice";
+  choices: string[];
+  value: string | null;
+  scope: string | null;
+  writableScopes: string[];
+};
+
+/** `cmux --json agent-config settings get --agent A`: the agent's settings as it sees them. */
+export type AgentConfigState = {
+  agent: AgentConfigAgent;
+  files: AgentConfigFile[];
+  entries: AgentConfigEntry[];
+  curated: AgentConfigCurated[];
+  /** Codex's NAME.config.toml files; an older cmux leaves it out for Claude Code. */
+  profiles?: { name: string; path: string; keys: number }[];
+  notes: string[];
+  keysOnDisk: number;
+  keysShown: number;
+};
+
+/** `set` / `unset`'s answer: the file written and its backup. */
+export type AgentConfigChange = {
+  ok: true;
+  agent: AgentConfigAgent;
+  key: string;
+  scope: string;
+  path: string;
+  backup: string | null;
+};
+
+/** One Claude Code & Codex settings call. `get` only reads; `set`, `unset` and `open` (a path a
+ * fresh `get` lists in `files`) run only on the person's click. */
+export type AgentConfigRun = {
+  verb: "get" | "set" | "unset" | "open";
+  agent: AgentConfigAgent;
+  key?: string;
+  value?: string;
+  scope?: string;
+  path?: string;
+};
+
+/** What the host answers: the state, a change, `{ok}` for an open, `{enabled: false}` while
+ * `labs.agentCustomization` is off, or the CLI's refusal envelope. */
+export type AgentConfigAnswer =
+  | AgentConfigState
+  | AgentConfigChange
+  | { ok: true }
+  | { enabled: false }
+  | { code: string; message: string };
+
+/** One skill or slash command an agent loads (`cmux agent-config skills list --json`). */
+export type AgentSkillRow = {
+  agent: "claude" | "codex";
+  kind: "skill" | "command";
+  scope: "user" | "project" | "plugin" | "system" | "admin";
+  /** What the person types after `/` (Claude Code) or `$` (Codex). */
+  name: string;
+  description: string;
+  /** The SKILL.md or command file: what Edit opens. */
+  path: string;
+  /** `plugin@marketplace` for a plugin's. */
+  plugin?: string;
+  enabled: boolean;
+  /** Claude Code's `skillOverrides` value, when one is set. */
+  override?: string;
+  /** The agent's own settings file the switch writes; absent: the agent has no switch for it. */
+  switchFile?: string;
+};
+
+/** Settings > Agents > Claude Code & Codex > Skills (`SettingsAgentSkills.state`); Labs `labs.agentCustomization`. */
+export type AgentSkillsState =
+  | { enabled: false }
+  | {
+      enabled: true;
+      loading: boolean;
+      /** `unavailable`: no bundled CLI; `failed`: the list did not answer. */
+      problem: "unavailable" | "failed" | null;
+      skills: AgentSkillRow[];
+      /** Files an agent skips, in its own words. */
+      problems: Array<{ agent: "claude" | "codex"; path: string; message: string }>;
+      /** `files` (cmux read the folders) or `app-server` (Codex's own list). */
+      sources: { claude: string; codex: string } | null;
+      elapsedMs: number | null;
+      /** The CLI's refusal of the last switch ("" with no words of its own). */
+      refusal: { path: string; message: string } | null;
+    };
+
+/** One Skills gesture; on and off run only on a click. */
+export type AgentSkillsRun =
+  | { action: "refresh" }
+  | { action: "open" | "reveal"; path: string }
+  | { action: "on" | "off"; path: string; agent: "claude" | "codex" };
+
 /** One MCP server Claude Code or Codex starts, from its own config files (`cmux agent-config mcp
  * list --json`, cmux-agent-customize `mcp.rs`). Never a secret: env and header values are names only. */
 export type AgentMcpServer = {
@@ -1458,6 +1582,72 @@ export type AgentMcpRun =
       /** `KEY=VALUE` lines. */
       env?: string[];
       headers?: string[];
+    };
+
+/** One Claude Code or Codex hook handler (`cmux --json agent-config hooks list`, cmux-agent-customize hooks.rs `HookEntry`). */
+export type AgentHookRow = {
+  /** Stable across Turn Off / Turn On; the CLI's handle for the row. */
+  id: string;
+  agent: "claude" | "codex";
+  /** `user` (~/.claude/settings.json, ~/.codex/hooks.json), `user-local`, `user-config`, `project`,
+   * `project-local` or `plugin`. */
+  scope: string;
+  file: string;
+  event: string;
+  matcher: string | null;
+  type: string;
+  command: string;
+  timeout: number | null;
+  enabled: boolean;
+  /** `cmux` (cmux's own, read-only), `plugin` (read-only) or `user`. */
+  owner: "user" | "cmux" | "plugin";
+  read_only: boolean;
+  /** Codex: `trusted`, `untrusted`, `modified` or `unsupported` (Codex runs only trusted hooks). */
+  trust?: string;
+  /** Codex: the hooks.state key its trust and on/off live under. */
+  state_key?: string;
+  plugin?: string;
+};
+
+/** One config file the hooks list read. */
+export type AgentHookFile = {
+  agent: "claude" | "codex";
+  scope: string;
+  path: string;
+  exists: boolean;
+  hooks: number;
+  error?: string;
+  disable_all_hooks?: boolean;
+};
+
+/** `cmux --json agent-config hooks list`. */
+export type AgentHooksListing = {
+  hooks: AgentHookRow[];
+  files: AgentHookFile[];
+  counts: { claude: number; codex: number };
+  codex_hooks_feature: boolean | null;
+  disabled_store?: string;
+  elapsed_micros: number;
+};
+
+/** Settings > Agents > Claude Code & Codex > Hooks (`SettingsAgentHooks.state`); `available` is the
+ * Labs switch `labs.agentCustomization`. */
+export type AgentHooksState =
+  | { available: false }
+  | { available: true; listing: AgentHooksListing | null; error: string | null };
+
+/** One Hooks gesture; every one but refresh runs only on a click. */
+export type AgentHooksRun =
+  | { action: "refresh" }
+  | { action: "enable" | "disable" | "remove"; id: string }
+  | {
+      action: "add";
+      agent: "claude" | "codex";
+      event: string;
+      command: string;
+      matcher?: string;
+      timeout?: number;
+      scope?: "user" | "user-local";
     };
 
 /** One Agent integrations gesture; each runs only on a click. */
@@ -1590,6 +1780,8 @@ export type SettingsOps = {
   "cmux.settings.web_updates.check": [Record<string, never>, Record<string, never>];
   /** Native: Updates > Web UI's Roll Back (updates.web.rollback), from the next safe point. */
   "cmux.settings.web_updates.rollback": [Record<string, never>, Record<string, never>];
+  /** Native: General > Language's Relaunch: the app relaunches so its menus take app.language (the person's gesture only). */
+  "cmux.settings.language.relaunch": [Record<string, never>, Record<string, never>];
   /** Native: Settings > Chief > Voice input's switch writes home.voiceInput (the person's gesture only). */
   "cmux.settings.voice_input.set": [{ on: boolean }, Record<string, never>];
   /** Native: Settings > Menus saves a menu's arrangement; null (Reset) removes it (the person's gesture only). */
@@ -1630,7 +1822,7 @@ export type SettingsOps = {
   "cmux.settings.shares.list": [Record<string, never>, SharesState];
   /** Native: the share stops working and its guests leave at once; a daemon refusal rejects. */
   "cmux.settings.shares.revoke": [{ share_id: string }, unknown];
-  /** Native: one `cmux customize library` verb through the bundled CLI (Personalization >
+  /** Native: one `cmux customize library` verb through the bundled CLI (Appearance >
    * Customization Library). A change runs only on the person's click or key in the page. */
   "cmux.settings.customize.library": [LibraryRun, LibraryAnswer];
   /** Native: Settings > Keys: this Mac's keys (`cmux keys ls`, never a value) and the waiting requests. */
@@ -1665,10 +1857,21 @@ export type SettingsOps = {
   "cmux.settings.mcp.state": [Record<string, never>, McpServersState];
   /** Native: one MCP Servers gesture (`optchat-chief integrations --json signin|remove`, or a refresh). */
   "cmux.settings.mcp.run": [McpServersRun, unknown];
+  /** Native: Settings > Agents > Claude Code & Codex, one `cmux --json agent-config settings`
+   * verb through the bundled CLI; `{enabled: false}` while labs.agentCustomization is off. */
+  "cmux.settings.agentConfig": [AgentConfigRun, AgentConfigAnswer];
+  /** Native: Claude Code's and Codex's skills and slash commands (Settings > Agents, Labs `labs.agentCustomization`). */
+  "cmux.settings.agentSkills.state": [Record<string, never>, AgentSkillsState];
+  /** Native: one Skills gesture (`cmux agent-config skills on|off FILE`, open, reveal, or a refresh). */
+  "cmux.settings.agentSkills.run": [AgentSkillsRun, AgentSkillsState];
   /** Native: the MCP servers Claude Code and Codex start, from their own files (Labs `labs.agentCustomization`). */
   "cmux.settings.agentMcp.state": [Record<string, never>, AgentMcpState];
   /** Native: one Claude Code / Codex MCP gesture (`cmux agent-config mcp enable|disable|remove|add`, a folder pick or a refresh). */
   "cmux.settings.agentMcp.run": [AgentMcpRun, unknown];
+  /** Native: every Claude Code and Codex hook (Labs labs.agentCustomization; `cmux agent-config hooks list`). */
+  "cmux.settings.agentHooks.state": [Record<string, never>, AgentHooksState];
+  /** Native: one Hooks gesture (`cmux agent-config hooks enable|disable|remove|add`, or a refresh); returns the state after it. */
+  "cmux.settings.agentHooks.run": [AgentHooksRun, AgentHooksState];
   /** Native: set the theme of one level of the active window; `spec` null uses the Ghostty config. */
   "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];
   /** Native: the colors of every published theme, for the theme preview and the picker's swatches. */
@@ -1830,6 +2033,7 @@ export const settingsPageActions = [
   "browserProfile.new",
   "server.addServer",
   "device.add",
+  "remote.newGroup",
   "browserProfile.rename",
   "browserProfile.setColor",
   "browserProfile.clearColor",

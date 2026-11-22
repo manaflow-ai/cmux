@@ -7,8 +7,9 @@
 #   scripts/cmux-next/cloud-dev-stack.sh up --tag T [--platform-checkout DIR] [--db auto|shared|branch]
 #                                           [--idle-min N] [--journey [-- JOURNEY ARGS]]
 #   scripts/cmux-next/cloud-dev-stack.sh status [--tag T]
-#   scripts/cmux-next/cloud-dev-stack.sh url --tag T [--service api|mobile|hub]
-#                                           # print the running stack's https origin (exit 3: none)
+#   scripts/cmux-next/cloud-dev-stack.sh url --tag T [--service api|mobile|hub] [--public]
+#                                           # print the stack's https origin, tailnet or public (exit 3: none)
+#   scripts/cmux-next/cloud-dev-stack.sh public-setup [--slots N]   # operator, once: the public origins (below)
 #   scripts/cmux-next/cloud-dev-stack.sh journey --tag T [-- JOURNEY ARGS]
 #   scripts/cmux-next/cloud-dev-stack.sh logs --tag T [-n LINES]
 #   scripts/cmux-next/cloud-dev-stack.sh touch --tag T        # count as activity (keeps an idle stack up)
@@ -48,6 +49,15 @@
 # released stack keeps only its registry entry, and the next up/down/gc from any Mac deletes its credentials and
 # branch. Its database credentials live 8 days, past the retention.
 #
+# Public origins: a stack with a public slot also answers on https://api.<slot>.wdev.cmux.dev, mobile.<slot>...
+# and hub.<slot>..., reachable off the tailnet (a phone away from home). The Worker cmux-wdev-gateway
+# (cloud-dev-stack/gateway) answers them: it admits a request only with a credential it verified (a verified
+# cmux-team account of the Stack development project, or a token that stack issued; cmux-next-ios/SECURITY.md),
+# then sends it through the Cloudflare Tunnel cmux-wdev (cloudflared on the VM, cmux-wdev-tunnel.service) and the
+# Workers VPC service cmux-wdev-router to the VM's router, which routes by host. A slot stays with its stack until
+# the stack is released. public-setup (an operator with the cmux Cloudflare login, once, and again to add slots)
+# deploys the gateway, makes the slots' custom domains and tells the VM which slots exist.
+#
 # Host: CMUX_DEV_STACK_HOST (default cmux-dev-backend-1, hq's dev-backend VM; any tailnet Linux host with
 # sudo, systemd and Tailscale Serve works) or --host. The VM side is scripts/cmux-next/cloud-dev-stack/vm_stack.py.
 # Not Workers previews: those count against the account's ~400-Worker cap (cloud-dev-loop.sh deploys them).
@@ -69,7 +79,7 @@ SYNC_PATHS=(backend libs clients/ts workers/cmux-vm/sdk cmux-next-ios/backend wo
 usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
 die() { echo "cloud-dev-stack: $*" >&2; exit 1; }
 cmd="${1:-}"; [ $# -gt 0 ] && shift
-tag="" platform="" db_mode=auto idle_min=0 journey=0 lines=80 creds="" service=api
+tag="" platform="" db_mode=auto idle_min=0 journey=0 lines=80 creds="" service=api public=0 slots=24
 journey_args=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -81,6 +91,8 @@ while [ $# -gt 0 ]; do
     --journey) journey=1; shift ;;
     --credentials) creds="$2"; shift 2 ;;
     --service) service="$2"; shift 2 ;;
+    --public) public=1; shift ;;
+    --slots) slots="$2"; shift 2 ;;
     -n) lines="$2"; shift 2 ;;
     --) shift; journey_args=("$@"); break ;;
     -h|--help) usage; exit 0 ;;
@@ -93,6 +105,7 @@ case "$lines" in ""|*[!0-9]*) die "-n LINES: a number" ;; esac
 case "$idle_min" in ""|*[!0-9]*) die "--idle-min N: minutes" ;; esac
 case "$db_mode" in auto|shared|branch) ;; *) die "--db auto|shared|branch" ;; esac
 case "$service" in api|mobile|hub) ;; *) die "--service api|mobile|hub" ;; esac
+case "$slots" in ""|*[!0-9]*) die "--slots N: a number" ;; esac
 
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=30 "$VM_USER@$HOST")
 vm() { "${SSH[@]}" python3 "$BASE/bin/vm_stack.py" "$@"; }
@@ -286,6 +299,9 @@ case "$cmd" in
     echo "API:     $url   (commit $sha${dirty:+, with uncommitted changes})"
     echo "Mobile:  $mobile_url   (cmux-next-ios/backend)"
     echo "Hub:     $hub_url   (workers/device-hub)"
+    pub="$(json "print((d.get('public_urls') or {}).get('api') or '')" <<<"$out")"
+    if [ -n "$pub" ]; then echo "Public:  $pub   (and mobile., hub.; off the tailnet, signed-in cmux accounts only)"
+    else echo "Public:  none (no free public slot; tailnet only)"; fi
     if [ -n "$platform" ]; then echo "Platform: in the same workerd session, as the API's PLATFORM binding"; fi
     echo "Journey: scripts/cmux-next/cloud-dev-stack.sh journey --tag $tag"
     echo "Lifetime: idle $(( idle_min > 0 ? idle_min : 120 )) min stops it, its next request wakes it; released $(json "print(d.get('retain_days') or 7)" <<<"$out") d after this up"
@@ -309,8 +325,13 @@ for s in d['stacks']:
     ;;
   url)
     # A stopped stack counts: its next request wakes it.
-    url="$(stack_entry | json "u=d.get('urls') or {'api': d.get('url')}; print(u.get('$service') or '' if d.get('state') in ('running', 'stopped') else '')")"
-    [ -n "$url" ] || { echo "no stack $tag (cloud-dev-stack.sh up --tag $tag first)" >&2; exit 3; }
+    field=urls; [ "$public" = 1 ] && field=public_urls
+    url="$(stack_entry | json "u=d.get('$field') or ({'api': d.get('url')} if '$field' == 'urls' else {}); print(u.get('$service') or '' if d.get('state') in ('running', 'stopped') else '')")"
+    if [ -z "$url" ]; then
+      if [ "$public" = 1 ]; then echo "stack $tag has no public origin (no free slot, or public-setup never ran)" >&2
+      else echo "no stack $tag (cloud-dev-stack.sh up --tag $tag first)" >&2; fi
+      exit 3
+    fi
     echo "$url"
     ;;
   logs) vm logs --tag "$tag" -n "$lines" ;;
@@ -327,5 +348,57 @@ for s in d['stacks']:
     echo "== $tag is gone"
     ;;
   gc) ensure_helper; do_gc; vm reap >/dev/null; do_gc ;;
+  public-setup)
+    # Operator, once (again to add slots): needs the Cloudflare login of the account behind cmux.dev
+    # (wrangler login). Deploys cmux-wdev-gateway, gives it the custom domains <svc>.s1..sN.wdev.cmux.dev
+    # (about 150 s for new ones to get their certificates) and tells the VM which slots exist.
+    ensure_helper
+    gw="$root/scripts/cmux-next/cloud-dev-stack/gateway"
+    WRANGLER="${CMUX_WRANGLER:-bunx wrangler@4.151.2}"
+    echo "== deploy cmux-wdev-gateway"
+    (cd "$gw" && $WRANGLER deploy -c wrangler.json 2>&1 | grep -E "Deployed|Uploaded|error|ERROR" || true)
+    acct="$(json "print(d['account_id'])" <"$gw/wrangler.json")"
+    token="$(cd "$gw" && $WRANGLER auth token 2>/dev/null | grep -Eo '[A-Za-z0-9._-]{30,}' | tail -1)"
+    [ -n "$token" ] || die "no Cloudflare token from wrangler (wrangler login)"
+    zone="$(CF_TOKEN="$token" python3 -I -c "
+import json,os,urllib.request
+r=urllib.request.Request('https://api.cloudflare.com/client/v4/zones?name=cmux.dev', headers={'Authorization':'Bearer '+os.environ['CF_TOKEN']})
+print(json.load(urllib.request.urlopen(r, timeout=30))['result'][0]['id'])")" || die "cannot read the cmux.dev zone"
+    echo "== custom domains for $slots slots"
+    CF_TOKEN="$token" python3 -I - "$acct" "$zone" "$slots" <<'PY'
+import json, os, sys, urllib.request, urllib.error
+acct, zone, n = sys.argv[1], sys.argv[2], int(sys.argv[3])
+h = {"Authorization": "Bearer " + os.environ["CF_TOKEN"], "Content-Type": "application/json"}
+have = set()
+page = 1
+while True:
+    r = urllib.request.Request(f"https://api.cloudflare.com/client/v4/accounts/{acct}/workers/domains?service=cmux-wdev-gateway&per_page=100&page={page}", headers=h)
+    res = json.load(urllib.request.urlopen(r, timeout=60))["result"] or []
+    have |= {d["hostname"] for d in res}
+    if len(res) < 100:
+        break
+    page += 1
+made = 0
+for i in range(1, n + 1):
+    for svc in ("api", "mobile", "hub"):
+        host = f"{svc}.s{i}.wdev.cmux.dev"
+        if host in have:
+            continue
+        body = json.dumps({"hostname": host, "service": "cmux-wdev-gateway", "zone_id": zone, "environment": "production"}).encode()
+        try:
+            urllib.request.urlopen(urllib.request.Request(f"https://api.cloudflare.com/client/v4/accounts/{acct}/workers/domains", data=body, headers=h, method="PUT"), timeout=60)
+            made += 1
+        except urllib.error.HTTPError as e:
+            sys.exit(f"custom domain {host}: HTTP {e.code} {e.read()[:300]!r}")
+print(f"   {len(have)} existed, {made} made")
+PY
+    python3 -I -c "import json,sys; print(json.dumps({'domain': 'wdev.cmux.dev', 'slots': [f's{i}' for i in range(1, int(sys.argv[1]) + 1)]}))" "$slots" | vm put-public
+    echo "== the newest slot answers over HTTPS (new certificates take about 150 s)"
+    for _ in $(seq 1 60); do
+      code="$(curl -s -o /dev/null -w '%{http_code}' -m 10 "https://api.s$slots.wdev.cmux.dev/v1/health" || true)"
+      [ "$code" != 000 ] && { echo "   https://api.s$slots.wdev.cmux.dev answers ($code)"; break; }
+      sleep 5
+    done
+    ;;
   *) usage; exit 2 ;;
 esac

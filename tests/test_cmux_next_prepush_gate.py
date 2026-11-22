@@ -219,6 +219,7 @@ class PrePushGateTests(unittest.TestCase):
             INSTALLER,
             "scripts/web_lint_prepush.py",
             "scripts/ci/base_merge_warning.py",
+            "scripts/ci/workflow_job_bounds.py",
             "scripts/ci/github_release_download.py",
             "scripts/ci/deadline_http.py",
             "scripts/web-lint.sh",
@@ -395,7 +396,7 @@ class PrePushGateTests(unittest.TestCase):
                         + result.stdout + result.stderr)
 
     def test_ci_advisory_names_an_arch_and_a_guardrails_violation_as_warnings_and_keeps_the_exit_code(self):
-        # CI never runs the arch ratchet or the guardrails line rules (CLAUDE.md: no new CI gates), so a push that
+        # CI never runs the arch ratchet or the guardrails line rules (the 2026-10-23 no-new-CI rule, since lifted), so a push that
         # skipped the hook landed them unseen. --advisory (the fast gates' prepush gate) names each finding as a
         # ::warning on its file and line and a summary row; the gate's exit code is what it is without it.
         self.copy_arch_rules()
@@ -573,8 +574,9 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("2 own commit(s)", output)
 
     def test_a_push_nothing_bounds_is_refused_with_what_to_fetch(self):
-        # No ref of the remote at all in this clone: the gate cannot tell the push's own commits, so it refuses
-        # on purpose (one line per ref, no traceback) instead of judging HEAD~1 alone.
+        # No ref of the remote at all in this clone: nothing can tell the push's own commits (one line per ref, no
+        # traceback), and nothing judges HEAD~1 alone. The cmux-next gate now warns and passes here (Leo 2026-11-22:
+        # refuse only for the pusher's own diff); the web lint, which runs first, still refuses it.
         for ref in self.git("for-each-ref", "--format=%(refname)", "refs/remotes/").stdout.split():
             self.git("update-ref", "-d", ref)
         self.git("checkout", "--quiet", "-b", "fresh")
@@ -592,6 +594,7 @@ class PrePushGateTests(unittest.TestCase):
         self.assertNotIn("Traceback", output)
 
     def test_a_snapshot_without_push_range_refuses_the_push_and_says_how_to_fix_it(self):
+        # The web lint, which runs first, refuses; the cmux-next gate alone would warn and pass (CannotDecide).
         snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
         (snapshot.resolve() / "push_range.py").unlink()
         self.kit("Fresh", NEW_CLEAN)
@@ -606,9 +609,10 @@ class PrePushGateTests(unittest.TestCase):
 
     STALE = "the installed hook is older than the checks this push needs: rerun scripts/install-git-hooks.sh"
 
-    def test_a_stale_install_refuses_and_never_runs_the_pushed_check(self):
-        # The hook never runs code the push controls. A reviewed copy older than a check must refuse with how to fix
-        # it, never fall back to the pushed head's copy of that check.
+    def test_a_stale_install_warns_and_never_runs_the_pushed_check(self):
+        # The hook never runs code the push controls. A reviewed copy older than a check says how to fix it and never
+        # falls back to the pushed head's copy of that check; the stale install is the clone's, not the push's diff,
+        # so the push goes through with that warning (Leo 2026-11-22).
         snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
         marker = self.root / "pushed-code-ran"
         payload = f"open({str(marker)!r}, 'w').close()\n"
@@ -631,9 +635,10 @@ class PrePushGateTests(unittest.TestCase):
 
                 output = result.stdout + result.stderr
                 self.assertFalse(marker.exists(), f"the hook ran the pushed {name}")
-                self.assertNotEqual(result.returncode, 0, output)
-                self.assertEqual(self.remote_head(), before)
+                self.assertEqual(result.returncode, 0, output)
+                self.assertNotEqual(self.remote_head(), before)
                 self.assertIn(self.STALE, output)
+                self.assertIn("goes through UNCHECKED", output)
                 self.assertNotIn("Traceback", output)
 
     def test_a_stale_install_never_takes_the_tool_pins_from_the_checkout(self):
@@ -666,9 +671,10 @@ class PrePushGateTests(unittest.TestCase):
         output = result.stdout + result.stderr
         self.assertFalse(marker.exists(), "the hook ran a binary the pushed lock named")
         self.assertFalse(tools.exists() and any(tools.iterdir()), "the hook downloaded what the pushed lock named")
-        self.assertNotEqual(result.returncode, 0, output)
-        self.assertEqual(self.remote_head(), before)
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotEqual(self.remote_head(), before)
         self.assertIn(self.STALE, output)
+        self.assertIn("goes through UNCHECKED", output)
         self.assertNotIn("Traceback", output)
 
     def test_a_merge_cannot_use_an_upstream_removal_to_pay_for_the_branch_s_own_debt(self):
@@ -2417,7 +2423,8 @@ mod tests {
         self.assertEqual(set(gate.RATCHET_BASELINES), {
             "process-scan-baseline.tsv", "state-roots-baseline.tsv", "raw-spawn-baseline.tsv",
             "raw-flock-baseline.tsv", "spawn-owner-baseline.tsv", "app-id-special-cases-baseline.tsv",
-            "swift-type-scale-baseline.tsv", "focus-routes-baseline.tsv", "visible-only-baseline.tsv"})
+            "swift-type-scale-baseline.tsv", "focus-routes-baseline.tsv", "visible-only-baseline.tsv",
+            "keychain-no-prompt-baseline.tsv"})
 
     def test_a_line_baseline_takes_only_the_lines_the_push_removed(self):
         spec = importlib.util.spec_from_file_location("prepush_gate_line_baselines", SOURCE / GATE)
@@ -2485,8 +2492,8 @@ mod tests {
 
     @NEEDS_SWIFTFORMAT
     def test_ci_modes_do_not_run_the_swiftformat_layer(self):
-        # SwiftFormat findings are refused by the local pre-push hook only (lead 2026-10-27, CLAUDE.md: no new CI
-        # gates). CI and the merge-time gates run the gate as --base/--head (fast gates, car guards, pull requests)
+        # SwiftFormat findings are refused by the local pre-push hook only (lead 2026-10-27, the 2026-10-23 no-new-CI
+        # rule, since lifted). CI and the merge-time gates run the gate as --base/--head (fast gates, car guards, pull requests)
         # or --commits (pushes); none of them may refuse a SwiftFormat finding.
         self.kit("Fresh", SWIFTFORMAT_HIT)
         self.commit("adds two blank lines in a row")
@@ -2654,7 +2661,7 @@ mod tests {
         self.assertIn(f"{self.HIGHLIGHTS}/continue-retry.md: entries[0] (continue-retry): "
                       "needs a tryIt action/deeplink or a docs link", output)
         self.assertIn("add docs: https://cmux.com/docs/<page> or a tryIt; at most 2 sentences, 240 characters", output)
-        # The rule stays out of CI and the merge-time gates (CLAUDE.md: no new CI gates): they run --base/--head
+        # The rule stays out of CI and the merge-time gates (the 2026-10-23 no-new-CI rule, since lifted): they run --base/--head
         # (pull requests, fast gates, car guards) or --commits (pushes).
         for args in (["--base", "HEAD~1", "--head", "HEAD"], ["--commits", "HEAD~1..HEAD"]):
             with self.subTest(args=args):
@@ -3558,6 +3565,73 @@ class AdvisoryGuardrailsDiagnosticsTests(unittest.TestCase):
             gate.load_guardrails = original
         self.assertEqual(found, [])
         self.assertEqual(diagnostics, ["rule app-type failed (KeyError: x)"])
+
+
+class MergeUpstreamRunTests(unittest.TestCase):
+    """2026-11-21: a merge push's gate took 798 s on big-red (the hook's 600 s limit): gate_own's run over the range
+    the merge does not own ran every check again, whole-package dependency and surface material trees among them
+    (293 s), though only the checks the push's own run found something in are ever read from it."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.gate = load_gate_tools()
+        cls.gate.load_push_range(SOURCE, SOURCE / "scripts/cmux-next")  # gate_own reads it from sys.modules
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = git_fixture_env.init_repo(Path(self.tmp.name) / "repo")
+
+    def commit(self, relative: str, text: str) -> str:
+        path = self.repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        git = ["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+               "-c", "commit.gpgsign=false"]
+        subprocess.run([*git, "add", "-A"], check=True, capture_output=True)
+        subprocess.run([*git, "commit", "-qm", relative], check=True, capture_output=True)
+        return subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+
+    def own_range(self, **fields):
+        return sys.modules[self.gate.PUSH_RANGE_MODULE].OwnRange(**fields)
+
+    def test_the_upstream_run_runs_only_the_checks_the_own_run_found(self):
+        base = self.commit(f"{PKG}/Sources/A.swift", "let a = 1\n")
+        upstream = self.commit(f"{PKG}/Sources/B.swift", "let b = 1\n")
+        head = self.commit(f"{PKG}/Sources/C.swift", "let c = 1\n")
+        found = "Sources/C.swift:1: [fake] own finding"
+        calls = []
+
+        def fake_gate(repo, b, a, only, timings, trusted_scripts=None, **kwargs):
+            calls.append((b, a, kwargs.get("checks")))
+            return [("Fake check", [found])] if (b, a) == (upstream, head) else []
+
+        own = self.own_range(head=head, base=upstream, before=((base, upstream),))
+        with unittest.mock.patch.object(self.gate, "gate", side_effect=fake_gate):
+            kept = self.gate.gate_own(self.repo, own, None, False)
+        self.assertEqual(calls, [(upstream, head, None), (base, upstream, {"Fake check"})])
+        self.assertEqual(kept, [("Fake check", [found])])
+
+    def test_a_run_that_wants_no_tree_check_builds_no_tree(self):
+        base = self.commit(f"{PKG}/Sources/A.swift", "let a = 1\n")
+        head = self.commit(f"{PKG}/Sources/A.swift", "let a = 2\n")
+
+        class Built(Exception):
+            pass
+
+        with unittest.mock.patch.object(self.gate, "build_trees", side_effect=Built):
+            self.assertEqual(self.gate.gate(self.repo, base, head, {"scanners"}, False,
+                                            checks={self.gate.RESERVED_CHECK}), [])
+            # The control: the same run with every check wanted, or a tree check wanted, builds its trees.
+            for checks in (None, {self.gate.DEPS_CHECK}):
+                with self.assertRaises(Built, msg=f"checks={checks}"):
+                    self.gate.gate(self.repo, base, head, {"scanners"}, False, checks=checks)
+
+    def test_a_push_already_on_the_remote_judges_nothing(self):
+        head = self.commit("a.txt", "a\n")
+        own = self.own_range(head=head, base=head)
+        with unittest.mock.patch.object(self.gate, "gate", side_effect=AssertionError("judged an empty range")):
+            self.assertEqual(self.gate.gate_own(self.repo, own, None, False), [])
 
 
 if __name__ == "__main__":
