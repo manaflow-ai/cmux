@@ -1713,6 +1713,7 @@ dependencies = [
 name = "cmux-customize"
 version = "0.1.0"
 dependencies = [
+ "cmux-action-catalog",
  "cmux-app-manifest",
  "cmux-config",
  "cmux-file-lock",
@@ -2601,6 +2602,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-theme-pack"
+version = "0.1.0"
+dependencies = [
+ "cmux-config",
+ "cmux-file-lock",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "cmux-theme-tokens"
 version = "0.1.0"
 dependencies = [
@@ -2657,6 +2669,7 @@ dependencies = [
  "cmux-git",
  "cmux-holder",
  "cmux-host",
+ "cmux-host-budget",
  "cmux-json",
  "cmux-layout-reducer",
  "cmux-link",
@@ -2676,6 +2689,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-signed-bundle",
  "cmux-terminal-client",
+ "cmux-theme-pack",
  "cmux-theme-tokens",
  "cmux-tui-cdp",
  "cmux-tui-core",
