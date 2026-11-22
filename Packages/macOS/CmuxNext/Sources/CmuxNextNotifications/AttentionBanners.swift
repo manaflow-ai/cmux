@@ -108,7 +108,7 @@ package final class AttentionBanners {
         host.note("attention \(item.tabId) \(decision)")
         if decision.desktop {
             posted.insert(AttentionBannerLifecycle.attentionBannerID(item))
-            let content = host.bannerFormatter.content(headline: String(localized: "notifications.attention.needsYou", defaultValue: "Needs you", bundle: .module),
+            let content = host.bannerFormatter.content(headline: String(localized: "notifications.attention.needsYou", defaultValue: "Needs you", bundle: .localizedModule),
                                                        posterSubtitle: nil, body: item.reason, workspace: item.workspaceTitle, tab: item.tabTitle, host: nil)
             host.desktop.post(id: AttentionBannerLifecycle.attentionBannerID(item), title: content.title, subtitle: content.subtitle, body: content.body,
                               surface: nil, workspace: nil, defaultSound: decision.sound == "default", category: DesktopNotifier.attentionCategory,

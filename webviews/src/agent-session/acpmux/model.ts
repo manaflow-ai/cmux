@@ -1,5 +1,6 @@
 import type { ChatTaskList } from "./chatTaskList";
 import { experimentArm } from "../../experiments/experiment";
+import type { PromptHeads } from "./promptHeads";
 import { permissionCardHeight } from "./permissions/cardHeight";
 import { freshMeasureContext } from "./measureContext";
 import type { SentFrom } from "./conversation/sentFromHarness";
@@ -1407,6 +1408,9 @@ export type AcpmuxSnapshot = {
     /// The chat's tools (acpmux `tools`, cx-thur3) and whether `_acpmux/set_tools` can change them.
     tools?: ChatTool[];
     toolsMutable?: boolean;
+    /// Where the chat stands and its next action (acpmux `rollingSummary`, kept after each turn a
+    /// person started); the header draws it beside the title (header/ChatSummaryLine.tsx).
+    rollingSummary?: { text: string; next?: string };
   };
   connection: string;
   /** The first request that crossed its progress threshold while the socket stayed open. */
@@ -1576,7 +1580,7 @@ export type AcpmuxSnapshot = {
    * instead of adding ticks. Each is a `user` row (`user-<seq>`, its promptId and the start of its
    * text) that opens a turn. Absent while unread, and for a chat with no older history.
    */
-  earlierPrompts?: readonly AcpmuxRow[];
+  earlierPrompts?: PromptHeads;
   /**
    * The chat's prompt count from its summary (`turnCount`), while the pane does not hold every prompt
    * yet (the prompt index has not answered, or the daemon has none) and older history is left: the
@@ -4097,17 +4101,21 @@ export function scrollLeadRanges(
   trail = 0,
 ): RowRange[] {
   const lead = Math.min(Math.abs(delta) * steps, maxLead);
-  if (Math.abs(delta) * steps <= maxLead) {
+  // A scroll that moves more than a view in one frame never shows the rows between this frame's view
+  // and the next one's: it is a jump, however far the cap reaches. A fling of 1,500 to 3,000 px a frame
+  // (2 to 4 views) built the contiguous lead of up to 4 views a frame, about three times the rows any
+  // frame drew, and the first layout read after the commit paid their restyle (Leo, 2026-11-16: "as
+  // in i scroll up and it loads the shit").
+  const jumping = Math.abs(delta) > Math.min(maxLead, viewportHeight);
+  if (!jumping && Math.abs(delta) * steps <= maxLead) {
     const behind = delta === 0 ? 0 : trail;
     const top = delta < 0 ? scrollTop - lead : scrollTop - behind;
     return [visibleLayoutRange(layoutModel, top, viewportHeight + lead + behind)];
   }
-  // A scroll that moves past the cap in one frame lands past the capped lead too: the lead between
-  // the view and the next frame's view is never on screen, so only a scroll that can slow into it
-  // (a scrollbar drag of a few viewports a move) builds it. Faster, each frame mounts the view and
-  // the view the next frame reaches, not the rows it jumps over: a fling of tens of
-  // viewports a frame (a god session) built 5 viewports of rows a frame that no frame showed.
-  const jumping = Math.abs(delta) > maxLead;
+  // A jump lands past the rows between the views, so each of its frames mounts the view and the view
+  // the next frame reaches, not the rows it jumps over: a fling of tens of viewports a frame (a god
+  // session) built 5 viewports of rows a frame that no frame showed. A view it lands short of (a drag
+  // that stops) is mounted by the commit that draws it.
   const contiguous = jumping ? 0 : lead;
   // A jump's rows a frame are a view the next frame leaves: one row of overscan, not a margin's worth.
   const overscan = jumping ? 1 : undefined;
