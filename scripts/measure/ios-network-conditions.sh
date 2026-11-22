@@ -6,7 +6,7 @@
 #
 #   cmux-ci run --class exclusive --label measure --script scripts/measure/ios-network-conditions.sh \
 #     --ref SHA [--arg before=SHA] [--arg n=5] [--arg profiles=lte,elevator-30s] \
-#     [--arg surfaces=terminal,chat] [--arg scales=1x,10x,100x] [--arg seed=0] \
+#     [--arg surfaces=terminal,chat] [--arg scales=1x,10x,100x] [--arg seed=0] [--arg relay=relay-80] \
 #     --artifact .build/ios-network-conditions/report.json --timeout 7200
 #
 # Headless leg (Linux or Mac, no simulator): real daemons behind cmux-fault's seeded link shaper
@@ -16,6 +16,9 @@
 #     the phone's `daemon` service requests: set-client-info, identify, attach-surface, send);
 #   chat: cmux-tui/crates/acpmux/tests/mobile_link_conditions.rs (the real acpmux, the phone's
 #     `acpmux` service requests: _acpmux/watch, _acpmux/attach, afterSeq on reconnect).
+# relay=NAME measures a Cloud machine as the peer: that link profile is a second shaped hop behind
+# the phone's link (the relay between the signed-in Mac and the machine), and rows read
+# `lte@1+relay-80@1`. Without it the peer is the Mac.
 # Each prints NETCOND lines; ios-network-conditions-report.py makes report.json (profile x surface
 # x phase x scale x metric: p50, p95, n) and report.md (the table a PR body pastes, with a before
 # column and the change when before= is given).
@@ -27,7 +30,7 @@
 set -euo pipefail
 trap 'echo "ios-network-conditions.sh: line $LINENO exited $? ($BASH_COMMAND)" >&2' ERR
 
-before="" n=5 profiles="" surfaces="terminal,chat" scales="1x,10x,100x" seed=0
+before="" n=5 profiles="" surfaces="terminal,chat" scales="1x,10x,100x" seed=0 relay=""
 for kv in "$@"; do
   case "$kv" in
     before=*) before="${kv#*=}" ;;
@@ -36,7 +39,8 @@ for kv in "$@"; do
     surfaces=*) surfaces="${kv#*=}" ;;
     scales=*) scales="${kv#*=}" ;;
     seed=*) seed="${kv#*=}" ;;
-    *) echo "ios-network-conditions.sh: unknown arg '$kv' (before=, n=, profiles=, surfaces=, scales=, seed=)" >&2; exit 2 ;;
+    relay=*) relay="${kv#*=}" ;;
+    *) echo "ios-network-conditions.sh: unknown arg '$kv' (before=, n=, profiles=, surfaces=, scales=, seed=, relay=)" >&2; exit 2 ;;
   esac
 done
 [[ -z "$before" || "$before" =~ ^[0-9a-f]{40}$ ]] || { echo "ios-network-conditions.sh: before= is a 40-character SHA" >&2; exit 2; }
@@ -45,6 +49,7 @@ done
 [[ "$surfaces" =~ ^(terminal|chat)(,(terminal|chat))?$ ]] || { echo "ios-network-conditions.sh: surfaces=terminal,chat" >&2; exit 2; }
 [[ "$scales" =~ ^[0-9]+x(,[0-9]+x)*$ ]] || { echo "ios-network-conditions.sh: scales=1x,10x,100x" >&2; exit 2; }
 [[ -z "$profiles" || "$profiles" =~ ^[a-z0-9-]+(,[a-z0-9-]+)*$ ]] || { echo "ios-network-conditions.sh: profiles=NAME,..." >&2; exit 2; }
+[[ -z "$relay" || "$relay" =~ ^[a-z0-9-]+$ ]] || { echo "ios-network-conditions.sh: relay=NAME (one link profile)" >&2; exit 2; }
 command -v cargo >/dev/null || { echo "ios-network-conditions.sh: needs cargo on PATH; run it through cmux-ci run" >&2; exit 2; }
 
 export GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=120
@@ -101,7 +106,7 @@ bench() {
   local locked=(--locked)
   [[ "$label" == before && -n "${overlaid:-}" ]] && locked=()
   (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="$work/target-$label" \
-    NETCOND_PROFILES="$profiles" NETCOND_SCALES="$scales" NETCOND_RUNS="$n" NETCOND_SEED_BASE="$seed" \
+    NETCOND_PROFILES="$profiles" NETCOND_SCALES="$scales" NETCOND_RUNS="$n" NETCOND_SEED_BASE="$seed" NETCOND_RELAY="$relay" \
     cargo test --release ${locked[@]+"${locked[@]}"} -p "$crate" --test mobile_link_conditions -- \
       --ignored --nocapture --test-threads 1 >"$log" 2>&1) || code=$?
   sed -n "s/^NETCOND /$label /p" "$log" >>"$work/lines.txt"
