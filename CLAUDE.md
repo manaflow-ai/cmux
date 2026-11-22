@@ -17,7 +17,12 @@ deletes the clone; off a Mac it prints the fleet route, `cmux-ci hot-verify N --
 | Web (`webviews/`) | `cmux customize use pr:N`, `branch:NAME`, `sha:SHA` or `dir:PATH [--watch]`; back with `cmux customize library off NAME` |
 | Terminal daemon, acpmux Rust (`cmux-tui/`) | `scripts/cmux-next/hot-apply.py plan SHA`, `apply SHA`, `rollback` |
 | A whole PR, branch or commit | `cmux app try <PR\|branch\|sha>`, back with `cmux app try undo` |
-| Swift, Rust the app links, resources | a build; `hot-apply.py plan` says which and why |
+| Web from your checkout, hot reload on save | `cmux live start --worktree <checkout>` |
+| Daemon Rust from your checkout | `cmux live start --rust` |
+| Swift inside function bodies | live code on a Debug base: `cmux live start --swift` ([live code](docs/cmux-next/live-code.md)) |
+| String catalogs (`.xcstrings`), Cloud wire types (`clients/ts`) | `cmux app try`: no build (Swift's translations wait for one) |
+| Backend, images, workers, CI | no app change: `cmux-ci test -- CMD` on Linux; a copy of the NIGHTLY signs in to Cloud (`cmux app try .`) |
+| Swift signatures, stored properties, Rust the app links, resources | a build; `hot-apply.py plan` says which and why |
 
 Full loop: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md) and
 [docs/cmux-next/hot-reload.md](docs/cmux-next/hot-reload.md#the-loop).
@@ -55,8 +60,8 @@ Full loop: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md) and
   backend data or local state, nor nightly's or stable's, and never reuses NIGHTLY's sign-in. The pre-push
   gate's "Build spaces" and "Dev build state is its own" checks enforce it:
   [dev build spaces](skills/cmux-dev-workflow/references/dev-build-spaces.md).
-- **Never add CI gates, perf-gate rows, CI jobs or CI tests** (Lawrence, 2026-10-23: "not to add gates/tests in
-  CI, but you have to run them yourself"). Each fix still gets a regression test you run yourself on the fleet.
+- **Agents may add CI gates, perf-gate rows, CI jobs and CI tests** (Aziz 2026-11-18 lifted the "no new CI" rule;
+  perf runs still never block a push, merge or nightly). Each fix still gets a regression test you run on the fleet.
 - **Nightlies never use Blacksmith, run on one signing Mac, and nobody cancels them** (Lawrence, 2026-10-30
   and 2026-11-04): [landing](docs/ci/landing.md#ci-runners-and-nightlies).
 - **A change to the Mac or iOS app is done when the person can open it**: the report ends with the dev build
@@ -107,7 +112,7 @@ Read these before working in their scope; nested files may not load automaticall
 | User-facing strings, docs or help | [cmux-localization](skills/cmux-localization/SKILL.md); report the localization audit |
 | A change people will notice (What's New, update card) | [release-notes/next/WRITING.md](release-notes/next/WRITING.md); add one curated highlight file in the same commit, never a commit subject |
 | New cmux shortcuts | [cmux-keyboard-shortcuts](skills/cmux-keyboard-shortcuts/SKILL.md) |
-| Tests or target wiring | [cmux-testing](skills/cmux-testing/SKILL.md); CmuxNext tests need no wiring; the `cmux` CLI is cmux-tui Rust |
+| Tests or target wiring | [cmux-testing](skills/cmux-testing/SKILL.md); [adding a test](skills/cmux-testing/references/adding-a-test.md): CI finds it; Python tests take a lane entry; the `cmux` CLI is cmux-tui Rust |
 | Multiple entrypoints or a bug that tests previously missed | [cmux-shared-behavior](skills/cmux-shared-behavior/SKILL.md); share action/mutation paths, verify every entrypoint, and cover the missed repro |
 | v2 socket methods, remote CLI relay (default deny) | [relay authorization](skills/cmux-socket-policy/references/remote-relay-authorization.md) |
 | Every task skill | [skills/README.md](skills/README.md) |

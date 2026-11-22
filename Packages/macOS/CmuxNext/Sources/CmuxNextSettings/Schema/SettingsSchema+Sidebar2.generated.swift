@@ -133,6 +133,7 @@ extension SidebarSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.showSpaces", "Show Spaces"),
+                help: SettingsText.keyed("settings.sidebar.showSpaces.help", "Spaces show once you have more than one. New Space is in the command palette."),
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.showSpacesDefault),
                 keywords: ["sidebar", "spaces", "dots", "profiles", "footer", "hide", "show"]
@@ -238,6 +239,21 @@ extension SidebarSettingsSchema {
                 keywords: ["sidebar", "minimal", "compact", "dense", "rows", "simple", "clean"]
             ),
             SettingDescriptor(
+                SidebarLookPreset.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.look", "Sidebar Look"),
+                help: SettingsText.keyed("settings.sidebar.look.help", "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win."),
+                kind: .choice([
+                    SettingChoice("cmux", SettingsText.keyed("settings.choice.sidebarLookCmux", "cmux")),
+                    SettingChoice("claude", SettingsText.keyed("settings.choice.sidebarLookClaude", "Claude")),
+                    SettingChoice("codex", SettingsText.keyed("settings.choice.sidebarLookCodex", "Codex")),
+                    SettingChoice("studio", SettingsText.keyed("settings.choice.sidebarLookStudio", "Studio")),
+                ]),
+                default: .string(SidebarLookPreset.fallback),
+                keywords: ["sidebar", "look", "preset", "style", "claude", "codex", "studio", "like", "app"]
+            ),
+            SettingDescriptor(
                 SidebarSectionsSetting.stylePath,
                 section: .appearance,
                 group: group,
@@ -299,6 +315,16 @@ extension SidebarSettingsSchema {
                 keywords: ["sidebar", "timestamps", "time", "times", "age", "ago", "elapsed", "duration", "last activity", "clock", "rows"]
             ),
             SettingDescriptor(
+                SidebarSectionsSetting.settleFinishedPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.settleFinished", "Settle Finished Chats"),
+                help: SettingsText.keyed("settings.sidebar.settleFinished.help", "A chat whose answer you have read folds into Settled at the end of its list until its next turn."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.settleFinishedDefault),
+                keywords: ["sidebar", "settle", "settled", "finished", "done", "read", "seen", "fold", "chats", "threads", "tidy"]
+            ),
+            SettingDescriptor(
                 SidebarSectionsSetting.showColorsPath,
                 section: .appearance,
                 group: group,
@@ -350,39 +376,6 @@ extension SidebarSettingsSchema {
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.groupHeaderUnreadCountDefault),
                 keywords: ["sidebar", "group", "groups", "unread", "badge", "notifications", "count", "header"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupHeaderBackgroundPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupHeader.background", "Group Background"),
-                help: SettingsText.keyed("settings.sidebar.groupHeader.background.help", "How a group's background draws. Sections shows plain headings instead."),
-                kind: .choice([
-                    SettingChoice(SidebarGroupBackgroundStyle.auto.rawValue, SettingsText.keyed("settings.choice.groupBackgroundAuto", "Automatic")),
-                    SettingChoice(SidebarGroupBackgroundStyle.glass.rawValue, SettingsText.keyed("settings.choice.groupBackgroundGlass", "Glass")),
-                    SettingChoice(SidebarGroupBackgroundStyle.solid.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSolid", "Solid")),
-                    SettingChoice(SidebarGroupBackgroundStyle.sections.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSections", "Sections")),
-                ]),
-                default: .string(SidebarSectionsSetting.groupHeaderBackgroundDefault.rawValue),
-                keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header", "sections", "section", "heading", "plain"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupPalettePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupPalette", "Group Colors"),
-                help: SettingsText.keyed("settings.sidebar.groupPalette.help", "Where group colors come from. A color you pick for a group stays."),
-                kind: .choice([
-                    SettingChoice(GroupPalette.glass.rawValue, SettingsText.keyed("settings.choice.groupPaletteGlass", "Glass")),
-                    SettingChoice(GroupPalette.theme.rawValue, SettingsText.keyed("settings.choice.groupPaletteTheme", "App Theme")),
-                    SettingChoice(GroupPalette.wallpaper.rawValue, SettingsText.keyed("settings.choice.groupPaletteWallpaper", "Wallpaper")),
-                    SettingChoice(GroupPalette.grayscale.rawValue, SettingsText.keyed("settings.choice.groupPaletteGrayscale", "Grayscale")),
-                    SettingChoice(GroupPalette.vibrant.rawValue, SettingsText.keyed("settings.choice.groupPaletteVibrant", "Vibrant")),
-                    SettingChoice(GroupPalette.gradient.rawValue, SettingsText.keyed("settings.choice.groupPaletteGradient", "Gradient")),
-                    SettingChoice(GroupPalette.pictorial.rawValue, SettingsText.keyed("settings.choice.groupPalettePictorial", "Pictorial")),
-                ]),
-                default: .string(SidebarSectionsSetting.groupPaletteDefault.rawValue),
-                keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "palette", "theme", "wallpaper", "grayscale", "vibrant", "glass", "automatic", "gradient", "pictorial", "picture"]
             ),
         ]
     }
