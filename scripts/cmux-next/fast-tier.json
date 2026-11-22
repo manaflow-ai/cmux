@@ -15,6 +15,7 @@
     {"name": "agent pane initialize contract", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "AcpmuxPaneInitializeParamsContractTests", "owner": "op-next-agent-pane", "bead": "cmux#49148"},
     {"name": "agent pane attach contract", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "AcpmuxPaneAttachParamsContractTests", "owner": "op-next-agent-pane", "bead": "cmux#47119"},
     {"name": "agent pane session/new contract", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "AcpmuxPaneSessionNewParamsContractTests", "owner": "op-next-agent-pane", "bead": "cmux#49480"},
+    {"name": "agent pane model catalog relay", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "AcpmuxPaneModelCatalogRelayTests", "owner": "op-next-agent-pane", "bead": "cmux#49480"},
     {"name": "agent pane bg output contract", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "AcpmuxPaneBgOutputParamsContractTests", "owner": "op-next-agent-pane", "bead": "cmux#48648"},
     {"name": "agent pane initialize fail-safe", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "AcpmuxPaneInitializeFailSafeTests", "owner": "op-next-agent-pane", "bead": "cmux#49148"},
     {"name": "perf completeness", "kind": "script", "path": "scripts/cmux-next/tests/test_perf_completeness.py", "owner": "perf"}

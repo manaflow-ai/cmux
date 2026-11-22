@@ -106,7 +106,12 @@ fn the_allowlist_is_what_the_page_sends() {
     // request, so the host reads it and hands the page only what it may see (AgentPanePendingAsks).
     // That preview reads nothing in the app until it asks through a host method.
     assert!(sent.remove("_acpmux/info"), "the live tree preview asks _acpmux/info");
-    assert_eq!(sent, p.requests, "requests the page sends vs policy.json requests");
+    // Move to (cmux#49141) lets `_acpmux/move_targets` through for the move picker; no page file
+    // sends it yet. The list may run ahead of the page by that one; any other gap is a refusal.
+    let mut allowed = p.requests.clone();
+    assert!(allowed.remove("_acpmux/move_targets"), "policy.json lists _acpmux/move_targets");
+    sent.remove("_acpmux/move_targets");
+    assert_eq!(sent, allowed, "requests the page sends vs policy.json requests");
     // A frame the page writes itself: `jsonrpc: "2.0",` then its `method:`.
     let notifications: BTreeSet<String> = direct
         .split(r#"jsonrpc: "2.0","#)
@@ -314,8 +319,11 @@ fn the_page_sends_only_known_params() {
                 };
                 let method = method.as_str();
                 let Some(args) = args.trim_start().strip_prefix(',') else { continue };
-                // `file.search` goes to the socket only in mock mode (the allowlist test above).
-                if method == "file.search" || !args.trim_start().starts_with('{') {
+                // `file.search` goes to the socket only in mock mode, and the relay never forwards
+                // `_acpmux/info` (the allowlist test above).
+                if matches!(method, "file.search" | "_acpmux/info")
+                    || !args.trim_start().starts_with('{')
+                {
                     continue;
                 }
                 let open = text.len() - args.trim_start().len();
