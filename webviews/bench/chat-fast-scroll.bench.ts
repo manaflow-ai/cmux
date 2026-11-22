@@ -308,7 +308,7 @@ async function railClicks(page: Page, around: <T>(run: () => Promise<T>) => Prom
         const prompt = `Turn ${label.match(/Turn (\d+):/)?.[1] ?? "?"}:`;
         addEventListener(
           "pointerdown",
-          (event) => {
+          (event: PointerEvent) => {
             const start = performance.now();
             if (trace) {
               const hit = (event.target as Element | null)?.closest?.("[data-tick]");
