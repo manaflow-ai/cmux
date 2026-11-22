@@ -167,7 +167,8 @@ public struct MacStatusLine: Equatable, Sendable {
         guard live else { return MacStatusLine(dot: .connected, text: presence) }
         switch connection {
         case .connected: return MacStatusLine(dot: .connected, text: "Online")
-        case .connecting: return MacStatusLine(dot: .connecting, text: "Online · Connecting…")
+        // A link dialing or redialing on its own says nothing more than the presence.
+        case .connecting: return MacStatusLine(dot: .connecting, text: "Online")
         case .failed: return MacStatusLine(dot: .failed, text: "Online · Can't connect")
         case nil: return MacStatusLine(dot: .connecting, text: "Online · Not connected")
         }

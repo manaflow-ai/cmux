@@ -70,24 +70,6 @@ public enum TerminalConnectionState: Sendable, Equatable {
         !isAttached && sessionStarted
     }
 
-    /// The placeholder's label ("Connecting to Aziz's Mac Studio…", "Reattaching…").
-    public var label: String? {
-        switch self {
-        case .connecting(let mac):
-            guard let mac, !mac.isEmpty else { return "Connecting…" }
-            return "Connecting to \(mac)…"
-        case .reattaching:
-            return "Reattaching…"
-        case .offline(let mac):
-            guard let mac, !mac.isEmpty else { return "Your Mac is offline" }
-            return "\(mac) is offline"
-        case .failed(let message):
-            return message
-        case .attached:
-            return nil
-        }
-    }
-
     /// The quiet line by the composer once an outage has lasted
     /// `QuietStatusGate.threshold` (nil: attached). Plain words, never a
     /// transport error ("daemon channel closed").
@@ -96,7 +78,7 @@ public enum TerminalConnectionState: Sendable, Equatable {
         switch self {
         case .connecting(let mac): return "Connecting to \(named(mac))…"
         case .reattaching(let mac): return "Reconnecting to \(named(mac))…"
-        case .offline: return label
+        case .offline(let mac): return mac.flatMap { $0.isEmpty ? nil : "\($0) is offline" } ?? "Your Mac is offline"
         case .failed: return "Can't reach this terminal"
         case .attached: return nil
         }
