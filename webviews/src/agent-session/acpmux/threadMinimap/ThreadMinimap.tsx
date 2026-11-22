@@ -1393,6 +1393,7 @@ function ThreadMinimapView({
       clearTimeout(restTimer.current);
       restTimer.current = undefined;
     }
+    if ((globalThis as { __expSkipRail?: boolean }).__expSkipRail) return;
     const current = listOffset.current;
     const next = railScrollTop({ first: onScreen.first, last: onScreen.last }, turns.length, height, current, rowPitch);
     if (Math.abs(next - current) < 0.5) return;
