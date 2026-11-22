@@ -123,6 +123,8 @@ BOUND_COPIES: tuple[tuple[str, str, int], ...] = (
      r"connectionQuiet: Duration = \.milliseconds\(([0-9_]+)\)", 1),
     ("cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileDesign/QuietStatusGate.swift",
      r"threshold: Duration = \.seconds\(([0-9_]+)\)", 1000),
+    ("cmux-tui/crates/cmux-agent-pane-policy/src/service_wait.rs",
+     r"pub const CONNECTION_QUIET_MS: u64 = ([0-9_]+);", 1),
 )
 
 # A person action on the same unit.
