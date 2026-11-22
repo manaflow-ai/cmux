@@ -571,6 +571,33 @@ try {
           .sort((a, b) => Number(b.split(" ").at(-2)) - Number(a.split(" ").at(-2))),
       };
     });
+    // FLOOR=1: the browser's own cost for this page's settled DOM, with no app script: the body's markup is taken
+    // out, then put back in one innerHTML write, and timed to the next frame (parse, style, layout and paint of the
+    // same nodes under the same stylesheets). That is the floor any renderer of this DOM pays; attach_to_latest
+    // minus it is the app's own work.
+    if (process.env.FLOOR === "1") {
+      const floor = await page.evaluate(async () => {
+        const body = document.body;
+        const html = body.innerHTML;
+        const nodes = body.getElementsByTagName("*").length;
+        const rows = document.querySelectorAll("[data-row-id]").length;
+        const times: number[] = [];
+        for (let round = 0; round < 5; round += 1) {
+          body.innerHTML = "";
+          void body.offsetHeight;
+          await new Promise((done) => requestAnimationFrame(() => setTimeout(done, 50)));
+          const start = performance.now();
+          body.innerHTML = html;
+          void body.offsetHeight;
+          await new Promise((done) => requestAnimationFrame(() => done(undefined)));
+          times.push(performance.now() - start);
+        }
+        return { nodes, rows, kib: html.length / 1024, times };
+      });
+      console.log(
+        `floor: ${floor.nodes} elements, ${floor.rows} rows mounted, ${floor.kib.toFixed(0)} KiB markup; innerHTML to next frame ms ${floor.times.map((t) => t.toFixed(1)).join(" ")}`,
+      );
+    }
     const reveal = REVEAL
       ? await page.evaluate(
           async ({ message, rowId }): Promise<Reveal> => {
