@@ -133,10 +133,10 @@ fn terminal_run(scenario: &Scenario, inputs: &Inputs, metrics: &mut Metrics) -> 
                 }
             }
             Event::Resize { every_ms, rows, from_ms, until_ms } => {
-                for (i, at) in
-                    ticks(*every_ms, *from_ms, *until_ms, length_ms).into_iter().enumerate()
-                {
-                    actions.push((at, Action::Resize(rows[(i + 1) % rows.len()])));
+                // Each tick switches to the next height; the first leaves the opening one.
+                let ticks = ticks(*every_ms, *from_ms, *until_ms, length_ms);
+                for (at, to) in ticks.into_iter().zip(rows.iter().cycle().skip(1)) {
+                    actions.push((at, Action::Resize(*to)));
                 }
             }
             Event::Scroll { every_ms, rows, steps_each_way, from_ms, until_ms } => {
@@ -146,10 +146,9 @@ fn terminal_run(scenario: &Scenario, inputs: &Inputs, metrics: &mut Metrics) -> 
                     .extend(at.into_iter().zip(steps).map(|(at, step)| (at, Action::Scroll(step))));
             }
             Event::Theme { every_ms, themes, from_ms, until_ms } => {
-                for (i, at) in
-                    ticks(*every_ms, *from_ms, *until_ms, length_ms).into_iter().enumerate()
-                {
-                    let (fg, bg) = themes[(i + 1) % themes.len()].rgb()?;
+                let ticks = ticks(*every_ms, *from_ms, *until_ms, length_ms);
+                for (at, theme) in ticks.into_iter().zip(themes.iter().cycle().skip(1)) {
+                    let (fg, bg) = theme.rgb()?;
                     actions.push((at, Action::Theme { fg, bg }));
                 }
             }
@@ -161,8 +160,9 @@ fn terminal_run(scenario: &Scenario, inputs: &Inputs, metrics: &mut Metrics) -> 
     actions.sort_by(|a, b| a.0.total_cmp(&b.0));
     // Pauses and resets can only hold a delivery later, never past the one after it, so the
     // schedule stays in order; sort anyway in case two windows overlap.
-    let mut order: Vec<usize> = (0..times.len()).collect();
-    order.sort_by(|a, b| times[*a].total_cmp(&times[*b]));
+    // (delivery time, stream chunk), in delivery order.
+    let mut order: Vec<(f64, usize)> = times.iter().copied().zip(0..).collect();
+    order.sort_by(|a, b| a.0.total_cmp(&b.0));
 
     // Key echoes outside the dark windows: one byte up, its echo down.
     for (every_ms, until_ms, from_ms) in echoes {
@@ -190,7 +190,7 @@ fn terminal_run(scenario: &Scenario, inputs: &Inputs, metrics: &mut Metrics) -> 
     let mut pending: Vec<Pending> = marks
         .into_iter()
         .map(|mark| {
-            let upto = order.iter().take_while(|i| times[**i] <= mark.target_ms).count();
+            let upto = order.iter().take_while(|(at, _)| *at <= mark.target_ms).count();
             Pending { mark, upto, frames: 0 }
         })
         .collect();
@@ -201,7 +201,7 @@ fn terminal_run(scenario: &Scenario, inputs: &Inputs, metrics: &mut Metrics) -> 
     let mut theme: Option<([u8; 3], [u8; 3])> = None;
     let mut t = 0.0f64;
     loop {
-        let due_chunk = order.get(next).map(|i| times[*i]);
+        let due_chunk = order.get(next).map(|(at, _)| *at);
         let due_action = actions.get(action).map(|a| a.0);
         let due = match (due_chunk, due_action) {
             (Some(a), Some(b)) => a.min(b),
@@ -241,16 +241,20 @@ fn terminal_run(scenario: &Scenario, inputs: &Inputs, metrics: &mut Metrics) -> 
             action += 1;
         }
         let mut written = 0usize;
-        while let Some(index) = order.get(next)
-            && times[*index] <= t
+        while let Some(&(at, index)) = order.get(next)
+            && at <= t
             && written < scenario.frame_bytes
         {
-            let bytes = &generated.stream[*index].bytes;
-            let take = (bytes.len() - offset).min(scenario.frame_bytes - written);
-            phone.vt_write(&bytes[offset..offset + take]);
-            written += take;
-            offset += take;
-            if offset == bytes.len() {
+            let rest = generated
+                .stream
+                .get(index)
+                .and_then(|chunk| chunk.bytes.get(offset..))
+                .unwrap_or_default();
+            let piece = rest.get(..scenario.frame_bytes - written).unwrap_or(rest);
+            phone.vt_write(piece);
+            written += piece.len();
+            offset += piece.len();
+            if piece.len() == rest.len() {
                 next += 1;
                 offset = 0;
             }
@@ -324,7 +328,9 @@ fn doc_line(index: u64, words: &[String], cols: u16) -> String {
     let mut line = format!("{index:>6} ");
     let mut k = 0u64;
     while !words.is_empty() {
-        let word = &words[((index * 7 + k * 13) % words.len() as u64) as usize];
+        let Some(word) = words.get(((index * 7 + k * 13) % words.len() as u64) as usize) else {
+            break;
+        };
         if line.len() + word.len() + 1 > usize::from(cols) {
             break;
         }
@@ -344,7 +350,7 @@ fn redraw(top: u64, len: u64, words: &[String], cols: u16, rows: u16) -> Vec<u8>
         out.push_str(&format!("\x1b[{};1H", row + 1));
         if index < len {
             let line = doc_line(index, words, cols);
-            let (number, rest) = line.split_at(line.len().min(6));
+            let (number, rest) = line.split_at_checked(line.len().min(6)).unwrap_or((&line, ""));
             out.push_str(&format!("\x1b[38;5;{}m{number}\x1b[0m{rest}", 16 + index % 200));
         }
         out.push_str("\x1b[K");
@@ -397,14 +403,13 @@ fn projection_run(
     let mut tick = 0.0f64;
     loop {
         // The next redraw: an input, else the next fps tick if the document grew.
-        let next_input = inputs_at.get(input).map(|i| i.0);
-        let (t, from_input) = match next_input {
-            Some(at) if at <= tick => (at, true),
-            _ if tick < length_ms => (tick, false),
+        let (t, step) = match inputs_at.get(input) {
+            Some(&(at, step)) if at <= tick => (at, Some(step)),
+            _ if tick < length_ms => (tick, None),
             _ => break,
         };
-        if from_input {
-            let step = inputs_at[input].1;
+        let from_input = step.is_some();
+        if let Some(step) = step {
             input += 1;
             back = if step < 0 {
                 back + step.unsigned_abs()
