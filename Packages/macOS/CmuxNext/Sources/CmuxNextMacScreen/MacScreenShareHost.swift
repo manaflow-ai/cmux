@@ -2,7 +2,6 @@ public import AppKit
 import ApplicationServices
 public import CmuxNextWakeups
 import CmuxNextCompat
-import CoreGraphics
 public import Observation
 import SystemConfiguration
 
@@ -10,11 +9,11 @@ import SystemConfiguration
 /// hub ("Allow Mac Screen on this Mac", `MacScreenHubHost`): Screen
 /// Recording (the picture) and Accessibility (the input). They belong to the
 /// Screen Sharing helper (``MacScreenHelper``, plans/cmux-next/screen-sharing-helper.md),
-/// which serves every session: the reads and the requests run in a fresh helper
-/// process, so macOS prompts for, lists and restarts the helper, and a grant
-/// never relaunches this app. A build without the helper reads and requests
-/// them for this app, as before. Rechecked when the app becomes active (after
-/// System Settings). Link-mode
+/// the one app holding them for screen sharing and computer use: the reads and the
+/// requests run in a fresh helper process, so macOS prompts for, lists and restarts
+/// the helper, and a grant never relaunches this app. This app never reads or asks
+/// for them for itself: a build without the helper shows both off and asks nothing.
+/// Rechecked when the app becomes active (after System Settings). Link-mode
 /// sharing (a pairing link anyone could use) is gone.
 @Observable
 public final class MacScreenShareHost {
@@ -22,14 +21,14 @@ public final class MacScreenShareHost {
     public private(set) var accessibilityGranted = false
     /// The name System Settings lists the two grants under: the helper's
     /// ("cmux NIGHTLY Screen Sharing"), or nil while unknown and in a build
-    /// without the helper (then they are this app's own).
+    /// without the helper (then this Mac cannot be shared).
     public private(set) var grantHolderName: String?
     @ObservationIgnored private var activation: (any NSObjectProtocol)?
-    /// A build without the helper: a fresh child reads TCC under this app's responsibility, just like
-    /// `rd serve`. A long-running process can cache Screen Recording denial even after the person
-    /// grants it in Settings. Tests replace it.
-    @ObservationIgnored var readPermissions: @Sendable () async throws -> (screen: Bool, control: Bool) = {
-        try await MacScreenPermissionProbe().read()
+    /// The helper's own grants, read by a fresh helper process (nil: it did not answer). A fresh
+    /// process, because a long-running one can cache a Screen Recording denial after the person
+    /// granted it in Settings. Tests replace it.
+    @ObservationIgnored var readGrants: @Sendable (MacScreenHelper) async -> MacScreenHelper.Permissions? = {
+        await $0.permissions()
     }
     /// This build's Screen Sharing helper (a disk lookup, run on the system lane); tests replace it.
     @ObservationIgnored var helper: @Sendable () -> MacScreenHelper? = { MacScreenHelper.bundled() }
@@ -90,27 +89,23 @@ public final class MacScreenShareHost {
         _ = timer.isScheduled // keeps the timer (whose deinit cancels it) alive through the wait
     }
 
-    /// Reads both permissions off the main thread and shows them: the helper's, from a fresh
-    /// helper process, or this app's from a fresh child in a build without the helper. When reads
+    /// Reads both of the helper's permissions off the main thread, from a fresh helper process,
+    /// and shows them; a build without the helper shows both off. When reads
     /// overlap, the last one started decides (an older answer that arrives later is dropped).
     /// Cancellation changes nothing; an unavailable or failed read clears permission state rather
     /// than keeping an old grant.
     public func refreshPermissions() async {
         reads &+= 1
         let read = reads
-        let helper = helper, readPermissions = readPermissions
+        let helper = helper, readGrants = readGrants
         // Shown on the Mac Screen page and in Settings: userVisible.
         let holder = await lookUpHelper(helper)
-        let granted: (screen: Bool, control: Bool)?
-        if let holder {
-            granted = await holder.permissions().map { ($0.screenRecording, $0.accessibility) }
-        } else {
-            granted = try? await readPermissions()
-        }
+        var granted: MacScreenHelper.Permissions?
+        if let holder { granted = await readGrants(holder) }
         guard read == reads, !Task.isCancelled else { return }
         grantHolderName = holder?.name
-        screenRecordingGranted = granted?.screen ?? false
-        accessibilityGranted = granted?.control ?? false
+        screenRecordingGranted = granted?.screenRecording ?? false
+        accessibilityGranted = granted?.accessibility ?? false
     }
 
     /// The helper, found once on the system lane; nil in a build without one.
@@ -143,9 +138,9 @@ public final class MacScreenShareHost {
         Task { [weak self] in await self?.requestAndWait(screenRecording: screenRecording) }
     }
 
-    /// Asks macOS for one grant (the helper's, or this app's in a build without the helper) and
-    /// returns only once macOS's own surface is done with the person, then reads both grants
-    /// fresh. One prompt at a time: while macOS's "would like to record this computer's screen"
+    /// Asks macOS for one of the helper's grants and returns only once macOS's own surface is
+    /// done with the person, then reads both grants fresh. A build without the helper asks
+    /// nothing: no grant of this app serves Mac Screen. One prompt at a time: while macOS's "would like to record this computer's screen"
     /// prompt is up, no cmux sheet and no System Settings window joins it.
     ///
     /// macOS shows its prompt at most once per grant, and the prompt takes focus from this app.
@@ -154,7 +149,7 @@ public final class MacScreenShareHost {
     /// back. When this app kept focus, macOS showed no prompt: System Settings' pane opens instead
     /// (behind this app; the caller's Check Again sheet is then the one prompt).
     public func requestAndWait(screenRecording: Bool) async {
-        let granted = await (askMacOS ?? askMacOSForReal)(screenRecording)
+        guard let granted = await (askMacOS ?? askMacOSForReal)(screenRecording) else { return await refreshPermissions() }
         if !granted {
             // The prompt may still be coming up: give it `promptSettle` to take focus.
             if isAppActive() { await (settle ?? settleForReal)(promptSettle) }
@@ -171,23 +166,18 @@ public final class MacScreenShareHost {
     @ObservationIgnored var promptSettle: Duration = .seconds(1)
     /// Whether this app has focus (macOS's prompt takes it); tests replace it.
     @ObservationIgnored var isAppActive: () -> Bool = { NSApplication.shared.isActive }
-    /// Tests replace macOS's request (true when granted afterwards), the Settings pane, the
+    /// Tests replace macOS's request (true when granted afterwards, nil with no helper), the Settings pane, the
     /// settle wait and the wait for this app's next activation.
-    @ObservationIgnored var askMacOS: ((_ screenRecording: Bool) async -> Bool)?
+    @ObservationIgnored var askMacOS: ((_ screenRecording: Bool) async -> Bool?)?
     @ObservationIgnored var openSettingsPane: ((_ screenRecording: Bool) -> Void)?
     @ObservationIgnored var settle: ((Duration) async -> Void)?
     @ObservationIgnored var nextActivation: (() async -> Void)?
 
-    private func askMacOSForReal(_ screenRecording: Bool) async -> Bool {
-        guard let found = await lookUpHelper(helper) else { return requestInApp(screenRecording: screenRecording) }
+    /// The helper's request; nil when this build carries no helper (then nothing is asked).
+    private func askMacOSForReal(_ screenRecording: Bool) async -> Bool? {
+        guard let found = await lookUpHelper(helper) else { return nil }
         let answer = await found.request(screenRecording: screenRecording)
         return (screenRecording ? answer?.screenRecording : answer?.accessibility) == true
-    }
-
-    /// A build without the helper: this app's own prompt, as before the helper; true when granted.
-    private func requestInApp(screenRecording: Bool) -> Bool {
-        if screenRecording { return CGRequestScreenCaptureAccess() }
-        return AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
     }
 
     public func openSettings(screenRecording: Bool) {

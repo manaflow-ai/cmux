@@ -47400,6 +47400,137 @@
           }
         }
       }
+    },
+    "macScreen.helper.missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يحتوي إصدار cmux هذا على مساعد مشاركة الشاشة، لذا لا يمكنه مشاركة شاشة جهاز Mac هذا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova verzija cmux-a nema pomoćnik za dijeljenje ekrana, pa ne može dijeliti ekran ovog Maca"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne version af cmux har ingen hjælper til skærmdeling, så den kan ikke dele skærmen på denne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser cmux-Build hat keinen Bildschirmfreigabe-Helfer und kann den Bildschirm dieses Macs daher nicht freigeben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This cmux build has no Screen Sharing helper, so it can't share this Mac's screen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta versión de cmux no tiene el asistente de Compartir pantalla, así que no puede compartir la pantalla de este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette version de cmux n'a pas d'assistant de partage d'écran ; elle ne peut donc pas partager l'écran de ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa build di cmux non ha l'helper di Condivisione schermo, quindi non può condividere lo schermo di questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この cmux ビルドには画面共有ヘルパーがないため、この Mac の画面を共有できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំណែ cmux នេះគ្មានកម្មវិធីជំនួយចែករំលែកអេក្រង់ទេ ដូច្នេះវាមិនអាចចែករំលែកអេក្រង់ Mac នេះបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 cmux 빌드에는 화면 공유 도우미가 없어 이 Mac의 화면을 공유할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne cmux-versjonen har ingen skjermdelingshjelper, så den kan ikke dele skjermen på denne Macen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta wersja cmux nie ma pomocnika udostępniania ekranu, więc nie może udostępnić ekranu tego Maca"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta versão do cmux não tem o auxiliar de Compartilhamento de Tela, então não pode compartilhar a tela deste Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этой сборке cmux нет помощника демонстрации экрана, поэтому она не может показать экран этого Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux รุ่นนี้ไม่มีตัวช่วยแชร์หน้าจอ จึงแชร์หน้าจอของ Mac เครื่องนี้ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu cmux sürümünde Ekran Paylaşma yardımcısı yok, bu nedenle bu Mac'in ekranını paylaşamaz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У цій збірці cmux немає помічника спільного доступу до екрана, тож вона не може показати екран цього Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bản cmux này không có trình trợ giúp Chia sẻ màn hình nên không thể chia sẻ màn hình của máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 cmux 版本没有屏幕共享助手，因此无法共享这台 Mac 的屏幕"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 cmux 版本沒有螢幕共享輔助程式，因此無法共享這台 Mac 的螢幕"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

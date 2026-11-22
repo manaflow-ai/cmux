@@ -43,8 +43,8 @@ helpers=()
 for helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
   [[ -d "$helper" ]] && helpers+=("$helper")
 done
-# Without a helper the app asks for Screen Recording itself (MacScreenShareHost.requestInApp): the
-# app becomes a second holder, and granting it needs the app to relaunch.
+# Without a helper a build cannot share its screen at all (the app never captures or asks macOS for a
+# grant itself, MacScreenShareHost), so a shipped build carries exactly one.
 [[ ${#helpers[@]} -eq 1 ]] || fail "$APP_PATH holds ${#helpers[@]} Screen Sharing helpers, not 1"
 helper="${helpers[0]}"
 

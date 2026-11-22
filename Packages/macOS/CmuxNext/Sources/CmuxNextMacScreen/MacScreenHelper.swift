@@ -38,8 +38,8 @@ public nonisolated final class MacScreenHelper: Sendable {
         self.clock = clock
     }
 
-    /// This build's helper, or nil when it carries none (a build without the helper serves and
-    /// checks permissions in the app, as before the helper). A disk lookup: call it off the main
+    /// This build's helper, or nil when it carries none (then this Mac is not shared at all: the
+    /// app never captures, injects or asks macOS for a grant itself). A disk lookup: call it off the main
     /// actor; ``MacScreenShareHost`` keeps the one it found.
     public static func bundled(_ bundle: Bundle = .main) -> MacScreenHelper? {
         if let path = ProcessInfo.processInfo.environment["CMUX_NEXT_SCREEN_HELPER_APP"], !path.isEmpty {
@@ -61,6 +61,15 @@ public nonisolated final class MacScreenHelper: Sendable {
         var helper: String
         var errorDescription: String? {
             String(format: L.t("macScreen.helper.notStaged", "%@ could not be copied out of cmux, or its copy failed its code signature check"), helper)
+        }
+    }
+
+    /// This build carries no Screen Sharing helper (a local build with no cached helper binary).
+    /// Nothing serves then: capture and input in the app would make macOS charge the grants to
+    /// cmux, and a grant would relaunch it. The viewer's card shows this text.
+    struct Missing: LocalizedError {
+        var errorDescription: String? {
+            L.t("macScreen.helper.missing", "This cmux build has no Screen Sharing helper, so it can't share this Mac's screen")
         }
     }
 

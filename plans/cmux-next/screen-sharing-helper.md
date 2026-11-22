@@ -1,4 +1,4 @@
-# Screen Sharing helper: capture and input out of the app's process
+| Xcode phase "Bundle Screen Sharing helper"; skips without a binary (that build cannot host Mac Screen) |# Screen Sharing helper: capture and input out of the app's process
 
 Leo, 2026-11-15: "are we using the "different process from the basline cmux nightly app" for the
 screen sharing so we dont have to restart the app when the permissions are asked? we need to do
@@ -81,8 +81,13 @@ cmux NIGHTLY.app/Contents/Library/cmux NIGHTLY Screen Sharing.app
     frame). `mac_screen.state` reports it as `connect_stage` / `timed_out_at`.
 - **No fallback across the line.** If a build carries the helper but staging fails, the share
   fails. Running capture in the app would silently move the grant back to cmux. A build without the
-  helper (a local build with no cached Rust binary) keeps the old in-app path, so a dev build still
-  works.
+  helper (a local build with no cached Rust binary) hosts no cmux.rd/1 session and asks macOS for
+  nothing: the session fails with "This cmux build has no Screen Sharing helper", and the
+  permission rows read off. The old in-app path (`cmux rd serve` from the bundled cmux, the
+  `rd permissions` probe, `CGRequestScreenCaptureAccess` and `AXIsProcessTrustedWithOptions`) is
+  gone (Leo, 2026-11-22: "we need to get a handle on that sort of situation with the whole screen
+  share/computer use and whatnot so i dont have to restart my app just to enable accessibility
+  grants").
 
 ## IPC
 
@@ -97,7 +102,8 @@ cmux NIGHTLY.app/Contents/Library/cmux NIGHTLY Screen Sharing.app
 `refreshPermissions()`, `requestScreenRecording()`, `requestAccessibility()`, `openSettings` and
 `computerName`. The Settings rows need no change.
 
-- With a helper, `refreshPermissions()` asks the helper and the app makes no TCC check of its own.
+- `refreshPermissions()` asks the helper and the app makes no TCC check of its own; with no
+  helper both rows read off.
 - The request calls show the helper's prompt, then refresh. If the grant is still off, they open
   the matching Privacy pane.
 - As before, the rows are read again when the app becomes active, which is when the person
