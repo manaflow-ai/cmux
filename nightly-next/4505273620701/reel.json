@@ -1,0 +1,198 @@
+{
+  "version": 1,
+  "build": "4505273620701",
+  "notes": "notes/4505273620701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 46891,
+      "title": "cmux app share: share the build you run as one cmux app try line",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/46891/hv-d24a23649135-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 50417,
+      "title": "ci: route whole resource directories, not every file",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50619,
+      "title": "measure: the letter cases' wait ends by the app's own clock, and a late text gets a wait of its own",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48782,
+      "title": "dev-loop-ceiling: daemon_restart loop measured by stage, with floors",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49924,
+      "title": "bench: bytes per minute per message type on the mobile link harness",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48749,
+      "title": "cmux-next iOS: key row arrows before the agent launchers, visible paste and joystick",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49340,
+      "title": "mobile host: acpmux relay split in two halves, prompts never wait behind bulk (chat, contract 5)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50099,
+      "title": "optchat-chief: Chief memory on a projected folder (projection-v1), export/import fallback",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50074,
+      "title": "Cloud machine image: the Chief host as a disabled service that updates itself",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49939,
+      "title": "acpmux ps: read process age through mktime, not chrono::Local, so the darwin cmux-tui build links",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43189,
+      "title": "iOS terminal: the Mac keeps the scrollback, the phone holds a window of it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50414,
+      "title": "chat.composer.get answers attached_at_ms for the chat that took files",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49958,
+      "title": "Lint and type reds: pre-push runs the type check on lane VMs with free memory; PR autofix applies Oxlint fixes; fast gates keep the fixup patch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48136,
+      "title": "WIP: diagnose launch-time typing interception (ask-5136ca7948)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50517,
+      "title": "cmux computer-use: --machine runs the call on the named machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50618,
+      "title": "What's New: Jump to latest names its gallery after and before",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49168,
+      "title": "Mac Screen: record the stream as you watch it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49754,
+      "title": "dev shim: with no dev CLI selected and no stable app, run NIGHTLY's CLI",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50368,
+      "title": "notifications.banners stamps each banner with posted_at_ms",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49969,
+      "title": "Looks: Hairline screenshots (three palettes, dark and light)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44182,
+      "title": "Action catalog: one Screen Sharing stop row, and a default shortcut for Stop Sharing This Mac (step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50378,
+      "title": "Agent chat and update notes never blank for a web update: a page in sight never reloads; a Chromium page reads its own build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49861,
+      "title": "perf cron: the bench host is not gone by its silence alone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49928,
+      "title": "cmux-tui: a flood does not snapshot or gzip its tail six times a second",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50188,
+      "title": "iOS chat: collect a session's artifacts once per change, not on every pass",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40771,
+      "title": "Cloud refusals in Swift: the relay and the start card read the body's retryable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48951,
+      "title": "iOS terminal: measure \"this claude code cli is often slow to scroll up and down from ios\" against the bare shell",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41367,
+      "title": "iOS App Review gate: setup finishes under a launch argument; the dead-control walk taps switches and sees Safari",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47373,
+      "title": "Agent chat: a reader scrolled far up holds a window of the chat, both ways",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43858,
+      "title": "fresh-home smoke: the watch looks for Home as each launch mark arrives, not on a fixed 0.25 s sleep (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49994,
+      "title": "link listing: keep the folders git's sorted paths share open (big Mac projection 2.3 s -> ~0.2 s listing)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
