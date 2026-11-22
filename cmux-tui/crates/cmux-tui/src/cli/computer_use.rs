@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 
 use super::{GlobalArgs, parse_globals};
 
-const HELP: &str = "Usage: cmux computer-use <status|tools|call|screenshot|approvals|machines>\n\ncmux Computer Use is built into cmux: agents get it in the cmux MCP server as the cu_* tools (scripted in cmux_exec as cu.click({...})). These commands reach the same worker.\n\n  cmux computer-use status [--machine M]        Platform, permissions, mode and denied apps\n  cmux computer-use tools                        The tools and their arguments\n  cmux computer-use mcp [--primary]              Serve the tools alone as an MCP stdio server (cmux-computer-use, for other MCP clients;\n                                                 --primary: the client's only Computer Use, never presented as a second choice)\n  cmux computer-use call TOOL [--args JSON] [--machine M]\n                                                 Run one tool (arguments as a JSON object)\n  cmux computer-use screenshot --out FILE [--window ID] [--machine M]\n                                                 Save a PNG of a window, or of the main display\n  cmux computer-use approvals list               Apps saved as Always allow or Never\n  cmux computer-use approvals forget APP         Forget APP's saved answer (needs the cmux app; use Settings > Computer Use)\n  cmux computer-use approvals revoke-sessions    End every agent session's approvals now\n  cmux computer-use machines                     Your other machines and whether Computer Use is on there\n\nSettings (mode, denied apps, other machines) are in Settings > Computer Use and `cmux settings get|set computerUse.<key>`.\n";
+const HELP: &str = "Usage: cmux computer-use <status|tools|call|screenshot|approvals|machines|alerts>\n\ncmux Computer Use is built into cmux: agents get it in the cmux MCP server as the cu_* tools (scripted in cmux_exec as cu.click({...})). These commands reach the same worker.\n\n  cmux computer-use status [--machine M]        Platform, permissions, mode and denied apps\n  cmux computer-use tools                        The tools and their arguments\n  cmux computer-use mcp [--primary]              Serve the tools alone as an MCP stdio server (cmux-computer-use, for other MCP clients;\n                                                 --primary: the client's only Computer Use, never presented as a second choice)\n  cmux computer-use call TOOL [--args JSON] [--machine M]\n                                                 Run one tool (arguments as a JSON object)\n  cmux computer-use screenshot --out FILE [--window ID] [--machine M]\n                                                 Save a PNG of a window, or of the main display\n  cmux computer-use approvals list               Apps saved as Always allow or Never\n  cmux computer-use approvals forget APP         Forget APP's saved answer (needs the cmux app; use Settings > Computer Use)\n  cmux computer-use approvals revoke-sessions    End every agent session's approvals now\n  cmux computer-use machines                     Your other machines and whether Computer Use is on there\n  cmux computer-use alerts [--json] [--machine M]\n                                                 System alerts on screen: owner, text, buttons, class (needs computerUse.alerts)\n  cmux computer-use alerts dismiss ID --button TITLE [--machine M]\n                                                 Put one alert off with one of its put_off buttons (never one that allows or opens)\n\nSettings (mode, denied apps, other machines) are in Settings > Computer Use and `cmux settings get|set computerUse.<key>`.\n";
 
 /// The daemon command for saved approvals (served with the worker's host).
 const APPROVALS_CMD: &str = "computer-use-approvals";
@@ -76,6 +76,35 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
             })
         }
         "machines" if rest.is_empty() => Ok(Request::Machines),
+        // System alerts (`computerUse.alerts`): list them, or put one off.
+        "alerts" => {
+            // `--json` is the global flag; after the verb it means the same.
+            let rest: Vec<&str> = rest.iter().copied().filter(|w| *w != "--json").collect();
+            match rest.split_first() {
+                Some((&"dismiss", rest)) => {
+                    let (id, rest) = rest
+                        .split_first()
+                        .filter(|(id, _)| !id.starts_with('-'))
+                        .ok_or("usage: cmux computer-use alerts dismiss ID --button TITLE")?;
+                    let f = flags(rest, &["--button", "--machine"])?;
+                    let button =
+                        get(&f, "--button").ok_or("alerts dismiss needs --button TITLE")?;
+                    Ok(Request::Call {
+                        tool: "dismiss_alert".into(),
+                        args: json!({"alert_id": id, "button": button}),
+                        machine: get(&f, "--machine"),
+                    })
+                }
+                _ => {
+                    let f = flags(&rest, &["--machine"])?;
+                    Ok(Request::Call {
+                        tool: "list_alerts".into(),
+                        args: json!({}),
+                        machine: get(&f, "--machine"),
+                    })
+                }
+            }
+        }
         "call" => {
             let (tool, rest) = rest.split_first().ok_or("call needs a tool name")?;
             if tools::find(tool).is_none() {
@@ -208,6 +237,12 @@ fn print(global: &GlobalArgs, outcome: Outcome) -> i32 {
 }
 
 fn run(global: &GlobalArgs, args: &[String]) -> i32 {
+    // `alerts --json`: the global flag, also accepted after the verb.
+    let mut global = global.clone();
+    if args.first().is_some_and(|verb| verb == "alerts") && args.iter().any(|w| w == "--json") {
+        global.output = super::OutputMode::Json;
+    }
+    let global = &global;
     let request = match parse(args) {
         Ok(request) => request,
         Err(message) => {

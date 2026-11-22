@@ -902,7 +902,10 @@ impl Desktop for FakeDesktop {
     fn press_alert_button(&self, alert: &crate::alerts::RawAlert, title: &str) -> DResult<()> {
         let mut alerts = lock(&self.alerts);
         let Some(at) = alerts.iter().position(|a| a == alert) else {
-            return Err(DesktopError::StaleElement(format!("alert {}", alert.window_id)));
+            return Err(DesktopError::Failed(format!(
+                "alert {} changed since it was read; call list_alerts again",
+                alert.window_id
+            )));
         };
         if !alerts[at].buttons.iter().any(|b| b == title) {
             return Err(DesktopError::TargetNotFound(format!("button {title:?}")));
