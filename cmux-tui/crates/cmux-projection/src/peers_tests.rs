@@ -459,7 +459,7 @@ fn a_seed_yields_while_a_build_lock_is_held() {
     let held = cmux_file_lock::FileLock::take(file, cmux_file_lock::Kind::Exclusive).unwrap();
     assert!(lock_held(&lock));
     let Some(git_dir) = mirror(dir.path()) else { return };
-    let base = start_seed(git_dir, SeedLimits { yield_locks: vec![lock.clone()], ..test_limits() });
+    let base = start_seed(git_dir, SeedLimits { yield_locks: vec![lock], ..test_limits() });
     let http = Http::new().unwrap();
     let url = format!("{base}/objects/{HELLO}");
     assert_eq!(http.get(&url, None, Duration::from_secs(2)), Answer::Busy);
