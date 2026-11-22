@@ -469,6 +469,19 @@ class OneBaseCheck(unittest.TestCase):
                                    str(tmp / "out" / history.HEAD_RESULTS)], capture_output=True, text=True)
             self.assertNotEqual(done.returncode, 0)  # read as one shard's unreadable results were: every red replays
 
+    def test_one_shard_downloaded_without_its_own_folder_still_joins(self):
+        # download-artifact puts a pattern's single match straight into its path (run 45002842539, shard 1 alone).
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            self.shard(tmp, 1, {TEST: False}, {"summary": "FAIL x /r/test_agent.log\n", "test_agent.log": "one"})
+            flat = tmp / "in"
+            (tmp / history.HEAD_ARTIFACT.format(1)).rename(flat)
+            self.assertIsNone(history.join_heads(flat, [1], tmp / "out"))
+            self.assertEqual(json.loads((tmp / "out" / history.HEAD_RESULTS).read_text()), {TEST: False})
+            self.assertEqual(json.loads((tmp / "out/shards.json").read_text()), {FILE: 1})
+            self.assertEqual((tmp / "out/raw-logs/test_agent.log").read_text(), "one")
+            self.assertIn("shard1 has no", history.join_heads(flat, [1, 2], tmp / "out2"))  # two expected: each needs its folder
+
     def test_a_pull_request_joins_only_the_shards_it_ran(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
