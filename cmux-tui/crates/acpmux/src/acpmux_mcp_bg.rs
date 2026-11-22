@@ -452,8 +452,8 @@ fn without_trailing_truncation(command: &str) -> Option<(String, String)> {
         return None;
     }
     let pipe = last_plain_pipe(command)?;
-    let stage = truncating_stage(&command[pipe + 1..])?;
-    let ran = command[..pipe].trim_end();
+    let stage = truncating_stage(command.get(pipe + 1..)?)?;
+    let ran = command.get(..pipe)?.trim_end();
     if ran.is_empty() {
         return None;
     }
@@ -468,20 +468,23 @@ fn last_plain_pipe(command: &str) -> Option<usize> {
     let mut found = None;
     let mut depth = 0i32;
     let mut i = 0;
-    while i < b.len() {
-        match b[i] {
+    while let Some(&byte) = b.get(i) {
+        match byte {
             b'\\' => i += 1,
             b'`' => return None,
             b'\'' => {
                 i += 1;
-                while i < b.len() && b[i] != b'\'' {
+                while b.get(i).is_some_and(|&c| c != b'\'') {
                     i += 1;
                 }
             }
             b'"' => {
                 i += 1;
-                while i < b.len() && b[i] != b'"' {
-                    i += if b[i] == b'\\' { 2 } else { 1 };
+                while let Some(&c) = b.get(i) {
+                    if c == b'"' {
+                        break;
+                    }
+                    i += if c == b'\\' { 2 } else { 1 };
                 }
             }
             b'$' if b.get(i + 1) == Some(&b'(') => {
