@@ -67,6 +67,7 @@ export const REBAKE_INPUTS = {
     "web/services/vms/images/sizes.ts",
     "web/services/vms/images/workUser.ts",
     "web/services/vms/drivers/cmuxTuiDaemon.ts",
+    "web/services/vms/drivers/linuxRelease.ts",
     "web/services/vms/drivers/types.ts",
     "web/services/vms/clientGrant.ts",
     "web/services/vms/guest*.ts",
