@@ -200,6 +200,7 @@ pub use model_options::{
 };
 pub mod ledger;
 mod list_order;
+mod model_alias;
 mod model_hint;
 mod model_probe;
 mod models_view;

@@ -551,6 +551,34 @@ PY
   rm -rf "$jobs_dir"
 }
 
+# Succeeds when every cmux-tui artifacts run of <sha> ended success because it was coalesced:
+# its coalesce job (base-coalesce.yml, "coalesce / coalesce") succeeded and its tree preflight was
+# skipped, so it built and published nothing by design (cmux-tui-artifacts.yml builds one
+# feat-cmux-next tree per window). Fails on any other run, or when a runs or jobs list is unreadable.
+artifacts_runs_coalesced() {
+  local sha="$1" api runs ids id jobs
+  api="${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}"
+  runs="$(github_get "$api/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha=$sha&per_page=20")" || return 1
+  ids="$(python3 -c '
+import json, sys
+runs = json.loads(sys.stdin.read())["workflow_runs"]
+if not runs or any(r.get("status") != "completed" or r.get("conclusion") != "success" for r in runs):
+    sys.exit(1)
+for r in runs:
+    print(int(r["id"]))
+' <<<"$runs" 2>/dev/null)" || return 1
+  while read -r id; do
+    jobs="$(github_get "$api/actions/runs/$id/jobs?filter=latest&per_page=100")" || return 1
+    python3 -c '
+import json, sys
+jobs = json.loads(sys.stdin.read())["jobs"]
+coalesce = [j.get("conclusion") for j in jobs if j.get("name") == "coalesce" or str(j.get("name")).startswith("coalesce /")]
+preflight = [j.get("conclusion") for j in jobs if j.get("name") == "cmux-tui tree preflight"]
+sys.exit(0 if "success" in coalesce and preflight and all(c == "skipped" for c in preflight) else 1)
+' <<<"$jobs" 2>/dev/null || return 1
+  done <<<"$ids"
+}
+
 # Prints the newer head of the pushed branch (GITHUB_REF) when <sha> was
 # superseded: every artifacts run for it ended cancelled or skipped (success
 # without publishing) and the branch head has moved. Prints nothing otherwise,
@@ -1387,6 +1415,15 @@ probe_checkout_tree() {
       if [[ -n "$superseded" ]]; then
         state=superseded
         reason="$(git -C "$repo_root" rev-parse HEAD) was superseded by $superseded on ${GITHUB_REF#refs/heads/}: its tree $key was not published, and the newer head is tested"
+      elif [[ "$source" == commit:* && -n "$publisher" ]] && artifacts_runs_coalesced "$publisher"; then
+        # A coalesced push (cmux-tui-artifacts.yml's coalesce job: one feat-cmux-next build per
+        # window, #48943) builds nothing by design, so its success is no failed publish. Until
+        # 2026-11-22 the tip read it as one, and every coalesced tip's same-tree cmux-tui was red
+        # (run 44988509777 at 80e3d5099479: "ended without publishing tree 3c101a06 (success)").
+        # The wait marker stays: the tree's next publish (the next window's push with this key, a
+        # re-run of this run, or cmux-tui-tree-request.yml) starts the tree jobs.
+        state=deferred
+        reason="the cmux-tui artifacts run for ${source#*:} was coalesced (one feat-cmux-next build per window, base-coalesce.yml), so it builds no tree; tree $key's next publish starts the tree jobs"
       else
         reason="the cmux-tui artifacts runs for ${source#*:} ended without publishing tree $key (${state#ended }). Re-run that run, or for an unmerged commit: $(pin_push_hint)"
         state=failed
