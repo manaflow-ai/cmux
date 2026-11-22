@@ -122,15 +122,12 @@ final class WebBundleGracefulReload {
 
     private func ask(_ views: [WKWebView]) async -> [String?] {
         if let askOverride { return await askOverride(views) }
-        return await withTaskGroup(of: (Int, String?).self) { group in
-            for (index, view) in views.enumerated() {
-                // task-owner: one page's answer, bounded by answerWithin
-                group.addTask { @MainActor in (index, await Self.askPage(view)) }
-            }
-            var answers = [String?](repeating: nil, count: views.count)
-            for await (index, answer) in group { answers[index] = answer }
-            return answers
-        }
+        // All pages are asked at once; each answer is bounded by answerWithin.
+        // task-owner: one page's answer each, awaited below
+        let asks = views.map { view in Task { await Self.askPage(view) } }
+        var answers: [String?] = []
+        for ask in asks { answers.append(await ask.value) }
+        return answers
     }
 
     /// The page's answer to `window.cmuxWebSwap.hold()` (nil: it may reload now), or why not.
