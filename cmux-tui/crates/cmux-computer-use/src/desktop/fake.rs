@@ -28,14 +28,47 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
-    Click { window: String, point: Option<Point>, element: Option<String>, count: u8 },
-    Type { window: String, element: Option<String>, text: String },
-    Keys { window: String, combo: KeyCombo },
-    Scroll { window: String, dx: f64, dy: f64 },
-    Drag { window: String, from: Point, to: Point },
-    SetValue { window: String, element: String, value: String },
-    Action { window: String, element: String, action: String },
+    Click {
+        window: String,
+        point: Option<Point>,
+        element: Option<String>,
+        count: u8,
+    },
+    Type {
+        window: String,
+        element: Option<String>,
+        text: String,
+    },
+    Keys {
+        window: String,
+        combo: KeyCombo,
+    },
+    Scroll {
+        window: String,
+        dx: f64,
+        dy: f64,
+    },
+    Drag {
+        window: String,
+        from: Point,
+        to: Point,
+    },
+    SetValue {
+        window: String,
+        element: String,
+        value: String,
+    },
+    Action {
+        window: String,
+        element: String,
+        action: String,
+    },
     Launch(String),
+    /// A system alert's button pressed ([`Desktop::press_alert_button`]).
+    AlertPress {
+        alert: String,
+        button: String,
+    },
 }
 
 pub struct FakeDesktop {
@@ -139,6 +172,9 @@ pub struct FakeDesktop {
     pub reframed: Mutex<Vec<(String, Rect)>>,
     /// The screen is locked ([`Desktop::screen_locked`]).
     pub locked: Mutex<bool>,
+    /// The system alerts on screen ([`Desktop::system_alerts`]); a pressed
+    /// button takes its alert away.
+    pub alerts: Mutex<Vec<crate::alerts::RawAlert>>,
 }
 
 /// A fake watch: the signals the desktop's `signals` holds when read.
@@ -238,6 +274,7 @@ impl FakeDesktop {
             holds_after_step: Mutex::new(None),
             type_fails_at: Mutex::new(None),
             type_calls: Mutex::new(0),
+            alerts: Mutex::new(Vec::new()),
         }
     }
 
@@ -856,6 +893,24 @@ impl Desktop for FakeDesktop {
 
     fn set_menu_policy(&self, policy: MenuPolicy) {
         *lock(&self.menu_policy) = Some(policy);
+    }
+
+    fn system_alerts(&self) -> DResult<Vec<crate::alerts::RawAlert>> {
+        Ok(lock(&self.alerts).clone())
+    }
+
+    fn press_alert_button(&self, alert: &crate::alerts::RawAlert, title: &str) -> DResult<()> {
+        let mut alerts = lock(&self.alerts);
+        let Some(at) = alerts.iter().position(|a| a == alert) else {
+            return Err(DesktopError::StaleElement(format!("alert {}", alert.window_id)));
+        };
+        if !alerts[at].buttons.iter().any(|b| b == title) {
+            return Err(DesktopError::TargetNotFound(format!("button {title:?}")));
+        }
+        alerts.remove(at);
+        drop(alerts);
+        self.push(Event::AlertPress { alert: alert.window_id.clone(), button: title.into() });
+        Ok(())
     }
 
     fn restore_focus(&self, prior: &FocusSnapshot) -> DResult<bool> {
