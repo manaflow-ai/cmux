@@ -120,6 +120,18 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var agentName: String?
     /// The last message of the workspace's agent chat: an expanded row's second line (cx-13w3.1).
     public var lastMessage: String?
+    /// When the workspace's agent chat last changed what it does (acpmux `lane.since`: a turn started, ended,
+    /// or began to wait). `lastActivity` counts only terminal agents' reports and notifications, so a chat
+    /// workspace has none; this gives its row an age (``rowAge``). Nil for a workspace with no chat on this Mac.
+    public var chatActivity: Date?
+    /// The time a row's age reads (`sidebar.showTimestamps`, the Last Activity element): the newer of
+    /// ``lastActivity`` and ``chatActivity``. Sorting, grouping and hover cards keep reading ``lastActivity``.
+    public var rowAge: Date? {
+        switch (lastActivity, chatActivity) {
+        case let (a?, b?): max(a, b)
+        case let (a, b): a ?? b
+        }
+    }
     /// The text of the newest unread notification in the workspace's tabs
     /// (`WorkspaceRowElement.notification`); nil once they are read.
     public var notificationText: String?
@@ -148,7 +160,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// compact row has no second line of its own, Leo 2026-10-30). Nil for
     /// every other row.
     public var stage: String?
-    /// Its front tab is a New Tab page whose Send starts a Cloud chat (`AgentCloudStartTitles`): the row draws the
+    /// Its front tab is a New Tab page whose Send starts a Cloud chat (`AgentCloudStartTitles`), or a Cloud machine's desktop: the row draws the
     /// cloud mark from the Send, as the chat's own row on its machine does once it opens (``WorkspaceRowContent/runsInCloud``).
     public var startsInCloud = false
     /// Archived in the sidebar document (`extra.archived`, or under an archived group): the row
@@ -167,6 +179,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var audio: SidebarWorkspaceAudio?
     /// The workspace's checklist in list order (`workspace-checklist-v1`); empty without items.
     public var checklist: [SidebarChecklistItem] = []
+    /// How far its agent chat is through its task list while steps are left (`SidebarLaneStatus`,
+    /// `sidebar.taskProgress`): the row's "3/7" and the hover card's lines. Nil otherwise.
+    public var taskProgress: SidebarTaskProgress?
     /// The hover card's extra facts (elapsed time, model, task, command, needs-input reason).
     public var detail = SidebarWorkspaceDetail()
     /// The person's notes for the workspace (Edit Workspace Description…): the hover card shows it
