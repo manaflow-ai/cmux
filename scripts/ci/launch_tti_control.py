@@ -9,8 +9,7 @@ of way."
 scripts/measure/launch-tti.sh control=MS runs launch_tti_check.py's plan twice on the same build: once as is (BASE)
 and once with --launch-delay-ms MS (DELAYED: the app waits MS before it makes any window, LaunchTestDelay). Every
 startup number the bench reads must then come out about MS later. A bench that cannot see a delay it put in itself
-cannot see a regression either (Firefox's lazy restore made restores 7-16x faster with no perf alert,
-https://bugzilla.mozilla.org/show_bug.cgi?id=1345090), so the bench fails.
+cannot see a regression either, so the bench fails.
 
 The metrics, each the median over the rounds that read it (ms from process start):
   first_frame.KIND             first_frame_ms of KIND's rounds (cold_install, cold_after_update, warm, warm60)
