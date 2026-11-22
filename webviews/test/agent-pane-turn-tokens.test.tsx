@@ -94,6 +94,7 @@ function fakeDaemon(
   let socket: any;
   let liveOnAttach: Recorded[] = [];
   let gapFails = false;
+  let pageLimit = 400;
   let holdIndex = false;
   let indexReply: (() => void) | undefined;
   const session = {
@@ -115,6 +116,17 @@ function fakeDaemon(
       case "_acpmux/watch":
         return { sessions: [session] };
       case "_acpmux/attach": {
+        // `afterSeq` alone pages forward, oldest first, `pageLimit` records at most (acpmux
+        // requests.rs): a reconnect's read of what it missed.
+        if (typeof params?.afterSeq === "number") {
+          const after = history.filter((event) => event.seq > params.afterSeq && passes(params?.kinds, event));
+          return {
+            session,
+            lastSeq: lastSeq(),
+            events: after.slice(0, pageLimit),
+            hasMore: after.length > pageLimit,
+          };
+        }
         const events = history.filter((event) => event.seq >= attachFrom && passes(params?.kinds, event));
         return {
           session,
@@ -188,6 +200,8 @@ function fakeDaemon(
   const onAttach = (events: Recorded[]) => (liveOnAttach = events);
   /// Whether the reconnect's gap read fails.
   const failGap = (fails: boolean) => (gapFails = fails);
+  /// How many records a forward attach page holds (acpmux's `limit` and byte bound).
+  const forwardLimit = (limit: number) => (pageLimit = limit);
   return {
     open,
     push,
@@ -196,6 +210,7 @@ function fakeDaemon(
     pageFrom,
     onAttach,
     failGap,
+    forwardLimit,
     holdIndex: () => {
       holdIndex = true;
     },
@@ -526,6 +541,8 @@ test("a reconnect whose gap read fails hides the count it can no longer add up",
     expect(snapshot().turnTokens).toBe(85_000);
     history.push(...record([call(46_000), call(1_000), call(2_000), call(3_000)], 5));
     daemon.pageFrom(7);
+    // The reconnect's forward page holds two of the four calls missed; reading the rest fails.
+    daemon.forwardLimit(2);
     daemon.failGap(true);
     daemon.drop();
     await until(() => snapshot().turnTokens === undefined, "the gap read to fail");

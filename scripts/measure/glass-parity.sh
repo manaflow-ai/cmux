@@ -8,6 +8,8 @@
 #   cmux-ci run --class exclusive --measurement --label measure --urgent --pool perf-lead --target-worker aws-m4pro-7 \
 #     --pin-strict --script scripts/measure/glass-parity.sh --ref <a feat-cmux-next sha with this script> \
 #     --artifact artifacts/glass-parity/glass-parity.tar.gz [--arg=--hz=120] [--arg=--matrix=quick] [--arg=--only=...]
+# 2x cells need --arg=--hz=60 on aws-m4pro-7: its HiDPI virtual display comes up at 2x only at 60 Hz (at 120 Hz it
+# stays 1x and the 2x cells are skipped; scripts/measure/vdisplay-hidpi-probe.sh, runs 11 and 12).
 # The artifact holds summary.md, results.json, frames.json, app.log, every crop of a failing cell and the crops and
 # window shots of the reference scenarios (all of them would be gigabytes). The step exits 0 when the matrix ran,
 # whatever its cells say (the artifact comes back only from a passing step); GATE= in the log is the verdict.

@@ -227,6 +227,15 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
   const source = { kind: "branch", repoRoot: repo, baseRef: state.baseRef ?? "main" };
   const prefs: Record<string, unknown> = {};
   let comments: DiffCommentRecord[] = [...(state.comments ?? [])];
+  const sessionOpened = () => ({
+    type: "sessionOpened",
+    value: {
+      sessionId: "gallery",
+      patch: { id: patchPath, mediaType: "text/x-diff", byteLength: patch.length, revision: 1 },
+      source,
+      generatedPaths: [],
+    },
+  });
   const host = installMockHost(
     {
       "cmux.diff.config": () => ({
@@ -256,15 +265,15 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
         type: "handshake",
         value: { protocolVersion: 1, capabilities: ["sessions", "branches"] },
       }),
-      "cmux.diff.sessionOpen": () => ({
-        type: "sessionOpened",
-        value: {
-          sessionId: "gallery",
-          patch: { id: patchPath, mediaType: "text/x-diff", byteLength: patch.length, revision: 1 },
-          source,
-          generatedPaths: [],
-        },
-      }),
+      "cmux.diff.sessionOpen": async () => {
+        if (state.mode === "loading") return await new Promise<never>(() => {});
+        if (state.mode === "error")
+          throw new HostError(
+            state.openError?.code ?? "cmux.diff.open_failed",
+            state.openError?.message ?? "git diff failed: not a git repository.",
+          );
+        return sessionOpened();
+      },
       "cmux.diff.git.fingerprint": () => {
         if (state.fingerprintError) throw new HostError(state.fingerprintError.code, state.fingerprintError.message);
         return { fingerprint: hash(patch) };

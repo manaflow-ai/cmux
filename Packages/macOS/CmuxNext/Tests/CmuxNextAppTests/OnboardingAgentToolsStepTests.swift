@@ -200,6 +200,40 @@ import Testing
         #expect(shown().isEmpty)
     }
 
+    /// First-run onboarding is off by default (Lawrence 2026-11-09), but the cmux Tools question is not a
+    /// first-run window: until it is answered, agents cmux starts get no cmux server, so a default launch
+    /// (no flag, no env) still asks it once. A teammate's NIGHTLY never asked and its terminals' Codex and
+    /// Claude listed no `cmux` (2026-11-19). Capture builds and `--skip-onboarding` ask nothing;
+    /// `--onboarding` runs the first-run steps instead.
+    @Test func aDefaultLaunchAsksTheCmuxToolsQuestionWithOnboardingOff() async throws {
+        typealias Steps = OnboardingWindowPresenter.LaunchSteps
+        func launch(_ environment: [String: String], _ arguments: [String], showcase: Bool = false)
+            async throws -> (shown: [OnboardingModel.Step], firstRun: Bool) {
+            var shown: [OnboardingModel.Step] = []
+            let presenter = OnboardingWindowPresenter(makeModel: { step in OnboardingModel(services: MockOnboardingServices(), step: step) },
+                                                      activeLook: nil, present: { shown.append($0.model.step) })
+            let defaults = try #require(UserDefaults(testSuiteName: "cmux-launch-steps-\(UUID().uuidString)"))
+            let firstRun = await presenter.showLaunchSteps(Steps(environment: environment, arguments: arguments, showcase: showcase),
+                                                           agentTools: Source(), defaults: defaults)
+            return (shown, firstRun)
+        }
+        let plain = try await launch([:], ["/Applications/cmux NIGHTLY.app/Contents/MacOS/cmux"])
+        #expect(plain.shown == [.agentTools], "a default launch asks the cmux Tools question")
+        #expect(!plain.firstRun, "and runs no first-run window")
+        #expect(Steps(environment: [:], arguments: ["cmux"]).skipsFirstRun, "first-run onboarding stays off")
+        for (environment, arguments, showcase) in [(["CMUX_NEXT_SKIP_ONBOARDING": "1"], ["cmux"], false),
+                                                   ([:], ["cmux", "--skip-onboarding"], false),
+                                                   ([:], ["cmux"], true)] {
+            let skipped = try await launch(environment, arguments, showcase: showcase)
+            #expect(skipped.shown.isEmpty && !skipped.firstRun, "\(environment) \(arguments) showcase \(showcase)")
+        }
+        for (environment, arguments) in [(["CMUX_NEXT_ONBOARDING": "1"], ["cmux"]), ([:], ["cmux", "--onboarding"])] {
+            let onboarding = try await launch(environment, arguments)
+            #expect(onboarding.firstRun && onboarding.shown.isEmpty, "\(environment) \(arguments)")
+            #expect(!Steps(environment: environment, arguments: arguments).skipsFirstRun)
+        }
+    }
+
     // MARK: The Set Up cmux card
 
     /// The card's row asks while nobody answered and an agent is found; Turn On answers yes and reads, Not Now answers no;
@@ -211,7 +245,7 @@ import Testing
         let setup = FirstRunSetup(defaults: defaults)
         func environment(_ tools: Source?) -> SetupCardEnvironment {
             SetupCardEnvironment(account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in },
-                                 openAgents: {}, screenReader: { false }, historySources: { false }, importHistory: { false },
+                                 openAgents: {}, screenReader: { false },
                                  agentTools: tools)
         }
         let click = { (at: TimeInterval) in PageCallContext(page: PageDescriptor.setupCard.id, userGesture: true, gestureEvent: at) }

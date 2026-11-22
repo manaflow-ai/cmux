@@ -152,11 +152,12 @@ def open_chats(count):
     return opened
 
 
-def field_text():
-    """The New Tab field's text (`.nt-field`), as the page shows it."""
+def field_length():
+    """The New Tab field's whole text length: the query's `length` past 120 characters, else its text's."""
     field = page("query", selector=".nt-field [contenteditable='true']")
     elements = field.get("elements") or [] if isinstance(field, dict) else []
-    return "".join(str(e.get("text", "")) for e in elements if isinstance(e, dict))
+    return sum(int(e["length"]) if isinstance(e.get("length"), (int, float)) else len(str(e.get("text", "")))
+               for e in elements if isinstance(e, dict))
 
 
 def type_text(text, gap):
@@ -267,11 +268,11 @@ try:
         # `composer_focused` reads the chat composer (`.acpmux-composer`), which a New Tab page does not have: the
         # check is whether a typed probe key lands in the New Tab field (`.nt-field`), then is deleted.
         def caret():
-            before = field_text()
+            before = field_length()
             key("z")
-            landed = wait(lambda: field_text() != before, 2, step=0.1)
+            landed = wait(lambda: field_length() != before, 2, step=0.1)
             key("delete")
-            wait(lambda: field_text() == before, 2, step=0.1)
+            wait(lambda: field_length() == before, 2, step=0.1)
             if landed:
                 return True
             page("click", selector=".nt-field [contenteditable='true']")
@@ -286,7 +287,7 @@ try:
         if not opts.no_marks:
             page("reset_typing")
         rpc("debug.hangs", {"clear": True})
-        before_keys = field_text()
+        before_keys = field_length()
         profiler = None
         if opts.cdp_port and opts.trace:
             node = os.environ.get("NODE") or shutil.which("node") or "node"
@@ -319,10 +320,9 @@ try:
             print(text, flush=True)
         stats = {} if opts.no_marks else page("typing_stats")
         # The measured keys typed into the field (else to_paint is not a key's text paint).
-        after_keys = field_text()
-        # The page's query reads 120 characters of an element's text (PageWebView+DebugProbe.swift): past
-        # that a draft's growth cannot be read there, and the page's own key count stands for it.
-        stats["typed_chars"] = len(after_keys) - len(before_keys) if len(before_keys) < 120 else None
+        # The page's query cuts an element's text at 120 characters and answers the whole `length` past that
+        # (PageWebView+DebugProbe.swift), so a long draft's growth is read too: a lost key reads short.
+        stats["typed_chars"] = field_length() - before_keys
         hangs = rpc("debug.hangs", {"limit": 20}) or {}
         stats["hangs"] = {k: hangs.get(k) for k in ("count", "max_ms", "total_ms", "max_gap_ms")}
         stats["long_hangs"] = [r for r in (hangs.get("records") or []) if isinstance(r, dict) and (r.get("duration_ms") or 0) >= 250]
@@ -337,7 +337,7 @@ try:
             f"draft {length:4d}: keys {stats.get('keys')} to_paint p50 {paint.get('p50_ms')} p95 {paint.get('p95_ms')} "
             f"max {paint.get('max_ms')} | to_listener p50 {listener.get('p50_ms')} p95 {listener.get('p95_ms')} | "
             f"to_work p50 {work.get('p50_ms')} p95 {work.get('p95_ms')} | to_submitted p50 {sub.get('p50_ms')} p95 {sub.get('p95_ms')} | "
-            f"typed {stats['typed_chars'] if stats['typed_chars'] is not None else 'unread (draft past 120 characters)'} of {opts.keys} | hangs {stats['hangs']} long {len(stats['long_hangs'])} | native posts {stats['native_posts']}",
+            f"typed {stats['typed_chars']} of {opts.keys} | hangs {stats['hangs']} long {len(stats['long_hangs'])} | native posts {stats['native_posts']}",
             flush=True,
         )
         for _ in range(typed["n"] + 2):

@@ -14,7 +14,7 @@ p99 17 s, the app restarted acpmux on its 2 s time-outs, window-state saves got 
 
 This harness puts that load on a fleet capture mini against a tagged build of one commit, and
 measures it. It is **held out**: B fixes are measured on it, never tuned against it. It is a fleet
-bench that each agent runs itself. It is **not** a CI job or a gate (Lawrence 2026-10-23). Never
+bench that each agent runs itself. It is **not** a CI job or a gate (Lawrence 2026-10-23, since lifted). Never
 run it on a person's Mac: it fills the memory up to swap and starts 80 agents.
 
 ## Run it
@@ -130,7 +130,7 @@ app, daemon and acpmux over time (`growth_per_hour`, a least-squares slope), the
 count. The 5-minute arm stays the latency A/B. **Blocked:** a capture-host lease lasts at most 10 minutes
 (`MAX_SECONDS=600`), so the long arm needs a fleet step that holds an exclusive mini for an hour, and
 `cmux-ci run` takes only scripts on the controller's allowlist. Until hq allowlists an Austin's-day step,
-the long arm does not run. It is never a CI job (Lawrence 2026-10-23); it runs nightly by the owner's
+the long arm does not run. It is not a CI job (Lawrence 2026-10-23, since lifted); it runs nightly by the owner's
 schedule or a fleet timer.
 
 ## What it measures
