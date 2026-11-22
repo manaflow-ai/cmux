@@ -75,6 +75,25 @@ struct TunableReadCadenceTests {
         #expect(row["launch_value"] == nil)
     }
 
+    /// A bench build reads the key at launch with the store still inactive, then activates it. The
+    /// launch ran the default, so a value stored afterwards does not apply to this launch — and the
+    /// row says so instead of having no record of the read at all.
+    @Test func aLaunchReadBeforeActivateIsStillRecorded() {
+        let services = Self.services(), store = TunableStore()
+        let catalog = [Self.launchRead.descriptor]
+        #expect(store.settledOverride("test.launchRead") == nil)   // the launch step, store inactive
+        #expect(store.wasReadAtLaunch("test.launchRead") == true)
+
+        _ = Self.call(["action": "activate"], store, services, catalog)
+        let launchArm = Self.call(["action": "get", "key": "test.launchRead"], store, services, catalog)
+        #expect(launchArm["applies"]?.boolValue == true)
+        #expect(launchArm["launch_value"]?.boolValue == false)
+
+        let changed = Self.call(["action": "set", "key": "test.launchRead", "value": true], store, services, catalog)
+        #expect(changed["applies"]?.boolValue == false)
+        #expect(changed["launch_value"]?.boolValue == false)
+    }
+
     /// The arm the harness launched with: a launch-time key whose stored value is the one this
     /// process read at launch applies, and the row carries that read as `launch_value`. Reporting
     /// the cadence alone would call this correct arm unapplied.
