@@ -1,4 +1,6 @@
+import CmuxNextBookmarks
 import CmuxNextBridge
+import CmuxNextFavicons
 import CmuxNextDaemon
 import CmuxNextSidebar
 import CmuxNextTabs
@@ -12,10 +14,14 @@ extension AppServices {
     func browserFavicon(key: String, recordFavicon: String?, known: (tab: TabModel, incognito: Bool)? = nil) -> TabImage? {
         _ = cache.pageInstalls.generation(of: key) // this tab's page only, not every page install
         let live = cache.existingBrowser(key)?.tab
-        let address = cache.pageRequests.proxiedTabs.appFetchableFavicon(
-            live.map { $0.state.faviconURL?.absoluteString } ?? recordFavicon, key: key, page: live)
+        let liveFavicon: String? = live?.state.faviconURL?.absoluteString
+        let address = cache.pageRequests.proxiedTabs.appFetchableFavicon(live == nil ? recordFavicon : liveFavicon, key: key, page: live)
         let profile = known.map { browserProfiles.engineProfile(for: $0.tab, incognito: $0.incognito) } ?? browserProfiles.engineProfile(forTab: key)
-        return favicons.image(for: address, profile: profile, tab: live)
+        let recordURL = known?.tab.url ?? machines.local.store.tab(id: key)?.url
+        let origin = (live?.state.url ?? recordURL.flatMap { URL(string: $0) }).flatMap(BookmarkURL.faviconKey(for:))
+        let incognito = known?.incognito ?? cache.browserTabs.isIncognitoTab(key)
+        return FaviconKeeping.face(fresh: favicons.image(for: address, profile: profile, tab: live), origin: origin, keeper: keptFavicons,
+                                   profile: profile, persist: !incognito)
     }
 
     /// What the sidebar row of `workspace` shows of its front tab, or a

@@ -553,6 +553,8 @@ final class AppServices {
     var importedBookmarkSink: (any ImportedBookmarkSink)?
     /// Browser tab favicons per profile, for tab strips.
     let favicons = TabFaviconStore(loader: BrowserFaviconLoader.shared)
+    /// The last good icon of each site origin, kept in memory and on disk: a tab's icon never goes back to the globe once known.
+    let keptFavicons = OriginFaviconKeeper(directory: OriginFaviconKeeper.defaultDirectory)
     /// The one owner of hover cards in the app: at most one card, ever
     /// (plans/cmux-next/hovercards.md).
     let hoverCards = HoverCardCoordinator()

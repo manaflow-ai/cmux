@@ -66,13 +66,13 @@ final class AppTabSearchSource: TabSearchSource {
         guard let changes = services.closedTabs?.changes else { return AsyncStream { $0.finish() } }
         // The revision at subscribe time, read now: a change that lands
         // before the observing task starts is still delivered.
-        let favicons = services.favicons
-        let subscribed = Revision(tabs: changes.revision, favicons: favicons.revision)
+        let favicons = services.favicons, kept = services.keptFavicons
+        let subscribed = Revision(tabs: changes.revision, favicons: favicons.revision &+ kept.revision)
         // A change is a signal, not data: the newest one is enough.
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task { @MainActor in
                 var last = subscribed
-                for await revision in ObservationStream({ Revision(tabs: changes.revision, favicons: favicons.revision) })
+                for await revision in ObservationStream({ Revision(tabs: changes.revision, favicons: favicons.revision &+ kept.revision) })
                 where revision != last {
                     last = revision
                     continuation.yield()

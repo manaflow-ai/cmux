@@ -1,6 +1,7 @@
 import CmuxNextBookmarks
 import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextFavicons
 import CmuxNextTabs
 import Foundation
 
@@ -16,7 +17,10 @@ extension BookmarkService {
         _ = services.favicons.revision
         guard let address = faviconAddress(of: node) else { return nil }
         let engine = BrowserProfileRecord.engineProfile(for: profile) ?? .default
-        return fetching ? services.favicons.image(for: address, profile: engine) : services.favicons.cachedImage(for: address, profile: engine)
+        let fresh = fetching ? services.favicons.image(for: address, profile: engine) : services.favicons.cachedImage(for: address, profile: engine)
+        // The site's last good icon, kept in memory and on disk, stands in while the fetch runs or after one failed.
+        let origin = node.faviconKey ?? node.url.flatMap(BookmarkURL.faviconKey(for:))
+        return FaviconKeeping.face(fresh: fresh, origin: origin, keeper: services.keptFavicons, profile: engine, persist: true)
     }
 
     /// The favicon URL of a bookmark (``AppServices/siteFaviconAddress(origin:)``).
