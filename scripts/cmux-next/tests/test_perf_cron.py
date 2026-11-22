@@ -4138,6 +4138,59 @@ class StalePartFirstTests(unittest.TestCase):
         self.assertEqual(d["part"], "build")
 
 
+
+class UnreadPartFirstTests(unittest.TestCase):
+    """A Mac part that never produced a reading measures first, at the newest commit that has it, instead of after the
+    tip in flight's rotation (2026-11-22: chat-size, merged after tip 9a55953f, never ran while that tip took days)."""
+    OLD, NEW = "a" * 40, "b" * 40
+
+    def supported(self, sha):
+        return ALL if sha == self.NEW else [n for n in ALL if n != "chat-size"]
+
+    def mid_tip(self, stored=None):
+        state = cron.empty_state(T0)
+        cron.decide(state, T0, self.OLD, None, self.supported, None)
+        cur = state["current"]
+        for name in [n for n in cur["parts_todo"] if n not in ("wake", "power", "coord-sim")]:
+            cron.record_part(cur, name, {"state": "done", "worker": cron.BENCH_WORKER}, "u", T0)
+        state["part_stored"] = {n: {"sha": self.OLD, "at": cron.iso(T0), "rows": 1}
+                                for n in ALL if n != "build" and n not in (["chat-size"] if stored is None else stored)}
+        return state
+
+    def test_a_tip_that_predates_an_unread_part_gives_its_mac_parts_up(self):
+        state = self.mid_tip()
+        self.assertEqual(cron.unread_parts(state), ["chat-size"])
+        d = cron.decide(state, at(1), None, None, self.supported, None, newest=self.NEW)
+        cur = state["current"]
+        self.assertEqual((d["part"], d["linux_part"]), ("", "coord-sim"), "the Linux parts still run")
+        self.assertEqual({cur["parts"][n]["state"] for n in ("wake", "power")}, {"superseded"})
+        cron.record_part(cur, "coord-sim", {"state": "done", "worker": cron.LEGACY_LINUX_CLASS}, "u", at(1))
+        d = cron.decide(state, at(1.5), None, None, self.supported, None, newest=self.NEW)
+        self.assertEqual(d["action"], "finish")
+        state["current"] = None
+        cron.decide(state, at(2), self.NEW, None, self.supported, None)
+        order = cron.part_order(state, state["current"]["parts_todo"], at(2))
+        self.assertEqual(order[:2], ["build", "chat-size"], "the unread part goes right after the build")
+
+    def test_an_unread_part_goes_ahead_of_a_stale_one(self):
+        state = self.mid_tip()
+        state["part_stored"]["wake"]["at"] = cron.iso(at(-40))
+        todo = ["build", "wake", "power", "chat-size"]
+        self.assertEqual(cron.part_order(state, todo, at(1)), ["build", "chat-size", "wake", "power"])
+
+    def test_once_read_or_not_yet_in_any_tree_the_rotation_is_unchanged(self):
+        state = self.mid_tip(stored=[])  # chat-size has a reading
+        cron.decide(state, at(1), None, None, self.supported, None, newest=self.NEW)
+        self.assertEqual(sorted(state["current"]["parts_todo"][:2]), ["power", "wake"])
+        state = self.mid_tip()
+        state["part_rows"] = {"chat_size.ratio.max@" + cron.BENCH_WORKER: {"p95": 1.0}}
+        self.assertEqual(cron.unread_parts(state), [], "a stored row counts as a reading")
+        state = self.mid_tip()
+        cron.decide(state, at(1), None, None, self.supported, None, newest=None)
+        self.assertEqual(sorted(state["current"]["parts_todo"][:2]), ["power", "wake"], "no newer commit has it: no change")
+        cron.decide(state, at(1), None, None, self.supported, None, newest=self.OLD)
+        self.assertEqual(sorted(state["current"]["parts_todo"][:2]), ["power", "wake"], "the newest commit lacks it too")
+
 class LinuxControllerRouteTests(unittest.TestCase):
     """The Linux parts go to the build controller first (Leo, 2026-11-19, on Blacksmith: "stop ... relying on it"):
     the plan asks with a `perf cron request <sha> <part>` job, and a part whose requests go unanswered falls back to
