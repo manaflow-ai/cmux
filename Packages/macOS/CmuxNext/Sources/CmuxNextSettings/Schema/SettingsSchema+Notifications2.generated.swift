@@ -5,6 +5,130 @@ public import CmuxNextCompat
 public import CmuxNextDesign
 
 extension NotificationSettingsSchema {
+    static var bannerDescriptors: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.banners", "Banners and Sound")
+        return [
+            SettingDescriptor(
+                NotificationPreferences.desktopPath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.notifications.desktop", "macOS Banners"),
+                kind: .choice([
+                    SettingChoice(DesktopNotificationMode.unlessFocused.rawValue, SettingsText.keyed("settings.choice.unlessFocused", "Unless the Pane Is Focused")),
+                    SettingChoice(DesktopNotificationMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
+                    SettingChoice(DesktopNotificationMode.whenInactive.rawValue, SettingsText.keyed("settings.choice.whenInactive", "When cmux Is Inactive")),
+                    SettingChoice(DesktopNotificationMode.never.rawValue, SettingsText.keyed("settings.choice.never", "Never")),
+                ]),
+                default: .string(NotificationPreferences.desktopDefault.rawValue),
+                keywords: []
+            ),
+            SettingDescriptor(
+                NotificationPreferences.soundPath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.notifications.sound", "Sound"),
+                kind: .sound,
+                default: .string(NotificationPreferences.soundDefault),
+                keywords: []
+            ),
+            SettingDescriptor(
+                NotificationPreferences.quietHoursPath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.notifications.quietHours", "Quiet Hours"),
+                help: SettingsText.keyed("settings.notifications.quietHours.help", "No banners or sounds between these times."),
+                kind: .timeRange,
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.choice.off", "Off"),
+                keywords: ["do not disturb"]
+            ),
+            SettingDescriptor(
+                NotificationPreferences.typingPath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.notifications.suppressWhileTyping", "Quiet After Typing"),
+                help: SettingsText.keyed("settings.notifications.suppressWhileTyping.help", "A pane typed into this recently is marked read at once. 0 turns it off."),
+                summary: SettingsText.keyed("settings.notifications.suppressWhileTyping.summary", "No alerts from a pane you just typed in"),
+                kind: .number(SettingNumber(NotificationPreferences.typingRange, step: 1, unit: .seconds)),
+                default: .number(NotificationPreferences.typingDefault),
+                keywords: []
+            ),
+            SettingDescriptor(
+                StatusBehaviorSettings.runNotifyPath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.status.runNotifyMinimumSeconds", "Notify When a Run Takes"),
+                help: SettingsText.keyed("settings.status.runNotifyMinimumSeconds.help", "cmux status run notifies when the command took at least this long."),
+                summary: SettingsText.keyed("settings.status.runNotifyMinimumSeconds.summary", "Long runs notify when they finish"),
+                kind: .number(SettingNumber(StatusBehaviorSettings.runNotifyRange, step: 1, unit: .seconds)),
+                default: .number(StatusBehaviorSettings.runNotifyDefault),
+                keywords: []
+            ),
+            SettingDescriptor(
+                StatusBehaviorSettings.runNotifyWhenVisiblePath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.status.runNotifyWhenVisible", "Notify Even When the Terminal Is Visible"),
+                kind: .toggle,
+                default: .bool(StatusBehaviorSettings.runNotifyWhenVisibleDefault),
+                keywords: []
+            ),
+            SettingDescriptor(
+                NotificationPreferences.dockBadgePath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.notifications.dockBadge", "Unread Count on Dock Icon"),
+                kind: .toggle,
+                default: .bool(NotificationPreferences.dockBadgeDefault),
+                keywords: []
+            ),
+            SettingDescriptor(
+                NotificationPreferences.dockBouncePath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.notifications.dockBounce", "Bounce Dock Icon"),
+                help: SettingsText.keyed("settings.notifications.dockBounce.help", "When a notification alerts while cmux isn't the active app."),
+                kind: .choice([
+                    SettingChoice(DockBounceMode.off.rawValue, SettingsText.keyed("settings.choice.dockBounceOff", "Off")),
+                    SettingChoice(DockBounceMode.once.rawValue, SettingsText.keyed("settings.choice.dockBounceOnce", "Once")),
+                    SettingChoice(DockBounceMode.untilActive.rawValue, SettingsText.keyed("settings.choice.dockBounceUntilActive", "Until You Switch to cmux")),
+                ]),
+                default: .string(NotificationPreferences.dockBounceDefault.rawValue),
+                keywords: ["dock", "bounce", "attention", "badge"]
+            ),
+            SettingDescriptor(
+                NotificationPreferences.showPreviewsPath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.notifications.showPreviews", "Show Message in Banners"),
+                help: SettingsText.keyed("settings.notifications.showPreviews.help", "Whether a banner shows what the agent said, or only where and what state."),
+                kind: .choice([
+                    SettingChoice(NotificationPreviews.always.rawValue, SettingsText.keyed("settings.choice.previewsAlways", "Always")),
+                    SettingChoice(NotificationPreviews.whenUnlocked.rawValue, SettingsText.keyed("settings.choice.previewsWhenUnlocked", "When Unlocked")),
+                    SettingChoice(NotificationPreviews.never.rawValue, SettingsText.keyed("settings.choice.previewsNever", "Never")),
+                ]),
+                default: .string(NotificationPreferences.showPreviewsDefault.rawValue),
+                keywords: ["preview", "privacy", "message", "lock screen", "banner"]
+            ),
+            SettingDescriptor(
+                NotificationPreferences.toastStylePath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.notifications.toastStyle", "Toast Style"),
+                help: SettingsText.keyed("settings.notifications.toastStyle.help", "How toasts and prompts draw: glass, an opaque surface, or flat with a thin edge and no shadow."),
+                kind: .choice([
+                    SettingChoice(CmuxToastStyle.standard.rawValue, SettingsText.keyed("settings.choice.glass", "Glass")),
+                    SettingChoice(CmuxToastStyle.solid.rawValue, SettingsText.keyed("settings.choice.editor.solid", "Solid")),
+                    SettingChoice(CmuxToastStyle.flat.rawValue, SettingsText.keyed("settings.choice.chromeStyle.flat", "Flat")),
+                ]),
+                default: .string(NotificationPreferences.toastStyleDefault.rawValue),
+                keywords: ["toast", "theme", "flat", "glass"]
+            ).hiddenFromSettingsPage("a theme hook, set in cmux.json by themes; the Toast Playground picks a style on the page"),
+        ]
+    }
+}
+
+extension NotificationSettingsSchema {
     static var feedMirrorDescriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.feedMirror", "Feed")
         return [
@@ -245,127 +369,6 @@ extension NotificationSettingsSchema {
                 default: .array(NotificationPreferences.mutedWorkspacesDefault.map { .string($0) }),
                 keywords: ["mute", "silence"]
             ).consumed(by: [.cmuxBrowser, .cmuxNext]).hiddenFromSettingsPage("workspace ids; toggled per workspace from the sidebar row menu"),
-        ]
-    }
-}
-
-extension NotificationSettingsSchema {
-    static var soundDescriptors: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.sounds", "Sounds")
-        return [
-            SettingDescriptor(
-                NotificationSoundPreferences.finishedSoundPath,
-                section: .notifications,
-                group: group,
-                title: SettingsText.keyed("settings.notifications.sounds.event.finished", "Agent Finished"),
-                kind: .sound,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.notifications.sounds.sameAsSound", "Same as Sound"),
-                keywords: ["sound", "alert", "chime"]
-            ),
-            SettingDescriptor(
-                NotificationSoundPreferences.needsInputSoundPath,
-                section: .notifications,
-                group: group,
-                title: SettingsText.keyed("settings.notifications.sounds.event.needsInput", "Agent Needs Input"),
-                kind: .sound,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.notifications.sounds.sameAsSound", "Same as Sound"),
-                keywords: ["sound", "alert", "chime"]
-            ),
-            SettingDescriptor(
-                NotificationSoundPreferences.errorSoundPath,
-                section: .notifications,
-                group: group,
-                title: SettingsText.keyed("settings.notifications.sounds.event.error", "Error"),
-                kind: .sound,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.notifications.sounds.sameAsSound", "Same as Sound"),
-                keywords: ["sound", "alert", "chime"]
-            ),
-            SettingDescriptor(
-                NotificationSoundPreferences.bellSoundPath,
-                section: .notifications,
-                group: group,
-                title: SettingsText.keyed("settings.notifications.sounds.event.bell", "Terminal Notification"),
-                kind: .sound,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.notifications.sounds.sameAsSound", "Same as Sound"),
-                keywords: ["sound", "alert", "chime"]
-            ),
-            SettingDescriptor(
-                NotificationSoundPreferences.messageSoundPath,
-                section: .notifications,
-                group: group,
-                title: SettingsText.keyed("settings.notifications.sounds.event.message", "cmux notify Message"),
-                kind: .sound,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.notifications.sounds.sameAsSound", "Same as Sound"),
-                keywords: ["sound", "alert", "chime"]
-            ),
-            SettingDescriptor(
-                NotificationSoundPreferences.volumePath,
-                section: .notifications,
-                group: group,
-                title: SettingsText.keyed("settings.notifications.sounds.volume", "Volume"),
-                help: SettingsText.keyed("settings.notifications.sounds.volume.help", "Sounds cmux plays itself. A banner's default sound follows the system alert volume."),
-                kind: .number(SettingNumber(NotificationSoundPreferences.volumeRange, step: 0.05, unit: .fraction)),
-                default: .number(NotificationSoundPreferences.volumeDefault),
-                keywords: ["sound", "loud", "quiet"]
-            ),
-            SettingDescriptor(
-                NotificationSoundPreferences.whenPath,
-                section: .notifications,
-                group: group,
-                title: SettingsText.keyed("settings.notifications.sounds.when", "Play Sounds"),
-                kind: .choice([
-                    SettingChoice(NotificationSoundTiming.unlessViewed.rawValue, SettingsText.keyed("settings.notifications.sounds.when.unlessViewed", "Unless the Pane Is in Front")),
-                    SettingChoice(NotificationSoundTiming.whenInactive.rawValue, SettingsText.keyed("settings.notifications.sounds.when.whenInactive", "Only When cmux Is Inactive")),
-                    SettingChoice(NotificationSoundTiming.always.rawValue, SettingsText.keyed("settings.notifications.sounds.when.always", "Always")),
-                ]),
-                default: .string(NotificationSoundPreferences.whenDefault.rawValue),
-                keywords: ["sound", "focused", "background"]
-            ),
-            SettingDescriptor(
-                NotificationSoundPreferences.cooldownPath,
-                section: .notifications,
-                group: group,
-                title: SettingsText.keyed("settings.notifications.sounds.cooldown", "Burst Cooldown"),
-                help: SettingsText.keyed("settings.notifications.sounds.cooldown.help", "Many notifications at once sound once. 0 turns it off."),
-                kind: .number(SettingNumber(NotificationSoundPreferences.cooldownRange, step: 0.5, unit: .seconds)),
-                default: .number(NotificationSoundPreferences.cooldownDefault),
-                keywords: ["sound", "rate limit", "throttle", "burst"]
-            ),
-            SettingDescriptor(
-                NotificationSoundPreferences.workspacesPath,
-                section: .notifications,
-                group: group,
-                title: SettingsText.keyed("settings.notifications.sounds.workspaces", "Workspace Sounds"),
-                help: SettingsText.keyed("settings.notifications.sounds.workspaces.help", "Sounds per workspace id. Set one from the workspace's sidebar menu."),
-                kind: .soundRules,
-                default: NotificationSoundPreferences.workspacesDefault,
-                keywords: ["sound", "mute"]
-            ).hiddenFromSettingsPage("ids and per-level rules; set from the sidebar row and group menus, the palette and the CLI"),
-            SettingDescriptor(
-                NotificationSoundPreferences.groupsPath,
-                section: .notifications,
-                group: group,
-                title: SettingsText.keyed("settings.notifications.sounds.groups", "Group Sounds"),
-                help: SettingsText.keyed("settings.notifications.sounds.groups.help", "Sounds per group id or name. Set one from the group's sidebar menu."),
-                kind: .soundRules,
-                default: NotificationSoundPreferences.groupsDefault,
-                keywords: ["sound", "mute"]
-            ).hiddenFromSettingsPage("ids and per-level rules; set from the sidebar row and group menus, the palette and the CLI"),
-            SettingDescriptor(
-                NotificationSoundPreferences.agentsPath,
-                section: .notifications,
-                group: group,
-                title: SettingsText.keyed("settings.notifications.sounds.agents", "Agent Sounds"),
-                help: SettingsText.keyed("settings.notifications.sounds.agents.help", "Sounds per agent kind, such as claude or codex."),
-                kind: .soundRules,
-                default: NotificationSoundPreferences.agentsDefault,
-                keywords: ["sound", "mute"]
-            ).hiddenFromSettingsPage("ids and per-level rules; set from the sidebar row and group menus, the palette and the CLI"),
         ]
     }
 }

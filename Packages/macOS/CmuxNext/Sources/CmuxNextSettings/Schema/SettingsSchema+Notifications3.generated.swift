@@ -5,6 +5,127 @@ public import CmuxNextCompat
 public import CmuxNextDesign
 
 extension NotificationSettingsSchema {
+    static var soundDescriptors: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.sounds", "Sounds")
+        return [
+            SettingDescriptor(
+                NotificationSoundPreferences.finishedSoundPath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.notifications.sounds.event.finished", "Agent Finished"),
+                kind: .sound,
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.notifications.sounds.sameAsSound", "Same as Sound"),
+                keywords: ["sound", "alert", "chime"]
+            ),
+            SettingDescriptor(
+                NotificationSoundPreferences.needsInputSoundPath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.notifications.sounds.event.needsInput", "Agent Needs Input"),
+                kind: .sound,
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.notifications.sounds.sameAsSound", "Same as Sound"),
+                keywords: ["sound", "alert", "chime"]
+            ),
+            SettingDescriptor(
+                NotificationSoundPreferences.errorSoundPath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.notifications.sounds.event.error", "Error"),
+                kind: .sound,
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.notifications.sounds.sameAsSound", "Same as Sound"),
+                keywords: ["sound", "alert", "chime"]
+            ),
+            SettingDescriptor(
+                NotificationSoundPreferences.bellSoundPath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.notifications.sounds.event.bell", "Terminal Notification"),
+                kind: .sound,
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.notifications.sounds.sameAsSound", "Same as Sound"),
+                keywords: ["sound", "alert", "chime"]
+            ),
+            SettingDescriptor(
+                NotificationSoundPreferences.messageSoundPath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.notifications.sounds.event.message", "cmux notify Message"),
+                kind: .sound,
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.notifications.sounds.sameAsSound", "Same as Sound"),
+                keywords: ["sound", "alert", "chime"]
+            ),
+            SettingDescriptor(
+                NotificationSoundPreferences.volumePath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.notifications.sounds.volume", "Volume"),
+                help: SettingsText.keyed("settings.notifications.sounds.volume.help", "Sounds cmux plays itself. A banner's default sound follows the system alert volume."),
+                kind: .number(SettingNumber(NotificationSoundPreferences.volumeRange, step: 0.05, unit: .fraction)),
+                default: .number(NotificationSoundPreferences.volumeDefault),
+                keywords: ["sound", "loud", "quiet"]
+            ),
+            SettingDescriptor(
+                NotificationSoundPreferences.whenPath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.notifications.sounds.when", "Play Sounds"),
+                kind: .choice([
+                    SettingChoice(NotificationSoundTiming.unlessViewed.rawValue, SettingsText.keyed("settings.notifications.sounds.when.unlessViewed", "Unless the Pane Is in Front")),
+                    SettingChoice(NotificationSoundTiming.whenInactive.rawValue, SettingsText.keyed("settings.notifications.sounds.when.whenInactive", "Only When cmux Is Inactive")),
+                    SettingChoice(NotificationSoundTiming.always.rawValue, SettingsText.keyed("settings.notifications.sounds.when.always", "Always")),
+                ]),
+                default: .string(NotificationSoundPreferences.whenDefault.rawValue),
+                keywords: ["sound", "focused", "background"]
+            ),
+            SettingDescriptor(
+                NotificationSoundPreferences.cooldownPath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.notifications.sounds.cooldown", "Burst Cooldown"),
+                help: SettingsText.keyed("settings.notifications.sounds.cooldown.help", "Many notifications at once sound once. 0 turns it off."),
+                kind: .number(SettingNumber(NotificationSoundPreferences.cooldownRange, step: 0.5, unit: .seconds)),
+                default: .number(NotificationSoundPreferences.cooldownDefault),
+                keywords: ["sound", "rate limit", "throttle", "burst"]
+            ),
+            SettingDescriptor(
+                NotificationSoundPreferences.workspacesPath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.notifications.sounds.workspaces", "Workspace Sounds"),
+                help: SettingsText.keyed("settings.notifications.sounds.workspaces.help", "Sounds per workspace id. Set one from the workspace's sidebar menu."),
+                kind: .soundRules,
+                default: NotificationSoundPreferences.workspacesDefault,
+                keywords: ["sound", "mute"]
+            ).hiddenFromSettingsPage("ids and per-level rules; set from the sidebar row and group menus, the palette and the CLI"),
+            SettingDescriptor(
+                NotificationSoundPreferences.groupsPath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.notifications.sounds.groups", "Group Sounds"),
+                help: SettingsText.keyed("settings.notifications.sounds.groups.help", "Sounds per group id or name. Set one from the group's sidebar menu."),
+                kind: .soundRules,
+                default: NotificationSoundPreferences.groupsDefault,
+                keywords: ["sound", "mute"]
+            ).hiddenFromSettingsPage("ids and per-level rules; set from the sidebar row and group menus, the palette and the CLI"),
+            SettingDescriptor(
+                NotificationSoundPreferences.agentsPath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.notifications.sounds.agents", "Agent Sounds"),
+                help: SettingsText.keyed("settings.notifications.sounds.agents.help", "Sounds per agent kind, such as claude or codex."),
+                kind: .soundRules,
+                default: NotificationSoundPreferences.agentsDefault,
+                keywords: ["sound", "mute"]
+            ).hiddenFromSettingsPage("ids and per-level rules; set from the sidebar row and group menus, the palette and the CLI"),
+        ]
+    }
+}
+
+extension NotificationSettingsSchema {
     static var deliveryDescriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.notificationDelivery", "Delivery by Event")
         return [

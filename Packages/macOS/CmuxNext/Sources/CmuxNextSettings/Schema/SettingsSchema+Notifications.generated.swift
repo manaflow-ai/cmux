@@ -42,6 +42,9 @@ extension NotificationPreferences {
     /// `notifications.showPreviews`.
     public nonisolated static let showPreviewsPath = ["notifications", "showPreviews"]
     public nonisolated static let showPreviewsDefault: NotificationPreviews = .whenUnlocked
+    /// `notifications.toast.style`: A theme hook: themes set it in cmux.json. A pick in the Toast Playground (Debug) wins over it (CmuxToastStyleStore). CmuxToastStyle has more cases; only these are settable here.
+    public nonisolated static let toastStylePath = ["notifications", "toast", "style"]
+    public nonisolated static let toastStyleDefault: CmuxToastStyle = .standard
 }
 
 extension StatusBehaviorSettings {
@@ -258,116 +261,6 @@ nonisolated enum NotificationSettingsSchema {
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.default.sameAsAbove", "Same as above"),
                 keywords: []
-            ),
-        ]
-    }
-}
-
-extension NotificationSettingsSchema {
-    static var bannerDescriptors: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.banners", "Banners and Sound")
-        return [
-            SettingDescriptor(
-                NotificationPreferences.desktopPath,
-                section: .notifications,
-                group: group,
-                title: SettingsText.keyed("settings.notifications.desktop", "macOS Banners"),
-                kind: .choice([
-                    SettingChoice(DesktopNotificationMode.unlessFocused.rawValue, SettingsText.keyed("settings.choice.unlessFocused", "Unless the Pane Is Focused")),
-                    SettingChoice(DesktopNotificationMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
-                    SettingChoice(DesktopNotificationMode.whenInactive.rawValue, SettingsText.keyed("settings.choice.whenInactive", "When cmux Is Inactive")),
-                    SettingChoice(DesktopNotificationMode.never.rawValue, SettingsText.keyed("settings.choice.never", "Never")),
-                ]),
-                default: .string(NotificationPreferences.desktopDefault.rawValue),
-                keywords: []
-            ),
-            SettingDescriptor(
-                NotificationPreferences.soundPath,
-                section: .notifications,
-                group: group,
-                title: SettingsText.keyed("settings.notifications.sound", "Sound"),
-                kind: .sound,
-                default: .string(NotificationPreferences.soundDefault),
-                keywords: []
-            ),
-            SettingDescriptor(
-                NotificationPreferences.quietHoursPath,
-                section: .notifications,
-                group: group,
-                title: SettingsText.keyed("settings.notifications.quietHours", "Quiet Hours"),
-                help: SettingsText.keyed("settings.notifications.quietHours.help", "No banners or sounds between these times."),
-                kind: .timeRange,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.choice.off", "Off"),
-                keywords: ["do not disturb"]
-            ),
-            SettingDescriptor(
-                NotificationPreferences.typingPath,
-                section: .notifications,
-                group: group,
-                title: SettingsText.keyed("settings.notifications.suppressWhileTyping", "Quiet After Typing"),
-                help: SettingsText.keyed("settings.notifications.suppressWhileTyping.help", "A pane typed into this recently is marked read at once. 0 turns it off."),
-                summary: SettingsText.keyed("settings.notifications.suppressWhileTyping.summary", "No alerts from a pane you just typed in"),
-                kind: .number(SettingNumber(NotificationPreferences.typingRange, step: 1, unit: .seconds)),
-                default: .number(NotificationPreferences.typingDefault),
-                keywords: []
-            ),
-            SettingDescriptor(
-                StatusBehaviorSettings.runNotifyPath,
-                section: .notifications,
-                group: group,
-                title: SettingsText.keyed("settings.status.runNotifyMinimumSeconds", "Notify When a Run Takes"),
-                help: SettingsText.keyed("settings.status.runNotifyMinimumSeconds.help", "cmux status run notifies when the command took at least this long."),
-                summary: SettingsText.keyed("settings.status.runNotifyMinimumSeconds.summary", "Long runs notify when they finish"),
-                kind: .number(SettingNumber(StatusBehaviorSettings.runNotifyRange, step: 1, unit: .seconds)),
-                default: .number(StatusBehaviorSettings.runNotifyDefault),
-                keywords: []
-            ),
-            SettingDescriptor(
-                StatusBehaviorSettings.runNotifyWhenVisiblePath,
-                section: .notifications,
-                group: group,
-                title: SettingsText.keyed("settings.status.runNotifyWhenVisible", "Notify Even When the Terminal Is Visible"),
-                kind: .toggle,
-                default: .bool(StatusBehaviorSettings.runNotifyWhenVisibleDefault),
-                keywords: []
-            ),
-            SettingDescriptor(
-                NotificationPreferences.dockBadgePath,
-                section: .notifications,
-                group: group,
-                title: SettingsText.keyed("settings.notifications.dockBadge", "Unread Count on Dock Icon"),
-                kind: .toggle,
-                default: .bool(NotificationPreferences.dockBadgeDefault),
-                keywords: []
-            ),
-            SettingDescriptor(
-                NotificationPreferences.dockBouncePath,
-                section: .notifications,
-                group: group,
-                title: SettingsText.keyed("settings.notifications.dockBounce", "Bounce Dock Icon"),
-                help: SettingsText.keyed("settings.notifications.dockBounce.help", "When a notification alerts while cmux isn't the active app."),
-                kind: .choice([
-                    SettingChoice(DockBounceMode.off.rawValue, SettingsText.keyed("settings.choice.dockBounceOff", "Off")),
-                    SettingChoice(DockBounceMode.once.rawValue, SettingsText.keyed("settings.choice.dockBounceOnce", "Once")),
-                    SettingChoice(DockBounceMode.untilActive.rawValue, SettingsText.keyed("settings.choice.dockBounceUntilActive", "Until You Switch to cmux")),
-                ]),
-                default: .string(NotificationPreferences.dockBounceDefault.rawValue),
-                keywords: ["dock", "bounce", "attention", "badge"]
-            ),
-            SettingDescriptor(
-                NotificationPreferences.showPreviewsPath,
-                section: .notifications,
-                group: group,
-                title: SettingsText.keyed("settings.notifications.showPreviews", "Show Message in Banners"),
-                help: SettingsText.keyed("settings.notifications.showPreviews.help", "Whether a banner shows what the agent said, or only where and what state."),
-                kind: .choice([
-                    SettingChoice(NotificationPreviews.always.rawValue, SettingsText.keyed("settings.choice.previewsAlways", "Always")),
-                    SettingChoice(NotificationPreviews.whenUnlocked.rawValue, SettingsText.keyed("settings.choice.previewsWhenUnlocked", "When Unlocked")),
-                    SettingChoice(NotificationPreviews.never.rawValue, SettingsText.keyed("settings.choice.previewsNever", "Never")),
-                ]),
-                default: .string(NotificationPreferences.showPreviewsDefault.rawValue),
-                keywords: ["preview", "privacy", "message", "lock screen", "banner"]
             ),
         ]
     }

@@ -23,6 +23,9 @@ public nonisolated enum CmuxToastStyle: String, Sendable, CaseIterable, Hashable
     case accentTinted
     /// An opaque surface, no glass, popping in.
     case solid
+    /// An opaque surface in the window's background color, a 1 px edge, the button corner, no shadow, no glass:
+    /// for themes (Leo 2026-11-22: "the toast is this awkward pill glass. im not sure if it should be that rounded.").
+    case flat
 
     /// The style's name in the playground.
     public var title: String {
@@ -37,6 +40,7 @@ public nonisolated enum CmuxToastStyle: String, Sendable, CaseIterable, Hashable
         case .trailing: "Bottom trailing"
         case .accentTinted: "Accent bar"
         case .solid: "Solid, no glass"
+        case .flat: "Flat"
         }
     }
 
@@ -53,6 +57,7 @@ public nonisolated enum CmuxToastStyle: String, Sendable, CaseIterable, Hashable
         case .trailing: "Rests at the bottom trailing corner, out of the work's center; slides in from the edge."
         case .accentTinted: "A bar in the tone's color on the leading edge: errors read red at a glance."
         case .solid: "Opaque theme surface, no glass: the most legible over a busy page."
+        case .flat: "The window's background color, a 1 px edge, the button corner, no shadow."
         }
     }
 
@@ -79,6 +84,9 @@ public nonisolated enum CmuxToastStyle: String, Sendable, CaseIterable, Hashable
         case .solid:
             look.solid = true
             look.entrance = .pop
+        case .flat:
+            look.solid = true
+            look.flat = true
         }
         return look
     }

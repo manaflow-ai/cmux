@@ -60,6 +60,34 @@ struct CmuxToastStyleTests {
         #expect(CmuxToastStyleStore(defaults: defaults).style == .standard)
     }
 
+    /// `notifications.toast.style` (a theme hook) is the style while nothing is picked; a pick wins over it, and
+    /// picking the configured style clears the pick.
+    @Test func theConfiguredStyleIsTheDefaultUnderAPick() {
+        let defaults = Self.defaults()
+        let store = CmuxToastStyleStore(defaults: defaults)
+        store.configure(.flat)
+        #expect(store.style == .flat)
+        store.pick(.capsule)
+        #expect(store.style == .capsule)
+        store.configure(.solid)
+        #expect(store.style == .capsule, "the pick wins over cmux.json")
+        store.pick(.solid)
+        #expect(defaults.string(forKey: CmuxToastStyleStore.key) == nil, "picking the configured style clears the pick")
+        store.configure(.standard)
+        #expect(store.style == .standard)
+    }
+
+    /// Flat: the opaque surface, the button corner, no shadow, no glass rim.
+    @Test func flatDrawsOpaqueWithTheButtonCornerAndNoShadow() {
+        let view = CmuxToastView(toast: Self.everyKind[0], style: .flat)
+        view.frame = NSRect(x: 0, y: 0, width: 300, height: 60)
+        view.layoutSubtreeIfNeeded()
+        #expect(view.surface?.material == .opaque)
+        #expect(view.surface?.rimView == nil)
+        #expect(view.cornerRadius == Metrics.buttonCornerRadius)
+        #expect((view.layer?.shadowOpacity ?? 0) == 0)
+    }
+
     /// A style a later build no longer has falls back to today's look, never a crash or an empty toast.
     @Test func anUnknownStoredStyleIsTheDefault() {
         let defaults = Self.defaults()
