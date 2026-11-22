@@ -1,0 +1,24 @@
+# path	kind	count (scripts/cmux-next/check-swift-raw-design-values.py; may only go down)
+Packages/macOS/CmuxNext/Sources/CmuxNextApps/NativeRender/AppSceneReorderableNSView.swift	zposition	1
+Packages/macOS/CmuxNext/Sources/CmuxNextApps/Widgets/AppWidgetAreaView+Edit.swift	zposition	2
+Packages/macOS/CmuxNext/Sources/CmuxNextApps/Widgets/AppWidgetGalleryView.swift	zposition	1
+Packages/macOS/CmuxNext/Sources/CmuxNextBridge/TabDrag/TabDragGhostPanel.swift	zposition	1
+Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/OmnibarViews.swift	zposition	1
+Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvLedgerDirection.swift	corner	1
+Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvTerminalFrames.swift	corner	1
+Packages/macOS/CmuxNext/Sources/CmuxNextFileGrid/FileGridAppearance.swift	corner	1
+Packages/macOS/CmuxNext/Sources/CmuxNextHome/Sidebar/HomeSidebarSplitView.swift	zposition	1
+Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/LayoutStyle.swift	corner	1
+Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/LayoutRootView+PaneLift.swift	zposition	2
+Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/PaneCommitMotion+Unzoom.swift	zposition	2
+Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/PhoneScreenView.swift	corner	2
+Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Pane/RemoteVideoView.swift	zposition	1
+Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Tab/RemoteViewUnavailableView.swift	corner	1
+Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/Priority/SidebarPriorityPanelView.swift	zposition	3
+Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/ProfileBarView+DotDrag.swift	zposition	1
+Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+Reuse.swift	zposition	1
+Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+StickyHeader.swift	zposition	3
+Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarRevealFlash.swift	zposition	1
+Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Groups/TabGroupBandCell.swift	zposition	2
+Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Groups/TabGroupChipCell.swift	zposition	1
+Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalComputerUsePreview.swift	corner	2

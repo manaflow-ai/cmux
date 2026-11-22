@@ -2066,6 +2066,14 @@ jobs:
         continue-on-error: true
         run: python3 -I scripts/cmux-next/check-surface-roles.py
 
+      # Leo 2026-11-22: "we need to prevent this once and for all". Swift copies of design-scale.json, raw Swift corners.
+      - name: Design scale parity and raw Swift values
+        id: design-scale-parity
+        continue-on-error: true
+        run: |
+          python3 -I scripts/cmux-next/check-design-scale-parity.py
+          python3 -I scripts/cmux-next/check-swift-raw-design-values.py
+
       # Why: docs/ci/cmux-next-workflow-notes.md#note-148
       - name: Menu metrics
         id: menu-metrics
@@ -2365,6 +2373,7 @@ jobs:
             Type scale
             Menu metrics
             Surface roles
+            Design scale parity and raw Swift values
             Protected-folder copies
             Settings source copies
             Backdrop art export
@@ -2413,6 +2422,7 @@ jobs:
             ${{ steps.motion-tokens.outcome }}|Motion and colour tokens
             ${{ steps.menu-metrics.outcome }}|Menu metrics
             ${{ steps.surface-roles.outcome }}|Surface roles
+            ${{ steps.design-scale-parity.outcome }}|Design scale parity and raw Swift values
             ${{ steps.protected-folders.outcome }}|Protected-folder copies
             ${{ steps.settings-sources.outcome }}|Settings source copies
             ${{ steps.phone-lane-fields.outcome }}|Phone lane field allowlist

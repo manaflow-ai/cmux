@@ -22,6 +22,16 @@
  *                None today, so no baseline row holds one.
  *   motion-literal  a TS/TSX file (tests and galleries too) typing a motion-scale step or curve instead of
  *                importing it from motion/scale.generated.ts (see scriptMotionFindings).
+ *   shadow       a box-shadow (CSS or a TSX inline style) that is not none/inherit/initial/unset/revert and holds,
+ *                outside var(), a non-zero length (`calc(N * var(--ui-px))` is N px) or a colour (a raw colour,
+ *                black, white): use var(--elevation-1|2) or a surface's shadow token. A ring or an inset
+ *                hairline built only of tokens (`inset 0 0 0 var(--cmux-hairline) var(--x)`) passes.
+ *   tailwind-arbitrary  a TSX className string (any string or template piece in the attribute's expression)
+ *                with a Tailwind arbitrary value holding a literal for a radius (`rounded-[5px]`), spacing
+ *                (`p-[7px]`, `gap-[3px]`, `-mt-[2px]`), font size (`text-[11px]`), z-index (`z-[60]`), colour
+ *                (`bg-[#fff]`, `text-[rgb(...)]`, `border-[#..]`) or shadow (`shadow-[0_1px_2px_...]`). An
+ *                arbitrary value of tokens only (`rounded-[var(--ds-radius-md)]`, `rounded-[inherit]`) passes:
+ *                use the theme utility (rounded-md, p-3, text-body, z-*, bg-hover, shadow-elevation-2).
  * Font sizes are the type-scale ratchet's job (scripts/cmux-next/check-type-scale.py), not this one's.
  * A migration PR shrinks the baseline with `bun scripts/check-design-tokens.ts --update-baseline`,
  * which refuses to grow any count.
@@ -90,7 +100,9 @@ export interface Finding {
     | "transition-all"
     | "motion-literal"
     | "token-only"
-    | "token-copy";
+    | "token-copy"
+    | "shadow"
+    | "tailwind-arbitrary";
   selector: string;
   property: string;
   value: string;
@@ -136,6 +148,25 @@ export function hasRawColor(value: string): boolean {
     if (!bare.slice(start, end).includes("\u00a7")) return true;
   }
   return false;
+}
+
+const SHADOW_PROPERTY = /^(?:-webkit-)?box-shadow$/;
+const SHADOW_KEYWORD = /^(?:none|inherit|initial|unset|revert)$/i;
+/** A length literal: a number with a length unit (a bare number is a calc() factor, a % a color-mix() share). */
+const LENGTH_LITERAL = /(?<![\w.#-])-?(?:\d+\.?\d*|\.\d+)(?:px|r?em|ch|vh|vw)\b/gi;
+
+/** A non-zero length or a colour outside var() (`calc(N * var(--ui-px))` reads as N px). */
+function hasLiteralLengthOrColor(value: string): boolean {
+  const scaled = value.replace(UI_PX, "$1px");
+  if (hasRawColor(scaled) || /\b(?:black|white)\b/i.test(withoutVars(scaled))) return true;
+  return [...withoutVars(scaled).matchAll(LENGTH_LITERAL)].some((match) => Number.parseFloat(match[0]) !== 0);
+}
+
+/** A box-shadow that is not a keyword and is not built of tokens alone (kind `shadow`, see the header). */
+export function isShadowLiteral(property: string, value: string): boolean {
+  if (!SHADOW_PROPERTY.test(property)) return false;
+  const trimmed = value.trim();
+  return !SHADOW_KEYWORD.test(trimmed) && hasLiteralLengthOrColor(trimmed);
 }
 
 function outside(values: number[], allowed: Set<number>, capsule = false): boolean {
@@ -428,6 +459,17 @@ function findingsForFile(file: string): Finding[] {
           });
         }
       }
+      // A literal shadow is its own kind, beside the colour it may also hold.
+      if (!tokenFile && isShadowLiteral(declaration.property, declaration.value)) {
+        findings.push({
+          file: rel,
+          kind: "shadow",
+          selector: block.selector,
+          property: declaration.property,
+          value: declaration.value,
+          line: declaration.line,
+        });
+      }
     }
   }
   return findings;
@@ -549,6 +591,8 @@ export function inlineStyleFindings(rel: string, source: string): Finding[] {
                 ? undefined
                 : tokenLiteralKind(property, value);
           if (kind) findings.push({ file: rel, kind, selector: "style={{}}", property, value, line });
+          if (isShadowLiteral(property, value))
+            findings.push({ file: rel, kind: "shadow", selector: "style={{}}", property, value, line });
         }
       }
     }
@@ -558,8 +602,90 @@ export function inlineStyleFindings(rel: string, source: string): Finding[] {
   return findings;
 }
 
+/*
+ * Tailwind arbitrary values (`tailwind-arbitrary`, see the header): the scale's utilities come from the
+ * design scale (ui/theme.generated.css), so a bracketed literal is a value the scale does not hold.
+ */
+const ARBITRARY_UTILITY =
+  /(?<=^|[\s:!])-?(rounded(?:-[a-z]{1,2})?|p[xytrblse]?|m[xytrblse]?|gap(?:-[xy])?|space-[xy]|text|z|bg|shadow|border(?:-[xytrbl])?|ring|outline|fill|stroke|from|via|to|decoration|accent|caret)-\[([^\]\s]+)\]/g;
+const COLOR_UTILITY = /^(?:bg|border(?:-[xytrbl])?|ring|outline|fill|stroke|from|via|to|decoration|accent|caret)$/;
+
+/** What a utility's arbitrary value is, when it holds a literal: radius, spacing, font-size, z-index, color, shadow. */
+export function arbitraryUtilityKind(utility: string, raw: string): string | undefined {
+  const value = raw.replace(/_/g, " ").replace(/^(?:length|color|number|shadow):/, "");
+  const color = hasRawColor(value) || /^(?:black|white)$/i.test(value);
+  const length = [...withoutVars(value).matchAll(/(?<![\w.#-])-?(?:\d+\.?\d*|\.\d+)(?:px|r?em|%)/gi)].some(
+    (match) => Number.parseFloat(match[0]) !== 0,
+  );
+  if (utility.startsWith("rounded")) return length ? "radius" : undefined;
+  if (/^(?:p|m|gap|space)/.test(utility)) return length ? "spacing" : undefined;
+  if (utility === "z") return /^-?\d+$/.test(value) ? "z-index" : undefined;
+  if (utility === "shadow") return hasLiteralLengthOrColor(value) ? "shadow" : undefined;
+  if (utility === "text") return color ? "color" : length ? "font-size" : undefined;
+  return COLOR_UTILITY.test(utility) && color ? "color" : undefined;
+}
+
+/** The arbitrary utilities holding a literal in one className string. */
+export function arbitraryUtilities(text: string): { utility: string; property: string }[] {
+  const found: { utility: string; property: string }[] = [];
+  for (const match of text.matchAll(ARBITRARY_UTILITY)) {
+    const property = arbitraryUtilityKind(match[1]!, match[2]!);
+    if (property) found.push({ utility: match[0], property });
+  }
+  return found;
+}
+
+/** Tailwind arbitrary values in a TSX file's className (and class) attributes. */
+export function tailwindArbitraryFindings(rel: string, source: string): Finding[] {
+  const ast = ts.createSourceFile(rel, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const findings: Finding[] = [];
+  const strings = (node: ts.Node, out: ts.Node[]) => {
+    if (
+      ts.isStringLiteral(node) ||
+      ts.isNoSubstitutionTemplateLiteral(node) ||
+      ts.isTemplateHead(node) ||
+      ts.isTemplateMiddle(node) ||
+      ts.isTemplateTail(node)
+    )
+      out.push(node);
+    ts.forEachChild(node, (child) => strings(child, out));
+  };
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isJsxAttribute(node) &&
+      ts.isIdentifier(node.name) &&
+      (node.name.text === "className" || node.name.text === "class") &&
+      node.initializer
+    ) {
+      const pieces: ts.Node[] = [];
+      strings(node.initializer, pieces);
+      for (const piece of pieces) {
+        const text = (piece as ts.LiteralLikeNode).text;
+        const line = ast.getLineAndCharacterOfPosition(piece.getStart(ast)).line + 1;
+        for (const { utility, property } of arbitraryUtilities(text))
+          findings.push({
+            file: rel,
+            kind: "tailwind-arbitrary",
+            selector: "className",
+            property,
+            value: utility,
+            line,
+          });
+      }
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(ast);
+  return findings;
+}
+
 function tsxFindings(): Finding[] {
-  return tsxFiles().flatMap((file) => inlineStyleFindings(relative(SRC, file), readFileSync(file, "utf8")));
+  return tsxFiles().flatMap((file) => {
+    const rel = relative(SRC, file);
+    const source = readFileSync(file, "utf8");
+    return [...inlineStyleFindings(rel, source), ...tailwindArbitraryFindings(rel, source)];
+  });
 }
 
 /*
@@ -971,8 +1097,20 @@ function counts(findings: Finding[]): Map<string, number> {
   return out;
 }
 
+/**
+ * The baseline entries an update would raise. A kind the previous baseline has no row of at all is a kind
+ * this script just learned (shadow and tailwind-arbitrary, 2026-11-22): its first rows are the census of
+ * what is already there, recorded once, and from then on they only shrink like every other kind.
+ */
+export function baselineGrowth(current: Map<string, number>, previous: Map<string, number>): [string, number][] {
+  const recordedKinds = new Set([...previous.keys()].map((id) => id.split("\t")[1]));
+  return [...current.entries()].filter(
+    ([id, count]) => recordedKinds.has(id.split("\t")[1]) && count > (previous.get(id) ?? 0),
+  );
+}
+
 function writeBaseline(current: Map<string, number>, previous: Map<string, number>): void {
-  const grew = [...current.entries()].filter(([id, count]) => count > (previous.get(id) ?? 0));
+  const grew = baselineGrowth(current, previous);
   if (grew.length && previous.size) {
     for (const [id, count] of grew) console.error(`baseline would grow: ${count} ${id}`);
     throw new Error("design token baseline is a ratchet; fix new violations before updating it");

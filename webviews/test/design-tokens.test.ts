@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  arbitraryUtilities,
+  baselineGrowth,
   findTokenOnlyViolations,
+  isShadowLiteral,
+  tailwindArbitraryFindings,
   hasRawColor,
   inlineStyleFindings,
   isOutsideScale,
@@ -265,5 +269,67 @@ describe("token copies (a px/ms literal a named token already holds)", () => {
     const errors = ratchetErrors(new Map([[id, 1]]), new Map(), [finding!]);
     expect(errors[0]).toContain("new design token violation");
     expect(errors[1]).toContain('designTokenValue("--grid-half-step")');
+  });
+});
+
+describe("shadow and tailwind-arbitrary kinds", () => {
+  test.each([
+    ["box-shadow", "none", false],
+    ["box-shadow", "var(--elevation-2)", false],
+    ["box-shadow", "0 0 0 calc(1 * var(--ui-px)) var(--ds-edge)", true],
+    ["box-shadow", "0 1px 2px rgba(0, 0, 0, 0.2)", true],
+    ["box-shadow", "inset 0 0 0 0 var(--ds-edge)", false],
+    ["box-shadow", "0 0 0 1px color-mix(in srgb, var(--a) 40%, transparent)", true],
+    ["-webkit-box-shadow", "0 2px 4px black", true],
+    ["color", "0 1px 2px #000", false],
+  ] as const)("%s: %s is a literal shadow: %p", (property, value, literal) => {
+    expect(isShadowLiteral(property, value)).toBe(literal);
+  });
+
+  test("arbitrary utilities that hold a literal", () => {
+    expect(
+      arbitraryUtilities(
+        "rounded-[6px] p-3 px-[13px] z-[60] bg-[#fff] text-[13px] text-[var(--x)] hover:shadow-[0_1px_2px_rgba(0,0,0,0.2)] w-[40px] rounded-[var(--r)]",
+      ),
+    ).toEqual([
+      { utility: "rounded-[6px]", property: "radius" },
+      { utility: "px-[13px]", property: "spacing" },
+      { utility: "z-[60]", property: "z-index" },
+      { utility: "bg-[#fff]", property: "color" },
+      { utility: "text-[13px]", property: "font-size" },
+      { utility: "shadow-[0_1px_2px_rgba(0,0,0,0.2)]", property: "shadow" },
+    ]);
+  });
+
+  test("className strings, templates and conditionals are read; other attributes are not", () => {
+    const source = [
+      "export const A = () => (",
+      "  <div className={`gap-[6px] ${on ? 'bg-[#123456]' : 'bg-hover'}`} title=\"rounded-[3px]\">",
+      '    <span className="rounded-md" />',
+      "  </div>",
+      ");",
+    ].join("\n");
+    expect(
+      tailwindArbitraryFindings("x.tsx", source).map(({ kind, property, value, line }) => [
+        kind,
+        property,
+        value,
+        line,
+      ]),
+    ).toEqual([
+      ["tailwind-arbitrary", "spacing", "gap-[6px]", 2],
+      ["tailwind-arbitrary", "color", "bg-[#123456]", 2],
+    ]);
+  });
+
+  test("an update may record a kind the baseline has no row of, never raise a recorded one", () => {
+    const previous = new Map([["a.css\tradius\tborder-radius\t7px", 1]]);
+    const current = new Map([
+      ["a.css\tradius\tborder-radius\t7px", 2],
+      ["a.css\tshadow\tbox-shadow\t0 1px 2px #000", 3],
+    ]);
+    expect(baselineGrowth(current, previous)).toEqual([["a.css\tradius\tborder-radius\t7px", 2]]);
+    current.set("a.css\tradius\tborder-radius\t7px", 1);
+    expect(baselineGrowth(current, previous)).toEqual([]);
   });
 });
