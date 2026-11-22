@@ -597,11 +597,11 @@ fn ask_publish(source: &Published, commit: Option<&str>) -> Option<Asked> {
         args.extend(["-f".to_owned(), format!("base={commit}")]);
     }
     let shown = format!("gh {}", args.join(" "));
-    Some(match super::rebuild::gh(&args, DISPATCH_TIMEOUT) {
+    Some(match rebuild::gh(&args, DISPATCH_TIMEOUT) {
         Ok(printed) => Asked {
             line: format!("asked CI to publish it ({shown})"),
             asked: true,
-            run: super::rebuild::run_id(&printed),
+            run: rebuild::run_id(&printed),
         },
         Err(why) => Asked {
             line: format!("could not ask CI ({why}); run `{shown}`"),

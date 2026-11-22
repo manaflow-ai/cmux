@@ -51,7 +51,8 @@ const WAIT_LOCK: &str = "rebuilds.wait.lock";
 pub(super) const WAIT_MS: u64 = 60 * 60_000;
 /// How often the waiter looks for the rebuilt layer's pointer (one GET of a
 /// static file, no GitHub API).
-const POLL: Duration = Duration::from_secs(60);
+const POLL: Duration = Duration::from_secs(POLL_MS / 1000);
+const POLL_MS: u64 = 60_000;
 /// The waiter asks gh about the CI run every this many looks.
 const RUN_EVERY: u32 = 3;
 /// How long one `gh` call may take.
@@ -194,8 +195,8 @@ pub(super) fn run_state(run: &Value) -> Run {
 
 /// The run `gh workflow run` named in what it printed.
 pub(super) fn run_id(printed: &str) -> Option<u64> {
-    let at = printed.find("/actions/runs/")? + "/actions/runs/".len();
-    let digits: String = printed[at..].chars().take_while(char::is_ascii_digit).collect();
+    let after = printed.split("/actions/runs/").nth(1)?;
+    let digits: String = after.chars().take_while(char::is_ascii_digit).collect();
     digits.parse().ok()
 }
 
@@ -403,7 +404,7 @@ pub(super) fn wait(
             Look::Done => break,
             Look::Refresh => {
                 super::pr::refresh_with(customize, origin, now(), false)?;
-                refreshes += 1;
+                refreshes = refreshes.saturating_add(1);
                 // A refresh that left the same rebuilds open (a pointer not
                 // readable yet, say) is not run again at once.
                 if Rebuilds::load(customize).by_name == rebuilds.by_name {
@@ -412,7 +413,7 @@ pub(super) fn wait(
             }
             Look::Sleep => std::thread::sleep(POLL),
         }
-        if now().saturating_sub(started) > WAIT_MS + POLL.as_millis() as u64 {
+        if now().saturating_sub(started) > WAIT_MS.saturating_add(POLL_MS) {
             break;
         }
     }
