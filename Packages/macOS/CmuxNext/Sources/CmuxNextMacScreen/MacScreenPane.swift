@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 public import CmuxScreenKit
 public import CmuxNextDevices
 import CmuxNextRemoteView
@@ -17,6 +18,8 @@ public final class MacScreenPaneModel {
 
     public let session: MacScreenSession?
     public internal(set) var name: String
+    /// The run a screen link named (`name=`), shown beside the device's name.
+    public internal(set) var runName: String?
     /// The device's platform, when the hub lists it: a Linux desktop's cards say how to reach a Linux machine.
     public internal(set) var platform: DevicePlatform?
     public var gate: Gate
@@ -35,6 +38,14 @@ public final class MacScreenPaneModel {
     public internal(set) var systemShortcuts: MacScreenSystemShortcuts?
     /// The device hub tab's session: its request, approval and ticket; nil for an unsupported record.
     public let hub: MacScreenHubViewer?
+    /// A look fixed for this pane (the gallery and tests draw one look); nil follows Debug Settings `macScreen.viewerLook`.
+    var viewerLookOverride: MacScreenViewerLook?
+    /// How the viewer is drawn: the fixed look, else the setting, read live. Reading it tracks the setting (an Observation
+    /// dependency on its key), so the pane, toolbar, card and strip of an open viewer follow a change at once.
+    var viewerLook: MacScreenViewerLook {
+        get { viewerLookOverride ?? MacScreenTunables.viewerLook.value }
+        set { viewerLookOverride = newValue }
+    }
 
     init(session: MacScreenSession?, name: String, platform: DevicePlatform? = nil, gate: Gate, hub: MacScreenHubViewer? = nil) {
         self.session = session
@@ -92,9 +103,12 @@ public final class MacScreenPane {
     /// approved session: `viewer` asks for it and hands its ticket's
     /// signaling to the session once; a dropped stream does not reconnect on
     /// its own (Try Again asks again).
-    public init(hubDevice viewer: MacScreenHubViewer, name: String, platform: DevicePlatform? = nil, preferences: ScreenPreferences) {
+    /// `viewerLook` fixes the look (the gallery and tests); nil follows the setting.
+    public init(hubDevice viewer: MacScreenHubViewer, name: String, platform: DevicePlatform? = nil, preferences: ScreenPreferences,
+                viewerLook: MacScreenViewerLook? = nil) {
         let session = MacScreenSession(title: name, preferences: preferences, signaling: { [weak viewer] in viewer?.takeSignaling() })
         model = MacScreenPaneModel(session: session, name: name, platform: platform, gate: .open, hub: viewer)
+        model.viewerLookOverride = viewerLook
         // A quality or display change: the ticket admits once, so the hub gives a new session.
         session.restart = { [weak viewer] in
             guard let viewer, let scope = viewer.phase.streamingScope else { return }
@@ -241,7 +255,9 @@ public final class MacScreenPane {
     /// single `connect()` failed at once. Tests count the starts.
     var connectSession: @MainActor (MacScreenSession) -> Void = { $0.reconnect() }
 
-    public var focusTarget: NSView { view.input.view }
+    /// The screen's input surface; while a state shows, the default button of what shows it (Full Control on the
+    /// Connect chooser): the card's, or look B's strip's, so the keyboard acts on the buttons on screen.
+    public var focusTarget: NSView { view.chrome.keyButton ?? view.input.view }
 
     /// The tab is shown: a device tab with a scope waiting asks the hub.
     public func resume() {
@@ -300,7 +316,7 @@ public final class MacScreenPane {
 
     public func focus() {
         guard let window = view.window else { return }
-        window.makeFirstResponder(view.input.view)
+        window.makeFirstResponder(focusTarget)
     }
 
     private func reconnect() {
@@ -315,6 +331,20 @@ public final class MacScreenPane {
     }
 }
 
+/// A fill that takes no clicks: the veil over a dimmed picture.
+final class MacScreenVeilView: NSView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        isHidden = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 /// The pane's view: toolbar on top, the fitted screen and its input surface
 /// below, a state card over the screen while there is no picture.
 public final class MacScreenPaneView: NSView {
@@ -327,7 +357,28 @@ public final class MacScreenPaneView: NSView {
     private(set) lazy var cursor = input.cursorCoordinator(video: video)
     let chrome: MacScreenChromeHost
     private let model: MacScreenPaneModel
-    var toolbarHeight: CGFloat { chrome.toolbar.height(for: bounds.width) }
+    /// Under the picture when its look gives it a shadow.
+    private let pictureShadow = CALayer()
+    /// Over the picture while a card shows, when the look dims it (``MacScreenViewerStyle/cardVeilOpacity``).
+    private let veil = MacScreenVeilView()
+    private var style: MacScreenViewerStyle { model.viewerLook.style }
+    /// The toolbar's own height at the pane's width (a floating toolbar uses its capsule's width).
+    var toolbarHeight: CGFloat { style.statusStrip ? MacScreenStatusStrip.height : chrome.toolbar.height(for: toolbarFrame(height: false).width) }
+    /// The room the toolbar takes from the screen: all of it in a top bar, none when it floats over the picture.
+    var reservedToolbarHeight: CGFloat { style.toolbarPlacement == .topBar ? toolbarHeight : 0 }
+
+    /// Where the toolbar sits: the full-width bar on top, or a capsule centered over the picture.
+    func toolbarFrame(height measured: Bool = true) -> CGRect {
+        let style = style
+        switch style.toolbarPlacement {
+        case .topBar:
+            return CGRect(x: 0, y: 0, width: bounds.width, height: measured ? toolbarHeight : 0)
+        case .floating:
+            let width = max(0, min(bounds.width - style.toolbarInset * 2, chrome.toolbar.floatingWidth))
+            let height = measured ? chrome.toolbar.height(for: width) : 0
+            return CGRect(x: (bounds.width - width) / 2, y: style.toolbarInset, width: width, height: height)
+        }
+    }
 
     init(model: MacScreenPaneModel) {
         self.model = model
@@ -335,12 +386,17 @@ public final class MacScreenPaneView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
+        pictureShadow.backgroundColor = NSColor.black.cgColor
+        pictureShadow.shadowColor = ThemeTokens.unresolved.shadow.cgColor
+        pictureShadow.shadowOpacity = 0.4
+        pictureShadow.shadowRadius = 24
+        pictureShadow.shadowOffset = CGSize(width: 0, height: 8)
+        pictureShadow.isHidden = true
+        layer?.addSublayer(pictureShadow)
         video.install(presenter)
         video.scaling = .fit
-        addSubview(video)
-        addSubview(capture)
-        addSubview(chrome.toolbar)
-        addSubview(chrome.card)
+        // The video stays first (the gallery draws its picture there); the look's overlay sits under the toolbar and card.
+        for view in [video, capture, veil, chrome.overlay, chrome.toolbar, chrome.card] as [NSView] { addSubview(view) }
         input.geometry = { [weak self] in self?.geometry }
         syncInputGate()
         observe()
@@ -353,7 +409,8 @@ public final class MacScreenPaneView: NSView {
 
     /// The screen area: everything under the toolbar.
     var screenRect: CGRect {
-        CGRect(x: 0, y: toolbarHeight, width: bounds.width, height: max(0, bounds.height - toolbarHeight))
+        let reserved = reservedToolbarHeight
+        return CGRect(x: 0, y: reserved, width: bounds.width, height: max(0, bounds.height - reserved))
     }
 
     /// Where the streamed display sits (aspect fit), for the input surface.
@@ -364,8 +421,10 @@ public final class MacScreenPaneView: NSView {
 
     public override func layout() {
         super.layout()
-        chrome.toolbar.frame = CGRect(x: 0, y: 0, width: bounds.width, height: toolbarHeight)
+        let style = style
+        chrome.toolbar.frame = toolbarFrame()
         capture.frame = screenRect
+        layer?.backgroundColor = style.backdrop.color(chrome.toolbar.colors).cgColor
         // Auto streams at the pane's size; the next session (Connect, a quality change) reads it.
         let pixels = Int((screenRect.width * (window?.backingScaleFactor ?? 2)).rounded(.up))
         if pixels > 0, let session = model.session, session.paneWidthPixels != pixels { session.paneWidthPixels = pixels }
@@ -374,8 +433,14 @@ public final class MacScreenPaneView: NSView {
         } else {
             video.frame = .zero
         }
+        video.layer?.cornerRadius = style.pictureCornerRadius
+        video.layer?.cornerCurve = .continuous
+        pictureShadow.isHidden = !style.pictureShadow || video.frame.isEmpty
+        pictureShadow.cornerRadius = style.pictureCornerRadius
+        pictureShadow.frame = video.frame
         cursor.update()
-        let showsCard = chrome.showsCard
+        chrome.overlay.place(picture: video.frame, toolbar: chrome.toolbar.frame, in: bounds)
+        let showsCard = chrome.layoutStatusStrip(style, in: self) && !model.isQuietOutage
         chrome.card.isHidden = !showsCard
         capture.isHidden = model.gate != .open
         if showsCard {
@@ -383,6 +448,11 @@ public final class MacScreenPaneView: NSView {
             let area = screenRect
             chrome.card.frame = CGRect(x: area.midX - size.width / 2, y: area.midY - size.height / 2,
                                        width: size.width, height: size.height).integral
+        }
+        veil.isHidden = !showsCard || style.cardVeilOpacity <= 0 || video.frame.isEmpty
+        if !veil.isHidden {
+            veil.frame = screenRect
+            veil.layer?.backgroundColor = style.backdrop.color(chrome.toolbar.colors).withAlphaComponent(style.cardVeilOpacity).cgColor
         }
     }
 
@@ -467,6 +537,7 @@ public final class MacScreenPaneView: NSView {
             _ = model.gate
             _ = model.hasFrame
             _ = model.viewOnly
+            _ = model.viewerLook
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.needsLayout = true

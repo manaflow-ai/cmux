@@ -235,8 +235,10 @@ pub(crate) fn pr_path(url: &str) -> Option<(String, u64)> {
     let mut parts = rest.split('/');
     let (owner, repo, pull, n) = (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
     let n = n.parse().ok().filter(|_| pull == "pull" && parts.next().is_none())?;
+    // A name of dots only (`.`, `..`) would walk the `gh api` path.
     let ok = |s: &str| {
         !s.is_empty()
+            && !s.chars().all(|c| c == '.')
             && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
     };
     (ok(owner) && ok(repo)).then(|| (format!("{owner}/{repo}"), n))
@@ -507,9 +509,17 @@ impl Hub {
 
     /// Unarchives `session`: it loses its reason, if settled, and keeps how many pull requests it
     /// had, so they do not settle it again (module docs). A chat a plain Archive hid is held the
-    /// same way: the person brought it back.
-    pub(crate) fn unarchive(&self, session: &Session) -> Result<(), RpcError> {
-        self.update_tags_answered(session, |m| Some(brought_back(m)), None).map(|_| ())
+    /// same way: the person brought it back. Whether anything changed: a chat that is neither
+    /// archived nor settled is left alone (no record, so its idle days and pull request hold
+    /// stay), as [`Hub::set_archived`] does.
+    pub(crate) fn unarchive(&self, session: &Session) -> Result<bool, RpcError> {
+        let change = |m: &SessionMeta| {
+            [ARCHIVED_TAG, super::inactive_archive::ARCHIVED_BY_TAG, SETTLED_TAG]
+                .iter()
+                .any(|k| m.tags.contains_key(*k))
+                .then(|| brought_back(m))
+        };
+        self.update_tags_answered(session, change, None)
     }
 
     /// The person's own prompt reached `session`: a settled chat comes back.

@@ -49,6 +49,13 @@ impl Hub {
             let Some((set, remove)) = change(&m) else {
                 return Ok(false);
             };
+            // The automatic archive's marker describes that archive only: any other change of
+            // `archived` (an unarchive, an archive by hand, a `_acpmux/tag` write) drops it
+            // (`inactive_archive.rs`).
+            use super::inactive_archive::{ARCHIVED_BY_TAG, ARCHIVED_TAG};
+            let drops_marker = (set.contains_key(ARCHIVED_TAG)
+                || remove.iter().any(|k| k == ARCHIVED_TAG))
+                && !set.contains_key(ARCHIVED_BY_TAG);
             let expires_at = ttl_seconds.map(|t| now_ms().saturating_add(t.saturating_mul(1000)));
             for (k, v) in set {
                 let value = match v {
@@ -59,6 +66,9 @@ impl Hub {
             }
             for k in &remove {
                 m.tags.remove(k);
+            }
+            if drops_marker {
+                m.tags.remove(ARCHIVED_BY_TAG);
             }
         }
         self.child_tags.note(session);

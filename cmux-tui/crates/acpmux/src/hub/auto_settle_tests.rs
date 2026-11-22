@@ -151,6 +151,8 @@ fn the_github_read_parses() {
         "https://github.com/o/r/pull/x",
         "https://github.com/o/r/pull/5/files",
         "https://github.com/o;rm/r/pull/5",
+        "https://github.com/../r/pull/5",
+        "https://github.com/o/./pull/5",
         "http://github.com/o/r/pull/5",
     ] {
         assert_eq!(pr_path(bad), None, "{bad}");
@@ -257,9 +259,15 @@ async fn a_change_after_the_read_keeps_it() {
     assert!(!hub.settle(&session, Reason::Idle, &seen).unwrap(), "a record after the read");
     assert_eq!(tag(&session, SETTLED_TAG), None);
 
+    // An unarchive of a chat that is neither archived nor settled changes nothing: no record
+    // (its idle days stay) and no hold.
+    assert!(!hub.unarchive(&session).unwrap());
+    assert_eq!(tag(&session, UNSETTLED_TAG), None);
+
+    hub.set_archived(&session, true, false).unwrap();
     let seen = session.read_meta(Facts::of);
     let updated_at = seen.last_activity_ms;
-    hub.unarchive(&session).unwrap();
+    assert!(hub.unarchive(&session).unwrap());
     // The Unarchive's own record, put back to the read's time: only its tag tells it apart.
     session.meta.lock().unwrap().updated_at = updated_at;
     assert!(!hub.settle(&session, Reason::Idle, &seen).unwrap(), "unarchived after the read");
