@@ -1188,6 +1188,9 @@ POST_MERGE_PROBE_TITLE = "probe "
 BASE_DISPATCH: frozenset[tuple[str, str]] = frozenset()
 BASE_DISPATCH_EVERY = timedelta(minutes=60)
 ROUTE_IF = re.compile(r"\$\{\{ *inputs\.(\w+) *== *'true' *\}\}")
+# A job a feat-cmux-next pull request runs as a ci/steps.toml step instead (pr-pipeline.yml): it skips only there, and
+# its rollup counts that skip as fine, so it has no route input and every other run is judged as an unrouted job's.
+STEP_TABLE_SKIP_IF = "${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}"
 # A route report the Guard status prints: always read, even for a job the contract does not name (refused as unknown).
 ROUTE_REPORT = r"workflow-guard-[\w-]+|linux_guard_\w+"
 HOOK_REFUSAL = "glaeda-cmux-runner-hook: refused"
@@ -1539,7 +1542,7 @@ def derive_rollups(workflows: Path = WORKFLOWS, *, run=RUN_ROLLUPS, routed=ROUTE
                     continue
                 condition = jobs[need].get("if")
                 route = None
-                if condition is not None:
+                if condition is not None and not (isinstance(condition, str) and condition.strip() == STEP_TABLE_SKIP_IF):
                     match = ROUTE_IF.fullmatch(condition.strip()) if isinstance(condition, str) else None
                     if match is None or match.group(1) not in inputs:
                         raise Refused(f"{where}: job {need}'s if {condition!r} is not one route input == 'true'")
