@@ -2,8 +2,19 @@
 // (conversation/MessageBoundary.tsx); this one keeps any other render error from leaving a blank
 // pane, and its button asks the page host to reload the document so a transient bundle failure can
 // recover without restarting the app.
-import { Component, type ReactNode } from "react";
+//
+// What it caught goes to the page's console in the error's own words, with the component that threw
+// (the app keeps console errors in its journal, `cmux errors`): the pane alone says only that it could
+// not draw, and a boundary that logs nothing leaves no reason to fix (Leo, 2026-11-22: "it gave me the
+// agent pane could not be drawn after i opedn up background tasks"; handbook failure-drops-its-reason).
+import { Component, type ErrorInfo, type ReactNode } from "react";
 import { useT } from "./i18n";
+
+/// The line a caught render error is logged under: what failed, then the error's own words.
+export function paneFailureLine(error: unknown): string {
+  const words = error instanceof Error ? error.message : String(error);
+  return `agent pane render failed: ${words || "no message"}`;
+}
 
 type Props = { children?: ReactNode; onRetry?: () => void };
 type State = { failed: boolean };
@@ -13,6 +24,10 @@ export class PaneBoundary extends Component<Props, State> {
 
   static getDerivedStateFromError(): State {
     return { failed: true };
+  }
+
+  componentDidCatch(error: unknown, info: ErrorInfo) {
+    console.error(paneFailureLine(error), error, info.componentStack ?? "");
   }
 
   render() {
