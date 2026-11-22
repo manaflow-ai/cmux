@@ -98,34 +98,6 @@ impl Hub {
             None => Ok(model.to_owned()),
         }
     }
-
-    /// `-m HEAD` where HEAD is no harness here but a model name a Claude Code or Codex harness
-    /// here runs (`-m fable-5.2`): that harness and the model's canonical id. None for any
-    /// other head, so the unknown-harness error and its hint stay as they were.
-    pub(super) fn model_as_head(
-        &self,
-        cfg: &crate::config::Config,
-        head: &str,
-    ) -> Option<(String, String)> {
-        if head.contains('/') || cfg.resolve_harness(head).is_ok() {
-            return None;
-        }
-        for family in model_catalog::ALIASED_HARNESSES {
-            let Ok(agent) = cfg.resolve_harness(family) else { continue };
-            let Some(profile) = cfg.profile(&agent) else { continue };
-            let Some(entry) = super::models_view::curated_for(&self.catalog, &agent, profile)
-            else {
-                continue;
-            };
-            if let Ok(found) = model_catalog::canonical_model(&entry, head)
-                && found.known
-            {
-                tracing::info!(harness = %agent, "new: -m {head} -> {agent}/{}", found.model);
-                return Some((family.to_owned(), found.model));
-            }
-        }
-        None
-    }
 }
 
 /// Whether `session`'s `model` config option lists `model` as one of its values: the harness's

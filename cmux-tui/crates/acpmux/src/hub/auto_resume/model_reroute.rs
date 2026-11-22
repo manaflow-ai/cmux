@@ -62,7 +62,7 @@ impl Hub {
                 .filter_map(|entry| model_catalog::canonical_model(&entry, &running).ok())
                 .find(|c| c.changed()),
         }?;
-        found.changed().then(|| (found.given, found.model))
+        found.changed().then_some((found.given, found.model))
     }
 
     /// Settles the reroute of the turn `cut` failed: sets the chat's model to its catalog id and

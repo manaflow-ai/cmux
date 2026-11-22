@@ -120,7 +120,7 @@ fn a_rewrite_says_so_in_one_line() {
 
 #[test]
 fn a_name_two_ids_share_is_ambiguous_and_names_both() {
-    let aliases = vec!["sol".to_owned()];
+    let aliases = ["sol".to_owned()];
     let models: Vec<(&str, &[String])> =
         vec![("gpt-6.1-sol", &aliases[..]), ("gpt-6.2-sol", &aliases[..])];
     let err = canonical_among(models, "Sol").unwrap_err();
