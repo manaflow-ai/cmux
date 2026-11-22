@@ -103,3 +103,31 @@ test("an agent telepointer with no pointer draws the agent's cursor with no clic
   const hidden = markup({ ...running, telepointers: { agent: { x: 0.4, y: 0.6, visible: false, idle: false } } });
   expect(hidden).not.toContain("acpmux-cu-preview__arrow");
 });
+
+test("a card at its first place sits beside the column, with the full size button on its top right", () => {
+  const html = markup({ ...running, place: { x: 1, y: 0, size: "small" } });
+  expect(html).toMatch(/^<div class="acpmux-cu-preview">/);
+  expect(html).toContain('class="acpmux-cu-preview__full" aria-label="Full Size" aria-pressed="false"');
+});
+
+test("a moved card draws at its place, as fractions of the pane's room", () => {
+  const html = markup({ ...running, place: { x: 0.25, y: 0.5, size: "small" } });
+  expect(html).toMatch(/^<div class="acpmux-cu-preview" data-placed="" style="--cu-x:0.25;--cu-y:0.5">/);
+});
+
+test("an enlarged card says so, and a full size one fills the pane with no place of its own", () => {
+  expect(markup({ ...running, place: { x: 1, y: 0, size: "large" } })).toContain("data-expanded");
+  const full = markup({ ...running, place: { x: 0.25, y: 0.5, size: "full" } });
+  expect(full).toMatch(/^<div class="acpmux-cu-preview" data-full="">/);
+  expect(full).toContain('aria-label="Exit Full Size" aria-pressed="true"');
+  expect(full).toContain('aria-expanded="true"');
+});
+
+test("a hidden card is only the Show Preview chip, at the card's place", () => {
+  const html = markup({ ...running, hidden: true, place: { x: 0, y: 1, size: "small" } });
+  expect(html).toMatch(/^<div class="acpmux-cu-preview" data-hidden="" data-placed="" style="--cu-x:0;--cu-y:1">/);
+  expect(html).toContain('class="acpmux-cu-preview__chip"');
+  expect(html).toContain("<span>Show Preview</span>");
+  expect(html).not.toContain("acpmux-cu-preview__frame");
+  expect(html).not.toContain("acpmux-cu-preview__close");
+});

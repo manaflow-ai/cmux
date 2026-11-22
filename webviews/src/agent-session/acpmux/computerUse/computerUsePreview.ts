@@ -12,6 +12,15 @@
 // opening or closing Session Info never reflows the chat; Settings Push always's column keeps the
 // chat clear of both instead.
 //
+// The person drags the card anywhere in the pane, enlarges it or fills the pane with it, hides it and
+// brings it back from a small chip (Leo, 2026-11-22: "WHERE IS THE FUCKING PREVIEW OF THE FUCKING
+// RUNNING SITUATION AND THE ABILITY TO DRAG IT AROUND AND FUCKING HIDE IT"). Where it sits and whether
+// it shows is the daemon's (cmux-tui remote_host/computer_use_preview_place.rs): each push carries
+// `place {x, y, size}` and `hidden`, and the page sends a move back as `chat.computerUsePreview
+// {action: "place", x?, y?, size?}` (`close` hides, `show` brings it back). Until the host's push agrees,
+// the page shows the person's move at once (`moveComputerUsePreview`); a host that sends no place
+// keeps the page's.
+//
 // The agent's cursor and the person's pointer reach the card as telepointers: fractions of the
 // previewed window with a visible flag and an age, metadata beside the frame and never drawn into
 // it. That model is ported from Petal's telepointers (kiruna-labs/petal @ 7ac436a,
@@ -43,7 +52,21 @@ export type ComputerUsePreview = {
   /// The agent's cursor and the person's pointer over the window, each when the host knows it.
   /// Running cards only.
   telepointers?: ComputerUsePreviewTelepointers;
+  /// Where the card sits in the pane and how large it is (the daemon's, or the person's move the
+  /// daemon has not echoed yet); absent from a host that keeps no place.
+  place?: ComputerUsePreviewPlace;
+  /// The person hid it: the pane shows the "Show Preview" chip instead.
+  hidden?: boolean;
 };
+
+export type ComputerUsePreviewSize = "small" | "large" | "full";
+/// Two fractions of the room the pane leaves around the card (0 the left or top edge, 1 the right or
+/// bottom), so the card stays inside the pane at any size; and its size.
+export type ComputerUsePreviewPlace = { x: number; y: number; size: ComputerUsePreviewSize };
+/// Where a new session's card sits: the top right, small (where it always sat).
+export const DEFAULT_COMPUTER_USE_PREVIEW_PLACE: ComputerUsePreviewPlace = { x: 1, y: 0, size: "small" };
+/// What the person changed: the page's own until the host's push says the same.
+export type ComputerUsePreviewMove = Partial<ComputerUsePreviewPlace> & { hidden?: boolean };
 
 export type ComputerUsePreviewPointer = { x: number; y: number; click: number; windowWidth?: number };
 
@@ -97,6 +120,22 @@ function readTelepointers(value: unknown): ComputerUsePreviewTelepointers | unde
   return { ...(agent ? { agent } : {}), ...(person ? { person } : {}) };
 }
 
+const SIZES: readonly ComputerUsePreviewSize[] = ["small", "large", "full"];
+const isSize = (value: unknown): value is ComputerUsePreviewSize => SIZES.includes(value as ComputerUsePreviewSize);
+const clampFraction = (value: number) => Math.min(1, Math.max(0, value));
+
+/// The place of a host push, or undefined (none, or a malformed one).
+function readPlace(value: unknown): ComputerUsePreviewPlace | undefined {
+  const raw = value as Partial<ComputerUsePreviewPlace> | null | undefined;
+  if (!raw || typeof raw !== "object") return undefined;
+  const { x, y, size } = raw;
+  if (typeof x !== "number" || !Number.isFinite(x) || typeof y !== "number" || !Number.isFinite(y)) return undefined;
+  return { x: clampFraction(x), y: clampFraction(y), size: isSize(size) ? size : "small" };
+}
+
+const samePlace = (a?: ComputerUsePreviewPlace, b?: ComputerUsePreviewPlace) =>
+  a?.x === b?.x && a?.y === b?.y && a?.size === b?.size;
+
 /// The age is not compared: a push that only re-ages a pointer changes nothing on screen.
 const sameTelepointer = (a?: ComputerUsePreviewTelepointer, b?: ComputerUsePreviewTelepointer) =>
   a?.x === b?.x && a?.y === b?.y && a?.visible === b?.visible && a?.idle === b?.idle;
@@ -106,7 +145,39 @@ const sameTelepointers = (a?: ComputerUsePreviewTelepointers, b?: ComputerUsePre
 let current: ComputerUsePreview | null = null;
 /// The session the person closed here: hidden at once, before the host's push that takes it away.
 let closed: string | undefined;
+/// The person's moves the host has not echoed yet, by session (a few per page).
+const moves = new Map<string, ComputerUsePreviewMove>();
+/// What the page draws: the host's card with the person's moves over it.
+let shown: ComputerUsePreview | null = null;
 const listeners = new Set<() => void>();
+
+function notify(): void {
+  shown = withMoves(current);
+  for (const listener of listeners) listener();
+}
+
+function withMoves(card: ComputerUsePreview | null): ComputerUsePreview | null {
+  if (!card) return null;
+  const move = moves.get(card.session);
+  // Closed here and the host does not keep a hidden card (an older host): gone, as before.
+  if (card.session === closed && card.hidden !== true && move?.hidden !== true) return null;
+  if (!move) return card;
+  const { hidden, ...place } = move;
+  const merged: ComputerUsePreview = {
+    ...card,
+    place: { ...(card.place ?? DEFAULT_COMPUTER_USE_PREVIEW_PLACE), ...place },
+  };
+  if (hidden !== undefined) merged.hidden = hidden;
+  return merged;
+}
+
+/// Whether the host's card already says what the person's move asked for.
+function echoes(card: ComputerUsePreview, move: ComputerUsePreviewMove): boolean {
+  if (!card.place) return false;
+  const { hidden, ...place } = move;
+  if (hidden !== undefined && (card.hidden === true) !== hidden) return false;
+  return samePlace(card.place, { ...card.place, ...place });
+}
 
 /// Only an image `data:` URL draws: the page's CSP allows `img-src data:`, and nothing else is
 /// taken from the push.
@@ -120,6 +191,7 @@ export function readComputerUsePreview(value: unknown): ComputerUsePreview | nul
   const done = raw.done === true;
   const pointer = done ? undefined : readPointer(raw.pointer);
   const telepointers = done ? undefined : readTelepointers(raw.telepointers);
+  const place = readPlace(raw.place);
   return {
     session: raw.session,
     app: typeof raw.app === "string" ? raw.app : "",
@@ -128,6 +200,8 @@ export function readComputerUsePreview(value: unknown): ComputerUsePreview | nul
     ...(isImage(raw.icon) ? { icon: raw.icon } : {}),
     ...(pointer ? { pointer } : {}),
     ...(telepointers ? { telepointers } : {}),
+    ...(place ? { place } : {}),
+    ...(raw.hidden === true ? { hidden: true } : {}),
   };
 }
 
@@ -141,22 +215,62 @@ export function setComputerUsePreview(value: unknown): void {
     next?.app === current?.app &&
     next?.icon === current?.icon &&
     samePointer(next?.pointer, current?.pointer) &&
-    sameTelepointers(next?.telepointers, current?.telepointers)
+    sameTelepointers(next?.telepointers, current?.telepointers) &&
+    samePlace(next?.place, current?.place) &&
+    next?.hidden === current?.hidden
   )
     return;
   current = next;
-  for (const listener of listeners) listener();
+  // The host speaks for the place once its push says what the person asked for.
+  const move = next ? moves.get(next.session) : undefined;
+  if (next && move && echoes(next, move)) moves.delete(next.session);
+  notify();
 }
 
 export function currentComputerUsePreview(): ComputerUsePreview | null {
-  return current && current.session !== closed ? current : null;
+  return shown;
 }
 
 /// Hides the card of `session` here at once (the close button); the host's next push agrees.
 export function closeComputerUsePreview(session: string): void {
-  if (closed === session) return;
+  if (closed === session && moves.get(session)?.hidden === true) return;
   closed = session;
-  for (const listener of listeners) listener();
+  moveComputerUsePreview(session, { hidden: true });
+}
+
+/// Brings back the card of `session` the person hid (the chip).
+export function showComputerUsePreview(session: string): void {
+  if (closed === session) closed = undefined;
+  moveComputerUsePreview(session, { hidden: false });
+}
+
+/// The person moved, resized, hid or showed the card of `session`: drawn at once, until the host's push
+/// agrees.
+export function moveComputerUsePreview(session: string, move: ComputerUsePreviewMove): void {
+  if (moves.size >= 16 && !moves.has(session)) moves.clear();
+  moves.set(session, { ...moves.get(session), ...move });
+  notify();
+}
+
+/// The place the card draws at.
+export const computerUsePreviewPlace = (preview: ComputerUsePreview): ComputerUsePreviewPlace =>
+  preview.place ?? DEFAULT_COMPUTER_USE_PREVIEW_PLACE;
+
+/// Whether the card sits where the column keeps its room (the top right, small, shown): moved, larger or
+/// hidden, the column takes its room back.
+export function computerUsePreviewDocked(preview: ComputerUsePreview): boolean {
+  if (preview.hidden) return false;
+  return samePlace(computerUsePreviewPlace(preview), DEFAULT_COMPUTER_USE_PREVIEW_PLACE);
+}
+
+/// How far a press may move before it is a drag, not a click (CSS pixels).
+export const COMPUTER_USE_PREVIEW_DRAG_SLOP = 4;
+
+/// A drag of `delta` pixels from `from` (a fraction), in a room `room` pixels long (the pane's side less
+/// the card's and its margins): the new fraction, kept inside the room.
+export function dragFraction(from: number, delta: number, room: number): number {
+  if (!(room > 0)) return clampFraction(from);
+  return clampFraction(from + delta / room);
 }
 
 /// The app's name the card's label says: trimmed, or none.
