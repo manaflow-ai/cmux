@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextTabs
 import CmuxNextTestSupport
 import Foundation
 import Testing
@@ -131,7 +132,12 @@ struct NewTabOpenFramesTests {
     }
 
     /// A page that joins the New Tab pages after the fill was asked for (Cmd-N's first page, `firstPage(cwd:token:)`)
-    /// gets the palette's actions too.
+    /// gets the palette's actions too. Cmd-N gives the page its view in the key's turn, with no second ask for the
+    /// list, and the row does the same: the view takes the list. A page with no view takes none (the page that the app
+    /// stores for it never has a list), so the row waits for the view's list, not for the stored page's.
+    ///
+    /// The row's time is the test process's frame clock, not a path of the app: with no display the listing gets
+    /// about 10 frames in a second, one slice of the catalog in each.
     @Test func cmdNsFirstPageGetsThePalettesActions() async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-open-frames-cmdn")
@@ -139,11 +145,18 @@ struct NewTabOpenFramesTests {
             _ = try await Self.focusedPane(services)
             let tabs = services.agentTabs
             let made = try #require(tabs.firstPage(cwd: nil, token: nil), "no first page")
-            let key = "open-frames-cmdn-\(UUID().uuidString.prefix(8))"
+            let key = AgentTabKey(machine: "", key: "open-frames-cmdn-\(UUID().uuidString.prefix(8))")
             tabs.newTabPages[key] = made
-            defer { tabs.newTabPages[key] = nil }
-            try await PasswordManagerRouteTests.until({ tabs.newTabPages[key]?.page.omnibar.actions.isEmpty == false },
-                                                      report: { "Cmd-N's first page never got the palette's actions" })
+            let view = try #require(tabs.makeSpare(made.page), "the app made no page view")
+            tabs.views[key] = view
+            defer {
+                view.close()
+                tabs.views[key] = nil
+                tabs.newTabPages[key] = nil
+            }
+            try await PasswordManagerRouteTests.until({ view.model.newTab?.omnibar.actions.isEmpty == false },
+                                                      report: { "the view of Cmd-N's first page never got the palette's actions" })
+            #expect(tabs.newTabPages[key]?.page.omnibar.actions.isEmpty == true, "the stored page of Cmd-N's first page took a list")
         }
     }
 }
