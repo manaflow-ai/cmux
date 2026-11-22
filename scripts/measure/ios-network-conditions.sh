@@ -31,7 +31,8 @@
 # forms per the daemon's identify): an idle fixture (no shaper, no stream, 5 workspaces, 1,000
 # scrollback lines) and a loaded daemon (50 workspaces, a 10,000-line terminal with output
 # streaming into it while it is measured) unshaped and under the duress profiles
-# (duress_profiles=lte,lossy-3). The table flags each duress number past 2x its idle one. The chat
+# (duress_profiles=lte,lossy-3). duress_workspaces=50,200,1000 runs one loaded daemon per count
+# (default 50). The table flags each duress number past 2x its idle one. The chat
 # surface runs its usual bench at the scales given (scales=250x: 5,000 turns, 10,000 messages).
 #   cmux-ci test -- bash scripts/measure/ios-network-conditions.sh mode=duress surfaces=terminal \
 #     before=MERGE_BASE_SHA after=PR_HEAD_SHA n=5
@@ -39,25 +40,27 @@
 set -euo pipefail
 trap 'echo "ios-network-conditions.sh: line $LINENO exited $? ($BASH_COMMAND)" >&2' ERR
 
-before="" after="" mode=links duress_profiles="lte,lossy-3" n=5 profiles="" surfaces="terminal,chat" scales="1x,10x,100x" seed=0
+before="" after="" mode=links duress_profiles="lte,lossy-3" duress_workspaces=50 n=5 profiles="" surfaces="terminal,chat" scales="1x,10x,100x" seed=0
 for kv in "$@"; do
   case "$kv" in
     before=*) before="${kv#*=}" ;;
     after=*) after="${kv#*=}" ;;
     mode=*) mode="${kv#*=}" ;;
     duress_profiles=*) duress_profiles="${kv#*=}" ;;
+    duress_workspaces=*) duress_workspaces="${kv#*=}" ;;
     n=*) n="${kv#*=}" ;;
     profiles=*) profiles="${kv#*=}" ;;
     surfaces=*) surfaces="${kv#*=}" ;;
     scales=*) scales="${kv#*=}" ;;
     seed=*) seed="${kv#*=}" ;;
-    *) echo "ios-network-conditions.sh: unknown arg '$kv' (before=, after=, mode=, duress_profiles=, n=, profiles=, surfaces=, scales=, seed=)" >&2; exit 2 ;;
+    *) echo "ios-network-conditions.sh: unknown arg '$kv' (before=, after=, mode=, duress_profiles=, duress_workspaces=, n=, profiles=, surfaces=, scales=, seed=)" >&2; exit 2 ;;
   esac
 done
 [[ -z "$before" || "$before" =~ ^[0-9a-f]{40}$ ]] || { echo "ios-network-conditions.sh: before= is a 40-character SHA" >&2; exit 2; }
 [[ -z "$after" || "$after" =~ ^[0-9a-f]{40}$ ]] || { echo "ios-network-conditions.sh: after= is a 40-character SHA" >&2; exit 2; }
 [[ "$mode" == links || "$mode" == duress ]] || { echo "ios-network-conditions.sh: mode=links or mode=duress" >&2; exit 2; }
 [[ "$duress_profiles" =~ ^[a-z0-9-]+(,[a-z0-9-]+)*$ ]] || { echo "ios-network-conditions.sh: duress_profiles=NAME,..." >&2; exit 2; }
+[[ "$duress_workspaces" =~ ^[1-9][0-9]{0,4}(,[1-9][0-9]{0,4})*$ ]] || { echo "ios-network-conditions.sh: duress_workspaces=N,..." >&2; exit 2; }
 [[ "$n" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "ios-network-conditions.sh: n is 1-999" >&2; exit 2; }
 [[ "$seed" =~ ^[0-9]{1,9}$ ]] || { echo "ios-network-conditions.sh: seed is a number" >&2; exit 2; }
 [[ "$surfaces" =~ ^(terminal|chat)(,(terminal|chat))?$ ]] || { echo "ios-network-conditions.sh: surfaces=terminal,chat" >&2; exit 2; }
@@ -139,7 +142,7 @@ bench() {
   # One target directory for every leg: the dependencies build once.
   (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="$work/target" \
     NETCOND_PROFILES="$profiles" NETCOND_SCALES="$scales" NETCOND_RUNS="$n" NETCOND_SEED_BASE="$seed" \
-    NETCOND_DURESS_PROFILES="$duress_profiles" \
+    NETCOND_DURESS_PROFILES="$duress_profiles" NETCOND_DURESS_WORKSPACES="$duress_workspaces" \
     cargo test --release ${locked[@]+"${locked[@]}"} -p "$crate" --test mobile_link_conditions -- \
       ${filter[@]+"${filter[@]}"} --ignored --nocapture --test-threads 1 2>&1 | tee "$log" |
     # Live as they come, so a run cut at its deadline still shows how far it got.

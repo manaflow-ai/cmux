@@ -728,7 +728,8 @@ fn terminal_attach_under_link_profiles() {
 // The requests are the phone's at each daemon (scripts/measure/mobile-open-path.py's forms):
 // - home: WorkspaceSync.prepare's one write: set-client-info, identify, subscribe {tree_events:
 //   deltas}, list-agents, list-workspaces, with {limit: 40} when the daemon's identify lists
-//   `list-workspaces-page-v1` (ListFirstWindow). First content: the last of the five replies.
+//   `list-workspaces-page-v1` (ListFirstWindow), and {rows: "slim"} with it when it also lists
+//   `list-workspaces-slim-v1`. First content: the last of the five replies.
 // - reattach: DaemonTerminalSession's reattach on a fresh connection, its input lane opening
 //   beside it: resolve-terminal, then set-client-info + identify, then attach-surface (3 round
 //   trips); with `attach-terminal-id-v1` listed, set-client-info, identify and attach-surface
@@ -737,7 +738,8 @@ fn terminal_attach_under_link_profiles() {
 // The phone remembers the capabilities from its earlier connect: a probe identify before the runs.
 //
 // Env: NETCOND_DURESS_PROFILES (lte,lossy-3), NETCOND_RUNS (5), NETCOND_SEED_BASE (0),
-// NETCOND_IDLE_WORKSPACES (5), NETCOND_IDLE_SCROLLBACK (1000), NETCOND_DURESS_WORKSPACES (50),
+// NETCOND_IDLE_WORKSPACES (5), NETCOND_IDLE_SCROLLBACK (1000), NETCOND_DURESS_WORKSPACES (50; a
+// comma list such as 50,200,1000 runs one loaded daemon per count, scale `duress-N` each),
 // NETCOND_DURESS_SCROLLBACK (10000), NETCOND_DURESS_STREAM_LINES (50 lines of ~80 bytes per
 // 20 ms tick). Rows: profile `none` (no shaper) or `NAME@VERSION`, phase `home` or `reattach`,
 // scale the fixture (`idle` or `duress`), plus phase `fixture` (the daemon's capabilities and the
@@ -745,6 +747,8 @@ fn terminal_attach_under_link_profiles() {
 
 const ATTACH_TERMINAL_ID_CAPABILITY: &str = "attach-terminal-id-v1";
 const FIRST_WINDOW_CAPABILITY: &str = "list-workspaces-page-v1";
+/// ListFirstWindow.slimCapability: the first window asks for slim rows.
+const SLIM_ROWS_CAPABILITY: &str = "list-workspaces-slim-v1";
 /// ListFirstWindow.limit.
 const FIRST_WINDOW_LIMIT: u64 = 40;
 const INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
@@ -754,7 +758,7 @@ const MAC_COLS: u64 = 160;
 const MAC_ROWS: u64 = 50;
 
 struct Fixture {
-    name: &'static str,
+    name: String,
     workspaces: u64,
     scrollback: u64,
     stream_lines: u64,
@@ -932,6 +936,9 @@ async fn home_once(addr: std::net::SocketAddr, daemon: &OpenDaemon) -> Result<Op
     let mut list = json!({});
     if daemon.lists(FIRST_WINDOW_CAPABILITY) {
         list["limit"] = json!(FIRST_WINDOW_LIMIT);
+        if daemon.lists(SLIM_ROWS_CAPABILITY) {
+            list["rows"] = json!("slim");
+        }
     }
     let ids = conn
         .send(vec![
@@ -1096,34 +1103,44 @@ fn open_path_under_duress() {
     }
     let runs = env_u64("NETCOND_RUNS", 5);
     let seed_base = env_u64("NETCOND_SEED_BASE", 0);
-    let fixtures = [
-        Fixture {
-            name: "idle",
-            workspaces: env_u64("NETCOND_IDLE_WORKSPACES", 5),
-            scrollback: env_u64("NETCOND_IDLE_SCROLLBACK", 1_000),
-            stream_lines: 0,
-            // The same links as duress, so a duress number is judged against the idle
-            // fixture on its own link, not against loopback.
-            links: duress_links.clone(),
-        },
-        Fixture {
-            name: "duress",
-            workspaces: env_u64("NETCOND_DURESS_WORKSPACES", 50),
+    let counts: Vec<u64> = env_list("NETCOND_DURESS_WORKSPACES", "50")
+        .iter()
+        .map(|count| count.parse().unwrap_or_else(|_| panic!("NETCOND_DURESS_WORKSPACES: {count}")))
+        .collect();
+    let mut fixtures = vec![Fixture {
+        name: "idle".to_owned(),
+        workspaces: env_u64("NETCOND_IDLE_WORKSPACES", 5),
+        scrollback: env_u64("NETCOND_IDLE_SCROLLBACK", 1_000),
+        stream_lines: 0,
+        // The same links as duress, so a duress number is judged against the idle
+        // fixture on its own link, not against loopback.
+        links: duress_links.clone(),
+    }];
+    for &workspaces in &counts {
+        fixtures.push(Fixture {
+            // One count keeps the scale `duress`; several name each by its count.
+            name: if counts.len() == 1 {
+                "duress".to_owned()
+            } else {
+                format!("duress-{workspaces}")
+            },
+            workspaces,
             scrollback: env_u64("NETCOND_DURESS_SCROLLBACK", 10_000),
             stream_lines: env_u64("NETCOND_DURESS_STREAM_LINES", 50),
-            links: duress_links,
-        },
-    ];
+            links: duress_links.clone(),
+        });
+    }
     for fixture in &fixtures {
         let daemon = OpenDaemon::start(fixture);
         println!(
-            "NETCOND-FIXTURE {} workspaces={} scrollback={} stream_lines_per_20ms={} attach-terminal-id-v1={} list-workspaces-page-v1={}",
+            "NETCOND-FIXTURE {} workspaces={} scrollback={} stream_lines_per_20ms={} attach-terminal-id-v1={} list-workspaces-page-v1={} list-workspaces-slim-v1={}",
             fixture.name,
             fixture.workspaces,
             fixture.scrollback,
             fixture.stream_lines,
             daemon.lists(ATTACH_TERMINAL_ID_CAPABILITY),
-            daemon.lists(FIRST_WINDOW_CAPABILITY)
+            daemon.lists(FIRST_WINDOW_CAPABILITY),
+            daemon.lists(SLIM_ROWS_CAPABILITY)
         );
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(4)
@@ -1134,7 +1151,7 @@ fn open_path_under_duress() {
             let upstream = splice(&daemon.daemon.socket).await;
             if fixture.stream_lines > 0 {
                 let rate = stream_rate(upstream, daemon.surface).await;
-                duress_emit("none", "fixture", fixture.name, "stream_bytes_per_s", rate, 0);
+                duress_emit("none", "fixture", &fixture.name, "stream_bytes_per_s", rate, 0);
             }
             for link in &fixture.links {
                 let label = link
@@ -1153,7 +1170,7 @@ fn open_path_under_duress() {
                                     duress_error(
                                         &label,
                                         "home",
-                                        fixture.name,
+                                        &fixture.name,
                                         run,
                                         &format!("shaper: {e}"),
                                     );
@@ -1171,17 +1188,17 @@ fn open_path_under_duress() {
                             reattach_once(addr, &daemon, run).await
                         };
                         match sample {
-                            Ok(sample) => emit_sample(&label, phase, fixture.name, run, &sample),
+                            Ok(sample) => emit_sample(&label, phase, &fixture.name, run, &sample),
                             Err(why) => {
                                 duress_emit(
                                     &label,
                                     phase,
-                                    fixture.name,
+                                    &fixture.name,
                                     "first_content_ms",
                                     None,
                                     run,
                                 );
-                                duress_error(&label, phase, fixture.name, run, &why);
+                                duress_error(&label, phase, &fixture.name, run, &why);
                             }
                         }
                     }

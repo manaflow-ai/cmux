@@ -30,7 +30,18 @@ METRIC_ORDER = [
 ]
 PHASE_ORDER = ["cold", "warm", "reconnect", "fixture", "home", "reattach"]
 # mode=duress: the idle fixture and the loaded daemon (mobile_link_conditions.rs open_path_under_duress).
+# duress_workspaces=50,200,1000 names each loaded daemon `duress-N`, in count order after idle.
 DURESS_SCALES = {"idle": 0, "duress": 1}
+
+
+def is_duress(scale: str) -> bool:
+    return scale == "duress" or (scale.startswith("duress-") and scale[7:].isdigit())
+
+
+def duress_rank(scale: str) -> int:
+    if scale in DURESS_SCALES:
+        return DURESS_SCALES[scale]
+    return 1 + int(scale[7:]) if is_duress(scale) else 10**9
 DURESS_METRICS = ["round_trips", "bytes_down", "first_content_ms", "interactive_ms", "workspaces_shown"]
 
 
@@ -73,15 +84,19 @@ def change(before: dict | None, after: dict | None) -> str:
 def duress_table(rows: list[dict], before: str | None) -> list[str]:
     """mode=duress: phase x metric, a column per link (the idle fixture first), before -> after
     p50, and FLAG where a duress after-p50 is more than 2x the idle fixture's after-p50."""
-    duress = [row for row in rows if row["scale"] in DURESS_SCALES and row["phase"] in ("home", "reattach")]
+    duress = [row for row in rows if (row["scale"] == "idle" or is_duress(row["scale"])) and row["phase"] in ("home", "reattach")]
     if not duress:
         return []
     by_key = {(row["phase"], row["metric"], row["profile"], row["scale"]): row for row in duress}
-    links = sorted({row["profile"] for row in duress if row["scale"] == "duress"}, key=lambda p: (p != "none", p))
+    links = sorted({row["profile"] for row in duress if is_duress(row["scale"])}, key=lambda p: (p != "none", p))
+    loaded = sorted({row["scale"] for row in duress if is_duress(row["scale"])}, key=duress_rank)
     columns = []
     for link in links:
         name = "no shaper" if link == "none" else link
-        columns += [(link, "idle", f"{name}, idle fixture"), (link, "duress", f"{name} + duress")]
+        columns.append((link, "idle", f"{name}, idle fixture"))
+        for scale in loaded:
+            what = "duress" if scale == "duress" else f"duress, {scale[7:]} workspaces"
+            columns.append((link, scale, f"{name} + {what}"))
     fixture = {row["scale"]: row for row in rows if row["phase"] == "fixture" and row["metric"] == "stream_bytes_per_s"}
 
     def p50(summary: dict | None):
@@ -95,15 +110,17 @@ def duress_table(rows: list[dict], before: str | None) -> list[str]:
         if before:
             text = f"{fmt(row['before'], row['metric'])} -> {text}"
         value, idle_after = p50(after), p50(idle["after"]) if idle else None
-        if row["scale"] == "duress" and row["metric"] != "workspaces_shown" and value is not None and idle_after:
+        if is_duress(row["scale"]) and row["metric"] != "workspaces_shown" and value is not None and idle_after:
             if value > 2 * idle_after:
                 text += f" **FLAG {value / idle_after:.1f}x idle**"
         return text
 
     out = ["### duress: p50 (/ p95)" + (" before -> after" if before else "") + "; FLAG: a duress after > 2x the idle fixture's after on the same link", ""]
-    stream = fixture.get("duress")
-    if stream and stream.get("after"):
-        out.append(f"duress stream rate at the daemon: {fmt(stream['after'], 'bytes_down')}/s")
+    for scale in loaded:
+        stream = fixture.get(scale)
+        if stream and stream.get("after"):
+            out.append(f"{scale} stream rate at the daemon: {fmt(stream['after'], 'bytes_down')}/s")
+    if any(fixture.get(scale, {}).get("after") for scale in loaded):
         out.append("")
     out.append("| phase | metric | " + " | ".join(label for _, _, label in columns) + " |")
     out.append("|---|---|" + "---|" * len(columns))
@@ -148,7 +165,7 @@ def main() -> int:
             surface,
             profile,
             PHASE_ORDER.index(phase) if phase in PHASE_ORDER else 9,
-            int(scale.rstrip("x")) if scale.rstrip("x").isdigit() else DURESS_SCALES.get(scale, 99),
+            int(scale.rstrip("x")) if scale.rstrip("x").isdigit() else duress_rank(scale),
             METRIC_ORDER.index(metric) if metric in METRIC_ORDER else 99,
         )
 
