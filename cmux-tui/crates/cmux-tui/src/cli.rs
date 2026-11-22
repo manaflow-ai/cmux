@@ -323,6 +323,7 @@ const REMOTE_COMMANDS: &[&str] = &[
     "rpc",
     "remote-exec",
     "remote-cp",
+    "spill",
     "enroll",
     "known-daemons",
     "remote-probe",
