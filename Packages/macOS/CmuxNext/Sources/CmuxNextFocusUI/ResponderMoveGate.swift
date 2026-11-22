@@ -43,8 +43,9 @@ public struct ResponderMoveGate {
     public func refuses(_ responder: NSResponder?, or other: () -> Bool) -> Bool {
         let unseen = UnseenKeyboardGuard().refuses(responder, from: window.firstResponder, inInputEvent: inInputEvent,
                                                    focusModelApplies: focusModelApplies)
-        // Its page-window branch (a page view in a Chromium child window) must never fire with in-tree pages on.
-        if unseen, (responder as? NSView)?.window?.parent != nil { InTreeRetiredGuards.shared.fired(.unseenKeyboardPageWindow) }
+        // Its page-window branch (a page view in a Chromium page window) must never fire with in-tree pages on. Only a
+        // Chromium page window counts: a refusal in a sheet, popover or other child window is not a page window's.
+        if unseen, (responder as? NSView)?.window?.isChromiumPageWindow == true { InTreeRetiredGuards.shared.fired(.unseenKeyboardPageWindow) }
         let refused = unseen || takesFromTyping(responder) || other()
         if refused { log?.responderChanged(in: window, from: before, to: responder, refused: true, byFocusModel: false, route: route) }
         return refused
