@@ -10,7 +10,7 @@ extension WindowMaterialView {
     /// Only what changed is set, so an apply per frame of a resize writes nothing.
     func applyArtFit(_ desktop: DesktopShown?) {
         let fit = desktop?.fit ?? .fill
-        let fill = desktop.flatMap { fit.showsFill && $0.fill.count == 3 ? CGColor(srgbRed: $0.fill[0], green: $0.fill[1], blue: $0.fill[2], alpha: 1) : nil }
+        let fill = desktop.flatMap { fit.showsFill && $0.fill.count == 3 ? CGColor(srgbRed: $0.fill[0], green: $0.fill[1], blue: $0.fill[2], alpha: 1) : nil } // colour-allow: macOS's own desktop fill color, mirrored
         if let layer = artView.layer, layer.backgroundColor != fill { layer.backgroundColor = fill }
         if let layer = videoView.layer, layer.backgroundColor != fill { layer.backgroundColor = fill }
         // A centered picture keeps its own size: one pixel per backing pixel.
