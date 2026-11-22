@@ -96,8 +96,11 @@
   min-height: 20px;
   border: 0;
   border-radius: var(--ds-radius-control);
+  /* chat-surface-allow: the warning role's tint marks a held surge; the text stays the ink */
   background: color-mix(in srgb, var(--agent-warning, var(--agent-accent)) 14%, transparent);
-  color: var(--agent-warning, var(--agent-accent));
+  /* The text ink, not the warning hue: the hue on its own 14% tint read 2.5-2.7:1 in light themes
+     (control-contrast-11, #ac9007 on #f3efdc). The tint and the warning mark beside it carry the meaning. */
+  color: var(--agent-text);
   font: inherit;
   font-weight: var(--font-weight-emphasis);
   font-variant-numeric: tabular-nums;
@@ -105,6 +108,7 @@
   cursor: default;
 }
 button.acpmux-surge-need:hover {
+  /* chat-surface-allow: the warning role's tint marks a held surge; the text stays the ink */
   background: color-mix(in srgb, var(--agent-warning, var(--agent-accent)) 22%, transparent);
 }
 .acpmux-surge-copy .acpmux-surge-need { display: inline-flex; align-items: center; }
