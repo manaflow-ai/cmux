@@ -217,4 +217,41 @@ final class SubagentTranscriptUITests: XCTestCase {
         XCTAssertLessThanOrEqual(gap, 60, "the end stayed within 60 pt of the screen: \(label)")
         XCTAssertTrue(onScreen(app, app.staticTexts["chat.subagent.footer"].firstMatch), "the end (the footer) is on screen\n\(app.debugDescription)")
     }
+
+    /// SUB-8: the reader breaks out of following with their finger. A running transcript followed
+    /// at its end (50 tokens a second), the reader drags the content down 200 pt and lets go: it
+    /// stays where the finger left it, with no snap back to the end, while items keep arriving.
+    @MainActor
+    func testADragUpMidStreamBreaksOutOfFollowing() {
+        let app = launch("subagent", count: 20, stream: true, edge: "follow", after: 3, hz: 50)
+        defer { app.terminate() }
+        XCTAssertTrue(app.navigationBars["WireGuard dialer"].waitForExistence(timeout: 40), "the transcript opens\n\(app.debugDescription)")
+        let footer = app.staticTexts["chat.subagent.footer"].firstMatch
+        let streaming = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "token")).firstMatch
+        XCTAssertTrue(streaming.waitForExistence(timeout: 30), "the stream starts\n\(app.debugDescription)")
+        pass(2)
+        XCTAssertTrue(onScreen(app, footer), "following at the end before the drag")
+        attach(app, "1-following")
+        // The finger moves 200 pt down the screen: the content moves down, the reader goes up it.
+        let window = app.windows.firstMatch
+        let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+        start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 200)), withVelocity: 300, thenHoldForDuration: 0.3)
+        pass(1)
+        // A row that is not streaming, read after the drag: it must stay put while items arrive.
+        let read = app.staticTexts.allElementsBoundByIndex.first { $0.isHittable && $0.label.count > 3 && !$0.label.contains("token") && $0.identifier != "chat.subagent.footer" }
+        guard let read else { XCTFail("a row to read shows\n\(app.debugDescription)"); return }
+        let label = read.label
+        let before = read.frame.minY
+        attach(app, "2-after-drag")
+        var largest: CGFloat = 0
+        for _ in 0..<6 {
+            pass(0.5)
+            let now = app.staticTexts.matching(NSPredicate(format: "label == %@", label)).firstMatch
+            largest = max(largest, abs((now.exists ? now.frame.minY : .infinity) - before))
+        }
+        print("CMUX_DRAG_BREAKOUT largest move of the read row after the drag \(largest) pt")
+        XCTAssertLessThanOrEqual(largest, 1, "the transcript stays where the finger left it, no snap back to the end")
+        XCTAssertFalse(onScreen(app, footer), "the end is not followed after the drag")
+        attach(app, "3-held-after-drag")
+    }
 }
