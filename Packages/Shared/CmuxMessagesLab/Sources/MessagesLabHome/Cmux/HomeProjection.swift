@@ -88,11 +88,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var onAttachmentRefusal: (HomeAttachmentError) -> Void = { _ in }
     /// The field's text changed.
     var onDraftTextChange: () -> Void = {}
-    /// The content hashes of the field's attachments, in order, each time they change: a chip
+    /// The ids of the field's chips (``draftAttachmentIDs``), in order, each time they change: a chip
     /// added or removed, or the draft sent (design mode takes a pick off the page once its chip left).
     var onDraftAttachmentsChange: ([String]) -> Void = { _ in }
     /// What `onDraftAttachmentsChange` last heard, so a key typed reports nothing.
-    private var reportedDraftHashes: [String] = []
+    private var reportedDraftIDs: [String] = []
     /// Forward… on a bubble (u5402): the host asks where its text goes; nil offers no Forward….
     var onForward: ((String) -> Void)?
     /// Retry a committed person message in a Chief conversation. The app
@@ -111,9 +111,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
     let tableShimmer = HomeTableShimmer()
     /// Inline video playback in the bubbles.
     let video = HomeVideo()
-    /// Prepared attachments in the field by content hash (the chips are
-    /// MessagesLab's draft; a removed chip's entry is ignored).
-    private var drafts: [String: LocalAttachment] = [:]
+    /// Prepared attachments in the field by chip id (the chips are MessagesLab's draft; a removed
+    /// chip's entry is ignored). Each paste or drop is a chip of its own: the same picture pasted
+    /// three times is three chips, each sent (https://github.com/manaflow-ai/cmux/issues/50984), so
+    /// a chip's id is its content hash only for the first copy (``draftChipID(for:)``).
+    private var drafts: [ID: LocalAttachment] = [:]
     /// The last launch's attachments are going back in the field: each one
     /// is not written back on its own, the whole field is once they are in.
     private var restoringDraftAttachments = false
@@ -528,10 +530,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         }
         homeStore.setDraft("", for: conversation)
         homeStore.setDraftAttachments([], for: conversation)
-        for a in attachments {
-            media.useLocal(a.files, for: a.ref.hash)
-            drafts[a.ref.hash] = nil
-        }
+        for a in attachments { media.useLocal(a.files, for: a.ref.hash) }
+        for chip in draft.attachments { drafts[chip.id] = nil }
         reportDraftAttachments(draftAttachments)
         let homeStore = self.homeStore, conversation = self.conversation
         let plain = pieces.map(\.part)
@@ -606,21 +606,35 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     /// A prepared attachment enters the field as MessagesLab's chip, with its
     /// bubble picture made first (the morph and the bubble show it at once).
+    /// The same picture again is another chip, never folded into the first (#50984).
     func addDraft(_ attachment: LocalAttachment) async {
-        let hash = attachment.ref.hash
-        guard !stopped, controller.store?.state.ui.draft.attachments.contains(where: { $0.id == hash }) == false else { return }
+        guard !stopped, controller.store != nil else { return }
         await media.prepare(attachment)
         restoreDraft(attachment)
+    }
+
+    /// The id of a new chip for `hash`: the hash for its first copy in the field, `hash#2`, `hash#3`…
+    /// for each other, never one the field or a deleted chip an undo can bring back still holds.
+    func draftChipID(for hash: String) -> ID {
+        let shown = Set(controller.store?.state.ui.draft.attachments.map(\.id) ?? [])
+        var id = hash, copy = 1
+        while shown.contains(id) || drafts[id] != nil {
+            copy += 1
+            id = "\(hash)#\(copy)"
+        }
+        return id
     }
 
     /// `offset`: where in the field's text (UTF-16) the attachment goes; nil: the caret, or the end
     /// when the field does not show this draft's text yet.
     private func restoreDraft(_ attachment: LocalAttachment, at offset: Int? = nil) {
         let hash = attachment.ref.hash
-        guard !stopped, let store = controller.store, !store.state.ui.draft.attachments.contains(where: { $0.id == hash }) else { return }
-        drafts[hash] = attachment
-        // In the field's text (Draft+InlineMarks.swift).
-        let picture = HomeMapping.attachment(attachment.ref, picture: media.asset(hash), progress: nil)
+        guard !stopped, controller.store != nil else { return }
+        let id = draftChipID(for: hash)
+        drafts[id] = attachment
+        // In the field's text (Draft+InlineMarks.swift), under the chip's own id.
+        var picture = HomeMapping.attachment(attachment.ref, picture: media.asset(hash), progress: nil)
+        picture.id = id
         controller.dispatch(.attachAt(picture, offset ?? controller.composeCaret()))
         saveDraft()
     }
@@ -636,12 +650,12 @@ final class HomeProjection: @preconcurrency ChatIntents {
         reportDraftAttachments(attachments)
     }
 
-    /// Tells the host the field's attachments when they differ from what it last heard.
+    /// Tells the host the field's chips (their ids) when they differ from what it last heard.
     private func reportDraftAttachments(_ attachments: [LocalAttachment]) {
-        let hashes = attachments.map(\.ref.hash)
-        guard hashes != reportedDraftHashes else { return }
-        reportedDraftHashes = hashes
-        onDraftAttachmentsChange(hashes)
+        let ids = draftAttachmentIDs
+        guard ids != reportedDraftIDs else { return }
+        reportedDraftIDs = ids
+        onDraftAttachmentsChange(ids)
     }
 
     /// The field's attachments from the cache, once, into a field without any, each at its mark
@@ -681,11 +695,18 @@ final class HomeProjection: @preconcurrency ChatIntents {
         (controller.store?.state.ui.draft.attachments ?? []).compactMap { drafts[$0.id] }
     }
 
+    /// The ids of the field's chips, in order: one per paste or drop, two copies of one picture
+    /// two ids (``draftChipID(for:)``).
+    var draftAttachmentIDs: [ID] {
+        (controller.store?.state.ui.draft.attachments ?? []).compactMap { drafts[$0.id] == nil ? nil : $0.id }
+    }
+
     var isRestoringDraftAttachments: Bool { restoringDraftAttachments }
 
-    func removeDraft(_ hash: String) {
-        drafts[hash] = nil
-        controller.dispatch(.removeDraftAttachment(hash))
+    /// Takes chip `id` out of the field (a chip's id is its hash, or `hash#N` for another copy).
+    func removeDraft(_ id: ID) {
+        drafts[id] = nil
+        controller.dispatch(.removeDraftAttachment(id))
         saveDraft()
     }
 
