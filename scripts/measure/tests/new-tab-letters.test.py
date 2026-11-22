@@ -104,6 +104,14 @@ class Judge(unittest.TestCase):
     def test_a_chord_with_no_keys_is_no_chord_case(self):
         self.assertFalse(M.judge("three-key", ["release: chord, no keys to page +60ms"], "x")["chord"])
 
+    def test_a_report_of_the_setup_before_the_cases_first_begin_makes_no_ready_case(self):
+        # By a run of close-move: a page of the setup reported after the tool's read of the log, so the case's notes
+        # start with that report. The case's own hold ended at the second New Tab key: a `chord` case.
+        found = M.judge("close-move", ["ready match +440ms", "drained to field +440ms"] + CHORD, "x")
+        self.assertEqual((found["chord"], found["pass"]), (True, True))
+        # A report after the case's first `begin` and before the release is the case's own: a `ready` case.
+        self.assertFalse(M.judge("close-move", ["old +0ms"] + READY[:3] + CHORD[2:], "x")["chord"])
+
     def test_no_read_of_the_field_is_no_pass(self):
         found = M.judge("three-key", CHORD, None)
         self.assertEqual((found["letter_in_field"], found["pass"]), (None, False))

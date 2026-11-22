@@ -97,10 +97,13 @@ def new_notes(before, after):
 
 def judge(form, notes, text):
     """One case's verdict from the hold's notes of the case and the text of the first new tab's field (None: no
-    read). `chord`: the hold ended at the second New Tab key with no field ready before it."""
+    read). `chord`: the hold ended at the second New Tab key with no field ready before it. A note before the
+    case's first `begin` is not of the case's hold (a page of the setup that reported after the read of the log): it
+    makes no `ready` case. The count of dropped keys is of each note."""
     dropped = sum(int(found.group(1)) for found in map(DROPPED.search, notes) if found)
-    release = next((index for index, note in enumerate(notes) if "release: chord, keys" in note), None)
-    ready = next((index for index, note in enumerate(notes) if "ready match" in note), None)
+    own = notes[next((index for index, note in enumerate(notes) if note.startswith("begin ")), 0):]
+    release = next((index for index, note in enumerate(own) if "release: chord, keys" in note), None)
+    ready = next((index for index, note in enumerate(own) if "ready match" in note), None)
     chord_case = release is not None and (ready is None or ready > release)
     want = WANT_DROPPED.get(form, 0) if chord_case else 0
     # The field of a new tab is the letter and no more (a letter that came 2 times is no pass), or empty for a drop.
