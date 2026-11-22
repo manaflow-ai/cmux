@@ -499,6 +499,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     ("share-host on", &[("Turn sharing this Mac's screen on", "acpmux share-host on")]),
     ("share-host off", &[("Turn sharing this Mac's screen off", "acpmux share-host off")]),
+    (
+        "share-host link",
+        &[
+            ("Print the link that opens this Mac's screen, view-only", "acpmux share-host link"),
+            ("Link one display with full control", "acpmux share-host link --display 2 --control"),
+        ],
+    ),
     ("router", &[("Start the local CodeRouter", "acpmux router serve")]),
     ("router serve", &[("Start the local router listeners", "acpmux router serve")]),
 ];
