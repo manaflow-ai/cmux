@@ -10,19 +10,19 @@ public struct AgentSessionOpenRefusal: Error, Equatable, CustomStringConvertible
     /// More than one live chat here goes by `session` (its name or harness session id).
     static func ambiguousLocal(_ session: String) -> Self {
         Self(description: String(format: String(localized: "handlers.misc.failed.ambiguousLocalSession",
-                                                 defaultValue: "More than one chat here is named %@. Name it by its session id.", bundle: .module), session))
+                                                 defaultValue: "More than one chat here is named %@. Name it by its session id.", bundle: .localizedModule), session))
     }
 
     /// `peer` is a host this Mac mirrors, but no live chat of it is named `session`.
     static func noPeerSession(_ session: String, _ peer: String) -> Self {
         Self(description: String(format: String(localized: "handlers.misc.failed.noPeerSession",
-                                                 defaultValue: "%1$@ has no running chat named %2$@.", bundle: .module), peer, session))
+                                                 defaultValue: "%1$@ has no running chat named %2$@.", bundle: .localizedModule), peer, session))
     }
 
     /// More than one live chat of `peer` has the name `session`.
     static func ambiguousPeerSession(_ session: String, _ peer: String) -> Self {
         Self(description: String(format: String(localized: "handlers.misc.failed.ambiguousPeerSession",
-                                                 defaultValue: "%1$@ has more than one chat named %2$@. Name it by its session id.", bundle: .module),
+                                                 defaultValue: "%1$@ has more than one chat named %2$@. Name it by its session id.", bundle: .localizedModule),
                                  peer, session))
     }
 }

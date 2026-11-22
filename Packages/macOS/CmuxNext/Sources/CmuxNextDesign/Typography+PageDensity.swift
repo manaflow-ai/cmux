@@ -28,15 +28,15 @@ public extension Typography {
         return body / DensityPreset.cozy.tokens.bodySize * interfaceScale
     }
     /// The text scale the chats draw at (`--cmux-chat-text-scale`): the agent chat's messages, tool rows,
-    /// bubbles and composer. At and below Default it is Default's, so Compact and Ultra-compact draw the chats as
-    /// Default does (user 2026-11-16: "make it so compact and default density have same size of both imessage and
-    /// chat trajectory"); above it the chats grow with the density as before (``pageDensityTextScale``). Text Size and a chrome font size
-    /// set in Settings still apply, as they do at Default.
+    /// bubbles and composer. It is Default's at every density (user 2026-11-16: "make it so compact and default
+    /// density have same size of both imessage and chat trajectory"; 2026-11-19: "chat trajectory size should be
+    /// same at normal and compact and spacious densities"): a density changes the chat's spacing, never its text.
+    /// Text Size and a chrome font size set in Settings still apply, as at Default, and a custom density's own
+    /// `chatTextScale` (the Density Playground) sets the density's part exactly.
     static var pageChatTextScale: CGFloat {
         let interfaceScale = DesignSettings.shared.interfaceScaleEnabled ? DesignSettings.shared.interfaceScale : 1
         let drawn = DensityPreset.cozy.tokens.bodySize
-        // A density's own chat text scale (the Density Playground's `chatTextScale`) sets the density's part exactly.
-        let densityBody = Metrics.tokens.tokens["chatTextScale"].map { drawn * CGFloat($0) } ?? max(Metrics.tokens.bodySize, drawn)
+        let densityBody = Metrics.tokens.tokens["chatTextScale"].map { drawn * CGFloat($0) } ?? drawn
         let body = DesignSettings.shared.overrides[.chromeFontSize] ?? densityBody
         return body / drawn * interfaceScale
     }

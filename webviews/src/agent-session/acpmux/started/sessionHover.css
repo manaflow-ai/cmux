@@ -36,7 +36,7 @@
   letter-spacing: var(--text-body--letter-spacing);
 }
 .acpmux-session-hover:hover {
-  background: color-mix(in srgb, var(--agent-text) 4%, transparent);
+  background: var(--ds-surface-hover);
 }
 .acpmux-session-hover:focus-visible {
   outline: 1.5px solid var(--agent-text);

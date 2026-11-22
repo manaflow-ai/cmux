@@ -132,6 +132,7 @@ import {
   devboxParkDaemonCommand,
   devboxSettleBeforeSnapshotCommand,
   devboxClaudeTeamOnboardingCheckCommand,
+  devboxClaudeSettingsDefaultsCommand,
   devboxWorkUserCmuxConfigDirCommand,
   DEVBOX_MACHINE_HEALTH_PARKED_COMMAND,
   devboxPrepareTemplateTerminalCommand,
@@ -749,6 +750,7 @@ try {
   // is the same bytes on every machine and stays; the verifier checks it.)
   await step("clean", `rm -rf /var/lib/apt/lists/* /root/.npm/_cacache ${WORK_HOME}/.npm/_cacache 2>/dev/null; rm -f /root/.claude.json ${WORK_HOME}/.claude.json; ${devboxJournalResetCommand}; sync; true`);
   await step("claude-onboarding", `. ${VM_GUEST_MODEL_PLANE_ENV_PATH} && python3 -I /etc/cmux/claude-onboarding.py /root/.claude.json /root/.config/cmux/claude-team/.claude.json && sudo -n -u ${WORK_USER} env ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" python3 -I /etc/cmux/claude-onboarding.py ${WORK_HOME}/.claude.json ${WORK_HOME}/.config/cmux/claude-team/.claude.json && echo claude-onboarding-seeded`);
+  await step("claude-settings-defaults", devboxClaudeSettingsDefaultsCommand());
   // After the bake's last shell: the timer is enabled but stopped and the
   // bake pass's files are gone, so a clone runs no pass until its re-arm.
   await step("machine-health-parked", DEVBOX_MACHINE_HEALTH_PARKED_COMMAND);

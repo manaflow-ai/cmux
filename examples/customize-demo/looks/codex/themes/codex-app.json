@@ -1,0 +1,37 @@
+// The Codex app: a soft gray sidebar beside a white page, near-black text, gray accents, no
+// borders, and the app's big round corners. Colors from the codex-app recipe
+// (manaflow-ai/cmux#45804); edit and save, the window repaints at once.
+{
+  "name": "Codex app",
+  "description": "A gray sidebar beside a white page, near-black text, big round corners, no borders.",
+
+  "appearance.theme": "Builtin Light",
+  "colors": { "background": "#ffffff", "foreground": "#0d0d0d", "selection": "#e3e3e3", "cursor": "#0d0d0d", "accent": "#5d5d5d" },
+  "appearance.appTheme": "followTerminal",
+  "appearance.accent": "neutral",
+
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "appearance.borders": "none",
+  "appearance.chromeStyle": "flat",
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#ececec",
+  "appearance.surfaces.sidebar.opacity": 0.94,
+  "appearance.surfaces.agentPane.color": "#ffffff",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "sidebar.sectionLook": "quiet",
+  "appearance.statusIndicator.style": "native",
+
+
+  "appearance.density": "comfortable",
+
+  // Shape, not only color (Leo: "customizing the tabs/sidebars a lot deeper"): Codex's big round corners: 14 pt tabs, 12 pt sidebar rows on a 300 pt sidebar in large text, Codex's sidebar look, the top right buttons always shown, Session Info over the chat.
+  "density": { "basedOn": "comfortable", "tokens": {"tabCornerRadius": 14, "tabCloseCornerRadius": 8, "verticalTabCornerRadius": 12, "sidebarCornerRadius": 12, "itemCornerRadius": 12, "panelCornerRadius": 20, "sidebarWidth": 300, "sidebarRowHeight": 34, "sidebarRowGap": 2, "sidebarRowInset": 10, "tabGap": 6, "browserRowHeight": 32, "controlHeight": 30 } },
+  "sidebar.look": "codex",
+  "sidebar.textSize": "large",
+  "appearance.cornerFlush": "off",
+  "window.titlebarButtons": "always",
+  "tabs.plusButton": "hover",
+  "agentPane.display.sessionInfo.placement": "overlay"
+}

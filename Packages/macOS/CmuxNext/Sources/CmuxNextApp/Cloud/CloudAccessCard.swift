@@ -31,7 +31,7 @@ struct CloudAccessAsk: Equatable {
     /// What the card names as asked for: the path, or the secret's name.
     var label: String {
         switch asked {
-        case .file(let ask): CloudAccessCard.middle(ask.path)
+        case .file(let ask): CloudAccessText.middle(ask.path)
         case .secret(let ask): ask.name
         }
     }
@@ -46,9 +46,6 @@ enum CloudAccessCard {
         case allow, always, share, deny, dismiss
     }
 
-    /// The longest path or reason a card shows, in Unicode scalars.
-    static let longest = 200
-
     static func card(_ shown: CloudAccessAsk) -> AgentPaneToolCard {
         if let failure = shown.failure {
             let actions = [AgentPaneToolCard.Action(id: Action.dismiss.rawValue, title: CloudMoveAskStrings.dismiss)]
@@ -60,15 +57,15 @@ enum CloudAccessCard {
         case .secret(let secret): return secretCard(secret, shown)
         }
         let shareable = ask.shareable && ask.target != nil
-        var text = shareable ? CloudAccessStrings.ask(shown.machineName, middle(ask.path)) : CloudAccessStrings.unshareable(shown.machineName, middle(ask.path))
-        if shareable, let target = ask.target, target != ask.path { text += " " + CloudAccessStrings.leadsTo(middle(target)) }
+        var text = shareable ? CloudAccessStrings.ask(shown.machineName, CloudAccessText.middle(ask.path)) : CloudAccessStrings.unshareable(shown.machineName, CloudAccessText.middle(ask.path))
+        if shareable, let target = ask.target, target != ask.path { text += " " + CloudAccessStrings.leadsTo(CloudAccessText.middle(target)) }
         var actions: [AgentPaneToolCard.Action] = []
         if how(.allow, ask) != nil { actions.append(.init(id: Action.allow.rawValue, title: CloudAccessStrings.allowOnce)) }
         if how(.always, ask) != nil, let folder = ask.alwaysFolder {
             // The whole folder Always shares (a git working copy's top, say), not only its name.
-            text += " " + CloudAccessStrings.alwaysShares(middle(folder))
-            actions.append(.init(id: Action.always.rawValue, title: CloudAccessStrings.always(middle(URL(fileURLWithPath: folder).lastPathComponent, 60)),
-                                 hint: CloudAccessStrings.alwaysHint(middle(folder))))
+            text += " " + CloudAccessStrings.alwaysShares(CloudAccessText.middle(folder))
+            actions.append(.init(id: Action.always.rawValue, title: CloudAccessStrings.always(CloudAccessText.middle((folder as NSString).lastPathComponent, 60)),
+                                 hint: CloudAccessStrings.alwaysHint(CloudAccessText.middle(folder))))
         }
         text += reasonText(ask.reason)
         actions.append(.init(id: Action.deny.rawValue, title: CloudAccessStrings.deny))
@@ -93,7 +90,7 @@ enum CloudAccessCard {
 
     private static func reasonText(_ reason: String?) -> String {
         guard let reason = reason?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty else { return "" }
-        return " " + CloudAccessStrings.reason(prefix(reason))
+        return " " + CloudAccessStrings.reason(CloudAccessText.prefix(reason))
     }
 
     /// The answer `action` gives `shown`, nil when its card doesn't offer it. Only the person's click
@@ -132,26 +129,5 @@ enum CloudAccessCard {
     /// The failed answer's text for `shown`: `grant_refused` (this Mac won't share it), else a plain failure.
     static func failure(_ code: String?, _ shown: CloudAccessAsk) -> String {
         code == "grant_refused" ? CloudAccessStrings.grantRefused(shown.label) : CloudAccessStrings.answerFailed(shown.label)
-    }
-
-    /// `text` with its middle cut to at most `limit` Unicode scalars.
-    static func middle(_ text: String, _ limit: Int = longest) -> String {
-        let scalars = Array(text.unicodeScalars)
-        guard scalars.count > limit, limit > 2 else { return text }
-        let head = (limit - 1) / 2, tail = limit - 1 - head
-        var view = String.UnicodeScalarView()
-        view.append(contentsOf: scalars[..<head])
-        view.append("…")
-        view.append(contentsOf: scalars[(scalars.count - tail)...])
-        return String(view)
-    }
-
-    /// `text` cut to at most ``longest`` Unicode scalars.
-    private static func prefix(_ text: String) -> String {
-        guard text.unicodeScalars.count > longest else { return text }
-        var view = String.UnicodeScalarView()
-        view.append(contentsOf: text.unicodeScalars.prefix(longest - 1))
-        view.append("…")
-        return String(view)
     }
 }

@@ -13,6 +13,9 @@ export function setCardOpen(rowId: string, open: boolean) {
   for (const listener of listeners) listener();
 }
 
+/// Whether the reader opened card `rowId`, outside React: the row's estimate (model.ts) reads it.
+export const cardOpen = (rowId: string): boolean => opened.has(rowId);
+
 export function useCardOpen(rowId: string): boolean {
   return useSyncExternalStore(
     (listener) => {
