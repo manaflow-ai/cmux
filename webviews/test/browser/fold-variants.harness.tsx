@@ -172,7 +172,7 @@ function matrixTurn(cell: MatrixCell): SimScenario {
   }
   if (cell.viewport === "up") b.reader({ scrollBy: -400 });
   const answer = cell.answer === "recap" ? RECAP : ANSWER;
-  b.say(answer, { chunks: cell.answer === "recap" ? 12 : 4, chunkMs: 80, after: 400 });
+  b.say(answer, { chunks: cell.answer === "recap" ? 12 : 4, chunkMs: 90, after: 400 });
   return b.turnEnd("completed", cell.timing === "during" ? 20 : 1_500).build();
 }
 
