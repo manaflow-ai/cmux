@@ -462,10 +462,16 @@ attempt 1 until 2026-11-18, when GitHub-hosted runners left it queued for hours 
 
 Above `checks: needs` in `.github/workflows/cmux-next.yml`.
 
-feat-cmux-next pushes run it again (Leo, 2026-10-19; cx-g34i had dropped it): a direct push's
-red shows on that push, and a pull request's red has a base run to be compared with.
-Not in a base tier run: the push of its commit already ran it.
-!cancelled(): a skipped or failed portable-placement (a fork, a re-run) leaves the Blacksmith route.
+On feat-cmux-next it runs in the base tier run on the tip (cmux_next_base_tier.py), at most once every 15
+minutes, not on each push. Leo, 2026-11-21: "whatever we need to cut, we cut", and "maintaining a partial
+semblance of checks. and we can infrequenrly have fuller checks". It ran on all 80 pushes in 21-24Z on
+11-21: 739 runner-minutes, 9.2 a push. A pull request into feat-cmux-next skips it (unless labelled
+full-ci), so the base tier run is still the base run a pull request's red is compared with. A red names
+its commit range: the previous base tier run's tip to this one ("Previous checked tip" below), the range
+"Pushed commits add no violations" sweeps and base_red_checks.py compares against.
+vars.CMUX_NEXT_BASE_TIER_COALESCE = '0' puts it back on every push, with the base tier.
+Earlier (Leo, 2026-10-19; cx-g34i had dropped it) each push ran it so a direct push's red showed on that push.
+!cancelled(): a skipped or failed portable-placement (a fork, a re-run, a base tier run) leaves the Blacksmith route.
 
 ## note-27
 
@@ -952,6 +958,16 @@ Above `release-compile-fast: if` in `.github/workflows/cmux-next.yml`.
 On a gateway runner macos-placement saw idle this attempt it submits the fleet check; else it
 runs on Linux and reads the fleet's own Release (-Onone) compile of this push (cmux-next/compile).
 Only no verdict sends release-compile to a Mac (2026-11-02: a busy gateway queued it 2 h).
+
+It runs after compile-status, which already waits for the same fleet compile of this push. Before,
+both jobs waited on it side by side, about 15 runner-min each per push (and on a gateway Mac with no
+GNU `timeout`, the reader said `none` and the gateway compiled the head again). When compile-status
+passed with no handoff, this job skips the gateway and reads that verdict on Linux in seconds; any
+other compile-status outcome keeps the gateway or Linux choice above.
+When compile-status read no result in its 40-min wait (its `state` output `none`), this job does
+not wait again: the Linux reader hands to the Mac fallback at once and a gateway compiles without
+reading first. The fallback then starts after one wait (compile-status's 40 min), not two in a row;
+before this order it started after the fast check's own 20 min, a rare path (the fleet never recorded the push).
 
 ## note-65
 
