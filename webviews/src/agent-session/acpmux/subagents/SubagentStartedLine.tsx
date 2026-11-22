@@ -13,6 +13,12 @@ import { SubagentChipPreview } from "./SubagentPreview";
 import "./SubagentStartedLine.css";
 import { intl } from "../../../ui/intl";
 
+/// The most names one start line spells out; the rest are counted ("+21 more"). Every name shares
+/// the line's width, so a line naming them all drew two dozen chips cut to their padding: empty grey
+/// pills between icons and commas (Leo, 2026-11-22, after a restart: "and more bullshit somehow
+/// happened here"). Each subagent's own line and the tray still name every one.
+export const STARTED_NAMES = 3;
+
 export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const language = usePaneLanguage();
@@ -23,7 +29,11 @@ export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
   const agents = row.subagents ?? [];
   if (!agents.length) return null;
   const open = pane ?? nav;
-  const names = agents.map((agent) => subagentTaskLabel(t, agent));
+  const all = agents.map((agent) => subagentTaskLabel(t, agent));
+  // Past the cap, the last element counts the rest: never a chip too narrow to read.
+  const shown = all.length > STARTED_NAMES ? STARTED_NAMES - 1 : all.length;
+  const rest = all.length - shown;
+  const names = rest > 0 ? [...all.slice(0, shown), t("tools.more", { n: rest })] : all;
   const list = intl.ListFormat(language, { type: "conjunction" });
   const [before, after] = t("subagents.startedLine", { name: "\u0000" }).split("\u0000");
   const identity = (index: number) => (
@@ -42,6 +52,14 @@ export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
       continue;
     }
     const at = agentIndex++;
+    if (at >= shown) {
+      taggedNames.push(
+        <span key="more" className="cv-subagent-started__more">
+          {part.value}
+        </span>,
+      );
+      continue;
+    }
     const agent = agents[at]!;
     taggedNames.push(
       <Fragment key={agent.id}>
@@ -66,7 +84,7 @@ export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
       <TranscriptActivityRow
         icon={identity(0)}
         className="cv-subagent-started"
-        ariaLabel={t("subagents.startedLine", { name: list.format(names) })}
+        ariaLabel={t("subagents.startedLine", { name: list.format(all) })}
         chevron={false}
         before={
           <>

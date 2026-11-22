@@ -232,6 +232,39 @@ const groupCards = (variants: Record<string, AgentPaneVariant>): Record<string, 
     ]),
   );
 
+/** After a restart (Leo, 2026-11-22: "and more bullshit somehow happened here"): a turn hours ago
+ * that started two dozen helpers in one record, all long done; then the turn he is reading now. */
+const RESTORED_HELPERS = Array.from({ length: 24 }, (_, index) =>
+  agent(`Audit package ${index + 1}: exports, tests and docs`, 300, "completed", {
+    id: `agent-restored-${index}`,
+    startedAt: minutesAgo(300),
+    endedAt: minutesAgo(300 - 2 - index * 0.1),
+  }),
+);
+const RESTORED = chat(
+  [
+    user("Audit every package", 301),
+    group(RESTORED_HELPERS, 300),
+    assistant("All 24 audits are in.", 270),
+    summary(270, { status: "completed", durationMs: 1_800_000 }),
+    user("Now fix the exports the audits found", 2),
+    assistant("Working through them.", 1.75),
+  ],
+  { isWorking: true },
+);
+/** The restored start line: two names, then the rest counted, never a chip cut to its padding. */
+async function restoredStartLine(ctx: PlayContext): Promise<void> {
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-started"));
+  const line = ctx.find({ selector: ".cv-subagent-started" });
+  const chips = [...line.querySelectorAll<HTMLElement>(".cv-agent-tag")];
+  if (chips.length > 3) throw new Error(`start line draws ${chips.length} chips`);
+  for (const chip of chips) {
+    const width = chip.querySelector(".cv-agent-tag__label")?.getBoundingClientRect().width ?? 0;
+    if (width < 16) throw new Error(`a chip's name is ${width}px wide: an empty pill`);
+  }
+  if (!line.textContent?.includes("+22 more")) throw new Error(`start line reads ${line.textContent}`);
+}
+
 export default agentPaneEntry({
   id: "agent-pane.subagents",
   title: "Subagents",
@@ -251,6 +284,12 @@ export default agentPaneEntry({
     "agent-session/acpmux/summary/SubagentStatusList.tsx#SubagentStatusList",
   ],
   variants: groupCards({
+    "restored-many-started": {
+      note: "After a restart: a turn hours ago started 24 helpers at once, all done. Its start line names two and counts the rest (+22 more), never 24 chips cut to empty pills between commas.",
+      theme: { subagentTray: true },
+      snapshot: RESTORED,
+      play: restoredStartLine,
+    },
     "agents-pill": {
       note: "The agents pill while two of four subagents run (after Codex's phone app). It opens Active and Completed, a dot per agent in the color its name has in the open group; a click on an agent opens it.",
       height: 640,
