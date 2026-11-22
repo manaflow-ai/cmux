@@ -181,3 +181,13 @@ fn a_late_wakeup_does_not_release_a_burst() {
     let rate = 230_400.0 / 8_333.0;
     assert!(late as f64 <= (rate * BURST_US as f64 / 1152.0).ceil() + 1.0, "{late}");
 }
+
+#[test]
+fn strict_integer_refill_keeps_fractional_remainder() {
+    let mut p = Pacer::strict(StrictWireBudget::with_limits(1, 64, 256, 64));
+    assert!(p.enqueue_media(vec![0; 1], 7, 0));
+    assert!(p.due_with_metadata(0).is_empty());
+    assert!(p.due_with_metadata(1_000_000).is_empty());
+    // One bit per second is one byte every eight seconds; the first byte is now due.
+    assert_eq!(p.due_with_metadata(8_000_000).len(), 1);
+}
