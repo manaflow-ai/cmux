@@ -3634,6 +3634,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [dock, setDock] = useState<HTMLElement | null>(null);
   // The app's toasts lift above this stack; they never move it (toastAvoidance.ts).
   useEffect(() => (dock ? reportToastAvoidance(dock) : undefined), [dock]);
+  // A focused composer lifts the edge of every part of the stack (composerStates.css): the dock's
+  // `data-focused`, written as the composer reports focus-visible in its card while its prompt is not
+  // the shell's (Composer.tsx `onFocusEdge`), never a `.acpmux-dock:has(... :focus-visible)` checked
+  // again for every node a keystroke or a streamed chunk inserts (transcript-motion-model step 7).
+  const dockLit = useRef(false);
+  const dockNow = useRef<HTMLElement | null>(null);
+  const markDockEdge = useCallback((lit: boolean) => {
+    dockLit.current = lit;
+    dockNow.current?.toggleAttribute("data-focused", lit);
+  }, []);
+  useLayoutEffect(() => {
+    dockNow.current = dock;
+    dock?.toggleAttribute("data-focused", dockLit.current);
+  }, [dock]);
   // A chat whose agent started others has something to show too: their rows under Subagents.
   const summaryCard = useSummaryCard(
     // The side panel and Background tasks take the right column: the Summary stays a popover then.
@@ -12758,9 +12772,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       />
     ) : null;
   const goalAtFoot = goalNode !== null && goalHatPlaceArm === "foot";
+  // The dock draws the composer (a draft a refusal put back stays in reach even once the tab's run
+  // shows), and with it the composer card's quiet row: the dock's `data-foot` (bottomStack.css).
+  const dockFoot = (!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && (readOnlySubagent || !reviewing);
   const composer = readOnlySubagent ? (
     <SubagentComposer
       key={subagentDraftKey}
+      onFocusEdge={markDockEdge}
       subagent={shownSubagentTarget?.name ?? t("tray.kind.subagent")}
       chat={chatName}
       draftKey={subagentDraftKey}
@@ -13043,6 +13061,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
         <ImageViewerContext.Provider value={openImage}>
           <Composer
+            onFocusEdge={markDockEdge}
             cloudStarting={cloudStarting}
             snapshot={composerDrawn}
             guestHarnesses={guestsHere ? composerSnapshot.catalog : undefined}
@@ -14762,7 +14781,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   />
                 )}
               </div>
-              <div ref={setDock} className="acpmux-dock" style={parkStyle} inert={parkedVisible || undefined}>
+              <div
+                ref={setDock}
+                className="acpmux-dock"
+                style={parkStyle}
+                inert={parkedVisible || undefined}
+                // The stack holds the composer, whose card always draws its quiet row (ComposerFoot):
+                // bottomStack.css gives the transcript up first for it, from this, not from a
+                // `.acpmux-dock:has(.acpmux-composer-foot)` checked again for every inserted node.
+                data-foot={dockFoot ? "" : undefined}
+              >
                 {/* The pane's toasts stand on the stack's top edge, over the transcript (ToastLayer.tsx). */}
                 <ToastLayer queue={paneToasts} topHost={toastTop} />
                 {asks}
@@ -14800,7 +14828,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   fallback={snapshot.presence}
                 />
                 {/* A draft a refusal put back stays in reach even once the tab's run shows. */}
-                {(!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && composer}
+                {dockFoot && composer}
               </div>
             </Activity>
           )}
