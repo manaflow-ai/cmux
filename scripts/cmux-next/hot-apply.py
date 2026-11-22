@@ -927,6 +927,9 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
 
 
 def triple() -> str:
+    """This host's build target; CMUX_HOT_APPLY_TRIPLE names another (a Linux measure fetching a Mac's build)."""
+    if os.environ.get("CMUX_HOT_APPLY_TRIPLE"):
+        return os.environ["CMUX_HOT_APPLY_TRIPLE"]
     arch = "aarch64" if platform.machine() in ("arm64", "aarch64") else "x86_64"
     return f"{arch}-apple-darwin" if sys.platform == "darwin" else f"{arch}-unknown-linux-musl"
 
