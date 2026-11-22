@@ -143,6 +143,52 @@ import Testing
                 "a key at the end of an 8,000 character paragraph takes \(long), in a 250 character one \(short) (want under 3x)")
     }
 
+    /// A key at the end of a long draft typesets none of it again for the field's height: the field's
+    /// TextKit 1 layout already laid out the key's line, and the height takes its lines. The height
+    /// came from a second, plain CoreText measure of the draft's last lines on every key (cmux21
+    /// `sample`, 3,000 characters: 0.13 ms a key).
+    @Test func aKeyTypesetsNothingAgainForTheFieldsHeight() async throws {
+        let r = try await rig()
+        defer { r.close() }
+        r.window.makeFirstResponder(r.field)
+        let compose = try #require(r.controller.demo?.compose)
+        r.field.insertText(String(repeating: "the chief reads your note and starts on the work ", count: 60), replacementRange: r.field.selectedRange())
+        r.frame()
+        let before = compose.heightTypesets
+        r.type("and then it reports back")
+        #expect(compose.heightTypesets == before, "\(compose.heightTypesets - before) typesets of the draft for 24 keys (want 0)")
+    }
+
+    /// The field stays as tall as the lines it lays out and draws (TextKit 1, with the body font's
+    /// kern) after each key, at every window width from 600 to 760 pt: the first key at a new width
+    /// places the field at it, the second is typed into it.
+    @Test func theFieldIsAsTallAsTheLinesItLaysOut() async throws {
+        let r = try await rig()
+        defer { r.close() }
+        r.window.makeFirstResponder(r.field)
+        try #require(r.field.textLayoutManager == nil, "the field is TextKit 1")
+        let compose = try #require(r.controller.demo?.compose)
+        let sentence = "the chief reads your note, starts on the work in a new workspace and reports back; "
+        r.field.insertText(String(repeating: sentence, count: 7), replacementRange: r.field.selectedRange())
+        var wrong: [String] = []
+        for width in stride(from: CGFloat(600), through: 760, by: 1) {
+            r.window.setContentSize(NSSize(width: width, height: 900))
+            r.view.frame = NSRect(x: 0, y: 0, width: width, height: 900)
+            r.frame()
+            // The first key at a new width places the field at it; the second is typed into it.
+            r.type("ab")
+            r.frame()
+            let lm = try #require(r.field.layoutManager), container = try #require(r.field.textContainer)
+            lm.ensureLayout(for: container)
+            var drawn = 0
+            lm.enumerateLineFragments(forGlyphRange: NSRange(location: 0, length: lm.numberOfGlyphs)) { _, _, _, _, _ in drawn += 1 }
+            if lm.extraLineFragmentTextContainer != nil { drawn += 1 }
+            let want = min(ComposeView.height(lines: drawn, chips: false), ComposeView.maxHeight) + compose.strip.height
+            if compose.fieldHeight != want { wrong.append("\(Int(width)) pt: \(compose.fieldHeight) pt for \(drawn) lines (want \(want))") }
+        }
+        #expect(wrong.isEmpty, "the field's height is not its laid-out lines' at \(wrong.count) of 161 widths: \(wrong.prefix(4))")
+    }
+
     @Test func theFieldsLineCountFollowsTypingAndMatchesAFullLayout() async throws {
         let r = try await rig()
         defer { r.close() }
