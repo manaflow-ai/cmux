@@ -60,7 +60,7 @@ def fmt(summary: dict | None, metric: str) -> str:
         return "-"
     if "p50" not in summary:
         return f"miss {summary['miss']}/{summary['miss']}"
-    unit = "" if metric in ("round_trips", "workspaces_shown") else (" B" if metric.startswith("bytes") else " ms")
+    unit = "" if metric in ("round_trips", "workspaces_shown", "stored_rows") else (" B" if metric.startswith("bytes") else " ms")
     p50, p95 = summary["p50"], summary["p95"]
     num = lambda v: f"{v:,.0f}" if abs(v) >= 10 else f"{v:g}"
     text = f"{num(p50)}{unit}" if p50 == p95 else f"{num(p50)} / {num(p95)}{unit}"
@@ -177,9 +177,9 @@ def main() -> int:
 
     # The read-first track's two headline numbers (goals/mobile-speed-ios-bench.md in cmuxterm-hq):
     # R1 time to readable (tap to the first frame drawn from the phone's own store, link cut) and
-    # R2 time to fresh (tap to the frame that matches the Mac). This headless leg has no phone
-    # store, so its first_content_ms (first content from the real daemon) is R2; R1 comes from the
-    # simulator leg's r1_ms rows when present.
+    # R2 time to fresh (tap to the frame that matches the Mac). Here first_content_ms (first
+    # content from the real daemon) is R2; R1 is r1_ms: the chat surface's no-link row (the phone's
+    # read-first store with no Mac, cmux-mobile-core read_store) and the simulator leg's.
     out = [READ_FIRST_LEGEND, ""]
     for surface in sorted({row["surface"] for row in rows}):
         out.append(f"### {surface} (p50 / p95; after {args.after[:12]}" + (f", before {args.before[:12]})" if args.before else ")"))

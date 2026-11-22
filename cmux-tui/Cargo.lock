@@ -49,6 +49,7 @@ dependencies = [
  "cmux-local-auth",
  "cmux-local-url",
  "cmux-mcp-connect",
+ "cmux-mobile-core",
  "cmux-netwatch",
  "cmux-palette-ranker",
  "cmux-panic-log",

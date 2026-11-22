@@ -122,6 +122,22 @@ text = text.replace(marker, marker + "cmux-fault.workspace = true\n", 1)
 open(path, "w").write(text)
 PY
   done
+  # The chat bench's no-link R1 row reads the phone's read-first store: a tree with no store has
+  # no R1 (the row leaves), a tree with one gets the bench's dev-dependency on it.
+  local chat="$tree/cmux-tui/crates/acpmux/tests/mobile_link_conditions.rs" manifest="$tree/cmux-tui/crates/acpmux/Cargo.toml"
+  if [[ ! -f "$tree/cmux-tui/crates/cmux-mobile-core/src/read_store.rs" ]]; then
+    [[ ! -f "$chat" ]] || sed -i.bak '/^\/\/ R1-BEGIN/,/^\/\/ R1-END/d' "$chat"
+    rm -f "$chat.bak"
+  elif ! grep -q '^cmux-mobile-core' "$manifest"; then
+    python3 - "$manifest" <<'PY'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+marker = "[dev-dependencies]\n"
+text = text.replace(marker, marker + "cmux-mobile-core.workspace = true\n", 1)
+open(path, "w").write(text)
+PY
+  fi
 }
 
 # bench LABEL TREE SURFACE: one surface's bench in TREE; its NETCOND lines labelled into lines.txt.

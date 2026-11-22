@@ -19,6 +19,9 @@
 //! "first_content_ms","value":123.4,"run":0,"seed":0}`. A measurement that times out prints
 //! `null` and a `NETCOND-ERROR` line; it never fails the test. `#[ignore]`: run it with
 //! `cargo test -p acpmux --test mobile_link_conditions -- --ignored --nocapture`.
+//!
+//! R1 with no Mac (`chat_list_readable_from_the_phone_store_with_no_link`): the Agent Chats
+//! list's first page from the phone's read-first store (cmux-mobile-core `read_store`), link cut.
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -1055,3 +1058,123 @@ async fn chat_bytes_per_minute() {
         drop(link);
     }
 }
+
+// R1-BEGIN (ios-network-conditions.sh drops this row from a tree whose cmux-mobile-core has no
+// read_store: that tree has no phone store, so it has no R1.)
+// ---------------------------------------------------------------------------------------------
+// R1 time to readable, headless: no Mac
+
+/// The phone's stored first page of the Agent Chats list (cmux-next-ios AgentChatsMemory.swift
+/// `StoredPage`), the bytes PhoneReadFirst.swift keeps in the read-first store.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredChat {
+    id: String,
+    title: Option<String>,
+    harness: String,
+    cwd: String,
+    status: String,
+    updated_at: Option<f64>,
+    archived: bool,
+    last_prompt: Option<String>,
+    summary: Option<String>,
+    next_action: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredPage {
+    chats: Vec<StoredChat>,
+    next_cursor: Option<String>,
+}
+
+/// AgentChatsMemory.storedChatLimit: only the first screen stays on the phone.
+const STORED_CHAT_LIMIT: u64 = 60;
+/// Chats on the Mac at 1x.
+const BASE_CHATS: u64 = 20;
+
+fn stored_page(scale: u64) -> StoredPage {
+    let listed = BASE_CHATS * scale;
+    let kept = listed.min(STORED_CHAT_LIMIT);
+    let chats = (0..kept)
+        .map(|i| StoredChat {
+            id: format!("chat-{i:06}-{}", "0".repeat(26)),
+            title: Some(format!("Chat {i}: fix the flaky reconnect in the link layer")),
+            harness: "claude".to_owned(),
+            cwd: format!("/Users/someone/src/project-{}", i % 7),
+            status: if i % 5 == 0 { "running" } else { "idle" }.to_owned(),
+            updated_at: Some(1_795_000_000.0 - i as f64 * 60.0),
+            archived: false,
+            last_prompt: Some("x".repeat(200)),
+            summary: Some("y".repeat(300)),
+            next_action: Some("Review the diff and land it".to_owned()),
+        })
+        .collect();
+    // A cut list keeps no cursor; an uncut one has nothing after it.
+    StoredPage { chats, next_cursor: None }
+}
+
+/// R1 with the link cut: no daemon, no socket. The Agent Chats list's first page is written into
+/// the phone's read-first store (cmux-mobile-core read_store, as PhoneReadFirst.swift keeps it,
+/// beside other accounts' and Macs' entries), then each run times a cold open: open the store
+/// directory, read the entry for this account, Mac and kind, decode the page. One `NETCOND` line
+/// per run: `"profile":"no-link","phase":"cold","metric":"r1_ms"`, plus `stored_rows` and
+/// `bytes_stored`. The OS file cache is warm (a phone reopening the app usually has it warm too).
+#[test]
+#[ignore = "the network-conditions bench: run with --ignored --nocapture"]
+fn chat_list_readable_from_the_phone_store_with_no_link() {
+    use cmux_mobile_core::read_store::{ReadKey, ReadStore, ReadStoreLimits};
+    let scratch = daemon_env::Scratch::new("netcond-r1");
+    let dir = scratch.path().join("cmux-mobile-read-first");
+    let scales = env_list("NETCOND_SCALES", &["1x", "10x", "100x"]);
+    let runs = env_u64("NETCOND_RUNS", 5);
+    let seed_base = env_u64("NETCOND_SEED_BASE", 0);
+    let key = ReadKey::new("user-netcond", "mac-netcond", "agent_chats");
+    {
+        // Other accounts' and Macs' entries, so the read finds its own among a full store.
+        let store = ReadStore::open(&dir, ReadStoreLimits::default()).unwrap();
+        let other = serde_json::to_vec(&stored_page(1)).unwrap();
+        for i in 0..ReadStoreLimits::default().max_entries as u64 - 1 {
+            store
+                .put(&ReadKey::new(format!("user-{i}"), "mac-other", "agent_chats"), &other)
+                .unwrap();
+        }
+    }
+    for scale in &scales {
+        let x: u64 =
+            scale.trim_end_matches('x').parse().unwrap_or_else(|_| panic!("scale {scale}"));
+        let bytes = serde_json::to_vec(&stored_page(x)).unwrap();
+        ReadStore::open(&dir, ReadStoreLimits::default()).unwrap().put(&key, &bytes).unwrap();
+        for run in 0..runs {
+            let seed = seed_base + run;
+            let k = Key { profile: "no-link", phase: "cold", scale, run, seed };
+            let start = std::time::Instant::now();
+            let page = ReadStore::open(&dir, ReadStoreLimits::default())
+                .ok()
+                .and_then(|store| store.get(&key))
+                .and_then(|data| serde_json::from_slice::<StoredPage>(&data).ok());
+            let took = start.elapsed();
+            match page {
+                Some(page) if !page.chats.is_empty() => {
+                    // Microseconds kept: `emit` keeps one decimal of a millisecond.
+                    println!(
+                        "NETCOND {{\"surface\":\"chat\",\"profile\":\"{}\",\"phase\":\"{}\",\"scale\":\"{}\",\"metric\":\"r1_ms\",\"value\":{:.3},\"run\":{},\"seed\":{}}}",
+                        k.profile,
+                        k.phase,
+                        k.scale,
+                        took.as_secs_f64() * 1000.0,
+                        k.run,
+                        k.seed
+                    );
+                    emit(&k, "stored_rows", Some(page.chats.len() as f64));
+                    emit(&k, "bytes_stored", Some(bytes.len() as f64));
+                }
+                _ => {
+                    emit(&k, "r1_ms", None);
+                    emit_error(&k, "r1_ms", "no stored page");
+                }
+            }
+        }
+    }
+}
+// R1-END

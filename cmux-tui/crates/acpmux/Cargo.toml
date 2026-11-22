@@ -239,6 +239,8 @@ cmux-cloud-api.workspace = true
 # The simulated crash file system, for the journal store's crash tests.
 cmux-journal = { workspace = true, features = ["sim"] }
 cmux-server-core = { path = "../cmux-server-core" }
+# The phone's read-first store, for the chat bench's no-link R1 row (tests/mobile_link_conditions.rs).
+cmux-mobile-core.workspace = true
 rcgen = "0.14"
 # Paused time for the media handle sweeper's tests (`hub/media_handles_tests.rs`).
 tokio = { version = "1.52", features = ["test-util"] }
