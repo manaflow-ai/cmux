@@ -31,7 +31,18 @@ fn shows(text: &str) -> Output {
     Output { code: Some(0), stdout: text.as_bytes().to_vec(), ..Output::default() }
 }
 
+/// A unit systemd says is stopped (what uninstall checks after a stop).
+/// Tests answer it for every unit; a test's one-time answer comes first.
+fn stopped(runner: &RecordingRunner) {
+    runner.answer_always("--property=ActiveState", shows("inactive\n"));
+    runner.answer_always(
+        "--property=ControlGroup,TasksCurrent",
+        shows("ControlGroup=\nTasksCurrent=[not set]\n"),
+    );
+}
+
 fn services<'a>(layout: &'a Layout, runner: &'a RecordingRunner, binary: &Path) -> Services<'a> {
+    stopped(runner);
     Services {
         layout,
         runner,
@@ -414,6 +425,7 @@ fn system_layout(tmp: &Path, state: &str) -> Layout {
 }
 
 fn system_services<'a>(layout: &'a Layout, runner: &'a RecordingRunner) -> Services<'a> {
+    stopped(runner);
     Services {
         layout,
         runner,
@@ -547,6 +559,363 @@ fn system_uninstall_stops_an_app_instance_started_while_the_supervisor_stopped()
     svc.uninstall().unwrap();
     let stops: Vec<String> = runner.lines().into_iter().filter(|l| l.contains(" stop ")).collect();
     assert!(stops.iter().any(|l| l.ends_with("stop cmux-app-server@late.service")), "{stops:?}");
+}
+
+/// A systemd answer: the unit loads from `fragment`.
+fn loads_from(fragment: &Path) -> Output {
+    shows(&format!("LoadState=loaded\nFragmentPath={}\nTransient=no\n", fragment.display()))
+}
+
+/// The manager is told to load the unit from another file between the
+/// last check and a stop (R-005): uninstall checks the source again right
+/// before each command that stops something by name, and stops nothing of
+/// a unit that is no longer cmux's.
+#[test]
+fn uninstall_checks_the_unit_source_right_before_each_stop() {
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = layout_at(tmp.path(), Platform::Linux);
+    let runner = std::sync::Arc::new(RecordingRunner::new());
+    runner.answer_always("--property=LoadState", not_found());
+    let svc = services(&layout, &runner, &tmp.path().join(".local/bin/cmux-tui"));
+    svc.install(false).unwrap();
+    let (path, text) = svc.unit_files().unwrap().remove(0);
+    // While uninstall ends the unit's processes, the manager starts loading
+    // the unit from another file.
+    // Right after the kill (its own check after it still sees cmux's file),
+    // before the stop: the manager now loads the unit from another file.
+    let swap = std::sync::Arc::downgrade(&runner);
+    let ours = path.clone();
+    runner.on_run("kill --kill-whom=all", move || {
+        if let Some(runner) = swap.upgrade() {
+            runner.answer("--property=LoadState", loads_from(&ours));
+            runner.answer(
+                "--property=LoadState",
+                loads_from(Path::new("/etc/systemd/user/cmux-server.service")),
+            );
+        }
+    });
+    let err = svc.uninstall().unwrap_err();
+    assert!(
+        !runner.lines().iter().any(|l| l.contains("disable --now cmux-server.service")),
+        "stopped a unit that is no longer cmux's: {:?} ({err})",
+        runner.lines()
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), text, "removed the unit file");
+}
+
+/// The swap lands while the stop runs (R-005): the stop by name may have
+/// hit the other unit. Uninstall checks the source right after each stop,
+/// says so, and removes nothing.
+#[test]
+fn uninstall_checks_the_unit_source_right_after_each_stop() {
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = layout_at(tmp.path(), Platform::Linux);
+    let runner = std::sync::Arc::new(RecordingRunner::new());
+    runner.answer_always("--property=LoadState", not_found());
+    let svc = services(&layout, &runner, &tmp.path().join(".local/bin/cmux-tui"));
+    svc.install(false).unwrap();
+    let (path, text) = svc.unit_files().unwrap().remove(0);
+    let swap = std::sync::Arc::downgrade(&runner);
+    runner.on_run("disable --now cmux-server.service", move || {
+        if let Some(runner) = swap.upgrade() {
+            runner.answer(
+                "--property=LoadState",
+                loads_from(Path::new("/etc/systemd/user/cmux-server.service")),
+            );
+        }
+    });
+    let err = svc.uninstall().unwrap_err();
+    assert!(err.to_string().contains("/etc/systemd/user/cmux-server.service"), "{err}");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), text, "removed the unit file");
+}
+
+/// An app server instance that systemd starts loading from another file
+/// after the list (R-005) is not stopped: each instance is checked right
+/// before its own stop.
+#[test]
+fn system_uninstall_checks_each_app_instance_right_before_its_stop() {
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = system_layout(tmp.path(), &tmp.path().join("state").display().to_string());
+    let template = tmp.path().join("units/cmux-app-server@.service");
+    let runner = std::sync::Arc::new(RecordingRunner::new());
+    runner.answer_always(
+        "list-units",
+        shows(
+            "cmux-app-server@a.service loaded active running cmux app server a\n\
+             cmux-app-server@b.service loaded active running cmux app server b\n",
+        ),
+    );
+    runner.answer_always(
+        "--property=FragmentPath --value",
+        shows(&format!("{}\n", template.display())),
+    );
+    runner.answer_always("--property=LoadState", not_found());
+    let swap = std::sync::Arc::downgrade(&runner);
+    // After `a` stopped (its own check after it still sees cmux's
+    // template), systemd loads `b` from another file.
+    runner.on_run("stop cmux-app-server@a.service", move || {
+        if let Some(runner) = swap.upgrade() {
+            runner.answer(
+                "--property=FragmentPath --value cmux-app-server@b.service",
+                shows("/etc/systemd/system/cmux-app-server@.service\n"),
+            );
+        }
+    });
+    let svc = system_services(&layout, &runner);
+    let err = svc.uninstall().unwrap_err();
+    assert!(
+        !runner.lines().iter().any(|l| l.ends_with("stop cmux-app-server@b.service")),
+        "stopped an instance that is no longer cmux's: {:?} ({err})",
+        runner.lines()
+    );
+}
+
+/// A stop that failed (the unit still runs, or launchd still has the job)
+/// must not let uninstall remove what the service still uses: uninstall
+/// checks it stopped and otherwise fails, removing nothing.
+#[test]
+fn uninstall_removes_nothing_when_the_service_did_not_stop() {
+    if skip_as_root() {
+        return;
+    }
+    for platform in [Platform::Linux, Platform::MacOs] {
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = layout_at(tmp.path(), platform);
+        let runner = std::sync::Arc::new(RecordingRunner::new());
+        runner.answer_always("--property=LoadState", not_found());
+        runner.answer_always("launchctl print", not_loaded());
+        let svc = services(&layout, &runner, &tmp.path().join(".local/bin/cmux-tui"));
+        svc.install(false).unwrap();
+        let (path, text) = svc.unit_files().unwrap().remove(0);
+        let still = std::sync::Arc::downgrade(&runner);
+        let plist = path.clone();
+        runner.on_run(stop_step(platform), move || {
+            if let Some(runner) = still.upgrade() {
+                runner.answer("--property=ActiveState", shows("active\n"));
+                // launchd keeps the job for longer than uninstall waits
+                // (5 s, 50 checks).
+                for _ in 0..60 {
+                    runner
+                        .answer("launchctl print", shows(&format!("path = {}\n", plist.display())));
+                }
+            }
+        });
+        let err = svc.uninstall().unwrap_err();
+        assert!(err.to_string().contains("removed nothing"), "{platform:?}: {err}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text, "{platform:?}: removed it");
+    }
+}
+
+/// `launchctl bootout` returns before launchd has dropped the job: on macOS
+/// 27 `launchctl print` still finds it for a moment after (seen on a fleet
+/// Mac: found right after the bootout, gone 2 s later). Uninstall waits for
+/// the job to go, then removes the plist.
+#[test]
+fn uninstall_waits_for_launchd_to_drop_the_job_after_its_bootout() {
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = layout_at(tmp.path(), Platform::MacOs);
+    let runner = std::sync::Arc::new(RecordingRunner::new());
+    runner.answer_always("launchctl print", not_loaded());
+    let svc = services(&layout, &runner, &tmp.path().join(".local/bin/cmux-tui"));
+    svc.install(false).unwrap();
+    let path = svc.unit_path().unwrap();
+    let going = std::sync::Arc::downgrade(&runner);
+    let plist = path.clone();
+    runner.on_run("launchctl bootout", move || {
+        if let Some(runner) = going.upgrade() {
+            for _ in 0..3 {
+                runner.answer(
+                    "launchctl print",
+                    shows(&format!("path = {}\n\tstate = not running\n", plist.display())),
+                );
+            }
+        }
+    });
+    svc.uninstall().unwrap();
+    assert!(!path.exists(), "the plist is left");
+    let prints = runner
+        .lines()
+        .iter()
+        .skip_while(|line| !line.contains("launchctl bootout"))
+        .filter(|line| line.contains("launchctl print"))
+        .count();
+    assert_eq!(prints, 4, "uninstall asked launchd {prints} times after the bootout");
+}
+
+/// `KillMode=process` stops only the main process, and the kill that ends
+/// the rest (terminal hosts) may fail: a unit that is inactive but still
+/// has processes must not let uninstall remove what they use.
+#[test]
+fn uninstall_removes_nothing_while_processes_of_the_unit_still_run() {
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = layout_at(tmp.path(), Platform::Linux);
+    let runner = std::sync::Arc::new(RecordingRunner::new());
+    runner.answer_always("--property=LoadState", not_found());
+    let svc = services(&layout, &runner, &tmp.path().join(".local/bin/cmux-tui"));
+    svc.install(false).unwrap();
+    let (path, text) = svc.unit_files().unwrap().remove(0);
+    let left = std::sync::Arc::downgrade(&runner);
+    // They stay for longer than uninstall waits (5 s, 50 checks).
+    runner.on_run("disable --now cmux-server.service", move || {
+        if let Some(runner) = left.upgrade() {
+            for _ in 0..60 {
+                runner.answer(
+                    "--property=ControlGroup,TasksCurrent",
+                    shows("ControlGroup=/app.slice/cmux-server.service\nTasksCurrent=2\n"),
+                );
+            }
+        }
+    });
+    let err = svc.uninstall().unwrap_err();
+    assert!(err.to_string().contains("still run"), "{err}");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), text, "removed the unit file");
+}
+
+/// When systemd cannot say whether processes of the unit are left (the
+/// query fails, or says nothing of its control group), uninstall cannot
+/// tell they are gone: it removes nothing.
+#[test]
+fn uninstall_removes_nothing_when_it_cannot_tell_the_unit_has_no_processes() {
+    if skip_as_root() {
+        return;
+    }
+    for answer in [Output { code: Some(1), ..Output::default() }, shows("TasksCurrent=[not set]\n")]
+    {
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = layout_at(tmp.path(), Platform::Linux);
+        let runner = std::sync::Arc::new(RecordingRunner::new());
+        runner.answer_always("--property=LoadState", not_found());
+        let svc = services(&layout, &runner, &tmp.path().join(".local/bin/cmux-tui"));
+        svc.install(false).unwrap();
+        let (path, text) = svc.unit_files().unwrap().remove(0);
+        let unknown = std::sync::Arc::downgrade(&runner);
+        runner.on_run("disable --now cmux-server.service", move || {
+            if let Some(runner) = unknown.upgrade() {
+                runner.answer("--property=ControlGroup,TasksCurrent", answer.clone());
+            }
+        });
+        let err = svc.uninstall().unwrap_err();
+        assert!(err.to_string().contains("cannot tell"), "{err}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text, "removed the unit file");
+    }
+}
+
+/// The kill does not wait: processes it signalled may still be ending
+/// when uninstall checks. Uninstall waits for them and then goes on.
+#[test]
+fn uninstall_waits_for_processes_of_the_unit_that_are_ending() {
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = layout_at(tmp.path(), Platform::Linux);
+    let runner = std::sync::Arc::new(RecordingRunner::new());
+    runner.answer_always("--property=LoadState", not_found());
+    let svc = services(&layout, &runner, &tmp.path().join(".local/bin/cmux-tui"));
+    svc.install(false).unwrap();
+    let (path, _) = svc.unit_files().unwrap().remove(0);
+    let ending = std::sync::Arc::downgrade(&runner);
+    runner.on_run("disable --now cmux-server.service", move || {
+        if let Some(runner) = ending.upgrade() {
+            for _ in 0..3 {
+                runner.answer(
+                    "--property=ControlGroup,TasksCurrent",
+                    shows("ControlGroup=/app.slice/cmux-server.service\nTasksCurrent=1\n"),
+                );
+            }
+        }
+    });
+    svc.uninstall().unwrap();
+    assert!(!path.exists(), "the unit file stayed");
+}
+
+/// A unit file with cmux's bytes that another account can write (mode
+/// 0666): that account could add a line (`PropagatesStopTo=`) that the
+/// manager reads when uninstall stops the unit. Uninstall refuses before
+/// it stops anything.
+#[cfg(unix)]
+#[test]
+fn uninstall_refuses_a_unit_file_others_can_write_before_it_stops_anything() {
+    use std::os::unix::fs::PermissionsExt as _;
+    if skip_as_root() {
+        return;
+    }
+    for platform in [Platform::Linux, Platform::MacOs] {
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = layout_at(tmp.path(), platform);
+        let runner = RecordingRunner::new();
+        runner.answer_always("--property=LoadState", not_found());
+        runner.answer_always("launchctl print", not_loaded());
+        let svc = services(&layout, &runner, &tmp.path().join(".local/bin/cmux-tui"));
+        svc.install(false).unwrap();
+        let (path, text) = svc.unit_files().unwrap().remove(0);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)).unwrap();
+        let before = runner.lines().len();
+        let err = svc.uninstall().unwrap_err();
+        let after = runner.lines()[before..].to_vec();
+        assert!(
+            !after.iter().any(|l| l.contains(stop_step(platform)) || l.contains(" kill ")),
+            "{platform:?}: stopped something: {after:?} ({err})"
+        );
+        assert!(err.to_string().contains(&path.display().to_string()), "{platform:?}: {err}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text, "{platform:?}: removed it");
+    }
+}
+
+/// A drop-in for the unit (`cmux-server.service.d/*.conf`) that another
+/// account can write changes what systemd runs and stops just the same.
+/// Uninstall refuses before it stops anything.
+#[cfg(unix)]
+#[test]
+fn uninstall_refuses_a_drop_in_others_can_write_before_it_stops_anything() {
+    use std::os::unix::fs::PermissionsExt as _;
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = layout_at(tmp.path(), Platform::Linux);
+    let runner = RecordingRunner::new();
+    runner.answer_always("--property=LoadState", not_found());
+    let svc = services(&layout, &runner, &tmp.path().join(".local/bin/cmux-tui"));
+    svc.install(false).unwrap();
+    let (path, text) = svc.unit_files().unwrap().remove(0);
+    let dir = tmp.path().join("cmux-server.service.d");
+    std::fs::create_dir(&dir).unwrap();
+    let drop_in = dir.join("override.conf");
+    std::fs::write(&drop_in, "[Service]\n").unwrap();
+    std::fs::set_permissions(&drop_in, std::fs::Permissions::from_mode(0o666)).unwrap();
+    runner.answer(
+        "--property=LoadState",
+        shows(&format!(
+            "LoadState=loaded\nFragmentPath={}\nTransient=no\nDropInPaths={}\n",
+            path.display(),
+            drop_in.display()
+        )),
+    );
+    let before = runner.lines().len();
+    let err = svc.uninstall().unwrap_err();
+    let after = runner.lines()[before..].to_vec();
+    assert!(
+        !after.iter().any(|l| l.contains("disable --now") || l.contains(" kill ")),
+        "stopped something: {after:?} ({err})"
+    );
+    assert!(err.to_string().contains(&drop_in.display().to_string()), "{err}");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), text, "removed it");
 }
 
 /// Adds a macOS ACL entry (`chmod +a`) to `path`.
