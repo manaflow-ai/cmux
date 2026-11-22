@@ -13,6 +13,7 @@ import {
 import { watchLaunchSettle } from "../launchSettle";
 import { COMPOSER_READY_EVENT } from "../composerFocus";
 import { skeletonField } from "./skeleton";
+import { focusRoute } from "../../../ui/focusRoute";
 
 type Shown = { at: number; swappedAt?: number };
 
@@ -106,7 +107,9 @@ export function handOverSkeleton(doc: Document = document): void {
     const live = doc.querySelector<HTMLElement>(LIVE_PROMPT);
     field.remove();
     if (!live || !(focused || text.length > 0)) return;
-    live.focus({ preventScroll: true });
+    // The person's own typing goes on in the live prompt: theirs, so a `system` move's typing guard
+    // (which sees them typing in the field) does not refuse it.
+    focusRoute(live, "person", "the copy's prompt field hands over to the live prompt", { preventScroll: true });
     if (text.length > 0) doc.execCommand("insertText", false, text);
   };
   if (doc.querySelector(LIVE_PROMPT)) {

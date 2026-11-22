@@ -11,7 +11,8 @@
 // are typed into it at once instead of waiting for the bundle and the editor. It never sends:
 // Enter is held (Shift-Enter is a line), and what it holds goes into the live prompt once that
 // editor is up (live.ts `handOverSkeleton`). Shared by the boot script and the bundle: it imports
-// only shared.ts.
+// only shared.ts and the focus route (which imports nothing).
+import { focusRoute } from "../../../ui/focusRoute";
 import { SNAPSHOT_SKELETON_ATTRIBUTE } from "./shared";
 
 /// The copy's prompt: the editor's editable as the page drew it, else its root (an editor not yet up).
@@ -94,7 +95,10 @@ export function drawSkeleton(doc: Document, copy: ParentNode, prompt: HTMLElemen
   });
   doc.body.appendChild(field);
   const active = doc.activeElement;
-  if (!active || active === doc.body || active === doc.documentElement) field.focus({ preventScroll: true });
+  if (!active || active === doc.body || active === doc.documentElement)
+    focusRoute(field, "system", "the chat's copy drew its prompt: an idle focus, as the live composer takes", {
+      preventScroll: true,
+    });
   return field;
 }
 
