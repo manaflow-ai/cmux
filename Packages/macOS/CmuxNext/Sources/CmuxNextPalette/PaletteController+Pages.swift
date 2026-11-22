@@ -27,7 +27,7 @@ extension PaletteController {
         var page = PalettePageSpec(
             id: "commands",
             title: PaletteStrings.commandsTitle,
-            placeholder: PaletteStrings.rootPlaceholder,
+            placeholder: PaletteStrings.searchPlaceholder,
             symbol: "command",
             providers: providers,
             showsRecent: true,

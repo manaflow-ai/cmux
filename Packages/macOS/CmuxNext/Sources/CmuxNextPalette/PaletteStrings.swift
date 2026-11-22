@@ -14,8 +14,6 @@ nonisolated enum PaletteStrings {
     static var sectionSettings: String { String(localized: "palette.section.settings", defaultValue: "Change Settings", bundle: .localizedModule) }
     static var sectionRecentDirectories: String { String(localized: "palette.section.recentDirectories", defaultValue: "Recent Directories", bundle: .localizedModule) }
     static var commandsTitle: String { String(localized: "palette.page.commands", defaultValue: "Commands", bundle: .localizedModule) }
-    /// The root page's field, naming what it searches.
-    static var rootPlaceholder: String { String(localized: "palette.placeholder.root", defaultValue: "Search actions, chats and tabs", bundle: .localizedModule) }
     static var searchPlaceholder: String { String(localized: "palette.placeholder.commands", defaultValue: "Search for commands…", bundle: .localizedModule) }
     static var shortcutsTitle: String { String(localized: "palette.page.shortcuts", defaultValue: "Keyboard Shortcuts", bundle: .localizedModule) }
     static var shortcutsPlaceholder: String { String(localized: "palette.placeholder.shortcuts", defaultValue: "Search shortcuts by name or keys…", bundle: .localizedModule) }
