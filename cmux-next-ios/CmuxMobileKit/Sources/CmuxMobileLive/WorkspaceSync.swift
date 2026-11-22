@@ -132,8 +132,10 @@ public final class WorkspaceSync {
     }
 
     /// Starts `channel`'s client and sends the whole setup in one write (one
-    /// round trip, not five): declare the client, identify, subscribe, list
-    /// agents, list workspaces. The daemon answers a connection's lines in
+    /// round trip, not eight): declare the client, identify, subscribe, list
+    /// agents, list workspaces, then the Mac's order and pins (`list-personal`,
+    /// `sidebar_layout.get`), so the first list drawn is already the settled one
+    /// (they came three serial round trips later from `refresh()`). The daemon answers a connection's lines in
     /// order; events after the subscribe wait in the client's stream. Does not
     /// wait for the answers (a Mac that pairs holds them until `auth` passes).
     public nonisolated static func prepare(
@@ -154,7 +156,8 @@ public final class WorkspaceSync {
                 ("subscribe", ["tree_events": "deltas"]),
                 ("list-agents", [:]),
                 ("list-workspaces", [:]),
-            ], deadline: authorizationTimeout + replyTimeout)
+                ("list-personal", [:]),
+            ], resources: [("sidebar_layout.get", [:])], deadline: authorizationTimeout + replyTimeout)
             // This eager batch can be held behind auth's human approval. Only
             // setup gets that grace; subsequent daemon reads keep their normal bound.
             ConnectTimeline.shared.mark("first_daemon_response")
@@ -207,7 +210,8 @@ public final class WorkspaceSync {
         // A missing transport reply invalidates the subscription. A server's
         // explicit rejection is different: keep its live channel so a later
         // workspace event can recover the baseline without another bind.
-        let transportError = replies.compactMap { result -> (any Error)? in
+        // The arrangement's two reads (after the setup's five) are best effort, as in `refresh()`.
+        let transportError = replies.prefix(Self.setupCount).compactMap { result -> (any Error)? in
             if case .failure(let error) = result { return error }
             return nil
         }.first
@@ -231,6 +235,19 @@ public final class WorkspaceSync {
                 notePrompt(surface, from: agents.bySurface[surface], to: state)
             }
             agents.bySurface = setup.agents.bySurface
+            if replies.count == Self.setupCount + 2, case .success(let personal) = replies[Self.setupCount],
+               case .success(let layout) = replies[Self.setupCount + 1] {
+                // Read on this connection after the subscribe: events before the first of the
+                // two replies are already in it.
+                let next = await Task.detached { Self.arrangement(personal: personal.data, layout: layout.data) }.value
+                guard self.client === client, !Task.isCancelled else {
+                    await closeFailedClient(client)
+                    return
+                }
+                arrangement = next
+                arrangementStale = false
+                arrangementSequence = personal.sequence
+            }
             let snapshot = try replies[4].get()
             let known = (tree?.workspaces ?? []).filter { $0.macID == macID }
             let next = try await projection.reset(snapshot: snapshot.data, macID: macID,
@@ -249,7 +266,8 @@ public final class WorkspaceSync {
             onTree?(next)
             onTerminalOutput?(nil)
             drain()
-            // The Mac's own order and pins follow in one more round trip.
+            // The Mac's order and pins came with the setup; a Mac that failed either read
+            // gets them here (`arrangementStale`), and the list is checked once more.
             Task {
                 guard self.client === client else { return }
                 await refresh()
@@ -571,22 +589,29 @@ public final class WorkspaceSync {
         arrangementStale = false
         let personal = try? await client.request("list-personal")
         let layout = try? await client.resourceRequest("sidebar_layout.get", deadline: .seconds(10))
-        let next = await Task.detached {
-            var next = SidebarArrangement()
-            if let personal, let reply = try? Self.check(personal) {
-                next.rows = SidebarArrangement.rows(personal: reply)
-                next.groups = SidebarArrangement.groups(personal: reply)
-                next.rooms = SidebarArrangement.rooms(personal: reply)
-                next.roomPins = SidebarArrangement.roomPins(personal: reply)
-            }
-            if let layout, let reply = try? Self.checkResource(layout) {
-                next.pins = SidebarArrangement.pins(layout: reply)
-            }
-            return next
-        }.value
+        let next = await Task.detached { Self.arrangement(personal: personal, layout: layout) }.value
         // Bound to another Mac meanwhile: not this one's.
         guard self.client === client else { return }
         arrangement = next
+    }
+
+    /// The setup batch's requests before the arrangement's two (`prepare`).
+    nonisolated static let setupCount = 5
+
+    /// The Mac's order, groups, rooms and pins from `list-personal` and `sidebar_layout.get`
+    /// replies; a missing or failed one leaves its part empty.
+    nonisolated static func arrangement(personal: Data?, layout: Data?) -> SidebarArrangement {
+        var next = SidebarArrangement()
+        if let personal, let reply = try? check(personal) {
+            next.rows = SidebarArrangement.rows(personal: reply)
+            next.groups = SidebarArrangement.groups(personal: reply)
+            next.rooms = SidebarArrangement.rooms(personal: reply)
+            next.roomPins = SidebarArrangement.roomPins(personal: reply)
+        }
+        if let layout, let reply = try? checkResource(layout) {
+            next.pins = SidebarArrangement.pins(layout: reply)
+        }
+        return next
     }
 
     /// Throws a `cmux.protocol/2` failure; returns the response object.
