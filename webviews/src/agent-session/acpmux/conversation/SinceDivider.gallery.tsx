@@ -102,7 +102,17 @@ function UnreadLooks({
   return (
     <div
       className="acpmux-shell"
-      style={{ ...THEMES[theme], position: "relative", padding: 16, display: "grid", gap: 8, minHeight: "100%" }}
+      // `alignContent: start`: the rows keep their own heights; a stretched grid gave the 0 px line
+      // row the stage's spare height, which moved the mark off the Worked for line (#51002).
+      style={{
+        ...THEMES[theme],
+        position: "relative",
+        padding: 16,
+        display: "grid",
+        gap: 8,
+        alignContent: "start",
+        minHeight: "100%",
+      }}
     >
       {part === "banner" && (
         <div className="acpmux-over-top" data-zone="top-start" style={{ top: 0 }}>
@@ -120,10 +130,21 @@ function UnreadLooks({
       <Reply text="I'll start by reading foo.rs to see how absent fields fail." />
       {/* The line's row takes no height; the turn gap under it is the transcript's, which it reads.
           Then the new turn's Worked for line, which look B lies on. The rows carry the transcript's
-          row classes so the look's selectors (unread.css) read the same. */}
+          row classes so the look's selectors (unread.css) read the same. The transcript places rows
+          from the model (the line's row is 0 px, model.ts), so the row's own min-height and bottom
+          padding (.acpmux-row) never move the next one; here they would, so they are off. */}
       <div
         className="acpmux-row"
-        style={{ position: "relative", left: 0, right: 0, "--cv-since-gap": `${TURN_GAP}px` } as React.CSSProperties}
+        style={
+          {
+            position: "relative",
+            left: 0,
+            right: 0,
+            minHeight: 0,
+            paddingBottom: 0,
+            "--cv-since-gap": `${TURN_GAP}px`,
+          } as React.CSSProperties
+        }
       >
         {!none && (
           <SinceDivider
