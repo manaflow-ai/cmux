@@ -4,6 +4,7 @@ import CmuxMobileAgentChat
 import CmuxMobileDesign
 import CmuxMobileMarkdown
 import CmuxMobileModel
+import CmuxSpinner
 import Observation
 import OSLog
 import SwiftUI
@@ -540,6 +541,10 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private(set) var newCells = 0
     /// New cells the provider made before the spare was taken (tests: none once it is parked).
     private(set) var newCellsBeforeSpare = 0
+    /// The spare once a row took it (tests: it shows that row, whatever row it was built with).
+    private(set) weak var spareGiven: FeedRowCell?
+    /// The parked spare (tests: hidden from accessibility, off screen).
+    var parkedSpare: FeedRowCell? { spare }
     /// How long the list must have been still before the spare is built (one idle build).
     static let spareStillness: CFTimeInterval = 0.5
 
@@ -557,6 +562,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         cell.isUserInteractionEnabled = true
         cell.prepareForReuse()
         sparesTaken += 1
+        spareGiven = cell
         return cell
     }
 
@@ -570,12 +576,24 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             guard let self else { return }
             self.spareScheduled = false
             guard let view = self.collectionView, view.window != nil, !view.isTracking, !view.isDecelerating,
-                  CACurrentMediaTime() - self.lastScroll >= Self.spareStillness else {
+                  CACurrentMediaTime() - self.lastScroll >= Self.spareStillness, !self.jumpingToTop,
+                  !self.rowAnimating(in: view) else {
                 self.scheduleSpare()
                 return
             }
             self.buildSpare(in: view)
         }
+    }
+
+    /// A row on screen animates from the main thread (a UIKit view animation in flight: a row
+    /// growing, a swipe settling, an insert). The rows' spinners turn in the render server (a
+    /// Core Animation rotation), which main-thread work does not stop, so they do not count.
+    private func rowAnimating(in view: UITableView) -> Bool {
+        func animating(_ layer: CALayer) -> Bool {
+            if let keys = layer.animationKeys(), keys.contains(where: { $0 != CmuxSpinnerLayer.turnKey }) { return true }
+            return layer.sublayers?.contains(where: animating) ?? false
+        }
+        return view.visibleCells.contains { animating($0.layer) }
     }
 
     private func buildSpare(in view: UITableView) {
@@ -606,8 +624,20 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         sparesMade += 1
         #if DEBUG
         if FeedStressRig.shared.config.isActive {
-            Logger(subsystem: "dev.cmux.mobile", category: "frames").notice(
-                "FRAMELOG list-stress feed-spare made=\(self.sparesMade, privacy: .public) kind=\(String(describing: layout.key.item.kind).prefix(12), privacy: .public) ms=\((CACurrentMediaTime() - t0) * 1000, format: .fixed(precision: 2), privacy: .public)")
+            // The build's time, and the frame intervals right after it (its first draw lands in the
+            // next commit): whether the idle build cost a drawn frame.
+            let ms = (CACurrentMediaTime() - t0) * 1000
+            var last: CFTimeInterval?
+            var intervals: [Double] = []
+            var token: FrameClock.Token?
+            token = FrameClock.shared.subscribe { tick in
+                if let last { intervals.append((tick.timestamp - last) * 1000) }
+                last = tick.timestamp
+                guard intervals.count >= 4, let done = token else { return }
+                FrameClock.shared.unsubscribe(done)
+                Logger(subsystem: "dev.cmux.mobile", category: "frames").notice(
+                    "FRAMELOG list-stress feed-spare made=1 ms=\(ms, format: .fixed(precision: 2), privacy: .public) next_frames_ms=\(intervals.map { String(format: "%.1f", $0) }.joined(separator: ","), privacy: .public)")
+            }
         }
         #endif
     }

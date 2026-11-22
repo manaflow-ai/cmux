@@ -171,6 +171,9 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
     private let send = UIButton(type: .custom)
     private var footerButtons: [UIButton] = []
 
+    /// A permission card's command block shows (tests: a reused cell shows only its own row's parts).
+    var showsCommandBlock: Bool { made.contains("command") && !command.isHidden && command.superview != nil }
+
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         #if DEBUG
         let t0 = CACurrentMediaTime()
