@@ -606,13 +606,13 @@ test("by default the Reasoning column is as wide as its widest row, Extra High w
   expect(fit).toBeGreaterThan("Fast".length * CHAR + gap + 28 + padding);
 });
 
-test("arrows move the highlight without landing; Return lands it and keeps the menu open", async () => {
+test("arrows move the highlight without landing; Return lands it and closes", async () => {
   const calls = await openMenu();
   await press("ArrowDown");
   expect(calls.picks).toHaveLength(0);
   await press("Enter");
   expect(calls.picks.map((pick) => pick.id)).toEqual(["claude-Haiku"]);
-  expect(calls.open).toBe(true);
+  expect(calls.open).toBe(false);
 });
 
 const chip = () => document.querySelector<HTMLButtonElement>("button[data-menu='model']")!;
@@ -675,12 +675,36 @@ test("a model, a level, Fast, a star, the search and a rail tab in one opening a
     ["codex-Sol", "high", false],
     ["codex-Sol", "high", true],
   ]);
-  // A digit lands a row as a click does, and keeps it open too.
-  await press("1");
-  expect(calls.open).toBe(true);
   // Escape closes it.
   await press("Escape");
   expect(calls.open).toBe(false);
+});
+
+test("a level picked on one model carries to the next model clicked, and a click again on a pick keeps it", async () => {
+  const calls = await openMenu();
+  await click(tab("Codex"));
+  await click(row("Sol"));
+  const high = [...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "High")!;
+  await click(high);
+  // Sol again: it keeps High, and nothing lands again.
+  await click(row("Sol"));
+  expect(calls.picks).toHaveLength(2);
+  expect(levels().find((level) => level.checked)?.name).toBe("High");
+  // Astra has High: it takes the level just picked, not the chat's Medium or its own default.
+  await click(row("Astra"));
+  expect(levels().find((level) => level.checked)?.name).toBe("High");
+  expect(calls.picks.at(-1)).toMatchObject({ id: "codex-Astra", effort: "high" });
+  expect(calls.open).toBe(true);
+});
+
+test("the running model clicked after another pick in the same opening lands it back", async () => {
+  const calls = await openMenu();
+  await click(tab("Codex"));
+  await click(row("Sol"));
+  await click(tab("Claude"));
+  await click(row("Opus"));
+  expect(calls.picks.map((pick) => pick.id)).toEqual(["codex-Sol", "claude-Opus"]);
+  expect(calls.open).toBe(true);
 });
 
 test("a picked model keeps the chat's level when it has it, else takes its recommended one", async () => {
