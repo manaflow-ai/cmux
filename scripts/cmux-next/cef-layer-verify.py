@@ -804,6 +804,12 @@ def check_devtools():
     row("devtools.pixels", detail > 8, {"colours": detail, "census": page_census(), "devtools_frame": entry.get("devtools_frame"),
                                          "via": "cua" if opts.input == "cua" else "screencapture"})
     def devtools_key():
+        # In tree there is no DevTools window: a click gave DevTools the keyboard when the app's focus says so
+        # (debug.focus appkit.devtools_tab) or, with layer hosting, when its child window is key.
+        if opts.mode == "intree":
+            windows = (rpc("debug.focus") or {}).get("windows") or []
+            tabs = [(w.get("appkit") or {}).get("devtools_tab") for w in windows if isinstance(w, dict)]
+            return {"devtools_tab": next(t for t in tabs if t)} if any(tabs) else None
         found = devtools_entry()
         return found if found and any(c.get("devtools") and c.get("key") for c in found.get("child_windows") or []) else None
     if entry.get("page_frame"):
@@ -821,6 +827,7 @@ def check_devtools():
     final = key or devtools_entry() or {}
     row("devtools.click", bool(key) and not key_before,
         {"at": [round(v) for v in point], "key_before_click": key_before, "child_windows": (final.get("child_windows") or [])[:4],
+         "appkit": [(w.get("appkit") or {}) for w in ((rpc("debug.focus") or {}).get("windows") or []) if isinstance(w, dict)][:2],
          "note": "DevTools was key before the click (the page click did not take the key)" if key_before else None})
     action("devtools.close")
 
