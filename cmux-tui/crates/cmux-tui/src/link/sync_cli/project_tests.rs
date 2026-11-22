@@ -46,3 +46,30 @@ fn each_chat_has_its_own_projection_and_its_name_is_one_the_machine_takes() {
     assert!(one.len() <= 64);
     assert!(one.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"-_".contains(&byte)));
 }
+
+#[test]
+fn each_move_has_its_own_projection_and_its_name_is_one_the_machine_takes() {
+    let one = chat_name(&move_key("/home/cmux/work/api"));
+    std::thread::sleep(Duration::from_millis(1));
+    // A later move of the same folder never mounts an earlier move's edits.
+    assert_ne!(one, chat_name(&move_key("/home/cmux/work/api")));
+    assert!(one.starts_with(&chat_name(&format!("move-{}", name_of("/home/cmux/work/api")))));
+    // The daemon's rule (cmux-tui-core projection.rs): 1-64 letters, digits, - or _.
+    assert!(one.len() <= 64);
+    assert!(one.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"-_".contains(&byte)));
+}
+
+#[test]
+fn what_a_server_serves_reads_back_as_written() {
+    let served = ServerRecord {
+        machine: "m-7f3a".into(),
+        chat: "move-p0123456789abcdef-1".into(),
+        local: PathBuf::from("/Users/leo/Projects/with\nnewline"),
+    };
+    assert_eq!(ServerRecord::decode(&served.encode()), Some(served.clone()));
+    assert_eq!(ServerRecord::decode(b"no separator"), None);
+    assert_eq!(ServerRecord::decode(b"m\0\0/no/chat"), None);
+    // A machine that answers no id is recorded as none, and matches only itself.
+    let unnamed = ServerRecord { machine: String::new(), ..served };
+    assert_eq!(ServerRecord::decode(&unnamed.encode()), Some(unnamed));
+}

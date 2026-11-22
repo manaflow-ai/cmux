@@ -196,8 +196,17 @@ compiled the nearest commit (scripts/ci/dev_landing_place.py with FRESH_LABEL, p
 runner listing: a host with any busy runner is occupied (whatever holds its host lock runs there); a
 pick claims a host only when its label resolves to exactly one idle runner (a DEV slot or root runner by
 its static label, or the one idle DEV slot), scored by the host's cmux-next-dev-cas-holder-<host>
-record. Otherwise the shared DEV slot label, then the side label, at once: it never waits. With nothing
-owned idle it prints no route and the compile keeps macos-placement's. A warm host compiles in about
+record. Otherwise an idle nightly slot (NIGHTLY_LABEL, from vars.CI_DEV_COMPILE_NIGHTLY_RUNNER, default
+glaeda-nightly-std-xcode-26.6, picked as nightly_build_runner.owned_route() picks the nightly's own): the
+runner hook ranks the DEV daily compile nightly-tier, and Leo's rule is "Nightlies come first on the fleet".
+Otherwise the shared DEV slot label at once: it never waits. Never the shared side label: GitHub
+hands that label's queue out oldest first, so an idle side runner in the one listing is no place in line,
+and the compile joins the tail behind every PR job there (run 44941204257, 2026-11-21: 76 min on
+glaeda-side-std-xcode-26.6 behind about 130 jobs, then a capacity refusal; Leo's rule: "Nightlies come first
+on the fleet"). With nothing owned idle it overflows to a moving Blacksmith macOS label, else waits on the DEV
+slot, else prints no route and the compile keeps macos-placement's. It places every attempt, not only the
+first: a re-run (the owned-pool rescue's after a refusal) is placed again instead of falling to the side
+label's tail. A warm host compiles in about
 130 s of xcodebuild, a host with no tree in about 808 s (2026-10-28, 15 DEV compiles, 4 warm).
 vars.CMUX_NEXT_DEV_COMPILE_AFFINITY=0 turns it off.
 It runs only when cmux-scheme-compile will (the same tree condition), so it never waits for a skipped compile.
@@ -3902,3 +3911,24 @@ checks, both export packs, the regenerate) runs in the root (the mirror holds `.
 `git checkout HEAD^1` works there); the uploads read `$RUNNER_TEMP` and stay as they are. One job per mini
 holds the root, fast tier or generated files; the other takes a shared root or `link` as before.
 `vars.CI_FAST_TIER_OWNED_SEED` = `0` switches both off.
+
+## note-411
+
+Above `checks: Connection notices` in `.github/workflows/cmux-next.yml` (its link lives in `scripts/cmux-next/check-connection-notices.sh`: the workflow file is near GitHub's size limit).
+
+A connection state the person can do nothing about (reconnecting, retrying, restoring, handshaking, "Getting
+access", offline, disconnected) shows nothing until it has lasted the shared bound, unless it carries one action
+(Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up and load faster/percievably load
+faster / whatever it takes / desktop gui, ios, remote, cloud, etc"). check-connection-notices.py finds the units of
+the web pages, the Mac app and the iOS apps that draw one with no time gate and no action; the bound is
+schemas/notice-timing/notice-timing.json (10 s), copied as CONNECTION_QUIET_MS / useConnectionQuiet,
+NoticeTiming.connectionQuiet and QuietStatusGate.threshold. The offenders on the base when it landed are rows of
+connection-notices-allowlist.tsv, which only shrinks: `--base HEAD^1` (the base tip on a pull request, the previous
+tip on a push) refuses a row the base lacks (a unit fixed in place does not free its row for a namesake). Every run, with or
+without `--base`, judges every unlisted offender and fails a row whose unit no longer offends, whatever file the
+change touched: whether a unit offends depends on files it does not live in (a strings map, a string table). Its own tests run in the same background check.
+
+The cmux-next workflow does not run on a change that touches only the phone app, so `cmux-next-ios-kit.yml`'s
+kit-tests job runs the same check over the whole tree (no `--base`: every unlisted offender and every stale row
+fails; a new row is caught by the cmux-next run that any change to the list triggers). The legacy `ios/` app is not
+read: no workflow that runs the check covers it.
