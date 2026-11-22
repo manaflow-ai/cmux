@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextControl
 @testable import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDevices
@@ -159,6 +160,38 @@ struct MacScreenActionRoutingTests {
             #expect(missing?.contains("Mac Mini (\(device))") == true, "\(value)")
         }
         #expect(pages.pendingScopes.isEmpty)
+    }
+
+    /// `cmux tab new-mac-screen --device X` that cannot open answers the caller with why, where the run used to answer
+    /// done with the reason only in the app's notice, so the CLI printed nothing. A malformed device is refused at once;
+    /// a name Screen Sharing does not list asks `cmux device list`, and a machine listed there says why it offers no
+    /// screen, never "No device is named". Leo, 2026-11-21: "...most of our vms ... dont have screns...".
+    @Test func aFailedOpenAnswersTheCallerWithItsReason() async throws {
+        let listed = [MacScreenListedDevice(name: "my-vm", noScreenReason: "unknown"),
+                      MacScreenListedDevice(name: "Studio", noScreenReason: "offline"),
+                      MacScreenListedDevice(name: "new-mac", noScreenReason: nil)]
+        let actions = MacScreenActions(pages: pages(), selectedTab: { nil }, providerKey: { id, _ in id },
+                                       open: { record, _, _ in _ = try record() },
+                                       refusal: { Issue.record("swallowed: \($0)") }, listedDevices: { listed })
+        let registry = ActionRegistry.standard()
+        actions.bind(into: registry)
+        let bridge = RegistryControlBridge(registry: registry)
+        let malformed = bridge.performAction(.init(actionID: "macScreen.open", arguments: ["device": .int(1)]))
+        guard case .refused(let reason) = malformed else { Issue.record("a malformed device answered \(malformed)"); return }
+        #expect(reason.contains("Pass a device name or id"))
+        func refusal(_ name: String) async -> String? {
+            let run = bridge.performActionTracked(.init(actionID: "macScreen.open", arguments: ["device": .string(name), "autoconnect": .bool(true)]))
+            guard case .ran = run.outcome, run.work.count == 1, let work = run.work.first, let failure = await work.value else {
+                Issue.record("\(name): \(run.outcome), \(run.work.count) tasks")
+                return nil
+            }
+            #expect(failure.refusal == .unavailable, "the CLI answers `unavailable` with the reason")
+            return failure.message
+        }
+        #expect(await refusal("my-vm") == "my-vm offers no screen: cmux cannot tell whether it has a desktop to share.")
+        #expect(await refusal("studio") == "Studio offers no screen: it is offline.")
+        #expect(await refusal("new-mac")?.contains("Screen Sharing does not list it yet") == true)
+        #expect(await refusal("office-imac")?.contains("No device is named “office-imac”") == true)
     }
 
     @Test func noDeviceStillOpensTheHomePage() throws {
