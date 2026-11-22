@@ -1816,6 +1816,8 @@ version = "0.1.0"
 dependencies = [
  "cmux-scope",
  "libc",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 
@@ -2228,7 +2230,6 @@ name = "cmux-rd-host"
 version = "0.2.7"
 dependencies = [
  "cc",
- "cmux-computer-use",
  "cmux-encode",
  "cmux-file-lock",
  "cmux-hub-host",
@@ -2248,6 +2249,7 @@ dependencies = [
 name = "cmux-rd-link"
 version = "0.1.0"
 dependencies = [
+ "cmux-rd-proto",
  "cmux-transport",
  "hmac",
  "libc",
@@ -2628,6 +2630,7 @@ dependencies = [
  "cmux-customize",
  "cmux-customize-recipes",
  "cmux-device-kind",
+ "cmux-fault",
  "cmux-file-lock",
  "cmux-focus-core",
  "cmux-git",
@@ -2823,6 +2826,7 @@ dependencies = [
  "sha2 0.10.9",
  "socket2",
  "subsecond",
+ "tar",
  "tokio",
  "tokio-tungstenite",
  "toml",
