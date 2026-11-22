@@ -305,10 +305,33 @@ pub(super) fn park_until(deadline: Instant, now: Instant) -> Instant {
     deadline.min(now + PARK_REDIAL)
 }
 
+/// How long a lane's first circuit waits for the machine's daemon to join it, once the relay
+/// allocated it, before the attempt is given up for a new allocation (`join_stalls` 0). A link
+/// parked on a new machine is paired the moment its daemon registers, and that daemon sometimes
+/// never joins the circuit: production `cloud-chat-replies-production`, fresh machines,
+/// 2026-11-18 13:20Z to 11-19 15:30Z, 6 of 44 starts had a dial paired with a daemon that had
+/// registered seconds before wait out the whole 15 s join (`outcome=relay`, `parked_ms` 17.8 to
+/// 22.2 s), and the next attempt was allocated and joined in 0.5 to 1.2 s every time. A daemon that
+/// joins does so in about a second of its `Incoming`.
+pub(super) const PEER_JOIN_REDIAL: Duration = Duration::from_secs(4);
+
+/// The join wait of an attempt after `join_stalls` attempts of this dial whose daemon never
+/// joined: [`PEER_JOIN_REDIAL`], doubled per stall, at most [`CONTROL_TIMEOUT`]. A machine whose
+/// daemon joins slowly every time still connects, on a later attempt.
+pub(super) fn peer_join_wait(join_stalls: u32) -> Duration {
+    PEER_JOIN_REDIAL.saturating_mul(1_u32 << join_stalls.min(8)).min(CONTROL_TIMEOUT)
+}
+
+/// Whether `failure` is an attempt whose daemon never joined its allocated circuit.
+pub(super) fn join_stalled(failure: &Failure) -> bool {
+    failure.detail.contains("relay circuit join timed out")
+}
+
 fn relay_provider(
     answer: &CarrierAnswer,
     tickets: Arc<TicketCache>,
     deadline: Instant,
+    join_wait: Duration,
 ) -> Result<RelayProvider, Failure> {
     let credentials = RelayCredentialSource::callback(move || {
         let tickets = tickets.clone();
@@ -323,7 +346,11 @@ fn relay_provider(
         },
         credentials,
     )
-    .map(|provider| provider.with_allocation_deadline(park_until(deadline, Instant::now())))
+    .map(|provider| {
+        provider
+            .with_allocation_deadline(park_until(deadline, Instant::now()))
+            .with_peer_join_wait(join_wait)
+    })
     .map_err(|e| Failure::fatal(Step::Relay, e.to_string()))
 }
 
@@ -335,12 +362,13 @@ fn random_session() -> Result<SessionId, Failure> {
 
 /// One attempt, recording its step in `step` as it goes (the caller reads
 /// it when the deadline cuts the attempt off): the answer, then one pass
-/// over its routes.
+/// over its routes. Its lanes wait `join_wait` for the daemon to join.
 async fn attempt(
     plan: &DialPlan,
     step: &Arc<Progress>,
     resume: &Arc<Resume>,
     current: &Arc<CurrentRoute>,
+    join_wait: Duration,
 ) -> Result<Dialed, Failure> {
     step.set(Step::Ticket);
     step.mark(|marks| marks.started = Some(Instant::now()));
@@ -357,7 +385,7 @@ async fn attempt(
     let tickets = TicketCache::new(plan.source.clone(), plan.machine.clone(), &answer);
     step.set(Step::Relay);
     let session = random_session()?;
-    let provider = Arc::new(relay_provider(&answer, tickets, plan.deadline)?);
+    let provider = Arc::new(relay_provider(&answer, tickets, plan.deadline, join_wait)?);
     let ssh = ssh_route(
         &plan.ssh,
         &answer,
@@ -826,6 +854,8 @@ struct Attempts {
     current: Option<(Arc<Progress>, Instant)>,
     /// The last attempt's retryable failure.
     last: Option<Failure>,
+    /// Attempts whose daemon never joined their allocated circuit ([`peer_join_wait`]).
+    join_stalls: u32,
 }
 
 /// One attempt's route line and phases line.
@@ -883,25 +913,31 @@ pub(super) async fn dial(plan: &DialPlan) -> Result<Dialed, Failure> {
             async move {
                 let step = Arc::new(Progress::default());
                 let started = Instant::now();
-                let number = {
+                let (number, join_wait) = {
                     let mut attempts = lock();
                     attempts.count = attempts.count.saturating_add(1);
                     attempts.current = Some((step.clone(), started));
-                    attempts.count
+                    (attempts.count, peer_join_wait(attempts.join_stalls))
                 };
                 if let Some(progress) = &plan.progress {
                     progress.attempt(step.clone());
                 }
                 let result = match tokio::time::timeout_at(
                     plan.deadline,
-                    attempt(plan, &step, resume, current),
+                    attempt(plan, &step, resume, current, join_wait),
                 )
                 .await
                 {
                     Ok(result) => result,
                     Err(_) => Err(Failure::deadline(step.get())),
                 };
-                lock().current = None;
+                {
+                    let mut attempts = lock();
+                    attempts.current = None;
+                    if result.as_ref().err().is_some_and(join_stalled) {
+                        attempts.join_stalls = attempts.join_stalls.saturating_add(1);
+                    }
+                }
                 log_attempt(plan, number, result.as_ref().err(), &step, started.elapsed());
                 if let (Err(_), Some(progress)) = (&result, &plan.progress) {
                     progress.retrying();
