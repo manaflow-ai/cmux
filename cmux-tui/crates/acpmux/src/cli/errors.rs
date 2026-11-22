@@ -117,8 +117,10 @@ impl AppError {
             .with_data({
                 let mut d = serde_json::json!({"reason": "no_session", "session": key,
                     "candidates": candidates, "host": host, "name": name});
-                if let Some(c) = data.and_then(|d| d.get("unregisteredChat")) {
-                    d["unregisteredChat"] = c.clone();
+                if let (Some(c), Some(o)) =
+                    (data.and_then(|d| d.get("unregisteredChat")), d.as_object_mut())
+                {
+                    o.insert("unregisteredChat".into(), c.clone());
                 }
                 d
             });

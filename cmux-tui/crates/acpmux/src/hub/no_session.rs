@@ -48,10 +48,12 @@ impl Hub {
             "name": name,
             "candidates": close,
         });
-        if let Some(chat) = chat {
+        if let (Some(chat), Some(o)) = (chat, data.as_object_mut()) {
             let mut d = chat.data;
-            d["text"] = json!(chat.text);
-            data["unregisteredChat"] = d;
+            if let Some(fields) = d.as_object_mut() {
+                fields.insert("text".into(), json!(chat.text));
+            }
+            o.insert("unregisteredChat".into(), d);
         }
         (text, data)
     }
