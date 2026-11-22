@@ -16,6 +16,8 @@ import { ComposerListAnchor } from "./backdropLayer";
 import { remember } from "./composer/pasteMarks";
 import { acpmuxPerf } from "./perf";
 import { holdFlag, setRef } from "./heldFlag";
+import { Slot } from "../../slots/Slot";
+import { composerCaretSlot } from "../../slots/composerCaret";
 
 /// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
 /// and dialogs the card opens, and attachments.
@@ -418,6 +420,9 @@ export function ComposerBox({
           />
           {inline.chips}
           {fieldOverlay}
+          {/* The theme slot `composer.caret` (slots/composerCaret): its default draws nothing, the
+              field's own caret as before. */}
+          <Slot slot={composerCaretSlot} props={{ empty: !/\S/.test(field.value) }} />
         </ContextMenu>
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
