@@ -445,7 +445,7 @@ pub(super) struct Line {
     pub(super) needs: Needs,
     /// A lag marker's count of the list notices it stands for ([`Shared::shed_list_notices`]);
     /// 0 for every other line.
-    lag_marker: u64,
+    pub(super) lag_marker: u64,
 }
 
 /// The journal's LSNs a line may show (`durable_gate.rs`): the connection's [`Raised`] when it
