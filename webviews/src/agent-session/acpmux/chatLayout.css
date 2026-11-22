@@ -28,7 +28,10 @@
 :root[data-chat-messages="card"] .acpmux-shell .cv-user__bubble {
   --glass-edge: var(--cv-user-bubble-edge, var(--cv-strong-rule));
   --glass-tint: var(--cv-user-bubble-tint, color-mix(in srgb, var(--cv-fg) 6%, transparent));
-  border-radius: var(--cv-user-bubble-radius, 14px);
+  border-radius: var(
+    --cv-user-bubble-radius,
+    calc(var(--cv-look-bubble-radius, 3) * var(--grid-base) * var(--cv-bubble-scale))
+  );
 }
 
 /* Message box shape: a pill (a minimal chat assistant app's composer) or square and docked (a
@@ -49,7 +52,8 @@
   transition: opacity var(--acpmux-motion-hover, 120ms) var(--acpmux-motion-ease, ease-out);
 }
 :root[data-chat-header="quiet"] .acpmux-header:hover .acpmux-header-tools,
-:root[data-chat-header="quiet"] .acpmux-header:focus-within .acpmux-header-tools {
+:root[data-chat-header="quiet"] .acpmux-header:focus-within .acpmux-header-tools,
+:root[data-chat-header="quiet"] .acpmux-header:has([data-popup-open]) .acpmux-header-tools {
   opacity: 1;
 }
 @media (prefers-reduced-motion: reduce) {
