@@ -49,9 +49,9 @@ public struct HomeSidebarWidth: Sendable {
         defaults.removeObject(forKey: Self.key(window))
     }
 
-    /// Whether the conversation list shows beside the Chief's chat (its Chats button). Off until the person shows it:
-    /// the Chief replaces Home (the person, 2026-11-20), so its chat fills the page by default. One choice on this Mac,
-    /// not per window, so a new window opens the way the person last left it.
+    /// Whether the conversation list shows beside the Chief's chat. On by default, as in Messages (#48467: the Chats
+    /// button that folded it is gone; a new key, so a list folded with it shows again). One choice on this Mac, not
+    /// per window.
     public var listShown: Bool {
         get { defaults.object(forKey: Self.listShownKey) as? Bool ?? true }
         nonmutating set { defaults.set(newValue, forKey: Self.listShownKey) }

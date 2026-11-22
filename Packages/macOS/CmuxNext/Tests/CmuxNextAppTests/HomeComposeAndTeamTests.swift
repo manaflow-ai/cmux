@@ -39,7 +39,7 @@ struct HomeComposeAndTeamTests {
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 800))
         let content = NSView()
         let split = HomeSidebarSplitView(sidebar: home, content: content, widths: HomeSidebarWidth(defaults: defaults))
-        split.showsList = true // the person showed the list (folded by default: ChiefReplacesHomeTests)
+        split.showsList = true // the list shows (its default since #48467; set so a test suite default cannot fold it)
         split.windowKey = { "w" }
         let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: window, height: 800), styleMask: [.borderless],
                            backing: .buffered, defer: false)

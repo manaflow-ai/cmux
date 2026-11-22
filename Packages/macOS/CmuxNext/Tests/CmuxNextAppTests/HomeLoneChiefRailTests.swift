@@ -56,7 +56,7 @@ struct HomeLoneChiefRailTests {
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
         home.update(model(chiefs: chiefs))
         let split = HomeSidebarSplitView(sidebar: home, content: NSView(), widths: HomeSidebarWidth(defaults: defaults))
-        split.showsList = true // the person showed the list (folded by default: ChiefReplacesHomeTests)
+        split.showsList = true // the list shows (its default since #48467; set so a test suite default cannot fold it)
         split.windowKey = { "w" }
         if let tunables { split.tunables = tunables }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 600), styleMask: [.borderless],

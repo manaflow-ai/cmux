@@ -95,7 +95,7 @@ struct HomeWindowControlsTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 700))
         let split = HomeSidebarSplitView(sidebar: home, content: NSView(), widths: HomeSidebarWidth(defaults: defaults))
-        split.showsList = true // the person showed the list (folded by default: ChiefReplacesHomeTests)
+        split.showsList = true // the list shows (its default since #48467; set so a test suite default cannot fold it)
         split.windowKey = { "w" }
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 700))
         split.frame = NSRect(x: 240, y: 0, width: 760, height: 700)

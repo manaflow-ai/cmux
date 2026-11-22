@@ -313,7 +313,6 @@ extension WindowController {
     func removeChiefPanel() {
         guard let view = chiefPanelView, view.superview != nil else { return }
         let released = view.release()
-        Self.chiefSplit(of: released)?.foldsList = false
         let hadKeys = view.hasKeys, homeContent = giveBackToHome(released)
         view.unmount()
         if hadKeys, homeContent !== content { frameFocusStage(toward: nil) }
@@ -325,7 +324,9 @@ extension WindowController {
     }
 
     /// Home's pane that shows `chief` (a view the panel let go) takes it back; Home's content.
+    /// Its list shows again: the panel folded it only while it held the view.
     @discardableResult private func giveBackToHome(_ chief: NSView?) -> WorkspaceContentController? {
+        Self.chiefSplit(of: chief)?.foldsList = false
         let home = content?.workspace.id == frameHome ? content : frameHome.flatMap { parked[$0] }
         if let chief { for pane in home.map({ Array($0.panes.values) }) ?? [] where pane.view.content === chief { _ = pane.view.show(chief) } }
         return home

@@ -12,8 +12,8 @@ import Testing
 /// Nov 20: the Chief is a thread like the others ("threads should all be threads"), distinct in the sidebar.
 ///
 /// The sidebar's top row that was Home is the Chief: its name, its picture, its status and its subagents under it.
-/// Opening it shows the Chief's chat at the full width of the window: the conversation list is folded until the
-/// person shows it (the chat's Chats button), so no list column sits beside the Chief by default.
+/// Opening it shows the Chief's chat with the conversation list beside it, as in Messages (#48467); there is no
+/// Chats button to fold it.
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct ChiefReplacesHomeTests {
     static let homeItem = LayoutItem(id: LayoutItemID("itm_home"), ref: SidebarLayoutDocument.homeRef)
