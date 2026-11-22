@@ -2682,6 +2682,7 @@ dependencies = [
  "cmux-vm",
  "cmux-vm-pool",
  "cmux-vnc",
+ "cmux-web-pieces",
  "cmux-wg",
  "core-foundation 0.10.1",
  "crossbeam-channel",
