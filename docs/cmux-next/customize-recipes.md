@@ -51,8 +51,8 @@ To put glass behind a piece of a view of your own, see [glass.md](glass.md).
 ### Hairline: flat and neutral
 
 Opaque gray surfaces on one-pixel lines, one corner radius for panes, tabs, cards and the
-composer, a 2 px ring for focus, and no glass or shadows. The chat and the Markdown viewer use a
-dense 14 px Inter, and links are underlined text. It carries three palettes, each dark and light:
+composer, a 2 px ring for focus, and no glass or shadows. The chat uses a dense 14 px Inter, the
+Markdown viewer the system font at the same size, and links are underlined text. It carries three palettes, each dark and light:
 `hairline` (zinc, 8 px corners), `hairline-slate` (6 px) and `hairline-stone` (10 px); switch with
 `cmux settings set appearance.themeFile hairline-slate`. The same look installs from
 `examples/looks/hairline`.

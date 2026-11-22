@@ -39,10 +39,17 @@
 }
 .acpmux-composer-box {
   --acpmux-composer-radius: var(--hl-r);
-  box-shadow: var(--acpmux-card-ring);
 }
-.acpmux-composer-box:focus-within {
-  box-shadow: var(--acpmux-card-ring), 0 0 0 2px color-mix(in srgb, var(--agent-text) 28%, transparent);
+/* The composer's glass rim and drop shadow are variables every composer box-shadow rule reads
+   (composerStates.css), set by rules up to (0,5,0). Clearing them at (0,6,0) leaves only the card
+   ring, and the focus ring rides in the rim's place, so the queue and Reduce Transparency forms
+   get it too. */
+:root:root:root:root .acpmux-composer > .acpmux-composer-box {
+  --acpmux-composer-rim: 0 0 0 0 transparent;
+  --acpmux-composer-shadow: 0 0 transparent;
+}
+:root:root:root:root .acpmux-composer > .acpmux-composer-box:focus-within {
+  --acpmux-composer-rim: 0 0 0 2px color-mix(in srgb, var(--agent-text) 28%, transparent);
 }
 a {
   text-decoration-color: color-mix(in srgb, var(--agent-text) 36%, transparent);
