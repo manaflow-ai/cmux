@@ -26,10 +26,10 @@ html, body { margin: 0; height: 100%; }
 body { background: var(--deck-page); color: var(--cmux-text); font: var(--deck-body)/1.4 var(--cmux-font); -webkit-font-smoothing: antialiased; }
 
 /* A slide is 1280 x 720 CSS pixels; the runtime scales it to fit. */
-:is(main.deck, .deck-thumb) > section { width: 1280px; height: 720px; padding: 72px 96px; background: var(--deck-slide); display: flex; flex-direction: column; gap: 24px; overflow: hidden; }
-:is(main.deck, .deck-thumb) > section.title { justify-content: center; }
-:is(main.deck, .deck-thumb) > section.title h1 { font-size: 88px; }
-:is(main.deck, .deck-thumb) > section.center { justify-content: center; align-items: center; text-align: center; }
+:is(main.deck, .deck-thumb, .deck-console-next .frame) > section { width: 1280px; height: 720px; padding: 72px 96px; background: var(--deck-slide); display: flex; flex-direction: column; gap: 24px; overflow: hidden; }
+:is(main.deck, .deck-thumb, .deck-console-next .frame) > section.title { justify-content: center; }
+:is(main.deck, .deck-thumb, .deck-console-next .frame) > section.title h1 { font-size: 88px; }
+:is(main.deck, .deck-thumb, .deck-console-next .frame) > section.center { justify-content: center; align-items: center; text-align: center; }
 section h1, section h2, section h3, section p, section ul, section ol, section blockquote, section pre, section figure { margin: 0; }
 section h1 { font-size: var(--deck-title); line-height: 1.1; letter-spacing: -0.02em; }
 section h2 { font-size: var(--deck-heading); line-height: 1.15; letter-spacing: -0.01em; }
