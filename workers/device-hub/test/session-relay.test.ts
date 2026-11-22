@@ -40,9 +40,9 @@ async function machineHost(account: Awaited<ReturnType<typeof signIn>>) {
   return host;
 }
 
-/** The viewer asks for a share the host must decide (permission ask); the host approves once with its own session. */
+/** The host sets the viewer to ask; the viewer asks for a share; the host approves once with its own session. */
 async function decidedByHost(host: Device, viewer: Device) {
-  const perm = await viewer.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "ask" });
+  const perm = await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "ask" });
   expect(perm.status, JSON.stringify(perm.json)).toBe(200);
   const res = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "view" });
   expect(res.json.session.state, JSON.stringify(res.json)).toBe("pending");
