@@ -144,10 +144,33 @@ jobs:
       acpmux_own: ${{ steps.acpmux-own.outputs.changed }}
     steps:
       # The merge commit and its parents: HEAD^1 is the base the pull request merges into.
+      # Blobless and narrow: the router reads names and trees from git, and blobs only under the dirs
+      # below (the crate graph's manifests and sources, the map, the scripts). A full depth-2 checkout
+      # of the whole tree took 36 s of this job's 44 s (p50, 2026-11-21). A blob outside these dirs
+      # reads as NeedsFullTree and routes every job (fail-open), never fewer.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           fetch-depth: 2
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/
+            /scripts/
+            /tests/
+            /cmux-tui/
+            /first-party-apps/
+            /workers/
+            /schemas/
+            /plans/
+
+      # The base side of the change: the crate graph also reads the base's copy of each changed file
+      # (base_tree), which a blobless checkout lacks. One batched fetch of just those blobs (git diff
+      # prefetches both sides); without it a change under cmux-tui/ would route every job.
+      - name: Fetch the base copies of the changed files
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: git diff --no-renames --numstat HEAD^1 HEAD -- .github scripts tests cmux-tui first-party-apps workers schemas plans > /dev/null
 
       - name: Test the router
         run: python3 .github/scripts/test_cmux_tui_spec_changed.py
