@@ -109,7 +109,8 @@
 #        | cloud-server-path [--tree|--pin] (where fetch puts cmux-cloud)
 #        | browser-host-path [--tree|--pin] (where fetch puts cmux-browser-host)
 #        | agent-screen-detection-path [--tree|--pin] (where fetch puts cmux-agent-screen-detection)
-#        | acpmux-path (where a tree fetch puts acpmux)
+#        | acpmux-path (where a tree fetch puts acpmux; CMUX_TUI_TREE_TARGET=x86_64-apple-darwin:
+#          its x86_64 slice, which fetch-acpmux brings when CMUX_NEXT_ACPMUX_ARCHS asks for x86_64)
 #        | resolve-commit (the commit that published this tree; waits for it)
 #        | resolve-exact (release and RC builds: resolve-commit for HEAD itself, printed
 #          as commit=, key=, source_commit= (HEAD), tip_key=, behind=0 and behind_hours=0
@@ -549,6 +550,34 @@ for run_id in sorted(os.listdir(os.path.join(jobs_dir, "jobs"))):
 print(("failed " + failed[0]) if failed else ("stalled " + stalled[0]) if stalled else "none")
 PY
   rm -rf "$jobs_dir"
+}
+
+# Succeeds when every cmux-tui artifacts run of <sha> ended success because it was coalesced:
+# its coalesce job (base-coalesce.yml, "coalesce / coalesce") succeeded and its tree preflight was
+# skipped, so it built and published nothing by design (cmux-tui-artifacts.yml builds one
+# feat-cmux-next tree per window). Fails on any other run, or when a runs or jobs list is unreadable.
+artifacts_runs_coalesced() {
+  local sha="$1" api runs ids id jobs
+  api="${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}"
+  runs="$(github_get "$api/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha=$sha&per_page=20")" || return 1
+  ids="$(python3 -c '
+import json, sys
+runs = json.loads(sys.stdin.read())["workflow_runs"]
+if not runs or any(r.get("status") != "completed" or r.get("conclusion") != "success" for r in runs):
+    sys.exit(1)
+for r in runs:
+    print(int(r["id"]))
+' <<<"$runs" 2>/dev/null)" || return 1
+  while read -r id; do
+    jobs="$(github_get "$api/actions/runs/$id/jobs?filter=latest&per_page=100")" || return 1
+    python3 -c '
+import json, sys
+jobs = json.loads(sys.stdin.read())["jobs"]
+coalesce = [j.get("conclusion") for j in jobs if j.get("name") == "coalesce" or str(j.get("name")).startswith("coalesce /")]
+preflight = [j.get("conclusion") for j in jobs if j.get("name") == "cmux-tui tree preflight"]
+sys.exit(0 if "success" in coalesce and preflight and all(c == "skipped" for c in preflight) else 1)
+' <<<"$jobs" 2>/dev/null || return 1
+  done <<<"$ids"
 }
 
 # Prints the newer head of the pushed branch (GITHUB_REF) when <sha> was
@@ -1234,7 +1263,31 @@ fetch_tree_acpmux() {
     exit 1
   }
   echo "using attested same-tree acpmux companion: $dir/acpmux"
+  # The arm64 companion above is thin. A universal build (a Release reload:
+  # CMUX_NEXT_ACPMUX_ARCHS="arm64 x86_64") also needs the owner's x86_64 slice,
+  # attested by the same manifest; build-acpmux.sh joins the two. Only main and
+  # rc/** publish it, so elsewhere it is recorded as none and build-acpmux.sh
+  # names the missing architecture instead of a failed fetch (a developer Mac's
+  # RAM bench at 7802ece0, 2026-11-22: the fetch succeeded, reload.sh then said
+  # "no published acpmux of its cmux-tui tree could be fetched").
+  if acpmux_wants_x86_64; then
+    local x86_dir
+    TARGET=x86_64-apple-darwin
+    x86_dir="$(tree_dir "$key")"
+    mkdir -p "$x86_dir"
+    cp -f "$source_file" "$x86_dir/source.json"
+    fetch_tree_companion "$key" "$x86_dir" acpmux acpmux
+    TARGET="$GATE_TARGET"
+    if [[ -x "$x86_dir/acpmux" && "$(cat "$x86_dir/acpmux.sha256")" != none ]]; then
+      echo "using attested same-tree x86_64 acpmux companion: $x86_dir/acpmux"
+    else
+      echo "note: tree $key has no x86_64 acpmux (published on main and rc/** only)"
+    fi
+  fi
 }
+
+# Whether the acpmux build asks for an x86_64 slice (build-acpmux.sh reads the same variables).
+acpmux_wants_x86_64() { [[ "${CMUX_NEXT_ACPMUX_ARCHS:-${ARCHS:-}}" =~ x86_64|amd64 ]]; }
 
 # The cmux-next gate: waits for this checkout's tree like fetch, without
 # downloading the binary. A commit superseded by a newer branch head (its
@@ -1387,6 +1440,15 @@ probe_checkout_tree() {
       if [[ -n "$superseded" ]]; then
         state=superseded
         reason="$(git -C "$repo_root" rev-parse HEAD) was superseded by $superseded on ${GITHUB_REF#refs/heads/}: its tree $key was not published, and the newer head is tested"
+      elif [[ "$source" == commit:* && -n "$publisher" ]] && artifacts_runs_coalesced "$publisher"; then
+        # A coalesced push (cmux-tui-artifacts.yml's coalesce job: one feat-cmux-next build per
+        # window, #48943) builds nothing by design, so its success is no failed publish. Until
+        # 2026-11-22 the tip read it as one, and every coalesced tip's same-tree cmux-tui was red
+        # (run 44988509777 at 80e3d5099479: "ended without publishing tree 3c101a06 (success)").
+        # The wait marker stays: the tree's next publish (the next window's push with this key, a
+        # re-run of this run, or cmux-tui-tree-request.yml) starts the tree jobs.
+        state=deferred
+        reason="the cmux-tui artifacts run for ${source#*:} was coalesced (one feat-cmux-next build per window, base-coalesce.yml), so it builds no tree; tree $key's next publish starts the tree jobs"
       else
         reason="the cmux-tui artifacts runs for ${source#*:} ended without publishing tree $key (${state#ended }). Re-run that run, or for an unmerged commit: $(pin_push_hint)"
         state=failed
