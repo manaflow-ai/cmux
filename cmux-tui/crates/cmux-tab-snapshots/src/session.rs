@@ -1,31 +1,67 @@
 //! The Mac side of one connected phone. Frames from the phone go in through
 //! [`Session::on_frame`]; the host pulls frames to write with
 //! [`Session::next_frame`] whenever the link can take one, so nothing is
-//! buffered beyond the queue of wanted hashes.
+//! buffered beyond a queue of hashes (the bytes stay in the store).
 //!
 //! Rules:
 //! - The session opens on the phone's first frame other than `have`. On
 //!   link-up the phone sends `have` (if it holds blobs), then `resume` (if
 //!   it holds a rev), then `viewport`. A resumed phone's opening frame is a
 //!   delta from its rev; a phone without one, or one whose `resume` names
-//!   another epoch than the producer's (or none), gets the manifest. The host may also open the
-//!   session itself ([`Session::open`]) if the phone stays silent.
+//!   another epoch than the producer's (or none), gets the manifest. The
+//!   host may also open the session itself ([`Session::open`]) if the phone
+//!   stays silent.
 //! - A producer change since the last manifest or delta goes out as one
 //!   delta before any blob; changes made between two pulls coalesce.
-//! - Blobs go out in the order of the phone's last `want`; a new `want`
-//!   replaces the queue. A hash the phone listed in `have`, one this session
-//!   already sent, or one the store no longer holds is skipped.
-//! - Opt-in ([`Session::push_before_want`]): after each manifest or delta
-//!   the session queues every card blob the phone lacks, favicons first,
-//!   then thumbnails or screens, in row order (the reference phone's own
-//!   order), so blobs flow without waiting a round trip for `want`. The
-//!   phone's next `want` replaces that queue as usual.
+//! - Push (the default): after each manifest or delta the session queues
+//!   the card blobs in row order, per row the favicon, then the thumbnail
+//!   or screen, without waiting for `want`. A pushed hash is skipped when
+//!   the phone listed it in `have` or this session already sent it. Full
+//!   frames (`frameHash`) are never pushed, only sent on `want`.
+//! - `want` moves its hashes to the front of the queue, in its order, and
+//!   replaces the hashes of the previous `want` still queued. A hash named
+//!   in `want` is sent even when the phone listed it in `have` or this
+//!   session sent it before (the phone may have evicted it), but once per
+//!   `want`. So with push on, a phone sends `want` only to reorder what is
+//!   still coming or to fetch again what it dropped, not to list every
+//!   blob it lacks: those are already on their way.
+//! - A queued hash the store no longer holds is skipped.
+//! - [`Session::without_push`] turns push off: blobs move only on `want`.
+//! - A row filter ([`Session::set_row_filter`]) hides tabs from this phone:
+//!   its manifest and deltas carry only the tabs the filter passes, and a
+//!   blob goes out (pushed or wanted) only when a passed row names it. A new
+//!   filter is answered with a fresh manifest. While the filter hides a
+//!   current row, a `resume` is answered with a manifest too, since the
+//!   phone's rows may come from a connection with another filter. A delta's
+//!   `removed` is not filtered, so a tab hidden after the phone saw it still
+//!   leaves the phone when it closes.
 
 use crate::hash::BlobHash;
 use crate::producer::Producer;
 use crate::wire::{Message, Viewport, WireError, encode_blob};
 use std::collections::{HashSet, VecDeque};
 use std::fmt;
+use std::sync::Arc;
+
+/// A predicate on `tabId`: true when this phone may see the tab.
+#[derive(Clone)]
+pub struct RowFilter(Arc<dyn Fn(&str) -> bool + Send + Sync>);
+
+impl RowFilter {
+    pub fn new(pass: impl Fn(&str) -> bool + Send + Sync + 'static) -> Self {
+        Self(Arc::new(pass))
+    }
+
+    pub fn passes(&self, tab_id: &str) -> bool {
+        (self.0)(tab_id)
+    }
+}
+
+impl fmt::Debug for RowFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("RowFilter")
+    }
+}
 
 /// Why a phone frame was refused.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -53,13 +89,24 @@ pub struct SessionStats {
     pub deltas: u64,
     pub blobs: u64,
     pub blob_bytes: u64,
-    /// Wanted hashes skipped because the phone has them or they were sent.
+    /// Pushed hashes skipped because the phone has them or they were sent.
     pub skipped_held: u64,
-    /// Wanted hashes skipped because the store no longer holds them.
+    /// Queued hashes skipped because the store no longer holds them.
     pub skipped_gone: u64,
+    /// Blobs sent again because a `want` named a hash sent before.
+    pub resent: u64,
+    /// Queued hashes skipped because no row the filter passes names them.
+    pub skipped_hidden: u64,
 }
 
-#[derive(Debug, Default)]
+/// One queued hash. `wanted` is true for a hash the phone named in `want`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Queued {
+    hash: BlobHash,
+    wanted: bool,
+}
+
+#[derive(Debug)]
 pub struct Session {
     opened: bool,
     /// The rev the phone holds (or will once the frames already pulled
@@ -72,21 +119,70 @@ pub struct Session {
     resume_epoch: String,
     phone_has: HashSet<BlobHash>,
     sent: HashSet<BlobHash>,
-    queue: VecDeque<BlobHash>,
+    queue: VecDeque<Queued>,
     viewport: Option<Viewport>,
-    push_before_want: bool,
+    push: bool,
+    filter: Option<RowFilter>,
     stats: SessionStats,
 }
 
+impl Default for Session {
+    fn default() -> Self {
+        Self {
+            opened: false,
+            phone_rev: None,
+            answer_resume: false,
+            resume_epoch: String::new(),
+            phone_has: HashSet::new(),
+            sent: HashSet::new(),
+            queue: VecDeque::new(),
+            viewport: None,
+            push: true,
+            filter: None,
+            stats: SessionStats::default(),
+        }
+    }
+}
+
 impl Session {
+    /// A session that pushes card blobs (see the module rules).
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// A session that queues missing card blobs itself after each manifest
-    /// or delta (see the module rules).
-    pub fn push_before_want() -> Self {
-        Self { push_before_want: true, ..Self::default() }
+    /// A session that sends blobs only on `want`.
+    pub fn without_push() -> Self {
+        Self { push: false, ..Self::default() }
+    }
+
+    /// True when this session pushes card blobs without `want`.
+    pub fn pushes(&self) -> bool {
+        self.push
+    }
+
+    /// Sets (or with `None` clears) the row filter. The phone's next frame
+    /// is a manifest of the rows the new filter passes, and queued hashes no
+    /// passed row names are dropped when pulled.
+    pub fn set_row_filter(&mut self, filter: Option<RowFilter>) {
+        self.filter = filter;
+        self.phone_rev = None;
+        self.answer_resume = false;
+    }
+
+    fn visible(&self, tab_id: &str) -> bool {
+        self.filter.as_ref().is_none_or(|f| f.passes(tab_id))
+    }
+
+    fn hides_any(&self, producer: &Producer) -> bool {
+        self.filter.is_some() && producer.rows().iter().any(|r| !self.visible(&r.tab_id))
+    }
+
+    /// True when a row this phone may see names `hash`.
+    fn visible_hash(&self, producer: &Producer, hash: &BlobHash) -> bool {
+        if self.filter.is_none() {
+            return true;
+        }
+        producer.rows().iter().any(|r| self.visible(&r.tab_id) && r.hashes().any(|h| h == *hash))
     }
 
     /// Opens the session without waiting for the phone's first frame.
@@ -102,7 +198,7 @@ impl Session {
         self.stats
     }
 
-    /// Wanted hashes still queued (some may be skipped when pulled).
+    /// Hashes still queued (some may be skipped when pulled).
     pub fn queued(&self) -> usize {
         self.queue.len()
     }
@@ -117,13 +213,17 @@ impl Session {
             Message::Viewport(v) => self.viewport = Some(v),
             Message::Want(hashes) => {
                 let mut seen = HashSet::new();
-                self.queue =
-                    hashes.into_iter().filter(|h| seen.insert(*h) && !self.held(h)).collect();
+                let wanted: Vec<BlobHash> =
+                    hashes.into_iter().filter(|h| seen.insert(*h)).collect();
+                self.queue.retain(|q| !q.wanted && !seen.contains(&q.hash));
+                for &hash in wanted.iter().rev() {
+                    self.queue.push_front(Queued { hash, wanted: true });
+                }
             }
             Message::Have(hashes) => {
                 self.phone_has.extend(hashes);
                 let has = &self.phone_has;
-                self.queue.retain(|h| !has.contains(h));
+                self.queue.retain(|q| q.wanted || !has.contains(&q.hash));
                 // `have` comes first on link-up and does not open the
                 // session: the frame after it (`resume` or `viewport`) does,
                 // so the opening already knows the phone's cache and rev.
@@ -154,39 +254,56 @@ impl Session {
         if let Some(frame) = self.rows_frame(producer) {
             return Some(frame);
         }
-        while let Some(hash) = self.queue.pop_front() {
-            if self.held(&hash) {
-                self.stats.skipped_held += 1;
+        while let Some(Queued { hash, wanted }) = self.queue.pop_front() {
+            if !wanted && self.held(&hash) {
+                self.stats.skipped_held = self.stats.skipped_held.saturating_add(1);
+                continue;
+            }
+            if !self.visible_hash(producer, &hash) {
+                self.stats.skipped_hidden = self.stats.skipped_hidden.saturating_add(1);
                 continue;
             }
             let Some(blob) = producer.store().get(&hash) else {
-                self.stats.skipped_gone += 1;
+                self.stats.skipped_gone = self.stats.skipped_gone.saturating_add(1);
                 continue;
             };
-            self.sent.insert(hash);
-            self.stats.blobs += 1;
-            self.stats.blob_bytes += blob.bytes.len() as u64;
+            if !self.sent.insert(hash) {
+                self.stats.resent = self.stats.resent.saturating_add(1);
+            }
+            let len = u64::try_from(blob.bytes.len()).unwrap_or(u64::MAX);
+            self.stats.blobs = self.stats.blobs.saturating_add(1);
+            self.stats.blob_bytes = self.stats.blob_bytes.saturating_add(len);
             return Some(encode_blob(hash, blob.mime, &blob.bytes));
         }
         None
     }
 
-    /// Replaces the queue with every card blob the phone lacks, favicons
-    /// first, then thumbnails or screens, in row order.
-    fn queue_missing(&mut self, producer: &Producer) {
-        let rows = producer.rows();
-        let favicons = rows.iter().filter_map(|r| r.favicon_hash);
-        let bodies = rows.iter().flat_map(|r| [r.thumb_hash, r.screen_hash]).flatten();
-        let mut seen = HashSet::new();
-        let queue: VecDeque<BlobHash> =
-            favicons.chain(bodies).filter(|h| !self.held(h) && seen.insert(*h)).collect();
-        self.queue = queue;
+    /// Replaces the pushed part of the queue with the card blobs the phone
+    /// lacks, in row order: per row the favicon, then the thumbnail or
+    /// screen. Wanted hashes stay in front.
+    fn queue_push(&mut self, producer: &Producer) {
+        let mut seen: HashSet<BlobHash> =
+            self.queue.iter().filter(|q| q.wanted).map(|q| q.hash).collect();
+        self.queue.retain(|q| q.wanted);
+        let card = producer
+            .rows()
+            .iter()
+            .filter(|r| self.visible(&r.tab_id))
+            .flat_map(|r| [r.favicon_hash, r.thumb_hash, r.screen_hash])
+            .flatten()
+            .collect::<Vec<_>>();
+        for hash in card {
+            if !self.held(&hash) && seen.insert(hash) {
+                self.queue.push_back(Queued { hash, wanted: false });
+            }
+        }
     }
 
     /// A manifest or delta when the phone's rev is not the producer's.
     fn rows_frame(&mut self, producer: &Producer) -> Option<Vec<u8>> {
         let rev = producer.rev();
-        let same_epoch = !self.answer_resume || self.resume_epoch == producer.epoch();
+        let same_epoch = !self.answer_resume
+            || (self.resume_epoch == producer.epoch() && !self.hides_any(producer));
         let delta = match self.phone_rev {
             Some(have) if have == rev && !self.answer_resume => return None,
             Some(have) if same_epoch => producer.delta_since(have),
@@ -194,17 +311,27 @@ impl Session {
         };
         self.answer_resume = false;
         self.phone_rev = Some(rev);
-        if self.push_before_want {
-            self.queue_missing(producer);
+        if self.push {
+            self.queue_push(producer);
         }
         Some(match delta {
-            Some(delta) => {
-                self.stats.deltas += 1;
+            Some(mut delta) => {
+                self.stats.deltas = self.stats.deltas.saturating_add(1);
+                if self.filter.is_some() {
+                    delta.changed.retain(|p| self.visible(&p.tab_id));
+                    if let Some(order) = delta.order.as_mut() {
+                        order.retain(|id| self.visible(id));
+                    }
+                }
                 Message::Delta(delta).encode()
             }
             None => {
-                self.stats.manifests += 1;
-                Message::Manifest(producer.manifest()).encode()
+                self.stats.manifests = self.stats.manifests.saturating_add(1);
+                let mut manifest = producer.manifest();
+                if self.filter.is_some() {
+                    manifest.rows.retain(|r| self.visible(&r.tab_id));
+                }
+                Message::Manifest(manifest).encode()
             }
         })
     }

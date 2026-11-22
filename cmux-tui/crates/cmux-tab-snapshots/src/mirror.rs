@@ -7,7 +7,10 @@
 //! - A blob is kept only when its bytes hash to the hash in its frame.
 //! - What to ask for: favicons first in row order, then each row's
 //!   thumbnail or screen in row order. Full frames are fetched on demand,
-//!   not by this list.
+//!   not by this list. Against a pushing Mac (the default) a phone does not
+//!   send this list: the blobs are already on their way, and a `want`
+//!   names hashes to send again. It wants only what it must have first or
+//!   what it evicted.
 //!
 //! The mirror keeps hashes, not bytes. The held set can be exported and
 //! imported to model a cache persisted across launches.

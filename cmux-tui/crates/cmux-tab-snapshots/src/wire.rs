@@ -2,8 +2,8 @@
 //! the body. Control bodies are JSON (camelCase); a blob body is binary:
 //! 32 raw hash bytes, 1 mime id byte, then the blob bytes.
 //!
-//! The link carries a frame as its payload and chunks it into link writes;
-//! that is not this module's job.
+//! On a link channel, which delivers bytes in chunks, each frame travels
+//! behind its length ([`crate::stream`]).
 
 use crate::hash::{BlobHash, Mime};
 use crate::row::{Row, RowPatch};
@@ -93,7 +93,9 @@ impl fmt::Debug for BlobFrame {
 pub enum Message {
     /// Phone to Mac.
     Viewport(Viewport),
-    /// Phone to Mac: hashes in the phone's priority order. Replaces the last.
+    /// Phone to Mac: hashes in the phone's priority order, sent ahead of
+    /// anything pushed. Replaces the last `want`. Each named hash is sent,
+    /// even one the Mac sent before.
     Want(Vec<BlobHash>),
     /// Phone to Mac: hashes the phone already holds, sent once on link-up.
     Have(Vec<BlobHash>),

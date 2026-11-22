@@ -142,6 +142,11 @@ pub async fn serve(
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
         "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
         "localhost" => crate::localhost::serve(&args, &sender, receiver).await,
+        "tabs" => {
+            let tabs = &*crate::tab_snapshots::TABS;
+            let socket = Some(config.daemon_socket());
+            crate::tab_snapshots::serve(tabs, socket, peer.session_exposure.clone(), &sender, receiver).await
+        }
         _ => Err(Refusal::new("unknown_service", format!("no service {service}"))),
     };
     match result {
@@ -217,7 +222,9 @@ const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
 /// wallpaper, `appearance.rs`).
 /// `pair-requests-v1`: the `pair-requests` service (a paired device answers a pairing request
 /// waiting on this Mac, `pair_requests.rs`).
-pub const CAPABILITIES: [&str; 8] = [
+/// `tab-snapshots-v1`: the `tabs` service (every tab's title, favicon, thumbnail or screen text,
+/// with deltas and content-addressed blobs, `tab_snapshots.rs`).
+pub const CAPABILITIES: [&str; 9] = [
     "removal-v1",
     "file-preview-v1",
     "localhost-forward-v1",
@@ -226,6 +233,7 @@ pub const CAPABILITIES: [&str; 8] = [
     "needs-you-v1",
     "appearance-v1",
     "pair-requests-v1",
+    "tab-snapshots-v1",
 ];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = "browser-stream-v1";
@@ -2296,7 +2304,8 @@ mod tests {
                 "cloud-acpmux-v1",
                 "needs-you-v1",
                 "appearance-v1",
-                "pair-requests-v1"
+                "pair-requests-v1",
+                "tab-snapshots-v1"
             ]
         );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
@@ -2314,6 +2323,7 @@ mod tests {
                 "needs-you-v1",
                 "appearance-v1",
                 "pair-requests-v1",
+                "tab-snapshots-v1",
                 BROWSER_STREAM,
                 BROWSER_VIDEO_TRACK
             ]

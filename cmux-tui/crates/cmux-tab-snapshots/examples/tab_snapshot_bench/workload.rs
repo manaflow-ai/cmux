@@ -6,9 +6,10 @@ use cmux_tab_snapshots::{
 };
 use std::path::{Path, PathBuf};
 
-pub const ASSUMED_THUMB_BYTES: usize = 38_000;
-pub const ASSUMED_THUMB_W: u32 = 516;
-pub const ASSUMED_THUMB_H: u32 = 688;
+/// Assumed: 38,000 bytes at 516x688 scaled by area to 576x768.
+pub const ASSUMED_THUMB_BYTES: usize = 47_351;
+pub const ASSUMED_THUMB_W: u32 = 576;
+pub const ASSUMED_THUMB_H: u32 = 768;
 pub const ASSUMED_FAVICON_BYTES: usize = 2_200;
 pub const SCREEN_COLS: u32 = 120;
 pub const SCREEN_ROWS: u32 = 40;

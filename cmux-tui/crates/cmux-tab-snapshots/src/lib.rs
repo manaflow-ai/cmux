@@ -9,6 +9,7 @@
 //! - [`session`]: one per connected phone; a pull API that yields the next
 //!   frame to write, so the host applies backpressure.
 //! - [`mirror`]: a reference phone side used by tests and the bench.
+//! - [`stream`]: frames behind their length, for a link channel's byte stream.
 //!
 //! No socket, thread or clock is used here. Times are passed in by the host.
 
@@ -18,12 +19,14 @@ pub mod producer;
 pub mod row;
 pub mod session;
 pub mod store;
+pub mod stream;
 pub mod wire;
 
 pub use hash::{BlobHash, Mime};
 pub use mirror::{Applied, Mirror, MirrorError};
 pub use producer::{FaviconInput, ImageInput, Observation, Producer, ScreenInput};
 pub use row::{Kind, Row, RowPatch};
-pub use session::{Session, SessionError, SessionStats};
+pub use session::{RowFilter, Session, SessionError, SessionStats};
 pub use store::{BlobStore, StoreStats, StoredBlob};
+pub use stream::{Deframer, TooLong, length_prefixed};
 pub use wire::{BlobFrame, Delta, Manifest, Message, Resume, Viewport, WireError};
