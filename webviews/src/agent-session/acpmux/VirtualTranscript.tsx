@@ -638,9 +638,12 @@ const RowFrame = React.memo(function RowFrame({
   useLayoutEffect(() => enterOnMount(), []);
   // A generic row's entrance starts on the frame that first draws it, not at this commit: WebKit
   // starts its clock here, and a busy main thread drew the row only after its fade had ended, whole
-  // at once (conversation/entranceClock.ts). Messages keep their own send clock.
+  // at once (conversation/entranceClock.ts). A sent prompt's pop (conversation.css SEND-POP) waits
+  // for its first frame the same way; other messages keep their own send clock.
   const holdEntranceOnMount = useEffectEvent(() => {
-    if (!entering || messageEntering || !ref.current) return undefined;
+    if (!entering || !ref.current) return undefined;
+    if (messageEntering)
+      return row.kind === "user" ? holdEntranceForFirstFrame(ref.current, undefined, true) : undefined;
     return holdEntranceForFirstFrame(ref.current);
   });
   useLayoutEffect(() => holdEntranceOnMount(), []);
@@ -3166,8 +3169,14 @@ function TranscriptView({
       // borked and unintegrated"). The lines at the end that open nothing of the turn's work (a
       // received message's line, the live line) still enter, on the same fade as any live row; the
       // regrouped work stays the turn end's fold's (turnEndFold.ts). O(arrived).
+      // A prompt in such an update (one queued while the reply before it streamed, sent as that turn ends) is
+      // still a prompt that just landed: it pops in as a sent one does (conversation.css SEND-POP; Leo
+      // 2026-11-22, "oh you better probably also watch that attachments and such are good too when the pop
+      // is there"). A message another agent sent (`incoming`) does not.
       const entering = enteringRows.current;
-      for (const row of arrived) if (live || row.below || isLineRow(row)) entering.add(rowFrameKey(row));
+      for (const row of arrived)
+        if (live || row.below || isLineRow(row) || (row.kind === "user" && !row.incoming))
+          entering.add(rowFrameKey(row));
     }
   }
   knownFor.current = rows;
