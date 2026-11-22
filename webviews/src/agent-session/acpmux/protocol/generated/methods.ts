@@ -29,6 +29,7 @@ export interface AcpmuxRequests {
   "_acpmux/tailnet/start": { params: unknown; result: unknown };
   "_acpmux/tailnet/state": { params: unknown; result: unknown };
   "_acpmux/status": { params: StatusParams; result: unknown };
+  "_acpmux/perf": { params: unknown; result: unknown };
   "_acpmux/context": { params: unknown; result: unknown };
   "_acpmux/context_override": { params: unknown; result: unknown };
   "agent-session-turn-prepare": { params: unknown; result: unknown };
@@ -130,6 +131,8 @@ export interface AcpmuxRequests {
   "_acpmux/retention": { params: unknown; result: unknown };
   "_acpmux/cold_archive": { params: unknown; result: unknown };
   "_acpmux/kill": { params: KillParams; result: unknown };
+  "_acpmux/pause": { params: unknown; result: unknown };
+  "_acpmux/wake": { params: unknown; result: unknown };
   "_acpmux/keep": { params: unknown; result: unknown };
   "_acpmux/watch_take_over": { params: WatchTakeOverParams; result: unknown };
   "_acpmux/release_to_watch": { params: ReleaseToWatchParams; result: unknown };
@@ -431,6 +434,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/tailnet/start", kind: "request", acp: false, typed: false },
   { name: "_acpmux/tailnet/state", kind: "request", acp: false, typed: false },
   { name: "_acpmux/status", kind: "request", acp: false, typed: true },
+  { name: "_acpmux/perf", kind: "request", acp: false, typed: false },
   { name: "_acpmux/context", kind: "request", acp: false, typed: false },
   { name: "_acpmux/context_override", kind: "request", acp: false, typed: false },
   { name: "agent-session-turn-prepare", kind: "request", acp: false, typed: false },
@@ -533,6 +537,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/cold_archive", kind: "request", acp: false, typed: false },
   { name: "_acpmux/process_update", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/kill", kind: "request", acp: false, typed: true },
+  { name: "_acpmux/pause", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/wake", kind: "request", acp: false, typed: false },
   { name: "_acpmux/keep", kind: "request", acp: false, typed: false },
   { name: "_acpmux/watch_take_over", kind: "request", acp: false, typed: true },
   { name: "_acpmux/release_to_watch", kind: "request", acp: false, typed: true },

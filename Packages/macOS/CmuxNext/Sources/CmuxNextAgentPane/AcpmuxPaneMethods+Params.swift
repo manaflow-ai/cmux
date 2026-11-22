@@ -77,9 +77,10 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/watch_take_over": (["sessionId", "ifLive"], []),
         // Background processes (direct.ts listProcesses, tailProcess, killProcess, backgroundWork):
         // a kill names its chat, which must be the pane's, and acpmux stops only that chat's process.
-        // The page holds the running ones and the newest ended (`recent`); a daemon without it is
+        // The page holds the running ones and the newest ended (`recent`, `endedWithin`) and the
+        // processes of the calls its transcript shows (`calls`); a daemon without them is
         // read page by page (`limit`, then each page's `nextCursor` as `cursor`).
-        "_acpmux/process/list": (["sessionId", "limit", "cursor", "recent"], []),
+        "_acpmux/process/list": (["sessionId", "limit", "cursor", "recent", "endedWithin", "calls"], []),
         "_acpmux/process/tail": (["processId", "maxBytes"], []),
         "_acpmux/process/kill": (["sessionId", "processId"], []),
         "_acpmux/process/background": (["sessionId", "toolCallId"], []),
@@ -112,8 +113,17 @@ nonisolated extension AcpmuxPaneMethods {
         // grants nothing (the same probes acpmux runs in the background), so no gesture rule.
         // `localOnly`: this machine's lists only, without waiting on the peers (the picker's own read).
         "_acpmux/models": (["refresh", "localOnly"], []),
+        "catalog.get": ([], []),
+        "catalog.refresh": ([], []),
+        // Only the live-tree read: `waitLogs: false` answers from the session list at once.
+        "_acpmux/info": (["sessionId", "waitLogs", "includeLiveTree"], []),
         "_acpmux/status": ([], []),
         "_acpmux/peers": ([], []),
+        // The chat Inspector's Perf tab and page reporter (PerfPanel.tsx, perfReporter.ts; acpmux perf_watch.rs):
+        // a default-off diagnostic that names no path and starts nothing; acpmux answers this Mac's app and
+        // unix socket only. `op`: on, off, status, read (`after`, `limit`, `waitMs`), snapshot, budgets, or report (the
+        // page's measurements: `page`, `windowMs`, `spans`, `renders`, `frames`, `layoutShifts`, `bytes`).
+        "_acpmux/perf": (["op", "after", "limit", "waitMs", "page", "windowMs", "spans", "renders", "frames", "layoutShifts", "bytes"], []),
         // Placement names are local display labels; the optional source lets the page filter
         // targets for a chat without exposing a host URL or session identity.
         "_acpmux/move_targets": (["source", "sourceKind"], []),

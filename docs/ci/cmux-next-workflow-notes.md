@@ -679,6 +679,24 @@ has a 45-minute limit: a step past its limit fails the job, so a slow re-pin
 build shows red with the step named, never `cancelled`. Other runs keep the job
 limit (the step's 360 is never reached).
 
+Other runs get 30, not 20. An owned mini holds one seed root per mini, so most fast-tier jobs take a shared
+root, and a shared root often starts cold ("evicted", "roots busy"). A cold CmuxNext build-tests build is about
+20 minutes of compiling, and the tests follow. Between 03:00 and 05:00Z on 2026-11-22, 18 of the job's 20
+cancels stopped at the 20-minute limit (20.3 to 20.6 min). They were 4,100 runner-min/day, against a success
+p50 of 6.4 min. Every log that was read showed a cold start and was 99% through compiling at the limit (job
+137081242103: step 14646 of 14698). The cancelled runs were then re-run (attempts 2 to 5), each one cold
+again, so none of them gave a verdict. With 30, a cold run finishes once and reports pass or fail.
+
+Other runs get 60, not 30. On 2026-11-22, run 45002704947 (cmux#49316) was cancelled at 30 three times
+(job 137149824562 on cmux18-glaeda-1, 08:35:54 to 09:05:06Z; job 137170836244 on cmux13s-mac-mini-glaeda-3,
+10:05:56 to 10:36:24Z). Each started cold: the seed root was refused ("busy, unprovisioned or has no room") and
+every shared root was busy, so the job skipped the R2 restore. `swift build --build-tests` for CmuxHomeRender
+took 37 s. For CmuxNext it ran 28.5 min, reached step 13998 of 14000 (CmuxNextAppTests) and was cancelled
+before any test started. That build takes no `--jobs`: SwiftPM uses every core, so the hook's
+`CMUX_CI_CPU_BUDGET=2` does not slow it, and raising the grant would not speed it up. The time comes from the
+cold start on a host that a waiting fleet build also needs. With 60, a cold run gets past its last link and
+gives a verdict.
+
 ## note-40
 
 Above `fast-tier: Fingerprint this job's inputs` in `.github/workflows/cmux-next.yml`.
@@ -2121,6 +2139,42 @@ Above `fast-tier-cargo: Cache cargo build` in `.github/workflows/cmux-next.yml`.
 
 Only a feat-cmux-next push saves this build cache; a pull request reads the base
 branch's. (The pass record at the end of the job is a separate artifact.)
+
+The key is the pinned toolchain and lockfiles (`hashFiles` of `cmux-tui/rust-toolchain.toml`,
+`cmux-tui/Cargo.lock`, `.cargo/config.toml`), not rust-cache's environment hash, which also hashes every
+toolchain `rustup toolchain list` shows. The base push saves on Blacksmith (hash `b69e319b`). The owned
+Linux pool hosts each keep different leftover toolchains, so each computed its own hash (`db011040`,
+`fabb63b8`, `0422658f`, `d8989acf`), found no cache and compiled cold for 10-14 minutes. In 03:00-05:00Z
+on 2026-11-22, every pool-host run sampled found no cache and took 14.6-17.8 min or hit the 20-minute
+limit. Every Blacksmith run sampled restored the cache and took 6.7-9.2 min. Of the job's 34 cancels in
+those two hours, 11 were at the limit (2,775 runner-min/day). Both hosts build at
+`/home/runner/work/cmux/cmux` with the pinned toolchain, and cargo's fingerprints check every reused
+crate. acpmux tests made the same fix in #49482. `cmux-next-car-guards.yml` reads this cache with the
+same key.
+
+## note-210b
+
+Above `fast-tier-cargo: environment`, `fast-tier-cargo: Key the cargo build in R2` and `Strip the workspace's own output before the R2 save` in `.github/workflows/cmux-next.yml`.
+
+note-210 (#49838) gives pool hosts and Blacksmith one key; this note covers the store. The GitHub cache store sits at its 10 GB cap (22 entries, most of them 0.6-1.1 GB bun and playwright caches on
+pull request refs), so the about 470 MB build a feat-cmux-next push saves there is evicted within minutes. A
+Blacksmith runner reads Blacksmith's own store and hits; a cmux-runner-pool runner read "No cache found" and
+compiled all ~495 crates: 650 s for the cargo step against 325 s on Blacksmith, the median job 14.7 min against
+7.4 (controller timing feed, 2026-11-22 01:00-05:30Z). Once linux_8 began landing the job on the pool (01:24Z),
+fast-tier-cargo went from 291 to 488 runner-hours a day.
+
+Off Blacksmith the job now restores `cmux-tui/target` and the cargo registry from R2 (scripts/ci/r2-cache.sh,
+public reads, no credentials, so pull requests read it too). The key is the cmux-tui lockfiles, toolchain file,
+rustc and cargo versions, plus a hash of the workspace path (Blacksmith's `_work` and the pool's `work` paths
+make different fingerprints); a lockfile change restores the newest entry under the same workspace prefix.
+A feat-cmux-next push off Blacksmith that missed the exact key strips the workspace crates' own output
+(scripts/ci/cargo_target_strip.py, what rust-cache's cleanup drops) and saves; r2-cache.sh skips a key that
+exists. Retention is r2_cache_prune.py's default (30 days, pointers kept).
+
+Only a feat-cmux-next run enters next-cache-writer (deployment branch feat-cmux-next only) and holds the R2
+write credentials, for NEXT's own bucket cmux-ci-cache-next (as note-171); a pull request holds none
+(tests/test_ci_pull_request_caches_are_read_only.py). Each restore is bounded at 4 minutes and each save at 6,
+both continue-on-error, so a slow store costs the build at most that and never fails or outlasts the job's 20.
 
 ## note-211
 
@@ -4864,3 +4918,13 @@ The fast check's own verdict (a gateway's fleet compile) first, else the Mac Rel
 Above `[[ "$state" != error ]] || { echo "::error::no verdict: cmux-next/compile for $S` in `.github/workflows/cmux-next.yml`.
 
 The needs_verdict rule's words: a fallback's red is a red, nothing ran is no verdict (exit 3).
+
+## note-551
+
+Above `if [[ "$word" == superseded && -z "${PR:-}" ]]; then` in `.github/workflows/cmux-next.yml`.
+
+A feat-cmux-next push whose tip the controller will not check, because a newer push tip is checked
+instead (cmuxterm-hq cmux_next_tip_debounce.go), skips its fleet compile and the Mac canary, as a push
+the preflight already found superseded does. The branch head is read again first; a head that has not
+moved, or one that cannot be read, compiles as before. 2026-11-22 05-09Z: 120 pushes, 97 push-tip checks
+(432 machine-min), 91 of them inside the 10-minute window, each queued by its own push run's read.
