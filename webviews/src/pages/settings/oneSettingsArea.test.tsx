@@ -18,8 +18,10 @@ afterEach(() => {
   page = null;
 });
 
-/** The most category rows the sidebar shows before More is opened. */
-const SHORT_TOP_LEVEL = 16;
+/** The most category rows the sidebar shows before More is opened: 16, and Settings > Customize
+ * (Leo, 2026-11-22, ask-931361017e: "it should just be as easy as a click toggle"), right after
+ * General so it is found first. */
+const SHORT_TOP_LEVEL = 17;
 
 const shownSection = (container: ParentNode) => container.querySelector("[data-section]")?.getAttribute("data-section");
 
