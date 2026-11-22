@@ -1336,7 +1336,6 @@
             "key" : "settings.group.cmuxRemote",
             "rows" : [
               "remote.endSharingOnQuit",
-              "remote.shareWithOwnDevicesByDefault",
               "remote.ultra"
             ],
             "title" : {
@@ -1767,7 +1766,8 @@
           {
             "key" : "settings.group.macScreenKeyboard",
             "rows" : [
-              "macScreen.systemShortcuts"
+              "macScreen.systemShortcuts",
+              "macScreen.shareWithoutAsking"
             ],
             "title" : {
               "key" : "settings.group.macScreenKeyboard",
@@ -17445,7 +17445,7 @@
         false
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -17508,7 +17508,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -17520,9 +17520,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -25692,7 +25694,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.workspaceHibernation",
@@ -112307,6 +112309,142 @@
       "default" : false,
       "default_label" : null,
       "group" : {
+        "key" : "settings.group.macScreenKeyboard",
+        "text" : "Mac Screen"
+      },
+      "help" : {
+        "key" : "settings.macScreen.shareWithoutAsking.help",
+        "text" : "Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "macScreen.shareWithoutAsking",
+      "keywords" : [
+        "mac screen",
+        "remote",
+        "screen sharing",
+        "share this mac",
+        "confirm",
+        "ask"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "macScreen",
+        "shareWithoutAsking"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "keyboard",
+      "summary" : {
+        "key" : "settings.macScreen.shareWithoutAsking.summary",
+        "text" : "Sharing turns on without asking"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:macScreen.shareWithoutAsking"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.macScreen.shareWithoutAsking",
+        "text" : "Share This Mac Without Asking"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
         "key" : "settings.group.macScreen",
         "text" : "Mac Screen"
       },
@@ -112565,142 +112703,6 @@
       "title" : {
         "key" : "settings.remote.endSharingOnQuit",
         "text" : "End Sharing When cmux Quits"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.cmuxRemote",
-        "text" : "cmux Remote"
-      },
-      "help" : {
-        "key" : "settings.remote.shareWithOwnDevicesByDefault.help",
-        "text" : "On: your other devices view this Mac with no Allow, until you stop sharing."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "remote.shareWithOwnDevicesByDefault",
-      "keywords" : [
-        "cmux remote",
-        "screen sharing",
-        "mac screen",
-        "allow",
-        "same account",
-        "device hub"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "remote",
-        "shareWithOwnDevicesByDefault"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : {
-        "key" : "settings.remote.shareWithOwnDevicesByDefault.summary",
-        "text" : "Your devices view it with no prompt"
-      },
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get"
-          ],
-          "reason" : "agent_settable_false",
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:remote.shareWithOwnDevicesByDefault"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.remote.shareWithOwnDevicesByDefault",
-        "text" : "Share With My Devices by Default"
       },
       "validation" : "portable"
     },

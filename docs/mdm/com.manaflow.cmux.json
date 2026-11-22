@@ -4168,6 +4168,12 @@
       "title" : "Relay Only",
       "type" : "boolean"
     },
+    "macScreen.shareWithoutAsking" : {
+      "default" : false,
+      "description" : "Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies.",
+      "title" : "Share This Mac Without Asking",
+      "type" : "boolean"
+    },
     "macScreen.systemShortcuts" : {
       "default" : false,
       "description" : "Shortcuts like ⌘Tab and ⌘Space go to the other Mac. Needs Accessibility.",
@@ -4930,12 +4936,6 @@
       "default" : false,
       "description" : "Off: this Mac stays available to your devices while cmux is quit.",
       "title" : "End Sharing When cmux Quits",
-      "type" : "boolean"
-    },
-    "remote.shareWithOwnDevicesByDefault" : {
-      "default" : false,
-      "description" : "On: your other devices view this Mac with no Allow, until you stop sharing.",
-      "title" : "Share With My Devices by Default",
       "type" : "boolean"
     },
     "remote.ultra" : {
@@ -6517,7 +6517,7 @@
       "type" : "boolean"
     },
     "workspaces.freeing.enabled" : {
-      "default" : false,
+      "default" : true,
       "description" : "Ends idle shells of long-unused workspaces; they restart in the same folder.",
       "title" : "Free Idle Terminals",
       "type" : "boolean"

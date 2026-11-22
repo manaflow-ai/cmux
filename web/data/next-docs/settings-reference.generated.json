@@ -1385,14 +1385,6 @@
           "group": "cmux Remote"
         },
         {
-          "key": "remote.shareWithOwnDevicesByDefault",
-          "title": "Share With My Devices by Default",
-          "help": "On: your other devices view this Mac with no Allow, until you stop sharing.",
-          "kind": "toggle",
-          "default": false,
-          "group": "cmux Remote"
-        },
-        {
           "key": "remote.ultra",
           "title": "Ultra Connection Mode",
           "help": "Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data.",
@@ -1900,7 +1892,7 @@
           "title": "Free Idle Terminals",
           "help": "Ends idle shells of long-unused workspaces; they restart in the same folder.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Hibernation"
         },
         {
@@ -6457,6 +6449,14 @@
       "id": "keyboard",
       "title": "Keyboard",
       "rows": [
+        {
+          "key": "macScreen.shareWithoutAsking",
+          "title": "Share This Mac Without Asking",
+          "help": "Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Mac Screen"
+        },
         {
           "key": "macScreen.systemShortcuts",
           "title": "Send System Shortcuts to the Remote Mac",
