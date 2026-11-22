@@ -81,7 +81,7 @@ env:
 jobs:
   plan:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       actions: read
       contents: read
@@ -90,7 +90,20 @@ jobs:
       sha: ${{ steps.plan.outputs.sha }}
       only: ${{ steps.plan.outputs.only }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # A fetch that hangs (plan job 137288423007, judge job 137302455752) ends at 5 minutes and is tried once
+      # more, instead of taking the job's whole budget and the batch's verdict with it.
+      - id: checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        continue-on-error: true
+        timeout-minutes: 5
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+      - name: Check out again
+        if: steps.checkout.outcome != 'success'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        timeout-minutes: 5
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -206,7 +219,7 @@ jobs:
     # sees no verdict and dispatches the same probe again, so the bisect goes on instead of stopping.
     if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       actions: write
       contents: read
@@ -218,7 +231,20 @@ jobs:
       pieces: ${{ steps.judge.outputs.pieces }}
       piece: ${{ steps.judge.outputs.piece }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # A fetch that hangs (plan job 137288423007, judge job 137302455752) ends at 5 minutes and is tried once
+      # more, instead of taking the job's whole budget and the batch's verdict with it.
+      - id: checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        continue-on-error: true
+        timeout-minutes: 5
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+      - name: Check out again
+        if: steps.checkout.outcome != 'success'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        timeout-minutes: 5
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -263,7 +289,7 @@ jobs:
     needs: judge
     if: ${{ !cancelled() && needs.judge.outputs.culprit != '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 20
+    timeout-minutes: 25
     # The routing App's key lives in ci-routing-agent, which serves the base; a drill branch opens
     # its revert with GITHUB_TOKEN instead (that pull request starts no CI, which a drill needs not).
     environment: ${{ github.ref_name == 'feat-cmux-next' && 'ci-routing-agent' || '' }}
@@ -273,7 +299,21 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # A fetch that hangs (plan job 137288423007, judge job 137302455752) ends at 5 minutes and is tried once
+      # more, instead of taking the job's whole budget and the batch's verdict with it.
+      - id: checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        continue-on-error: true
+        timeout-minutes: 5
+        with:
+          persist-credentials: false
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+          filter: blob:none
+      - name: Check out again
+        if: steps.checkout.outcome != 'success'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        timeout-minutes: 5
         with:
           persist-credentials: false
           ref: ${{ github.ref_name }}
