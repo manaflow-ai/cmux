@@ -10,7 +10,7 @@ or targeted validation that already cover them.
 | --- | --- |
 | `full-ci` | Requests the expensive full macOS suite lanes. |
 
-Normal PR routing already runs the Swift package and CLI checks a diff touches.
+Which tests a change selects, and why: [adding a test](adding-a-test.md). Normal PR routing already runs the Swift package and CLI checks a diff touches.
 `full-ci` is not shorthand for normal PR checks, relevant tests, review
 readiness or permission to merge. The rule for when to add it lives in the root
 [CLAUDE.md](../../../CLAUDE.md#ci-review-and-merge): only for a requested or
