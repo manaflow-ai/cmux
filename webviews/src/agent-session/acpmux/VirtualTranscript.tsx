@@ -4737,6 +4737,12 @@ function TranscriptView({
   // window changes. Keep this signature primitive so scroll and layout state updates that leave
   // the mounted rows alone do not walk every text node in the transcript again.
   const mountedRangeKey = mountedRanges.map(({ first, last }) => `${first}:${last}`).join(",");
+  // The live line is mounted: a call's row entering beside it waits the line's roll out (conversation.css
+  // `data-live-line`). A mark the render writes, not `.acpmux-scroll:has(.acpmux-row[data-row-id=...])`: a
+  // `:has()` on the scroller over its whole subtree is checked again for every node a commit inserts into
+  // any row, and each check restyles every element under the scroller that some `X:has(...) Y` rule names
+  // (test/agent-pane-stream-composer-still.test.ts), about 1.5 ms of forced layout per tool call in a long chat.
+  const liveLineMounted = mountedIndexOf(rows, mountedRanges, LIVE_THINKING) >= 0;
   // The scrolled rows only: a held row far from the view would widen every drawn-height search
   // (`measured`) to the rows between them. The held rows are looked up by index instead.
   if (lastPlaced.current) {
@@ -7469,6 +7475,8 @@ function TranscriptView({
             // paints (Leo, 2026-11-09: "the scroll up is extremely sluggish ... if I send in a prompt like
             // this and it just lags, it's not a good look").
             data-send-entrance={slimFollow ? "fade" : undefined}
+            // The live line is among the mounted rows (`liveLineMounted`).
+            data-live-line={liveLineMounted || undefined}
             // A read-only transcript's right-clicks are reported to no host (conversation/messageMenu.ts).
             data-read-only-transcript={readOnly ? "" : undefined}
             // Its place comes back after a web update's reload (reportAnchor, pages/shared/webSwap.ts).
