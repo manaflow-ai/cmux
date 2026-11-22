@@ -1,5 +1,5 @@
-title: New Tab sends your prompt while you hover suggestions
+title: New Tab shows which agent will receive your prompt
 category: fixed
 docs: https://cmux.com/docs/next/agents
 
-When a prompt is ready to send, moving over a suggestion won't change what Enter or Send does. Click a suggestion or pick it with the arrow keys to use it.
+When you type a prompt in New Tab, the first suggestion names the model that will answer. Enter and Send use the highlighted action, and you can still choose web search with the arrow keys or a click.

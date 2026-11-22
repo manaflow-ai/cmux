@@ -108,7 +108,7 @@ async function mountChat(harness: string, summary: Record<string, unknown> = {})
   let asked: string | undefined;
   function Host() {
     const picker = usePickerCatalog(snapshot.catalog, { harness });
-    asked = useNewTabChipModel(newTab);
+    asked = useNewTabChipModel(newTab)?.id;
     return (
       <ComposerPickers
         snapshot={snapshot}

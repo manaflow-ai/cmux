@@ -71,6 +71,7 @@ afterAll(async () => {
 });
 
 const noop = () => {};
+const ASK_TITLE = "Ask Opus 5.5";
 const ASK_HELO = ["ask", "claude", "helo", undefined, "claude-opus-5-5"];
 
 async function render(calls: unknown[][], order?: SuggestionOrder, template: "cards" | "default" = "cards") {
@@ -142,12 +143,10 @@ for (const order of [undefined, "chat"] as const) {
       await render(calls, order);
       const text = target === "create row" ? "new browser" : "helo";
       const field = await type(text);
-      // The prompt is Return's with no row of its own (David Beyer 2026-11-20): no row leads or is lit.
-      expect(rows().some((option) => option.dataset.type === "ask")).toBe(false);
+      expect(rows()[0]?.dataset.type).toBe("ask");
       await hover(target === "create row" ? browserRow() : row("Search the web for helo"));
-      // Hover lights no row for the keyboard: Return still sends the prompt.
-      expect(returnTarget()).toEqual([]);
-      expect(field.getAttribute("aria-activedescendant")).toBeNull();
+      expect(returnTarget()).toEqual([ASK_TITLE]);
+      expect(field.getAttribute("aria-activedescendant")).toBe(rows()[0]!.id);
       const enter = await press(field, "Enter");
       expect(enter.defaultPrevented).toBe(true);
       expect(calls).toEqual([["ask", "claude", text, undefined, "claude-opus-5-5"]]);
@@ -175,33 +174,41 @@ test("Return with the list open and no hover sends the prompt", async () => {
   expect(calls).toEqual([ASK_HELO]);
 });
 
-test.each(["Enter", "Send"])("%s sends a prompt after the pointer moves over the only search row", async (action) => {
-  const calls: unknown[][] = [];
-  await render(calls, undefined, "default");
-  const prompt = "asdasd";
-  const field = await type(prompt);
-  expect(rows().map(title)).toEqual([`Search the web for ${prompt}`]);
-  const search = rows()[0]!;
-  // A second event at a different screen position is real pointer movement, rather than WebKit
-  // announcing a list that appeared under a still pointer.
-  for (const screenY of [100, 101]) {
-    await act(async () =>
-      search.dispatchEvent(new window.MouseEvent("mousemove", { bubbles: true, screenX: 40, screenY })),
-    );
-  }
-  if (action === "Enter") await press(field, "Enter");
-  else await act(async () => host.querySelector<HTMLButtonElement>(".nt-send")!.click());
-  expect(calls).toEqual([["ask", "claude", prompt, undefined, "claude-opus-5-5"]]);
-});
+test.each(["Enter", "Send"])(
+  "%s sends the highlighted agent prompt after the pointer moves over web search",
+  async (action) => {
+    const calls: unknown[][] = [];
+    await render(calls, undefined, "default");
+    const prompt = "1+1";
+    const field = await type(prompt);
+    expect(rows().map(title)).toEqual([ASK_TITLE, `Search the web for ${prompt}`]);
+    const [ask, search] = rows() as [HTMLElement, HTMLElement];
+    expect(ask.querySelector(".nt-row-detail")?.textContent).toBe(prompt);
+    expect(ask.querySelector(".nt-row-return")).not.toBeNull();
+    // A second event at a different screen position is real pointer movement, rather than WebKit
+    // announcing a list that appeared under a still pointer.
+    for (const screenY of [100, 101]) {
+      await act(async () =>
+        search.dispatchEvent(new window.MouseEvent("mousemove", { bubbles: true, screenX: 40, screenY })),
+      );
+    }
+    expect(returnTarget()).toEqual([ASK_TITLE]);
+    expect(field.getAttribute("aria-activedescendant")).toBe(ask.id);
+    if (action === "Enter") await press(field, "Enter");
+    else await act(async () => host.querySelector<HTMLButtonElement>(".nt-send")!.click());
+    expect(calls).toEqual([["ask", "claude", prompt, undefined, "claude-opus-5-5"]]);
+  },
+);
 
 test("Down to the web search, then Return, searches", async () => {
   const calls: unknown[][] = [];
   await render(calls);
-  const field = await type("helo");
+  const field = await type("1+1");
   await press(field, "ArrowDown");
-  expect(returnTarget()).toEqual(["Search the web for helo"]);
+  expect(returnTarget()).toEqual(["Search the web for 1+1"]);
+  expect(field.getAttribute("aria-activedescendant")).toBe(rows()[1]!.id);
   await press(field, "Enter");
-  expect(calls).toEqual([["search", "helo"]]);
+  expect(calls).toEqual([["search", "1+1"]]);
 });
 
 test("typing again after a Down pick hands Return back to the prompt", async () => {
@@ -211,7 +218,7 @@ test("typing again after a Down pick hands Return back to the prompt", async () 
   await press(field, "ArrowDown");
   expect(returnTarget()).toEqual(["Search the web for helo"]);
   await type("helo there");
-  expect(returnTarget()).toEqual([]);
+  expect(returnTarget()).toEqual([ASK_TITLE]);
   await press(field, "Enter");
   expect(calls).toEqual([["ask", "claude", "helo there", undefined, "claude-opus-5-5"]]);
 });
@@ -220,9 +227,8 @@ test("a keyboard pick stands while the pointer rests on another row", async () =
   const calls: unknown[][] = [];
   await render(calls, "chat");
   const field = await type("new browser");
-  // Nothing is lit while the prompt leads, so drawn row i is i + 1 Downs away.
   const index = rows().indexOf(browserRow());
-  for (let i = 0; i <= index; i++) await press(field, "ArrowDown");
+  for (let i = 0; i < index; i++) await press(field, "ArrowDown");
   expect(returnTarget()).toEqual(["New browser tab"]);
   await hover(rows().find((option) => option !== browserRow())!);
   expect(returnTarget()).toEqual(["New browser tab"]);
@@ -237,8 +243,7 @@ test("Ctrl-N and Ctrl-P move the highlight, and Return runs the row they reached
   await press(field, "n", { ctrlKey: true });
   expect(returnTarget()).toEqual(["Search the web for helo"]);
   await press(field, "p", { ctrlKey: true });
-  // Back to the prompt, which has no row: nothing is lit.
-  expect(returnTarget()).toEqual([]);
+  expect(returnTarget()).toEqual([ASK_TITLE]);
   await press(field, "n", { ctrlKey: true });
   expect(returnTarget()).toEqual(["Search the web for helo"]);
   await press(field, "Enter");
@@ -251,7 +256,7 @@ test("a click still runs the row it presses", async () => {
   await type("helo");
   const search = row("Search the web for helo");
   await hover(search);
-  expect(returnTarget()).toEqual([]);
+  expect(returnTarget()).toEqual([ASK_TITLE]);
   await act(async () => search.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, cancelable: true })));
   expect(calls).toEqual([["search", "helo"]]);
 });
@@ -262,7 +267,7 @@ test("a click on a create row still runs its action with suggestions open", asyn
   await type("new browser");
   const browser = browserRow();
   await hover(browser);
-  expect(returnTarget()).toEqual([]);
+  expect(returnTarget()).toEqual([ASK_TITLE]);
   await act(async () => browser.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, cancelable: true })));
   expect(calls).toEqual([["create", "browser"]]);
 });

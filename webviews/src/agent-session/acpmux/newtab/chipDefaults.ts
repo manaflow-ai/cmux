@@ -1,8 +1,10 @@
 // The New Tab chip before a pick (cx-e2aa decision, chief 2026-10-09): it names the shown agent's
 // default model from the model catalog, never a bare "Model" or "Default".
 import { useMemo } from "react";
-import { isDefaultChoice } from "../defaultChoice";
+import { aliasNamedAsRelease, shortModelName } from "../composerPickerModel";
+import { isDefaultChoice, loadResolvedAlias, modelIdName } from "../defaultChoice";
 import { defaultModel } from "../harnessSwitch";
+import { useT, type Translate } from "../i18n";
 import { type LastPick, lastPick } from "../lastPick";
 import type { AcpmuxSnapshot } from "../model";
 import { buildPickerCatalog, type PickerCatalog } from "../modelCatalogData";
@@ -109,13 +111,37 @@ export function newTabChipSnapshot(snapshot: AcpmuxSnapshot, catalog: PickerCata
 /// The model the New Tab chip names for `snapshot` (newTabChipSnapshot over the model catalog), the
 /// one Return asks the agent on: else the chat started on the agent's own default, which can be
 /// another model than the chip promised (cx-sljrg). Undefined when the chip names only "default".
-export function useNewTabChipModel(snapshot: AcpmuxSnapshot): string | undefined {
+export function useNewTabChipModel(snapshot: AcpmuxSnapshot): { id: string; name: string } | undefined {
+  const t = useT();
   const { catalog, user, provisional } = useModelCatalogState();
   const harness = snapshot.summary?.harness;
   const picker = useMemo(
     () => buildPickerCatalog({ catalog, user, acpmux: snapshot.catalog, session: { harness }, provisional }),
     [catalog, user, snapshot.catalog, harness, provisional],
   );
-  const model = newTabChipSnapshot(snapshot, picker).summary?.model;
-  return model && !isDefaultChoice({ id: model }) ? model : undefined;
+  const id = newTabChipSnapshot(snapshot, picker).summary?.model;
+  if (!id || isDefaultChoice({ id })) return undefined;
+  return { id, name: newTabModelName(id, harness, snapshot, picker, t) };
+}
+
+function newTabModelName(
+  id: string,
+  harness: string | undefined,
+  snapshot: AcpmuxSnapshot,
+  picker: PickerCatalog,
+  t: Translate,
+): string {
+  const entry = picker.harnesses.find((candidate) => (candidate.acpmuxHarness ?? candidate.id) === harness);
+  const model = entry?.models.find((model) => model.id === id || model.release === id);
+  const sessionName = snapshot.catalog
+    .find((agent) => agent.id === harness)
+    ?.models.find((model) => model.id === id)?.name;
+  const baseName = [model?.name, sessionName].find((name) => name && name !== id) ?? modelIdName(id, t);
+  const release = harness && loadResolvedAlias(harness, id);
+  const releaseName = release
+    ? (picker.harnesses.flatMap((agent) => agent.models).find((model) => model.id === release)?.name ??
+      modelIdName(release, t))
+    : undefined;
+  const name = releaseName ? aliasNamedAsRelease(baseName, releaseName) : baseName;
+  return shortModelName(name, model?.shortName, entry?.name) ?? name;
 }

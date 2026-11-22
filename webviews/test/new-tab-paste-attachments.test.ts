@@ -125,6 +125,7 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
       expect(await page.locator(INLINE_IMAGES).count()).toBe(1);
       expect(await page.locator(".nt-box .acpmux-attachments .acpmux-attachment-image").count()).toBe(0);
       expect(await fieldText(page)).toBe("what is this");
+      expect(await page.locator('.nt-row[data-type="ask"] .nt-row-detail').textContent()).toBe("what is this");
       await page.keyboard.press("Enter");
       // The page became the chat; its first message carries the text and the image.
       const bubble = page.locator(".cv-user__bubble", { hasText: "what is this" });
@@ -136,6 +137,42 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
       expect(await image.getAttribute("src")).toStartWith("data:image/png");
       expect(await page.locator(".cv-user__images img").count()).toBe(0);
       await page.close();
+    },
+  );
+
+  test.each(engines.map(([name]) => name))(
+    "%s: clicking Ask waits for a pasted image to finish reading",
+    async (name) => {
+      const page = await newTab(name);
+      try {
+        const field = page.locator(EDITABLE);
+        await field.click();
+        await page.keyboard.type("what is this");
+        const data = await transfer(page);
+        await field.evaluate((node, data) => {
+          // Pause the image worker until after the click so the draft still has a pending attachment.
+          const post = Worker.prototype.postMessage;
+          Worker.prototype.postMessage = function (
+            message: { kind?: string },
+            options?: Transferable[] | StructuredSerializeOptions,
+          ) {
+            const forward = () => Reflect.apply(post, this, [message, options]);
+            if (message?.kind !== "prepare") return forward();
+            Worker.prototype.postMessage = post;
+            document.documentElement.dataset.heldImageJob = "";
+            document.addEventListener("cmux-test-resume-read", forward, { once: true });
+          };
+          node.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+        }, data);
+        await page.locator("html[data-held-image-job]").waitFor();
+        await page.locator('.nt-row[data-type="ask"]').click();
+        expect(await field.isVisible()).toBe(true);
+        await page.evaluate(() => document.dispatchEvent(new Event("cmux-test-resume-read")));
+        await page.locator(".cv-user__bubble", { hasText: "what is this" }).waitFor();
+        await page.locator("[data-inline-attachment-strip] .cv-user__inline-image img").waitFor();
+      } finally {
+        await page.close();
+      }
     },
   );
 
