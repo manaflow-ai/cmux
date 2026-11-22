@@ -73,6 +73,12 @@ public actor MacInstallIdentity {
         return CloudStartCore().call("cloud_identity_token", ["token": token], as: Claims.self)?.team
     }
 
+    /// The backend team of ``installToken()`` (``team(ofToken:)``): the install's own team, where the app makes its Cloud
+    /// machines. Nil when there is no token or it names no team.
+    public func installTeam() async -> String? {
+        (try? await installToken()).flatMap(Self.team(ofToken:))
+    }
+
     /// A valid install token for the signed-in user. A misconfigured dev build gets none (``CMUXBuildSpaceError``):
     /// a token already held would otherwise reach nightly's data through every install-token caller (the relay,
     /// the feed, `cmux link`, the host replica).
