@@ -198,7 +198,7 @@
 .chs-chip-anchor {
   position: relative;
   display: inline-flex;
-  min-width: 0;
+  flex: none;
 }
 .chs-chip {
   display: inline-flex;
@@ -336,7 +336,6 @@
 }
 .chs-chip {
   flex: none;
-  margin-inline-end: var(--ds-space-1);
 }
 .chs-chip__short {
   display: none;
