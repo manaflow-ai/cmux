@@ -177,8 +177,10 @@ jobs:
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
-    # The routing token (owned-pool picker below) lives in ci-routing-agent.
-    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
+    # The routing token (owned-pool picker below) lives in ci-routing-agent. A call from another
+    # workflow (main's production pipeline) takes no environment, so its deploy rules never stop
+    # the gate; its picker then reads the queue with the job token.
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && contains(github.workflow_ref, '/.github/workflows/ios-review-gate.yml@') && 'ci-routing-agent' || '' }}
     permissions:
       contents: read
       actions: read
@@ -348,9 +350,6 @@ jobs:
           permission-actions: read
       - name: Pick the macOS pool
         id: pool
-        # A picker failure never stops the gate: reviewer-path then takes
-        # Blacksmith macOS 26 (vars.RUNNER_POOLS.macos_26), as it did before.
-        continue-on-error: true
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           GH_TOKEN: ${{ github.token }}
@@ -365,17 +364,24 @@ jobs:
           POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
           POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
           FAMILIES: ${{ steps.devices.outputs.families }}
+          # Where the legs ran before the picker: a picker failure never stops the gate.
+          FALLBACK_RUNS_ON: ${{ vars.RUNNER_POOLS && toJSON(fromJSON(vars.RUNNER_POOLS).macos_26) || '"blacksmith-6vcpu-macos-26"' }}
         run: |
           set -euo pipefail
           # One reviewer-path leg per planned family: a single family budgets
           # one simulator mini, two (a push walks iPhone and iPad) budget two.
           family="$(python3 -I -c 'import json, sys; f = json.loads(sys.argv[1]); print(f[0] if len(f) == 1 else "")' "$FAMILIES")"
-          python3 -I gate/scripts/ci/ios_runner_pool.py \
+          if ! python3 -I gate/scripts/ci/ios_runner_pool.py \
             --lane review-gate --fork "$FORK_PULL_REQUEST" --requested auto \
             --variable "$RUNNER_VARIABLE" --ios-owned "$IOS_OWNED" --owned "$POOL_OWNED" \
             --owned-slots "$OWNED_SLOTS" --pr-xcode-app "$PR_XCODE_APP" --order "$POOL_ORDER" \
             --max-queued "$POOL_MAX_QUEUED" --queue-rounds 0 \
-            --device-family "$family" | tee -a "$GITHUB_OUTPUT"
+            --device-family "$family" > "$RUNNER_TEMP/pool.out"; then
+            echo "::warning title=review gate pool::the picker failed; the device legs take $FALLBACK_RUNS_ON"
+            printf 'label=\nruns_on=%s\nretry_runs_on=%s\npersistent=false\n' "$FALLBACK_RUNS_ON" "$FALLBACK_RUNS_ON" \
+              > "$RUNNER_TEMP/pool.out"
+          fi
+          tee -a "$GITHUB_OUTPUT" < "$RUNNER_TEMP/pool.out"
       - name: Create the owned-pool marker
         id: marker
         if: steps.pool.outputs.persistent == 'true' && github.run_attempt == 1 && steps.devices.outputs.families != '[]'
@@ -514,7 +520,7 @@ jobs:
         family: ${{ fromJSON(needs.plan.outputs.families) }}
     # An owned simulator mini from the plan job's picker on attempt 1, ephemeral Blacksmith macOS 26 on a
     # re-run or a fork pull request (which reads no repository variables).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.plan.outputs.retry_runs_on || needs.plan.outputs.runs_on || toJSON(fromJSON(vars.RUNNER_POOLS).macos_26)) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.plan.outputs.retry_runs_on || needs.plan.outputs.runs_on) }}
     timeout-minutes: 120
     env:
       LANE: ${{ needs.plan.outputs.lane }}

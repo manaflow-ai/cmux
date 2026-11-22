@@ -3458,7 +3458,7 @@ class IOSRouting(unittest.TestCase):
         self.assertIn("gate/scripts/ci/ios_runner_pool.py", pick["run"])
         self.assertIn("--lane review-gate", pick["run"])
         self.assertIn("--queue-rounds 0", pick["run"])
-        self.assertTrue(pick["continue-on-error"])
+        self.assertIn("FALLBACK_RUNS_ON", pick["env"])
         self.assertNotIn("review-gate", ios_pool.SIM_FIRST_LANES)
         readers = [name for name, job in workflow["jobs"].items()
                    if "needs.plan.outputs.runs_on" in str(job.get("runs-on", ""))]

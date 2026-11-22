@@ -324,7 +324,7 @@ UNRESCUED_WORKFLOW_PATHS = {
         "lane's pick (an owned simulator mini) on attempt 1 and Blacksmith macOS 26 from attempt 2, so a stuck or "
         "refused job ends at its 60-minute timeout and a person's re-run lands on Blacksmith",
     ".github/workflows/ios-review-gate.yml":
-        "feat-cmux-next only: its reviewer-path legs take the phone-cells lane's pick (an owned simulator mini) on "
+        "feat-cmux-next only: its reviewer-path legs take the review-gate lane's pick in plan (an owned simulator mini) on "
         "attempt 1 and Blacksmith macOS 26 from attempt 2, so a stuck or refused leg ends at its 120-minute timeout "
         "and a person's re-run lands on Blacksmith",
     ".github/workflows/cloud-chat-proof.yml":
