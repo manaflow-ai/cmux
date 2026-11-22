@@ -72,7 +72,10 @@
 // NO_TAIL=1 serves no kept tail; WIRE_TRACE=1 prints each daemon request as it arrives (ms from the round's start).
 // ROWS_WINDOW=FILE puts the page on the row store (v2): the daemon advertises attach-hold-v1 and the host answers
 // `chat.rows.open` with this window (acpmux-core's `bench_first_window` writes it for the same REPLAY), one link round
-// trip after the open. The settled line's rowStore says every round drew from it.
+// trip after the open. The settled line's rowStore says every round drew from it. A chat on the store keeps no
+// host tail (direct.ts `rememberCurrentTail`), so none is served. ROWS_ENDED=FILE is the same chat's window once
+// its open turn ended, sent ROWS_ENDED_MS (1000) after the first in its place: the rows the reload drew that the
+// ended turn folds away are then goneRows.
 // PANE_SOURCE_REF=<sha> loads that immutable App/direct/hostRetry revision under this same harness for a baseline.
 /// <reference types="bun" />
 import fs from "node:fs";
@@ -243,6 +246,15 @@ const ROWS_WINDOW = (() => {
   console.log(`rows window: ${window.rows.length} settled rows, ${window.open.length} open, ${text.length} bytes`);
   return text;
 })();
+/// ROWS_ENDED=FILE: the window once the chat's open turn ended (same ids: a recording cut before its
+/// `turn_end`, and the whole one), and how long after the first window it comes.
+const ROWS_ENDED = (() => {
+  const file = process.env.ROWS_ENDED;
+  if (!file) return null;
+  const bytes = fs.readFileSync(file);
+  return new TextDecoder().decode(file.endsWith(".gz") ? Bun.gunzipSync(bytes) : bytes);
+})();
+const ROWS_ENDED_MS = Number(process.env.ROWS_ENDED_MS ?? 1000);
 const LATEST =
   FIXTURE === "work" ? `Turn ${TURNS} done.` : FIXTURE === "replay" ? replayLatest(replayed) : `Answer ${TURNS}:`;
 const webviews = path.resolve(import.meta.dir, "..");
@@ -487,7 +499,7 @@ function installHost({
   refuseUntilMs: number;
   bridge: boolean;
   /// ROWS_WINDOW: the store's first window (its JSON) and how long after an open it comes.
-  rows: { window: string; delayMs: number } | null;
+  rows: { window: string; delayMs: number; ended: string | null; endedMs: number } | null;
 }) {
   /// `asks`: when the page asked for a socket to acpmux (ms from navigation): each `transport.open` over
   /// the bridge, each `new WebSocket` to it on the dev slot's transport.
@@ -521,11 +533,15 @@ function installHost({
     if (method !== "chat.rows.open") return Promise.resolve({ ok: true, value: null });
     asked.rowsOpens += 1;
     const sid = String(params?.sid ?? "");
-    const change = `{"kind":"chatWindow","replaces":true,"window":${rows.window.replace('"sid":"bench"', `"sid":${JSON.stringify(sid)}`)}}`;
-    setTimeout(() => {
-      const receiver = (window as unknown as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows;
-      receiver?.receive({ batch: (batch += 1), changes: [change] });
-    }, rows.delayMs);
+    const send = (text: string, at: number) => {
+      const change = `{"kind":"chatWindow","replaces":true,"window":${text.replace('"sid":"bench"', `"sid":${JSON.stringify(sid)}`)}}`;
+      setTimeout(() => {
+        const receiver = (window as unknown as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows;
+        receiver?.receive({ batch: (batch += 1), changes: [change] });
+      }, at);
+    };
+    send(rows.window, rows.delayMs);
+    if (rows.ended && asked.rowsOpens === 1) send(rows.ended, rows.delayMs + rows.endedMs);
     return Promise.resolve({ ok: true, value: { sid } });
   };
   // Wrap the dev host's real ready answer, withholding it just as a daemon handoff does; over the bridge
@@ -698,7 +714,7 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
     return {
       t: performance.now(),
       copyShown: !!host,
-      rows: rows.map(({ id, top }) => ({ id, top })),
+      rows: rows.map(({ id, top, text }) => ({ id, top, text: text.trim().replace(/\s+/g, " ").slice(0, 200) })),
       composer: composer ? { top: composer.top, height: composer.height } : null,
       scrollTop: scroller && !rootHidden ? scroller.scrollTop : null,
       bottomText: (rows.at(-1)?.text ?? "").trim().replace(/\s+/g, " ").slice(0, 48),
@@ -1150,7 +1166,16 @@ try {
     });
   };
 
-  const prepare = async (page: Page, tail: unknown, windowMs: number, readyDelayMs = 0, refuseUntilMs = 0) => {
+  /// `ends`: the relaunch's page, which gets ROWS_ENDED; the page the copy is taken from does not (its turn ran
+  /// when the app went away).
+  const prepare = async (
+    page: Page,
+    tail: unknown,
+    windowMs: number,
+    readyDelayMs = 0,
+    refuseUntilMs = 0,
+    ends = false,
+  ) => {
     await installPaintedFrames(page);
     if (BRIDGE) await serveBridge(page);
     await page.addInitScript(installHost, {
@@ -1158,7 +1183,9 @@ try {
       readyDelayMs,
       refuseUntilMs,
       bridge: BRIDGE,
-      rows: ROWS_WINDOW ? { window: ROWS_WINDOW, delayMs: LINK.rttMs } : null,
+      rows: ROWS_WINDOW
+        ? { window: ROWS_WINDOW, delayMs: LINK.rttMs, ended: ends ? ROWS_ENDED : null, endedMs: ROWS_ENDED_MS }
+        : null,
     });
     await page.addInitScript(recordFrames, { windowMs, latest: LATEST, hostTag: SNAPSHOT_HOST_TAG });
   };
@@ -1372,10 +1399,11 @@ try {
         if (CPU > 1) await (await context.newCDPSession(one)).send("Emulation.setCPUThrottlingRate", { rate: CPU });
         await prepare(
           one,
-          mode === "reopen-no-copy" || NO_TAIL ? null : keptTail,
+          mode === "reopen-no-copy" || NO_TAIL || ROWS_WINDOW ? null : keptTail,
           windowMs,
           mode.startsWith("native-ready") ? DOWN_MS : 0,
           isRefused(mode) ? DOWN_MS : 0,
+          true,
         );
       }
       load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0, bytesDown: 0 };
