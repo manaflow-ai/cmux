@@ -140,8 +140,24 @@ New Tab keys before the Close Tab key in the same recording, a change of a New T
 Close Tab key is taken as the Close Tab key's (`new_tab_change_can_be_in_the_frames`), and the app's marks give
 the true time between the keys only for the New Tab keys that went in after the recording's start
 (`new_tab_marks_before_ms`: each `newTab.open` mark's start before the Close Tab key went in).
+
+Why a frame has no row (`stream`, from `stream_of`; None for a build whose reply has no `screen_stream`). The
+recorder counts what its stream gave, buffer by buffer (WindowFrame+ScreenCaptureKit.swift, `StreamTally`): a
+complete buffer and an idle one each make a row; a buffer of another status, one with no status, a picture that did
+not copy, and an idle buffer before the first picture make none. A row's time is the buffer's display time, or the
+handler's own time when the buffer has none or a later one. `stream` has those counts as whole numbers, whether
+they add up (`counts_agree`), and each gap (the frames with no row between 2 rows one after the other, the later
+one after the key) under ONE kind, the first of these that applies: `with_a_buffer` (a buffer that made no row has
+its time in the gap), `own_time` (the row before or after the gap has the handler's own time, so the gap can be a
+fault of that time), `then_idle` and `then_complete` (no such buffer and no such row: the stream gave no buffer for
+those frames, and the row after them is an idle buffer's or a complete one's), `not_known` (the row after has no
+status in the reply, or the gap is after the last buffer that the reply lists and the list is not whole). The gaps
+are counted from the key to `content_first` and over the whole take; `steps` counts the rows' steps against the
+display's frame time from the stream's times in tenths of a ms. The counts are facts of a row: no INVALID reason
+reads them, and a frame with no row before the first content is INVALID whatever its kind.
 """
 import math
+import re
 
 # The share of a region's pixels at or under which two pictures are the same one. 20 times finer than frame_strip's
 # default: at full scale a part of the page that moves by one point changes less than 0.2 % of the content area.
@@ -171,6 +187,10 @@ NO_RATE = ("display: no asked display rate (`--display-hz`; the entry gives it w
 # is wrong by about 15 % or less passes (the rows' times are whole ms, which moves the limit by about 1 %: with a
 # 120 Hz display 102 asked is INVALID and 139 asked passes); what the check does not find is in `rate_limit_sentence`.
 RATE_STEPS, RATE_SHARE, RATE_MARGIN = 8, 0.85, 0.88
+# The recorder's counts of its stream (`stream_of`): the kinds of a gap, in the order in which one is taken, and the
+# status words of a row's letter in the reply's `row_status`.
+STREAM_KINDS = ("with_a_buffer", "own_time", "then_idle", "then_complete", "not_known")
+STREAM_STATUS = {"c": "complete", "i": "idle"}
 # Why the counts of frames with no row are not known, for a row or a case with a `display` reason.
 NO_RATE_SAID, RATE_NOT_PROVED_SAID = "no asked display rate", "the asked display rate is not proved"
 
@@ -491,6 +511,128 @@ def second_first_of(key, gap_ms, every, offset, spans, shift, refresh, tolerance
             "moving_at_the_mark": None if start is None else moved(start), "span": span}, f"the rows' {which} numbers and the second `{mark}` mark"
 
 
+def _whole(value):
+    return int(value) if _number(value) and value >= 0 and value == int(value) else None
+
+
+def _place(row):
+    """A row's place in the recording: the number of its file (the app names each file by that place)."""
+    found = re.fullmatch(r"frame-(\d+)\.png", str(row.get("file") or ""))
+    return int(found.group(1)) if found else None
+
+
+def stream_of(reply, every=(), offset=0, first=None, shift=0.0, refresh=None):
+    """The recorder's counts of its stream for one recording, and why each frame after the key has no row (the
+    module doc), or None for a reply with no `screen_stream`. `every`: the numbered rows of the whole recording,
+    `offset`: the place in it of the first row after the key, `first`: the place after `offset` of the
+    `content_first` row (None: none), `shift`: the ms from the reply's zero to the rows' zero, `refresh`: the
+    display's frame time in ms. Numbers, true or false, and the kind and status words of this module only: a
+    status that is no number, and each other text of the reply, is not in it."""
+    said = reply.get("screen_stream")
+    if not isinstance(said, dict):
+        return None
+    names = ("buffers", "rows", "complete", "idle", "no_status", "no_picture", "idle_before_a_picture", "no_display_time",
+             "display_time_later")
+    out = {name: _whole(said.get(name)) for name in names}
+    other = said.get("other_status")
+    other = ({str(status): _whole(count) for status, count in sorted(other.items())}
+             if isinstance(other, dict) and all(str(status).isdigit() and _whole(count) is not None for status, count in other.items()) else None)
+    status = said.get("row_status") if isinstance(said.get("row_status"), str) else ""
+    own = said.get("own_time_rows")
+    own = {_whole(place) for place in own} if isinstance(own, list) else None
+    times = said.get("row_ms") if isinstance(said.get("row_ms"), list) and all(_number(at) for at in said["row_ms"]) else None
+    listed = sorted((buffer[0] + shift, buffer[1]) for buffer in said.get("no_row") or []
+                    if isinstance(buffer, list) and len(buffer) == 2 and all(_number(value) for value in buffer))
+    out["other_status"], out["own_time_rows"] = other, None if own is None else len(own)
+    out.update({name: said[name] if _number(said.get(name)) else None for name in ("lag_ms_max", "lag_ms_mean", "work_ms_max", "work_ms_mean")})
+    known = other is not None and own is not None and None not in own and None not in [out[name] for name in names]
+    no_row = sum(other.values()) + out["no_status"] + out["no_picture"] + out["idle_before_a_picture"] if known else None
+    out["buffers_with_no_row"], out["no_row_not_listed"] = no_row, None if no_row is None else no_row - len(listed)
+    places = [_place(row) for _, row in every]
+    out["counts_agree"] = bool(
+        known and out["buffers"] == out["complete"] + out["idle"] + sum(other.values()) + out["no_status"]
+        and out["rows"] == len(status) == out["complete"] - out["no_picture"] + out["idle"] - out["idle_before_a_picture"]
+        and set(status) <= set(STREAM_STATUS) and status.count("c") == out["complete"] - out["no_picture"]
+        and len(own) == out["no_display_time"] + out["display_time_later"] and all(place < len(status) for place in own)
+        and 0 <= out["no_row_not_listed"] and (times is None or len(times) == len(status))
+        and all(place is not None and place < len(status) for place in places))
+
+    def status_of(place):
+        return STREAM_STATUS.get(status[place]) if place is not None and place < len(status) else None
+
+    after = [status_of(place) for place in places[offset:]]
+    out["rows_after_key"] = {word: after.count(word) for word in STREAM_STATUS.values()}
+    out["rows_after_key"]["not_known"] = after.count(None)
+    out["content_first_status"] = None if first is None else after[first]
+    # The gaps: the frames after the key with no row, between 2 rows one after the other (the key's own frame, 0, is
+    # the floor). A buffer that made no row is in a gap when its time is from the row before (or the key) to the row
+    # after, each with half a ms more: the rows' times are whole ms and the buffers' times are tenths.
+    part = out["no_row_not_listed"]
+    gaps = []
+    for at in range(offset, len(every)):
+        (frame, row), before = every[at], every[at - 1] if at else None
+        frames = frame - max(before[0] if before else 0, 0) - 1
+        if frames < 1:
+            continue
+        low = max(before[1]["ms"], 0.0) if before else 0.0
+        ends = {places[at]} | ({places[at - 1]} if before else set())
+        if any(low - 0.5 <= time <= row["ms"] + 0.5 for time, _ in listed):
+            kind = "with_a_buffer"
+        elif part is None or (part > 0 and (not listed or row["ms"] > listed[-1][0])):
+            kind = "not_known"
+        elif own and ends & own:
+            kind = "own_time"
+        else:
+            kind = {"idle": "then_idle", "complete": "then_complete"}.get(status_of(places[at]), "not_known")
+        gaps.append((at - offset, frames, kind))
+
+    def tally(chosen):
+        return {"gaps": len(chosen), "frames": sum(frames for _, frames, _ in chosen),
+                **{kind: {"gaps": sum(1 for _, _, name in chosen if name == kind),
+                          "frames": sum(frames for _, frames, name in chosen if name == kind)} for kind in STREAM_KINDS}}
+
+    out["whole_take"] = tally(gaps)
+    out["to_content_first"] = None if first is None else tally([gap for gap in gaps if gap[0] <= first])
+    out["before_content_first"] = None if first is None else next((kind for at, _, kind in gaps if at == first), "no_gap")
+    # The steps between the rows after the key, from the stream's times: how far each is from a whole count (1 or
+    # more) of the display's frame times, and the mean of the steps of one frame.
+    out["steps"] = None
+    if times is not None and refresh and every:
+        at = [times[place] if place is not None and place < len(times) else None for place in places[offset:]]
+        steps = [b - a for a, b in zip(at, at[1:]) if a is not None and b is not None and b > a]
+        off = [abs(step - max(1, round(step / refresh)) * refresh) for step in steps]
+        one = [step for step in steps if round(step / refresh) <= 1]
+        out["steps"] = {"n": len(steps), "off_grid_to_0_5_ms": sum(1 for d in off if d <= 0.5),
+                        "off_grid_to_1_ms": sum(1 for d in off if 0.5 < d <= 1), "off_grid_to_2_ms": sum(1 for d in off if 1 < d <= 2),
+                        "off_grid_above_2_ms": sum(1 for d in off if d > 2), "one_frame": len(one),
+                        "one_frame_mean_ms": round(sum(one) / len(one), 2) if one else None}
+    return out
+
+
+def stream_sentence(rows):
+    """The report's head sentence from the rows' `stream`: the sums of the recorder's counts over the rows that have
+    them, numbers only. None when no row has them (a build with no counts): the head is then as it was."""
+    seen = [row["stream"] for row in rows if row.get("stream")]
+    if not seen:
+        return None
+
+    def total(name):
+        return sum(stream.get(name) or 0 for stream in seen)
+
+    other = sum(sum(stream["other_status"].values()) for stream in seen if stream.get("other_status"))
+    spans = [stream["to_content_first"] for stream in seen if stream.get("to_content_first")]
+    by_kind = ", ".join(f"{kind.replace('_', ' ')} {sum(span[kind]['gaps'] for span in spans)}" for kind in STREAM_KINDS)
+    lag = max([stream["lag_ms_max"] for stream in seen if _number(stream.get("lag_ms_max"))], default=None)
+    return (f"the screen stream's counts ({len(seen)} of the {len(rows)} rows have them): {total('buffers')} buffers (complete "
+            f"{total('complete')}, idle {total('idle')}, another status {other}, no status {total('no_status')}); "
+            f"{other + total('no_status') + total('no_picture') + total('idle_before_a_picture')} buffers made no row (another status "
+            f"{other}, no status {total('no_status')}, no picture {total('no_picture')}, idle before a picture "
+            f"{total('idle_before_a_picture')}); {total('own_time_rows')} rows have the handler's own time; the frames with no row "
+            f"from the key to content_first: {sum(span['frames'] for span in spans)} in {sum(span['gaps'] for span in spans)} gaps "
+            f"({by_kind}); the handler's lag at most {'not known' if lag is None else f'{lag:g}'} ms; the counts do not agree in "
+            f"{sum(1 for stream in seen if not stream['counts_agree'])} rows")
+
+
 def one_key(reply, key, gap_ms=0, tolerance=TOLERANCE, asked_hz=None, settle_ms=SETTLE_MS):
     """One recording's numbers (the module doc). `reply` is frame_strip's; `gap_ms` > 0: two keys that far apart,
     counted from the second one's due time."""
@@ -499,7 +641,9 @@ def one_key(reply, key, gap_ms=0, tolerance=TOLERANCE, asked_hz=None, settle_ms=
     work = sent if said else key_work_of(key, reply.get("spans"))
     out = {"key": key, "gap_ms": gap_ms, "invalid": [], "capture": reply.get("capture"),
            "capture_error": reply.get("capture_error"), "spans": reply.get("spans") or [],
-           "key_work_ms": work, "zero": ZERO_SENT if said else None if work is None else ZERO}
+           "key_work_ms": work, "zero": ZERO_SENT if said else None if work is None else ZERO,
+           # The recorder's counts of its stream (None: a build with none). A fact: no reason below reads it.
+           "stream": stream_of(reply)}
     if reply.get("capture") != CAPTURE:
         out["invalid"].append(f"capture: the frames are not the screen's ({reply.get('capture')!r}): the page is not in them")
     if work is None:
@@ -545,6 +689,9 @@ def one_key(reply, key, gap_ms=0, tolerance=TOLERANCE, asked_hz=None, settle_ms=
     out["first_frame_span"] = None if first is None else span_of(numbered[:first + 1], refresh, old=still_old)
     out["partial_state_not_seen"] = None if first is None else out["first_frame_span"]["no_row"]
     out["invalid"] += [fault for fault in [no_row_fault(out["first_frame_span"], "the key", "content_first")] if fault]
+    # Why the frames with no row have none, by the recorder's counts (a fact; the reason above does not read it).
+    if out["stream"]:
+        out["stream"] = stream_of(reply, every, len(timed) - len(after), first, shift, refresh)
     # The rows of the part that moves, from the key to `content_final` (to the end when the content has none): 4 of
     # them at least, and their own step. Rows that come slower than the display there are not each frame of it. The
     # still part after it is not judged: its frames with no row are a count (`frames_not_delivered`).

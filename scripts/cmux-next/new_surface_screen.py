@@ -1193,7 +1193,9 @@ class Screen:
         # The head's first sentences keep their places; then the recorder's lost rows, with an asked rate the limit of
         # its check (and the asked rate's margin when a valid row's is small), then the app's settings lines.
         rate = [said for said in (frames_of.rate_limit_sentence(self.rate), frames_of.rate_margin_sentence(self.rows)) if said]
-        report["head"] = self.head() + [frames_of.recorder_sentence(report["cases"])] + rate + settings["lines"]
+        # The recorder's counts of its stream, when the build's replies have them (no sentence for a build with none).
+        stream = [said for said in (frames_of.stream_sentence(self.rows),) if said]
+        report["head"] = self.head() + [frames_of.recorder_sentence(report["cases"])] + rate + stream + settings["lines"]
         print(f"{MARK}-HEAD {'; '.join(report['head'])}", flush=True)
         # A stopped run is not a whole run: the driver ends with this code (0: each case ran).
         report["exit_code"] = STOPPED_EXIT if report.get("stopped") else 0
