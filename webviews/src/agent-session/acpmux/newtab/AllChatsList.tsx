@@ -36,6 +36,9 @@ import {
 } from "./allChatsListModel";
 import { pressToOpen } from "../../../ui/pressToOpen";
 import { WithFacts } from "../chips/FactsHoverCard";
+import { IllustratedEmpty } from "../../../ui/EmptyState/IllustratedEmpty";
+import { experimentArm } from "../../../experiments/experiment";
+import { emptyStateContext } from "../emptyStateContext.experiment";
 /// A chat that is running or waits on the user (acpmux's own sessions): it leads the list with
 /// its state where the age would be.
 export type ActiveChat = {
@@ -361,6 +364,18 @@ export function AllChatsList({
   // Working and Needs input are live chats only; the indexed rows are finished chats.
   const indexed = filter === "all" || filter === "done";
   const query = state.query.trim().toLowerCase();
+  const contextual = experimentArm(emptyStateContext) === "contextual";
+  const emptySearch =
+    state.query.trim() && contextual ? (
+      <IllustratedEmpty
+        className="nt-chats-empty-state"
+        layout="beside"
+        line={t("emptyState.chatMatches", { query: state.query.trim() })}
+        action={{ label: t("emptyState.searchMessages"), kind: "link", onClick: () => search(state.query) }}
+      />
+    ) : (
+      <p className="nt-chats-empty">{t("sidebar.noMatches")}</p>
+    );
   // A search hides live chats under All, as before; a live-only filter searches their titles.
   const activeShown =
     filter === "all"
@@ -632,7 +647,8 @@ export function AllChatsList({
         </ul>
       )}
       {!indexed ? (
-        activeShown.length === 0 && <p className="nt-chats-empty">{t("sidebar.noMatches")}</p>
+        activeShown.length === 0 &&
+        (state.query.trim() ? emptySearch : <p className="nt-chats-empty">{t("sidebar.noMatches")}</p>)
       ) : waiting && !unanswered ? (
         <AllChatsLoading rowHeight={ROW_HEIGHT} design={state.design} view={view} />
       ) : (state.loaded || unanswered) && rows.length === 0 ? (
@@ -650,7 +666,7 @@ export function AllChatsList({
             </button>
           </output>
         ) : (
-          state.ready && <p className="nt-chats-empty">{state.query ? t("sidebar.noMatches") : nt("noChats")}</p>
+          state.ready && (state.query.trim() ? emptySearch : <p className="nt-chats-empty">{nt("noChats")}</p>)
         )
       ) : (
         <ContextMenu className="nt-all-host" items={items} onOpen={() => setMenuTarget(menuKey.current)}>

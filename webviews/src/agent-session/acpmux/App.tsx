@@ -242,7 +242,7 @@ import { openComposerControl } from "./composerControls";
 import { chatAccessGrants, revokeAccessRows } from "./header/grantsMenu";
 import { openPicker } from "./pickerOpeners";
 import { SIGN_IN_REQUIRED, startRefusalRoute } from "./startRefusal";
-import { EmptyState, type EmptyStateProjects } from "./EmptyState";
+import { EmptyState, type EmptyStateProjects, type EmptyStateStart } from "./EmptyState";
 import { isNewChat, projectName } from "./emptyStateModel";
 import { TourStartContext } from "./repoTour/TourBlock";
 import type { TourOfferActions } from "./repoTour/TourOffer";
@@ -1717,6 +1717,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [liveTreeEnabled, setLiveTreeEnabled] = useState(initialChat?.liveTree === true);
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
+  /// Contextual empty-chat starts leave as soon as the person begins composing.
+  const [emptyStartsDismissed, setEmptyStartsDismissed] = useState(false);
   /// Where this New Tab page's new chat starts, as the app knew it when the page loaded
   /// (AgentPaneNewTabStart): the first frame draws its project or no project, with no acpmux round trip.
   const [injectedStart] = useState(() => startFromContext(injectedNewTabContext()?.start));
@@ -12126,6 +12128,40 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         : undefined,
     [tourOffered, tourCwd],
   );
+  const emptyStateStarts = useMemo<readonly EmptyStateStart[] | undefined>(() => {
+    if (!freshChat || !tourCwd || draft?.trim() || emptyStartsDismissed) return undefined;
+    const folder = tourCwd.replace(/(.)\/+$/, "$1");
+    const lastPrompt = newTabFolderSessions
+      .filter((session) => session.cwd?.replace(/(.)\/+$/, "$1") === folder && session.lastPrompt?.trim())
+      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0]?.lastPrompt;
+    const starts: EmptyStateStart[] = [];
+    if (lastPrompt)
+      starts.push({ label: lastPrompt, onPick: () => void callNative("chat.send", { text: lastPrompt }) });
+    if (headerPullRequest?.number) {
+      starts.push({
+        label: t("emptyState.reviewPullRequest", { number: headerPullRequest.number }),
+        onPick: () =>
+          void callNative("chat.send", {
+            text: `Review pull request #${headerPullRequest.number} in this repository and summarize the changes.`,
+          }),
+      });
+    }
+    if (tourOffer) starts.push({ label: t("tour.offer"), onPick: tourOffer.onTake });
+    return starts.slice(0, 3);
+  }, [
+    callNative,
+    draft,
+    emptyStartsDismissed,
+    freshChat,
+    headerPullRequest,
+    newTabFolderSessions,
+    t,
+    tourCwd,
+    tourOffer,
+  ]);
+  useEffect(() => {
+    if (freshChat) setEmptyStartsDismissed(false);
+  }, [freshChat, snapshot.sessionId]);
   // A tour task's Start (repoTour/TourCard.tsx): a new worktree of the chat's folder, then a chat
   // there given the task, tagged and opened as this chat's side chat before its prompt goes. The
   // task's prompt is the agent's words, so it never runs in the person's own checkout: no worktree
@@ -13071,7 +13107,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             onUnsentDraft={quick ? undefined : onNewChatDraft}
             onTyping={quick ? undefined : onCloudTyping}
             onCloudMachinePicked={quick ? undefined : onCloudMachinePicked}
-            onPromptEdit={quick ? undefined : wakeOnTyping}
+            onPromptEdit={
+              quick
+                ? undefined
+                : (text) => {
+                    if (text.trim()) setEmptyStartsDismissed(true);
+                    wakeOnTyping();
+                  }
+            }
             onSuggestionTaken={() => directClient.current?.takeSuggestion()}
             keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={(command, args, attachments, gesture) =>
@@ -14731,6 +14774,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     project={projectName(composerSnapshot.summary?.cwd)}
                     picker={heroPicker}
                     tour={tourOffer}
+                    starts={emptyStateStarts}
                   />
                 ) : (
                   <AgentTonesContext.Provider value={chatTones}>

@@ -47,6 +47,13 @@
   overflow-wrap: anywhere;
 }
 
+.ui-illustrated-empty-link {
+  padding-inline: 0;
+  color: var(--ds-color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 /* One compact row: the art at the leading edge, the line over the button beside it. */
 .ui-illustrated-empty[data-layout="beside"] {
   flex-direction: row;

@@ -77,6 +77,7 @@
 .nt-chats-all{margin-left:auto;display:flex;align-items:center;gap:2px;border:0;padding:0;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail)}
 .nt-chats-all:hover{color:var(--agent-text)}
 .nt-chats-empty{margin:var(--ds-space-2) 0 0;color:var(--acpmux-composer-dim);font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}
+.nt-chats-empty-state{align-items:flex-start;margin-top:var(--ds-space-2);padding-inline:0;color:var(--acpmux-composer-dim)}
 .nt-chats-failed{display:block}
 .nt-chats-retry{margin-left:var(--ds-space-2);border:0;padding:2px 8px;border-radius:var(--ds-radius-control);background:var(--ds-surface-inset);color:var(--agent-text);font:inherit}
 .nt-chats-retry:disabled{opacity:.5;cursor:default}

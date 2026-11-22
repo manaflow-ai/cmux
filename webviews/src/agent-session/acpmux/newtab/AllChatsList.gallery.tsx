@@ -1,10 +1,11 @@
 // l10n-allow-file: gallery fixtures use sample chat rows and a deterministic page cursor.
 import { componentEntry } from "../../../gallery/format";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
-import type { PlayContext } from "../../../gallery/play";
+import type { Play, PlayContext } from "../../../gallery/play";
 import type { ComponentProps } from "react";
 import { AllChatsList } from "./AllChatsList";
 import { type AllChatsPage, type LoadChatsPage } from "./allChatsListModel";
+import { emptyStateContext } from "../emptyStateContext.experiment";
 
 const rows = Array.from({ length: 8 }, (_, index) => ({
   key: `claude:gallery-${index}`,
@@ -35,6 +36,11 @@ const baseProps = {
 
 const waitForRetry = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(".nt-chats-retry") !== null);
+};
+
+const searchEmpty: Play = async (ctx) => {
+  await ctx.type("retry", { role: "searchbox" });
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-chats-empty-state, .nt-chats-empty") !== null);
 };
 
 const pageLoad =
@@ -110,6 +116,7 @@ export default componentEntry<ComponentProps<typeof AllChatsList>>({
   widths: { narrow: 420, normal: 620, wide: 820 },
   height: 360,
   anchors: [{ selector: ".nt-all" }],
+  experiment: { definition: emptyStateContext, script: [] },
   variants: {
     "page-failed": {
       note: "When an older history page fails, the cursor stays in place and the loader becomes an inline Try again action.",
@@ -131,6 +138,11 @@ export default componentEntry<ComponentProps<typeof AllChatsList>>({
     "page-empty": {
       note: "A first page with no cursor stays a quiet list with no dead loader row.",
       props: { ...baseProps, load: async () => ({ chats: rows, ready: true }) },
+    },
+    "search-empty": {
+      note: "A named chat query offers one text-link next step to search message text through the shared illustrated empty state.",
+      props: { ...baseProps, load: async ({ query }) => (query ? { chats: [], ready: true } : first) },
+      play: searchEmpty,
     },
   },
 });

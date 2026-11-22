@@ -5,6 +5,7 @@ import { PaletteMenu } from "./PaletteMenu";
 import { paletteSections } from "./paletteMenuModel";
 import { nativeComposerExtensions } from "./composerPlusRegistry";
 import { useT } from "./i18n";
+import { emptyStateContext } from "./emptyStateContext.experiment";
 
 const open: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-picker-button" });
@@ -36,6 +37,12 @@ const editSearch: Play = async (ctx) => {
   assertSearchAnchor();
   await ctx.type("no matching item", { role: "combobox" });
   assertSearchAnchor();
+};
+
+const noResults: Play = async (ctx) => {
+  await open(ctx);
+  await ctx.type("retry", { role: "combobox" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-palette-empty-state, .acpmux-palette-empty") !== null);
 };
 
 type PaletteMenuVariant = "keyboard" | "balanced" | "tools" | "sessions";
@@ -115,6 +122,7 @@ export default componentEntry<{ variant: PaletteMenuVariant }>({
   height: 560,
   widths: { narrow: 360, normal: 520, wide: 760 },
   anchors: [{ selector: ".acpmux-picker-button" }],
+  experiment: { definition: emptyStateContext, script: [] },
   checks: {
     anchorMovePx: { value: 0, reason: "The menu is portaled from a stable + trigger." },
     layoutShiftMax: { value: 0, reason: "Opening the floating menu must not shift its trigger or popup content." },
@@ -142,6 +150,11 @@ export default componentEntry<{ variant: PaletteMenuVariant }>({
       note: "Sessions and tabs open the native search entry points; selecting a specific item as prompt context follows in a separate change.",
       props: { variant: "sessions" },
       play: open,
+    },
+    "no-results": {
+      note: "A named palette query offers one clear-search button through the shared illustrated empty state.",
+      props: { variant: "sessions" },
+      play: noResults,
     },
   },
 });

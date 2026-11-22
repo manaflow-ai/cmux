@@ -7,6 +7,9 @@ import { usePopupHost } from "../../ui/UiProvider";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { isMousePress } from "../../ui/pressRelease";
 import { registerPicker } from "./pickerOpeners";
+import { IllustratedEmpty } from "../../ui/EmptyState/IllustratedEmpty";
+import { experimentArm } from "../../experiments/experiment";
+import { emptyStateContext } from "./emptyStateContext.experiment";
 
 import { useT } from "./i18n";
 import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
@@ -72,6 +75,7 @@ export function PaletteMenu({
     () => filtered.flatMap((section) => section.choices.map((choice) => ({ section, choice }))),
     [filtered],
   );
+  const contextual = experimentArm(emptyStateContext) === "contextual";
   const selected = Math.min(active, Math.max(rows.length - 1, 0));
   const openMenu = useCallback(() => {
     dispatch.current += 1;
@@ -286,7 +290,17 @@ export function PaletteMenu({
                 </div>
               </React.Fragment>
             ))}
-            {!rows.length && <div className="acpmux-palette-empty">{t("composer.noMatchingCommands")}</div>}
+            {!rows.length &&
+              (contextual && query.trim() ? (
+                <IllustratedEmpty
+                  className="acpmux-palette-empty-state"
+                  layout="beside"
+                  line={t("emptyState.commandMatches", { query: query.trim() })}
+                  action={{ label: t("emptyState.clearSearch"), onClick: () => setQuery("") }}
+                />
+              ) : (
+                <div className="acpmux-palette-empty">{t("composer.noMatchingCommands")}</div>
+              ))}
           </div>
         </div>
       )}

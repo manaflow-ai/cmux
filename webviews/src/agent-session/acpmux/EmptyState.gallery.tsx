@@ -1,13 +1,19 @@
 // l10n-allow-file: gallery fixtures (sample projects and machines), not shipped UI.
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
-import type { EmptyStateProjects } from "./EmptyState";
+import type { EmptyStateProjects, EmptyStateStart } from "./EmptyState";
+import { emptyStateContext } from "./emptyStateContext.experiment";
 import type { TourOfferActions } from "./repoTour/TourOffer";
 import type { Project } from "./ProjectChooser";
 
-type Props = { project?: string; picker?: EmptyStateProjects; tour?: TourOfferActions };
+type Props = { project?: string; picker?: EmptyStateProjects; tour?: TourOfferActions; starts?: EmptyStateStart[] };
 
 const tour: TourOfferActions = { onTake: () => undefined, onDismiss: () => undefined };
+const starts: EmptyStateStart[] = [
+  { label: "Pick up the retry parser", onPick: () => undefined },
+  { label: "Review pull request #46734", onPick: () => undefined },
+  { label: "Tour this repo", onPick: () => undefined },
+];
 
 const projects: Project[] = [
   { cwd: "/Users/you/src/cmux", label: "cmux" },
@@ -48,6 +54,7 @@ export default componentEntry<Props>({
   widths: { narrow: 360, normal: 640, wide: 900 },
   height: 420,
   anchors: [{ selector: ".acpmux-project-button" }],
+  experiment: { definition: emptyStateContext, script: [] },
   checks: {
     anchorMovePx: { value: 0, reason: "Opening the picker uses a portal and must not move the question." },
     layoutShiftMax: { value: 0, reason: "The menu floats below the question without reflowing the hero." },
@@ -78,6 +85,10 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.hover({ selector: ".acpmux-tour-offer-take" });
       },
+    },
+    "contextual-starts": {
+      note: "Three quiet starts use the last prompt, a pull request suggestion, and a repo tour, each marked now under the composer.",
+      props: { project: "cmux", picker: picker("/Users/you/src/cmux"), starts },
     },
     search: {
       note: "Typing filters projects and machines; the pinned No folder and + Add folder… stay above the results while searching.",

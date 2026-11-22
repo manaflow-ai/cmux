@@ -20,7 +20,7 @@ export interface IllustratedEmptyProps {
   /** The image's URL (a data URL on a strict-CSP page). Left out: the line and the button only. */
   art?: string;
   line: string;
-  action?: { label: string; onClick(): void };
+  action?: { label: string; onClick(): void; kind?: "button" | "link" };
   layout?: IllustratedEmptyLayout;
   artSize?: IllustratedEmptyArtSize;
   className?: string;
@@ -40,7 +40,12 @@ export function IllustratedEmpty({
       <div className="ui-illustrated-empty-copy">
         <p className="ui-illustrated-empty-line">{line}</p>
         {action && (
-          <Button variant="subtle" size="sm" className="ui-illustrated-empty-action" onClick={action.onClick}>
+          <Button
+            variant={action.kind === "link" ? "ghost" : "subtle"}
+            size="sm"
+            className={cx("ui-illustrated-empty-action", action.kind === "link" && "ui-illustrated-empty-link")}
+            onClick={action.onClick}
+          >
             {action.label}
           </Button>
         )}

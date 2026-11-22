@@ -63,6 +63,8 @@ export type AcpmuxSessionEntry = {
   coldArchive?: ColdArchive;
   /** The latest message text from acpmux's summary, when present. */
   lastMessage?: string;
+  /** The last prompt, used only for contextual suggestions in a fresh chat. */
+  lastPrompt?: string;
   /** A fork: the chat it was forked from and that chat's event it branched after (cx-ncc.61). */
   parentId?: string;
   /** Started by another session's agent (acpmux `spawnedBy`): it folds under that chat, off every list. */
@@ -344,6 +346,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     // a list's preview reads the message.
     preview: shown(session.preview),
     lastMessage: shown(session.lastMessage?.text) ?? shown(session.preview),
+    lastPrompt: shown(session.lastPrompt),
     ...(cold && { coldArchive: cold }),
     parentId: text(session.parentId),
     spawnedBy: text(session.spawnedBy),
