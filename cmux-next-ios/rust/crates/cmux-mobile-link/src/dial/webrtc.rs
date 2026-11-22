@@ -276,6 +276,15 @@ async fn selected_pair_name(pc: &RTCPeerConnection) -> Option<String> {
     Some(format!("{}-{}", candidate_kind(pair.local.typ), candidate_kind(pair.remote.typ)))
 }
 
+/// The remote address of the selected pair, on a direct path.
+async fn selected_peer(pc: &RTCPeerConnection) -> Option<std::net::IpAddr> {
+    let pair = pc.sctp().transport().ice_transport().get_selected_candidate_pair().await?;
+    if pair.local.typ == RTCIceCandidateType::Relay || pair.remote.typ == RTCIceCandidateType::Relay {
+        return None;
+    }
+    pair.remote.address.parse().ok()
+}
+
 async fn selected_path(pc: &RTCPeerConnection) -> LinkPath {
     let pair = pc.sctp().transport().ice_transport().get_selected_candidate_pair().await;
     match pair {
@@ -401,6 +410,7 @@ async fn finish(
     stream.set_read_buf_capacity(64 * 1024);
     let path = selected_path(&pc).await;
     let (path_tx, path_rx) = watch::channel(path);
+    let (peer_tx, peer_rx) = watch::channel(selected_peer(&pc).await);
     // The selected pair can change (ICE restart is out of scope, but a
     // nominated pair may be replaced while checks finish).
     let watcher_pc = Arc::clone(&pc);
@@ -421,11 +431,14 @@ async fn finish(
                     true
                 }
             });
+            let peer = selected_peer(&watcher_pc).await;
+            peer_tx.send_if_modified(|current| std::mem::replace(current, peer) != peer);
         }
     });
     Ok(Dialed {
         stream: Box::new(DataChannelStream { inner: stream }),
         path: path_rx,
+        peer: peer_rx,
         guard: Box::new(Guard {
             pc,
             task,

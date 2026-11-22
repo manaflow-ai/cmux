@@ -28,8 +28,9 @@ use serde::{Deserialize, Serialize};
 
 /// Lines whose stamps are kept (about 30 s of a 60 Hz redraw on several terminals).
 pub const RING: usize = 8192;
-/// Most samples one paint report carries.
-pub const MAX_SAMPLES: usize = 512;
+/// Most samples one paint report carries: its line stays in one link frame (16 KiB), since
+/// `phone-frames` reads a line per frame.
+pub const MAX_SAMPLES: usize = 256;
 /// Most clock samples one paint report carries.
 pub const MAX_CLOCK: usize = 16;
 
@@ -62,11 +63,20 @@ impl Stamps {
         stamp
     }
 
-    /// `(produced, flushed)` of `seq` (epoch µs), while the ring holds it.
-    pub fn get(&self, seq: u64) -> Option<(i64, Option<i64>)> {
+    fn find(&self, seq: u64) -> Option<&Stamp> {
         let first = self.ring.front()?.seq;
         let stamp = self.ring.get(usize::try_from(seq.checked_sub(first)?).ok()?)?;
-        (stamp.seq == seq).then(|| (stamp.produced_us, stamp.flushed.flushed_us()))
+        (stamp.seq == seq).then_some(stamp)
+    }
+
+    /// `(produced, flushed)` of `seq` (epoch µs), while the ring holds it.
+    pub fn get(&self, seq: u64) -> Option<(i64, Option<i64>)> {
+        self.find(seq).map(|stamp| (stamp.produced_us, stamp.flushed.flushed_us()))
+    }
+
+    /// The flush mark of `seq`, for the link writer.
+    pub fn mark(&self, seq: u64) -> Option<FlushMark> {
+        self.find(seq).map(|stamp| stamp.flushed.clone())
     }
 }
 
@@ -84,8 +94,10 @@ pub fn lookup(seq: u64) -> Option<(i64, Option<i64>)> {
 /// Whether `line` is a terminal redraw event: the daemon's compact JSON names its event once,
 /// and base64 holds no quote, so the needle cannot match inside the data.
 pub fn is_redraw(line: &[u8]) -> bool {
-    const NEEDLES: [&[u8]; 3] = [br#""event":"output""#, br#""event":"agent-cli-frame""#, br#""event":"agent-cli-lean""#];
-    line.first() == Some(&b'{') && NEEDLES.iter().any(|needle| line.windows(needle.len()).any(|w| w == *needle))
+    const NEEDLES: [&[u8]; 3] =
+        [br#""event":"output""#, br#""event":"agent-cli-frame""#, br#""event":"agent-cli-lean""#];
+    line.first() == Some(&b'{')
+        && NEEDLES.iter().any(|needle| line.windows(needle.len()).any(|w| w == *needle))
 }
 
 /// `line` with `"pseq": seq` added before its closing brace (a trailing newline kept).
@@ -106,6 +118,23 @@ pub fn with_seq(mut line: Vec<u8>, seq: u64) -> Vec<u8> {
         line.push(b'\n');
     }
     line
+}
+
+/// The id [`with_seq`] put at the end of `line`, if it is there.
+pub fn trailing_seq(line: &[u8]) -> Option<u64> {
+    const KEY: &[u8] = b",\"pseq\":";
+    let body = line.strip_suffix(b"\n").unwrap_or(line).strip_suffix(b"}")?;
+    let digits = body.iter().rev().take_while(|b| b.is_ascii_digit()).count();
+    if digits == 0 || digits > 20 {
+        return None;
+    }
+    let (head, number) = body.split_at(body.len() - digits);
+    head.ends_with(KEY).then(|| std::str::from_utf8(number).ok()?.parse().ok()).flatten()
+}
+
+/// The flush mark of the redraw `line` carries, for the writer that hands it to the link.
+pub fn flush_mark(line: &[u8]) -> Option<FlushMark> {
+    stamps().mark(trailing_seq(line)?)
 }
 
 /// A daemon line on its way to a phone: a redraw gets its id and a flush mark, now.
@@ -148,6 +177,31 @@ impl Clock {
     }
 }
 
+/// What a `phone-frames` line is, when it is not a pan.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Line {
+    /// A clock probe sent at phone time `t0` (ms).
+    Clock(f64),
+    /// A paint report.
+    Paint,
+}
+
+/// Reads the `kind` of a `phone-frames` line: `clock` and `paint` are this module's, anything
+/// else is a pan (`None`).
+pub fn kind_of(line: &[u8]) -> Option<Line> {
+    #[derive(Deserialize)]
+    struct Head {
+        kind: Option<String>,
+        t0: Option<f64>,
+    }
+    let head: Head = serde_json::from_slice(line).ok()?;
+    match head.kind.as_deref()? {
+        "clock" => head.t0.filter(|t| t.is_finite()).map(Line::Clock),
+        "paint" => Some(Line::Paint),
+        _ => None,
+    }
+}
+
 /// The Mac's answer to a clock probe received at `t1_ms`.
 pub fn clock_answer(t0: f64, t1_ms: f64) -> Vec<u8> {
     let t2 = epoch_us() as f64 / 1000.0;
@@ -172,6 +226,9 @@ pub struct Report {
     /// What the report ran under, when the phone says (a harness's label: `sim`, a profile).
     #[serde(default)]
     pub load: Option<String>,
+    /// The phone's Agent CLI Screen Changes setting (lean frames, at most one per 100 ms).
+    #[serde(default)]
+    pub agent_cli_hybrid: Option<bool>,
 }
 
 /// p50, p95 and max of one part (ms), and how many samples.
@@ -222,6 +279,13 @@ pub struct Summary {
     pub clock_rtt_ms: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rtt_ms: Option<u64>,
+    /// The phone's Agent CLI Screen Changes setting when it sent the report.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_cli_hybrid: Option<bool>,
+    /// The link's route when the report came: `direct-lan`, `direct-wan`, `direct`, `relay`
+    /// or `none` (`cmux_mobile_link::dial::route_name`); hostd decides it, the phone never says.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<&'static str>,
     /// (a) hostd read the redraw to its last byte handed to the socket.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mac: Option<Part>,
@@ -243,11 +307,15 @@ pub fn summarize(
     at_ms: i64,
     lookup: impl Fn(u64) -> Option<(i64, Option<i64>)>,
 ) -> Summary {
-    let clock: Vec<Clock> =
-        report.clock.iter().take(MAX_CLOCK).map(|c| Clock { t0: c[0], t1: c[1], t2: c[2], t3: c[3] }).collect();
+    let clock: Vec<Clock> = report
+        .clock
+        .iter()
+        .take(MAX_CLOCK)
+        .map(|c| Clock { t0: c[0], t1: c[1], t2: c[2], t3: c[3] })
+        .collect();
     let best = Clock::best(&clock);
     let offset = best.map(|c| c.offset_ms());
-    let samples = &report.samples[..report.samples.len().min(MAX_SAMPLES)];
+    let samples = &report.samples[..];
     let (mut mac, mut wire, mut paint, mut total) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     let mut joined = 0;
     for &[seq, rx, painted] in samples {
@@ -286,6 +354,8 @@ pub fn summarize(
         offset_ms: offset.map(round),
         clock_rtt_ms: best.map(|c| round(c.rtt_ms())),
         rtt_ms: report.rtt_ms,
+        agent_cli_hybrid: report.agent_cli_hybrid,
+        path: None,
         mac: Part::of(mac),
         wire: Part::of(wire),
         phone_paint: Part::of(paint),
@@ -312,6 +382,16 @@ mod tests {
         assert_eq!(parsed["pseq"], 7);
         // Not an object's end: left as it is.
         assert_eq!(with_seq(b"{\"event\":\"output\"\n".to_vec(), 7), b"{\"event\":\"output\"\n");
+    }
+
+    #[test]
+    fn the_writer_finds_the_id_at_the_end() {
+        assert_eq!(trailing_seq(b"{\"a\":1,\"pseq\":12}\n"), Some(12));
+        assert_eq!(trailing_seq(b"{\"a\":1,\"pseq\":12}"), Some(12));
+        assert_eq!(trailing_seq(b"{\"a\":1,\"xpseq\":12}"), None);
+        assert_eq!(trailing_seq(b"{\"a\":12}"), None);
+        assert_eq!(trailing_seq(b"{\"pseq\":}"), None);
+        assert_eq!(trailing_seq(b"plain text\n"), None);
     }
 
     #[test]
@@ -361,10 +441,16 @@ mod tests {
         let report = Report {
             program: Some("claude".into()),
             app: None,
-            samples: vec![[1.0, 9_532.0, 9_541.0], [2.0, 9_640.0, 9_657.0], [3.0, 9_700.0, 9_708.0], [99.0, 9_800.0, 9_801.0]],
+            samples: vec![
+                [1.0, 9_532.0, 9_541.0],
+                [2.0, 9_640.0, 9_657.0],
+                [3.0, 9_700.0, 9_708.0],
+                [99.0, 9_800.0, 9_801.0],
+            ],
             clock: vec![[1000.0, 1520.0, 1521.0, 1041.0], [2000.0, 2520.0, 2521.0, 2141.0]],
             rtt_ms: Some(40),
             load: Some("sim".into()),
+            agent_cli_hybrid: Some(false),
         };
         let s = summarize(report, "phone-1", 5, lookup);
         assert_eq!((s.samples, s.joined), (4, 3), "seq 99 went out of the ring");
@@ -375,9 +461,13 @@ mod tests {
         let wire = s.wire.unwrap();
         assert_eq!((wire.n, wire.p50_ms, wire.max_ms), (2, 30.0, 36.0));
         let paint = s.phone_paint.unwrap();
-        assert_eq!((paint.n, paint.p50_ms, paint.max_ms), (4, 8.0, 17.0), "the phone's own part needs no stamp");
+        assert_eq!(
+            (paint.n, paint.p50_ms, paint.max_ms),
+            (4, 8.0, 17.0),
+            "the phone's own part needs no stamp"
+        );
         let total = s.total.unwrap();
-        assert_eq!((total.n, total.p50_ms, total.max_ms), (3, 8.0, 57.0));
+        assert_eq!((total.n, total.p50_ms, total.max_ms), (3, 41.0, 57.0), "41, 57 and 8 ms");
     }
 
     #[test]
@@ -389,6 +479,7 @@ mod tests {
             clock: vec![],
             rtt_ms: None,
             load: None,
+            agent_cli_hybrid: None,
         };
         let s = summarize(report, "p", 0, |_| Some((0, Some(3_000))));
         assert_eq!(s.mac.map(|p| p.p50_ms), Some(3.0));
@@ -409,6 +500,8 @@ mod tests {
         let seq = parsed["pseq"].as_u64().unwrap();
         let (produced, flushed) = lookup(seq).unwrap();
         assert!(produced > 0 && flushed.is_none());
+        assert_eq!(trailing_seq(&line), Some(seq));
+        assert_eq!(flush_mark(&line), mark);
         mark.unwrap().set(produced + 250);
         assert_eq!(lookup(seq), Some((produced, Some(produced + 250))));
     }

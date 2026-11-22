@@ -478,6 +478,9 @@ public final class LinkController {
                 let generation = self.machine.generation
                 switch state {
                 case .connected(_, let path, let rtt):
+                    // One line per path change and per pong (Rust sends both, about every
+                    // 10 s): the route and round trip this phone saw (path_report.rs on the Mac).
+                    log.info("link path rtt: path=\(String(describing: path), privacy: .public) rtt_ms=\(rtt.map(String.init) ?? "-", privacy: .public)")
                     if case .connecting = self.machine.phase {
                         self.connected(link, generation: generation, path: path)
                     }
@@ -488,6 +491,10 @@ public final class LinkController {
                     log.info("link dropped: \(reason, privacy: .public)")
                     self.events.dropped(reason: reason)
                     self.send(.linkDropped(generation: generation, reason: reason))
+                case .suspect(let silentMillis):
+                    // Rust heard nothing after a ping: prove the link now (cmux#49296).
+                    log.info("link suspect: silent \(silentMillis, privacy: .public) ms")
+                    self.suspect()
                 case .idle, .connecting:
                     break
                 }

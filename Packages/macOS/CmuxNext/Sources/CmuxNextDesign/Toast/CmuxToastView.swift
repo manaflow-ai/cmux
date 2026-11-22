@@ -52,6 +52,8 @@ public final class CmuxToastView: NSView {
     public private(set) var secondaryButton: CmuxToastButton?
     /// The leading icon of a style that shows one (``CmuxToastLook/showsIcon``).
     public private(set) var iconView: NSImageView?
+    /// The spinner a working toast leads with (``CmuxToastTone/working``), in every style.
+    public private(set) var spinnerView: StatusIndicatorView?
     /// The SF Symbol the icon shows: an Undo's arrow, else the tone's (``CmuxToastTone/symbolName``).
     public var iconSymbol: String {
         toast.action?.isUndo == true ? "arrow.uturn.backward.circle.fill" : toast.tone.symbolName
@@ -126,8 +128,10 @@ public final class CmuxToastView: NSView {
 
     /// The concentric geometry of a toast in `look` built with `tuning`.
     static func geometry(look: CmuxToastLook, tuning: CmuxToastTuning) -> ConcentricContainer {
-        // The tuned points follow the interface scale; a compact toast takes two thirds of the padding.
-        let padding = Metrics.scale(look.compact ? (tuning.padding * 2 / 3).rounded() : tuning.padding)
+        // The tuned points are Default's: they follow the density's spacing grid as every card's spacing does (#49579), and
+        // the interface scale; a compact toast takes two thirds of the padding.
+        let points = look.compact ? (tuning.padding * 2 / 3).rounded() : tuning.padding
+        let padding = Metrics.scale(Metrics.tokens.space(points))
         if look.shape == .capsule { return .capsule(controlHeight: CmuxToastButton.height, padding: padding) }
         switch look.corner {
         case .concentric: return Metrics.buttonContainer(padding: padding)
@@ -140,7 +144,7 @@ public final class CmuxToastView: NSView {
         let look = self.look
         let label = ThemedLabel(wrappingLabelWithString: toast.message)
         let twoLines = look.showsDetailLine && toast.detail != nil && toast.action?.revealsDetails != true
-        label.font = look.compact ? Typography.caption : twoLines ? Typography.bodyEmphasized : Typography.body
+        label.font = look.compact ? Typography.cardBody : twoLines ? Typography.cardTitle : Typography.cardMessage
         label.maximumNumberOfLines = 3
         label.preferredMaxLayoutWidth = tuning.messageWidth
         // A wrapping label resists compression at only `.defaultLow`, the same as the stack's
@@ -162,7 +166,7 @@ public final class CmuxToastView: NSView {
         var text: NSView = label
         if twoLines, let detail = toast.detail {
             let line = ThemedLabel(wrappingLabelWithString: detail)
-            line.font = Typography.caption
+            line.font = Typography.cardBody
             line.maximumNumberOfLines = 2
             line.preferredMaxLayoutWidth = tuning.messageWidth
             line.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
@@ -171,7 +175,7 @@ public final class CmuxToastView: NSView {
             let block = NSStackView(views: [label, line])
             block.orientation = .vertical
             block.alignment = .leading
-            block.spacing = 2
+            block.spacing = Metrics.cardTextGap
             block.setContentHuggingPriority(.defaultLow, for: .horizontal)
             text = block
         }
@@ -187,9 +191,23 @@ public final class CmuxToastView: NSView {
         let geometry = self.geometry
         let bar = look.accentBar ? Self.accentBarWidth : 0
         let iconSide: CGFloat = look.compact ? 13 : 16
-        let leading = look.showsIcon ? geometry.padding + (CmuxToastButton.height - iconSide) / 2 : geometry.textInset
+        // A working toast leads with the spinner in every style; toasts v2 marks a success, warning or error too.
+        let working = toast.tone == .working
+        let marks = look.showsIcon || (look.marksTone && toast.tone != .neutral)
+        let leading = marks || working ? geometry.padding + (CmuxToastButton.height - iconSide) / 2 : geometry.textInset
         row.edgeInsets = NSEdgeInsets(top: geometry.padding, left: leading + bar, bottom: geometry.padding, right: geometry.padding)
-        if look.showsIcon {
+        if working {
+            let spinner = StatusIndicatorView.spinner()
+            spinner.translatesAutoresizingMaskIntoConstraints = false
+            spinner.widthAnchor.constraint(equalToConstant: iconSide).isActive = true
+            spinner.heightAnchor.constraint(equalToConstant: iconSide).isActive = true
+            spinner.setContentHuggingPriority(.required, for: .horizontal)
+            spinner.setContentCompressionResistancePriority(.required, for: .horizontal)
+            spinner.spin(true)
+            spinnerView = spinner
+            row.insertArrangedSubview(spinner, at: 0)
+            row.setCustomSpacing(Metrics.space4, after: spinner)
+        } else if marks {
             let icon = ThemedImageView()
             let tone = toast.tone
             icon.themeTint = { tone.color }
@@ -214,7 +232,7 @@ public final class CmuxToastView: NSView {
             row.setCustomSpacing(Metrics.space5, after: text)
         }
         if let action = toast.action {
-            let button = CmuxToastButton(style: look.fillsAction ? .filled : .action, title: action.title, target: self, action: #selector(runAction))
+            let button = CmuxToastButton(style: look.inkAction ? .ink : look.fillsAction ? .filled : .action, title: action.title, target: self, action: #selector(runAction))
             actionButton = button
             if action.isUndo { button.themedToolTip = action.title }
             row.addArrangedSubview(button)
@@ -272,7 +290,7 @@ public final class CmuxToastView: NSView {
         // The buttons and the icon keep the same padding to the top and bottom as to the trailing edge
         // (concentric with the toast): without these a one-line toast was its message's height, 31 pt, with its
         // buttons 5 and 4 pt from the edges instead of the padding.
-        let edged: [NSView?] = [iconView, secondaryButton, actionButton, neverShowButton, closeButton]
+        let edged: [NSView?] = [iconView, spinnerView, secondaryButton, actionButton, neverShowButton, closeButton]
         for view in edged.compactMap({ $0 }) {
             NSLayoutConstraint.activate([
                 view.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor, constant: geometry.padding),
@@ -313,7 +331,7 @@ public final class CmuxToastView: NSView {
     private func addDetailLabel(_ detail: String, in content: NSView, below row: NSView) {
         let copy = CmuxToastDetailCopy.plain(detail)
         let label = ThemedLabel(wrappingLabelWithString: copy.text)
-        label.font = Typography.body
+        label.font = Typography.cardMessage
         label.maximumNumberOfLines = 0
         label.isSelectable = true
         label.focusRingType = .none
@@ -331,7 +349,7 @@ public final class CmuxToastView: NSView {
         var bottom = label.bottomAnchor.constraint(equalTo: document.bottomAnchor)
         if let code = copy.code {
             let line = ThemedLabel(wrappingLabelWithString: CmuxToastDetailCopy.codeLine(code))
-            line.font = Typography.caption
+            line.font = Typography.cardBody
             line.maximumNumberOfLines = 0
             line.isSelectable = true
             line.focusRingType = .none

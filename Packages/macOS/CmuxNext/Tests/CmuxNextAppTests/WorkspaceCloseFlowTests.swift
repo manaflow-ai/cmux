@@ -1,5 +1,7 @@
+import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+@testable import CmuxNextDaemon
 import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
@@ -208,5 +210,34 @@ import Testing
         _ = await work.value
         #expect(log.steps == ["ask process-info"])
         #expect(closing.ids.isEmpty)
+    }
+}
+
+/// Toasts v2 (`CmuxToastCenter.v2`, Leo: "closing a tab or workspace, or archiving a session, shows a one-line
+/// toast with an inline Undo"): a person's close of one workspace offers "Closed “name”" with Undo through the
+/// group close's one path (`WorkspaceGroupClose.singleCloseUndo`). Off (the default) or a CLI close: nothing, as before.
+extension WorkspaceCloseFlowTests {
+    @Test func toastsV2OffersUndoForASingleWorkspaceCloseAndOffOffersNothing() throws {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let center = CmuxToastCenter()
+        let workspace = WorkspaceModel(WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: .generate(), name: "api", screens: []))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 200), styleMask: [.borderless], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        let off = WorkspaceGroupClose.singleCloseUndo(workspace, ActionInvocation(origin: .user), services, toasts: center, in: window)
+        #expect(off == nil, "v2 off offered an Undo")
+        center.v2 = true
+        let automation = WorkspaceGroupClose.singleCloseUndo(workspace, ActionInvocation(origin: .cli), services, toasts: center, in: window)
+        #expect(automation == nil, "a CLI close offered an Undo")
+
+        let undo = try #require(WorkspaceGroupClose.singleCloseUndo(workspace, ActionInvocation(origin: .user), services, toasts: center, in: window))
+        undo.offer()
+        let shown = center.toasts(in: window)
+        #expect(shown.map(\.id) == [WorkspaceGroupClose.singleCloseToastID])
+        #expect(shown.first?.message == MiscHandlerStrings.tabClosed("api"))
+        #expect(shown.first?.action != nil, "the toast has no Undo")
+        // The daemon refused the close: the workspace stays, so its toast goes.
+        undo.withdraw()
+        let afterRefusal = center.toasts(in: window)
+        #expect(afterRefusal.isEmpty)
     }
 }

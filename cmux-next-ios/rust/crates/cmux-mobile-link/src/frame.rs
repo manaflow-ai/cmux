@@ -89,9 +89,7 @@ impl std::fmt::Debug for FlushMark {
 
 /// The wall clock in Unix epoch microseconds.
 pub fn epoch_us() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_micros() as i64)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_micros() as i64)
 }
 
 #[derive(Debug, thiserror::Error)]
