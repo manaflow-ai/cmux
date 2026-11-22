@@ -85,11 +85,11 @@ def frame(index, **bad):
 class App:
     """The app's side of the socket. `bad` is the case with bad frames: its 2nd recording has a frame between the two
     pictures and took no spare, its 5th fails, its 8th has a blank frame. `window`: the app lists one window (with no
-    pane), and it becomes active, with that window as its key window, when `debug.window.focus` asks with `activate`."""
+    pane), it is active with that window as its key window, and its list of windows has that one window, shown."""
 
     def __init__(self, path, bad, window=False):
         self.bad, self.calls, self.openings, self.strips = bad, [], [], 0
-        self.window, self.active = window, False
+        self.window, self.active = window, window
         self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.server.bind(path)
         self.server.listen(8)
@@ -119,8 +119,11 @@ class App:
         if self.window and method == "debug.focus":
             return {"ok": True, "result": {"app_active": self.active, "windows": [{"id": "window-1", "is_key": self.active}]}}
         if self.window and method == "debug.window.focus":
-            self.active = params.get("activate") is True
             return {"ok": True, "result": {"key": "window-1" if self.active else None, "front": "window-1"}}
+        if self.window and method == "debug.window_list":
+            return {"ok": True, "result": {"windows": [{
+                "id": 41, "kind": "main", "title": "a title", "frame": {"x": 40.0, "y": 230.0, "width": 1200.0, "height": 900.0},
+                "visible": True, "parent": None, "class": "ShellWindow", "key": self.active, "occluded": False, "miniaturized": False}]}}
         if method == "debug.new_tab" and action == "state":
             return {"ok": True, "result": {"spares": [{"ready": True}], "openings": list(self.openings)}}
         if method == "debug.new_tab" and action == "frame_strip":
@@ -195,10 +198,15 @@ class DefaultPathTests(unittest.TestCase):
         mode = (*NEEDED, *SCREEN_MODE)
         got = outcome(str(HERE.parent), ["--screen", "--runs", "1", "--keys", "n", "--page-watch", "0"], bad=False, files=mode, window=True)
         self.assertEqual((got["exit"], got["stderr"]), (0, []))
-        # One ask for the active app, before the first recording.
+        # One ask for the window in front, with no activation, before the first recording.
         asked = [index for index, call in enumerate(got["calls"]) if '"debug.window.focus"' in call]
-        self.assertEqual([json.loads(got["calls"][index])[1] for index in asked], [{"window": "window-1", "activate": True}])
+        self.assertEqual([json.loads(got["calls"][index])[1] for index in asked], [{"window": "window-1"}])
         self.assertLess(asked[0], next(index for index, call in enumerate(got["calls"]) if '"frame_strip"' in call))
+        # 2 reads of the app's windows: before the first recording and after the last one.
+        strips = [index for index, call in enumerate(got["calls"]) if '"frame_strip"' in call]
+        reads = [index for index, call in enumerate(got["calls"]) if '"debug.window_list"' in call]
+        self.assertEqual((len(reads), reads[0] < strips[0], reads[-1] > strips[-1]), (2, True, True))
+        self.assertEqual((json.loads(got["report"])["window"]["same"], json.loads(got["report"])["key_window_form"]), (True, "shell"))
         self.assertEqual(got["stdout"][-1], "NEW-SURFACE-SCREEN report only: 2 rows, 2 INVALID, 0 pictures kept")
         strips = [json.loads(call)[1] for call in got["calls"] if '"frame_strip"' in call]
         self.assertEqual([(s["above"], s["duration_ms"], s.get("repeat"), s.get("repeat_interval_ms")) for s in strips],
@@ -206,13 +214,17 @@ class DefaultPathTests(unittest.TestCase):
         self.assertEqual([row["invalid"][0].split(":")[0] for row in json.loads(got["report"])["rows"]], ["capture", "capture"])
         self.assertNotIn("PASS", "".join(got["stdout"]))
 
-    def test_only_the_screen_modes_launch_can_take_the_keyboard(self):
-        # (L) the launch: an app with `CMUX_NEXT_NO_ACTIVATE=1` drops each activation, also the one that the screen
-        # mode asks for. The launch of each other mode keeps the variable: it does not take a person's keyboard.
-        code, names = launched_with([], NEEDED)
-        self.assertEqual((code, "CMUX_NEXT_NO_ACTIVATE" in names, "CMUX_NEXT_SOCKET_MODE" in names), (7, True, True), names)
-        code, names = launched_with(["--screen", "--keys", "n", "--page-watch", "0"], (*NEEDED, *SCREEN_MODE))
-        self.assertEqual((code, "CMUX_NEXT_NO_ACTIVATE" in names, "CMUX_NEXT_SOCKET_MODE" in names), (7, False, True), names)
+    def test_the_launch_of_each_mode_has_the_variable_that_takes_no_keyboard(self):
+        # An app with `CMUX_NEXT_NO_ACTIVATE=1` takes no keyboard of a person at the Mac, and only such an app reads
+        # the 2 variables that place its window (`CMUX_NEXT_TEST_WINDOW_SCREEN`, `CMUX_NEXT_TEST_WINDOW_FRAME`).
+        # Each mode's launch has the 3, also the screen mode's.
+        wanted = ("CMUX_NEXT_NO_ACTIVATE", "CMUX_NEXT_SOCKET_MODE", "CMUX_NEXT_TEST_WINDOW_SCREEN", "CMUX_NEXT_TEST_WINDOW_FRAME")
+        for arguments, files in (([], NEEDED), (["--screen", "--keys", "n", "--page-watch", "0"], (*NEEDED, *SCREEN_MODE)),
+                                 (["--screen", "--keys", "t,w,n", "--gaps", "0", "--close-cases", "idle,hold", "--key-tabs", "6,84",
+                                   "--page-watch", "0"], (*NEEDED, *SCREEN_MODE))):
+            with self.subTest(arguments=arguments):
+                code, names = launched_with(arguments, files)
+                self.assertEqual((code, [name in names for name in wanted]), (7, [True] * 4), names)
 
     def test_screen_takes_12_runs_of_a_case(self):
         # 12 runs of 2 keys, alone and after a key, are 72 openings in the run and 2 at most in one recording. The
