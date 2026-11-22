@@ -36,7 +36,9 @@ function subscribe(listener: () => void) {
   return () => void listeners.delete(listener);
 }
 
-/// Whether switch `name` is on; re-renders when the person flips it.
+/// Whether switch `name` is on; re-renders when the person flips it. A static render (a test's
+/// renderToStaticMarkup) reads the same switches.
 export function useExperimentSwitch(name: string): boolean {
-  return useSyncExternalStore(subscribe, () => current[name] === true);
+  const on = () => current[name] === true;
+  return useSyncExternalStore(subscribe, on, on);
 }

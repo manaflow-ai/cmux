@@ -34,10 +34,14 @@ import {
   isStopped,
   offersRetry,
   turnTimeKey,
+  FOLD_COUNTS_SWITCH,
   workedCallsText,
+  workedCountsText,
   workedLabel,
   workedMessagesText,
 } from "./turns";
+import { FailedCount } from "./FailedCount";
+import { useExperimentSwitch } from "../../../experiments/switches";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { failedTurnMark } from "./failedTurnMark.experiment";
 import { turnCopyText } from "./turnCopy";
@@ -69,14 +73,31 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   // The `header` arm of turnFoldSteered names the work the line holds after its time.
   const runs = row.workedRuns;
   const work = useMemo(() => (runs?.length ? toolRunSummary(t, runs) : undefined), [t, runs]);
+  // Settings > Advanced > Experiments > Fold Summary Counts (off by default): the line names what
+  // it hides after its time, "· ran 4 commands, edited 2 files", with the runs' "(1 failed)".
+  const countsOn = useExperimentSwitch(FOLD_COUNTS_SWITCH);
+  const counts = useMemo(
+    () => (countsOn && !work && row.durationMs !== undefined ? workedCountsText(t, row) : undefined),
+    [countsOn, work, t, row],
+  );
   let label: ReactNode;
   if (row.previous !== undefined || row.durationMs === undefined) label = workedLabel(t, row);
   else {
     const key = turnTimeKey(row);
     // A line that names its runs' work leaves their count to it.
-    const after = (work ? "" : workedCallsText(t, row)) + workedMessagesText(t, row);
+    const after = (work || counts ? "" : workedCallsText(t, row)) + workedMessagesText(t, row);
     label = <TimedLabel text={(time) => t(key, { time }) + after} time={row.durationMs} />;
   }
+  if (counts && row.previous === undefined)
+    return (
+      <>
+        {label}
+        <span className="cv-worked__work">
+          {` · ${counts.text}`}
+          <FailedCount n={counts.failed} />
+        </span>
+      </>
+    );
   if (!work) return label;
   return (
     <>

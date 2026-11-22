@@ -36,7 +36,8 @@ import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { scriptNoun } from "./commandActions";
-import { awaitsPermission, isDraftCall, isRunning, toolGroups } from "./toolGroups";
+import { awaitsPermission, countsFailed, isDraftCall, isRunning, toolGroups } from "./toolGroups";
+import { toolRunPhrases } from "./toolRunSummary";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { acpmuxSendCalls } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
@@ -170,6 +171,24 @@ export function workedLabel(t: Translate, row: AcpmuxRow): string {
 /// " · 14 tool calls" after a finished turn's time when its family counts them (`workedCalls`), else "".
 export function workedCallsText(t: Translate, row: AcpmuxRow): string {
   return row.workedCalls ? t("turn.workedCalls", { calls: toolCalls(t, row.workedCalls) }) : "";
+}
+
+/// The Settings > Advanced > Experiments switch (`experiments.foldSummaryCounts`, off by default)
+/// that has a closed "Worked for" say what it hides: "Worked for 36s · ran 4 commands, edited 2 files".
+/// Off, the line is the time alone, as before.
+export const FOLD_COUNTS_SWITCH = "foldSummaryCounts";
+
+/// What a "Worked for" hides (`foldCalls`), as the tool runs name it (toolRunSummary.ts
+/// `toolRunPhrases`: "ran 4 commands", "edited 2 files", lower case, in the order the turn first did
+/// each) joined by the runs' separator, and how many of those calls failed (the runs' "1 failed",
+/// FailedCount.tsx). Undefined when it hides no call.
+export function workedCountsText(t: Translate, row: AcpmuxRow): { text: string; failed: number } | undefined {
+  const calls = row.foldCalls;
+  if (!calls?.length) return undefined;
+  const phrases = toolRunPhrases(t, calls);
+  if (!phrases.length) return undefined;
+  const failed = calls.filter((item) => countsFailed(item.tool!)).length;
+  return { text: phrases.join(t("toolRun.separator")), failed };
 }
 
 /// ", sent a message, received 2 messages" after a "Worked for" that names the messages between
@@ -2101,6 +2120,12 @@ function shapeTurn(
               .flatMap(withoutDrafts)
               .flatMap((row) => (isRun(row) ? (row.items ?? []).filter((item) => item.tool) : []))
           : [];
+      // The calls the fold hides, for the line's counts once Settings > Advanced > Experiments >
+      // Fold Summary Counts is on (`workedCountsText`): the switch is read where the line draws, so
+      // flipping it redraws the line without shaping the turn again.
+      const foldCalls = hidden
+        .flatMap(withoutDrafts)
+        .flatMap((row) => (row.kind === "activity" ? (row.items ?? []).filter((item) => item.tool) : []));
       // The messages between agents it folds count as calls by default (workedForMessages.experiment.ts).
       const messages = foldedAgentMessages(hidden);
       const messagesArm = experimentArm(workedForMessages);
@@ -2112,10 +2137,12 @@ function shapeTurn(
         (version * 2 + (open ? 1 : 0)) * PREVIOUS_SPAN + Math.min(PREVIOUS_SPAN - 1, previous ?? 0),
         named ? messages.sent * 1_000 + messages.received + 1 : 0,
       );
+      const runsVersion = workedRuns.length ? mixVersion(labelVersion, workKey(workedRuns)) : labelVersion;
       const worked: AcpmuxRow = {
         id,
-        // What its label names (`named`, and the `header` arm's work, `workKey`) is part of the version too.
-        version: workedRuns.length ? mixVersion(labelVersion, workKey(workedRuns)) : labelVersion,
+        // What its label names (`named`, the `header` arm's work and the calls its counts name, each
+        // by `workKey`) is part of the version too.
+        version: foldCalls.length ? mixVersion(runsVersion, workKey(foldCalls)) : runsVersion,
         at: from,
         kind: WORKED,
         foldOpen: open,
@@ -2144,6 +2171,7 @@ function shapeTurn(
         // "Worked for".
         ...(previous !== undefined && { previous }),
         ...(workedRuns.length && { workedRuns }),
+        ...(foldCalls.length && { foldCalls }),
       };
       if (style.conclusion) shaped.push(worked);
       if (taskLine && taskLook === "after-fold") shaped.push(taskLine);
@@ -2516,7 +2544,7 @@ function workKey(runs: readonly AcpmuxActivity[]): number {
   };
   for (const { tool } of runs) {
     if (!tool) continue;
-    mix(tool.id);
+    mix(tool.id ?? "");
     mix(tool.kind ?? "");
     mix(tool.title ?? "");
     mix(tool.status ?? "");

@@ -20,6 +20,9 @@ extension CmuxConfigSnapshot {
     /// `experiments.chatWidgets`: Agent chat draws an installed extension's chat widget (cmux.chat.widget/1, the daemon's apps.chat_widgets.route) as a card under a finished tool call (webviews ToolWidget.tsx, useExperimentSwitch("chatWidgets")). Off by default; off makes no route call and draws no card, so the chat is unchanged.
     public nonisolated static let chatWidgetsPath = ["experiments", "chatWidgets"]
     public nonisolated static let chatWidgetsDefault = false
+    /// `experiments.foldSummaryCounts`: Fold summary: duration only (off, today's line) or with counts (on). A finished turn's closed "Worked for" names the work it hides after its time, as the tool runs name theirs: "Worked for 36s · ran 4 commands, edited 2 files", failed calls as the runs' "(1 failed)" in the failure tone (webviews conversation/turns.ts workedCountsText, useExperimentSwitch("foldSummaryCounts")). Off by default until Leo picks; off keeps today's duration-only line.
+    public nonisolated static let foldSummaryCountsPath = ["experiments", "foldSummaryCounts"]
+    public nonisolated static let foldSummaryCountsDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -87,6 +90,16 @@ nonisolated enum ExperimentsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.chatWidgetsDefault),
                 keywords: ["experiments", "experimental", "prototype", "extension", "extensions", "chat", "widget", "tool", "card"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.foldSummaryCountsPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.foldSummaryCounts", "Fold Summary Counts"),
+                help: SettingsText.keyed("settings.experiments.foldSummaryCounts.help", "A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.foldSummaryCountsDefault),
+                keywords: ["experiments", "experimental", "prototype", "chat", "worked for", "fold", "summary", "counts", "commands", "edited", "files"]
             ),
         ]
     }
