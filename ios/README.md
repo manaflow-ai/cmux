@@ -183,7 +183,8 @@ certificate. The optional secrets `IOS_CLASSIC_PROVISIONING_PROFILE_BASE64` and
 app: `com.cmux.app` ships cmux-next. `.github/workflows/ios-app-store.yml`
 now builds cmux-next-ios from `feat-cmux-next` for that record.
 `upload-app-store.sh --export-only` still works for a local dry run. The rest
-of this section describes the retired lane.
+of this section describes the retired classic lane, except where it names the
+workflow's cmux-next build.
 
 The production App Store lane is separate from the TestFlight beta lane. It uses
 the same archive/export/re-sign verification path, but switches the submitted
