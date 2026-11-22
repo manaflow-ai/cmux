@@ -218,6 +218,14 @@ let appFFI: Target = .binaryTarget(
 // pulling in the app composition root.
 let uiLayerPreviewProducts: [Product] = [
     .library(name: "CmuxNextUiLayerPreview", targets: ["CmuxNextUiLayerPreview"]),
+    // The UI shell (Prototypes/UiLayerHost --shoot) draws these modules' playground windows
+    // without the app: leaf UI modules only, no Daemon, Bridge, Browser, Terminal or App.
+    .library(name: "CmuxNextUiShellModules", targets: [
+        "CmuxNextDesign",
+        "CmuxNextDesignTokens",
+        "CmuxNextSidebar",
+        "CmuxNextTabs",
+    ]),
 ]
 
 // Debug-only: the preview leaf and its tests share this one condition.
@@ -1785,6 +1793,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemon",
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
+                "CmuxNextDesignTokens",
                 "CmuxNextDevices",
                 "CmuxNextPalette",
                 "CmuxNextRemoteView",
