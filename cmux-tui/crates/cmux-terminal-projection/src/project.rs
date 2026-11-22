@@ -66,9 +66,19 @@ pub fn wrap_line(
             units.push((at - spacers, *cell));
         }
     }
-    // Trailing blanks that draw nothing go (the host row's empty end).
+    // Trailing blanks that draw nothing go (the host row's empty end). Laid
+    // out as the host's lines exactly, only cells never written go, as
+    // Ghostty's own reflow trims them: a space the program printed is a
+    // cell of the line (a right-aligned row's padding, a line ending in a
+    // space), and its rows wrap on the phone as on a resized Mac.
     while let Some((_, cell)) = units.last() {
-        if cell.is_empty_or_space() && term.styles.get(cell.style).is_invisible_when_blank() {
+        let style = term.styles.get(cell.style);
+        let trimmed = if compact {
+            cell.is_empty_or_space() && style.is_invisible_when_blank()
+        } else {
+            cell.ch == 0 && cell.kind != WIDE && style.bg == Color::Default
+        };
+        if trimmed {
             units.pop();
         } else {
             break;
