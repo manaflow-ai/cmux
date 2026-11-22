@@ -135,7 +135,10 @@ extension CmuxRemoteActionEnvironment {
                 // The setup sheet asks and turns sharing on itself, so its answer is the change. After the
                 // person's one yes on this Mac, the owner's request turns sharing on with no sheet.
                 return .followUp(Self.confirmedChange(
-                    confirm: { try await CmuxRemoteSharingSetup(host: screenHost, consent: consent).ownerRequest(in: window) },
+                    confirm: {
+                        try await CmuxRemoteSharingSetup(host: screenHost, consent: consent)
+                            .ownerRequest(in: window, by: CmuxRemoteShareCaller(controlParams: call.params))
+                    },
                     apply: {}))
             }.withDeadline(.fixed(Self.confirmationTimeout)),
         ]

@@ -641,6 +641,25 @@ impl Remote {
         Ok(self.read_into(path, &mut bytes)?.map(|_| bytes.0))
     }
 
+    /// The SHA-256 of the file at `path`, hex, read through bounded range
+    /// reads; None when it is not there.
+    pub(super) fn sha256(&mut self, path: &str) -> anyhow::Result<Option<String>> {
+        use sha2::Digest as _;
+        struct Hashing(sha2::Sha256);
+        impl Write for Hashing {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.update(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut out = Hashing(sha2::Sha256::new());
+        let size = self.read_into(path, &mut out)?;
+        Ok(size.map(|_| out.0.finalize().iter().map(|byte| format!("{byte:02x}")).collect()))
+    }
+
     /// Streams the file at `path` into `out` through bounded range reads.
     /// Returns its size; None when it is not there.
     pub(super) fn read_into(

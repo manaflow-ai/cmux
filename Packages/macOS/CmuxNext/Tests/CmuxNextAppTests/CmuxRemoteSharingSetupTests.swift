@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextSettings
 @testable import CmuxNextActions
 @testable import CmuxNextMacScreen
 import CmuxNextTestSupport
@@ -23,6 +24,8 @@ struct CmuxRemoteSharingSetupTests {
         /// `macScreen.shareWithoutAsking`, and how often the guide wrote it.
         var consent = false
         var remembers = 0
+        /// The callers sharing was announced for (turned on with no sheet).
+        var announced: [CmuxRemoteShareCaller?] = []
 
         init(permissions: (Bool, Bool), answers: [String]) {
             self.permissions = permissions
@@ -45,6 +48,7 @@ struct CmuxRemoteSharingSetupTests {
                 self?.remembers += 1
                 self?.consent = true
             }
+            setup.announce = { [weak self] caller, _ in self?.announced.append(caller) }
             return setup
         }
 
@@ -429,11 +433,49 @@ struct CmuxRemoteSharingSetupTests {
         fixture.consent = true
         let setup = fixture.setup()
 
-        let shared = try await setup.ownerRequest(in: nil)
+        let shared = try await setup.ownerRequest(in: nil, by: .cli)
         #expect(shared)
         #expect(fixture.enables == 1)
         #expect(fixture.presented.isEmpty)
         #expect(fixture.remembers == 0)
+        // Nobody clicked: the window says who turned it on.
+        #expect(fixture.announced == [.cli])
+    }
+
+    /// A share with no sheet names its caller; a refused or sheet-gated one announces nothing.
+    @Test func onlyASheetlessShareAnnouncesItsCaller() async throws {
+        let refused = Fixture(permissions: (false, true), answers: [])
+        refused.consent = true
+        _ = try await refused.setup().ownerRequest(in: nil, by: .agent)
+        #expect(refused.announced.isEmpty)
+
+        let asked = Fixture(permissions: (true, true), answers: [])
+        _ = try await asked.setup().ownerRequest(in: nil, by: .agent)
+        #expect(asked.announced.isEmpty)
+    }
+
+    /// The control request's `caller` names an agent, a terminal, or neither (the CLI).
+    @Test func controlCallerKinds() {
+        #expect(CmuxRemoteShareCaller(controlParams: [:]) == .cli)
+        #expect(CmuxRemoteShareCaller(controlParams: ["caller": ["agent_session": "s1"]]) == .agent)
+        #expect(CmuxRemoteShareCaller(controlParams: ["caller": ["home_chat": true]]) == .agent)
+        #expect(CmuxRemoteShareCaller(controlParams: ["caller": ["terminal_id": "t1"]]) == .terminal)
+        #expect(CmuxRemoteShareCaller(controlParams: ["caller": ["agent_session": ""]]) == .cli)
+    }
+
+    /// An action run's caller; the person's own run in this app needs no notice.
+    @Test func invocationCallerKinds() {
+        #expect(CmuxRemoteShareCaller(invocation: ActionInvocation()) == nil)
+        var cli = ActionInvocation(); cli.origin = .cli
+        #expect(CmuxRemoteShareCaller(invocation: cli) == .cli)
+        var mcp = ActionInvocation(); mcp.origin = .mcp
+        #expect(CmuxRemoteShareCaller(invocation: mcp) == .agent)
+        var agent = ActionInvocation(); agent.origin = .cli; agent.callerAgentSession = "s1"
+        #expect(CmuxRemoteShareCaller(invocation: agent) == .agent)
+        var remote = ActionInvocation(); remote.origin = .remote
+        #expect(CmuxRemoteShareCaller(invocation: remote) == .device)
+        var socketUser = ActionInvocation(); socketUser.viaControlSocket = true
+        #expect(CmuxRemoteShareCaller(invocation: socketUser) == .cli)
     }
 
     /// Without the person's yes an owner request never turns sharing on by itself: it needs the guide.
@@ -441,7 +483,7 @@ struct CmuxRemoteSharingSetupTests {
         let fixture = Fixture(permissions: (true, true), answers: [])
         let setup = fixture.setup()
 
-        let shared = try await setup.ownerRequest(in: nil)
+        let shared = try await setup.ownerRequest(in: nil, by: .cli)
         #expect(!shared)
         #expect(fixture.enables == 0)
     }
@@ -452,7 +494,7 @@ struct CmuxRemoteSharingSetupTests {
         fixture.consent = true
         let setup = fixture.setup()
 
-        let shared = try await setup.ownerRequest(in: nil)
+        let shared = try await setup.ownerRequest(in: nil, by: .cli)
         #expect(!shared)
         #expect(fixture.enables == 0)
     }

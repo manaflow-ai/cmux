@@ -5,7 +5,7 @@ scripts/ci/portable_job_placement.py places each job a workflow's placement step
 on a free mini, then Blacksmith; LINUX_ONLY jobs never take a mini. A mini's Homebrew python3 has no PyYAML. On
 2026-11-11 cmux-next.yml's `checks` job went red on cmux13s-mac-mini-glaeda-5 (job 130627140300) and
 cmuxs-mac-mini-6-glaeda-3 (job 130624833630) with `ModuleNotFoundError: No module named 'yaml'` and passed on
-Blacksmith Linux at the same tree, so merge_hold read it as a pull request's own red. cmux-next-guards.yml's tooling
+Blacksmith Linux at the same tree, so land-judge read it as a pull request's own red. cmux-next-guards.yml's tooling
 tests met the same on cmux14 on 2026-11-03 and fixed only themselves.
 
 So: every mini-eligible job with a step that runs repository Python tests (tests/*.py or a unittest run) has an

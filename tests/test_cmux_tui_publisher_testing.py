@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -71,6 +72,16 @@ class VerdictTests(unittest.TestCase):
     def test_no_pool_checks_only_the_wait(self):
         self.assertTrue(testing([job("queued", minutes_ago=5, labels=("anything",))], pool=""))
 
+    def test_a_pool_list_counts_each_label(self):
+        # The publisher's attempt 1 on the owned label and its attempt 2 on the spill pool both defer.
+        pools = "cmux-gcp-lane-build-x64,blacksmith-8vcpu-ubuntu-2404"
+        for label in ("cmux-gcp-lane-build-x64", "blacksmith-8vcpu-ubuntu-2404"):
+            with self.subTest(label=label):
+                self.assertTrue(testing([job("queued", minutes_ago=5, labels=(label,))], pool=pools))
+                # The 20-minute cutoff still holds on either label.
+                self.assertFalse(testing([job("queued", minutes_ago=25, labels=(label,))], pool=pools))
+        self.assertFalse(testing([job("queued", minutes_ago=5, labels=("cmux-fleet-linux-x64",))], pool=pools))
+
     def test_an_api_failure_tests_here(self):
         publisher_jobs = publisher.jobs
         publisher.jobs = lambda run_id: (_ for _ in ()).throw(OSError("down"))
@@ -91,7 +102,17 @@ class WiringTests(unittest.TestCase):
         fleet = "contains(needs.tree-preflight.outputs.linux_jobs, ' cmux-next-daemon-tests ') && needs.tree-preflight.outputs.linux_runner || "
         gate = gate_runs_on(self.WORKFLOW)
         self.assertIn(fleet, gate)
-        self.assertEqual(self.WORKFLOW.count(f"DAEMON_POOL: {gate.replace(fleet, '')}"), 2)
+        # The publisher is a feat-cmux-next push. Its attempt 1 queues on the owned build-lane label, its
+        # attempt 2+ on the spill pool; DAEMON_POOL names both, so a publisher freshly queued on either is waited
+        # for (up to the cutoff) and a later same-tree run does not queue a second daemon job.
+        owned = re.search(r"github\.run_attempt == 1 && github\.ref == 'refs/heads/feat-cmux-next' && '([^']+)' \|\| ",
+                          gate)
+        self.assertIsNotNone(owned, gate)
+        spill = gate[owned.end():-len(" }}")]
+        pool = ("DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                f"format('{owned.group(1)},{{0}}', {spill}) }}}}")
+        self.assertEqual(self.WORKFLOW.count(pool), 2, pool)
+        self.assertEqual(self.WORKFLOW.count("DAEMON_POOL: "), 2)
 
     def test_the_owner_wait_sparse_checkout_has_the_script(self):
         owner_wait = self.WORKFLOW[self.WORKFLOW.index("sparse-checkout: |\n            scripts/ci/cmux-tui-tree-claim.sh"):]

@@ -82,7 +82,7 @@ nightly.yml: refresh-compilation-cache: Save Xcode compilation cache
 nightly.yml: refresh-test-compilation-cache: Save DerivedData seed
 nightly.yml: refresh-test-compilation-cache: Save Swift packages
 playwright-apt-cache/action.yml: : Cache Playwright's apt packages
-pr-checks.yml: swift-logic: Restore this pull request's Swift facts cache
+pr-checks.yml: advisory: Restore this pull request's Swift facts cache
 release.yml: build-ghostty-cli-helper: Cache Zig packages
 release.yml: build-sign-notarize-blacksmith: Cache Swift packages
 release.yml: build-sign-notarize: Cache Swift packages

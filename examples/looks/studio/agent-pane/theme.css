@@ -1,0 +1,17 @@
+/* Studio's chat: a filled, borderless prompt bubble with soft 16 px corners, quiet cards with a faint
+   hairline, and muted secondary text for the "Worked for" and tool rows.
+   Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: paint, so
+   nothing in the transcript moves when this applies or reloads. Every color is made from the
+   theme's own (--agent-text, --agent-accent), so it reads over all three variants (Studio, Studio
+   Light, Studio Ember) and over any theme of your own. */
+:root {
+  --cv-user-bubble-tint: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  --cv-user-bubble-edge: transparent;
+  --cv-user-bubble-radius: 16px;
+  --cv-card-fill: color-mix(in srgb, var(--agent-text) 4%, transparent);
+  --cv-card-ring: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  --cv-text-muted: color-mix(in srgb, var(--agent-text) 72%, transparent);
+  --cv-text-dim: color-mix(in srgb, var(--agent-text) 62%, transparent);
+  --cv-link: color-mix(in srgb, var(--agent-accent) 80%, var(--agent-text));
+  --agent-link: color-mix(in srgb, var(--agent-accent) 80%, var(--agent-text));
+}

@@ -111,7 +111,9 @@ pub struct Configuration {
     pub is_debug_build: bool,
     pub storage: StorageNames,
     pub namespaced_legacy_store: Option<LegacyStore>,
-    /// A signed NEXT DEV production launch adopts the running NIGHTLY's session in memory.
+    /// Always `false`: no build takes a running NIGHTLY's session (signed NEXT DEV signs in on its own).
+    /// Still serialized because the pinned app's decoder requires the key; remove it once the app no
+    /// longer reads it (docs/ci/app-ffi-release.md, step A of cmux#43648).
     pub adopts_nightly_session: bool,
 }
 
@@ -149,9 +151,7 @@ pub fn from_selection(inputs: &Inputs) -> Configuration {
         callback_scheme,
         storage: storage_names(Some(&bundle_id), Some(selection)),
         namespaced_legacy_store: namespaced_legacy_store(&bundle_id, selection),
-        adopts_nightly_session: !inputs.is_debug_build
-            && bundle_id == NEXT_DEV_BUNDLE_ID
-            && production,
+        adopts_nightly_session: false,
         bundle_id,
         is_debug_build: inputs.is_debug_build,
     }

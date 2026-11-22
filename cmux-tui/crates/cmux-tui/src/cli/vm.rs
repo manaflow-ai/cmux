@@ -539,8 +539,9 @@ pub(super) fn vm_runs_cloud_verb(verb: &str) -> bool {
 
 /// Words `vm` answers itself that are not [`MACHINE_VERBS`]: the VM API's list, help, and the
 /// pointers of [`plan`].
-const VM_OWN_WORDS: &[&str] =
-    &["ls", "list", "help", "resize", "workspace", "start-chat", "chat", "file"];
+const VM_OWN_WORDS: &[&str] = &[
+    "ls", "list", "help", "resize", "workspace", "start-chat", "chat", "pool", "runner", "file",
+];
 
 /// `cmux cloud …` typed at a terminal: one line on stderr with its new name. A script (no
 /// terminal on stderr) and this binary's own steps read nothing new.
@@ -710,7 +711,7 @@ const NEW_HELP: &str = "\
 usage: cmux vm new [--name NAME] [--size small|medium|large|xlarge] [--persistent]
                    [--repo OWNER/NAME[@REF]] [--machine-config FILE]
                    [--bootstrap lane --bootstrap-script FILE]
-                   [--wait [--timeout SECONDS]] [--json]
+                   [--wait [--timeout SECONDS]] [--timings] [--json]
 
 Make a Cloud VM. With the cmux app signed in, this is the same VM
 File > New Cloud Machine… makes: it shows in the sidebar, the app asks you to
@@ -729,6 +730,11 @@ running; a few minutes on cmux Cloud) and resumes when you open it again.
 secrets that file names delivered from this Mac (`cmux vm secret set NAME`).
 A failed setup answers with its status and the log to read. --timeout
 SECONDS (default 1200) ends the wait; the VM goes on starting.
+
+--json answers stages too: the milliseconds from the command's start to each
+mark it reached (created, running, machine_config, secrets) and total, by the
+names scripts/cmux-next/cloud-journey.ts uses. --timings prints them as a
+table on stderr.
 
 Headless (CI, no app) or with a VM API key of your own (CMUX_VM_API_KEY, a
 config file or `cmux vm key new`), it makes a VM API VM instead, which also
@@ -839,6 +845,20 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         return Some(super::cloud_client_session::run_words(&global, &words));
     }
     let env = |name: &str| std::env::var(name).ok();
+    if scope == Scope::Vm
+        && let [verb, tail @ ..] = rest
+        && verb == "pool"
+    {
+        return Some(run_pool(tail, global.output, &env));
+    }
+    if scope == Scope::Vm
+        && let [verb, tail @ ..] = rest
+        && verb == "runner"
+    {
+        let mut words = vec!["runner".to_owned()];
+        words.extend(tail.iter().cloned());
+        return Some(run_pool(&words, global.output, &env));
+    }
     if let [verb, tail @ ..] = rest
         && matches!(verb.as_str(), "new" | "create")
     {
@@ -854,10 +874,21 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             || super::app::connect_command(&global).is_ok(),
             super::cloud_machines::app_found,
         );
+        // `--timings`: the start's `stages` as a table on stderr (start_stages.rs); the app's create never sees it.
+        let (words, timings) = super::start_stages::take_flag(tail);
+        let tail = words.as_slice();
         // `--wait`: the create, then the waits a person does by hand (vm_ready.rs). The app's verbs only.
         if app_present
             && new_route(tail, app_present) == NewRoute::App
-            && let Some(code) = super::vm_ready::run_if_requested(&global, tail)
+            && let Some(code) = super::vm_ready::run_if_requested(&global, tail, timings)
+        {
+            return Some(code);
+        }
+        // `--json` or `--timings`: the create as one step, its answer with `stages` (the create answered, `total`).
+        if app_present
+            && new_route(tail, app_present) == NewRoute::App
+            && (timings || global.output == OutputMode::Json)
+            && let Some(code) = super::start_stages::app_create(&global, tail, timings)
         {
             return Some(code);
         }
@@ -882,6 +913,23 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         return Some(mint_through_app(&global, &plan));
     }
     Some(run_in_process(plan, scope, &env))
+}
+
+/// `cmux vm pool …`: the CI runner pool's surge, idle pause and scheduler (crate cmux-vm-pool). It talks to
+/// Freestyle, GCE and GitHub with their own credentials (`cmux vm pool --help`), not the VM API's.
+fn run_pool(tail: &[String], output: OutputMode, env: &dyn Fn(&str) -> Option<String>) -> i32 {
+    let runtime = match client_runtime() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("cmux: cannot start the pool client: {error}");
+            return 1;
+        }
+    };
+    let mut words = tail.to_vec();
+    if output == OutputMode::Json {
+        words.push("--json".to_owned());
+    }
+    runtime.block_on(cmux_vm_pool::cli::run(&words, env, &mut std::io::stdout().lock()))
 }
 
 /// Runs the cmux-vm CLI on its own runtime, with this process's stdio.
@@ -910,7 +958,7 @@ fn run_in_process(plan: Vec<String>, scope: Scope, env: &dyn Fn(&str) -> Option<
 /// A runtime for the cmux-vm client. reqwest rides cmux's rustls without a
 /// provider of its own (cmux-vm's default-tls feature is off here): install
 /// ring, as the other HTTPS verbs do.
-fn client_runtime() -> std::io::Result<tokio::runtime::Runtime> {
+pub(super) fn client_runtime() -> std::io::Result<tokio::runtime::Runtime> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     tokio::runtime::Builder::new_multi_thread().enable_all().build()
 }

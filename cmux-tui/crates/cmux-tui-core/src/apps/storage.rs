@@ -46,6 +46,9 @@ impl Storage {
         }
         .map_err(failed)?;
         db.pragma_update(None, "journal_mode", "WAL").ok();
+        // A deleted key or an uninstalled app's table leaves no readable
+        // bytes in free pages; `scrub` resets the WAL after it.
+        db.pragma_update(None, "secure_delete", "ON").map_err(failed)?;
         Ok(Self { db })
     }
 
@@ -109,9 +112,13 @@ impl Storage {
                 Ok(Value::Null)
             }
             "app.storage.delete" => {
-                self.db
+                let removed = self
+                    .db
                     .execute(&format!("DELETE FROM {table} WHERE key = ?1"), params![key()?])
                     .map_err(failed)?;
+                if removed > 0 {
+                    self.scrub()?;
+                }
                 Ok(Value::Null)
             }
             "app.storage.keys" => {
@@ -135,45 +142,22 @@ impl Storage {
 
     /// Deletes everything the app stored.
     pub fn clear(&self, app: &str) -> Result<(), StorageError> {
-        self.db.execute_batch(&format!("DROP TABLE IF EXISTS {}", table(app))).map_err(failed)
+        self.db.execute_batch(&format!("DROP TABLE IF EXISTS {}", table(app))).map_err(failed)?;
+        self.scrub()
+    }
+
+    /// Resets the WAL, which still holds the deleted values' old pages. The
+    /// supervisor's connection is the only one, so nothing blocks it.
+    fn scrub(&self) -> Result<(), StorageError> {
+        crate::workspace_registry::truncate_wal_after_delete(
+            &self.db,
+            std::time::Duration::from_secs(5),
+        )
+        .map(drop)
+        .map_err(failed)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn set_get_keys_delete_and_clear_are_per_app() {
-        let s = Storage::open(None).unwrap();
-        s.call("cmux/a", "app.storage.set", &json!({ "key": "k", "value": { "n": 1 } })).unwrap();
-        s.call("cmux/b", "app.storage.set", &json!({ "key": "k", "value": 2 })).unwrap();
-        assert_eq!(
-            s.call("cmux/a", "app.storage.get", &json!({ "key": "k" })).unwrap(),
-            json!({ "n": 1 })
-        );
-        assert_eq!(s.call("cmux/a", "app.storage.keys", &json!({})).unwrap(), json!(["k"]));
-        s.clear("cmux/a").unwrap();
-        assert_eq!(
-            s.call("cmux/a", "app.storage.get", &json!({ "key": "k" })).unwrap(),
-            Value::Null
-        );
-        assert_eq!(s.call("cmux/b", "app.storage.get", &json!({ "key": "k" })).unwrap(), json!(2));
-        s.call("cmux/b", "app.storage.delete", &json!({ "key": "k" })).unwrap();
-        assert_eq!(s.call("cmux/b", "app.storage.keys", &json!({})).unwrap(), json!([]));
-    }
-
-    #[test]
-    fn limits_are_enforced() {
-        let s = Storage::open(None).unwrap();
-        let big = "x".repeat(MAX_VALUE_BYTES);
-        assert_eq!(
-            s.call("a", "app.storage.set", &json!({ "key": "k", "value": big })).unwrap_err().code,
-            "app.limit"
-        );
-        assert_eq!(
-            s.call("a", "app.storage.get", &json!({ "key": "" })).unwrap_err().code,
-            "validation.invalid"
-        );
-    }
-}
+#[path = "storage_tests.rs"]
+mod tests;

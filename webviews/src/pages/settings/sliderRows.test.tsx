@@ -24,7 +24,7 @@ describe("slider rows", () => {
 
   test("Text Size sits in the Density card once, and the tiles draw their text at it", async () => {
     const key = "appearance.metrics.chromeFontSize";
-    page = await renderPage({ path: "/settings/personalization?part=text" });
+    page = await renderPage({ path: "/settings/appearance" });
     const card = page.container.querySelector('[data-card="density"]')!;
     expect(card.querySelector(`[data-row-key="${key}"]`)).not.toBeNull();
     expect(page.container.querySelectorAll(`[data-row-key="${key}"]`).length).toBe(1);
@@ -36,7 +36,7 @@ describe("slider rows", () => {
 
   test("a changed Text Size resets through the owner from the row menu", async () => {
     const key = "appearance.metrics.chromeFontSize";
-    page = await renderPage({ path: "/settings/personalization?part=text" });
+    page = await renderPage({ path: "/settings/appearance" });
     await changeValue(slider(key), "16");
     await fire(slider(key), "change");
     expect(page.store.getSnapshot().rows.get(key)?.customized).toBe(true);
@@ -49,7 +49,7 @@ describe("slider rows", () => {
   // density-driven size at the live density; the unset row shows that number, not the label.
   test("an unset Text Size shows the density's number as its value, with no label", async () => {
     const key = "appearance.metrics.chromeFontSize";
-    page = await renderPage({ path: "/settings/personalization?part=text" });
+    page = await renderPage({ path: "/settings/appearance" });
     await run(() => page!.provider.setHost({ ...page!.provider.host, derived: { [key]: 13 } }));
     expect(field(key).value).toBe("13");
     expect(field(key).placeholder).toBe("");
@@ -78,8 +78,8 @@ describe("slider rows", () => {
 
   // Surface opacity rows are hidden on Appearance (rowLevelsData.ts); a link to one shows it.
   const SURFACE_PAGE = `/settings/appearance?focus=${SURFACE}`;
-  // The window opacity row lives in Personalization's Background part, its one home on the page.
-  const OPACITY_PAGE = "/settings/personalization?part=background";
+  // The window opacity row lives in Appearance's background picker, its one home on the page.
+  const OPACITY_PAGE = "/settings/appearance";
 
   test("an unset surface opacity shows the window's opacity as its own value", async () => {
     page = await renderPage({ path: SURFACE_PAGE });

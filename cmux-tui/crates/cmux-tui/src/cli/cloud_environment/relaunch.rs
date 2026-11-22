@@ -24,22 +24,11 @@ pub(super) fn after_exit(pid: i32, bundle: &Path) -> Result<(), String> {
         udata: std::ptr::null_mut(),
     };
     loop {
-        let mut event = libc::kevent {
-            udata: std::ptr::null_mut(),
-            ..change
-        };
+        let mut event = libc::kevent { udata: std::ptr::null_mut(), ..change };
         // SAFETY: both event pointers remain valid for this call. The helper
         // waits for this exact live process, including slow native teardown.
-        let found = unsafe {
-            libc::kevent(
-                queue.as_raw_fd(),
-                &change,
-                1,
-                &mut event,
-                1,
-                std::ptr::null(),
-            )
-        };
+        let found =
+            unsafe { libc::kevent(queue.as_raw_fd(), &change, 1, &mut event, 1, std::ptr::null()) };
         if found < 0 {
             let error = std::io::Error::last_os_error();
             match error.raw_os_error() {
@@ -64,11 +53,7 @@ pub(super) fn after_exit(pid: i32, bundle: &Path) -> Result<(), String> {
         .arg(bundle)
         .status()
         .map_err(|error| error.to_string())?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("could not reopen the app: {status}"))
-    }
+    if status.success() { Ok(()) } else { Err(format!("could not reopen the app: {status}")) }
 }
 
 #[cfg(not(target_os = "macos"))]

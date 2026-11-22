@@ -147,7 +147,7 @@ await requireBrowserLane("agent-pane-find-glass.test.ts", async () => {
         };
       });
       expect(pill.backdrop).toContain("blur(24px)");
-      expect(pill.backdrop).toContain("saturate(1.8)");
+      expect(pill.backdrop).toContain("saturate(1.6)");
       // The material's lit rim (glass.css --glass-material-rim) over the popup's drop.
       expect(pill.shadow).toContain("1px 1.5px 1px -1px inset");
       expect(pill.shadow).toContain("0px 16px 20px -16px inset");
