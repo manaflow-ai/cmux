@@ -65,10 +65,15 @@ describe("transcript prompt and card tokens", () => {
     expect(margins).toEqual([]);
   });
 
-  test("sent thumbnails and reply images share the media radius", () => {
-    for (const selector of [/\.cv-user__images img/, /^\.cv-img$/, /\.cv-user__image-placeholder/]) {
+  // A sent attachment is part of its message and takes the bubble's corner (Leo, 2026-11-21: "if you
+  // sent it iinline you prob shouldn't have such odd stuff"; conversation.css
+  // --cv-user-attachment-radius); a reply's image keeps the media radius.
+  test("sent thumbnails take the bubble's corner, and reply images the media radius", () => {
+    for (const selector of [/\.cv-user__images img/, /\.cv-user__image-placeholder/]) {
       const bodies = rules(selector).map(([, body]) => body);
-      expect(bodies.some((body) => /border-radius:\s*var\(--cv-media-radius\)/.test(body))).toBe(true);
+      expect(bodies.some((body) => /border-radius:\s*var\(--cv-user-attachment-radius\b/.test(body))).toBe(true);
     }
+    const reply = rules(/^\.cv-img$/).map(([, body]) => body);
+    expect(reply.some((body) => /border-radius:\s*var\(--cv-media-radius\)/.test(body))).toBe(true);
   });
 });

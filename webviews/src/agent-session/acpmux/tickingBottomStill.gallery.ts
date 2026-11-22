@@ -82,7 +82,7 @@ async function holdStill(ctx: PlayContext, resendMs?: number) {
   try {
     await ctx.waitFor(
       () => {
-        if (doc.querySelector(".acpmux-jump-latest[data-shown]")) jump = true;
+        if (doc.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]")) jump = true;
         return win.performance.now() - start >= 10_000;
       },
       { capMs: 12_000 },
