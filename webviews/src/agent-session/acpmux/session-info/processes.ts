@@ -174,8 +174,7 @@ export function useProcessRegistry(
     // Retain only the latest update per process ID while the list is pending.
     const pending = new Map<string, SessionInfoProcess>();
     let awaitingList = true;
-    // Another chat's records are not reset here: the return reads them as none already, and a reset
-    // rendered the pane a second time before a chat switch's first frame painted.
+    setState((known) => (known.sessionId === sessionId ? known : { sessionId, processes: [], listed: false }));
     const stop = source.watchProcesses((value) => {
       if (awaitingList) {
         const process = processOf(value, sessionId);
