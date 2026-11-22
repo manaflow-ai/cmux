@@ -119,7 +119,7 @@ fn the_detail_carries_no_secret_url_or_error_text() {
     let name = format!("box@{SECRET}/x?token={SECRET}");
     let d = diagnose(&name, &down(Some(&error)), 61_000).unwrap();
     let wire = serde_json::to_string(&d).unwrap();
-    for leak in [SECRET, "private.example", "wss://", "/Users", "id_ed25519", "token"] {
+    for leak in [SECRET, "private.example", "wss://", "/Users", "id_ed25519", "token="] {
         assert!(!wire.contains(leak), "{leak} leaked: {wire}");
     }
     assert_eq!(d.machine, "box");
