@@ -180,7 +180,7 @@ impl LocalStore {
     /// that logs nothing does not.
     /// None for a cold-archived chat, which is not rehydrated to answer.
     pub(super) fn log_written_at(&self, id: &str) -> Option<u64> {
-        let (_, newest) = self.segment_files(id).ok()?.pop()?;
+        let (_, newest) = self.segment_files(id).ok()?.last()?.clone();
         let at = crate::home_fs::symlink_metadata(newest).ok()?.modified().ok()?;
         let ms = at.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis();
         u64::try_from(ms).ok()
@@ -203,7 +203,7 @@ impl LocalStore {
     fn stage_segments(
         &self,
         id: &str,
-        segments: Vec<(u32, PathBuf)>,
+        segments: SegmentList,
         mode: CompactMode,
     ) -> Result<Option<Staged>> {
         if segments.is_empty() {

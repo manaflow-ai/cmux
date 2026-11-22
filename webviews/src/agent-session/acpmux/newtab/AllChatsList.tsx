@@ -35,6 +35,7 @@ import {
   watchable,
 } from "./allChatsListModel";
 import { pressToOpen } from "../../../ui/pressToOpen";
+import { WithFacts } from "../chips/FactsHoverCard";
 /// A chat that is running or waits on the user (acpmux's own sessions): it leads the list with
 /// its state where the age would be.
 export type ActiveChat = {
@@ -212,9 +213,13 @@ const ChatRow = memo(function ChatRow({
         </span>
         <span className="nt-all-title">{title}</span>
         {project && showProject && (
-          <span className="nt-all-project" aria-description={cwd}>
-            {project}
-          </span>
+          <WithFacts facts={[{ value: cwd ?? "", code: true }]}>
+            {(facts) => (
+              <span {...facts} className="nt-all-project">
+                {project}
+              </span>
+            )}
+          </WithFacts>
         )}
         {age && <span className="nt-all-meta">{age}</span>}
         {showAge && now === undefined && updatedAt ? <ChatAge at={updatedAt} /> : null}
