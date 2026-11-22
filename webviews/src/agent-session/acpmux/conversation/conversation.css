@@ -1362,6 +1362,11 @@
   display: flex;
   flex-direction: column;
   gap: var(--grid-gap-inner);
+  /* A token that cannot break (a hash, a long URL's query) wraps at the column's edge instead of
+     running past it in a heading, paragraph, list item, quote or inline code. `anywhere` also drops
+     the min-content width, so a list item's text never asks for more room; table cells keep
+     `break-word` (.cv-table td), and code, math and diagrams scroll sideways as before. */
+  overflow-wrap: anywhere;
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: var(--cv-line-height);
@@ -7132,6 +7137,9 @@ a.cv-sha:focus-visible {
   min-height: 120px;
   padding: 12px;
   overflow-x: auto;
+  /* A chart narrower than the card sits centered in it, as a narrower table and display math sit
+     in the column (Leo 2026-11-22: "i dont know why we dont simply center tables in our agent chats"). */
+  text-align: center;
 }
 .cv-diagram__chart svg {
   max-width: 100%;
@@ -7145,6 +7153,7 @@ a.cv-sha:focus-visible {
   display: block;
   width: min(100%, var(--cv-diagram-w));
   aspect-ratio: var(--cv-diagram-ratio);
+  margin-inline: auto;
 }
 /* Ondine's monochrome diagrams take the pane's colors (its defaults are black on white). */
 .cv-diagram__chart svg.ondine {

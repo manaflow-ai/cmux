@@ -1,0 +1,163 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"],
+    ["dark", "busy"]
+  ],
+  "shots": [
+    {
+      "name": "mix-normal",
+      "entry": "agent-pane.rich-blocks-audit",
+      "variant": "mix",
+      "width": 760,
+      "widthName": "normal",
+      "height": 1800,
+      "deviceScaleFactor": 1,
+      "arms": {
+        "fixed": "",
+        "C-card-fill": ".cv-diagram{background:var(--ds-surface-card)}"
+      }
+    },
+    {
+      "name": "long-normal",
+      "entry": "agent-pane.rich-blocks-audit",
+      "variant": "long-strings",
+      "width": 760,
+      "widthName": "normal",
+      "height": 1100,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "unbreakable-normal",
+      "entry": "agent-pane.table-block",
+      "variant": "unbreakable",
+      "width": 760,
+      "widthName": "normal",
+      "height": 560,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "rest-normal",
+      "entry": "agent-pane.table-block",
+      "variant": "rest",
+      "width": 760,
+      "widthName": "normal",
+      "height": 560,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "chips-and-previews-normal",
+      "entry": "agent-pane.transcript",
+      "variant": "chips-and-previews",
+      "width": 760,
+      "widthName": "normal",
+      "height": 720,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "vega-lite-chart-normal",
+      "entry": "agent-pane.transcript",
+      "variant": "vega-lite-chart",
+      "width": 760,
+      "widthName": "normal",
+      "height": 520,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "tasks-normal",
+      "entry": "agent-pane.transcript",
+      "variant": "tasks",
+      "width": 760,
+      "widthName": "normal",
+      "height": 480,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "mix-narrow",
+      "entry": "agent-pane.rich-blocks-audit",
+      "variant": "mix",
+      "width": 420,
+      "widthName": "narrow",
+      "height": 1800,
+      "deviceScaleFactor": 1,
+      "arms": {
+        "fixed": "",
+        "C-card-fill": ".cv-diagram{background:var(--ds-surface-card)}"
+      }
+    },
+    {
+      "name": "long-narrow",
+      "entry": "agent-pane.rich-blocks-audit",
+      "variant": "long-strings",
+      "width": 420,
+      "widthName": "narrow",
+      "height": 1100,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "unbreakable-narrow",
+      "entry": "agent-pane.table-block",
+      "variant": "unbreakable",
+      "width": 420,
+      "widthName": "narrow",
+      "height": 560,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "rest-narrow",
+      "entry": "agent-pane.table-block",
+      "variant": "rest",
+      "width": 420,
+      "widthName": "narrow",
+      "height": 560,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "chips-and-previews-narrow",
+      "entry": "agent-pane.transcript",
+      "variant": "chips-and-previews",
+      "width": 420,
+      "widthName": "narrow",
+      "height": 720,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "vega-lite-chart-narrow",
+      "entry": "agent-pane.transcript",
+      "variant": "vega-lite-chart",
+      "width": 420,
+      "widthName": "narrow",
+      "height": 520,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "tasks-narrow",
+      "entry": "agent-pane.transcript",
+      "variant": "tasks",
+      "width": 420,
+      "widthName": "narrow",
+      "height": 480,
+      "deviceScaleFactor": 1
+    },
+    {
+      "name": "long-metrics-narrow",
+      "entry": "agent-pane.rich-blocks-audit",
+      "variant": "long-strings",
+      "width": 420,
+      "widthName": "narrow",
+      "height": 1100,
+      "deviceScaleFactor": 1,
+      "setup": "(() => {\n  const md = document.querySelector(\".cv-md.cv-reply\") || document.querySelectorAll(\".cv-md\")[1] || document.querySelector(\".cv-md\");\n  if (!md) { document.body.innerHTML = \"<pre>no .cv-md</pre>\"; return; }\n  const col = md.getBoundingClientRect();\n  const lines = [`column left=${col.left.toFixed(1)} width=${col.width.toFixed(1)} gap=${getComputedStyle(md).rowGap} display=${getComputedStyle(md).display}`];\n  let prev = null;\n  for (const el of md.children) {\n    const r = el.getBoundingClientRect();\n    const cs = getComputedStyle(el);\n    const inner = el.querySelector(\".cv-diagram__chart svg, .cv-thumb, table, .katex-display, .katex, .cv-codeblock__body, svg\");\n    const ir = inner ? inner.getBoundingClientRect() : null;\n    const name = el.tagName.toLowerCase() + \".\" + [...el.classList].join(\".\");\n    const space = prev ? (r.top - prev.bottom).toFixed(1) : \"-\";\n    lines.push(`${name.padEnd(48)} spaceAbove=${space.padStart(6)} m=${cs.marginTop}/${cs.marginBottom} box=[${(r.left-col.left).toFixed(0)},${(col.right-r.right).toFixed(0)}] w=${r.width.toFixed(0)}` + (ir ? ` inner=${inner.tagName.toLowerCase()}.${inner.classList[0]||\"\"} [L${(ir.left-col.left).toFixed(0)} R${(col.right-ir.right).toFixed(0)}] w=${ir.width.toFixed(0)}` : \"\") + ` sw=${el.scrollWidth} cw=${el.clientWidth}`);\n    prev = r;\n  }\n  // anything wider than the column\n  const over = [...md.querySelectorAll(\"*\")].filter(e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.right > col.right + 1; }).slice(0, 15);\n  lines.push(\"\", \"past column right edge:\");\n  for (const e of over) { const r = e.getBoundingClientRect(); lines.push(`  ${e.tagName.toLowerCase()}.${[...e.classList].join(\".\")} right+${(r.right-col.right).toFixed(0)}`); }\n  const pre = document.createElement(\"pre\");\n  pre.textContent = lines.join(\"\\n\");\n  pre.style.cssText = \"font:11px/1.35 monospace;white-space:pre;margin:8px;color:#000;background:#fff\";\n  document.body.replaceChildren(pre);\n  document.body.style.background = \"#fff\";\n})();\n"
+    },
+    {
+      "name": "mix-metrics-normal",
+      "entry": "agent-pane.rich-blocks-audit",
+      "variant": "mix",
+      "width": 760,
+      "widthName": "normal",
+      "height": 1800,
+      "deviceScaleFactor": 1,
+      "setup": "(() => {\n  const md = document.querySelector(\".cv-md.cv-reply\") || document.querySelectorAll(\".cv-md\")[1] || document.querySelector(\".cv-md\");\n  if (!md) { document.body.innerHTML = \"<pre>no .cv-md</pre>\"; return; }\n  const col = md.getBoundingClientRect();\n  const lines = [`column left=${col.left.toFixed(1)} width=${col.width.toFixed(1)} gap=${getComputedStyle(md).rowGap} display=${getComputedStyle(md).display}`];\n  let prev = null;\n  for (const el of md.children) {\n    const r = el.getBoundingClientRect();\n    const cs = getComputedStyle(el);\n    const inner = el.querySelector(\".cv-diagram__chart svg, .cv-thumb, table, .katex-display, .katex, .cv-codeblock__body, svg\");\n    const ir = inner ? inner.getBoundingClientRect() : null;\n    const name = el.tagName.toLowerCase() + \".\" + [...el.classList].join(\".\");\n    const space = prev ? (r.top - prev.bottom).toFixed(1) : \"-\";\n    lines.push(`${name.padEnd(48)} spaceAbove=${space.padStart(6)} m=${cs.marginTop}/${cs.marginBottom} box=[${(r.left-col.left).toFixed(0)},${(col.right-r.right).toFixed(0)}] w=${r.width.toFixed(0)}` + (ir ? ` inner=${inner.tagName.toLowerCase()}.${inner.classList[0]||\"\"} [L${(ir.left-col.left).toFixed(0)} R${(col.right-ir.right).toFixed(0)}] w=${ir.width.toFixed(0)}` : \"\") + ` sw=${el.scrollWidth} cw=${el.clientWidth}`);\n    prev = r;\n  }\n  // anything wider than the column\n  const over = [...md.querySelectorAll(\"*\")].filter(e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.right > col.right + 1; }).slice(0, 15);\n  lines.push(\"\", \"past column right edge:\");\n  for (const e of over) { const r = e.getBoundingClientRect(); lines.push(`  ${e.tagName.toLowerCase()}.${[...e.classList].join(\".\")} right+${(r.right-col.right).toFixed(0)}`); }\n  const pre = document.createElement(\"pre\");\n  pre.textContent = lines.join(\"\\n\");\n  pre.style.cssText = \"font:11px/1.35 monospace;white-space:pre;margin:8px;color:#000;background:#fff\";\n  document.body.replaceChildren(pre);\n  document.body.style.background = \"#fff\";\n})();\n"
+    }
+  ]
+}
