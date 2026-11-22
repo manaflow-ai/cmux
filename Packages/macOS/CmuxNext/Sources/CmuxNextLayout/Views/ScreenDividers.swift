@@ -28,6 +28,8 @@ struct ScreenDividers {
         guard let window = screen.window, !screen.isHiddenOrHasHiddenAncestor,
               let pointer, case let point = screen.convert(pointer, from: nil),
               screen.bounds.intersection(screen.visibleRect).contains(point) else { return nil }
+        // A floating pane's card and its resize band are above each divider: a press there is the floating pane's.
+        if screen.floatState.cards.values.contains(where: { !$0.isHidden && $0.frame.contains(point) }) { return nil }
         let hit = screen.subviews.reversed().lazy.compactMap { $0 as? DividerHandleView }.first {
             // Where it shows its cursor: not the part under a dock or past its area's window.
             !$0.isHidden && $0.alphaValue > 0.01 && screen.convert($0.cursorRectInBounds, from: $0).contains(point)

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 79bcfc4e75695f64971f2921ecfa0cf4a5bdf9af0d0e4a3438cb3cb37f757362.
+// cmux-tui mux protocol 12, IR c2d305b12cb27ffd20f76a0147e95213dd4b1b84870902ec22ec7126da8c7e75.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -93,6 +93,12 @@ pub struct AgentPresenceChangedEvent {
     pub tool: Nullable<String>,
     /// When the hook observed the event; null on clear.
     pub updated_at_ms: Nullable<u64>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionShareChangedEvent {
+    pub session: String,
 }
 
 #[rustfmt::skip]
@@ -1077,6 +1083,7 @@ pub enum Event {
     AgentInventoryChanged(AgentInventoryChangedEvent),
     AgentInventoryWatchEnded(AgentInventoryWatchEndedEvent),
     AgentPresenceChanged(AgentPresenceChangedEvent),
+    AgentSessionShareChanged(AgentSessionShareChangedEvent),
     Bell(BellEvent),
     BookmarksChanged(BookmarksChangedEvent),
     BrowserState(BrowserStateEvent),
@@ -1181,6 +1188,7 @@ impl Event {
             Self::AgentInventoryChanged(_) => Some("agent-inventory-changed"),
             Self::AgentInventoryWatchEnded(_) => Some("agent-inventory-watch-ended"),
             Self::AgentPresenceChanged(_) => Some("agent-presence-changed"),
+            Self::AgentSessionShareChanged(_) => Some("agent-session-share-changed"),
             Self::Bell(_) => Some("bell"),
             Self::BookmarksChanged(_) => Some("bookmarks-changed"),
             Self::BrowserState(_) => Some("browser-state"),
@@ -1284,6 +1292,7 @@ impl Event {
             Self::AgentInventoryChanged(_) => Some(&AGENT_INVENTORY_CHANGED_EVENT_METADATA),
             Self::AgentInventoryWatchEnded(_) => Some(&AGENT_INVENTORY_WATCH_ENDED_EVENT_METADATA),
             Self::AgentPresenceChanged(_) => Some(&AGENT_PRESENCE_CHANGED_EVENT_METADATA),
+            Self::AgentSessionShareChanged(_) => Some(&AGENT_SESSION_SHARE_CHANGED_EVENT_METADATA),
             Self::Bell(_) => Some(&BELL_EVENT_METADATA),
             Self::BookmarksChanged(_) => Some(&BOOKMARKS_CHANGED_EVENT_METADATA),
             Self::BrowserState(_) => Some(&BROWSER_STATE_EVENT_METADATA),
@@ -1433,6 +1442,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("agent-presence-changed") => match serde_json::from_value::<AgentPresenceChangedEvent>(raw.clone()) {
             Ok(event) => Event::AgentPresenceChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("agent-session-share-changed") => match serde_json::from_value::<AgentSessionShareChangedEvent>(raw.clone()) {
+            Ok(event) => Event::AgentSessionShareChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

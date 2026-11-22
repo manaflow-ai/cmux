@@ -43,6 +43,13 @@ public final class TabStripModel {
     /// The strip's pane is zoomed: the pane shows ``PaneZoomIndicatorView`` at its top-right, whose
     /// click restores the layout (`TabStripIntent.toggleZoom`), and VoiceOver reads the selected tab
     /// as zoomed. The tabs draw nothing for it, so a zoom never changes the strip's width or moves a tab.
+    ///
+    /// The layout that shows the pane writes it, not the store (``PaneZoomIndicatorView/show(zoomed:controls:)``). A
+    /// zoom key changes the store in the key's turn, and the screen shows the zoom some frames later (a zoom's dim
+    /// comes first, then the panes hear their sizes): a mark that followed the store showed over the layout before
+    /// the zoom for those frames, and went before an unzoom showed. One case stays with the store: a page that has
+    /// the whole window shows its pane alone, as a zoom does, whatever the store's zoom is, so while the pane
+    /// presents its page the layout leaves this alone and the pane's snapshot of the store writes it.
     public var zoomsSelected = false
 
     /// Receives every intent. Set by the App (or the demo).
@@ -57,11 +64,23 @@ public final class TabStripModel {
     /// position and group (no opener is known).
     @ObservationIgnored public var closeSuccessor: ((_ closed: TabID, _ old: [TabID], _ surviving: [TabID], _ shown: Set<TabID>,
                                                      _ groups: [TabID: String]) -> TabID?)?
-    /// Tabs leaving this strip by a move to another pane, not a close (`TabMoves.depart` in the App):
+    /// Tabs leaving this strip by a move to another pane, not a close (`TabMoves.depart` in the App, and
+    /// ``take(_:movedAway:)`` for a move this client did not make):
     /// each leaves at once with no close, and the tabs left close up on the strip's move (Leo
     /// 2026-11-07: "you have a thing that you already dragged, and yet you're playing the closed tab
     /// animation. You should play no animation there").
     @ObservationIgnored public var departures: Set<TabID> = []
+
+    /// Takes the App's new `tabs`. A tab that leaves the list while `movedAway` says that another pane holds it
+    /// left by a move, not a close (a move that another client of the daemon made marks nothing here before the
+    /// store reports it): it joins ``departures``, so its strip drops it at once and keeps it for no leaving pane.
+    /// A tab that comes into the list is no departure: one that moved away and came back before a sync loses its mark.
+    public func take(_ items: [TabItem], movedAway: (TabID) -> Bool) {
+        let had = Set(tabs.map(\.id)), kept = Set(items.map(\.id))
+        departures.subtract(kept.subtracting(had))
+        for id in had.subtracting(kept) where movedAway(id) { departures.insert(id) }
+        tabs = items
+    }
 
     public init(
         stripID: UUID = UUID(),

@@ -17,7 +17,13 @@ import {
 const begun = () => cloudStartBegun("k-1", "fix the build", "/Users/me/src/paint/");
 
 test("a start shows the message and the folder by its name", () => {
-  expect(begun()).toEqual({ key: "k-1", task: "fix the build", state: "starting", folder: "paint" });
+  expect(begun()).toEqual({
+    key: "k-1",
+    task: "fix the build",
+    state: "starting",
+    folder: "paint",
+    cwd: "/Users/me/src/paint",
+  });
   expect(cloudStartBegun("k", "t", undefined)).toEqual({ key: "k", task: "t", state: "starting" });
 });
 
@@ -53,6 +59,8 @@ test("the host's push fills the card, field by field, each checked", () => {
     task: "fix the build",
     state: "starting",
     folder: "paint-app",
+    // The host renames the card's folder; the folder the start copies (the composer's chip) stays.
+    cwd: "/Users/me/src/paint",
     step: "folder",
     machine: "paint machine",
     size: "4 CPU, 16 GB",
@@ -170,6 +178,30 @@ test("a copy's files and bytes, its fallback and an https install link reach the
     clone: { state: "running", install_url: "javascript:alert(1)" },
   });
   expect(unsafe?.clone?.installUrl).toBeUndefined();
+});
+
+test("the files a first pass left on this Mac stay on the clone through its end", () => {
+  const copying = cloudStartPushed(begun(), {
+    key: "k-1",
+    step: "folder",
+    clone: { state: "running", phase: "copy", left_on_mac: 1204 },
+  });
+  expect(copying?.clone?.leftOnMac).toBe(1204);
+  // The final answer without the count keeps it: a partial copy never reads as complete.
+  const ended = cloudStartPushed(copying, { key: "k-1", step: "folder", clone: { state: "done", phase: "complete" } });
+  expect(ended?.clone).toEqual({ state: "done", phase: "complete", leftOnMac: 1204 });
+  // A plain copy's end carries only the count; it lands on the clone it ends.
+  const plain = cloudStartPushed(begun(), { key: "k-1", step: "folder", clone: { left_on_mac: 7 } });
+  expect(plain?.clone).toEqual({ state: "done", leftOnMac: 7 });
+  // Nothing left, or a malformed count, adds nothing.
+  for (const left of [0, -3, 1.5, "12"]) {
+    const whole = cloudStartPushed(begun(), {
+      key: "k-1",
+      step: "folder",
+      clone: { state: "done", phase: "complete", left_on_mac: left },
+    });
+    expect(whole?.clone).toEqual({ state: "done", phase: "complete" });
+  }
 });
 
 test("forwards the environment id and setup ran or cached state", () => {
@@ -384,7 +416,7 @@ test("a folder too big to copy says why with its size, offers no Retry and marks
     more: false,
   });
   expect(ended?.message).toBe(
-    "~/Projects is too big to copy to a Cloud machine (at least 20.1 GB in 323,831 files). It holds repositories of its own: pick one to start in, or start without a folder.",
+    "~/Projects is too big to copy (at least 20.1 GB in 323,831 files). Pick one of its repositories, or start without a folder.",
   );
   // No repository inside: the limit is named, and another folder is the way on.
   const plain = cloudStartEnded(begun(), "k-1", {
@@ -393,7 +425,7 @@ test("a folder too big to copy says why with its size, offers no Retry and marks
     details: { ...details, folder: "~/Downloads", repos: [] },
   });
   expect(plain?.message).toBe(
-    "~/Downloads is too big to copy to a Cloud machine (at least 20.1 GB in 323,831 files; a copy sends at most 20 GB or 500,000 files). Pick a smaller folder, or start without a folder.",
+    "~/Downloads is too big to copy (at least 20.1 GB in 323,831 files; the limit is 20 GB or 500,000 files). Pick a smaller folder, or start without one.",
   );
 });
 

@@ -130,9 +130,14 @@ DAILY_PICK = ("needs.dev-daily-place.outputs.runs_on != '' && fromJSON(needs.dev
               "needs.dev-daily-place.outputs.runner_label != '' && needs.dev-daily-place.outputs.runner_label")
 
 
+# A scheduler grant (scripts/ci/mac_grants.py) is a label array in runs-on; the env copy names its first label.
+GRANT_PICK = ("fromJSON(needs.macos-placement.outputs.grant_runner)",
+              "fromJSON(needs.macos-placement.outputs.grant_runner)[0]")
+
+
 def label_copy(runs_on: str) -> str:
     """runs-on as the job's own CMUX_NEXT_RUNNER copy states it."""
-    return runs_on.replace(*DAILY_PICK)
+    return runs_on.replace(*DAILY_PICK).replace(*GRANT_PICK)
 
 class Decide(unittest.TestCase):
     def setUp(self):
@@ -1960,6 +1965,55 @@ class CmuxNextWiring(unittest.TestCase):
                 if name != "release-compile":
                     self.assertEqual(job_env(job)["CMUX_NEXT_RUNNER"], label_copy(runs_on_route(job, name)))
 
+    def test_a_stack_blocker_pull_request_runs_its_mac_jobs_on_the_nightly_slot(self):
+        """STACK_SLOT (cmux#45498, 2026-11-17): a labelled same-repository PR's Mac jobs take the nightly slot, a label
+        no other PR job asks for, instead of queueing behind the side label's backlog. The placement's real output,
+        with an idle std side runner and free Blacksmith slots, is fed into each job's runs-on."""
+        slot = "glaeda-nightly-std-xcode-26.6"
+        place = next(step for step in self.workflow()["jobs"][self.PLACEMENT]["steps"] if step.get("id") == "place")
+        expression = place["env"]["STACK_SLOT"]
+        label = [{"name": "stack-blocker"}]
+        for name, labels, fork, attempt, event_name, want in (
+                ("labelled", label, False, "1", "pull_request", slot),
+                ("no label", [{"name": "full-ci"}], False, "1", "pull_request", ""),
+                ("a fork", label, True, "1", "pull_request", ""),
+                ("a rescue re-run", label, False, "2", "pull_request", ""),
+                ("a push", label, False, "1", "push", "")):
+            with self.subTest(name):
+                context = self.context(attempt=attempt, fork=fork)
+                context["github"]["event"]["pull_request"]["labels"] = labels
+                context["github"]["event_name"] = event_name
+                self.assertEqual(evaluate(expression, context), want)
+        idle = [runner("mini-a-glaeda-3"), runner("mini-a-glaeda-4", labels=(STD, SIDE, GUI))]
+        free = {placement.cascade.LARGE: 4, placement.cascade.SMALL: 4}
+        for stack in (slot, ""):
+            with self.subTest(stack=stack), tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "out"
+                with mock.patch.object(placement.pool, "GitHub") as github, \
+                        mock.patch.object(placement.cascade, "read", return_value=(free, dict(free), None)), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    github.return_value.runners.return_value = idle
+                    placement.main(env(ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux", GITHUB_OUTPUT=str(output),
+                                       STACK_SLOT=stack, CASCADE_JOBS="swift-test daemon-test generated-files",
+                                       CASCADE_RUNS=f" {' '.join(JOBS)} "))
+                # GitHub keeps each output's last value
+                values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                context = self.context()
+                context["github"]["event"]["pull_request"]["labels"] = label
+                context["needs"][self.PLACEMENT]["outputs"].update(values, placed_attempt="1")
+                routes = {name: evaluate(runs_on_route(self.workflow()["jobs"][name], name), context) for name in JOBS}
+                if stack:
+                    self.assertEqual(routes, dict.fromkeys(JOBS, slot))
+                    for name in JOBS:
+                        if name != "release-compile":
+                            self.assertEqual(evaluate(job_env(self.workflow()["jobs"][name])["CMUX_NEXT_RUNNER"],
+                                                      context), slot, name)
+                else:
+                    self.assertNotIn(slot, routes.values(), "without the label nothing takes the slot")
+        self.assertEqual(placement.stack_slot_outputs({"STACK_SLOT": "glaeda-side-std-xcode-26.6"}), "",
+                         "only a nightly slot label")
+        self.assertEqual(placement.stack_slot_outputs({"STACK_SLOT": slot, "GITHUB_RUN_ATTEMPT": "2"}), "")
+
     def test_trusted_attempts_use_the_live_route_until_overflow(self):
         jobs = self.workflow()["jobs"]
         for name in JOBS:
@@ -2483,11 +2537,10 @@ class FeedReplyFullText(unittest.TestCase):
 
 
 class SmallMacChecks(unittest.TestCase):
-    """The zsh HEAD watcher and Computer Use helper checks hold no secrets and change no session, so a
-    same-repository run takes the owned side label on attempt 1; Blacksmith macOS is the last resort."""
+    """The zsh HEAD watcher check holds no secrets and changes no session, so a same-repository run
+    takes the owned side label on attempt 1; Blacksmith macOS is the last resort."""
 
-    JOBS = (("cmux-next-shell-integration.yml", "zsh-head-watch"),
-            ("cmux-next-cua-helper-identity.yml", "helper-identity"))
+    JOBS = (("cmux-next-shell-integration.yml", "zsh-head-watch"),)
 
     def context(self, event: str = "pull_request", attempt: str = "1", owned: str = "1",
                 head: str = "manaflow-ai/cmux", owner: str = "manaflow-ai") -> dict:

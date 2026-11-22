@@ -101,9 +101,12 @@ public struct CloudMoveStrings {
                               table: "Cloud", bundle: .module), machine)
     }
     /// A `cmux link` answer's value, or its error as the person reads it: a refusal a paid plan lifts is
-    /// ``CloudAPIError/planRequired(message:upgradeURL:plan:)``, any other one a ``CloudMoveFailure``.
+    /// ``CloudAPIError/planRequired(message:upgradeURL:plan:)``, one its size needs another plan for ``CloudSizeLocked``,
+    /// any other one a ``CloudMoveFailure``.
     public static func checked<T>(_ answer: (CloudMoveCLI.Answer, T)) throws -> T {
         guard answer.0.ok else {
+            if let code = answer.0.errorCode, CloudSizeLocked.isCode(code) { throw CloudSizeLocked(details: answer.0.sizeLocked) }
+            if let tooSmall = CloudSeedRefusal.planRefusal(answer.0) { throw tooSmall } // the folder is more than its machine has room for
             throw answer.0.errorCode == "cloud.plan.required" ? CloudAPIError.planRequired(message: nil, upgradeURL: nil) as any Error : CloudMoveFailure(message: moveFailed(answer.0.error ?? answer.0.errorCode ?? ""))
         }
         return answer.1
@@ -120,11 +123,23 @@ public struct CloudMoveStrings {
     public nonisolated static var machineLimit: String {
         String(localized: "cloud.error.machineLimit", defaultValue: "This team is at its Cloud machine limit, paused machines included. Delete a machine you don't need, then try again.", table: "Cloud", bundle: .module)
     }
+    /// The app server's refusal of a request sent too often (upstream `cloud.rate_limited`).
+    public nonisolated static let rateLimitedCode = "cmux.cloud.rate_limited"
+    public nonisolated static var rateLimited: String {
+        String(localized: "cloud.error.rateLimited", defaultValue: "Cloud is getting too many requests from this account right now. Wait a minute, then try again.", table: "Cloud", bundle: .module)
+    }
 }
 
 /// An app-server refusal a person can act on reads as its own sentence wherever an error is put in plain words
-/// (`PlainErrorText.personal`): a create at the machine limit says so, not "Something went wrong". Any other
-/// code has no description here and keeps the caller's wording.
+/// (`PlainErrorText.personal`): a create at the machine limit or one sent too often says so, not "Something went
+/// wrong" (cmux#45774: a Cloud start refused `cloud.rate_limited` read "Couldn't move the chat. Something went wrong.").
+/// Any other code has no description here and keeps the caller's wording.
 extension CloudAppOpFailure: LocalizedError {
-    public var errorDescription: String? { code == CloudMoveStrings.machineLimitCode ? CloudMoveStrings.machineLimit : nil }
+    public var errorDescription: String? {
+        switch code {
+        case CloudMoveStrings.machineLimitCode: CloudMoveStrings.machineLimit
+        case CloudMoveStrings.rateLimitedCode: CloudMoveStrings.rateLimited
+        default: nil
+        }
+    }
 }

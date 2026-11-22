@@ -187,6 +187,7 @@ extension ScreenContentView {
         var changed = force
         let scale = self.scale
         let laysOutNow = window != nil && bounds.width >= 1 && bounds.height >= 1
+        if zoomDim.motion.acts { MotionTrace.begin("layout.place") } // a probe's time of this loop, in the pass that shows an act
         for (pane, frame) in paneFrames {
             guard let host = context.hosts[pane], host.superview === self else { continue }
             let scrolls = geometry.scrolls(pane: pane)
@@ -194,7 +195,9 @@ extension ScreenContentView {
             // strip's, a row column's and a scroll area's are springs too: rounded before them, every edge sat
             // off the grid for the whole camera motion and its content was resampled). Two edges a whole number
             // of pixels apart (a pane and the divider beside it, both on the one spring) stay that far apart.
-            let placed = frame.rect.offsetBy(dx: (scrolls ? strip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane)).pixelEdges(scale)
+            // A lifted pane (a whole-pane drag) follows the pointer: the same frame plus the drag's offset, its size unchanged.
+            let carried = lift.flatMap { $0.pane == pane ? $0.offset : nil } ?? .zero
+            let placed = frame.rect.offsetBy(dx: (scrolls ? strip : 0) - areaOffset(of: pane) + carried.dx, dy: -rowOffset(of: pane) + carried.dy).pixelEdges(scale)
             // Before the frame moves: chrome that re-checks itself on the move reads the rest. On the pixel grid as the
             // placed frame is, so a pane at rest under a camera resting between pixels has a zero rest offset.
             let rest = frame.targetRect.offsetBy(dx: (scrolls ? restStrip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
@@ -238,14 +241,15 @@ extension ScreenContentView {
                 host.alphaValue = frame.alpha.value
                 changed = true
             }
-            if host.isDocked == scrolls { host.isDocked = !scrolls }
+            if host.isDocked == (scrolls || geometry.floatingCards[pane] != nil) { host.isDocked.toggle() }
             clips.append((host, scrolls))
         }
+        MotionTrace.end("layout.place")
         // The panes this change brought back from a zoom's cover show now, placed.
         if showSnapReturning() { changed = true }
-        zoomDim.panesPlaced(on: self) // an unzoom shows: its dim is over the other panes in this frame, and goes
         // Once every frame is placed: a pane is clipped by the panes in front of it. A host whose
         // clip inputs did not change keeps its clip without recomputing it.
+        if presentFloatingCards() { changed = true }
         let above = panesAbove()
         for (host, scrolls) in clips {
             if clipToStrip(host, scrolls: scrolls, clip: clip, above: above, force: force) { changed = true }
@@ -270,6 +274,7 @@ extension ScreenContentView {
             if let area = shownArea { pointerClip = pointerClip.map { $0.intersection(area) } ?? area }
             view.cursorClip = pointerClip
         }
+        zoomDim.panesPlaced(on: self) // panes and dividers are placed: a split's, a close's and a zoom's panes move; a zoom's dim comes, an unzoom's goes
         // A pan with the finger down is layout motion too (hasMotion leaves user gestures out): motion-time content
         // (divider catcher panels, page windows) waits for the landing. The landing frame's advanceFrame clears it.
         let gesturing = isUserScrolling || rowScrolls.values.contains(where: \.state.isGestureActive)
@@ -317,5 +322,24 @@ extension ScreenContentView {
     func areaWindow(of kind: DividerHandleView.Kind) -> CGRect? {
         guard case let .split(id) = kind, let area = baseGeometry.scrollAreaOfSplit[id] else { return nil }
         return displayedAreaWindow(area)
+    }
+
+    /// The panes and strip dividers an animated width or ratio change carried (a preset, an equalize) start where they
+    /// showed before it, now that the camera is where the new layout puts it. A structural change carries none: each
+    /// of its panes is at its place in the frame that shows it.
+    func settleCarried() {
+        guard !carriedShown.isEmpty || !carriedDividers.isEmpty else { return }
+        let shift = stripShift
+        for (pane, shown) in carriedShown {
+            guard var frame = paneFrames[pane] else { continue }
+            frame.x.value = shown - (geometry.scrolls(pane: pane) ? shift : 0)
+            paneFrames[pane] = frame
+        }
+        for (kind, shown) in carriedDividers {
+            guard var frame = dividerFrames[kind] else { continue }
+            frame.x.value = shown - shift
+            dividerFrames[kind] = frame
+        }
+        (carriedShown, carriedDividers) = ([:], [:])
     }
 }

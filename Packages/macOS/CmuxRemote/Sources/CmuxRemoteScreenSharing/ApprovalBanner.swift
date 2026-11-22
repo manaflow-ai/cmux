@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import AppKit
 import CmuxDeviceHub
+import Darwin
 import Foundation
 
 /// The approval banner for a device hub request (permission Ask), shown by
 /// the Screen Sharing worker, so it appears with the cmux app quit too: the
-/// asking device's name and key fingerprint, the scope, and Deny, Allow Once,
-/// Always Allow View Only, Always Allow Full Control. A floating,
+/// who asks and what it could do, and Allow (remembered for that Mac: the
+/// hub's Always), Allow Only This Time and Not Now. A floating,
 /// non-activating panel at the top right of the main screen, over every app
 /// (full-screen ones too); it never takes the keyboard or the frontmost app.
 /// One request at a time, oldest first; it gives up after the protocol's
@@ -17,7 +18,7 @@ final class ApprovalBanner {
     private(set) var error: String?
     private var answering = false
     private var settled: Set<String> = []
-    private var panel: NSPanel?
+    private var panel: ApprovalPanel?
     private var expiry: Timer?
     /// PROTOCOL.md: a request expires after 5 minutes.
     var lifetime: TimeInterval = 300
@@ -50,8 +51,10 @@ final class ApprovalBanner {
         changed()
     }
 
-    func answer(_ choice: ApprovalChoice) {
-        guard let request = current, !answering else { return }
+    /// Answers the request a button was drawn for: a click that lands after the next request took
+    /// its place answers nothing.
+    func answer(_ choice: ApprovalChoice, for requestID: String? = nil) {
+        guard let request = current, requestID == nil || requestID == request.id, !answering else { return }
         answering = true
         render()
         Task { [weak self] in
@@ -86,9 +89,15 @@ final class ApprovalBanner {
         }
         let panel = self.panel ?? Self.makePanel()
         let entering = !panel.isVisible
+        if panel.request != request.id {
+            // A new request: a click aimed at what was there before it is not taken.
+            panel.request = request.id
+            panel.shown()
+        }
+        panel.onAllow = { [weak self, id = request.id] in self?.answer($0, for: id) }
         self.panel = panel
         let hadKeys = panel.isKeyWindow
-        let content = ApprovalView(request: request, error: error, enabled: !answering) { [weak self] in self?.answer($0) }
+        let content = ApprovalView(request: request, error: error, enabled: !answering) { [weak self, id = request.id] in self?.answer($0, for: id) }
         panel.contentView = content
         content.layoutSubtreeIfNeeded()
         let size = content.fittingSize
@@ -102,7 +111,7 @@ final class ApprovalBanner {
         if entering { ApprovalLook.enter(content) }
     }
 
-    static func makePanel() -> NSPanel {
+    static func makePanel() -> ApprovalPanel {
         let panel = ApprovalPanel(contentRect: CGRect(x: 0, y: 0, width: ApprovalView.width, height: 200),
                                   styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: true)
         panel.isFloatingPanel = true
@@ -123,19 +132,100 @@ final class ApprovalBanner {
 }
 
 /// The banner's window: it shows without taking the keyboard or the frontmost app, and a click into the card gives
-/// it the keys (Return allows once, Escape denies), as the keycaps say. A Return typed into another app as the
-/// banner appears answers nothing.
+/// it the keys (Escape denies, Tab moves). SECURITY: an Allow answers only the person's own click on it, read here
+/// from the click's events, never from the button's action or a key, as the app's join consent does
+/// (`CmuxDialogPersonClick`): an Accessibility press, a programmatic click, a key, or a click another process posts
+/// (a computer-use agent, a script) allows no device to see or control this Mac. A click begun within the
+/// double-click interval of the banner showing, or of the person's previous click, is not taken.
 @MainActor
 final class ApprovalPanel: NSPanel {
+    /// The request shown (a redraw of the same request keeps ``shown(at:)``).
+    var request: String?
+    /// Answers an Allow the person clicked.
+    var onAllow: (ApprovalChoice) -> Void = { _ in }
+    /// Whether an event is the person's own input (``ApprovalPersonInput``); tests replace it.
+    var isPersonEvent: (NSEvent) -> Bool = { ApprovalPersonInput.isPerson($0) }
+    /// The event the app is handling now (tests set it).
+    var eventInHand: () -> NSEvent? = { NSApp.currentEvent }
+    private var shownAt: TimeInterval = .infinity
+    private var lastDown: TimeInterval?
+    /// The person's mouse-down on an Allow, held until its click ends.
+    private var held: (event: NSEvent, button: ApprovalButton, choice: ApprovalChoice)?
+
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    /// The banner shows a request now: a click begun before `uptime` plus the double-click interval is not taken.
+    func shown(at uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        shownAt = uptime
+        held = nil
+    }
 
     override func sendEvent(_ event: NSEvent) {
         if event.type == .leftMouseDown, !isKeyWindow, let content = contentView {
             makeKey()
             makeFirstResponder(content)
         }
-        super.sendEvent(event)
+        dispatch(event) { super.sendEvent(event) }
+    }
+
+    /// The panel's own dispatch of `event` (`body`); the person's click that ends on an Allow answers it, once.
+    func dispatch(_ event: NSEvent, _ body: () -> Void) {
+        switch event.type {
+        case .leftMouseDown:
+            held = nil
+            if isPersonEvent(event) {
+                let delay = NSEvent.doubleClickInterval
+                let settled = event.timestamp >= shownAt + delay && lastDown.map { event.timestamp >= $0 + delay } ?? true
+                lastDown = event.timestamp
+                if settled, let (button, choice) = allow(at: event) { held = (event, button, choice) }
+            }
+            body()
+            // A button's tracking loop may take the mouse-up inside the mouse-down's dispatch.
+            if let up = eventInHand(), up.type == .leftMouseUp { endClick(up) }
+        case .leftMouseDragged, .pressure:
+            body()
+        case .leftMouseUp:
+            body()
+            endClick(event)
+        default:
+            held = nil
+            body()
+        }
+    }
+
+    private func allow(at event: NSEvent) -> (ApprovalButton, ApprovalChoice)? {
+        guard let view = contentView as? ApprovalView, event.windowNumber == windowNumber else { return nil }
+        return view.allows.first { button, _ in
+            button.isEnabled && button.bounds.contains(button.convert(event.locationInWindow, from: nil))
+        }
+    }
+
+    private func endClick(_ up: NSEvent) {
+        guard let held else { return }
+        self.held = nil
+        let button = held.button
+        guard isPersonEvent(up), up.windowNumber == windowNumber, up.timestamp >= held.event.timestamp, button.isEnabled,
+              button.window === self, button.bounds.contains(button.convert(up.locationInWindow, from: nil)) else { return }
+        onAllow(held.choice)
+    }
+}
+
+/// The strict check for the person's own input, as the app's `PersonInputCheck`: only the HID system's events
+/// count (source state the HID system's, source process 0 or the WindowServer), never a click another process
+/// posts or this one makes.
+enum ApprovalPersonInput {
+    static let windowServer = "/System/Library/PrivateFrameworks/SkyLight.framework/Versions/A/Resources/WindowServer"
+
+    static func isPerson(_ event: NSEvent) -> Bool {
+        guard let cgEvent = event.cgEvent,
+              cgEvent.getIntegerValueField(.eventSourceStateID) == Int64(CGEventSourceStateID.hidSystemState.rawValue) else { return false }
+        let source = cgEvent.getIntegerValueField(.eventSourceUnixProcessID)
+        if source == 0 { return true }
+        guard source > 0, source != Int64(getpid()), let pid = pid_t(exactly: source) else { return false }
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return false }
+        return String(cString: buffer) == windowServer
     }
 }
 
@@ -206,16 +296,19 @@ enum ApprovalLook {
     }
 }
 
-/// The banner's content (AppKit), as the cmux dialog card draws a request: the app icon at the left; the title, the
-/// scope, the asking device's key fingerprint on an inset well, a failed answer; then the four answers stacked the
-/// card's width: Allow Once (Return), Always Allow View Only, Always Allow Full Control, and Deny last as quiet red
-/// text (Escape). Only a press on these buttons, or those keys once the person clicked into the card, answers it.
+/// The banner's content (AppKit), as the cmux dialog card draws a request and as the app's Mac Screen prompt words
+/// it: the app icon at the left; who asks, what it can do and what Allow keeps, the asking device's key on an inset
+/// well, a failed answer; then three answers stacked the card's width: Allow (the hub's Always at the scope asked
+/// for, so this Mac is not asked again), Allow Only This Time, and Not Now last as quiet red text (Escape).
+/// SECURITY: only the person's own click answers an Allow (``ApprovalPanel``); any press or Escape denies.
 @MainActor
 final class ApprovalView: NSView {
     static let width: CGFloat = 432
     private let answer: (ApprovalChoice) -> Void
     private let stack = NSStackView()
     private(set) var buttons: [ApprovalButton] = []
+    /// The two Allows and what each answers (``ApprovalPanel`` reads the person's click on them).
+    private(set) var allows: [(ApprovalButton, ApprovalChoice)] = []
 
     init(request: SessionRequest, error: String?, enabled: Bool, answer: @escaping (ApprovalChoice) -> Void) {
         self.answer = answer
@@ -258,10 +351,17 @@ final class ApprovalView: NSView {
             font: look.titleFont, width: textWidth)
         stack.addArrangedSubview(title)
         stack.setCustomSpacing(look.subtitleGap, after: title)
-        stack.addArrangedSubview(Self.label(String(format: RemoteText.t("macScreen.approval.scope", "Asks for %@."), request.scope.remoteTitle),
-                                            font: look.bodyFont, color: .secondaryLabelColor, width: textWidth))
+        let full = request.scope == .full
+        stack.addArrangedSubview(Self.label(full
+                ? RemoteText.t("macScreen.approval.bodyFull", "It can see your screen and use your mouse and keyboard.")
+                : RemoteText.t("macScreen.approval.bodyView", "It can see your screen but can’t control it."),
+            font: look.bodyFont, color: .secondaryLabelColor, width: textWidth))
+        stack.addArrangedSubview(Self.label(String(format: full
+                ? RemoteText.t("macScreen.approval.remembersFull", "Allow lets %@ control this Mac from now on. Change it in Devices.")
+                : RemoteText.t("macScreen.approval.remembersView", "Allow lets %@ see this Mac from now on. Change it in Devices."),
+            request.viewerName), font: look.bodyFont, color: .secondaryLabelColor, width: textWidth))
         if let fingerprint = request.viewerKeyFingerprint {
-            stack.addArrangedSubview(Self.label(RemoteText.t("macScreen.approval.fingerprint", "Device key fingerprint"), font: look.captionFont,
+            stack.addArrangedSubview(Self.label(RemoteText.t("macScreen.approval.deviceKey", "Device key"), font: look.captionFont,
                                                 color: .secondaryLabelColor, width: textWidth))
             stack.addArrangedSubview(CodeWell(Self.fingerprintLines(fingerprint), width: textWidth))
         }
@@ -275,11 +375,16 @@ final class ApprovalView: NSView {
         column.orientation = .vertical
         column.alignment = .leading
         column.spacing = look.buttonGap
-        let order: [(ApprovalChoice, ApprovalButton.Role, String?)] = [
-            (.once, .primary, "↩"), (.alwaysView, .secondary, nil), (.alwaysFull, .secondary, nil), (.deny, .quietDestructive, "esc"),
+        // Allow remembers this Mac (the hub's Always at the scope asked for), so the next request is not asked.
+        let order: [(ApprovalChoice, String, ApprovalButton.Role, String?)] = [
+            (full ? .alwaysFull : .alwaysView, RemoteText.t("macScreen.approval.allow", "Allow"), .primary, nil),
+            (.once, RemoteText.t("macScreen.approval.onlyThisTime", "Allow Only This Time"), .secondary, nil),
+            (.deny, RemoteText.t("macScreen.approval.notNow", "Not Now"), .quietDestructive, "esc"),
         ]
-        for (choice, role, key) in order {
-            let button = ApprovalButton(choice.title, role: role, key: key) { answer(choice) }
+        for (choice, label, role, key) in order {
+            // SECURITY: an Allow's own action answers nothing; Not Now takes any press.
+            let button = ApprovalButton(label, role: role, key: key) { if choice == .deny { answer(choice) } }
+            if choice != .deny { allows.append((button, choice)) }
             button.isEnabled = enabled
             button.setAccessibilityIdentifier("macScreen.approval.\(choice.rawValue)")
             column.addArrangedSubview(button)
@@ -294,14 +399,10 @@ final class ApprovalView: NSView {
 
     override var acceptsFirstResponder: Bool { true }
 
-    /// Return allows once and Escape denies, once the person clicked into the card (the panel then has the keys).
+    /// Escape denies, once the person clicked into the card (the panel then has the keys). SECURITY: no key allows.
     override func keyDown(with event: NSEvent) {
-        guard buttons.first?.isEnabled == true else { return super.keyDown(with: event) }
-        switch event.keyCode {
-        case 36, 76: answer(.once)
-        case 53: answer(.deny)
-        default: super.keyDown(with: event)
-        }
+        guard buttons.first?.isEnabled == true, event.keyCode == 53 else { return super.keyDown(with: event) }
+        answer(.deny)
     }
 
     override func cancelOperation(_ sender: Any?) {
@@ -374,8 +475,7 @@ final class CodeWell: NSView {
     }
 }
 
-/// One answer, as the cmux dialog's button draws it: the primary a solid fill of the label color (Return on its
-/// keycap), a secondary a faint gray, Deny red text with no fill at rest (Escape). A held button changes only its
+/// One answer, as the cmux dialog's button draws it: the primary a solid fill of the label color, a secondary a faint gray, Deny red text with no fill at rest (Escape). A held button changes only its
 /// fill. The keyboard focus ring is the system's.
 @MainActor
 final class ApprovalButton: NSButton {
@@ -406,7 +506,7 @@ final class ApprovalButton: NSButton {
             keycap.setAccessibilityElement(false)
             addSubview(keycap)
             layer?.addSublayer(plate)
-            setAccessibilityHelp(key == "↩" ? "Return" : "Escape")
+            setAccessibilityHelp("Escape")
         }
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
@@ -415,6 +515,9 @@ final class ApprovalButton: NSButton {
     required init?(coder: NSCoder) { nil }
 
     @objc private func press() { run() }
+
+    /// The key its keycap shows (nil: none).
+    var keycapText: String? { keycap?.stringValue }
 
     override var isEnabled: Bool { didSet { needsDisplay = true } }
     override var isHighlighted: Bool { didSet { needsDisplay = true } }
