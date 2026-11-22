@@ -134,13 +134,15 @@ test("measured empty rows do not leave a gap at the beginning or the end", () =>
 // Review at 1691838: a placement kept from 100% must not survive a change to 125% Interface Size,
 // or its rows keep the 100% gaps while the CSS tokens draw the 125% ones.
 test("placed gaps follow an Interface Size change, kept rows included", () => {
-  const g = globalThis as { document?: unknown; getComputedStyle?: unknown };
-  const saved = { document: g.document, getComputedStyle: g.getComputedStyle };
+  const g = globalThis as { document?: unknown };
+  const saved = g.document;
   let scale = "1";
-  g.document ??= { documentElement: {} };
-  g.getComputedStyle = () => ({
-    getPropertyValue: (name: string) => (name === "--cmux-interface-scale" ? scale : ""),
-  });
+  // The host writes the scale inline on <html> (gridScale reads it there, never computed).
+  g.document = {
+    documentElement: {
+      style: { getPropertyValue: (name: string) => (name === "--cmux-interface-scale" ? scale : "") },
+    },
+  };
   try {
     const rows = [
       { id: "a", version: 1, at: 0, kind: "assistant", text: "One." },
@@ -161,23 +163,23 @@ test("placed gaps follow an Interface Size change, kept rows included", () => {
     expect(relaid.scale).toBe(1.25);
     expect(relaid.gaps?.[1]).toBe(30);
   } finally {
-    if (saved.document === undefined) delete g.document;
-    else g.document = saved.document;
-    if (saved.getComputedStyle === undefined) delete g.getComputedStyle;
-    else g.getComputedStyle = saved.getComputedStyle;
+    if (saved === undefined) delete g.document;
+    else g.document = saved;
   }
 });
 
 // Review at b1de39a: row estimates built from grid lengths (the action row, a tool row) scale with
 // the Interface Size like the CSS tokens, so first placement does not jump when rows are measured.
 test("estimated grid rows follow the Interface Size", () => {
-  const g = globalThis as { document?: unknown; getComputedStyle?: unknown };
-  const saved = { document: g.document, getComputedStyle: g.getComputedStyle };
+  const g = globalThis as { document?: unknown };
+  const saved = g.document;
   let scale = "1";
-  g.document ??= { documentElement: {} };
-  g.getComputedStyle = () => ({
-    getPropertyValue: (name: string) => (name === "--cmux-interface-scale" ? scale : ""),
-  });
+  // The host writes the scale inline on <html> (gridScale reads it there, never computed).
+  g.document = {
+    documentElement: {
+      style: { getPropertyValue: (name: string) => (name === "--cmux-interface-scale" ? scale : "") },
+    },
+  };
   try {
     const received = [
       { id: "r", version: 1, at: 0, kind: "user", text: "Task", received: {} },
@@ -204,10 +206,8 @@ test("estimated grid rows follow the Interface Size", () => {
       expect(atLarger).toBeCloseTo(atOne * 1.25, 5);
     }
   } finally {
-    if (saved.document === undefined) delete g.document;
-    else g.document = saved.document;
-    if (saved.getComputedStyle === undefined) delete g.getComputedStyle;
-    else g.getComputedStyle = saved.getComputedStyle;
+    if (saved === undefined) delete g.document;
+    else g.document = saved;
   }
 });
 

@@ -93,9 +93,16 @@ export const TRANSCRIPT_LINE_TO_LIVE_STEP =
 /// var(--cmux-interface-scale, 1))`). The virtual stack places its gaps with the same factor, so
 /// placed gaps match the drawn ones and the overlays laid in them at any Interface Size. Read once
 /// per layout pass.
+///
+/// Read from `<html>`'s inline style, never computed: the host writes it there
+/// (DesignSettings.swift `interfaceScaleScript`), as do the gallery and the tests, and the only rule
+/// that declares it is desktop.css's `:root` default of 1, which an absent inline value means. A
+/// computed read restyles whatever is dirty first, and at a chat page's start that is every element of
+/// its drawn copy (chatSnapshot/paint.ts) too. The inline read is a declaration lookup, so it stays
+/// per call and follows a write with or without `cmux-ui-scale-change`.
 export function gridScale(): number {
-  if (typeof document === "undefined" || typeof getComputedStyle !== "function") return 1;
-  const raw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--cmux-interface-scale"));
+  if (typeof document === "undefined") return 1;
+  const raw = parseFloat(document.documentElement?.style?.getPropertyValue?.("--cmux-interface-scale") ?? "");
   return Number.isFinite(raw) && raw > 0 ? raw : 1;
 }
 
