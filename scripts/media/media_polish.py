@@ -481,6 +481,8 @@ def probe(path: Path, run: Runner) -> Media:
         data = json.loads(done.stdout or "{}")
         stream = data["streams"][0]
         width, height = int(stream["width"]), int(stream["height"])
+        if width <= 0 or height <= 0:
+            raise ValueError("no picture")
     except (ValueError, KeyError, IndexError, TypeError):
         detail = (done.stderr or "").strip()[:200]
         raise PolishError(f"{path.name}: ffprobe found no picture in it ({detail})") from None

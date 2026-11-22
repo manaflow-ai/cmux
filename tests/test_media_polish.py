@@ -93,9 +93,9 @@ class DeviceRectTests(unittest.TestCase):
 
     def test_a_1x_guess_on_a_retina_capture_is_caught_by_the_bounds(self):
         # The element really is at 300,200 CSS px on a 2x capture of an 800x500 viewport.
-        MODULE.device_rect(Rect(300, 200, 100, 50), 2, (1600, 1000))
+        MODULE.device_rect(Rect(300, 200, 120, 60), 2, (1600, 1000))
         with self.assertRaises(PolishError):
-            MODULE.device_rect(Rect(300, 200, 100, 50), 4, (1600, 1000))
+            MODULE.device_rect(Rect(300, 200, 120, 60), 4, (1600, 1000))
 
     def test_offset_moves_the_box_for_window_chrome(self):
         box = MODULE.device_rect(Rect(0, 0, 10, 10), 2, (100, 100), offset=(0, 28))
@@ -301,7 +301,7 @@ class CommandTests(TempDirTest):
         out = self.dir / "dry" / "pane.png"
         tools = FakeTools({"shot.png": (400, 300)})
         code, printed = run_main(["crop", str(source), "--out", str(out), "--bounds", "1,1,5,5", "--scale", "1",
-                                  "--dry-run"], tools)
+                                  "--margin", "0", "--dry-run"], tools)
         self.assertEqual(code, 0)
         self.assertIn("would run: ffmpeg", printed)
         self.assertEqual(tools.ffmpeg_calls(), [])
