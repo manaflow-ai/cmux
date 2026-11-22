@@ -26,6 +26,8 @@ public final class WebDevOverrideWatcher {
     /// Counts ``reloadPages(live:hosting:pages:served:watcher:)`` calls, so an engine move a later reload
     /// superseded does not finish.
     private var reloadGeneration = 0
+    /// The pages in sight still waiting for a background change (``WebDevOverride/background``).
+    let deferred = WebSwapDeferred()
 
     /// A page or agent pane scheme handler is serving `webView`, from any of its paths (bundled
     /// file, dev server, overlay): it joins ``WebBundleServedViews`` so a change reloads it, and the
@@ -98,7 +100,7 @@ public final class WebDevOverrideWatcher {
     ///   - background: The change came on its own (``WebDevOverride/background``): a page in sight
     ///     never swaps under the eye; it takes the change once it is out of sight (``WebSwapDeferred``).
     ///     An asked change swaps every page at once, in place (``PageWebView/swapReload()``).
-    ///   - deferred: Where pages in sight wait for a background change (tests pass their own).
+    ///   - deferred: Where pages in sight wait for a background change (nil: the watcher's own; tests pass their own).
     /// - Returns: The work still running for pages that change engine or swap in place, nil for none (tests wait on it).
     @discardableResult
     static func reloadPages(live: Bool = WebDevOverride.current.isActive,
@@ -107,7 +109,8 @@ public final class WebDevOverrideWatcher {
                             served: WebBundleServedViews = .shared,
                             watcher: WebDevOverrideWatcher = .shared,
                             background: Bool = false,
-                            deferred: WebSwapDeferred = .shared) -> Task<Void, Never>? {
+                            deferred: WebSwapDeferred? = nil) -> Task<Void, Never>? {
+        let deferred = deferred ?? watcher.deferred
         watcher.reloadGeneration &+= 1
         let chromiumLive = live && (hosting?.setLivePages(true) ?? false)
         if !live { _ = hosting?.setLivePages(false) }

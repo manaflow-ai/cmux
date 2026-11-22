@@ -20,7 +20,6 @@ public enum WebSwapSight {
 /// ``WebSwapGate``-style retry while any page waits; none otherwise.
 @MainActor
 public final class WebSwapDeferred {
-    public static let shared = WebSwapDeferred()
     /// How long between looks while a page waits (the safe point's own retry).
     static let retry: Duration = .seconds(2)
 
@@ -33,6 +32,8 @@ public final class WebSwapDeferred {
 
     private var waiting: [ObjectIdentifier: Waiting] = [:]
     private let timer = DemandTimer(owner: "web-swap.deferred")
+
+    init() {}
     /// Tests: what counts as in sight (``WebSwapSight/inSight(_:)``).
     var inSight: @MainActor (NSView) -> Bool = { WebSwapSight.inSight($0) }
 
