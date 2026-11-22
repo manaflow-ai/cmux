@@ -582,6 +582,8 @@ mod terminal_seats;
 mod test_socket_path;
 mod tree_selection_deltas;
 mod view_leases;
+#[cfg(unix)]
+mod wheel_round_trip;
 mod wire_commands;
 mod workspace_checklist_capability;
 mod workspace_name_source;
