@@ -3,7 +3,6 @@ import CmuxNextActions
 import CmuxNextCrashReporting
 import CmuxNextAgentPane
 import CmuxNextDaemon
-import CmuxNextImportCards
 
 // Launch work no first frame needs: AppDelegate starts it once the first window's
 // frame is committed (FirstFrameGate), so it never delays that frame (perf-launch-memory).

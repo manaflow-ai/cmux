@@ -109,8 +109,7 @@ enum OnboardingHandlers {
             openSettings: { route in try? services.settingsWindow.show(section: nil, route: route) },
             importClassic: { progress in try await importClassic(services, in: nil, progress: progress)?.opened },
             importConductor: { progress in try await ConductorImport(host: services).run(progress: progress) },
-            classicWorkspaces: { try? await AppOnboardingServices(owner: services.onboarding).classicImportClient().plan(.manual, outline: true).plan?.workspaces.count },
-            detectConductor: { await ConductorImportClient.detect(on: services.daemon.connection) })
+            classicWorkspaces: { try? await AppOnboardingServices(owner: services.onboarding).classicImportClient().plan(.manual, outline: true).plan?.workspaces.count }, detectConductor: { await ConductorImportClient.detect(on: services.daemon.connection) })
     }
 
     /// Import Workspaces from Classic cmux as every entrypoint runs it (the action, the cmux
