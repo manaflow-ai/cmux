@@ -144,7 +144,7 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     drop(stream);
     let app_ok = checks[0].ok;
     let mut default_harness: Option<String> = None;
-    if app_ok && let Some(socket) = acpmux_socket.clone() {
+    if app_ok && let Some(socket) = acpmux_socket {
         checks.push(timed("models", MODELS_DEADLINE, || {
             match acp::models(&socket, MODELS_DEADLINE) {
                 Ok(answer) => {
@@ -590,9 +590,18 @@ pub(super) fn report(identify: &Value, checks: &[Check]) -> Value {
             "commit": commit,
         })
     };
+    // `failed`: the checks that ran and failed, each `{name, reason}`, for a caller that acts on the
+    // verdict (the updater's Go Back offer, an automatic rollback) without walking `checks`.
+    // A check skipped because an earlier one failed is not listed: the earlier one is.
+    let failed: Vec<Value> = checks
+        .iter()
+        .filter(|check| !check.ok && check.reason != "skipped")
+        .map(|check| json!({"name": check.name, "reason": check.reason}))
+        .collect();
     json!({
         "ok": !checks.is_empty() && checks.iter().all(|check| check.ok),
         "app": app,
+        "failed": failed,
         "checks": checks.iter().map(Check::json).collect::<Vec<_>>(),
     })
 }

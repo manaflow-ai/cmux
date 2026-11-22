@@ -16,8 +16,6 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     public var oneClickInstall = UpdatesSettings.oneClickInstallDefault
     /// What's New's Versions list offers Install on each build (off until a nightly proves it).
     public var whatsNewInstall = UpdatesSettings.whatsNewInstallDefault
-    /// A failed check after an update (`cmux app health`) goes back to the kept build by itself (off: the card offers it).
-    public var autoRollback = UpdatesSettings.autoRollbackDefault
     public var installOnQuit = UpdatesSettings.installOnQuitDefault
     /// Opt-in: a downloaded update installs by itself once cmux has been idle
     /// `installWhenIdleMinutes`, never while an agent works or a message is unsent.
@@ -52,7 +50,6 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
         if let value = reader.bool("downloadAutomatically") { settings.downloadAutomatically = value }
         if let value = reader.bool("oneClickInstall") { settings.oneClickInstall = value }
         if let value = reader.bool("whatsNewInstall") { settings.whatsNewInstall = value }
-        if let value = reader.bool("autoRollback") { settings.autoRollback = value }
         if let value = reader.bool("installOnQuit") { settings.installOnQuit = value }
         if let value = reader.bool("installWhenIdle") { settings.installWhenIdle = value }
         if let value = reader.number("installWhenIdleMinutes", range: installWhenIdleMinutesRange) {

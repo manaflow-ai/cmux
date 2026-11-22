@@ -111,12 +111,15 @@ fn report_is_ok_only_when_every_check_passed() {
     assert_eq!(value["ok"], true);
     assert_eq!(value["app"]["build"], "900");
     assert_eq!(value["checks"][0]["name"], "app");
+    assert_eq!(value["failed"], json!([]));
 
     let failed =
         Check { name: "terminal", ok: false, reason: "terminal.no_echo".into(), ..pass.clone() };
-    let value = report(&identify, &[pass, failed]);
+    let value = report(&identify, &[pass, failed, skipped("chat")]);
     assert_eq!(value["ok"], false);
     assert_eq!(value["checks"][1]["reason"], "terminal.no_echo");
+    // `failed` names what ran and failed; a skipped check is not listed.
+    assert_eq!(value["failed"], json!([{"name": "terminal", "reason": "terminal.no_echo"}]));
     assert!(human(&value).contains("terminal.no_echo"));
 
     assert_eq!(report(&json!(null), &[])["ok"], false);
@@ -144,7 +147,7 @@ fn relay_fails_on_the_initialize_refusal_since_the_launch() {
         "first_ms": 1000,
         "last_ms": 5000,
     });
-    let verdict = relay_verdict(&json!({"entries": [refusal.clone()]}), 2000);
+    let verdict = relay_verdict(&json!({"entries": [refusal]}), 2000);
     assert!(!verdict.ok);
     assert_eq!(verdict.reason, "relay.refused");
     assert!(verdict.detail.contains("737"), "{}", verdict.detail);

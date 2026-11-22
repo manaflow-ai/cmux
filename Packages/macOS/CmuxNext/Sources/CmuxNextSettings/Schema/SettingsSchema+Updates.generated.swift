@@ -21,9 +21,6 @@ extension UpdatesSettings {
     /// `updates.whatsNewInstall`: What's New's Versions list offers Install on each build (Leo 2026-11-05: "Like literally with a click to a past nightly", cmux#36375). Off until a nightly proves the install end to end on a fleet Mac; then a follow-up turns it on.
     public nonisolated static let whatsNewInstallPath = ["updates", "whatsNewInstall"]
     public nonisolated static let whatsNewInstallDefault = false
-    /// `updates.autoRollback`: After a relaunch into a new build, cmux checks chat, the model picker and terminals once (`cmux app health`). Off: a failed check offers Go Back on the notice card. On: cmux goes back to the kept build by itself (Leo 2026-11-21: "we ought to have good recovery and bisecting either automatically or agents being able to just say actually let's go back").
-    public nonisolated static let autoRollbackPath = ["updates", "autoRollback"]
-    public nonisolated static let autoRollbackDefault = false
     /// `updates.meteredNetwork`: What automatic downloads do on a metered link.
     public nonisolated static let meteredNetworkPath = ["updates", "meteredNetwork"]
     public nonisolated static let meteredNetworkDefault: UpdatesMeteredSetting = .deferLowData
@@ -143,16 +140,6 @@ nonisolated enum UpdateSettingsSchema {
                 kind: .toggle,
                 default: .bool(UpdatesSettings.whatsNewInstallDefault),
                 keywords: ["update", "install", "version", "rollback", "earlier", "nightly", "what's new"]
-            ),
-            SettingDescriptor(
-                UpdatesSettings.autoRollbackPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.updates.autoRollback", "Go Back Automatically When an Update Breaks"),
-                help: SettingsText.keyed("settings.updates.autoRollback.help", "When chat, the model picker or terminals fail after an update, restart into the previous version without asking."),
-                kind: .toggle,
-                default: .bool(UpdatesSettings.autoRollbackDefault),
-                keywords: ["update", "rollback", "go back", "previous version", "health", "broken"]
             ),
             SettingDescriptor(
                 UpdatesSettings.meteredNetworkPath,

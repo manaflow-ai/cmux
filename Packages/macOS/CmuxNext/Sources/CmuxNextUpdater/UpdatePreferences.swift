@@ -22,13 +22,9 @@ nonisolated public struct UpdatePreferences: Equatable, Sendable {
     public var oneClickInstall: Bool
     /// `updates.whatsNewInstall`: What's New lists Install on each build (ChangelogInstallProvider).
     public var whatsNewInstall: Bool
-    /// `updates.autoRollback`: a failed check after an update (``UpdateHealthCheck``) restarts into
-    /// the kept build by itself; off (the default), the notice card offers Go Back.
-    public var autoRollback: Bool
 
     public init(installOnQuit: Bool = false, notify: UpdateNotifyMode = .badge, keepPreviousVersions: Int = 1,
-                oneClickInstall: Bool = false, whatsNewInstall: Bool = false, autoRollback: Bool = false) {
-        self.autoRollback = autoRollback
+                oneClickInstall: Bool = false, whatsNewInstall: Bool = false) {
         self.whatsNewInstall = whatsNewInstall
         self.installOnQuit = installOnQuit
         self.notify = notify
