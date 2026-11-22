@@ -17,9 +17,13 @@ public struct AgentChatListing: Identifiable, Hashable, Sendable {
     public var archived: Bool
     /// The last prompt, for search and the row's second line.
     public var lastPrompt: String?
+    /// Where the chat stands and its next action, as the Mac's acpmux keeps them after each turn
+    /// a person started (`rollingSummary`): the row's summary line, as the Mac sidebar's hover card.
+    public var summary: String?
+    public var nextAction: String?
 
     public init(id: String, title: String?, harness: String, cwd: String, status: String, updatedAt: Date?,
-                archived: Bool, lastPrompt: String? = nil) {
+                archived: Bool, lastPrompt: String? = nil, summary: String? = nil, nextAction: String? = nil) {
         self.id = id
         self.title = title
         self.harness = harness
@@ -28,6 +32,16 @@ public struct AgentChatListing: Identifiable, Hashable, Sendable {
         self.updatedAt = updatedAt
         self.archived = archived
         self.lastPrompt = lastPrompt
+        self.summary = summary
+        self.nextAction = nextAction
+    }
+
+    /// The row's summary line: the rolling summary, then its next action after an arrow, as the
+    /// Mac's expanded sidebar row reads it; nil before the chat's first summary.
+    public var summaryLine: String? {
+        guard let summary = summary?.trimmingCharacters(in: .whitespacesAndNewlines), !summary.isEmpty else { return nil }
+        guard let next = nextAction?.trimmingCharacters(in: .whitespacesAndNewlines), !next.isEmpty else { return summary }
+        return "\(summary) → \(next)"
     }
 
     /// The title the list shows (the Mac's `handlers.agentChats.untitled`).
@@ -66,7 +80,7 @@ extension AgentChatListing {
         return chats.filter { chat in
             guard chat.archived == (scope == .archived) else { return false }
             guard !words.isEmpty else { return true }
-            let haystack = [chat.displayTitle, chat.cwd, chat.harness, chat.lastPrompt ?? ""].joined(separator: "\n")
+            let haystack = [chat.displayTitle, chat.cwd, chat.harness, chat.lastPrompt ?? "", chat.summaryLine ?? ""].joined(separator: "\n")
             return words.allSatisfy { haystack.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
         }
     }

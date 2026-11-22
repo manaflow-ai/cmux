@@ -374,6 +374,9 @@ pub use level::{LOAD_RELEASE_FRACTION, LOAD_WARN_FRACTION, Level, Reading, Track
 mod rejudge;
 pub use rejudge::with_pressure;
 
+// Where new work runs: here, or spilled to a machine with room (RFD 0032 "Place").
+pub mod place;
+
 // The shadow admission verdict (cmuxterm-hq#7342): logged beside a pick, never acted on.
 mod shadow;
 pub use shadow::{

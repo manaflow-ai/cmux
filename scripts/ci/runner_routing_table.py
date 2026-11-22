@@ -9,8 +9,7 @@ ask whether the job needed macOS. This module asks.
 
 * `job_classes`: what kind of work a job does, and whether that kind of work
   needs macOS (`"needs": "macos"`), runs on Linux (`"needs": "linux"`), or
-  runs anywhere (`"needs": "any"`: fleet Linux first, then a free owned mini,
-  Blacksmith Linux last, through scripts/ci/portable_job_placement.py).
+  runs anywhere (`"needs": "any"`: it takes cmux-linux).
 * `macos_jobs`: every workflow job whose `runs-on:` can route to macOS,
   as `"<workflow file>#<job id>"`, mapped to its class.
 
@@ -513,7 +512,7 @@ def referenced_secrets(value: Any) -> set[str]:
 FORK_PR_BLACKSMITH = re.compile(
     r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != github\.repository"
     r" && 'blacksmith-\d+vcpu-ubuntu-2404'")
-# The CI_TRUSTED_RUNNER selector (scripts/ci/validate-cla-policy.rb), split at its top-level `||`. A
+# The CI_TRUSTED_RUNNER selector (main's scripts/ci/validate-cla-policy.rb), split at its top-level `||`. A
 # secretless declared light job whose workflow cannot read RUNNER_POOLS may retry on it.
 TRUSTED_SELECTOR_TAIL = [
     "contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "

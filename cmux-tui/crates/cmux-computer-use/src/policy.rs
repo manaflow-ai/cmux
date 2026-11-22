@@ -119,6 +119,10 @@ pub struct PolicyConfig {
     /// Show a live view of the window an agent drives in its cmux surface
     /// (`computerUse.livePreview`, [`crate::preview`]).
     pub live_preview: bool,
+    /// While the screen is locked, app and window lists, window captures and
+    /// background input to a window go on (`computerUse.whileLocked`,
+    /// [`crate::locked`]); off, every call but status is refused.
+    pub while_locked: bool,
 }
 
 impl Default for PolicyConfig {
@@ -134,6 +138,7 @@ impl Default for PolicyConfig {
             settle: SettleMode::Adaptive,
             menus: crate::menus::MenuMode::Open,
             live_preview: true,
+            while_locked: false,
         }
     }
 }
@@ -153,6 +158,8 @@ impl PolicyConfig {
             settle: SettleMode::Adaptive,
             menus: crate::menus::MenuMode::Open,
             live_preview: true,
+            // A cloud VM never locks (auto-login, lock off).
+            while_locked: false,
         }
     }
 }

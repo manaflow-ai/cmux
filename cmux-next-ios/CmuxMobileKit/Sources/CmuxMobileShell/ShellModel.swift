@@ -196,6 +196,9 @@ final class ShellModel {
         }
         // `-cmux-mobile-no-agents`: the Mac starts no agents from the phone (New Task is not offered).
         if CommandLine.arguments.contains("-cmux-mobile-no-agents") { mock.offersAgents = false }
+        // `-cmux-mobile-agent-chats`: the Mac also starts agent chats in its folders, as a live
+        // Mac does (New Workspace's New Agent Chat ▸, for its captures).
+        if CommandLine.arguments.contains("-cmux-mobile-agent-chats") { mock.offersAgentChats = true }
         // `-cmux-mobile-refuse-next-create`: the next workspace the phone makes is refused in the
         // live Mac's words for a chat folder it has no workspace in (New Workspace's error capture).
         if CommandLine.arguments.contains("-cmux-mobile-refuse-next-create") {
@@ -324,6 +327,13 @@ final class ShellModel {
     }
     #endif
 
+    /// New Task started (the floating button on Workspaces or Feed): one workspace opens at once
+    /// on Workspaces; several stay in the list, each row spinning until its Mac answers.
+    func startedTask(_ made: [Workspace]) {
+        guard made.count == 1, let workspace = made.first else { return }
+        show(workspace: workspace)
+    }
+
     /// Shows `workspace` in place of the one on screen (the Chats list's Open in New Workspace).
     /// The destination keeps its screen state at the same place in the path, so the path is
     /// emptied first and the workspace pushed on the next turn, as `openTerminal` does.
@@ -424,6 +434,7 @@ final class ShellModel {
             }
             terminalTabs.hasLiveSession = { [weak live] id, macID in live?.hasLiveSession(tabID: id, macID: macID) ?? false }
             terminalTabs.workspaceLookup = { [weak store] id in store?.workspace(id: id) }
+            terminalTabs.macLinkUp = { [weak store] macID in store?.macConnection[macID].map { $0 == .connected } ?? true }
             terminalTabs.artifactSourceProvider = { [weak live] tab, macID in live?.terminalArtifactSource(tabID: tab.id, macID: macID) }
             terminalTabs.uploaderProvider = { [weak live] tab, macID in live?.terminalUploader(tabID: tab.id, macID: macID) }
             terminalTabs.screenTextProvider = { [weak live] tab, macID in await live?.terminalScreenText(tabID: tab.id, macID: macID) }
@@ -476,6 +487,7 @@ final class ShellModel {
             terminalTabs.sessionProvider = nil
             terminalTabs.showConnectedDevices = nil
             terminalTabs.hasLiveSession = nil
+            terminalTabs.macLinkUp = nil
             terminalTabs.artifactSourceProvider = nil
             terminalTabs.uploaderProvider = nil
             terminalTabs.screenTextProvider = nil

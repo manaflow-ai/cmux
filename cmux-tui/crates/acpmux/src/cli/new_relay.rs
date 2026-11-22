@@ -151,7 +151,7 @@ pub(crate) fn relay_with_deadline(
     use std::io::{Read, Seek};
     let (program, own) = relay.argv.split_first().ok_or_else(|| anyhow!("newRelay has no argv"))?;
     let mut out = if capture { Some(tempfile::tempfile().context("the new relay")?) } else { None };
-    let mut cmd = cmux_process::Command::new(program);
+    let mut cmd = cmux_process::Command::new(crate::cli::send_relay::find_relay_program(program)?);
     cmd.args(own)
         .args(args)
         .env(RELAYED_ENV, "1")

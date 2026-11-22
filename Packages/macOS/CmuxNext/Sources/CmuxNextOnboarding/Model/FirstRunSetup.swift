@@ -4,9 +4,9 @@ public import Observation
 /// Whether Home shows the Set Up cmux card (goal next-first-run-setup; Lawrence 2026-10-09: "i do not want new
 /// window ... just drop user into main screen asap"). A first run starts it in place of the first-run windows:
 /// the Agents window and the CLI toast at launch mark themselves shown, so their rows on the card are the one
-/// place they are offered. Bring your history keeps its own once flag: the card's chat history row sets it
-/// only once that page showed or the row (or the card) was dismissed. Hide or every row done ends first-run setup,
-/// per channel (`defaults`). An explicit reopen keeps the card visible until Hide.
+/// place they are offered. Hide or every row done ends first-run setup, per channel (`defaults`), and marks this
+/// Mac's first launch finished (``OnboardingWindowPresenter/historyShownKey``). An explicit reopen keeps the card
+/// visible until Hide.
 @MainActor
 @Observable
 public final class FirstRunSetup {
@@ -14,8 +14,6 @@ public final class FirstRunSetup {
     public static let stateKey = "home.firstRun.setupCard"
     /// Whether Home shows the card now.
     public private(set) var shows: Bool
-    /// Bring your history showed, or its row was dismissed (``OnboardingWindowPresenter/historyShownKey``).
-    public private(set) var historyDone: Bool
     @ObservationIgnored private let defaults: UserDefaults
 
     /// `skipsOnboarding` (`--skip-onboarding`, `CMUX_NEXT_SKIP_ONBOARDING=1`): the card stays away for this launch
@@ -24,7 +22,6 @@ public final class FirstRunSetup {
         self.defaults = defaults
         self.skipsOnboarding = skipsOnboarding
         shows = !skipsOnboarding && ["pending", "reopened"].contains(defaults.string(forKey: Self.stateKey) ?? "")
-        historyDone = defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey)
     }
 
     @ObservationIgnored private let skipsOnboarding: Bool
@@ -82,12 +79,6 @@ public final class FirstRunSetup {
         return model
     }
 
-    /// The chat history row is answered: its page showed, or the person dismissed it.
-    public func historyAnswered() {
-        defaults.set(true, forKey: OnboardingWindowPresenter.historyShownKey)
-        historyDone = true
-    }
-
     /// At launch, after the classic migration: a first run starts the card and marks the windows it replaces
     /// (`replacedKeys`: their once flags) shown. True when the card started now. Never twice, and never on an
     /// upgrade (`isFirstRun` false) or when the first-run Agents window already showed on this channel. With
@@ -104,7 +95,7 @@ public final class FirstRunSetup {
     }
 
     /// What a launch's first-run steps do: start the card now, leave them to a card that started on an earlier
-    /// launch (pending or ended: the old windows never run after it, so Bring your history's flag stays the row's),
+    /// launch (pending or ended: the old windows never run after it),
     /// or run the first-run windows (no card ever started).
     public enum Route: Equatable, Sendable { case startCard, cardOwns, windows }
 
@@ -114,10 +105,10 @@ public final class FirstRunSetup {
         return defaults.string(forKey: Self.stateKey) == nil ? .windows : .cardOwns
     }
 
-    /// Hide, or first-run completion: the card leaves until explicitly reopened, and its chat history row with it.
+    /// Hide, or first-run completion: the card leaves until explicitly reopened, and this Mac's first launch is finished.
     public func end() {
         guard defaults.string(forKey: Self.stateKey) != "ended" else { return }
-        historyAnswered()
+        defaults.set(true, forKey: OnboardingWindowPresenter.historyShownKey)
         defaults.set("ended", forKey: Self.stateKey)
         shows = false
     }

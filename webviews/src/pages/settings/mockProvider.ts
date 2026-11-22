@@ -66,6 +66,13 @@ import {
   type LibraryRun,
   type ModelsRun,
   type ModelsState,
+  type AgentSkillsRun,
+  type AgentSkillsState,
+  type AgentHooksRun,
+  type AgentHooksState,
+  type AgentConfigAgent,
+  type AgentConfigRun,
+  type AgentConfigState,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -74,6 +81,7 @@ import { MockAgents } from "./mockAgents";
 import { mockChannels } from "./mockChannels";
 import { mockThemeColors } from "./mockThemes";
 import { mockLibrary, runLibrary } from "./mockLibrary";
+import { mockAgentConfig, runAgentConfigMock } from "./mockAgentConfig";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import type { WorktreeRecipe } from "../../worktreeRecipe";
 
@@ -529,6 +537,11 @@ export class MockSettingsProvider {
         ({
           general: [{ id: "palette.makeDefaultTerminal", title: "Make cmux the Default Terminal", enabled: true }],
           advanced: [{ id: "reloadConfiguration", title: "Reload Configuration", enabled: true }],
+          appearance: [
+            { id: "space.setTheme", title: "Set Space Theme…", enabled: true },
+            { id: "workspace.setTheme", title: "Set Workspace Theme…", enabled: true },
+          ],
+          rooms: [{ id: "space.new", title: "New Space", enabled: true }],
         })[String((params as { section: string }).section)] ?? [],
       "cmux.settings.backdrop.choose_image": () => ({ id: null }),
       "cmux.settings.backdrop.wallpaper_settings": () => ({}),
@@ -572,6 +585,7 @@ export class MockSettingsProvider {
       "cmux.settings.app_update.run": () => ({}),
       "cmux.settings.web_updates.check": () => ({}),
       "cmux.settings.web_updates.rollback": () => ({}),
+      "cmux.settings.language.relaunch": () => ({}),
       "cmux.settings.folders.add": (params) => {
         const key = String((params as { key: string }).key);
         const current = Array.isArray(this.values.get(key)) ? (this.values.get(key) as string[]) : [];
@@ -726,6 +740,25 @@ export class MockSettingsProvider {
         };
         return {};
       },
+      "cmux.settings.agentSkills.state": () => this.agentSkills,
+      "cmux.settings.agentSkills.run": (params) => {
+        const run = params as AgentSkillsRun;
+        const shown = this.agentSkills;
+        if (run.action === "refresh" || !shown.enabled) return this.agentSkills;
+        const row = shown.skills.find((entry) => entry.path === run.path);
+        // Like the host: only a listed file.
+        if (!row) throw new ProtocolError("cmux.settings.invalid", "path must be a listed skill's file");
+        this.agentSkillRuns.push(run);
+        if (run.action === "on" || run.action === "off") {
+          this.agentSkills = {
+            ...shown,
+            skills: shown.skills.map((entry) =>
+              entry.path === run.path ? { ...entry, enabled: run.action === "on" } : entry,
+            ),
+          };
+        }
+        return this.agentSkills;
+      },
       "cmux.settings.agentMcp.state": () => (this.agentMcp.enabled ? this.agentMcp : { enabled: false, servers: [] }),
       "cmux.settings.agentMcp.run": (params) => {
         const run = params as AgentMcpRun;
@@ -767,6 +800,43 @@ export class MockSettingsProvider {
         };
         return {};
       },
+      "cmux.settings.agentHooks.state": () => this.agentHooks,
+      "cmux.settings.agentHooks.run": (params) => {
+        const run = params as AgentHooksRun;
+        const state = this.agentHooks;
+        if (!state.available || run.action === "refresh") return state;
+        this.agentHookRuns.push(run);
+        const listing = state.listing!;
+        if (run.action === "add") {
+          const hook = {
+            id: `${run.agent}-new${listing.hooks.length}`,
+            agent: run.agent,
+            scope: run.scope ?? "user",
+            file: "",
+            event: run.event,
+            matcher: run.matcher ?? null,
+            type: "command",
+            command: run.command,
+            timeout: run.timeout ?? null,
+            enabled: true,
+            owner: "user" as const,
+            read_only: false,
+          };
+          this.agentHooks = { ...state, listing: { ...listing, hooks: [...listing.hooks, hook] } };
+          return this.agentHooks;
+        }
+        const row = listing.hooks.find((entry) => entry.id === run.id);
+        // Like the host: only a listed, editable hook.
+        if (!row) throw new ProtocolError("cmux.settings.invalid", "id must be a listed hook");
+        const hooks =
+          run.action === "remove"
+            ? listing.hooks.filter((entry) => entry.id !== run.id)
+            : listing.hooks.map((entry) =>
+                entry.id === run.id ? { ...entry, enabled: run.action === "enable" } : entry,
+              );
+        this.agentHooks = { ...state, listing: { ...listing, hooks } };
+        return this.agentHooks;
+      },
       "cmux.settings.mcp.state": () => this.mcpServers,
       "cmux.settings.mcp.run": (params) => {
         const run = params as McpServersRun;
@@ -792,6 +862,18 @@ export class MockSettingsProvider {
                 ),
         };
         return {};
+      },
+      "cmux.settings.agentConfig": (params) => {
+        const run = params as AgentConfigRun;
+        // Like the host while labs.agentCustomization is off there.
+        if (this.agentConfigDisabled) return { enabled: false };
+        // Like the host: changes and opens are the person's; a get only reads.
+        if (run.verb !== "get") this.agentConfigRuns.push(run);
+        const current = this.agentConfig[run.agent];
+        if (!current) throw new ProtocolError("cmux.settings.invalid", "agent is claude or codex");
+        const { state, answer } = runAgentConfigMock(current, run);
+        this.agentConfig[run.agent] = state;
+        return answer;
       },
       "cmux.app.clipboard.write": (params) => {
         this.clipboard = String(params.text);
@@ -865,9 +947,14 @@ export class MockSettingsProvider {
       "cmux.settings.agentTools.state",
       "cmux.settings.agentTools.run",
       "cmux.settings.mcp.state",
+      "cmux.settings.agentSkills.state",
+      "cmux.settings.agentSkills.run",
       "cmux.settings.mcp.run",
+      "cmux.settings.agentConfig",
       "cmux.settings.agentMcp.state",
       "cmux.settings.agentMcp.run",
+      "cmux.settings.agentHooks.state",
+      "cmux.settings.agentHooks.run",
       "cmux.settings.theme.set",
       "cmux.settings.theme.colors",
       "cmux.settings.theme.accepts",
@@ -889,6 +976,7 @@ export class MockSettingsProvider {
       "cmux.settings.app_update.run",
       "cmux.settings.web_updates.check",
       "cmux.settings.web_updates.rollback",
+      "cmux.settings.language.relaunch",
       "cmux.settings.server.restart",
       "cmux.settings.server.pair",
       "cmux.settings.section.actions",
@@ -953,7 +1041,7 @@ export class MockSettingsProvider {
     for (const ctx of this.devicesChanged) ctx.emit(devices);
   }
 
-  /** What `cmux customize library` lists (Personalization > Customization Library). */
+  /** What `cmux customize library` lists (Appearance > Customization Library). */
   library: LibraryListing = mockLibrary();
   /** The CLI's refusal of every library change (a preview is open); null: changes run. */
   libraryRefusal: string | null = null;
@@ -1540,8 +1628,19 @@ export class MockSettingsProvider {
       },
     ],
   };
+  /** Settings > Agents > Claude Code & Codex: each agent's settings as `agent-config settings get`
+   * answers them (mockAgentConfig.ts); `set` and `unset` change them in memory. */
+  agentConfig: Record<AgentConfigAgent, AgentConfigState> = mockAgentConfig();
+  /** Every Claude Code & Codex change and open the page sent (a get is not recorded). */
+  readonly agentConfigRuns: AgentConfigRun[] = [];
+  /** The host's lab is off: every call answers `{enabled: false}`. */
+  agentConfigDisabled = false;
   /** MCP Servers gestures the page sent (sign in, remove). */
   readonly mcpServerRuns: McpServersRun[] = [];
+  /** Settings > Agents > Claude Code & Codex > Skills (`SettingsAgentSkills.state`); Labs off by default. */
+  agentSkills: AgentSkillsState = { enabled: false };
+  /** Skills gestures the page sent (open, reveal, on, off). */
+  readonly agentSkillRuns: AgentSkillsRun[] = [];
   /** Settings > MCP Servers, Claude Code and Codex: off (Labs) until a test or gallery turns it on. */
   agentMcp: AgentMcpState = {
     enabled: false,
@@ -1649,6 +1748,94 @@ export class MockSettingsProvider {
   };
   /** Claude Code / Codex MCP gestures the page sent. */
   readonly agentMcpRuns: AgentMcpRun[] = [];
+
+  /** Settings > Agents > Claude Code & Codex > Hooks as the app serves it (`SettingsAgentHooks.state`);
+   * `{ available: false }` is the Labs switch off. */
+  agentHooks: AgentHooksState = {
+    available: true,
+    error: null,
+    listing: {
+      counts: { claude: 3, codex: 2 },
+      codex_hooks_feature: true,
+      elapsed_micros: 900,
+      files: [],
+      hooks: [
+        {
+          id: "claude-0a1b2c3d4e",
+          agent: "claude",
+          scope: "user",
+          file: "/Users/me/.claude/settings.json",
+          event: "PreToolUse",
+          matcher: "Bash",
+          type: "command",
+          command: "bash ~/.claude/hooks/guard.sh",
+          timeout: null,
+          enabled: true,
+          owner: "user",
+          read_only: false,
+        },
+        {
+          id: "claude-1a1b2c3d4e",
+          agent: "claude",
+          scope: "user",
+          file: "/Users/me/.claude/settings.json",
+          event: "Stop",
+          matcher: null,
+          type: "command",
+          command: "notify-done",
+          timeout: 5,
+          enabled: false,
+          owner: "user",
+          read_only: false,
+        },
+        {
+          id: "claude-2a1b2c3d4e",
+          agent: "claude",
+          scope: "user",
+          file: "/Users/me/.claude/settings.json",
+          event: "SessionStart",
+          matcher: null,
+          type: "command",
+          command: '"${CMUX_TUI_HOOK:-:}" claude SessionStart;#cmux-tui-journal-hook',
+          timeout: 5,
+          enabled: true,
+          owner: "cmux",
+          read_only: true,
+        },
+        {
+          id: "codex-3a1b2c3d4e",
+          agent: "codex",
+          scope: "user",
+          file: "/Users/me/.codex/hooks.json",
+          event: "PreToolUse",
+          matcher: "Bash",
+          type: "command",
+          command: "lazy-command hook",
+          timeout: null,
+          enabled: true,
+          owner: "user",
+          read_only: false,
+          trust: "trusted",
+        },
+        {
+          id: "codex-4a1b2c3d4e",
+          agent: "codex",
+          scope: "user",
+          file: "/Users/me/.codex/hooks.json",
+          event: "Stop",
+          matcher: null,
+          type: "command",
+          command: "say done",
+          timeout: null,
+          enabled: true,
+          owner: "user",
+          read_only: false,
+          trust: "untrusted",
+        },
+      ],
+    },
+  };
+  readonly agentHookRuns: AgentHooksRun[] = [];
   /** Agent integrations gestures the page sent (install, repair, remove). */
   readonly integrationRuns: IntegrationsRun[] = [];
 

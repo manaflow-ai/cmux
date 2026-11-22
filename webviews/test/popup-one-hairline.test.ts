@@ -147,7 +147,7 @@ describe("web popups draw one hairline edge", () => {
   // draws their one edge, checked with the glass popups below.
   test("the pane's menus and popovers are all checked", () => {
     const selectors = uses.map((use) => use.selector).join("\n");
-    for (const popup of [".acpmux-summary-card", ".lg-palette", ".find-pill"]) {
+    for (const popup of [".acpmux-summary-card", ".find-pill"]) {
       expect(selectors).toContain(popup);
     }
   });
@@ -173,6 +173,7 @@ describe("web popups draw one hairline edge", () => {
     ".acpmux-agents-list",
     ".md-link-popover",
     ".acpmux-omni",
+    ".lg-palette",
   ];
   test("a glass popup's elevation is the drop alone, under the glass's one rim", () => {
     const elevations = css.flatMap(({ text }) =>

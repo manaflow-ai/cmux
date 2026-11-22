@@ -83,7 +83,7 @@ extension SidebarListViewComponents {
     /// drawn row that no fold, no collapsed group and no Archive keeps for the selection.
     private func keepsRows(selecting id: WorkspaceID?, inserted: WorkspaceID, _ o: SidebarLayoutOptions) -> Bool {
         guard let id, id != inserted, let ws = workspaces[id] else { return true }
-        guard !ws.isArchived, !(o.foldsDone && ws.taskStatus == .done) else { return false }
+        guard !ws.isArchived, !(o.foldsDone && ws.taskStatus == .done), !o.settled.contains(id) else { return false }
         // Listed but not drawn: a collapsed group or a fold hides it, and its selection would draw it.
         guard let row = displayed.row(for: .workspace(id)) else { return false }
         // A group that leaves for the Archive stays in its list while it holds the selection (`splittingArchive`),

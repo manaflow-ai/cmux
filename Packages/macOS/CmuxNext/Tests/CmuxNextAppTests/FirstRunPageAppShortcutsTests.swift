@@ -10,7 +10,7 @@ import Testing
 
 /// App shortcuts that open content work over a top page, the way Chrome's Cmd-T works over its
 /// welcome page. P0 (lead 2026-11-04 00:25Z, STATUS 10364): on a fresh profile the first window
-/// shows Bring your history (#33215) as a top page, and the person's New Terminal Tab key (Ctrl-`)
+/// showed a first-run top page (Bring your history, #33215, since removed), and the person's New Terminal Tab key (Ctrl-`)
 /// made no terminal: 5 of 10 P0 journeys failed at "new_terminal: no new focused terminal pane
 /// within 20 s". Every action with targets [.tab] (New Terminal Tab, New Tab, New Browser Tab) was
 /// refused over any top page ("This page has no tabs.", TopPages.installTabTargetReasons), and
@@ -18,12 +18,14 @@ import Testing
 /// the journeys' path: the key router, then the registry.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct FirstRunPageAppShortcutsTests {
-    /// The first-run page, hermetic: a plain view (no Chromium) under the real route and the real
-    /// first-run presentation (`OnboardingService.showHistoryAtFirstRun`).
+    /// A top page like the first-run one was, hermetic: a plain view (no Chromium) under the real route
+    /// and the real top-page presentation (``TopPages/show(_:services:in:)``).
+    private static let pageID = InternalPageID(rawValue: "first-run-keys-test")
+
     private final class FirstRunPage: InternalPageProvider {
-        let page = InternalPageID.importHistory
-        let title = "Bring your history"
-        let symbol = "square.and.arrow.down"
+        let page = FirstRunPageAppShortcutsTests.pageID
+        let title = "First run"
+        let symbol = "sparkles"
 
         func makeView(for key: String, in window: WindowController?) -> NSView { NSView() }
     }
@@ -33,12 +35,9 @@ struct FirstRunPageAppShortcutsTests {
     private static let onboardingOn = ["CMUX_NEXT_ONBOARDING": "1"]
 
     private static func showFirstRunPage(_ services: AppServices, _ controller: WindowController) throws {
-        let suite = "cmux-first-run-keys-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(testSuiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
         services.pages.register(FirstRunPage())
-        services.onboarding.showHistoryAtFirstRun(isFirstRun: true, defaults: defaults)
-        try #require(controller.shownTopPage == .page(.importHistory), "the first-run page did not show")
+        try #require(TopPages.show(.page(pageID), services: services) != nil, "the first-run page did not show")
+        try #require(controller.shownTopPage == .page(pageID), "the first-run page did not show")
     }
 
     private static func press(_ key: String, _ modifiers: [String], _ services: AppServices) -> CmuxNextSettings.JSONValue {
@@ -123,7 +122,7 @@ struct FirstRunPageAppShortcutsTests {
 
             let reply = Self.press("w", ["cmd"], services)
             #expect(services.keyRouter.lastInterception?.ran != true, "Cmd-W ran over the page: \(Self.report(services, controller, reply))")
-            #expect(controller.shownTopPage == .page(.importHistory))
+            #expect(controller.shownTopPage == .page(Self.pageID))
             #expect(Set(PasswordManagerRouteTests.tabs(services).map(\.id)) == before)
 
             let window = try #require(controller.window)
@@ -133,7 +132,7 @@ struct FirstRunPageAppShortcutsTests {
                                                           isARepeat: false, keyCode: keyCode))
                 #expect(!services.keyRouter.interceptKeyDown(event, in: window), "the app took key \(keyCode) from the page")
             }
-            #expect(controller.shownTopPage == .page(.importHistory))
+            #expect(controller.shownTopPage == .page(Self.pageID))
         }
     }
 
@@ -159,7 +158,7 @@ struct FirstRunPageAppShortcutsTests {
             if let connection = services.daemon.connection, let barrier = await connection.eventSequence() {
                 try await PasswordManagerRouteTests.until({ services.daemon.store.appliedSequence >= barrier })
             }
-            #expect(controller.shownTopPage == .page(.importHistory), "automation took the person's page away")
+            #expect(controller.shownTopPage == .page(Self.pageID), "automation took the person's page away")
             #expect(Set(PasswordManagerRouteTests.tabs(services).map(\.id)) == before, "automation added a tab under the page")
         }
     }

@@ -44,17 +44,15 @@ const STATUS_WAIT: Duration = Duration::from_secs(5);
 /// What every chat with this server is told about background work: the Codex steer (its
 /// unified exec background terminals end when the agent hibernates, and only the whole feature
 /// can be turned off), and Claude Code's, behind the PreToolUse hook (`bg_hook.rs`).
-const BG_STEER: &str = "Long-running commands (a dev server, a watcher, a long build or test \
-run): start them with bg_start, not as a background shell or terminal of your own. This chat's \
-agent hibernates after 2 idle minutes and its own background shells end with it; a bg_start task \
-keeps running, and bg_list and bg_output read it later by its id.";
+const BG_STEER: &str = "Start long-running commands (dev servers, watchers, long builds or tests) \
+with bg_start, not a background shell of your own, which ends when this chat's agent hibernates \
+after 2 idle minutes; bg_output reads it later.";
 /// How every chat with the background tools is asked to pace its work: the reads and searches a
 /// task already needs go out as one batch, and a bg_start task runs while the agent goes on.
 /// Some chats did read early and concurrently and others went one call at a time on the same
 /// model (Leo, 2026-11-04); the harness prompts allow both, so cmux says which it wants.
-const PARALLEL_STEER: &str = "Work in parallel: at the start of a task, read the files and run \
-the searches you already know you need as one batch of independent tool calls, not one after \
-another, and while a bg_start task runs, go on with the parts that do not need its result.";
+const PARALLEL_STEER: &str = "Run the reads and searches you already know you need as one batch \
+of independent tool calls, and keep working while a bg_start task runs.";
 /// Most replies `last` returns.
 const MAX_LAST: u64 = 20;
 /// How many sessions `ls` lists unless asked for another `limit`, and the most it lists: a fleet
@@ -70,6 +68,8 @@ const LS_FIELDS: &[&str] =
 pub(crate) mod artifacts;
 #[path = "acpmux_mcp_bg.rs"]
 pub(crate) mod bg;
+#[path = "acpmux_mcp_bg_list.rs"]
+mod bg_list;
 #[path = "acpmux_mcp_bridge.rs"]
 pub(crate) mod bridge;
 #[path = "acpmux_mcp_goal.rs"]
@@ -91,7 +91,7 @@ mod wrap_up;
 /// The most facts a wrap-up offers, and the longest one (`memory_inbox.rs`).
 pub(crate) use wrap_up::{MAX_FACT as WRAP_UP_MAX_FACT, MAX_LEARNED as WRAP_UP_MAX_LEARNED};
 
-fn tools() -> Value {
+pub(crate) fn tools() -> Value {
     let mut all = base_tools();
     if let Some(list) = all.as_array_mut() {
         list.extend(bg::tools());
@@ -299,7 +299,7 @@ fn served_with(
     daemon: &Arc<crate::tools_mcp::Daemon>,
     artifacts: Option<Arc<artifacts::Artifacts>>,
 ) -> Result<crate::tools_mcp::Served> {
-    let allow = std::env::var(crate::agent_tools::MCP_TOOLS_ENV).ok();
+    let allow = crate::tool_env::var(crate::agent_tools::MCP_TOOLS_ENV);
     let tools = allowed(tools_with_artifacts(artifacts.is_some()), allow.as_deref());
     // Under an allowlist, a call outside it is refused like an unknown tool.
     let names: Option<Arc<Vec<String>>> = allow

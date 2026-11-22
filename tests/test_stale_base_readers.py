@@ -9,7 +9,7 @@ ratchet, build_class, gate-plan, the test-determinism scan, codebase-health and 
 gate and the web lint run by hand take the same push_range.manual_range). Each test builds one fixture: the topic
 adds own files and merges a base that has base-only files, while the clone's origin/feat-cmux-next stays old.
 
-Not in CI (tests/test-execution.d/other.toml: manual; no new CI tests, Lawrence 2026-10-23): run
+Not in CI (tests/test-execution.d/other.toml: manual; no new CI tests, Lawrence 2026-10-23, lifted 2026-11-18): run
 `python3 -I tests/test_stale_base_readers.py` after changing one of these tools (a few seconds, no build).
 """
 
