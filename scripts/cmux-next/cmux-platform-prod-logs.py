@@ -457,6 +457,10 @@ def belongs_to(event, ident):
         if isinstance(candidate, str):
             try:
                 candidate = json.loads(candidate, object_pairs_hook=unique_identity_fields)
+            except json.JSONDecodeError:
+                # Workers Logs puts a JSON line's msg text in $metadata.message and the parsed line in source: plain
+                # text names no identity, as console_line skips it. Before this every production id read kept 0.
+                continue
             except ValueError:
                 return False
         if isinstance(candidate, dict):
