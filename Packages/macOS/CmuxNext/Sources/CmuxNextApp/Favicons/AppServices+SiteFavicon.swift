@@ -3,7 +3,6 @@ import CmuxNextBookmarks
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
-import CmuxNextFavicons
 import CmuxNextTabs
 import Foundation
 
@@ -33,8 +32,7 @@ extension AppServices: OpenTabFaviconSource {
     /// The favicon of the page at `url` for `profile`, nil while it loads or without one.
     func siteFavicon(_ url: URL, profile: BrowserProfileID) -> TabImage? {
         guard let origin = BookmarkURL.faviconKey(for: url) else { return nil }
-        return FaviconKeeping.face(fresh: favicons.image(for: siteFaviconAddress(origin: origin), profile: profile), origin: origin,
-                                   keeper: keptFavicons, profile: profile, persist: true)
+        return favicons.face(for: siteFaviconAddress(origin: origin), profile: profile, origin: origin)
     }
 
     /// Browser tab `tab`'s favicon as it is drawn in the strip (never an incognito tab's record).

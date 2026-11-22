@@ -73,7 +73,6 @@
       "packages": [],
       "reads": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextActions/",
-        "plans/cmux-next/",
         "schemas/deeplinks/agent-link.json",
         "schemas/keybindings/ghostty-reserved-keys.json"
       ]
@@ -219,16 +218,11 @@
       "reads": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneBridge.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift",
-        "Resources/markdown-viewer/*.min.js",
-        "cmux-tui/crates/cmux-agent-pane-policy/tests/cases/environment.json",
-        "cmux-tui/spec/",
         "schemas/agent-bridge/contract.json",
         "schemas/agent-pane/attach-params.json",
         "schemas/agent-pane/initialize-params.json",
         "schemas/agent-pane/session-new-params.json",
-        "scripts/cmux-next/pin-cmux-tui.sh",
-        "webviews/src/agent-session/acpmux/flickerLog.ts",
-        "webviews/test/fixtures/mermaid-front-door.mmd"
+        "scripts/cmux-next/pin-cmux-tui.sh"
       ]
     },
     "CmuxNextAgentPermissions": {
@@ -534,31 +528,16 @@
         "CmuxVNC"
       ],
       "reads": [
-        "Native/OptChat/optchat-chief/inspector/index.html",
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/",
         "Packages/macOS/CmuxNext/Sources/CmuxNextApp/",
         "Packages/macOS/CmuxNext/Sources/CmuxNextWebUpdates/",
-        "Resources/cmux-themes/",
-        "Resources/ghostty/themes/",
-        "Resources/markdown-viewer/ondine.min.js",
-        "Resources/sidebar-looks/",
-        "cmux-tui/crates/acpmux/tests/fake_agent.py",
-        "cmux-tui/crates/cmux-layout-reducer/tests/data/closing_panes_corpus.txt",
-        "cmux-tui/crates/cmux-layout-reducer/tests/data/shown_resize_corpus.txt",
-        "cmux-tui/crates/cmux-tui/src/cli/app.rs",
-        "cmux-tui/spec/",
-        "plans/cmux-next/",
         "schemas/agent-cursor-visibility/vectors.json",
         "schemas/agent-pane/wake-state.json",
         "schemas/keybindings/keybinding-vectors.json",
         "schemas/theme/chrome-layer-colors.json",
         "scripts/cmux-next/bundle-ghostty-resources.sh",
         "scripts/cmux-next/pin-cmux-tui.sh",
-        "scripts/cmux-next/web-bundle-key.py",
-        "tests/fixtures/classic-to-next/",
-        "web/scripts/cloud-vm/cmux-tui-upgrade.sh",
-        "webviews/src/gallery/golden/looks.json",
-        "webviews/test/fixtures/new-tab-intents.json"
+        "scripts/cmux-next/web-bundle-key.py"
       ]
     },
     "CmuxNextApps": {
@@ -595,9 +574,7 @@
       "packages": [
         "CmuxHomeRender"
       ],
-      "reads": [
-        "samples/apps/"
-      ]
+      "reads": []
     },
     "CmuxNextBookmarks": {
       "kind": "regular",
@@ -760,9 +737,7 @@
         "CmuxNextCLIInstall"
       ],
       "packages": [],
-      "reads": [
-        "Resources/bin/"
-      ]
+      "reads": []
     },
     "CmuxNextChecklist": {
       "kind": "regular",
@@ -918,9 +893,7 @@
       "packages": [
         "CMUXAuthCore"
       ],
-      "reads": [
-        "cmux-tui/spec/"
-      ]
+      "reads": []
     },
     "CmuxNextCloudUI": {
       "kind": "regular",
@@ -1035,9 +1008,7 @@
         "CmuxNextWakeupsTestSupport"
       ],
       "packages": [],
-      "reads": [
-        "cmux-tui/spec/"
-      ]
+      "reads": []
     },
     "CmuxNextCookieImport": {
       "kind": "regular",
@@ -1124,7 +1095,6 @@
       ],
       "packages": [],
       "reads": [
-        "plans/cmux-next/daemon-capabilities.json",
         "scripts/cmux-next/pin-cmux-tui.sh"
       ]
     },
@@ -1162,10 +1132,6 @@
         "Packages/Shared/CmuxScreenKit/Sources/**/*.swift",
         "Packages/iOS/CmuxConversation/Sources/CmuxConversationMacUI/**/*.swift",
         "Packages/macOS/CmuxNext/Sources/**/*.swift",
-        "Resources/cmux-themes/",
-        "Resources/ghostty/themes/",
-        "cmux-tui/Cargo.toml",
-        "plans/cmux-next/spec-proposals/visuals/design-tokens.json",
         "schemas/theme/orange-accent-allowlist.json",
         "schemas/theme/theme-ink-vectors.json"
       ]
@@ -1246,6 +1212,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFavicons",
       "targets": [
         "CmuxNextBrowser",
+        "CmuxNextCompat",
         "CmuxNextTabs",
         "CmuxNextWakeups"
       ],
@@ -1700,10 +1667,7 @@
         "CmuxNextWakeupsTestSupport"
       ],
       "packages": [],
-      "reads": [
-        "cmux-tui/crates/acpmux/src/share_approval_vectors.json",
-        "cmux-tui/crates/cmux-rd-proto/tests/vectors/app_lines.json"
-      ]
+      "reads": []
     },
     "CmuxNextMallocZone": {
       "kind": "regular",
@@ -1863,9 +1827,7 @@
         "CmuxNextWakeupsTestSupport"
       ],
       "packages": [],
-      "reads": [
-        "webviews/src/pages/*/main.tsx"
-      ]
+      "reads": []
     },
     "CmuxNextPalette": {
       "kind": "regular",
@@ -2165,11 +2127,6 @@
       "packages": [],
       "reads": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
-        "Resources/theme-files/",
-        "cmux-tui/crates/cmux-computer-use/src/policy.rs",
-        "cmux-tui/crates/cmux-tui-core/tests/fixtures/browser_site_engines.json",
-        "docs/configuration.md",
-        "docs/mdm/",
         "schemas/settings/settings-schema.json"
       ]
     },

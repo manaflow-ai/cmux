@@ -1,5 +1,6 @@
 import AppKit
 public import CmuxNextBrowser
+import CmuxNextCompat
 public import CmuxNextTabs
 import CryptoKit
 import ImageIO
@@ -33,10 +34,15 @@ public final class OriginFaviconKeeper {
     /// What was last written to disk per key, so an unchanged icon is not rewritten.
     @ObservationIgnored private var written = LRUCache<Key, TabImage>(capacity: 512)
     @ObservationIgnored private let directory: URL?
+    /// Runs when a disk read lands an icon (the store moves its own ``TabFaviconStore/revision``).
+    @ObservationIgnored var onLoaded: @MainActor () -> Void
 
-    /// - Parameter directory: where icons persist (one folder per profile); nil keeps them in memory only.
-    public init(directory: URL?) {
+    /// - Parameters:
+    ///   - directory: where icons persist (one folder per profile); nil keeps them in memory only.
+    ///   - onLoaded: called after a disk read landed an icon.
+    public init(directory: URL?, onLoaded: @escaping @MainActor () -> Void = {}) {
         self.directory = directory
+        self.onLoaded = onLoaded
     }
 
     /// The icon `origin` last had for `profile`, or nil. A miss asks the disk once (off the main thread).
@@ -69,6 +75,7 @@ public final class OriginFaviconKeeper {
             self.memory.set(image, for: key)
             self.written.set(image, for: key)
             self.revision += 1
+            self.onLoaded()
         }
     }
 
@@ -83,15 +90,13 @@ public final class OriginFaviconKeeper {
     }
 
     private nonisolated static func write(_ image: CGImage, to file: URL) {
-        let manager = FileManager.default
-        guard (try? manager.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)) != nil,
+        guard (try? FileManager.checked.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)) != nil,
               let data = CFDataCreateMutable(nil, 0),
               let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil)
         else { return }
         CGImageDestinationAddImage(destination, image, nil)
         guard CGImageDestinationFinalize(destination) else { return }
-        // blocking-allow: runs in a detached utility task, never on the main actor.
-        try? (data as Data).write(to: file, options: .atomic)
+        try? (data as Data).blockingWrite(to: file, options: .atomic)
     }
 
     private nonisolated static func read(_ file: URL) -> CGImage? {
@@ -103,6 +108,18 @@ public final class OriginFaviconKeeper {
 /// The one rule every reader of a page's favicon follows: the fresh icon when there is one (and it becomes the
 /// origin's kept icon), else the origin's last good icon, else nil (the globe) for an origin that never had one.
 public enum FaviconKeeping {
+    /// `https://host[:port]` of `page`, the key a site's icon is kept under (nil for an address without a host).
+    public nonisolated static func origin(of page: URL?) -> String? {
+        guard let page, let scheme = page.scheme?.lowercased(), let host = page.host()?.lowercased(), !host.isEmpty else { return nil }
+        return "\(scheme)://\(host)" + (page.port.map { ":\($0)" } ?? "")
+    }
+
+    /// ``face(fresh:origin:keeper:profile:persist:)`` for the page at `page`.
+    @MainActor
+    public static func face(fresh: TabImage?, page: URL?, keeper: OriginFaviconKeeper, profile: BrowserProfileID, persist: Bool) -> TabImage? {
+        face(fresh: fresh, origin: origin(of: page), keeper: keeper, profile: profile, persist: persist)
+    }
+
     @MainActor
     public static func face(fresh: TabImage?, origin: String?, keeper: OriginFaviconKeeper, profile: BrowserProfileID,
                             persist: Bool) -> TabImage? {
