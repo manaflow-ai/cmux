@@ -795,11 +795,23 @@ def live_from(repo: Path, sha: str, limit: int = LIVE_FROM_MAX) -> dict:
     compatibility remains separate; it can apply parts and report the other layers as left.
     At most `limit` commits; `floor` is that commit, or None when the walk stopped at the limit. The
     signed Mac live update file names them (scripts/ci/cmux-machine-channel.py --purpose mac-live)."""
-    out: dict = {"sha": sha, "live_from": [], "floor": None, "floor_paths": []}
+    out: dict = {"sha": sha, "live_from": [], "floor": None, "floor_paths": [],
+                 "daemon_from": [], "daemon_floor": None, "daemon_floor_paths": []}
+    # daemon_from: the wider list of app commits that can run SHA's bin files beside their own app (daemon ABI
+    # only: the FFI pin and the Rust the Swift build reads). The nightly-live channel (`cmux app try channel`)
+    # reads it: it swaps only the daemon part and never claims the app is at SHA, so Swift, resources and web
+    # (which comes on its own channel) merged since the app's build wait for the next nightly. live_from stays
+    # the whole-app list, so a CLI that reads only live_from claims nothing new.
+    whole_app = True
     for commit in git(repo, "rev-list", "--first-parent", f"--max-count={limit}", sha).split():
-        out["live_from"].append(commit)
-        if paths := pins_daemon(repo, commit, whole_app=True):
-            out["floor"], out["floor_paths"] = commit, paths[:20]
+        out["daemon_from"].append(commit)
+        if whole_app:
+            out["live_from"].append(commit)
+            if paths := pins_daemon(repo, commit, whole_app=True):
+                out["floor"], out["floor_paths"] = commit, paths[:20]
+                whole_app = False
+        if paths := pins_daemon(repo, commit):
+            out["daemon_floor"], out["daemon_floor_paths"] = commit, paths[:20]
             break
     return out
 

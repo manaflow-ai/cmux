@@ -30,6 +30,8 @@ pub(crate) mod app_action_help;
 #[cfg(unix)]
 mod app_browser_route;
 #[cfg(unix)]
+mod app_commands;
+#[cfg(unix)]
 mod app_focus;
 #[cfg(unix)]
 mod apps_list;
@@ -52,6 +54,7 @@ mod beside;
 mod billing;
 #[cfg(unix)]
 mod caller_browser;
+mod caller_scope;
 mod capability_cache;
 // `cmux settings change-background [VALUE]`: a YouTube address, file or id as the picker sets it.
 #[cfg(unix)]
@@ -119,6 +122,8 @@ pub(crate) use completion::refuse_in_help_reader;
 mod community;
 #[cfg(unix)]
 mod customize;
+#[cfg(unix)]
+mod debug_perf;
 #[cfg(unix)]
 mod dev;
 mod docs;
@@ -996,6 +1001,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| wallpaper::run_if_requested(args))
         .or_else(|| change_background::run_if_requested(args))
         .or_else(|| customize::run_if_requested(args))
+        .or_else(|| debug_perf::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
         .or_else(|| remote_host::run_if_requested(args))
@@ -1055,11 +1061,12 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             CommandPlan::AgentInbox(plan) => agent_message::run_inbox(global, plan),
         },
         Err(failure) => {
-            // Words the mux grammar does not know may name an app action
-            // (`cmux workspace move-to-window …`). Only an action the app
-            // reports replaces the usage error.
+            // Words the mux grammar does not know may name an installed
+            // app's command (`cmux notes capture …`) or an app action
+            // (`cmux workspace move-to-window …`, app_commands.rs). Only a
+            // command or action that is there replaces the usage error.
             #[cfg(unix)]
-            if let Some(code) = run_app_action_fallback(args) {
+            if let Some(code) = app_commands::unknown_words(args) {
                 return code;
             }
             #[cfg(unix)]
@@ -1162,47 +1169,6 @@ fn daemon_settings_scope(command_args: &[String]) -> bool {
         Some("get" | "set" | "reset" | "unset" | "edit") => true,
         _ => false,
     }
-}
-
-/// Runs `<noun> <verb…> [--flags]` as the app action with that CLI name when
-/// the app marks one for the CLI. `None` when it does not, or no app answers.
-#[cfg(unix)]
-fn run_app_action_fallback(args: &[String]) -> Option<i32> {
-    let (mut global, command_args) = parse_action_globals(args).ok()?;
-    if let Some((name, action_args)) = agent_view::action(&command_args) {
-        return app::run_cli_action(&global, &name, &action_args);
-    }
-    match share_cli::action(&command_args) {
-        Some(Ok((name, mut action_args))) => {
-            for switch in share_cli::take_output_switches(&mut action_args) {
-                let output = match switch.as_str() {
-                    "--json" => OutputMode::Json,
-                    "--jsonl" => OutputMode::JsonLines,
-                    _ => OutputMode::Quiet,
-                };
-                if let Err(error) = set_output_mode(&mut global, output, &switch) {
-                    let error = serde_json::json!({"code": "usage.invalid", "message": error.0,
-                        "details": {}, "retryable": false});
-                    return Some(wire::print_local_error(&error, global.output, 2));
-                }
-            }
-            return app::run_cli_action(&global, &name, &action_args);
-        }
-        Some(Err(message)) => {
-            let error = serde_json::json!({"code": "usage.invalid", "message": message, "details": {}, "retryable": false});
-            return Some(wire::print_local_error(&error, global.output, 2));
-        }
-        None => {}
-    }
-    let words = command_args.iter().take_while(|arg| !arg.starts_with('-')).count();
-    if words < 2 {
-        return None;
-    }
-    let name = command_args[..words].join(" ");
-    // `<noun> move-to-window --new` is `<noun> move-to-new-window`.
-    let (name, rest) = app::new_window_spelling(&name, &command_args[words..])
-        .unwrap_or_else(|| (name, command_args[words..].to_vec()));
-    app::run_cli_action(&global, &name, &rest).or_else(|| action_hint::report(&name, global.output))
 }
 
 fn parse(args: &[String], surface: Surface) -> Result<ParsedCommand, ParseFailure> {
@@ -1696,7 +1662,12 @@ fn scope_help_with_keys(
         "docs" => Cow::Borrowed(docs::help()),
         "completion" => Cow::Borrowed(completion::HELP),
         "server" => Cow::Borrowed(catalog.local_server.help),
-        "server start" => Cow::Borrowed(catalog.local_server.start_help),
+        "server start" => Cow::Owned(format!(
+            "{}\n{}\n{}",
+            catalog.local_server.start_help,
+            catalog.local_server.start_remote_options_heading,
+            crate::remote_start_options_help()
+        )),
         "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),
         "server status" => Cow::Borrowed(catalog.local_server.status_help),
         "server stats" => Cow::Borrowed(catalog.local_server.stats_help),

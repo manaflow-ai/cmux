@@ -39,7 +39,8 @@ enum AgentChatKeyHandlers {
         })
         // A Priority row's chat (`agent-chat:`) archives from the row, while the Priority view is on;
         // else the focused chat's Archive, whatever the view's setting.
-        SidebarPriorityRowActions(chats: .app, unavailable: SidebarPriorityRowActions.viewOff(context))
+        SidebarPriorityRowActions(chats: .app, unavailable: SidebarPriorityRowActions.viewOff(context),
+                                  toastWindow: { [weak services = context.services] in services?.windows.active?.window })
             .bindArchive(into: registry) { invocation in
                 chatView(context, invocation, refusing: SidebarPriorityRowActions.archive)?.archiveChat()
             }

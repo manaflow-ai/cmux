@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// What the pane's transport does when its page falls a full queue behind the daemon
@@ -46,7 +47,7 @@ nonisolated enum AcpmuxPaneShedding {
     static func sheddable(_ text: String, method: String?) -> Bool {
         guard let method else { return false }
         if method == "_acpmux/event" {
-            return !AcpmuxRequestIds.eventObserverMarkers.contains(where: text.contains)
+            return !text.utf8ContainsAny(AcpmuxRequestIds.eventObserverMarkers)
         }
         return !AcpmuxRequestIds.observedNotificationMethods.contains(method)
     }
