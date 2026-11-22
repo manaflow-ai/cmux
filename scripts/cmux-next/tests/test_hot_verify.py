@@ -1107,6 +1107,34 @@ class GoldenCopyTest(unittest.TestCase):
         (tree / "cmux-tui/target/release/cmux-tui").write_text("")
         self.assertIn("about 4 min (warm)", hv.cargo_note(None, tree))
 
+    def test_cleanup_keeps_a_golden_app_another_try_is_cloning(self):
+        """fetch_golden let the cache lock go before the try cloned its app, so another try's cleanup could delete
+        the app mid-clone (review on #46939). A try now holds the app's in-use lock until its clone is made."""
+        import fcntl
+        root = self.root / "golden"
+        root.mkdir()
+        names = [f"nightly-{n:012d}" for n in range(hv.GOLDEN_KEEP + 1)]
+        for age, name in enumerate(names):
+            (root / name).mkdir()
+            (root / name / hv.GOLDEN_READY).write_text("{}\n")
+            os.utime(root / name, (1000 - age, 1000 - age))
+        oldest = names[-1]
+        held = contextlib.ExitStack()
+        build = {"kind": "nightly", "commit": oldest}
+        with unittest.mock.patch.object(hv, "golden_root", return_value=root), \
+                unittest.mock.patch.object(hv, "golden_app", side_effect=lambda p: p):
+            self.assertEqual(hv.fetch_golden(build, held), root / oldest)
+            # The held app is now the newest; age it so it is the one past GOLDEN_KEEP.
+            os.utime(root / oldest, (1, 1))
+            other = {"kind": "nightly", "commit": names[0]}
+            hv.fetch_golden(other)
+            self.assertTrue((root / oldest).is_dir(), "an app a try holds is never removed")
+            held.close()
+            hv.fetch_golden(other)
+            self.assertFalse((root / oldest).exists(), "once let go, the cleanup removes it")
+        with hv.golden_use_lock(root, oldest) as free:
+            fcntl.flock(free, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
 
 class MarkerTest(unittest.TestCase):
     def test_marker_matches_hq(self):

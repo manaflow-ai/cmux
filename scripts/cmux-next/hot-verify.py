@@ -1829,9 +1829,17 @@ def golden_root() -> Path:
     return cache_dir() / "golden"
 
 
-def fetch_golden(build: dict) -> Path:
+def golden_use_lock(root: Path, name: str):
+    """The in-use lock of cached golden app NAME (root/.NAME.use, beside the app so removing the app keeps it): a try
+    holds it shared until its clone is made; the cache's cleanup removes an app only when it can take it exclusive."""
+    return open(root / f".{name}.use", "a")
+
+
+def fetch_golden(build: dict, hold: contextlib.ExitStack | None = None) -> Path:
     """BUILD's app, downloaded and checked once into the cache (golden/<kind>-<commit>/), the newest GOLDEN_KEEP
-    kept; each try then clones it (side-instance.sh make: an APFS clone)."""
+    kept; each try then clones it (side-instance.sh make: an APFS clone). With HOLD, the app's in-use lock is taken
+    shared before the cache lock is let go and stays held until HOLD closes, so another try's cleanup never removes
+    the app while this try clones it."""
     if build["kind"] == "installed":
         return Path(build["app"])
     root = golden_root()
@@ -1853,10 +1861,19 @@ def fetch_golden(build: dict) -> Path:
             finally:
                 shutil.rmtree(part, ignore_errors=True)
         os.utime(dest)
+        if hold is not None:
+            mine = hold.enter_context(golden_use_lock(root, dest.name))
+            fcntl.flock(mine, fcntl.LOCK_SH)
         kept = sorted((p for p in root.iterdir() if p.is_dir() and (p / GOLDEN_READY).is_file()),
                       key=lambda p: p.stat().st_mtime, reverse=True)
         for old in kept[GOLDEN_KEEP:]:
-            if old != dest:
+            if old == dest:
+                continue
+            with golden_use_lock(root, old.name) as used:
+                try:
+                    fcntl.flock(used, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    continue  # a try is cloning it now: the next fetch removes it
                 shutil.rmtree(old, ignore_errors=True)
     return golden_app(dest)
 
@@ -2055,6 +2072,7 @@ def command_run(args) -> int:
     result = {"schema": 1, "side": side.name, "from": str(the_app), "app": app_info(the_app), "plan": None,
               "copy": None, "socket": None, "pid": None, "applied": {}, "errors": [], "edit_to_live_s": None}
     scratch = None
+    golden_held = contextlib.ExitStack()  # the cached golden app's in-use lock, until the copy is made
     try:
         with phases("plan"):
             if args.pick:
@@ -2070,7 +2088,7 @@ def command_run(args) -> int:
             return emit(result, phases, began, EXIT_NEEDS_BUILD)
         if golden is not None and golden["kind"] != "installed":
             with phases("golden"):
-                the_app = fetch_golden(golden)
+                the_app = fetch_golden(golden, golden_held)
             result.update({"from": str(the_app), "app": app_info(the_app)})
         unsupported = [layer for layer in planned["layers"] if layer not in ("web", "rust")]
         if unsupported:
@@ -2099,7 +2117,10 @@ def command_run(args) -> int:
                 side.stop()
                 side.run("remove", "--keep-sign-in", timeout=300)
             make = ["make", "--from", str(built_app or the_app), "--label", args.label or f"cmux {side.name}"]
-            side.run(*make, timeout=600)
+            try:
+                side.run(*make, timeout=600)
+            finally:
+                golden_held.close()
             side.remember(try_source=args.source, try_repo=str(repo), try_head=planned["head"],
                           try_fork=planned["fork"], try_from=str(the_app))
             launched = side.run("launch", timeout=LAUNCH_SECONDS)
@@ -2128,6 +2149,8 @@ def command_run(args) -> int:
         if scratch is not None:
             shutil.rmtree(scratch, ignore_errors=True)
         return emit(result, phases, began, EXIT_FAILED)
+    finally:
+        golden_held.close()
 
 
 def command_extract(args) -> int:
