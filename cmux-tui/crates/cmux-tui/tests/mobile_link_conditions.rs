@@ -1102,7 +1102,9 @@ fn open_path_under_duress() {
             workspaces: env_u64("NETCOND_IDLE_WORKSPACES", 5),
             scrollback: env_u64("NETCOND_IDLE_SCROLLBACK", 1_000),
             stream_lines: 0,
-            links: vec![None],
+            // The same links as duress, so a duress number is judged against the idle
+            // fixture on its own link, not against loopback.
+            links: duress_links.clone(),
         },
         Fixture {
             name: "duress",

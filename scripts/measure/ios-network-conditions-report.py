@@ -55,7 +55,7 @@ def fmt(summary: dict | None, metric: str) -> str:
         return "-"
     if "p50" not in summary:
         return f"miss {summary['miss']}/{summary['miss']}"
-    unit = "" if metric in ("round_trips",) else (" B" if metric.startswith("bytes") else " ms")
+    unit = "" if metric in ("round_trips", "workspaces_shown") else (" B" if metric.startswith("bytes") else " ms")
     p50, p95 = summary["p50"], summary["p95"]
     num = lambda v: f"{v:,.0f}" if abs(v) >= 10 else f"{v:g}"
     text = f"{num(p50)}{unit}" if p50 == p95 else f"{num(p50)} / {num(p95)}{unit}"
@@ -78,27 +78,29 @@ def duress_table(rows: list[dict], before: str | None) -> list[str]:
         return []
     by_key = {(row["phase"], row["metric"], row["profile"], row["scale"]): row for row in duress}
     links = sorted({row["profile"] for row in duress if row["scale"] == "duress"}, key=lambda p: (p != "none", p))
-    columns = [("none", "idle", "idle fixture (no shaper, no stream)")] + [
-        (link, "duress", f"{'no shaper' if link == 'none' else link} + duress") for link in links]
+    columns = []
+    for link in links:
+        name = "no shaper" if link == "none" else link
+        columns += [(link, "idle", f"{name}, idle fixture"), (link, "duress", f"{name} + duress")]
     fixture = {row["scale"]: row for row in rows if row["phase"] == "fixture" and row["metric"] == "stream_bytes_per_s"}
 
     def p50(summary: dict | None):
         return summary.get("p50") if summary else None
 
-    def cell(row: dict | None, idle_after) -> str:
+    def cell(row: dict | None, idle: dict | None) -> str:
         if not row:
             return "-"
         after = row["after"]
         text = fmt(after, row["metric"])
         if before:
             text = f"{fmt(row['before'], row['metric'])} -> {text}"
-        value = p50(after)
+        value, idle_after = p50(after), p50(idle["after"]) if idle else None
         if row["scale"] == "duress" and row["metric"] != "workspaces_shown" and value is not None and idle_after:
             if value > 2 * idle_after:
                 text += f" **FLAG {value / idle_after:.1f}x idle**"
         return text
 
-    out = ["### duress: p50 (/ p95)" + (" before -> after" if before else "") + "; FLAG: after > 2x the idle fixture's after", ""]
+    out = ["### duress: p50 (/ p95)" + (" before -> after" if before else "") + "; FLAG: a duress after > 2x the idle fixture's after on the same link", ""]
     stream = fixture.get("duress")
     if stream and stream.get("after"):
         out.append(f"duress stream rate at the daemon: {fmt(stream['after'], 'bytes_down')}/s")
@@ -110,8 +112,9 @@ def duress_table(rows: list[dict], before: str | None) -> list[str]:
             cells = [by_key.get((phase, metric, link, scale)) for link, scale, _ in columns]
             if not any(cells):
                 continue
-            idle_after = p50(cells[0]["after"]) if cells[0] else None
-            out.append(f"| {phase} | {metric} | " + " | ".join(cell(row, idle_after) for row in cells) + " |")
+            idle = {link: by_key.get((phase, metric, link, "idle")) for link in links}
+            out.append(f"| {phase} | {metric} | " + " | ".join(
+                cell(row, idle[link]) for row, (link, _, _) in zip(cells, columns)) + " |")
     out.append("")
     return out
 
