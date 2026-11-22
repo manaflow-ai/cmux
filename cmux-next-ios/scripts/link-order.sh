@@ -31,8 +31,10 @@ mkdir -p "$(dirname "$out")"
   for lib in "$rust_lib" "$ghostty_lib"; do
     [[ -f "$lib" ]] || { echo "error: link-order.sh: no library at $lib" >&2; exit 1; }
     # -U defined only, -n by address within each member, -m for the section and scope
-    # (archive members print in archive order).
-    "${nm_tool[@]}" -U -n -m "$lib" | awk '
+    # (archive members print in archive order). --no-llvm-bc: Rust's std members also carry
+    # LLVM bitcode from a newer LLVM than Xcode's, which nm would otherwise try to read and
+    # fail on ("Unknown attribute kind"); the linker uses only their machine code.
+    "${nm_tool[@]}" --no-llvm-bc -U -n -m "$lib" | awk '
       # "0000000000000000 (__TEXT,__text) non-external _foo": the name is the last field.
       NF >= 4 && $2 ~ /^\(/ {
         name = $NF
