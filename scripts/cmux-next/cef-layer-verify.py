@@ -80,6 +80,7 @@ parser.add_argument("--tag", required=True)
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--mode", default="on", choices=["on", "off", "intree"],
                     help="off = page child windows, on = layer hosting, intree = in-tree pages (fork API 36)")
+parser.add_argument("--chromium-made-hosted", action="store_true")
 parser.add_argument("--keep", action="store_true", help="leave the app running")
 parser.add_argument("--input", default="hid", choices=["hid", "debug", "cua"],
                     help="hid: real CGEvents (nx-remote --needs input); debug: debug.mouse/debug.key into the app's queue "
@@ -666,10 +667,10 @@ def hosted_pages():
 def hosted_grew(before, chromium_made=False):
     """hosted_pages after a new Chromium page opened: one more (on) or still 0 (off), within 5 s; (ok, now).
 
-    `chromium_made`: a page Chromium makes itself (a docked DevTools, a window.open popup). With in-tree pages those
-    keep layer hosting (CEFInTreeHosting.isAllowed: the fork attaches them but they draw nothing yet), so in mode
-    intree they count one more too."""
-    grows = opts.mode == "on" or (opts.mode == "intree" and chromium_made)
+    `chromium_made`: a page Chromium makes itself (a docked DevTools, a window.open popup). Since the 36g dist they go
+    in tree like any page, so in mode intree hosted_pages stays 0 for them too (`--chromium-made-hosted` restores the
+    old expectation, for a build that keeps them on layer hosting)."""
+    grows = opts.mode == "on" or (opts.mode == "intree" and chromium_made and opts.chromium_made_hosted)
     want = (lambda n: n >= before + 1) if grows else (lambda n: n == 0)
     found = wait(lambda: (lambda n: (n,) if want(n) else None)(hosted_pages()), 5)  # a tuple: 0 is an answer in mode off
     return bool(found), (found[0] if found else hosted_pages())
@@ -760,7 +761,15 @@ def check_popup():
             break
     row("popup.click", bool(clicks), {"clicks": clicks, "clicks_sent": tries, "at": [round(v) for v in target],
                                       "child_windows": children[:2]})
+    # The opener must still draw while the popup is open and after it closes (other-Mac run at e62b9442 on the
+    # 36e dist: a window.open popup left its in-tree opener blank, background only).
+    opener_open = capture_bars("popup-opener-open")
     rpc("debug.popups", {"action": "close"})
+    time.sleep(1.0)  # test harness: the popup closes and the opener draws again
+    opener_closed = capture_bars("popup-opener-closed")
+    row("popup.opener", all(b and b[0] for b in (opener_open, opener_closed)),
+        {name: ({"red_rows": [min(b[0]), max(b[0])] if b[0] else None, "rows": b[2]} if b else None)
+         for name, b in (("popup_open", opener_open), ("popup_closed", opener_closed))})
     wait(lambda: popup_panel() is None, 5)
 
 
