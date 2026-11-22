@@ -5,11 +5,15 @@ What these rows hold: each key-down of the 3 keys is 30 ms after the key-down be
 with no Command; the notes of a case are the notes after the read before it, also when the log's ring lost its
 oldest notes; a case is a `chord` case only when the hold ended at the second New Tab key with keys and no report
 of the page before it, and a report of the setup before the case's first `begin` makes no `ready` case; the rule
-(`dropped 0` and the field is the letter, in each form); where the letter is (`letter_is`): ONE word of the 8, the
+(`dropped 0` and the field is the letter, in each form); where the letter is (`letter_is`): ONE word of the 11, the
 first that is true, from the 2 new tabs' fields, the fields of the tabs that the pane showed before and the park's
-counts; a record has the app's word on its active state, the park's counts at 3 times, no text of a field but the
-letter and no title; a place with no read changes no verdict; the reads of the places come after the old reads;
-a form with too few chord cases is NOT PROVED; a case's steps against a model app, and a case whose setup
+counts, and each other true word in `letter_also`; `nowhere read` only for a case that ran, with no dropped key
+and an answer of each place: else `not run`, `dropped by the hold`, `a place not read`; a place that gave no
+answer (no element, no text, an error, no dict, no counts of the park, an exception) is in `places_not_read`
+with its name, and a form counts its cases with such a place; `tab before` needs a read before the keys; a record
+has the app's word on its active state, the park's counts at 3 times, no text of a field but the letter and no
+title; a place with no read changes no verdict and makes no case `not_run`; the reads of the places come after
+the old reads; a form with too few chord cases is NOT PROVED; a case's steps against a model app, and a case whose setup
 fails is `not_run` and closes its workspace; a close-move case keeps the app's notes of the close, a case whose close
 did not move is counted apart, and the form with too few cases in a move is NOT PROVED; a case with no note of a
 hold's start is `not_run`; a switch case whose setup letters did not get to their fields is `not_run`; each printed
@@ -24,6 +28,7 @@ keys of the model (they are copied from the app's source too: ControlTopology+JS
 NOT that a chat's composer answers the tool's selector (the reply's form is of PageWebView+DebugProbe.swift).
 Run: python3 -I scripts/measure/tests/new-tab-letters.test.py"""
 import importlib.util, json, os, unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SPEC = importlib.util.spec_from_file_location("new_tab_letters_under_test", os.path.join(HERE, "..", "new-tab-letters.py"))
@@ -131,23 +136,35 @@ class Places(unittest.TestCase):
 
     def test_a_field_got_the_letter_when_it_has_one_more(self):
         self.assertEqual([M.gained(was, now) for was, now in (("", "x"), ("x", "xx"), ("x", "x"), ("", ""), ("", None), (None, "x"), ("x", "t"))],
-                         [True, True, False, False, False, True, False])
+                         [True, True, False, False, None, None, False])  # with no read before or after: not known, not yes
 
     def test_the_parks_counts_of_a_case(self):
         zero = dict.fromkeys(M.PARK, 0)
         self.assertEqual(M.park_of({"parked_typing": {"parked": 3.0, "typed": 2.0}}), {**zero, "parked": 3, "typed": 2})
         self.assertIsNone(M.park_of({"new_tab_key_log": []}))  # an app with no counts: no read, not zero
+        self.assertIsNone(M.park_of({"parked_typing": {"parked": "many"}}))  # a count that is no number: no read, no exception
         self.assertEqual(M.park_change({**zero, "parked": 3}, {**zero, "parked": 4, "dropped_old": 1}), {**zero, "parked": 1, "dropped_old": 1})
         self.assertIsNone(M.park_change(None, zero))
 
-    def test_where_the_letter_is_is_one_word_of_the_list_the_first_that_is_true(self):
+    def test_where_the_letter_is_is_each_word_that_is_true_in_the_order_of_the_list(self):
         change = lambda **counts: {**dict.fromkeys(M.PARK, 0), **counts}
-        every = change(parked=1, dropped_refused=1, dropped_old=1, dropped_page_gone=1)
-        found = [M.where("x", "x", True, every), M.where("", "x", True, every), M.where("", "", True, every), M.where("", None, False, every),
-                 M.where("", "", False, change(parked=1, dropped_old=1, dropped_page_gone=1)), M.where(None, None, False, change(parked=1, dropped_page_gone=1)),
-                 M.where("", "", False, change(parked=1)), M.where("", "", False, change(parked=1, typed=1)), M.where("t", None, False, None)]
-        self.assertEqual(found, list(M.WHERE) + ["nowhere read"])  # the last 2: a typed text that no read finds; no counts
-        self.assertEqual((len(M.WHERE), len(set(M.WHERE))), (8, 8))
+        every = change(parked=5, dropped_refused=1, dropped_old=1, dropped_page_gone=1)
+        found = [M.where("x", "x", True, every)[0], M.where("", "x", True, every)[0], M.where("", "", True, every)[0], M.where("", None, False, every)[0],
+                 M.where("", "", False, change(parked=1, dropped_old=1, dropped_page_gone=1))[0], M.where(None, None, False, change(parked=1, dropped_page_gone=1))[0],
+                 M.where("", "", False, change(parked=1))[0]]
+        self.assertEqual(found, list(M.WHERE[:7]))
+        # 2 places and more with the letter: each true word, in the list's order (the first is `letter_is`).
+        self.assertEqual(M.where("x", "x", True, every, 1, True), list(M.WHERE[:7]))
+        self.assertEqual(M.where("", "x", False, change(dropped_old=1)), ["second new tab's field", "dropped after the bound"])
+        self.assertEqual((len(M.WHERE), len(set(M.WHERE))), (11, 11))
+
+    def test_nowhere_read_is_said_only_when_the_hold_dropped_0_and_each_place_answered(self):
+        typed = {**dict.fromkeys(M.PARK, 0), "parked": 1, "typed": 1}  # a typed text that no read finds
+        self.assertEqual([M.where("", "", False, typed, dropped, unread) for dropped, unread in ((0, False), (0, True), (1, False), (1, True))],
+                         [["nowhere read"], ["a place not read"], ["dropped by the hold"], ["dropped by the hold"]])
+        self.assertEqual(M.where("t", None, False, None, 0, True), ["a place not read"])
+        self.assertEqual(M.WHERE[7:], ("not run", "dropped by the hold", "a place not read", "nowhere read"))
+        self.assertEqual(M.where("x", None, False, None, 1, True), ["new tab's field"])  # a place with the letter is said first
 
 
 class Verdict(unittest.TestCase):
@@ -182,8 +199,12 @@ class Verdict(unittest.TestCase):
         self.assertEqual(M.verdict("two-key", self.cases(0, 12, "two-key"))["verdict"], "PASS")
 
     def test_a_forms_counts_say_where_its_letters_are_in_the_order_of_the_list(self):
-        cases = [{**M.judge(CHORD, ""), "letter_is": "parked"}, {"not_run": "why"}] + [{**M.judge(CHORD, "x"), "letter_is": "new tab's field"}] * 2
-        self.assertEqual(list(M.verdict("three-key", cases)["letter_is"].items()), [("new tab's field", 2), ("parked", 1), ("nowhere read", 1)])
+        unread = {**M.judge(CHORD, ""), "letter_is": "a place not read", "places_not_read": ["field: no text"]}
+        cases = [{**M.judge(CHORD, ""), "letter_is": "parked"}, {"not_run": "why"}, unread] + [{**M.judge(CHORD, "x"), "letter_is": "new tab's field"}] * 2
+        found = M.verdict("three-key", cases)
+        self.assertEqual(list(found["letter_is"].items()), [("new tab's field", 2), ("parked", 1), ("not run", 1), ("a place not read", 1)])
+        self.assertEqual(found["places_not_read"], 1)  # the count of the cases with a place that gave no read
+        self.assertEqual(M.verdict("three-key", cases[:2])["places_not_read"], 0)
 
     def test_one_failed_case_or_one_case_not_run_fails(self):
         self.assertEqual(M.verdict("three-key", self.cases(11, 0) + [M.judge(DROP, "")])["verdict"], "FAIL")
@@ -290,12 +311,16 @@ class App:
     At the keys of a case (a sequence with a New Tab key and the letter): `lands` are texts that fields then get,
     and `park` goes on the park's counts (`parked_typing`); `park_end` goes on them at the second read of
     `debug.focus` after those keys (the case's last read). `active`: the app's word `app_active`. The field of a
-    chat is its composer: `field` has no text for it (and has titles in `open_tabs`), `query` has its text."""
+    chat is its composer: `field` has no text for it (and has titles in `open_tabs`), `query` has its text.
+    `had`: the park's counts before the first key. `counts` False: `debug.focus` has no `parked_typing`. `query`:
+    the replies of the first queries of a chat's composer, in their order (then the model's own reply)."""
 
-    def __init__(self, builder, notes, texts, refuse=None, motion=None, deaf=False, focus=False, lands=None, park=None, park_end=None, active=True):
+    def __init__(self, builder, notes, texts, refuse=None, motion=None, deaf=False, focus=False, lands=None, park=None, park_end=None, active=True,
+                 had=None, counts=True, query=()):
         self.builder, self.notes, self.texts, self.refuse, self.log, self.sequences = builder, notes, texts, refuse, ["old +0ms"], []
         self.motion, self.deaf, self.calls, self.focus, self.active = motion, deaf, [], focus, active
-        self.lands, self.park, self.park_end, self.counts, self.reads = lands or {}, park or {}, park_end or {}, dict.fromkeys(M.PARK, 0), None
+        self.lands, self.park, self.park_end, self.counts, self.reads = lands or {}, park or {}, park_end or {}, {**dict.fromkeys(M.PARK, 0), **(had or {})}, None
+        self.has_counts, self.query = counts, list(query)
 
     def count(self, more):
         self.counts = {key: count + more.get(key, 0) for key, count in self.counts.items()}
@@ -327,11 +352,13 @@ class App:
             self.reads = None if self.reads is None else self.reads + 1
             self.count(self.park_end if self.reads == 2 else {})
             return {"new_tab_key_log": list(self.log), "app_active": self.active, "key_window": "PageWindow",
-                    "parked_typing": {key: float(count) for key, count in self.counts.items()},
+                    **({"parked_typing": {key: float(count) for key, count in self.counts.items()}} if self.has_counts else {}),
                     **({"windows": [{"topology": panes}]} if self.focus else {})}
         chat = self.builder.selected in self.builder.chats
         if method == "debug.new_tab" and params.get("action") == "field":
             return {"text": None if chat else self.texts.get(self.builder.selected, ""), "focused": True, "open_tabs": ["a title"]}
+        if method == "debug.agent_pane" and params.get("action") == "query" and chat and self.query:
+            return self.query.pop(0)
         if method == "debug.agent_pane" and params.get("action") == "query":
             return {"pane": params.get("pane"), "elements": [{"classes": [], "text": self.texts.get(self.builder.selected, "")}] if chat else []}
         if method == "debug.new_tab":  # an opening as the app gives it (DebugNewTab.swift): no key `idle`
@@ -461,7 +488,7 @@ class Case(unittest.TestCase):
         self.assertLess(app.calls.index(("debug.agent_pane", "focus_composer")), app.calls.index(("debug.key", None)))
         # The case of the rule to 22 November 2026 (the hold drops the letter, an empty field) is no pass.
         record = self.letters(DROP, {})[0].case("from-chat", 0)
-        self.assertEqual((record["pass"], record["dropped"], record["field"], record["letter_is"]), (False, 1, "", "nowhere read"))
+        self.assertEqual((record["pass"], record["dropped"], record["field"], record["letter_is"]), (False, 1, "", "dropped by the hold"))
 
     def test_a_letter_in_the_chats_composer_is_tab_before_and_the_record_has_no_text_and_no_title(self):
         letters, builder, app = self.letters(CHORD, {"t2": "a draft"}, lands={"t2": "a draftx"})
@@ -497,7 +524,81 @@ class Case(unittest.TestCase):
         record = self.letters(CHORD, {"t2": "x"}, builder=Builder(refuse="no", only=("t1", "t3")))[0].case("three-key", 0)
         self.assertEqual((record["pass"], record["letter_is"], record["second_new_tab_field"], record["tabs_before"][0]["field"]), (True, "new tab's field", None, None))
         self.assertEqual(record["places_not_read"],
-                         [f"the pane shows the tab t2, not the tab {tab}, after its select: the app said: no" for tab in ("t3", "t1")])
+                         [f"{place}: the pane shows the tab t2, not the tab {tab}, after its select: the app said: no"
+                          for place, tab in (("second_new_tab_field", "t3"), ("tabs_before[0]", "t1"))])
+
+    def test_a_chat_whose_query_has_no_element_is_a_place_not_read_and_not_nowhere_read(self):
+        # The letter can be in the chat's composer: with no answer of the query the tool does not know it, and says so.
+        record = self.letters(CHORD, {}, query=[{"elements": []}] * 2)[0].case("from-chat", 0)
+        self.assertEqual((record["pass"], record["field"], record["letter_is"]), (False, "", "a place not read"))
+        self.assertEqual(record["places_not_read"], ["tabs_before[0] before the keys: no element", "tabs_before[0]: no element"])
+        self.assertEqual(record["tabs_before"][0], {"field_before": None, "field": None, "got_the_letter": None})
+        self.assertEqual(M.verdict("from-chat", [record])["places_not_read"], 1)
+        # Each other reply with no text has its word.
+        for reply, why in (({"error": "query failed"}, "error"), ("no", "no dict"), ({"elements": [{"classes": []}]}, "no text")):
+            record = self.letters(CHORD, {}, query=[reply] * 2)[0].case("from-chat", 0)
+            self.assertEqual((record["letter_is"], record["places_not_read"][-1]), ("a place not read", f"tabs_before[0]: {why}"), reply)
+
+    def test_an_app_with_no_counts_of_the_park_is_a_place_not_read(self):
+        record = self.letters(CHORD, {}, counts=False)[0].case("three-key", 0)
+        self.assertEqual((record["pass"], record["letter_is"]), (False, "a place not read"))
+        self.assertEqual(record["park"], {"before": None, "after": None, "end": None, "change": None})
+        self.assertEqual(record["places_not_read"], ["park.before: no parked_typing", "park.end: no parked_typing"])
+        # The letter in the first new tab's field: the place is read and the verdict stays; the record says what gave no read.
+        record = self.letters(CHORD, {"t2": "x"}, counts=False)[0].case("three-key", 0)
+        self.assertEqual((record["pass"], record["letter_is"], len(record["places_not_read"])), (True, "new tab's field", 2))
+
+    def test_no_text_of_the_first_new_tabs_field_is_a_place_not_read(self):
+        record = self.letters(CHORD, {"t2": None})[0].case("three-key", 0)
+        self.assertEqual((record["pass"], record["field"], record["letter_is"], record["places_not_read"]), (False, None, "a place not read", ["field: no text"]))
+
+    def test_tab_before_is_not_said_with_no_read_before_the_keys(self):
+        # The composer has the letter after the keys, and its read before the keys gave no element: the letter can be older.
+        record = self.letters(CHORD, {}, lands={"t2": "x"}, query=[{"elements": []}])[0].case("from-chat", 0)
+        self.assertEqual((record["letter_is"], record["tabs_before"][0]), ("a place not read", {"field_before": None, "field": "x", "got_the_letter": None}))
+        self.assertEqual(record["places_not_read"], ["tabs_before[0] before the keys: no element"])
+
+    def test_a_letter_in_2_places_has_the_other_words_in_letter_also(self):
+        record = self.letters(CHORD, {"t2": "x"}, lands={"t3": "x", "t1": "x"}, park={"parked": 1, "dropped_old": 1})[0].case("three-key", 0)
+        self.assertEqual((record["pass"], record["letter_is"]), (True, "new tab's field"))
+        self.assertEqual(record["letter_also"], ["second new tab's field", "tab before", "dropped after the bound"])
+        self.assertNotIn("letter_also", self.letters(CHORD, {"t2": "x"})[0].case("three-key", 0))  # one place: no such key
+
+    def test_an_exception_of_the_place_reads_makes_no_case_not_run(self):
+        # The case has its verdict by the 2 old reads: the record has the exception's class name only, and no `not_run`.
+        for texts, passed, word in (({"t2": "x"}, True, "new tab's field"), ({}, False, "a place not read")):
+            with mock.patch.object(M, "park_change", side_effect=KeyError("a text of the app")):
+                record = self.letters(CHORD, texts)[0].case("three-key", 0)
+            self.assertEqual((record["pass"], record.get("not_run"), record["letter_is"]), (passed, None, word))
+            self.assertEqual(record["places_not_read"], ["the places: KeyError"])
+            self.assertEqual(M.verdict("three-key", [record])["ran"], 1)
+
+    def test_an_exception_of_one_place_read_is_its_class_name_and_the_next_read_goes_on(self):
+        letters, record = self.letters(CHORD, {})[0], {}
+        self.assertIsNone(letters.tried(record, "tabs_before[0]", lambda: {}["a text of the app"]))
+        self.assertEqual(letters.tried(record, "tabs_before[1]", lambda: ("x", None)), "x")
+        self.assertEqual(record, {"places_not_read": ["tabs_before[0]: KeyError"]})
+
+    def test_a_two_key_case_has_no_second_new_tab_and_that_is_no_place_not_read(self):
+        letters, builder, _ = self.letters(READY[:3], {})
+        record = letters.case("two-key", 0)
+        self.assertEqual((record["tabs_made"], record["second_new_tab_field"], record["letter_is"], record.get("places_not_read")), (1, None, "nowhere read", None))
+        self.assertEqual([target for name, target in builder.actions if name == "tab.focus"], ["tab:t2", "tab:t1"])
+
+    def test_a_switch_case_whose_letter_went_to_a_tab_before_has_the_letter_2_times_there(self):
+        record = self.letters(CHORD, {}, lands={"t1": "xx"})[0].case("switch-next", 0)
+        self.assertEqual((record["pass"], record["field"], record["letter_is"]), (False, "", "tab before"))
+        self.assertEqual(record["tabs_before"], [{"field_before": "x", "field": "the letter 2 times", "got_the_letter": True},
+                                                 {"field_before": "x", "field": "x", "got_the_letter": False}])
+
+    def test_the_parks_counts_of_a_case_are_less_the_counts_before_its_keys(self):
+        record = self.letters(CHORD, {}, had={"parked": 7, "typed": 4, "dropped_old": 3}, park={"parked": 1, "typed": 1})[0].case("three-key", 0)
+        self.assertEqual((record["park"]["before"]["dropped_old"], record["park"]["change"]), (3, {**dict.fromkeys(M.PARK, 0), "parked": 1, "typed": 1}))
+        self.assertEqual(record["letter_is"], "nowhere read")  # an older count of a dropped text is not this case's
+
+    def test_a_focus_reply_that_is_no_dict_is_a_read_with_no_counts(self):
+        letters = M.Letters(Builder(), lambda method, params=None: ["no dict"], wait)
+        self.assertEqual((letters.focus(), M.park_of(letters.focus())), ({}, None))
 
     def close_move(self, motion):
         letters, builder, app = self.letters(CHORD, {"t3": "x"}, motion=motion)
@@ -539,7 +640,7 @@ class Case(unittest.TestCase):
         letters, builder, _ = self.letters(CHORD, {}, refuse="no Chromium page window for pane p")
         record = letters.case("three-key", 0)
         self.assertIn("refused the sequence", record["not_run"])
-        self.assertEqual(("pass" in record, record["letter_is"]), (False, "nowhere read"))
+        self.assertEqual(("pass" in record, record["letter_is"]), (False, "not run"))
         self.assertEqual(builder.actions[-1], ("closeWorkspace", "workspace:w"))
 
     def test_run_gives_each_forms_word(self):
@@ -570,7 +671,7 @@ class Case(unittest.TestCase):
         self.assertEqual([("not_run" in case) for case in report["cases"]], [False, True, True])
         self.assertIn("budget", report["cases"][1]["not_run"])
         self.assertEqual((report["forms"][0]["verdict"], report["forms"][0]["ran"], report["forms"][0]["not_run"]), (M.NOT_PROVED, 1, 2))
-        self.assertEqual(report["forms"][0]["letter_is"], {"new tab's field": 1, "nowhere read": 2})  # a case that did not run: no read
+        self.assertEqual(report["forms"][0]["letter_is"], {"new tab's field": 1, "not run": 2})  # a case that did not run has its own word
         self.assertEqual(len([action for action in builder.actions if action[0] == "closeWorkspace"]), 1)
 
 
