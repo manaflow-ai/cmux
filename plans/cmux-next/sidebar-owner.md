@@ -2635,3 +2635,12 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   added half a pixel more (1.5 pt at scale 1). It now rounds toward the line. Regression: `SidebarSearchButtonTests`
   (red on feat-cmux-next and on base 19421bb).
   Sidebar-Look: Leo 2026-10-21 "move the magnifying glass a bit lower": one device pixel, no more.
+
+- 2026-11-21 (49583, 35f0edfcc6e): every sidebar row symbol (a pinned row's leading pin; a hovered row's Pin/Unpin,
+  ⋮, ✕, tree chevron and speaker; a pinned item's ⋮ and Unpin; a group header's ⋮, Unpin and chevron) draws at one
+  side, `SidebarStyle.rowSymbolSide`: the image side of the leading pin fitted to the rows' optical square. Before, the
+  hover pin and ✕ drew at `iconRowSize(smallIconSize - space2)` and the ⋮ at `iconRowSize(smallIconSize - space1)`, so
+  one row showed three sizes and stroke weights. Hit boxes stay one `controlSize` square on the row's center line.
+  Dev build: the leading pin's ink measured 16×23 px and the hover Pin's 16×24 px at 2x. Regression:
+  `SidebarRowSymbolsShareOneSizeTests`. https://github.com/manaflow-ai/cmux/issues/49583
+  Sidebar-Look: "are all of these the same size icons wise… look at the top left one… fix the problem"
