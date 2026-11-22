@@ -20,6 +20,9 @@
 // - `move`: an element no step touched (in this frame or the one before) and no animation moves, that is
 //   drawn more than 1 px from where it was drawn the frame before. The reader's own scroll (input) is
 //   taken out first: their wheel moves every row, and that is theirs.
+// - `scroll-step`: the page (no input) moved the scroller in one frame, by more than 1 px, and the rows rode
+//   it: the view snapping to follow the tail instead of gliding. One flag per frame, keyed `scroller`; a row
+//   that moved by another amount is still its own `move`.
 // - `resize`: the same element's box more than 1 px taller, shorter, wider or narrower.
 // - `off-curve`: a running animation that moves geometry (transform, translate, a height, a clip) on
 //   another easing than the house's (motion/scale.generated.ts: the settle, the send curve, the ease-out,
@@ -40,6 +43,7 @@
 // every move must either be the touched element's own, or ride an animation on the house curve.
 import { MOTION_EASE_OUT, MOTION_MS, MOTION_SETTLE, MOTION_SPRING } from "../../src/motion/scale.generated";
 import { ARRIVAL_EASE } from "../../src/agent-session/acpmux/conversation/followChase";
+import { MAIN_DOCK } from "../../src/agent-session/acpmux/composerSelectors";
 
 /** A move or resize under this (px) in one frame is layout rounding (the brief's "more than 1 px"). */
 export const STILL_PX = 1;
@@ -52,6 +56,8 @@ export const HOUSE_EASINGS = [MOTION_SETTLE, MOTION_EASE_OUT, MOTION_SPRING, ARR
 /** The ceiling of any house move (ms): "no house move outlasts the large step" (scale.generated.ts). */
 export const HOUSE_MAX_MS = MOTION_MS.large;
 /** Frames running on which script writes an element's translate before it counts as an animation. */
+/** Keyframes at which a linear-clock animation is a sampled curve (its easing is in the points). */
+export const SAMPLED_KEYFRAMES = 4;
 export const SCRIPT_RUN_FRAMES = 3;
 
 export type Box = [x: number, y: number, w: number, h: number];
@@ -127,7 +133,7 @@ export const TRANSCRIPT_MOTION: TranscriptMotionOptions = {
   tracked: [
     { selector: ".acpmux-thread > .acpmux-row", kind: "row" },
     { selector: ".acpmux-thread > .acpmux-fold-card", kind: "fold-card", key: "fold-card" },
-    { selector: ".acpmux-main > .acpmux-dock", kind: "dock", key: "dock" },
+    { selector: MAIN_DOCK, kind: "dock", key: "dock" },
     { selector: ".acpmux-composer-box", kind: "composer", key: "composer" },
   ],
 };
@@ -330,12 +336,17 @@ export function defineTranscriptMotion(options: TranscriptMotionOptions) {
       if (!geometry.length) continue;
       const timing = effect.getComputedTiming();
       if (!Number.isFinite(Number(timing.endTime))) continue;
+      // An ambient loop (the running line's shimmer: a steps() sweep, repeated) moves ink inside its row, not
+      // the layout around it.
+      if (Number(timing.iterations) !== 1) continue;
       movers.push(target);
       if (animIds.has(animation)) continue;
       animIds.set(animation, (nextAnim += 1));
       const own = effect.getTiming().easing ?? "linear";
-      const easing =
-        own !== "linear" ? own : (keyframes.find((frame) => frame.easing && frame.easing !== "linear")?.easing ?? own);
+      const keyed = keyframes.find((frame) => frame.easing && frame.easing !== "linear")?.easing;
+      // A curve sampled into keyframes on a linear clock (the wipe's edge: SAMPLED_KEYFRAMES = 4 or more points; inlined, this function closes over nothing)
+      // carries its easing in the points, not in a timing function.
+      const easing = own !== "linear" ? own : (keyed ?? (keyframes.length >= 4 ? `sampled(${keyframes.length})` : own));
       const tracked = target.matches(selectorAll) ? keyOf(target) : undefined;
       animations.push({
         target: tracked ?? `${target.tagName.toLowerCase()}.${[...target.classList].slice(0, 2).join(".")}`,
@@ -449,7 +460,7 @@ export function defineTranscriptMotion(options: TranscriptMotionOptions) {
   };
 }
 
-export type MotionFlagKind = "move" | "resize" | "off-curve" | "offscreen-start" | "scroll-start";
+export type MotionFlagKind = "move" | "scroll-step" | "resize" | "off-curve" | "offscreen-start" | "scroll-start";
 export type MotionFlag = {
   kind: MotionFlagKind;
   /** The element (a key) or, for `off-curve`, the animated target. */
@@ -470,13 +481,14 @@ export type MotionFlag = {
 const normalize = (easing: string) =>
   easing
     .replace(/\s+/g, "")
-    .replace(/^ease-out$/, "cubic-bezier(0,0,0.58,1)")
+    .replace(/^ease-out$/, MOTION_EASE_OUT.replaceAll(" ", ""))
     .replace(/(\d*\.\d+|\d+)/g, (n) => String(Number(n)));
 const HOUSE = new Set(HOUSE_EASINGS.map(normalize));
 
 /** Whether an animation's easing and length are the house's. */
 export function onHouseCurve(animation: Pick<AnimationSeen, "easing" | "duration">): boolean {
-  return HOUSE.has(normalize(animation.easing)) && animation.duration <= HOUSE_MAX_MS + 0.5;
+  const easing = normalize(animation.easing);
+  return (HOUSE.has(easing) || easing.startsWith("sampled(")) && animation.duration <= HOUSE_MAX_MS + 0.5;
 }
 
 /** Every flag in `record`, in frame order. */
@@ -506,6 +518,8 @@ export function transcriptMoves(record: MotionRecord): MotionFlag[] {
     // The reader's scroll: the rows ride it, so it is taken out of their move.
     const input = record.inputs.some((at) => at <= now.t && now.t - at <= INPUT_MS);
     const scrolled = input ? now.scrollTop - was.scrollTop : 0;
+    const pageScroll = input ? 0 : now.scrollTop - was.scrollTop;
+    let rode = 0;
     const cause = Object.entries(now.els)
       .filter(([key, [box]]) => touched.has(key) && was.els[key] && Math.abs(box[3] - was.els[key]![0][3]) > STILL_PX)
       .map(
@@ -523,6 +537,17 @@ export function transcriptMoves(record: MotionRecord): MotionFlag[] {
       const moved = Math.max(Math.abs(dx), Math.abs(dy));
       const sized = Math.max(Math.abs(w - w0), Math.abs(h - h0));
       const base = { key, of, frame: index, t: now.t, after: recentMarks(index), cause };
+      if (
+        of === "row" &&
+        Math.abs(pageScroll) > STILL_PX &&
+        Math.abs(dy + pageScroll) <= STILL_PX &&
+        Math.abs(dx) <= STILL_PX
+      ) {
+        rode += 1;
+        if (sized > STILL_PX)
+          flags.push({ ...base, kind: "resize", px: Math.round(sized * 10) / 10, detail: `${w0}x${h0} -> ${w}x${h}` });
+        continue;
+      }
       if (moved > STILL_PX)
         flags.push({
           ...base,
@@ -533,9 +558,22 @@ export function transcriptMoves(record: MotionRecord): MotionFlag[] {
       if (sized > STILL_PX)
         flags.push({ ...base, kind: "resize", px: Math.round(sized * 10) / 10, detail: `${w0}x${h0} -> ${w}x${h}` });
     }
+    if (rode)
+      flags.push({
+        kind: "scroll-step",
+        key: "scroller",
+        of: "scroller",
+        frame: index,
+        t: now.t,
+        after: recentMarks(index),
+        cause,
+        px: Math.round(Math.abs(pageScroll) * 10) / 10,
+        detail: `scrollTop ${Math.round(was.scrollTop)} -> ${Math.round(now.scrollTop)} in one frame, ${rode} rows rode it`,
+      });
   }
   for (const animation of record.animations) {
-    if (onHouseCurve(animation)) continue;
+    // A steps() sweep is the running line's shimmer: ink stepping inside its row, not layout motion.
+    if (onHouseCurve(animation) || animation.easing.trim().startsWith("steps(")) continue;
     const frame = frames[animation.frame];
     flags.push({
       kind: "off-curve",
@@ -677,6 +715,7 @@ export function stepClass(flag: Pick<MotionFlag, "after">): string {
 export function countFlags(flags: readonly MotionFlag[]) {
   const counts: Record<MotionFlagKind, number> = {
     move: 0,
+    "scroll-step": 0,
     resize: 0,
     "off-curve": 0,
     "offscreen-start": 0,

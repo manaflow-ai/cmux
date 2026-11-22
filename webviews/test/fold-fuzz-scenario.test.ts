@@ -4,6 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import { fuzzScenario, fuzzSpec, rng, SPLITS, strayScenario } from "./browser/fold-fuzz.scenario";
 import { analyze, driftThreshold, type FuzzRun } from "../scripts/fold-fuzz";
+import { MOTION_MS, MOTION_SETTLE } from "../src/motion/scale.generated";
 import {
   onHouseCurve,
   stepClass,
@@ -152,18 +153,22 @@ describe("the transcript motion detector", () => {
         {
           target: "row:c",
           properties: ["translate"],
-          duration: 180,
-          easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+          duration: MOTION_MS.standard,
+          easing: MOTION_SETTLE,
           frame: 1,
         },
         { target: "div.acpmux-thread", properties: ["height"], duration: 400, easing: "linear", frame: 1 },
+        { target: "span.cv-shimmer__band", properties: ["transform"], duration: 1000, easing: "steps(48)", frame: 1 },
       ],
       inputs: [],
     };
     const flags = transcriptMoves(record);
     expect(flags.map((f) => [f.kind, f.key])).toEqual([["off-curve", "div.acpmux-thread"]]);
-    expect(onHouseCurve({ easing: "ease-out", duration: 120 })).toBe(true);
-    expect(onHouseCurve({ easing: "cubic-bezier(0.16,1,0.3,1)", duration: 480 })).toBe(false);
+    expect(onHouseCurve({ easing: "ease-out", duration: MOTION_MS.micro })).toBe(true);
+    expect(onHouseCurve({ easing: MOTION_SETTLE.replaceAll(" ", ""), duration: 2 * MOTION_MS.large })).toBe(false);
+    // The wipe's edge: a curve sampled into keyframes on a linear clock is judged by its length alone.
+    expect(onHouseCurve({ easing: "sampled(13)", duration: MOTION_MS.large })).toBe(true);
+    expect(onHouseCurve({ easing: "sampled(13)", duration: 435 })).toBe(false);
   });
 
   test("a script translate run (the follow chase) moves its rows on a curve; turning back is a bounce", () => {
@@ -215,8 +220,10 @@ describe("the transcript motion detector", () => {
       ["move", "dock"],
       ["resize", "dock"],
     ]);
-    // The same scroll with no input is the page's: every row it moved is a move.
-    expect(transcriptMoves({ ...record, inputs: [] }).filter((f) => f.key === "row:a").length).toBe(1);
+    // The same scroll with no input is the page's: the view snapped, one scroll-step for the frame.
+    const page = transcriptMoves({ ...record, inputs: [] });
+    expect(page.filter((f) => f.key === "row:a")).toEqual([]);
+    expect(page.filter((f) => f.kind === "scroll-step").map((f) => [f.key, f.px])).toEqual([["scroller", 100]]);
   });
 });
 

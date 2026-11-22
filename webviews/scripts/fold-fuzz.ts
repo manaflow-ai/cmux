@@ -283,6 +283,8 @@ export function flagsOf(n: Ok, driftPx: number, control?: number) {
     drift: Math.abs(n.anchorDriftPx - (control ?? 0)) > driftPx,
     /** The detector: an untouched element moved or resized more than 1 px in a frame. */
     jump: !!n.motion && n.motion.move + n.motion.resize > 0,
+    /** The detector: the view snapped (scrolled with no input) in one frame. */
+    scrollStep: !!n.motion && n.motion["scroll-step"] > 0,
     /** The detector: an animated move off the house easing or past its ceiling. */
     offCurve: !!n.motion && n.motion["off-curve"] > 0,
   };
@@ -465,10 +467,10 @@ export function detectorTable(results: Result[], looks: string[]) {
   const lines = [
     "### The motion detector (test/support/transcriptMotion.ts): every element, every frame",
     "",
-    "A `move` or `resize` is an element no step touched and no animation moves, drawn more than 1 px from its last frame; `off-curve` is a geometry animation off the house easing or past 240 ms.",
+    "A `move` or `resize` is an element no step touched and no animation moves, drawn more than 1 px from its last frame; `off-curve` is a geometry animation off the house easing or past 240 ms. A `scroll-step` is a frame where the page, not the reader, moved the scroller more than 1 px at once and the rows rode it (the follow snapping instead of gliding).",
     "",
-    `| look | seeds | seeds with a jump (move or resize) | seeds off-curve | move flags | resize flags | off-curve animations | ${STEP_CLASSES.map((name) => `after ${name}`).join(" | ")} |`,
-    `|---|---|---|---|---|---|---|${STEP_CLASSES.map(() => "---").join("|")}|`,
+    `| look | seeds | seeds with a jump (move or resize) | seeds with a scroll step | seeds off-curve | move flags | scroll-step frames | resize flags | off-curve animations | ${STEP_CLASSES.map((name) => `after ${name}`).join(" | ")} |`,
+    `|---|---|---|---|---|---|---|---|---|${STEP_CLASSES.map(() => "---").join("|")}|`,
   ];
   for (const look of looks) {
     const verdicts = results
@@ -478,9 +480,9 @@ export function detectorTable(results: Result[], looks: string[]) {
     const sum = (pick: (v: MotionVerdict) => number) => verdicts.reduce((total, v) => total + pick(v), 0);
     lines.push(
       `| ${look} | ${verdicts.length} | ${verdicts.filter((v) => v.move + v.resize > 0).length} | ${
-        verdicts.filter((v) => v["off-curve"] > 0).length
-      } | ${sum((v) => v.move)} | ${sum((v) => v.resize)} | ${sum((v) => v["off-curve"])} | ${STEP_CLASSES.map((name) =>
-        sum((v) => v.byStep[name] ?? 0),
+        verdicts.filter((v) => v["scroll-step"] > 0).length
+      } | ${verdicts.filter((v) => v["off-curve"] > 0).length} | ${sum((v) => v.move)} | ${sum((v) => v["scroll-step"])} | ${sum((v) => v.resize)} | ${sum((v) => v["off-curve"])} | ${STEP_CLASSES.map(
+        (name) => sum((v) => v.byStep[name] ?? 0),
       ).join(" | ")} |`,
     );
   }
@@ -532,12 +534,12 @@ export function strayTable(results: Result[], looks: string[]) {
 
 /** Each seed's detector counts for one look: what the CI ratchet (transcript-motion-baseline.json) holds. */
 export function seedFlags(results: Result[], look: string) {
-  const flags: Record<string, { move: number; resize: number; "off-curve": number }> = {};
+  const flags: Record<string, ReturnType<typeof countFlags>> = {};
   for (const r of results) {
     if (r.look !== look || !ok(r.numbers) || !(r.numbers as Ok).motion) continue;
     const v = (r.numbers as Ok).motion!;
-    if (v.move + v.resize + v["off-curve"] > 0)
-      flags[r.seed] = { move: v.move, resize: v.resize, "off-curve": v["off-curve"] };
+    if (v.move + v["scroll-step"] + v.resize + v["off-curve"] > 0)
+      flags[r.seed] = { move: v.move, "scroll-step": v["scroll-step"], resize: v.resize, "off-curve": v["off-curve"] };
   }
   return flags;
 }
@@ -696,6 +698,7 @@ if (import.meta.main) {
           phases: flags.filter((f) => f.phases).length,
           drift: flags.filter((f) => f.drift).length,
           jump: flags.filter((f) => f.jump).length,
+          scrollStep: flags.filter((f) => f.scrollStep).length,
           offCurve: flags.filter((f) => f.offCurve).length,
         },
       ];
