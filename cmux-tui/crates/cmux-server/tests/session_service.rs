@@ -40,6 +40,22 @@ impl Env {
                 ..Output::default()
             },
         );
+        // launchd has no com.cmux.server loaded here.
+        env.runner
+            .answer_always("launchctl print", Output { code: Some(113), ..Output::default() });
+        // Every unit systemd is asked about is stopped.
+        env.runner.answer_always(
+            "--property=ActiveState",
+            Output { code: Some(0), stdout: b"inactive\n".to_vec(), ..Output::default() },
+        );
+        env.runner.answer_always(
+            "--property=ControlGroup,TasksCurrent",
+            Output {
+                code: Some(0),
+                stdout: b"ControlGroup=\nTasksCurrent=[not set]\n".to_vec(),
+                ..Output::default()
+            },
+        );
         env
     }
 

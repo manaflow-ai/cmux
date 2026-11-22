@@ -449,3 +449,87 @@ fn a_pass_for_named_folders_reads_those_folders_only() {
     f.supervisor.reload_local_apps_saved(&prints, [local.join("a")]);
     assert_eq!(app_entry(&f.supervisor.list(), "local/a")["version"], "2.0.0");
 }
+
+/// The person's customize folder app (`local/customize`): sidebar row
+/// decorations, a sidebar section and a pane, from one script that draws
+/// `word` (`customize_script`).
+fn write_customize(dir: &Path, word: &str) {
+    std::fs::write(dir.join("main.js"), customize_script(word)).unwrap();
+    let manifest = json!({
+        "manifestVersion": 2, "id": "local/customize", "name": "Mine", "version": "1.0.0",
+        "description": "d", "engines": { "cmux": "^2.0" }, "runtime": { "main": "main.js" },
+        "implements": {
+            "cmux.sidebar.rows/1": { "export": "renderRows" },
+            "cmux.section/1": { "export": "renderSection", "title": "Mine" },
+            "cmux.pane/1": { "export": "renderPane", "title": "Mine", "symbol": "bolt" }
+        }
+    });
+    std::fs::write(dir.join("cmux-app.json"), manifest.to_string()).unwrap();
+}
+
+/// A customize script whose every view draws `word` (the scripted host's
+/// `SCENE_TEXT`).
+fn customize_script(word: &str) -> String {
+    format!("// SCENE_TEXT {word}\nvar __cmuxAppExports = {{}};\n")
+}
+
+/// Ten in-place saves of the customize folder's `main.js` (open, truncate,
+/// write: `edit-repaint.py`'s save), each through the real file watch, each
+/// redrawing the open `interface` view with the saved script. Returns each
+/// save's ms to the new scene.
+fn ten_saves_redraw_the_open_view(interface: &str) -> Vec<u128> {
+    let f = fixture_customize();
+    let dir = f.customize.clone().unwrap();
+    write_customize(&dir, "save0");
+    f.supervisor.reload_local_apps(&Default::default());
+    let entry = app_entry(&f.supervisor.list(), "local/customize");
+    assert_eq!(entry["installed"], true, "the customize app installs itself: {entry}");
+    f.supervisor.mount(CLIENT, "v1", "local/customize", interface, json!({})).unwrap();
+    let first = f.wait("the first scene", |e| e["event"] == "apps-scene" && e["mount_id"] == "v1");
+    assert_eq!(first["ops"][0]["props"]["text"], "save0", "{first}");
+    f.supervisor.start_local_watch_for_test();
+    // The watch reads once as it starts; let that settle.
+    std::thread::sleep(Duration::from_millis(500));
+    while f.events.try_recv().is_ok() {}
+    (1..=10)
+        .map(|n| {
+            let word = format!("save{n}");
+            let start = Instant::now();
+            std::fs::write(dir.join("main.js"), customize_script(&word)).unwrap();
+            f.wait(&format!("save {n} redraws the open {interface} view"), |e| {
+                e["event"] == "apps-scene"
+                    && e["mount_id"] == "v1"
+                    && e["ops"][0]["op"] == "create"
+                    && e["ops"][0]["props"]["text"] == word.as_str()
+            });
+            start.elapsed().as_millis()
+        })
+        .collect()
+}
+
+/// A save of the customize folder's script redraws the sidebar's row
+/// decorations (`cmux.sidebar.rows/1`), every time (capability matrix
+/// item 17: no test saved a rows change).
+#[test]
+fn a_rows_save_redraws_the_sidebar_rows_each_time() {
+    let ms = ten_saves_redraw_the_open_view("cmux.sidebar.rows/1");
+    eprintln!("rows save to scene ms: {ms:?}");
+}
+
+/// A save redraws an extension pane that is open (`cmux.pane/1`), every
+/// time, without closing it (capability matrix item 17: the DEV tour opened
+/// the pane after a reload, but never reloaded it while open).
+#[test]
+fn a_save_redraws_an_open_pane() {
+    let ms = ten_saves_redraw_the_open_view("cmux.pane/1");
+    eprintln!("pane save to scene ms: {ms:?}");
+}
+
+/// `edit-repaint.py`'s extension case on the daemon alone: ten in-place
+/// saves of the customize folder's `main.js` redraw its open sidebar
+/// section, every time (the fleet run saw 0 of 10 by pixels).
+#[test]
+fn a_customize_section_save_redraws_each_time() {
+    let ms = ten_saves_redraw_the_open_view("cmux.section/1");
+    eprintln!("section save to scene ms: {ms:?}");
+}
