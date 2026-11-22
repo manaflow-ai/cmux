@@ -124,6 +124,28 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     return b.turnEnd().build();
   },
 
+  // Leo, 2026-11-22: "when i sent that message it was as if briefliy the worked for disappeared and then
+  // reappeared ... it forgot it just folded and settled and then it acted as if the turn was still going". A
+  // turn ends and settles, then the person sends; acpmux lists the chat running, or opens the turn, before the
+  // prompt's record comes. The settled turn stays settled: its "Worked for" never leaves, never reads running.
+  "send-after-settle": () => {
+    const b = sim(
+      "send-after-settle",
+      "A turn settles, then the person sends; the turn's start comes before the prompt.",
+    );
+    b.prompt("Fix the flaky retry test.");
+    workTurn(b, 3);
+    b.say("Fixed: the loop now makes exactly `attempts` calls.");
+    b.turnEnd();
+    for (const early of ["status", "turn_started", "both"] as const) {
+      b.wait(5_000).prompt(`Now check the other callers (${early} first).`, 1_000, early);
+      workTurn(b, 2, { middleText: false });
+      b.say("The other callers retry once, as they should.");
+      b.turnEnd();
+    }
+    return b.build();
+  },
+
   "reader-scroll": () => {
     const b = sim(
       "reader-scroll",

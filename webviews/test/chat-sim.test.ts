@@ -34,6 +34,26 @@ describe("chat simulator: (a) a turn's first rows keep their gaps, (b) nothing f
   }
 });
 
+// Leo, 2026-11-22: "when i sent that message it was as if briefliy the worked for disappeared and then
+// reappeared ... it forgot it just folded and settled and then it acted as if the turn was still going". Rule
+// (e): a turn whose turn_result passed never reads running again and its "Worked for" never leaves, and a
+// turn's heading, once drawn, holds its slot ("accounting for space for the worked for/working heading should
+// always be there anyways").
+describe("chat simulator: (e) a settled turn stays settled; a turn's heading holds its slot", () => {
+  for (const [name, make] of Object.entries(SCENARIOS))
+    test(`${name}: rule e`, () => {
+      expect(broken(runSimulation(make()), "e-")).toEqual([]);
+    });
+  test("send-after-settle: each settled turn keeps its Worked for through the next send", () => {
+    const result = runSimulation(SCENARIOS["send-after-settle"]!());
+    expect(broken(result, "e-")).toEqual([]);
+    // Every turn of the scenario ends on its own "Worked for", one per turn, none of them running.
+    const end = result.traces.at(-1)!.rows!;
+    expect(end.filter((row) => row.kind === "worked").map((row) => row.id)).toHaveLength(4);
+    expect(end.filter((row) => row.kind === "working")).toEqual([]);
+  });
+});
+
 /** The gap over each head of turn 2 ("thinking", "working") in `name`, at the first step it is drawn. */
 const headGaps = (name: string) => {
   const gaps: Record<string, number> = {};

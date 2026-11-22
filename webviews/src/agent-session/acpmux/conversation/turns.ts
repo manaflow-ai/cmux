@@ -778,9 +778,13 @@ export function turnViewFrom(
   for (let at = first; at < starts.length; at += 1) {
     const start = starts[at]!;
     const end = at + 1 < starts.length ? starts[at + 1]! : rows.length;
-    // Only the last turn can still be running.
+    // Only the last turn can still be running, and not once it settled: a turn whose end (its summary)
+    // is its last row, under at most prompts not yet written and the typing placeholder, is over, even
+    // while the chat reads running. acpmux lists the chat running, or opens the next turn, before the
+    // next prompt's record comes, and the person's prompt on its way sits in this turn until then (Leo,
+    // 2026-11-22: "it forgot it just folded and settled and then it acted as if the turn was still going").
     const last = at === starts.length - 1;
-    const live = working && last;
+    const live = working && last && !settledTail(rows, start, end);
     dated[at] = showsTimestamp(times[at]!, visible === undefined ? undefined : times[visible], now, fromStart);
     const shaped = shapedTurn(
       rows,
@@ -1673,6 +1677,21 @@ const callsIn = (rows: readonly AcpmuxRow[]) =>
     .reduce((n, row) => n + (row.kind === "activity" ? (row.items ?? []).filter((item) => item.tool).length : 0), 0);
 
 const isUnsent = (row: AcpmuxRow) => Boolean(row.pending || row.failed);
+
+/// Whether the turn in `rows[start..end)` ended and nothing of a new stretch came after its end: its
+/// summary is its last row but for prompts not written yet (``isUnsent``) and the typing placeholder
+/// a turn's start leaves. Work the agent starts on its own after an ended stretch comes as rows after
+/// the summary, and runs again; so does a turn a prompt sent now stopped (its summary `continued`).
+export function settledTail(rows: readonly AcpmuxRow[], start: number, end: number): boolean {
+  for (let at = end - 1; at > start; at -= 1) {
+    const row = rows[at]!;
+    // A stop the person's prompt made goes on under that prompt (``hidesContinuedSummary``).
+    if (row.kind === "turnSummary") return !row.continued;
+    if (row.kind === "typing" || (row.kind === "user" && isUnsent(row))) continue;
+    return false;
+  }
+  return false;
+}
 
 /// The tagged ask (nextStepAsk.ts) of the reply right before a message that was not the person's
 /// (another agent's, a notice) steered into the turn, with the reply that asked it: the newest such,

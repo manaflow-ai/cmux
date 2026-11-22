@@ -57,7 +57,14 @@ export type FoldEvent = {
 };
 
 export type Violation = {
-  rule: "a-turn-gap" | "a-head-gap" | "b-mid-turn-fold" | "b-mid-turn-shrink" | "c-rerender";
+  rule:
+    | "a-turn-gap"
+    | "a-head-gap"
+    | "b-mid-turn-fold"
+    | "b-mid-turn-shrink"
+    | "c-rerender"
+    | "e-settled-live"
+    | "e-heading-gone";
   step: number;
   at: number;
   label: string;
@@ -178,6 +185,12 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
   // The open folds, one object for the whole run as App.tsx keeps its `folds` state: a fresh set each
   // step reads as a fold change, and the turn view then shapes every turn again (no reuse).
   const folds = new Set<string>();
+  // (e) Each turn's heading ("Working for", then "Worked for"), by its prompt's id: where it is drawn
+  // (`headsAt`, kept from the unchanged prefix as `headAt` is), the prompts whose "Worked for" was drawn
+  // after their turn ended (`settledHeads`), and the prompts whose heading broke the rule at the step before.
+  const headsAt = new Map<string, { worked: number[]; working: number[] }>();
+  const settledHeads = new Set<string>();
+  const brokenHeads = new Set<string>();
 
   let current: { rows: readonly AcpmuxRow[]; layout: ConversationLayout } | undefined;
   let shaped = 0;
@@ -418,6 +431,62 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         rerendered.push(row.id);
     }
     for (const id of rerendered) flag("c-rerender", id, "rebuilt above the newest change, two or more turns back");
+    // (e) A turn whose turn_result passed stays settled: its "Worked for" never leaves the drawn rows and
+    // its "Working for" never comes back, whatever comes next (Leo, 2026-11-22: "it forgot it just folded
+    // and settled and then it acted as if the turn was still going"). And a turn's heading, once drawn,
+    // holds its slot: "Working for" goes to "Worked for" in place, never to nothing for a step ("accounting
+    // for space for the worked for/working heading should always be there anyways").
+    const touched = new Set<string>(brokenHeads);
+    const headOf = (id: string): [string, "worked" | "working"] | undefined =>
+      id.startsWith("worked-")
+        ? [id.slice(7), "worked"]
+        : id.startsWith("working-")
+          ? [id.slice(8), "working"]
+          : undefined;
+    for (const [prompt, at] of headsAt) {
+      const keep = (list: number[]) => list.filter((index) => index < stable);
+      const worked = keep(at.worked);
+      const working = keep(at.working);
+      if (worked.length !== at.worked.length || working.length !== at.working.length) touched.add(prompt);
+      headsAt.set(prompt, { worked, working });
+    }
+    for (let at = stable; at < rows.length; at += 1) {
+      const row = rows[at]!;
+      if (row.kind !== "worked" && row.kind !== "working") continue;
+      // A joined line ("Worked for" over several bare turns, turns.ts `joinBareWorked`) heads each member.
+      const ids = new Set([row.id, ...(row.workedRun?.ids ?? [])]);
+      for (const id of ids) {
+        const head = headOf(id);
+        if (!head) continue;
+        const [prompt, kind] = head;
+        const entry = headsAt.get(prompt) ?? { worked: [], working: [] };
+        entry[kind].push(at);
+        headsAt.set(prompt, entry);
+        touched.add(prompt);
+      }
+    }
+    brokenHeads.clear();
+    for (const prompt of touched) {
+      const at = headsAt.get(prompt);
+      if (!at) continue;
+      const own = rowTurn.get(prompt);
+      const settled = own !== undefined && (own < turn || turnEnded);
+      if (settled && at.worked.length && !at.working.length) settledHeads.add(prompt);
+      if (settledHeads.has(prompt) && (at.working.length || !at.worked.length)) {
+        brokenHeads.add(prompt);
+        flag(
+          "e-settled-live",
+          `worked-${prompt}`,
+          at.working.length
+            ? `the settled turn of ${prompt} draws "Working for" again`
+            : `the settled turn of ${prompt} lost its "Worked for"`,
+        );
+      } else if (!at.worked.length && !at.working.length && rows.some((row) => row.id === prompt)) {
+        brokenHeads.add(prompt);
+        flag("e-heading-gone", `working-${prompt}`, `the turn of ${prompt} draws its prompt with no heading`);
+      }
+    }
+
     const probes =
       rows.length <= rowsUpTo
         ? probeAt
