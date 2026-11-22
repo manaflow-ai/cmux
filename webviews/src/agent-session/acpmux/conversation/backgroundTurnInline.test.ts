@@ -70,9 +70,30 @@ test("a silent turn no call took that ended with something to say draws its repl
   expect(ids(turnView(rows, new Set()))).toContain("note");
 });
 
-test("a background turn with something to say draws as before", () => {
-  const view = ids(turnView(transcript({ quiet: false }), new Set()));
-  expect(view).toEqual(["prompt", "reply", "summary", "check", "note", "backgroundEnd-bg"]);
+// Once it ends, its calls fold as a prompt's turn's do: a closed Worked for, then its reply (Lawrence,
+// 2026-11-19: "in collapsed, literally everything but final assistant message should be collapsed").
+test("a background turn with something to say folds its calls under a closed Worked for", () => {
+  const rows = transcript({ quiet: false });
+  expect(ids(turnView(rows, new Set()))).toEqual([
+    "prompt",
+    "reply",
+    "summary",
+    "worked-background-bg",
+    "note",
+    "backgroundEnd-bg",
+  ]);
+  // Opened, its call draws in its place, and the prompt's own fold stays as it was.
+  const opened = turnView(rows, new Set(["worked-background-bg"]));
+  expect(ids(opened)).toEqual([
+    "prompt",
+    "reply",
+    "summary",
+    "worked-background-bg",
+    "check",
+    "note",
+    "backgroundEnd-bg",
+  ]);
+  expect(opened.find((entry) => entry.id === "worked-background-bg")?.foldOpen).toBe(true);
 });
 
 test('quiet background turns in a row draw no "N background updates" line', () => {

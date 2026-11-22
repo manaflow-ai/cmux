@@ -1798,7 +1798,7 @@ const headsIncomingTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean
 /// row of the turn before it: a background task's end woke the agent after that turn ended, and the
 /// task's line between them draws nothing (backgroundTurns.ts `drawsBackgroundLine`). O(1).
 const wokenUnderFooter = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean =>
-  row.kind === "activity" &&
+  (row.kind === "activity" || row.kind === WORKED) &&
   row.inBackground !== undefined &&
   prev !== undefined &&
   prev.inBackground !== row.inBackground &&
@@ -1832,7 +1832,8 @@ export function wokenGapLook(): "block" | "turn" | "tail" {
 export const opensBackgroundTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean =>
   row.inBackground !== undefined &&
   !(wokenUnderFooter(row, prev) && wokenGapLook() !== "turn") &&
-  (row.kind === "activity" || (row.kind === "assistant" && (row.text?.length ?? 0) > 0)) &&
+  // A finished one's closed "Worked for" (turns.ts `foldEndedBackground`) opens it in its first call's place.
+  (row.kind === "activity" || row.kind === WORKED || (row.kind === "assistant" && (row.text?.length ?? 0) > 0)) &&
   prev !== undefined &&
   prev.kind !== WORKED &&
   prev.kind !== SUBAGENT_STARTED &&

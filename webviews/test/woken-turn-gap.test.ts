@@ -70,7 +70,11 @@ async function gapUnderFooter(opensWith: "tool" | "reply") {
   const { client, rows } = await connect(daemon);
   try {
     const view = turnView(rows(), new Set()).filter((row) => row.kind !== "date") as AcpmuxRow[];
-    const first = view.findIndex((row) => row.inBackground === "bg-reclaim");
+    // The woken turn's first drawn row: its closed "Worked for" once its calls fold
+    // (turns.ts `foldEndedBackground`), else its first row.
+    const first = view.findIndex(
+      (row) => row.id === "worked-background-bg-reclaim" || row.inBackground === "bg-reclaim",
+    );
     const layout = layoutConversation(view, 720);
     const gap = layout.tops[first]! - layout.tops[first - 1]! - layout.heights[first - 1]!;
     return { view, first, gap };
@@ -86,8 +90,10 @@ for (const look of [undefined, "line"] as const) {
     const { view, first, gap } = await gapUnderFooter("tool");
     // The background command's line draws nothing: its result is on its call.
     expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
-    // Right under the ended turn's footer row: its first row is the "Read" call.
-    expect(view[first]?.kind).toBe("activity");
+    // Right under the ended turn's footer row: its first row is the closed "Worked for" over the
+    // "Read" call, which stands the block gap a tool row there stood.
+    expect(view[first]?.kind).toBe("worked");
+    expect(view.some((row) => row.id === "read-output" || row.kind === "activity")).toBe(false);
     expect(view[first - 1]?.kind).toBe("turnSummary");
     expect(rowMark(view[first - 1]!)).toBe(MARK_FOOTER_ROW);
     expect(gap).toBe(TRANSCRIPT_BLOCK_GAP);
