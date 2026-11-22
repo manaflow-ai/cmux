@@ -22,6 +22,7 @@ import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { useTranscriptReadOnly } from "./readOnly";
 import { ROW_ICON } from "./messageActionsModel";
 import { intl } from "../../../ui/intl";
+import { Described } from "../chips/FactsHoverCard";
 /// The message's age, relative and live ("just now", "8 minutes ago", "yesterday", "Oct 18" past a
 /// week: messageAge), the exact date and time above it on hover, as Claude's. A prompt's, another
 /// agent's and a reply's rows all draw this one label (Leo, 2026-11-08: "the timestamps for the agent
@@ -37,9 +38,10 @@ export function MessageTime({ at, className, detail }: { at: number; className: 
     <time
       className={className}
       dateTime={new Date(at).toISOString()}
-      /* tooltip-allow: the row shows the age; the tooltip gives the exact date and time, as Claude's */ title={exact}
+      /* tooltip-allow: the row shows the age; the tooltip gives the exact date and time, as Claude's */ title={
+        detail ? `${exact} · ${detail}` : exact
+      }
       data-tooltip-side="top"
-      data-tooltip-detail={detail}
       /* Every age of its first hour, in this language, one per line: the prompt row reserves the
          widest in the real font (conversation.css .cv-user__time::before), so the minute's words
          change in place. */
@@ -55,7 +57,7 @@ export function MessageTime({ at, className, detail }: { at: number; className: 
 /// hover it reveals the exact timestamp"): the same relative age a prompt's row writes, its exact
 /// date and time on hover (Leo, 2026-11-08: "Right now it's just, like in our app, only the user has
 /// that sort of relative time thing. The agent in ours only has the exact timestamp."), with
-/// `detail` (the turn's time and tokens) on the tooltip's second line when given.
+/// `detail` (the turn's time and tokens) after it on the tooltip's one line when given.
 export function ReplyTime({ at, detail }: { at: number; detail?: string }) {
   return <MessageTime at={at} className="cv-turn-time" detail={detail} />;
 }
@@ -161,30 +163,34 @@ export function ForkButton({
       </button>
     );
   return (
-    <button
-      type="button"
-      className="cv-iconbtn cv-iconbtn--compact cv-fork-button"
-      aria-label={label}
-      title={label}
-      aria-busy={state === "pending"}
-      data-fork-state={state}
-      disabled={state === "pending"}
-      data-tooltip-detail={t("turn.forkDetail")}
-      onClick={(event) => {
-        if (event.altKey && throughSeq !== undefined && openForkMenu(throughSeq, event.currentTarget)) return;
-        fork();
-      }}
-    >
-      {state === "pending" ? (
-        <Spinner size={ROW_ICON} loading />
-      ) : state === "done" ? (
-        <Check size={ROW_ICON} />
-      ) : state === "failed" ? (
-        <AlertCircle size={ROW_ICON} />
-      ) : (
-        <TurnFork size={ROW_ICON} />
+    <Described text={t("turn.forkDetail")}>
+      {(described) => (
+        <button
+          {...described}
+          type="button"
+          className="cv-iconbtn cv-iconbtn--compact cv-fork-button"
+          aria-label={label}
+          title={label}
+          aria-busy={state === "pending"}
+          data-fork-state={state}
+          disabled={state === "pending"}
+          onClick={(event) => {
+            if (event.altKey && throughSeq !== undefined && openForkMenu(throughSeq, event.currentTarget)) return;
+            fork();
+          }}
+        >
+          {state === "pending" ? (
+            <Spinner size={ROW_ICON} loading />
+          ) : state === "done" ? (
+            <Check size={ROW_ICON} />
+          ) : state === "failed" ? (
+            <AlertCircle size={ROW_ICON} />
+          ) : (
+            <TurnFork size={ROW_ICON} />
+          )}
+        </button>
       )}
-    </button>
+    </Described>
   );
 }
 

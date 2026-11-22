@@ -398,12 +398,20 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         .await?
                 }
                 "model" => {
-                    client
+                    let v = client
                         .request(
                             method::SESSION_SET_MODEL,
                             json!({"sessionId": id, "modelId": val}),
                         )
-                        .await?
+                        .await?;
+                    // The daemon read the name as its catalog id (`hub/model_alias.rs`).
+                    if let (Some(from), Some(to)) = (
+                        v.pointer("/modelRewrite/from").and_then(Value::as_str),
+                        v.pointer("/modelRewrite/to").and_then(Value::as_str),
+                    ) {
+                        eprintln!("model {from} -> {to}");
+                    }
+                    v
                 }
                 "policy" => {
                     client
@@ -719,6 +727,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             crate::cli::shutdown::run(end_agents, keep_agents, restart, json_out).await
         }
         Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
+        #[cfg(unix)]
+        Command::DaemonPrune { apply } => crate::daemon::prune::run_command(apply, json_out).await,
+        #[cfg(not(unix))]
+        Command::DaemonPrune { .. } => Err(anyhow!("daemon prune runs on macOS and Linux only")),
         Command::DaemonService { action } => crate::cli::daemon_service::run(action, json_out),
         Command::Config { show_token, set } => {
             let path = Config::path();
