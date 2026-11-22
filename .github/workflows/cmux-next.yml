@@ -2144,6 +2144,7 @@ jobs:
           python3 scripts/icons/chromium_icons.py --check
           python3 scripts/icons/build_pack.py --check
           python3 scripts/cmux-next/lint-browser-chrome-icons.py
+          python3 -I scripts/icons/check_native_symbols.py
 
       # What App Store Connect rejects only after an upload (ITMS-90626 device
       # Why: docs/ci/cmux-next-workflow-notes.md#note-156
