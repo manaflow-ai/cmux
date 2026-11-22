@@ -871,10 +871,12 @@ fn github_changed_tells_a_new_subscriber_the_push_is_live_and_reaches_only_githu
     f.install("local/spy");
     f.supervisor.logs(CLIENT, "cmux/demo", true);
     f.mount("d", "cmux/demo", "cmux.palette.scope/1", json!({ "stream": stream }));
-    f.mount("s", "local/spy", "cmux.palette.scope/1", json!({ "stream": stream }));
+    // Before the next mount: its wait for a first scene drops every other event, and the
+    // liveness log lands while the spy's host is still starting.
     f.wait("liveness", |e| {
         e["event"] == "apps-log" && e["message"] == r#"event-body 1 {"live":true}"#
     });
+    f.mount("s", "local/spy", "cmux.palette.scope/1", json!({ "stream": stream }));
     f.supervisor.publish(stream, json!({}));
     f.wait("change", |e| e["event"] == "apps-log" && e["message"] == "event-body 1 {}");
     let heard = |app: &str| {
