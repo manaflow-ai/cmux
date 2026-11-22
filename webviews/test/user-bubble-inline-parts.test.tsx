@@ -530,10 +530,12 @@ try {
       "[data-inline-content] .cv-user__inline-file",
     ]) {
       const box = style(selector);
-      // An image tile lays its thumbnail out as a flex box, so no text line's descent sits under it
-      // (conversation.css, #48558); a file chip stays on the line.
-      expect(box.display).toBe(selector.endsWith("image") ? "flex" : "inline-block");
+      // Placed in the text, an image tile and a file chip both sit on the line where they were put;
+      // the image's button is a block so no line descent sits under the thumbnail (conversation.css).
+      expect(box.display).toBe("inline-block");
       expect(box.verticalAlign).toBe("middle");
+      if (selector.endsWith("image"))
+        expect(style("[data-inline-content] .cv-user__inline-image > button").display).toBe("block");
       expect([box.marginTop, box.marginBottom, box.marginLeft, box.marginRight]).toEqual(
         [
           INLINE_ATTACHMENT_MARGIN.y,
