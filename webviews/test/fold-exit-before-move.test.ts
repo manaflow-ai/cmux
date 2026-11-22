@@ -199,20 +199,16 @@ test("a reader opening Worked for plays no lead: the rows move at once", () => {
   }
 });
 
-test("the read since line: its words are gone before its height starts to shrink", () => {
+test("the since line moves no row: it fades and narrows on the compositor, never animating size", () => {
   const css = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/conversation/unread.css"), "utf8");
   const motion = css.slice(css.indexOf("@media (prefers-reduced-motion: no-preference)"));
-  expect(motion).toMatch(/\.cv-since__lead \{\s*transition: opacity var\(--cv-exit-lead\)[^;]*;/);
   expect(motion).toMatch(
-    /\.cv-since__menu \{\s*transition: height var\(--agent-motion-calm\) var\(--agent-ease-out\) var\(--cv-exit-lead\);/,
+    /\.cv-since__line,\s*\.cv-since__rule \{\s*transition:\s*opacity var\(--agent-motion-calm\) var\(--agent-ease-out\),\s*scale var\(--agent-motion-calm\) var\(--agent-ease-out\);/,
   );
-  const tokens = readFileSync(
-    path.join(import.meta.dir, "../src/agent-session/acpmux/conversation/conversation.css"),
-    "utf8",
-  );
-  expect(tokens).toContain("--cv-exit-lead: calc(var(--cmux-motion-quick, 80ms) / 2);");
+  const since = css.slice(css.indexOf(".cv-since {"), css.indexOf(".acpmux-over-top"));
+  expect(since).not.toMatch(/transition:[^;]*\b(?:height|margin|padding|block-size)\b/);
+  expect(since).toMatch(/\.cv-since__menu \{\s*position: absolute;/);
 });
-
 test("the gallery's arms: none plays no lead, quick a whole quick step, shipped the 40 ms lead", () => {
   const { document } = new JSDOM(
     "<!doctype html><div data-exit-lead=none><p id=a></p></div><div data-exit-lead=quick><p id=b></p></div><p id=c></p>",

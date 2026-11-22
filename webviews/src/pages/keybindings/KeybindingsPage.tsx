@@ -17,6 +17,7 @@ import {
 } from "./model";
 import type { KeybindingsStore, Recording } from "./store";
 import type { Binding } from "./types";
+import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
 
 const focusOnMount = (node: HTMLInputElement | null) => node?.focus();
 const editOnMount = (node: HTMLInputElement | null) => {
@@ -147,13 +148,13 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
             />
             {searchRecording && (
               // The mode, inside the field; how to leave it on hover.
-              <span
-                className="keys-search-badge"
-                aria-description={t("keybindings.page.recordingExit")}
-                aria-hidden="true"
-              >
-                {t("keybindings.page.recordingKeys")}
-              </span>
+              <WithFacts facts={[{ value: t("keybindings.page.recordingExit") }]}>
+                {(facts) => (
+                  <span {...facts} className="keys-search-badge" aria-hidden="true">
+                    {t("keybindings.page.recordingKeys")}
+                  </span>
+                )}
+              </WithFacts>
             )}
           </div>
           <button
