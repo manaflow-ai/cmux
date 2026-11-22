@@ -1,8 +1,8 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::{
     Command, RustVerb, Swift, parse, recorded_swift_tree, recorded_tree, recorded_watch_tree,
-    tool_path,
+    routed, tool_path,
 };
 
 fn words(words: &[&str]) -> Vec<String> {
@@ -86,11 +86,18 @@ fn rust_takes_a_build_host_and_a_session_on_start() {
             worktree: None,
             build_host: Some("build-box".to_owned()),
             session: Some("cmux-app-nightly".to_owned()),
+            socket: None,
         }
     );
     assert_eq!(
         parse(&words(&["status", "--rust"])).unwrap(),
-        Command::Rust { verb: RustVerb::Status, worktree: None, build_host: None, session: None }
+        Command::Rust {
+            verb: RustVerb::Status,
+            worktree: None,
+            build_host: None,
+            session: None,
+            socket: None,
+        }
     );
     assert_eq!(
         parse(&words(&["stop", "--rust", "--worktree", "/src/wt"])).unwrap(),
@@ -99,8 +106,71 @@ fn rust_takes_a_build_host_and_a_session_on_start() {
             worktree: Some(PathBuf::from("/src/wt")),
             build_host: None,
             session: None,
+            socket: None,
         }
     );
+}
+
+#[test]
+fn rust_start_takes_the_socket_of_the_app_to_swap() {
+    let start = Command::Rust {
+        verb: RustVerb::Start,
+        worktree: None,
+        build_host: Some("build-box".to_owned()),
+        session: None,
+        socket: Some(PathBuf::from("/tmp/cmux-app.sock")),
+    };
+    assert_eq!(
+        parse(&words(&[
+            "start",
+            "--rust",
+            "--build-host",
+            "build-box",
+            "--socket",
+            "/tmp/cmux-app.sock"
+        ]))
+        .unwrap(),
+        start
+    );
+    assert_eq!(
+        parse(&words(&[
+            "start",
+            "--rust",
+            "--build-host=build-box",
+            "--socket=/tmp/cmux-app.sock"
+        ]))
+        .unwrap(),
+        start
+    );
+    // A socket or a session names the daemon, not both; and only the Rust loop's start takes it.
+    assert!(parse(&words(&["start", "--rust", "--socket", "/s", "--session", "x"])).is_err());
+    assert!(parse(&words(&["start", "--socket", "/s"])).is_err());
+    assert!(parse(&words(&["start", "--chromium", "--socket", "/s"])).is_err());
+    assert!(parse(&words(&["start", "--swift", "--socket", "/s"])).is_err());
+    assert!(parse(&words(&["stop", "--rust", "--socket", "/s"])).is_err());
+    assert!(parse(&words(&["start", "--rust", "--socket"])).is_err());
+}
+
+#[test]
+fn a_global_socket_or_session_routes_a_rust_start_that_names_none() {
+    let bare = parse(&words(&["start", "--rust"])).unwrap();
+    let socket = Path::new("/tmp/app.sock");
+    let Command::Rust { socket: got, session, .. } =
+        routed(&bare, Some(socket), Some("ignored-when-a-socket-is-given"))
+    else {
+        panic!("still the Rust loop");
+    };
+    assert_eq!((got.as_deref(), session), (Some(socket), None));
+    let Command::Rust { socket: got, session, .. } = routed(&bare, None, Some("cmux-app-x")) else {
+        panic!("still the Rust loop");
+    };
+    assert_eq!((got, session.as_deref()), (None, Some("cmux-app-x")));
+    // The flag after the noun wins over the global one.
+    let own = parse(&words(&["start", "--rust", "--socket", "/own.sock"])).unwrap();
+    assert_eq!(routed(&own, Some(socket), None), own);
+    // Only `start` passes a daemon on; stop and status find the running loop.
+    let stop = parse(&words(&["stop", "--rust"])).unwrap();
+    assert_eq!(routed(&stop, Some(socket), None), stop);
 }
 
 #[test]
