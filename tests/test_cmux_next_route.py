@@ -2194,6 +2194,8 @@ class HotAwareWorkflows(unittest.TestCase):
                 "        log.writelines(f'{event}\\t{path}\\n' for event, path in sorted(_seen))\n"
                 "atexit.register(_write)\n", encoding="utf-8")
             log = Path(hooks, "opened.log")
+            tracked = subprocess.run(["git", "-C", root, "ls-files", "-z"], capture_output=True, check=True,
+                                     text=True).stdout.split("\0")
             for changed in (self.HOT, self.APP, ["zz-unread/never-read.txt"]):
                 done, _, _ = self.run_step(step["run"], ROOT, changed,
                                            extra_env={"PYTHONPATH": hooks, "ROUTE_OPEN_LOG": str(log)})
@@ -2205,10 +2207,21 @@ class HotAwareWorkflows(unittest.TestCase):
                 relative = path[len(root) + 1:]
                 if relative.startswith(".git/") or relative == ".git":
                     continue
-                # A listed directory must be whole in the checkout; an opened file only itself.
-                probe = f"{relative}/x" if event != "open" or os.path.isdir(path) else relative
-                if os.path.exists(path) and not sparse_includes(patterns, probe):
-                    outside.add(relative)
+                if not os.path.exists(path):
+                    continue
+                if event == "open" and not os.path.isdir(path):
+                    if not sparse_includes(patterns, relative):
+                        outside.add(relative)
+                    continue
+                # A listed directory lists the same tracked entries in the sparse checkout: each child that holds a
+                # tracked file holds one the patterns keep (a glob for Package.swift lists every package directory).
+                prefix = f"{relative}/" if relative else ""
+                children: dict[str, bool] = {}
+                for name in tracked:
+                    if name.startswith(prefix):
+                        child = name[len(prefix):].split("/", 1)[0]
+                        children[child] = children.get(child, False) or sparse_includes(patterns, name)
+                outside.update(f"{prefix}{child}" for child, kept in children.items() if not kept)
         self.assertEqual(sorted(outside), [], "the hot-only route reads these outside its sparse checkout:\n"
                          + "\n".join(sorted(outside)))
 
