@@ -20,6 +20,11 @@ struct CmuxMobileApp: App {
     init() {
         // Launch to first interaction (LaunchMarks): dyld, static initializers and UIKit's start end here.
         LaunchMarks.shared.mark("app_init")
+        #if DEBUG
+        // Offline duress (`CmuxMobileDuress` = a `cmux-duress gen` folder; unset: nothing runs). First,
+        // so the list rig reads the folder's workspace count (cmux-next-ios/design/duress-sim.md).
+        MobileDuress.startIfRequested()
+        #endif
         // An update from the classic app (the same bundle id) left its Keychain items and
         // settings here: they are deleted once, before anything reads either, so this app
         // starts signed out instead of half-reading a classic session.
