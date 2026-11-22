@@ -34,9 +34,9 @@ pub fn install_build(build: &'static str) {
 /// `<hash>[+dirty.<fingerprint>] <UTC date>` (acpmux-build-id), so a peer lags when its date is
 /// earlier. A newer peer, or another build from the same day, does not: before this, any build
 /// but this one's was outdated, so a sender a few hours behind the fleet passed over every
-/// newer peer as a "stale disk copy" (2026-11-22: `session move --machine auto` from
-/// cosmic-gray's NIGHTLY at dc165ee78 passed over 44 hosts at b3fdb4e74, three hours newer)
-/// and its update hint offered to put its older build on them. A build id without a date
+/// newer peer as a "stale disk copy" (2026-11-22: `session move --machine auto` from a NIGHTLY
+/// three hours behind the fleet passed over 44 newer hosts) and its update hint offered to put
+/// its older build on them. A build id without a date
 /// (`unstamped`, an old peer's) lags whenever it differs.
 pub fn lags(remote: &str, local: &str) -> bool {
     if remote == local {

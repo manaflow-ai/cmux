@@ -1122,8 +1122,8 @@ const GB: f64 = 1e9;
 /// passed over too, but when every host that answers is short, the one with the most free takes
 /// the move with a warning: disk floors only warn. A host that answers no disk reading is
 /// taken. A host that lists its harnesses without `harness` is passed over whatever its disk:
-/// it would refuse the chat (2026-11-22: auto picked fs-agent-lane-7, which has only `claude`,
-/// for claude-sr2-coord-old, and the move failed there with `transfer.harness`).
+/// it would refuse the chat (2026-11-22: auto picked a lane VM with only the `claude` profile
+/// for a chat of another Claude profile, and the move failed there with `transfer.harness`).
 fn walk(
     order: &[Target],
     need: u64,
