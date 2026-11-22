@@ -160,6 +160,7 @@ extension PageWebView {
         // Chromium ended while the notice showed: the page reopens in WebKit now.
         webKitLoadsOnReload = false
         onDocumentWillChange?(.reload)
+        documentStarted()
         webView.load(URLRequest(url: descriptor.url(route: route)))
     }
 }

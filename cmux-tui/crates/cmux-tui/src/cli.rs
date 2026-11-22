@@ -54,6 +54,7 @@ mod beside;
 mod billing;
 #[cfg(unix)]
 mod caller_browser;
+mod caller_scope;
 mod capability_cache;
 // `cmux settings change-background [VALUE]`: a YouTube address, file or id as the picker sets it.
 #[cfg(unix)]
@@ -1661,7 +1662,12 @@ fn scope_help_with_keys(
         "docs" => Cow::Borrowed(docs::help()),
         "completion" => Cow::Borrowed(completion::HELP),
         "server" => Cow::Borrowed(catalog.local_server.help),
-        "server start" => Cow::Borrowed(catalog.local_server.start_help),
+        "server start" => Cow::Owned(format!(
+            "{}\n{}\n{}",
+            catalog.local_server.start_help,
+            catalog.local_server.start_remote_options_heading,
+            crate::remote_start_options_help()
+        )),
         "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),
         "server status" => Cow::Borrowed(catalog.local_server.status_help),
         "server stats" => Cow::Borrowed(catalog.local_server.stats_help),
