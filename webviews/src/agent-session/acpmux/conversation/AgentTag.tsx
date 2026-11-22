@@ -40,8 +40,6 @@ export function AgentTag({
         ref={ref as Ref<HTMLButtonElement> | undefined}
         type="button"
         className={`${classes} is-open`}
-        // A chat's hover card says more than the tooltip and would sit under it.
-        title={hover?.onPointerEnter ? undefined : title}
         aria-label={ariaLabel}
         data-interactive=""
         {...attributes}
@@ -61,7 +59,7 @@ export function AgentTag({
       {...trigger}
       ref={ref as Ref<HTMLSpanElement> | undefined}
       className={`${classes} is-plain`}
-      title={title}
+      aria-description={title}
       data-interactive=""
       aria-hidden="true"
     >
