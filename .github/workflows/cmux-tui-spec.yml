@@ -516,7 +516,6 @@ jobs:
           # Key on the toolchain file and lockfiles only, not the runner's CARGO_*/RUST* env: those hold
           # HOME paths that differ per runner (/home/runner vs /home/runner2), so a pull request missed the
           # base save unless it drew the same runner layout. Cargo's fingerprints check every reused crate.
-          add-rust-environment-hash-key: false
 
       - name: v2 bench home emits all gate rows
         if: ${{ steps.tree.outputs.hit != 'true' }}
