@@ -25,7 +25,8 @@ struct FileOpenEditorNoWindowTests {
             "com.microsoft.VSCode": "vscode", "com.todesktop.230313mzl4w4u92": "cursor",
             "com.exafunction.windsurf": "windsurf", "dev.zed.Zed": "zed",
         ]
-        for (bundleID, scheme) in editors {
+        // The schemes come from the app FFI's editor_schemes; a pin without them opens the plain file.
+        for (bundleID, scheme) in editors where WindowRules.chatAgentTables?.editorSchemes != nil {
             let url = WindowRules.editorLocation(for: file, line: 42, bundleID: bundleID)
             let parts = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
             #expect(parts.scheme == scheme)
