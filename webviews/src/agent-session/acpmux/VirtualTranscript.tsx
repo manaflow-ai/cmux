@@ -2390,7 +2390,10 @@ function TranscriptView({
     tailGlide.current?.resume();
   }, []);
   const stopFollowMotion = useCallback(() => {
-    followGlide.current?.stop();
+    // A seat's sweep (Sent Prompt Placement `top`) plays on through the send's own passes, which end
+    // the follow motion as the prompt's rows land and measure (followGlide `stop(keepSweep)`); the
+    // reader's input still ends it (the input handler's own stop).
+    followGlide.current?.stop(true);
     followChase.current?.stop();
     tailGlide.current?.stop();
     chaseAnchor.current = undefined;
@@ -5663,8 +5666,16 @@ function TranscriptView({
         // bubble (conversation.css SEND-POP), rises from behind the composer to the top with the room
         // under it, one stack. Once per seat. An arm that chases the send itself (`spring`, `blocks`,
         // `linear`, `chunk`) already draws the rise on its own curve.
+        // The send's own effect still to run in this commit (the prompt's row came with the send) may
+        // move the view itself, past the input hold that leaves it here: that effect sweeps then.
+        const sendPending = sends !== seenSends.current;
         const seatNow = seat.current;
-        if (seatNow?.id !== undefined && !seatNow.swept && seatNow.sessionId === sessionId) {
+        if (
+          seatNow?.id !== undefined &&
+          !seatNow.swept &&
+          seatNow.sessionId === sessionId &&
+          (rose > 0.5 || !sendPending)
+        ) {
           seatNow.swept = true;
           if (
             (slimFollow || !chasing) &&
@@ -5679,7 +5690,7 @@ function TranscriptView({
           )
             // The send's own effect runs after this pass in a commit that brings the send and its row
             // together (an optimistic prompt), and ends the follow motion there: it sweeps again then.
-            seatNow.rise = sends !== seenSends.current ? rose : undefined;
+            seatNow.rise = sendPending ? rose : undefined;
         }
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
         // Away from the latest row nothing chases: the next followed pass measures from scratch.
@@ -6508,9 +6519,17 @@ function TranscriptView({
       } else if (fromLatest && top - before > 0.5) followGlide.current?.sent(thread.current, top - before);
       // A seat's sweep the placement pass started in this commit (`seat`): the follow motion just
       // ended above took it, so it starts again from the same place, before the frame paints.
+      // One the pass left to this effect (the reader's input held the follow there) sweeps by the move
+      // this effect just made.
       const seatNow = seat.current;
-      if (seatNow?.rise !== undefined) {
-        if (fromLatest) followGlide.current?.swept(thread.current, seatNow.rise);
+      if (
+        seatNow?.id !== undefined &&
+        seatNow.sessionId === sessionId &&
+        (seatNow.rise !== undefined || !seatNow.swept)
+      ) {
+        const rise = (seatNow.rise ?? 0) + Math.max(0, top - before);
+        if (fromLatest && (slimFollow || !chasing)) followGlide.current?.swept(thread.current, rise);
+        seatNow.swept = true;
         seatNow.rise = undefined;
       }
     }

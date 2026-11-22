@@ -66,8 +66,10 @@ export type FollowGlide = {
   /// The room under the last row is now `room`: a glide drawing the thread back further (the live
   /// line came into view to name a call, or left) stops, so nothing stays under the bottom stack.
   fit(room: number): void;
-  /// Cancels the glide in flight, leaving the rows where they lay out.
-  stop(): void;
+  /// Cancels the glide in flight, leaving the rows where they lay out. `keepSweep` leaves a seat's
+  /// sweep (`swept`) playing: the send's own passes end the follow motion as its rows land and measure,
+  /// and the sweep is that send's motion, finite (the large step) and already aimed at where they rest.
+  stop(keepSweep?: boolean): void;
 };
 
 /// The step's duration: the host's move token (`--agent-motion-move`, 0 with motion off), else the
@@ -135,7 +137,10 @@ export function createFollowGlide(): FollowGlide {
   };
   return {
     outstanding,
-    stop,
+    stop(keepSweep) {
+      if (keepSweep && sweeping) return;
+      stop();
+    },
     fit(room) {
       if (running && !sending && outstanding() > Math.max(0, room) + 0.5) stop();
     },
