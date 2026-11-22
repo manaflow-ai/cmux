@@ -20,16 +20,16 @@ public final class RemoteMachinesSidebarExperiment {
     private var observerID: String?
 
     public init(sidebar: AnyObject,
-                enabled: @escaping @MainActor @Sendable () -> Bool,
-                socketPath: @escaping @MainActor @Sendable () -> String?,
+                enabled: @escaping () -> Bool,
+                socketPath: @escaping () -> String?,
                 displayName: @escaping (String) -> String?,
-                open: @escaping (AgentActivityLane) -> Void) {
+                open: @escaping (Any) -> Void) {
         self.sidebar = sidebar as! RemoteMachinesSidebar
         self.feed = AgentTurnStateFeed.shared
         self.enabled = enabled
         self.socketPath = socketPath
         self.displayName = displayName
-        self.open = open
+        self.open = { lane in open(lane) }
     }
 
     public func start() {
