@@ -20,6 +20,7 @@ import { isAgentMotionOff } from "../shared/motion";
 import { LOAD_FADE_CLASS, LoadFadeWindow } from "../shared/loadFade";
 import { entranceAllowed, pageAway } from "../shared/pageReveal";
 import { holdEntranceForFirstFrame } from "./conversation/entranceClock";
+import { markRecapEntrance } from "./conversation/turnEndFold";
 import {
   layoutConversation,
   type ConversationLayout,
@@ -612,6 +613,7 @@ const RowFrame = React.memo(function RowFrame({
   // at once (conversation/entranceClock.ts). Messages keep their own send clock.
   useLayoutEffect(() => {
     if (!entering || messageEntering || !ref.current) return undefined;
+    markRecapEntrance(ref.current);
     return holdEntranceForFirstFrame(ref.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the frame's first mount only
   }, []);
