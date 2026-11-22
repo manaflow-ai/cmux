@@ -493,6 +493,12 @@ struct PageParams {
     max_bytes: Option<u64>,
 }
 
+/// Params no agent-session verb takes because they would name another session, folder,
+/// program or ACP request: refused (a bad request) even though other unknown params are
+/// ignored.
+const REDIRECT_PARAMS: &[&str] =
+    &["session", "sessionId", "cwd", "command", "initial_command", "mcpServers", "_meta"];
+
 enum AgentSessionCommand {
     Attach(PageParams),
     Events(PageParams),
@@ -518,11 +524,16 @@ enum AgentSessionCommand {
 
 impl AgentSessionCommand {
     /// The command of one frame object without `id` and `cmd`. A param no
-    /// struct declares (a newer page's field, or a session id, cwd, command,
-    /// agent or MCP server param) is dropped unread: no request is refused
-    /// over a field this daemon does not know.
+    /// struct declares (a newer page's field) is dropped unread: no request
+    /// is refused over a field this daemon does not know. The names that
+    /// would aim a verb somewhere else ([`REDIRECT_PARAMS`]: a session id, cwd,
+    /// command, MCP servers or ACP `_meta`) are never a new field: they stay a
+    /// bad request on every verb.
     fn parse(cmd: &str, params: Value) -> Option<Self> {
         use serde_json::from_value;
+        if params.as_object()?.keys().any(|key| REDIRECT_PARAMS.contains(&key.as_str())) {
+            return None;
+        }
         Some(match cmd {
             "agent-session-attach" => Self::Attach(from_value(params).ok()?),
             "agent-session-events" => Self::Events(from_value(params).ok()?),
@@ -2237,3 +2248,32 @@ impl Mux {
 #[cfg(test)]
 #[path = "agent_session_attach_unsent_tests.rs"]
 mod unsent_tests;
+
+#[cfg(test)]
+mod unknown_params_tests {
+    use super::*;
+
+    /// A newer page's field never refuses a verb: it is dropped unread. A redirecting name
+    /// (a session id, a cwd, ...) is still a bad request.
+    #[test]
+    fn an_unknown_param_is_ignored_and_a_redirect_is_refused() {
+        let parsed = AgentSessionCommand::parse(
+            "agent-session-typing",
+            json!({"surface": 7, "on": true, "from_a_newer_page": {"x": 1}}),
+        );
+        assert!(matches!(parsed, Some(AgentSessionCommand::Typing(TypingParams { on: true, .. }))));
+        let prompt = AgentSessionCommand::parse(
+            "agent-session-prompt",
+            json!({"surface": 7, "prompt_id": "p1", "text": "hi", "initialize": {"v": 2}}),
+        );
+        assert!(matches!(prompt, Some(AgentSessionCommand::Prompt(_))));
+        for redirect in REDIRECT_PARAMS {
+            let mut params = json!({"surface": 7, "on": true});
+            params[*redirect] = json!("other");
+            assert!(
+                AgentSessionCommand::parse("agent-session-typing", params).is_none(),
+                "{redirect} must stay a bad request"
+            );
+        }
+    }
+}

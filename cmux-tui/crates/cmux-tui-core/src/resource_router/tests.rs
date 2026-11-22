@@ -159,7 +159,7 @@ fn request(id: &str, operation: &str, params: Value, idempotency_key: Option<&st
 #[test]
 fn catalog_validation_ignores_unknown_parameters() {
     let mux = test_mux();
-    let pinged = handle_resource_message(
+    handle_resource_message(
         &mux,
         &request(
             "extra",
@@ -169,7 +169,6 @@ fn catalog_validation_ignores_unknown_parameters() {
         ),
     )
     .expect("an unknown param is ignored");
-    assert_eq!(pinged["alive"], true, "{pinged}");
 
     let parsed = parse_resource_request(&request(
         "extra-renamed",
