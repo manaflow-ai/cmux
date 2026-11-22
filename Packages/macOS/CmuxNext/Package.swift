@@ -2400,6 +2400,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPalette",
                 "CmuxNextResources",
                 "CmuxNextSettings",
+                "CmuxNextSignposts",
                 "CmuxNextWakeups",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             ],
