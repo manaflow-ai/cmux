@@ -12,6 +12,8 @@ import { type SessionUsageStats, usageStatsOf } from "./usageStats";
 export type AcpmuxSessionEntry = {
   sessionId: string;
   displayTitle?: string;
+  /** acpmux `displayName`: the handle someone gave it; every surface shows it first. */
+  displayName?: string;
   title?: string;
   name?: string;
   harness?: string;
@@ -313,6 +315,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
   return {
     sessionId: session.sessionId,
     displayTitle: sessionTitle(session),
+    displayName: text(session.displayName),
     title: session.title,
     name: session.name,
     harness: session.harness,
@@ -475,6 +478,8 @@ export function isOpaqueName(bare: string): boolean {
  */
 export function sessionTitle(
   session: {
+    /** acpmux `displayName`: the handle someone gave the chat (`acpmux rename @ Mango --handle`). */
+    displayName?: string;
     title?: string;
     lastPrompt?: string;
     name?: string;
@@ -485,6 +490,10 @@ export function sessionTitle(
   },
   t: Translate = translate,
 ): string {
+  // A name someone gave it reads first on every surface (Leo, 2026-11-22: "RENAMES NEED TO BE
+  // PROPAGATED TO THE VISIBLE AREAS").
+  const given = typeof session.displayName === "string" ? session.displayName.trim() : "";
+  if (given) return given;
   const name = senderSessionName(session.name ?? "", session.peer);
   const bare = name.split("/").pop() ?? name;
   // acpmux names a session `agent` or `agent-N`, and a fork `<name>-fork`, also made unique with `-N`.
