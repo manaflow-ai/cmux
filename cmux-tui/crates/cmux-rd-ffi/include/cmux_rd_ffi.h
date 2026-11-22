@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 /* Version of this ABI; bumped on every incompatible change. */
-#define CMUX_RD_FFI_ABI_VERSION 5u
+#define CMUX_RD_FFI_ABI_VERSION 7u
 
 /* Carriers. */
 #define CMUX_RD_CARRIER_DATAGRAM 0u
@@ -55,6 +55,8 @@ extern "C" {
 #define CMUX_RD_ERR_STREAM (-7)      /* the stream is not open, or the stream limit is reached */
 #define CMUX_RD_ERR_CONSENT (-8)     /* the upstream sender has no consent for its media kind */
 #define CMUX_RD_ERR_FULL (-9)        /* a bulk queue or the open transfer limit is full */
+#define CMUX_RD_ERR_TOO_LARGE (-10)  /* a clipboard text over CMUX_RD_CLIPBOARD_MAX_TEXT (refused, counted) */
+#define CMUX_RD_ERR_IO (-11)         /* the recording file could not be created or written */
 
 /* Input event kinds (the wire tags). */
 #define CMUX_RD_INPUT_KEY 1u
@@ -237,6 +239,24 @@ int32_t cmux_rd_session_stage_ledger(CmuxRdSession *session, uint8_t *out, size_
    exists, 0 before the first answer. */
 int32_t cmux_rd_session_clock(const CmuxRdSession *session, int64_t *offset_us, uint32_t *rtt_us);
 
+/* ---- Recording as you go (ABI 7) ----
+   The session copies every frame of stream 0 that cmux_rd_session_pop_frame
+   hands out into a fragmented MP4 (H.264, no re-encoding, timed by the
+   host's capture clock). The file begins at the next keyframe carrying its
+   SPS and PPS, which record_start asks the host for; each frame is one
+   moof+mdat, so a file cut off by a crash still plays. Same thread rule as
+   every session call. */
+
+/* Starts recording into a new file at path (UTF-8, NUL terminated; missing
+   folders are created, an existing file is replaced). A running recording
+   is finished first. CMUX_RD_ERR_INVALID for an empty or non-UTF-8 path,
+   CMUX_RD_ERR_IO when the file cannot be created. */
+int32_t cmux_rd_session_record_start(CmuxRdSession *session, const char *path);
+/* Finishes the recording and closes the file. Returns the frames written
+   (0 when none, or when no recording was running), or CMUX_RD_ERR_IO when a
+   write failed. */
+int32_t cmux_rd_session_record_stop(CmuxRdSession *session);
+
 /* ---- Upstream media sender (rd change C4b, cap "up_media", ABI 3) ----
    One sender per upstream stream (microphone, camera, screen share) the host
    registered. Encoded frames go in; UpMedia datagrams come out with adaptive
@@ -385,6 +405,48 @@ int32_t cmux_rd_bulk_receiver_accept(CmuxRdBulkReceiver *receiver, const uint8_t
                                      CmuxRdBulkChunk *out, uint8_t *credit_out, size_t credit_cap, size_t *credit_len);
 /* Ends a transfer (complete or cancelled): later chunks are refused. */
 int32_t cmux_rd_bulk_receiver_finish(CmuxRdBulkReceiver *receiver, uint64_t transfer);
+
+/* ---- Clipboard text sync (cap "clipboard.text", ABI 6) ----
+   One handle per session, used only when welcome lists "clipboard.text". The
+   host applies the viewer's text and sends its own only while the session holds
+   control. A long text goes in paced parts (clipboard control messages with
+   offset and total); a text over CMUX_RD_CLIPBOARD_MAX_TEXT is refused and
+   counted, never truncated. The handle remembers the text both sides last
+   agreed on, so the host's text set on this Mac is not sent back. No I/O, no
+   threads; a panic poisons the handle. */
+typedef struct CmuxRdClipboard CmuxRdClipboard;
+
+/* The largest clipboard text, UTF-8 bytes (1 MiB). */
+#define CMUX_RD_CLIPBOARD_MAX_TEXT 1048576u
+/* A pop_frame buffer this large always holds one framed part. */
+#define CMUX_RD_CLIPBOARD_FRAME_MAX 16645u
+
+/* NULL only when allocation fails. */
+CmuxRdClipboard *cmux_rd_clipboard_new(void);
+/* NULL is ignored. */
+void cmux_rd_clipboard_free(CmuxRdClipboard *clipboard);
+/* The viewer's clipboard now holds text (UTF-8): 1 when queued for the host,
+   0 when the host already has it, CMUX_RD_ERR_TOO_LARGE over the bound
+   (counted, nothing sent), CMUX_RD_ERR_INVALID for bytes that are not UTF-8. */
+int32_t cmux_rd_clipboard_offer(CmuxRdClipboard *clipboard, const uint8_t *text, size_t len);
+/* Writes the next part as a stream frame (type 1, a control message; send it
+   as is): 1 when written, 0 when none may go now, CMUX_RD_ERR_BUFFER
+   (*out_len = size needed) when cap is too small; the part then stays
+   pending. *out_len is written on every path. */
+int32_t cmux_rd_clipboard_pop_frame(CmuxRdClipboard *clipboard, uint64_t now_us,
+                                    uint8_t *out, size_t cap, size_t *out_len);
+/* When pop_frame can give a part next (0 when one is pending); UINT64_MAX
+   when nothing waits, for NULL or an unusable handle. */
+uint64_t cmux_rd_clipboard_next_deadline_us(const CmuxRdClipboard *clipboard);
+/* Offers a control message payload: 1 when it was the host's clipboard and
+   completed a text, with *text and *text_len set (UTF-8, valid until the next
+   call on this handle: set the viewer's clipboard to it); 0 for a part of a
+   longer text or another message; CMUX_RD_ERR_TOO_LARGE or
+   CMUX_RD_ERR_INVALID for a refused part (counted; the session goes on). */
+int32_t cmux_rd_clipboard_on_control(CmuxRdClipboard *clipboard, const uint8_t *json, size_t len,
+                                     const uint8_t **text, size_t *text_len);
+/* Texts and parts refused so far, both directions (0 for NULL). */
+uint64_t cmux_rd_clipboard_dropped(const CmuxRdClipboard *clipboard);
 
 /* ---- Remote browser tab client (cmux.rb/1 viewer reducer, ABI 2) ----
    One client per rb session of a remote tab: make a new one for each rb.open

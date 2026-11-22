@@ -50,6 +50,11 @@ final class SidebarRegionView: NSView {
     /// A press the list's drag ended early (a cancel): it drags nothing more until its release.
     var docSpentPress: LayoutItemID?
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
+    /// The App's Pin/Unpin Workspace (`SidebarModel.workspacePin`) for a band region; a list block reads its list's.
+    var workspacePin: (() -> (isPinned: (WorkspaceID) -> Bool, toggle: (WorkspaceID) -> Void)?)?
+    private var pinHook: (isPinned: (WorkspaceID) -> Bool, toggle: (WorkspaceID) -> Void)? {
+        docList?.model.workspacePin ?? workspacePin?()
+    }
     /// The sidebar's edit mode (`SidebarView.isEditingItems`): every item but a client-only one
     /// wiggles and shows its ✕, which asks `onRemoveItem` to take it out.
     var isEditing = false {
@@ -417,6 +422,8 @@ final class SidebarRegionView: NSView {
         var info = activeInfo(content.infos[id] ?? .fallback(for: item), id)
         info.leadingPin = !style.isIconOnly && style != .chip && section.id == SidebarLayoutDocument.pinnedSectionID
             && item.ref.kind == LayoutItemRef.workspaceKind
+        // A pinned row leads with its pin whatever its shown tab is (msg 40501): a tab's favicon is not the workspace's icon.
+        if info.leadingPin { info = info.droppingShownTabIcon() }
         view.configure(info, style: style)
         view.setAccessibilityIdentifier("cmux.sidebar.item.\(id.rawValue)")
         view.activatesOnPress = item.ref.activatesOnPress
@@ -497,6 +504,15 @@ final class SidebarRegionView: NSView {
             view.showsMenu = true
             defer { view.showsMenu = false }
             _ = menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.isFlipped ? button.bounds.maxY : 0), in: button)
+        }
+        // A pinned workspace tile's hover Unpin runs the same Pin/Unpin Workspace as its menu (David Beyer 2026-11-20).
+        view.isPinned = { [weak self, weak view] in
+            guard let workspace = view?.info.workspace, let pin = self?.pinHook else { return nil }
+            return pin.isPinned(workspace)
+        }
+        view.onUnpin = { [weak self, weak view] in
+            guard let workspace = view?.info.workspace else { return }
+            self?.pinHook?.toggle(workspace)
         }
         return view
     }

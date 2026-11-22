@@ -188,12 +188,16 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         requestKeyframe(stream: 0)
     }
 
+    /// The decode time rides the next feedback to the host (its median, `decode_us`) and
+    /// goes to the stage ledger with its decoded-at time.
     public func noteDecoded(frame: UInt32, decodeMicros: UInt32, decodedAtMicros: UInt64) {
         queue.async { [self] in
+            try? engine.core.noteDecode(stream: 0, micros: decodeMicros)
             _ = try? engine.core.noteFrameDecoded(stream: 0, frame: frame, decodeMicros: decodeMicros, decodedAtMicros: decodedAtMicros)
         }
     }
 
+    /// The on-glass time goes to the stage ledger: its Present row.
     public func notePresented(frame: UInt32, presentedAtMicros: UInt64) {
         queue.async { [self] in
             _ = try? engine.core.noteFramePresented(stream: 0, frame: frame, presentedAtMicros: presentedAtMicros)
@@ -244,7 +248,9 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     func pump() {
         let now = nowMicros()
         _ = try? engine.core.tick(nowMicros: now)
-        while let popped = try? engine.core.popAccessUnit(codec: .h264) {
+        while var popped = try? engine.core.popAccessUnit(codec: .h264) {
+            // The viewer's Decode stage starts here (the decoder's clock, not the injected one).
+            popped.unit.releasedAtNanos = DispatchTime.now().uptimeNanoseconds
             state.withLock { state in
                 if popped.stream == 0 {
                     state.units?.yield(popped.unit)

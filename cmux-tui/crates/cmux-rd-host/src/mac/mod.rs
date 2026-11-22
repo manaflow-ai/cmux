@@ -6,11 +6,15 @@
 pub(crate) mod capture;
 #[cfg(feature = "bench")]
 pub(crate) mod cpu;
+#[cfg(feature = "computer-use")]
+pub(crate) mod cu_host;
 pub(crate) mod cursor;
+mod display_pick;
 mod input;
 mod keys;
 #[cfg(feature = "bench")]
 pub(crate) mod observe;
+pub(crate) mod pasteboard;
 #[cfg(feature = "bench")]
 pub(crate) mod synthetic;
 mod sys;
@@ -23,6 +27,7 @@ use cmux_encode::videotoolbox::{
     ColorTag, SurfaceEncoder, SurfaceFormat, SurfaceFrame, SurfaceRect, VideoToolbox,
 };
 use cmux_rd_core::flow::Rect;
+use cmux_rd_core::profile::EncodeProfile;
 use cmux_rd_proto::InputEvent;
 use input::Injector;
 use std::os::fd::RawFd;
@@ -73,8 +78,10 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
         .into());
     }
     let cursor_metadata = cursor_metadata && cursor::available();
+    // The cursor is in the pictures unless the viewer draws it or asked for none at all.
+    let in_pictures = !cursor_metadata && cfg.show_cursor;
     let capture =
-        Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, !cursor_metadata)?;
+        Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, in_pictures)?;
     capture.wait_first_frame(FIRST_FRAME_TIMEOUT_NS)?;
     let (width, height) = capture.size();
     let encoder = VideoToolbox::new(
@@ -112,6 +119,7 @@ impl Desktop for MacDesktop {
     }
 
     fn drain(&mut self, out: &mut Vec<Rect>) -> Res<()> {
+        self.capture.recover()?;
         self.capture.drain(out);
         Ok(())
     }
@@ -171,11 +179,28 @@ impl FrameSource for MacFrames {
         SurfaceEncoder::set_bitrate(&mut self.encoder, kbps);
     }
 
+    fn set_profile(&mut self, profile: EncodeProfile, refine: bool) {
+        self.encoder.set_ultra(profile.is_ultra());
+        self.encoder.set_refine(refine);
+    }
+
+    fn applies_profile(&self) -> bool {
+        true
+    }
+
+    fn set_changed_pixels(&mut self, pixels: u64) {
+        self.encoder.set_changed_pixels(pixels);
+    }
+
     fn kbps(&self) -> u32 {
         SurfaceEncoder::kbps(&self.encoder)
     }
 
     fn encoder_name(&self) -> String {
         self.name.clone()
+    }
+
+    fn idr_cause(&self) -> Option<&'static str> {
+        cmux_encode::H264Encoder::idr_cause(&self.encoder)
     }
 }

@@ -73,6 +73,9 @@ public final class HomeStore {
     /// The Chief's agents that had a session at some point (``agentsStarted(_:)``): an agent queued at its
     /// newest message counts as started once it is here. It only grows: a session that ends leaves its agent started.
     @ObservationIgnored var startedAgents: Set<String> = []
+    /// When each of the Chief's agents' newest session began (``agentsStarted(_:startedAt:)``): its pill counts from it.
+    /// A session that ends keeps its start.
+    @ObservationIgnored var agentSessionStarts: [String: Date] = [:]
     /// The Feed rows the main Chief's transcript shows, and that conversation (``setFeedRows(_:in:)``).
     @ObservationIgnored var feedRows: (conversation: ConversationID, rows: [HomeFeedRow])?
     @ObservationIgnored var liveBook = HomeLiveBook()
@@ -251,9 +254,9 @@ public final class HomeStore {
         }
         // task-owner: one consumer of the owner's agent starts, cancelled by stop()
         agentStartTask = Task { [weak self] in
-            for await peers in await source.agentStarts() {
+            for await starts in await source.agentStarts() {
                 guard let self, !self.stopped else { return }
-                self.agentsStarted(peers)
+                self.agentsStarted(starts.peers, startedAt: starts.startedAt)
             }
         }
     }
@@ -316,7 +319,8 @@ public final class HomeStore {
         if !localFiles.isEmpty { items = items.map(decorated) }
         items = agentMessages[id]?.inserting(into: items, summary: summary(id),
                                              expanded: expandedAgentMessages[id] ?? [], seen: agentSeen[id] ?? [:],
-                                             started: startedAgents.union(agentSessions[id]?.values.map(\.peer) ?? [])) ?? items
+                                             started: startedAgents.union(agentSessions[id]?.values.map(\.peer) ?? []),
+                                             sessionStarts: agentSessionStarts) ?? items
         if let feed = feedRows, feed.conversation == id {
             // A window that does not reach the start shows no rows older than its first message.
             let since = mirror.windows[id]?.reachedStart == false ? items.first(where: { $0.delivery == .committed })?.createdAt : nil
