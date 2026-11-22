@@ -838,6 +838,14 @@ jobs:
         run: |
           set -euo pipefail
           bun install --frozen-lockfile --ignore-scripts
+          # Oxlint's safe fixes, only on the source files this PR changes: a lint red the PR inherits from its base is
+          # the base autofix's to repair. Before vp fmt, so the formatter sees the fixed code. A finding with no safe
+          # fix stays for the author; the lint gate still reports it.
+          mapfile -t lint_files < <(sed -n 's#^webviews/##p' "$RUNNER_TEMP/changed.txt" \
+            | grep -E '\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$' | while IFS= read -r f; do [[ -f "$f" ]] && printf '%s\n' "$f"; done)
+          if (( ${#lint_files[@]} > 0 )); then
+            node_modules/.bin/vp lint --fix "${lint_files[@]}" || echo "vp lint --fix: findings left for the author"
+          fi
           node_modules/.bin/vp fmt
           # The acpmux protocol types, generated from the committed spec (as the base autofix does), only when this PR
           # changes the spec: then the regenerated types go with their input, which generated_files_guard.py requires.
