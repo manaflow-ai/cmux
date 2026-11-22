@@ -32,7 +32,7 @@ export type SendMorphStyle = "shell" | "lift" | "inplace";
 export const SEND_MORPHS: readonly SendMorphStyle[] = ["shell", "lift", "inplace"];
 const PRODUCT: SendMorphStyle = "shell";
 
-type Rect = { left: number; top: number; width: number; height: number };
+export type Rect = { left: number; top: number; width: number; height: number };
 type Chip = { rect: Rect; radius: number; copy: HTMLElement };
 type Origin = {
   at: number;
@@ -69,11 +69,11 @@ export function chipRef(id: string): (element: Element | null) => void {
   };
 }
 
-const rectOf = (element: Element): Rect => {
+export const rectOf = (element: Element): Rect => {
   const { left, top, width, height } = element.getBoundingClientRect();
   return { left, top, width, height };
 };
-const radiusOf = (element: Element) => Number.parseFloat(getComputedStyle(element).borderTopLeftRadius) || 0;
+export const radiusOf = (element: Element) => Number.parseFloat(getComputedStyle(element).borderTopLeftRadius) || 0;
 
 /// Text looks a copy keeps outside its own rules: the box's font and ink, and each element's own.
 const TEXT_LOOK = [
@@ -107,7 +107,8 @@ const ELEMENT_LOOK = [
 
 /// A copy of `source`'s children in a box of `width` with `source`'s text look; each element keeps
 /// its own drawn look (the copy is outside the rules that drew it). O(copied nodes), once per send.
-function copyText(source: Element, width: number): HTMLElement {
+/// The un-pop (unpopMorph.ts) copies a queued row's words and the composer's with it.
+export function copyText(source: Element, width: number): HTMLElement {
   const box = source.ownerDocument.createElement("div");
   const look = getComputedStyle(source);
   for (const property of TEXT_LOOK) box.style.setProperty(property, look.getPropertyValue(property));
@@ -252,15 +253,34 @@ export function clearSendOrigins(): void {
   chips.clear();
 }
 
-const mix = (from: number, to: number, progress: number) => from + (to - from) * progress;
-const mixRect = (from: Rect, to: Rect, progress: number): Rect => ({
+export const mix = (from: number, to: number, progress: number) => from + (to - from) * progress;
+export const mixRect = (from: Rect, to: Rect, progress: number): Rect => ({
   left: mix(from.left, to.left, progress),
   top: mix(from.top, to.top, progress),
   width: mix(from.width, to.width, progress),
   height: mix(from.height, to.height, progress),
 });
 /// 0 before `from`, 1 after `to`, linear between.
-const span = (progress: number, from: number, to: number) => Math.min(1, Math.max(0, (progress - from) / (to - from)));
+export const span = (progress: number, from: number, to: number) =>
+  Math.min(1, Math.max(0, (progress - from) / (to - from)));
+
+/// A layer over the pane, above its dock (the composer) and its transcript's mask, marked `name`:
+/// a motion's copies are drawn in it, never by the rows themselves. The caller removes it.
+export function overlayLayer(anchor: Element, name: string): HTMLElement {
+  const doc = anchor.ownerDocument;
+  const layer = doc.createElement("div");
+  layer.setAttribute("aria-hidden", "true");
+  layer.setAttribute(name, "");
+  Object.assign(layer.style, {
+    position: "fixed",
+    inset: "0",
+    zIndex: "var(--layer-overlay)",
+    pointerEvents: "none",
+    contain: "strict",
+  });
+  (anchor.closest(".acpmux-shell") ?? doc.body).appendChild(layer);
+  return layer;
+}
 
 /// `place`: the target's place among the row's previews, where a remounted one is found again.
 type Piece = {
@@ -304,18 +324,7 @@ class Flight {
     readonly scroller: HTMLElement,
   ) {
     const doc = scroller.ownerDocument;
-    // Over the pane, above its dock (the composer) and its transcript's mask.
-    this.layer = doc.createElement("div");
-    this.layer.setAttribute("aria-hidden", "true");
-    this.layer.setAttribute("data-send-morph-layer", "");
-    Object.assign(this.layer.style, {
-      position: "fixed",
-      inset: "0",
-      zIndex: "var(--layer-overlay)",
-      pointerEvents: "none",
-      contain: "strict",
-    });
-    (scroller.closest(".acpmux-shell") ?? doc.body).appendChild(this.layer);
+    this.layer = overlayLayer(scroller, "data-send-morph-layer");
     const placed = this.layer.getBoundingClientRect();
     this.base = { left: placed.left, top: placed.top };
     // The bubble's glass: the sent bubble's own rules (conversation.css .cv-user__bubble in the pane).
