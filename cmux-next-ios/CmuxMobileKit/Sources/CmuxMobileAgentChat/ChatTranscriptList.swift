@@ -1327,19 +1327,18 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// place in the paragraph says which.
     func findTarget(block key: String, position: Double) -> (id: String, position: Double) {
         let id = Self.rowID(findBlock: key)
-        guard rows["\(id).1"] != nil else { return (id, position) }
-        var parts: [(id: String, length: Int)] = []
-        var partID = id
-        while let row = rows[partID], case .block(_, let block) = row.kind, case .paragraph(let text) = block.kind {
-            parts.append((partID, text.count))
-            partID = "\(id).\(parts.count)"
-        }
-        guard parts.count > 1 else { return (id, position) }
-        let total = parts.reduce(0) { $0 + $1.length } + parts.count - 1
-        let found = ChatParagraphParts.locate(offset: Int((position * Double(max(total, 1))).rounded(.down)),
-                                              partLengths: parts.map(\.length))
-        let length = max(parts[found.part].length, 1)
-        return (parts[found.part].id, min(1, Double(found.offset) / Double(length)))
+        guard rows["\(id).1"] != nil, let row = rows[id], case .block(let messageID, let first) = row.kind,
+              let paragraph = MarkdownDocument(parsing: lookup.context.messageText(messageID)).blocks.first(where: { $0.id == first.id }),
+              case .paragraph(let text) = paragraph.kind else { return (id, position) }
+        // The parts' lengths in the paragraph's own text (a forced split adds marks to the rows).
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let ranges = ChatParagraphParts.partLines(paragraph)
+        guard ranges.count > 1 else { return (id, position) }
+        let lengths = ranges.map { lines[$0].joined(separator: "\n").count }
+        let found = ChatParagraphParts.locate(offset: Int((position * Double(max(text.count, 1))).rounded(.down)), partLengths: lengths)
+        let partID = found.part == 0 ? id : "\(id).\(found.part)"
+        guard rows[partID] != nil else { return (id, position) }
+        return (partID, min(1, Double(found.offset) / Double(max(lengths[found.part], 1))))
     }
 
     static func rowID(findBlock key: String) -> String {

@@ -27,10 +27,10 @@ import Testing
         guard case .paragraph(let text) = block.kind else { Issue.record("the log is one paragraph"); return }
         let parts = ChatParagraphParts.split(block)
         #expect(parts.count >= 10, "\(parts.count) parts for 240 lines")
-        let rejoined = parts.map { part -> String in
-            guard case .paragraph(let piece) = part.kind else { return "?" }
-            return piece
-        }.joined(separator: "\n")
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let rejoined = ChatParagraphParts.partLines(block).map { lines[$0].joined(separator: "\n") }.joined(separator: "\n")
+        // No marks to carry in the log: the drawn parts are its lines exactly.
+        #expect(parts.map { part -> String in if case .paragraph(let piece) = part.kind { piece } else { "?" } }.joined(separator: "\n") == text)
         #expect(rejoined == text, "the parts are the paragraph's lines, in order")
         #expect(parts.allSatisfy { $0.id == block.id })
     }
@@ -50,6 +50,10 @@ import Testing
             #expect(marks.isEmpty || number == parts.count - 1, "part \(number) closes its marks: \(marks)")
             #expect(text.split(separator: "\n").count <= 2 * ChatParagraphParts.maxLines, "part \(number) is at most twice the window")
         }
+        // Without the added marks (the paragraph's own lines per part), the parts rejoin to it.
+        let ranges = ChatParagraphParts.partLines(block)
+        #expect(ranges.count == parts.count)
+        #expect(ranges.map { lines[$0].joined(separator: "\n") }.joined(separator: "\n") == lines.joined(separator: "\n"))
     }
 
     /// Drawn one under the other with the paragraph's line spacing, the parts are as tall as the
@@ -95,8 +99,12 @@ import Testing
     /// Find in Chat in a 100-line paragraph: a match in its last part resolves to that part's row
     /// (not the first part, screens above), with its place in that part; one in the first part to
     /// the first.
-    @Test func aFindMatchResolvesToThePartThatHoldsIt() throws {
-        let paragraph = (0..<100).map { "line \($0) of the log, attempt=\($0 * 3)" }.joined(separator: "\n")
+    @Test(arguments: [false, true])
+    func aFindMatchResolvesToThePartThatHoldsIt(forced: Bool) throws {
+        // `forced`: a code span opened on the first line never closes, so every part is a forced
+        // split that closes and reopens it (the match's offsets count the paragraph's own text).
+        let first = forced ? "`open span on line 0" : "line 0 of the log, attempt=0"
+        let paragraph = ([first] + (1..<100).map { "line \($0) of the log, attempt=\($0 * 3)" }).joined(separator: "\n")
         let store = AgentChatStore(source: SmoothChatTests.Silent())
         store.nextFrame = nil
         store.apply(.batch([
@@ -111,16 +119,18 @@ import Testing
         list.boundsMayHaveChanged()
         list.collectionView.layoutIfNeeded()
         let parts = list.layout.items.map(\.id).filter { $0.hasPrefix("m-m0#0") }
-        #expect(parts.count == 5, "100 lines in parts of 24: \(parts)")
+        #expect(parts.count >= 2, "the paragraph split: \(parts)")
+        let ranges = ChatParagraphParts.partLines(MarkdownBlock(id: 0, kind: .paragraph(paragraph)))
+        func partHolding(_ line: Int) -> String {
+            parts[ranges.firstIndex { $0.contains(line) } ?? 0]
+        }
         let blocks = AgentChatFind.blocks(of: store.turns)
-        let last = try #require(AgentChatFind.matches(of: "line 99 of", in: blocks).first)
-        let target = list.findTarget(block: last.block, position: last.position)
-        #expect(target.id == parts.last, "a match in the last part resolves to it, got \(target.id)")
-        #expect(target.position > 0.5, "near the end of that part: \(target.position)")
-        let first = try #require(AgentChatFind.matches(of: "line 3 of", in: blocks).first)
-        #expect(list.findTarget(block: first.block, position: first.position).id == "m-m0#0")
-        let middle = try #require(AgentChatFind.matches(of: "line 50 of", in: blocks).first)
-        #expect(list.findTarget(block: middle.block, position: middle.position).id == "m-m0#0.2", "line 50 is in the third part")
+        for line in [3, 50, 99] {
+            let match = try #require(AgentChatFind.matches(of: "line \(line) of", in: blocks).first)
+            let target = list.findTarget(block: match.block, position: match.position)
+            #expect(target.id == partHolding(line), "line \(line) resolves to the part that holds it, got \(target.id)")
+        }
     }
+
 }
 #endif

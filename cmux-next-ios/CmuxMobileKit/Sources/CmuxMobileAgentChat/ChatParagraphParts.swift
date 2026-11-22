@@ -21,8 +21,25 @@ enum ChatParagraphParts {
     static func split(_ block: MarkdownBlock) -> [MarkdownBlock] {
         guard case .paragraph(let text) = block.kind else { return [block] }
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        guard lines.count > maxLines, !MarkdownDocument(blocks: [block]).needsWebRenderer else { return [block] }
-        var parts: [MarkdownBlock] = []
+        let ranges = partLines(block)
+        guard ranges.count > 1 else { return [block] }
+        var carried = Marks()
+        return ranges.enumerated().map { index, range in
+            let last = index == ranges.count - 1
+            let marks = carried.after(lines[range])
+            let text = carried.opening + lines[range].joined(separator: "\n") + (last ? "" : marks.closing)
+            carried = last ? Marks() : marks
+            return MarkdownBlock(id: block.id, kind: .paragraph(text))
+        }
+    }
+
+    /// The paragraph's lines each part of `split` holds (one range: no split). Find in Chat counts
+    /// a match's offset in these, the paragraph's own text, without the marks a split added.
+    static func partLines(_ block: MarkdownBlock) -> [Range<Int>] {
+        guard case .paragraph(let text) = block.kind else { return [0..<1] }
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        guard lines.count > maxLines, !MarkdownDocument(blocks: [block]).needsWebRenderer else { return [0..<lines.count] }
+        var ranges: [Range<Int>] = []
         var start = 0
         var line = 0
         var carried = Marks()
@@ -33,13 +50,11 @@ enum ChatParagraphParts {
             let marks = carried.after(lines[start..<line])
             // A part ends where its marks close, or at twice the size with what is open carried.
             guard line == lines.count || marks.isEmpty || size >= 2 * maxLines else { continue }
-            let body = lines[start..<line].joined(separator: "\n")
-            let text = carried.opening + body + (line == lines.count ? "" : marks.closing)
-            parts.append(MarkdownBlock(id: block.id, kind: .paragraph(text)))
-            carried = line == lines.count ? Marks() : marks
+            ranges.append(start..<line)
+            carried = marks
             start = line
         }
-        return parts.count > 1 ? parts : [block]
+        return ranges
     }
 
     /// The inline marks open at a point of a paragraph: a code span, and emphasis by `*` or
