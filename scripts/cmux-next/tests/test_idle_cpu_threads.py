@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """idle_cpu.py's per-thread view of the app: which threads ran in an idle window.
 Run: python3 -I scripts/cmux-next/tests/test_idle_cpu_threads.py (not a CI job)."""
-import os, sys, unittest
+import ctypes, os, sys, unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-import idle_cpu  # noqa: E402
+if sys.platform == "darwin":
+    import idle_cpu  # noqa: E402
+else:  # bench_memory loads macOS's libproc at import; the grouping test needs none of it
+    with mock.patch.object(ctypes, "CDLL", mock.MagicMock()):
+        import idle_cpu  # noqa: E402
 
 
 class AppThreads(unittest.TestCase):
@@ -19,6 +24,7 @@ class AppThreads(unittest.TestCase):
         self.assertEqual(groups[1]["cpu_ms_per_s"], 1.0)
         self.assertEqual(groups[2]["threads"], 1)   # a thread born in the window counts from 0
 
+    @unittest.skipUnless(sys.platform == "darwin", "reads threads through macOS libproc")
     def test_live_process_reads_its_own_threads(self):
         before = idle_cpu.bench_memory.thread_times(os.getpid())
         sum(i * i for i in range(100_000))
