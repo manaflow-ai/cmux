@@ -24,6 +24,7 @@ const NAMES: Record<GlyphKind, string> = {
   newProfile: "action.add",
   launch: "folder",
   run: "terminal",
+  resume: "action.resume",
   // A tab's or closed item's kind.
   terminal: "terminal",
   browser: "browser",

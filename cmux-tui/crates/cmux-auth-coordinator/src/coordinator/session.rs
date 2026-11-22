@@ -9,18 +9,37 @@ impl Coordinator {
     // MARK: - Sign-out
 
     pub(super) fn on_sign_out_requested(&mut self, fx: &mut Vec<Effect>) {
-        self.is_capturing_sign_out_credentials = true;
         fx.push(Effect::CancelInFlightWork);
         self.advance_session_generation(true, fx);
         self.sign_out_epoch = self.sign_out_epoch.wrapping_add(1);
+        self.pending_sign_out_captures.insert(self.sign_out_epoch);
         self.publish_session_identity(fx);
         fx.push(Effect::ClearPhaseDampers(SIGN_OUT_CLEARED_PHASES));
-        fx.push(Effect::CaptureTeardownCredentialsAndClearLocalSession);
+        fx.push(Effect::CaptureTeardownCredentialsAndClearLocalSession {
+            sign_out_epoch: self.sign_out_epoch,
+        });
     }
 
-    pub(super) fn on_sign_out_local_cleared(&mut self, fx: &mut Vec<Effect>) {
-        self.is_capturing_sign_out_credentials = false;
-        fx.push(Effect::EndSignOutCredentialCapture);
+    pub(super) fn on_sign_out_local_cleared(&mut self, sign_out_epoch: u64, fx: &mut Vec<Effect>) {
+        // Each capture is answered once: a repeated answer (or one for a
+        // capture never started) must not clear a session signed in since.
+        if !self.pending_sign_out_captures.remove(&sign_out_epoch) {
+            return;
+        }
+        if sign_out_epoch != self.sign_out_epoch {
+            // A newer sign-out began after this one captured: that one owns
+            // the local clear (and keeps the capture open until it answers).
+            // Only this capture's own server teardown still runs.
+            if self.pending_sign_out_captures.is_empty() {
+                fx.push(Effect::EndSignOutCredentialCapture);
+            }
+            fx.push(Effect::WaitForPostSignInHooks);
+            fx.push(Effect::ServerTeardown);
+            return;
+        }
+        if self.pending_sign_out_captures.is_empty() {
+            fx.push(Effect::EndSignOutCredentialCapture);
+        }
         if self.launch.includes_dev_auth {
             self.has_debug_credentials = false;
             fx.push(Effect::ForgetDebugCredentials);

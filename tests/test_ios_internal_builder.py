@@ -172,6 +172,18 @@ class PlanTests(unittest.TestCase):
         decision = self.plan(runs=[run(B, status="in_progress", conclusion=None, minutes_ago=5, run_id=3), run(A, run_id=2)])
         self.assertTrue(decision.build, decision.reason)
 
+    def test_does_not_replace_a_waiting_submittable_build(self):
+        waiting = dict(run(B, status="pending", conclusion=None, minutes_ago=1, run_id=4), submittable=True)
+        decision = self.plan(runs=[waiting, run(B, status="in_progress", conclusion=None, minutes_ago=5, run_id=3),
+                                   run(A, run_id=2)])
+        self.assertFalse(decision.build)
+        self.assertIn("submittable build run 4", decision.reason)
+
+    def test_a_running_submittable_build_does_not_hold_the_next_head(self):
+        running = dict(run(B, status="in_progress", conclusion=None, minutes_ago=5, run_id=3), submittable=True)
+        decision = self.plan(runs=[running, run(A, run_id=2)])
+        self.assertTrue(decision.build, decision.reason)
+
     def test_does_not_retry_a_failed_head(self):
         decision = self.plan(runs=[run(C, conclusion="failure", minutes_ago=30, run_id=3), run(A, run_id=2)])
         self.assertFalse(decision.build)
@@ -550,10 +562,18 @@ class GitHubApiTests(CapturedOutput):
         runs = ib.builder_runs(runner=gh, sleep=lambda _s: None)
         self.assertEqual([r["sha"] for r in runs], [A])
         self.assertEqual(runs[0]["builder"], "f" * 40)
+        self.assertFalse(runs[0]["submittable"])
         self.assertEqual(gh.calls, 2)
         self.assertIn("::warning::gh api repos/manaflow-ai/cmux/actions/workflows/ios-internal-nightly.yml/runs",
                       self.err.getvalue())
         self.assertIn("(HTTP 403); retry 1/3 in 10s", self.err.getvalue())
+
+    def test_reads_a_submittable_run_from_its_title(self):
+        runs_json = json.dumps({"workflow_runs": [{"id": 8, "display_title": f"cmux-next-ios INTERNAL {A} (submittable)",
+                                                   "status": "pending", "conclusion": None,
+                                                   "created_at": "2026-10-20T08:00:00Z", "head_sha": "f" * 40}]})
+        runs = ib.builder_runs(runner=FakeGh((0, runs_json, "")), sleep=lambda _s: None)
+        self.assertTrue(runs[0]["submittable"])
 
     def test_unregistered_workflow_is_no_runs(self):
         gh = FakeGh((1, "", "gh: Not Found (HTTP 404)"))
@@ -635,7 +655,8 @@ class TriggerRunnerTests(unittest.TestCase):
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
         # Only a member of the Linux pool, so the nightly runner label policy can read it (HQ
         # tests/test_runner_label_policy.py); a stale or unset pool takes the 4 vCPU member.
-        self.assertIn("contains(fromJSON('[\"cmux-fleet-linux-x64\",\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\"]'), fromJSON(vars.RUNNER_POOLS).linux) && fromJSON(vars.RUNNER_POOLS).linux", runs_on)
+        # It holds a write token, so it reads only the ephemeral_only pool (tests/test_ci_ephemeral_pool_readers.py).
+        self.assertNotIn("fromJSON(vars.RUNNER_POOLS).linux)", runs_on)
         self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), runs_on)
 
     def test_a_persons_dispatch_is_not_replaced_by_the_next_push(self):

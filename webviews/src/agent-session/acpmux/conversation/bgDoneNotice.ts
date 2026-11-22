@@ -2,7 +2,12 @@
 // from acpmux with the task's id and description): the turn it starts is the agent's own, not the
 // person's. It draws as a background turn (backgroundTurns.ts): one line under the turn before it,
 // "Background task finished: <task>", and the agent's acknowledgement draws nothing; a failure's line
-// says so with its exit code, in the failure look, over the agent's reply, which says why. While the finish waits for the next turn it draws nothing, so no
+// says so with its exit code, in the failure look, over the agent's reply, which says why. An
+// acknowledgement is one short line with no question and no link (backgroundTurns.ts `isQuietReply`,
+// acpmux's own rule for a quiet turn): a turn that reported more draws its report under the line,
+// and the person's message into the turn ends it there, so the answer to them always draws (Leo,
+// 2026-11-21, on a five-paragraph answer that never drew: "things dont get rendeed?";
+// design/transcript-oddities.md T1). While the finish waits for the next turn it draws nothing, so no
 // notice sits pinned under a running turn (Lucas, 2026-11-14: "it should keep its place in the
 // turn, not move and stay sticky"; "not sure this makes much sense ... outside of the main turn").
 import { translate } from "../i18n";

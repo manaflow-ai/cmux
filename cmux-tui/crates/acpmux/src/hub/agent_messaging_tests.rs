@@ -169,12 +169,22 @@ async fn a_prompt_queued_behind_the_ending_turn_is_work_coming() {
         tokio::spawn(async move { hub.prompt_with(&s, blocks, "test", false, opts).await })
     };
     let first = run("p-a", "until-cancel");
+    // The agent's own "running", not the turn showing: a turn shows while its agent still starts,
+    // and a Stop before its prompt reached the agent ends it short of `finish_turn` (its seam
+    // below), so the seam then held the queued prompt's own end, with nothing left queued.
     let running = async {
-        while s.turn().is_none() {
+        loop {
+            let records = hub.events(&s.id, 0, 100_000).unwrap();
+            if records.iter().any(|r| {
+                r.kind == "agent_message_chunk"
+                    && r.msg.pointer("/params/update/content/text") == Some(&json!("running"))
+            }) {
+                break;
+            }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     };
-    tokio::time::timeout(WAIT, running).await.expect("the first turn started");
+    tokio::time::timeout(WAIT, running).await.expect("the first turn reached its agent");
     let second = run("p-b", "hello");
     // In the queue, as its `queued` acceptance says: the `queued` count goes up first (under
     // `admit`), and the prompt joins the queue only after it, so the count alone does not mean

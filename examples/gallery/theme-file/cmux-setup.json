@@ -1,0 +1,15 @@
+{
+  // The smallest whole look: one theme file and the setting that picks it. Everything a theme
+  // file holds (colors, the terminal palette, material, chrome) lives in themes/starter-dusk.json.
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/starter-dusk",
+  "name": "Starter Dusk",
+  "tagline": "One theme file: a dusk-blue window, a warm accent and a matching terminal palette.",
+  "description": "The smallest look you can share: a theme file under themes/ and the one setting that picks it. Copy the folder, change the colors, push it to a repo of your own.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "starter-dusk"
+  }
+}

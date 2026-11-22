@@ -63,6 +63,11 @@ All on the existing unix socket; method names in `rpc.rs`. Lane A owns these.
 - `_acpmux/connections/chatgpt.token` `{ "id": "..." }` -> `{ "access_token": "...", "expires_at": unix }`.
   Local socket only, for the gateway. Refreshes when under 5 minutes left; refreshes for one id are
   serialized (one in flight; others await it). Never logged.
+- `_acpmux/connections/chatgpt.import` `{ "secret_file": "/abs/path/auth.json" }` -> `{ "connection": Connection }`.
+  CI only (cmuxterm-hq#15720): refused unless the daemon's environment sets `ACPMUX_CI_CHATGPT_IMPORT=1`,
+  and on every connection but the local unix socket. Reads a Codex CLI `auth.json`, requires its ID
+  token to be issued to Codex's client, and writes the same record and `chatgpt-plan` route a browser
+  sign-in does. Import into a fresh acpmux home per job: the first refresh rotates the refresh token.
 - `_acpmux/connections/remove` `{ "id" }`: a chatgpt-plan connection revokes its refresh token
   (revocation endpoint from the OpenID configuration), clears tokens, keeps `client_id` + host id.
   Other kinds delegate to the existing `_acpmux/route/remove`.

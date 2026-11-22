@@ -6,30 +6,10 @@ import {
   failureKind,
   failureRecovery,
   isAuthenticationFailure,
-  isCloudRejectedCredential,
   isTeamMachineSignIn,
   offersOwnRoute,
 } from "./failureCopy";
 import { type Translate, translatorFor } from "./i18n";
-
-test("only the Cloud provider rejection is eligible for cached-login recovery", () => {
-  const route = { hostKind: "cloud" as const, harness: "claude" };
-  expect(
-    isCloudRejectedCredential(
-      "The provider rejected Claude Code's credentials on this Cloud machine (HTTP 403).",
-      route,
-    ),
-  ).toBe(true);
-  expect(
-    isCloudRejectedCredential("The provider rejected Claude Code's credentials on this Cloud machine (HTTP 403).", {
-      hostKind: "local",
-    }),
-  ).toBe(false);
-  expect(isCloudRejectedCredential("Claude Code login required", route)).toBe(false);
-  expect(
-    isCloudRejectedCredential("The provider rejected Codex's credentials on this Cloud machine (HTTP 403).", route),
-  ).toBe(false);
-});
 
 // The connection drops acpmux retries by itself (hub/turn_errors.rs `says_connection_dropped`) read
 // as "could not reach its server", not the generic "ran into a problem" (cmuxterm-hq#4879, finding 10).
@@ -133,7 +113,7 @@ test("an own key's account out of credit reads as no-credit, not a rate limit", 
   expect(failureKind(undefined, claude, "insufficient_quota")).toBe("no-credit");
   expect(failureRecovery("no-credit")).toBe("switch-model");
   expect(offersOwnRoute("no-credit", claude)).toBe(true);
-  expect(t("turn.failure.noCredit", { harness: "Claude Code" })).toContain("Add credit to that account");
+  expect(t("turn.failure.noCredit", { harness: "Claude Code" })).toContain("Add credit and retry");
   // The cmux model router's free-tier and daily limits are 429s typed `insufficient_quota`
   // (backend inference/free.ts, Router.ts): they are rate limits, waiting helps.
   for (const message of [
@@ -338,7 +318,7 @@ test("the team's spending cap on a model call reads as its own kind, never the c
   expect(offersOwnRoute("team-cap")).toBe(false);
   const copy = failureCopy(translatorFor("en"), body, { name: "Claude Code" });
   expect(copy).toContain("spending cap");
-  expect(copy).toContain("team admin");
+  expect(copy).toContain("Ask an admin to raise it");
 });
 
 // The user's OpenCode Go chat (Nov 19): the provider expired its API key and said a sign-in would not

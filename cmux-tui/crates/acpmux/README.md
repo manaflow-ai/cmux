@@ -1456,6 +1456,27 @@ Before this, a `--no-wait` send to a peer waited for the peer's whole turn: the 
 `session/prompt` answers only when the target's turn (or a steer's step) ends, and the peer's
 `_acpmux/prompt_accepted` was dropped on the way back.
 
+### Who sent it: the `Sent-by:` line
+
+Every message one session sends another ends with one line the daemon writes, never the sender
+(Leo, 2026-11-21: "well i was also saying attribution auto for messages between sessions"):
+
+```text
+PR #1 is green.
+
+Sent-by: devbox/lane-x harness=claude model=claude-opus-5-5
+```
+
+The host is the short hostname of the daemon that proved the sender's session (its caller
+token), the session its name, the harness its family, and the model the id its harness reports
+running now; a field the daemon does not know is left out, and an alias (`opus`) is never written
+as a model. It is stamped once, where that daemon takes the send (`server/requests.rs`, before
+the outbox keeps it or a peer gets it), so `acpmux send`, the MCP `send` tool, fan-out and tag
+sends and cross-host sends all carry it. A text with a `Sent-by: ` line already (a lane VM's
+broker relay) keeps its own. Notices, acpmux's own prompts, a session's note to itself and a send
+no session proved get none. The format is shared with the lane-gh broker relay and the stats
+parser; `src/sent_by.rs` holds it.
+
 ## Claude Code: native stdio backend
 
 Claude Code sessions run over Claude's own headless protocol, not ACP:
@@ -1588,8 +1609,8 @@ When no config exists, harnesses are imported from `~/.acpx/config.json` (its `a
   `approve-all`, `approve-reads`, `approve-edits` (reads and edits auto, shell asks), `deny-all`, and `review`
   (a reviewer's read-only shell: reads, searches and read-only shell commands such as `git log/diff/show`, `grep`,
   `rg`, `ls`, `cat`, `sed -n` run unasked; every write or other command is denied at once) answer locally. Per-session override with
-  `acpmux set NAME policy=...`. A chat an agent starts from inside its own session (`cmux agent new|run`,
-  `cmux agents chat new`, a local `dispatch`) with no policy or mode of its own starts at the person's configured default
+  `acpmux set NAME policy=...`. A chat an agent starts from inside its own session (`cmux agent new`, its alias
+  `cmux agent run`, `cmux agents chat new`, a local `dispatch`) with no policy or mode of its own starts at the person's configured default
   (`defaultPermissionMode`, the daemon policy), as a start with no proven session does; a starter in full access passes
   its full access on. Set `holdAgentStartsToStarter: true` to give such a chat its starter's policy and mode instead,
   never wider. A sub-session (`--parent`, the `start_session` tool) always inherits its parent's policy (or a narrower
@@ -1630,6 +1651,11 @@ ACP agent: `initialize`, `session/new`, `session/load`, `session/list`, `session
 `session/cancel`, `session/fork`, `session/set_mode`, `session/set_model`,
 `session/set_config_option`, `session/close`, `session/delete`. Session ids are acpmux ids;
 a name works anywhere a `sessionId` is expected.
+
+`session/load` replays at most the chat's newest 100,000 records. When it leaves older ones out,
+its answer says so in `_meta.acpmux.replayTruncated: {skipped, total, limit}` (records are numbered
+from 1, so `skipped` older of `total`), and the daemon logs it; page further back with
+`_acpmux/events`.
 
 `session/new` accepts `_meta.acpmux: {agent, name, policy}`. `session/prompt` accepts
 `_meta.acpmux: {steer: true, promptId}`. Its response still comes at the end of the turn and adds

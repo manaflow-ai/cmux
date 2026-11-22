@@ -32,6 +32,15 @@ final class AppControl {
     private let terminalDisplayProbe = TerminalDisplayProbe()
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
     private let motionCommitProbe = MotionCommitProbe()
+    /// `perf.*`: the frame and layout probes in every build, off until `perf.probes.enable` (`cmux perf profile --frames`).
+    private lazy var perfProbes = PerfProbes(
+        watchdog: watchdog,
+        frames: { [probe = DebugFrameProbe()] in
+            CmuxNextSettings.JSONValue(foundation: probe.handle(action: $0["action"]?.stringValue, raw: $0["raw"]?.boolValue == true)) ?? .null
+        },
+        layoutCounters: { DebugLayoutCounters.handle($0) },
+        tabSwitch: { DebugTabSwitch.timer.handle($0, key: "switches") },
+        workspaceSwitch: { DebugWorkspaceSwitch.timer.handle($0, key: "switches") })
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.key` sequences' player (one sequence at a time), owned here, not by a static.
     private let keySequencePlayer = DebugKeySequencePlayer()
@@ -122,6 +131,12 @@ final class AppControl {
                 let services = await MainActor.run { services }
                 return try await ResourceControl.renderers(call.params, services: services)
             }.withDeadline(.fixed(ResourceControl.renderersDeadline)),
+            // One cmux page's JS heap after GC, its counters and an optional CPU profile (Usage/PageProfiler.swift),
+            // Release too, off unless the hidden defaults key CMUXPageProfiler is set.
+            .async("renderers.profile") { [engine = services.cache.cef] call in
+                let report = await engine.pageProfileReport(browser: call.params["browser"]?.intValue, seconds: call.params["seconds"]?.intValue)
+                return try JSONValue.parse(CEFPageProfileReport.encoded(report))
+            }.withDeadline(.fixed(.seconds(45))),
             // Installed Chrome extensions, shortcuts and toolbar badges.
             .mainActor("browser.extensions") { [weak services] _ in .value(services.map { ExtensionControl.report($0) } ?? .null) },
             // `apps.views`: each open extension view and the words it shows now (read-only).
@@ -133,8 +148,11 @@ final class AppControl {
                 guard let services, let (tab, _) = services.locateTab(id) else { return .missing }
                 guard tab.agentSession != nil else { return .notAgentChat }
                 return services.madeAgentTabs.flatMap { $0.views[$0.tabKey(of: tab)] }.map { .page($0) } ?? .notLoaded
-            }.controlMethod(),
+            }.controlMethod(sources: { [weak services] in services?.madeAgentTabs?.retirer.sources }),
         ])
+        // Frames, hangs, layout counters and switch times in Release too, off by default (PerfProbes):
+        // `perf.probes.enable {"on": true}` opens them for `cmux perf profile --frames`.
+        service.router.register(perfProbes.methods())
         // Diagnostics for tagged DEV builds; a release build registers none (ControlRouter drops them: Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
@@ -213,9 +231,9 @@ final class AppControl {
                 return .value(DebugFocus.report(services: services))
             },
             // Home per window and the local conversation projection (home.md).
-            .mainActor("debug.home") { [weak services] _ in
+            .mainActor("debug.home") { [weak services] call in
                 guard let services else { return .value(.null) }
-                return .value(DebugHome.report(services: services))
+                return .value(DebugHome.report(services: services, paths: call.params["paths"]?.boolValue == true))
             },
             // My pending and refused sends with the reason (no screenshot needed).
             .mainActor("debug.home.delivery") { [weak services] _ in
@@ -368,6 +386,11 @@ final class AppControl {
                 if call.params["sequence"] != nil { return .value(DebugKey.sendSequence(call.params, services: services, player: player)) }
                 return DebugKey.reply(call.params, services: services)
             }.injectingInput(),
+            // Types into (and adds) the open comment bubble of the browser tab in design mode
+            // (BrowserDesignModeController.debugDrive), for captures of the element picker.
+            .async("debug.design_mode") { [weak services] call in
+                await BrowserDesignModeController.debugDrive(call.params, services: services)
+            },
             // The app's resign and become-active path without activating it (DebugAppActivation).
             .mainActor("debug.app_activation") { call in
                 .value(DebugAppActivation.send(call.params))
