@@ -9,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use cmux_config::{Domains, Schema, ThemeFile};
-use cmux_customize::setup::{self, Receipt, Reference};
+use cmux_customize::setup::{self, Receipt, Reference, SetupSource};
 use cmux_customize::{Customize, Roots};
 use serde_json::{Value, json};
 
@@ -39,7 +39,7 @@ fn receipt(read: &setup::Setup, installed: &setup::Installed, name: &str) -> Rec
         id: read.manifest.id.clone(),
         name: read.manifest.name.clone(),
         repository: reference.repository(),
-        reference,
+        source: SetupSource::Repo { reference },
         commit: "a".repeat(40),
         sha256: read.sha256.clone(),
         version: read.manifest.version.clone(),
