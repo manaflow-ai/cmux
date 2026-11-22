@@ -29,18 +29,6 @@ struct PagedListShiftLedger {
         committedExplained = 0
     }
 
-    /// What a frame drew of the row being read, from how far each of its edges moved on screen
-    /// (each with what the scroll explains already taken out). A row that changes height in place
-    /// moves one edge and keeps the other, and which one depends on whether the layout corrects the
-    /// offset for it: the up-*-flood rows grew at their top under the bars (bottom kept, steps
-    /// 6d8bcee4 and f902d4d6), the down-*-edits rows shrank at their bottom (top kept, step
-    /// d20b5519). Nothing the reader sees moved in either. A drawn shift moves the whole row, both
-    /// edges the same way; the part both edges share is the shift.
-    static func drawnShift(top: CGFloat, bottom: CGFloat) -> CGFloat {
-        guard top * bottom > 0 else { return 0 }
-        return abs(top) < abs(bottom) ? top : bottom
-    }
-
     /// The layout asked to move the offset by `delta` to keep the rows below a row that changed
     /// height (`item`) where they were.
     mutating func corrected(_ delta: CGFloat, item: Int?) {
