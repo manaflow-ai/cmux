@@ -68,11 +68,13 @@ Exit 0 looked (or nothing in the app changes), 1 the look failed, 2 usage, 3 the
 The copy is stopped at the end; --watch leaves it and its dev server running (edits to a dir: source then show
 live) until `hot-verify.py stop --side NAME`, which stops the copy and everything the look started.
 
-`run` is `cmux app try .`: the same plan and the same side copy, made fresh from APP (the golden copy) on every
-run, with the change's web and Rust put in and left running, and no screenshots, video or steps. Its last stdout
-line is JSON {side, from, copy, socket, pid, plan, applied, errors, edit_to_live_s, phases}; exit 0 running,
-1 failed (the copy stopped), 3 needs a build (no copy made). `extract --side NAME` keeps the code a run swapped in:
-the branch cmux-try/NAME at the commit it ran and a patch of the change (JSON {branch, patch, files, ...}).
+`run` is `cmux app try .`: the same plan and the same side copy, cloned from APP (the golden copy), with the
+change's web and Rust put in and left running, and no screenshots, video or steps. A later run reuses the kept copy
+when it came from the same APP and no layer of the last run would stay (reusable_copy); else it clones afresh. Its
+last stdout line is JSON {side, from, copy, copy_reused, socket, pid, plan, applied, errors, edit_to_live_s,
+phases}; exit 0 running, 1 failed (the copy stopped), 3 needs a build (no copy made). `extract --side NAME`
+keeps the code a run swapped in: the branch cmux-try/NAME at the commit it ran and a patch of the change (JSON
+{branch, patch, files, ...}).
 `stop --remove` also deletes the copy.
 """
 from __future__ import annotations
@@ -1551,7 +1553,7 @@ def command_look(args) -> int:
         receipt["marker"] = marker(planned["head"], receipt["app"].get("commit") or receipt["app"].get("version")
                                    or "unknown", planned["layers"], planned["source"])
         return look(args, repo, planned, side, the_app, out, receipt, phases, began)
-    except (LookError, Usage, OSError, ValueError, subprocess.SubprocessError) as error:
+    except (RuntimeError, Usage, OSError, ValueError, subprocess.SubprocessError) as error:
         receipt["errors"].append(f"{type(error).__name__}: {str(error)[:500]}")
         if not args.watch:
             with phases("stop"):
@@ -1652,7 +1654,7 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
                                 else run_steps(steps, pid, sock, side.app(), out, shoot))
         if video is not None:
             video = stop_video(video, receipt, side, phases)
-    except (LookError, OSError, ValueError, subprocess.SubprocessError) as error:
+    except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
         receipt["errors"].append(f"{type(error).__name__}: {str(error)[:500]}")
     finally:
         if video is not None and video.running:
@@ -2057,11 +2059,32 @@ def build_swift_app(repo: Path, planned: dict, source: str, out: Path) -> Path:
     return _artifact_app(bundle)
 
 
+def reusable_copy(state: dict, the_app: Path, label: str, layers: list[str]) -> str | None:
+    """Why the kept copy must be made again for this try, or None when it can be reused as it is: stopped, the
+    layers put in, relaunched. A remake (APFS clone, ad hoc re-seal, lsregister) costs about 5 s, and a new
+    bundle's first launch pays about 1.7 s of policy check (goal team-dev-build-is-swap's Ceiling: a re-try's
+    side phase read 8.6 s). So a copy is reused when it was cloned from the same golden app at the same version,
+    under the same label, and this try's layers overwrite every layer the last try put in, so none of the last
+    branch's code stays behind."""
+    if state.get("try_from") != str(the_app):
+        return "another golden app"
+    if not state.get("try_app") or state.get("try_app") != app_info(the_app):
+        return "the golden app changed"
+    if state.get("try_label") != label:
+        return "another label"
+    left = sorted(set(state.get("try_layers") or []) - set(layers))
+    if left:
+        return f"the last try's {', '.join(left)} would stay"
+    return None
+
+
 def command_run(args) -> int:
-    """`cmux app try .`: a fresh clone of APP (the golden copy; by default the installed NIGHTLY) beside everything
-    else, the source's web and Rust swapped in, left running. No screenshots, video or steps: the copy and its dev
-    server keep running (saves under webviews/ show live) until `stop --side NAME`. Swift-only app changes use
-    a complete per-commit fleet app before launch; other build-required changes exit 3 with their plan and make no copy."""
+    """`cmux app try .`: a clone of APP (the golden copy; by default the installed NIGHTLY) beside everything
+    else, the source's web and Rust swapped in, left running. The kept copy of the last try is reused when it was
+    cloned from the same APP and nothing of the last try would stay (reusable_copy); else it is cloned fresh.
+    No screenshots, video or steps: the copy and its dev server keep running (saves under webviews/ show live)
+    until `stop --side NAME`. Swift-only app changes use a complete per-commit fleet app before launch; other
+    build-required changes exit 3 with their plan and make no copy."""
     began = time.monotonic()
     phases = hot().Phases()
     repo = Path(args.repo).resolve()
@@ -2110,19 +2133,36 @@ def command_run(args) -> int:
                 shutil.rmtree(scratch, ignore_errors=True)
                 scratch = None
                 raise
+        label = args.label or f"cmux {side.name}"
+        layers = sorted(planned["layers"])
         with phases("side"):
-            # A fresh clone per try: the last one, its dev server too, goes first. Its own Cloud session stays
-            # (side-instance.sh remove --keep-sign-in): a person signs a copy in once, not every try.
+            # The kept copy, when nothing it holds differs from what this try puts in (reusable_copy): stopped,
+            # not made again, so its relaunch is a warm one. Else a fresh clone: the last one, its dev server too,
+            # goes first. Its own Cloud session stays either way (side-instance.sh remove --keep-sign-in): a person
+            # signs a copy in once, not every try. A built app is new each time, so it always makes a fresh clone.
+            remake = "no copy yet"
             if side.exists():
+                remake = "an app was built" if built_app is not None else \
+                    reusable_copy(side.state(), the_app, label, layers)
                 side.stop()
-                side.run("remove", "--keep-sign-in", timeout=300)
-            make = ["make", "--from", str(built_app or the_app), "--label", args.label or f"cmux {side.name}"]
-            try:
-                side.run(*make, timeout=600)
-            finally:
+            if remake is None:
                 golden_held.close()
+                result["copy_reused"] = True
+            else:
+                result["copy_reused"] = False
+                result["remade_because"] = remake
+                if side.exists():
+                    side.run("remove", "--keep-sign-in", timeout=300)
+                make = ["make", "--from", str(built_app or the_app), "--label", label]
+                try:
+                    side.run(*make, timeout=600)
+                finally:
+                    golden_held.close()
             side.remember(try_source=args.source, try_repo=str(repo), try_head=planned["head"],
-                          try_fork=planned["fork"], try_from=str(the_app))
+                          try_fork=planned["fork"], try_from=str(the_app),
+                          # A copy of a built app never passes for a clone of the golden one (reusable_copy).
+                          try_app=app_info(the_app) if built_app is None else {"built": planned["head"]},
+                          try_label=label, try_layers=layers)
             launched = side.run("launch", timeout=LAUNCH_SECONDS)
             found = re.search(r"pid (\d+)", launched)
             if not found:
