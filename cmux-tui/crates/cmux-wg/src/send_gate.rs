@@ -93,9 +93,17 @@ impl SendGate {
         if self.has_room() { Poll::Ready(()) } else { Poll::Pending }
     }
 
-    /// The owner handed `bytes` to the driver.
+    /// The owner is handing `bytes` to the driver. Called before the send, so
+    /// the driver's `moved` for them never runs first.
     pub(crate) fn queued(&self, bytes: usize) {
         self.queued.fetch_add(bytes, Ordering::SeqCst);
+    }
+
+    /// The send after `queued(bytes)` failed: the driver never got them.
+    pub(crate) fn unqueued(&self, bytes: usize) {
+        let _ = self.queued.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |queued| {
+            Some(queued.saturating_sub(bytes))
+        });
     }
 
     /// The driver moved `bytes` from the stream into the socket.
@@ -240,6 +248,26 @@ mod tests {
         // TCP sent half of it: room, and the writer is woken.
         pacer.update(Instant::now(), MIN_LOWAT_BYTES, MIN_LOWAT_BYTES / 2, None);
         assert_eq!(count.0.load(Ordering::SeqCst), 1);
+        assert!(gate.poll_room(&mut cx).is_ready());
+    }
+
+    #[test]
+    fn bytes_the_driver_moved_or_never_got_leave_no_count_behind() {
+        let gate = Arc::new(SendGate::default());
+        let count = Arc::new(Count::default());
+        let waker = Waker::from(Arc::clone(&count));
+        let mut cx = Context::from_waker(&waker);
+        let mut pacer = SendPacer::new(Arc::clone(&gate));
+        // The stream counts a frame before the send, the driver moves it and
+        // TCP sends it: nothing is left counted.
+        gate.queued(MIN_LOWAT_BYTES);
+        pacer.moved(MIN_LOWAT_BYTES);
+        pacer.update(Instant::now(), 0, 0, None);
+        assert!(gate.poll_room(&mut cx).is_ready());
+        // A send that failed after the count gives it back.
+        gate.queued(MIN_LOWAT_BYTES);
+        assert!(gate.poll_room(&mut cx).is_pending());
+        gate.unqueued(MIN_LOWAT_BYTES);
         assert!(gate.poll_room(&mut cx).is_ready());
     }
 

@@ -117,12 +117,20 @@ impl AsyncWrite for WgStream {
         match this.outbound.poll_reserve(cx) {
             Poll::Ready(Ok(())) => {
                 let count = data.len().min(MAX_WRITE_CHUNK_BYTES);
-                this.outbound
+                // Count the bytes before the driver can see them: it may
+                // move them into the socket on another worker before
+                // `send_item` returns, and its `moved` must find them here.
+                this.gate.queued(count);
+                if this
+                    .outbound
                     .send_item(Outbound::Data(Bytes::copy_from_slice(
                         data.get(..count).unwrap_or(data),
                     )))
-                    .map_err(|_| broken_pipe())?;
-                this.gate.queued(count);
+                    .is_err()
+                {
+                    this.gate.unqueued(count);
+                    return Poll::Ready(Err(broken_pipe()));
+                }
                 this.wake.notify_one();
                 Poll::Ready(Ok(count))
             }
