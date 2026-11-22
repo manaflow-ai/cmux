@@ -166,6 +166,43 @@ async function send(lines: number, { show, step }: CompoundOptions) {
   await wait(700);
 }
 
+/// A send while a turn runs, scrolled up (lane-3's case, cmux#49888): the draft's card clears as the
+/// transcript goes to its latest row for the send, and acpmux takes the prompt into the queue (a card
+/// over the composer) 40 ms later; the reply keeps streaming under it.
+async function queueScrolled({ show, frame, step, root }: CompoundOptions) {
+  const base = scriptedHistory();
+  const prompt: AcpmuxRow = {
+    id: SCRIPTED_PROMPT_ID,
+    version: 1,
+    at: Date.now(),
+    kind: "user",
+    text: "Why does the relay fall over?",
+  };
+  const text = REPLY.split("\n\n").slice(0, 3).join("\n\n");
+  const reply = (length: number, version: number): AcpmuxRow => ({
+    id: "live-answer",
+    version,
+    at: Date.now(),
+    kind: "assistant",
+    text: text.slice(0, length),
+    streaming: true,
+  });
+  show({ rows: [...base, prompt, reply(text.length / 2, 1)], working: true, card: CARD_EMPTY + 4 * LINE });
+  await wait(300);
+  const scroller = root.querySelector<HTMLElement>(".acpmux-scroll");
+  if (scroller) scroller.scrollTop = Math.max(0, scroller.scrollTop - 260);
+  await wait(300);
+  step("send");
+  show({ sends: 1, card: CARD_EMPTY });
+  await wait(40);
+  show({ queue: LINE * 2 });
+  for (let version = 2; version < 30; version += 1) {
+    frame(() => show({ rows: [...base, prompt, reply(text.length / 2 + version * 8, version)] }));
+    await wait(16);
+  }
+  await wait(300);
+}
+
 /// A reply streams (24 characters every 16 ms) and `event` lands 25 deltas in.
 async function streamWith(name: string, event: () => void, { show, frame, step }: CompoundOptions) {
   const base = scriptedHistory();
@@ -209,6 +246,7 @@ export async function playCompound(which: CompoundCase, options: CompoundOptions
     await wait(600);
   } else if (which === "send-1" || which === "send-5" || which === "send-15")
     await send(Number(which.slice("send-".length)), options);
+  else if (which === "queue-scrolled") await queueScrolled(options);
   else if (which === "growth-stream") await streamWith("grow", () => growField(root, 2), options);
   else if (which === "stack-stream") await streamWith("queue", () => show({ queue: LINE * 3 }), options);
   else if (scripted)
