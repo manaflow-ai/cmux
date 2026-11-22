@@ -18,6 +18,7 @@ struct AgentPaneAttachExternalTests {
     private static func model() -> AgentPaneModel {
         let model = AgentPaneModel(host: NoHost())
         model.onLocalPaths = { true }
+        model.hasHandshake = true
         return model
     }
 

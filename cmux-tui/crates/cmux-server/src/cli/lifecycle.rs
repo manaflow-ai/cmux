@@ -603,7 +603,7 @@ pub fn pin(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     Ok(Output::new(json!({"pinned": pinned}), human))
 }
 
-/// `cmux server logs [--lines N] [--follow]`: the service's log. On Linux
+/// `cmux server logs [--lines N | -n N] [--follow | -f]`: the service's log. On Linux
 /// the unit's journal (`journalctl`), on macOS the LaunchAgent's log file.
 pub fn logs(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     let layout = layout(ctx, false)?;
@@ -645,7 +645,7 @@ pub fn logs(ctx: &Context<'_>, args: &Args) -> Result<Output> {
                     Err(e) => return Err(Error::io(log.display(), e)),
                 };
                 let all: Vec<&str> = text.lines().collect();
-                let tail = &all[all.len().saturating_sub(lines as usize)..];
+                let tail = all.get(all.len().saturating_sub(lines as usize)..).unwrap_or_default();
                 let mut human = tail.join("\n");
                 if !human.is_empty() {
                     human.push('\n');
