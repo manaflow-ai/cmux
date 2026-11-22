@@ -191,7 +191,8 @@ import { SubagentOfRow } from "./subagents/SubagentGroup";
 import { SUBAGENT_OF_HEIGHT } from "./rows/SubagentOfPillRow";
 import { noteSendFromLatest, playSendMorph } from "./conversation/sendMorph";
 import { UnreadBanner, sinceDone } from "./conversation/SinceDivider";
-import { readUnread, subscribeUnread, unreadPending } from "./conversation/unreadState";
+import { noteUnreadNews, readUnread, subscribeUnread, unreadPending } from "./conversation/unreadState";
+import { sinceNews } from "./conversation/sinceNews";
 import {
   jumpUpShown,
   jumpUpTarget,
@@ -682,7 +683,17 @@ const RowFrame = React.memo(function RowFrame({
       // from the thread's padding edge, not where an unset one sat, so it adds the padding.
       // Large CSS numeric offsets lose fractional bits in WebKit. Keep the integer offset and
       // its subpixel remainder separate so animated row heights remain adjacent in long chats.
-      style={{ top: integralTop, marginTop: placedTop - integralTop }}
+      // The unread line's row takes no height and draws its mark over the gap under it
+      // (conversation/unread.css), so it reads the gap's length.
+      style={
+        row.kind === SINCE_DIVIDER
+          ? ({
+              top: integralTop,
+              marginTop: placedTop - integralTop,
+              "--cv-since-gap": `${gapBelow}px`,
+            } as React.CSSProperties)
+          : { top: integralTop, marginTop: placedTop - integralTop }
+      }
       onFocus={() => onFocus(row.id)}
     >
       {/* The row's own trailing gap is the only row-local empty surface owned by transcript selection.
@@ -7166,6 +7177,12 @@ function TranscriptView({
   );
   const sinceIndex = sinceKey !== undefined ? indexOfRow(rows, SINCE_DIVIDER, sinceHint) : -1;
   const sinceRow = sinceIndex >= 0 ? rows[sinceIndex] : undefined;
+  // Whether anything new to read is under the line (sinceNews.ts): a quiet one draws no line, no
+  // banner and no Jump up target. Stops at the first news row, so a chat that answered reads one.
+  const sinceHasNews = sinceRow !== undefined && sinceNews(rows, sinceIndex);
+  useLayoutEffect(() => {
+    if (sinceKey !== undefined && sinceRow !== undefined) noteUnreadNews(sinceKey, sinceHasNews);
+  }, [sinceKey, sinceRow, sinceHasNews]);
   const jumpUp = jumpButton && jumpUpOn;
   const ownPrompt = jumpUp ? lastOwnPrompt(rows, promptScan, promptAuthor) : undefined;
   // The stretch's place row is read each render: its hint keeps the lookup O(1) while rows append.

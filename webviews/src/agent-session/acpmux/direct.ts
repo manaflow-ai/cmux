@@ -6526,7 +6526,9 @@ export class AcpmuxDirectClient {
     const sessionId = this.selectedSessionId;
     if (this.closed || !sessionId || !pageShown()) return;
     this.syncView();
-    if (readerHere()) this.markSeen(sessionId);
+    // A return by hand to the chat on screen: "New since you looked" over rows already in front of
+    // the reader does not draw (conversation/unreadState.ts `noteUnreadSide`).
+    if (readerHere()) this.markSeen(sessionId, true);
   };
 
   private cameOnline = (): void => {
@@ -6652,12 +6654,12 @@ export class AcpmuxDirectClient {
   /// to it by hand after stepping away (`attentionChanged`). Turns that ended since the person last
   /// left it or stepped away put "New since you looked" after what they had seen; it stays until
   /// the next return moves it or another chat is selected, so it never goes while the reader is on it.
-  private markSeen(sessionId: string): void {
+  private markSeen(sessionId: string, inPlace = false): void {
     const listed = this.sessions.find((session) => session.sessionId === sessionId);
     const turns = listed?.unreadTurns;
     const seq = listed?.seenSeq;
     if (typeof turns === "number" && turns > 0 && typeof seq === "number") {
-      this.since = { sessionId, seq, turns };
+      this.since = { sessionId, seq, turns, ...(inPlace && { inPlace: true as const }) };
       this.placeSince();
     } else if (this.since?.sessionId !== sessionId) this.since = returnOf(sessionId, listed?.lastReturn);
     this.sessions = this.sessions.map((session) =>
@@ -6700,7 +6702,8 @@ export class AcpmuxDirectClient {
       !this.sinceStale &&
       drawn?.since?.seq === since.seq &&
       drawn.since.turns === since.turns &&
-      drawn.since.recap === since.recap
+      drawn.since.recap === since.recap &&
+      drawn.since.inPlace === since.inPlace
     )
       return;
     this.sinceStale = false;
@@ -6714,6 +6717,7 @@ export class AcpmuxDirectClient {
         seq: since.seq,
         turns: since.turns,
         ...(since.recap && { recap: since.recap }),
+        ...(since.inPlace && { inPlace: true as const }),
       },
     });
   }
@@ -15121,7 +15125,7 @@ export class AcpmuxDirectClient {
     rememberRecapDismissed(key);
     if (this.latestRecap?.recap?.key === key) this.latestRecap = { ...this.latestRecap, recap: undefined };
     if (rowId === SINCE_DIVIDER && this.since?.recap?.key === key) {
-      this.since = { sessionId: this.since.sessionId, seq: this.since.seq, turns: this.since.turns };
+      this.since = { ...this.since, recap: undefined };
       this.placeSince();
       this.emit();
       return;
