@@ -48,6 +48,36 @@ open class ComposerReturnTextView: UITextView {
         placeholderLabel.numberOfLines = 1
         placeholderLabel.isAccessibilityElement = false
         addSubview(placeholderLabel)
+        // Swipe down in the field to put the keyboard away and collapse the
+        // composer (Leo, 2026-11-22: "chatgpt you csn swipe down inside the
+        // composer to collapse it. we need that here too").
+        swipeDown.addTarget(self, action: #selector(swipedDown(_:)))
+        swipeDown.delegate = self
+        swipeDown.cancelsTouchesInView = false
+        addGestureRecognizer(swipeDown)
+    }
+
+    /// The swipe-down that collapses the composer (``ComposerSwipeDown``).
+    private let swipeDown = UIPanGestureRecognizer()
+    /// Whether the draft was scrolled to its top when the swipe began: a
+    /// swipe down inside a scrolled draft scrolls it, as before.
+    private var swipeBeganAtTop = false
+
+    @objc private func swipedDown(_ pan: UIPanGestureRecognizer) {
+        switch pan.state {
+        case .began:
+            swipeBeganAtTop = contentOffset.y <= -adjustedContentInset.top + 1
+        case .changed, .ended:
+            let move = pan.translation(in: self)
+            let speed = pan.velocity(in: self)
+            guard swipeBeganAtTop, isFirstResponder,
+                  ComposerSwipeDown.collapses(dx: move.x, dy: move.y, velocityY: speed.y, ended: pan.state == .ended)
+            else { return }
+            swipeBeganAtTop = false
+            resignFirstResponder()
+        default:
+            swipeBeganAtTop = false
+        }
     }
 
     @available(*, unavailable)
@@ -264,4 +294,28 @@ open class ComposerReturnTextView: UITextView {
         builder.insertChild(UIMenu(options: .displayInline, children: [newLine]), atStartOfMenu: .standardEdit)
     }
 }
+extension ComposerReturnTextView: UIGestureRecognizerDelegate {
+    /// The collapse swipe runs beside the text view's own scrolling and selection.
+    public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                                  shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        gestureRecognizer === swipeDown
+    }
+}
+
+/// When a downward swipe inside a composer's field collapses it: mostly down,
+/// past a short distance, or a quick flick. Pure, so it is unit tested.
+public enum ComposerSwipeDown {
+    /// The distance a slow swipe travels before it collapses.
+    public static let distance: CGFloat = 28
+    /// A flick at least this fast (pt/s) collapses once lifted, after `flickDistance`.
+    public static let flickSpeed: CGFloat = 500
+    public static let flickDistance: CGFloat = 10
+
+    public static func collapses(dx: CGFloat, dy: CGFloat, velocityY: CGFloat, ended: Bool) -> Bool {
+        guard dy > 0, dy > abs(dx) * 1.5 else { return false }
+        if dy >= distance { return true }
+        return ended && velocityY >= flickSpeed && dy >= flickDistance
+    }
+}
+
 #endif
