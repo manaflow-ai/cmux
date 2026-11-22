@@ -69,7 +69,6 @@ extension TerminalSession {
             "surface_swaps": diagnostics.swappedSurfaces,
             "local_history_mismatch": diagnostics.localHistoryMismatches,
             "local_snapshots": diagnostics.localSnapshots,
-            "skipped_images": diagnostics.skippedImages,
             "last_frame_holds": diagnostics.lastFrameHolds,
             "frame_held": diagnostics.holdingFrame,
         ]

@@ -42,16 +42,17 @@ fn history_rows_after(lines: u32) -> u32 {
     lines + 1 - u32::from(ROWS)
 }
 
-fn row_texts(rows: &[Vec<ghostty_vt::Cell>]) -> Vec<String> {
+fn row_texts<R: AsRef<[ghostty_vt::Cell]>>(rows: &[R]) -> Vec<String> {
     ghostty_vt::rows_to_runs(rows)
         .into_iter()
         .map(|runs| runs.into_iter().map(|run| run.text).collect::<String>().trim_end().to_owned())
         .collect()
 }
 
-fn assert_numbered_rows(rows: &[Vec<ghostty_vt::Cell>], first: u32) {
+fn assert_numbered_rows<R: AsRef<[ghostty_vt::Cell]>>(rows: &[R], first: u32) {
     for (index, (row, text)) in rows.iter().zip(row_texts(rows)).enumerate() {
         let number = first + index as u32;
+        let row = row.as_ref();
         assert_eq!(text, line(number), "producer row {number} was missing or changed");
         assert_eq!(row[0].fg, ghostty_vt::ColorSpec::Palette((number % 8) as u8));
         use ghostty_vt::CellWidth::{SpacerTail, Wide};
