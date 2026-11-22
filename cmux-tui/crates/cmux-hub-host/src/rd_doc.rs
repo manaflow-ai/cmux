@@ -15,13 +15,21 @@ pub struct RdDocument {
     pub key: String,
     pub candidates: Vec<String>,
     pub display: Option<i64>,
+    /// Offer: the display to show by CGDirectDisplayID (a run's screen link); wins over `display`.
+    pub display_id: Option<u32>,
     pub max_width: Option<u32>,
     pub max_fps: Option<u32>,
+    /// Offer: the highest bitrate the stream may use, in kbit/s (nil: the host's own cap).
+    pub max_kbps: Option<u32>,
+    /// Offer: whether the stream shows the cursor (nil: it does, as it always has).
+    pub cursor: Option<bool>,
     /// The screen-share profile the viewer asks for (`standard` or `ultra`, the person's
     /// choice); the host runs standard when it is absent or unknown.
     pub encode_profile: Option<String>,
     pub displays: Vec<(u32, u32)>,
     pub current_display: Option<usize>,
+    /// Answer: each display's CGDirectDisplayID, in `displays` order (macOS hosts).
+    pub display_ids: Vec<u32>,
 }
 
 impl RdDocument {
@@ -31,11 +39,20 @@ impl RdDocument {
         if let Some(d) = self.display {
             lines.push(format!("a=cmux-rd-display:{d}"));
         }
+        if let Some(id) = self.display_id {
+            lines.push(format!("a=cmux-rd-display-id:{id}"));
+        }
         if let Some(w) = self.max_width {
             lines.push(format!("a=cmux-rd-max-width:{w}"));
         }
         if let Some(f) = self.max_fps {
             lines.push(format!("a=cmux-rd-max-fps:{f}"));
+        }
+        if let Some(k) = self.max_kbps {
+            lines.push(format!("a=cmux-rd-max-kbps:{k}"));
+        }
+        if let Some(c) = self.cursor {
+            lines.push(format!("a=cmux-rd-cursor:{}", u8::from(c)));
         }
         if let Some(p) = &self.encode_profile {
             lines.push(format!("a=cmux-rd-encode-profile:{p}"));
@@ -44,6 +61,10 @@ impl RdDocument {
             let sizes: Vec<String> =
                 self.displays.iter().map(|(w, h)| format!("{w}x{h}")).collect();
             lines.push(format!("a=cmux-rd-displays:{}", sizes.join(",")));
+        }
+        if !self.display_ids.is_empty() {
+            let ids: Vec<String> = self.display_ids.iter().map(u32::to_string).collect();
+            lines.push(format!("a=cmux-rd-display-ids:{}", ids.join(",")));
         }
         if let Some(c) = self.current_display {
             lines.push(format!("a=cmux-rd-current:{c}"));
@@ -66,8 +87,20 @@ impl RdDocument {
                 "fingerprint" => key = value.strip_prefix(KEY_PREFIX).map(str::to_owned),
                 "cmux-rd-candidate" => doc.candidates.push(value.to_owned()),
                 "cmux-rd-display" => doc.display = value.parse().ok(),
+                "cmux-rd-display-id" => doc.display_id = value.parse().ok(),
+                "cmux-rd-display-ids" => {
+                    doc.display_ids = value.split(',').filter_map(|s| s.parse().ok()).collect();
+                }
                 "cmux-rd-max-width" => doc.max_width = value.parse().ok(),
                 "cmux-rd-max-fps" => doc.max_fps = value.parse().ok(),
+                "cmux-rd-max-kbps" => doc.max_kbps = value.parse().ok(),
+                "cmux-rd-cursor" => {
+                    doc.cursor = match value {
+                        "0" => Some(false),
+                        "1" => Some(true),
+                        _ => None,
+                    };
+                }
                 "cmux-rd-encode-profile" => doc.encode_profile = Some(value.to_owned()),
                 "cmux-rd-current" => doc.current_display = value.parse().ok(),
                 "cmux-rd-displays" => {
@@ -189,15 +222,37 @@ mod tests {
             display: Some(1),
             max_width: Some(1920),
             max_fps: Some(60),
+            max_kbps: Some(5_000),
+            cursor: Some(false),
             encode_profile: Some("ultra".into()),
             displays: vec![(2560, 1440)],
             current_display: Some(0),
+            display_id: Some(17),
+            display_ids: vec![1, 17],
         };
         assert!(doc.text().contains("\r\na=cmux-rd-encode-profile:ultra\r\n"));
         let text = doc.text();
+        assert!(text.contains("a=cmux-rd-display-id:17\r\n"));
+        assert!(text.contains("a=cmux-rd-display-ids:1,17\r\n"));
+        assert!(text.contains("a=cmux-rd-max-kbps:5000\r\n"));
+        assert!(text.contains("a=cmux-rd-cursor:0\r\n"));
         assert!(text.starts_with("cmux.rd/1\r\na=fingerprint:cmux-rd-key 0011"));
         assert_eq!(RdDocument::parse(&text), Some(doc));
         assert_eq!(fingerprint_of(&text).as_deref(), Some(format!("cmux-rd-key {KEY}").as_str()));
+    }
+
+    #[test]
+    fn customize_wishes_round_trip_and_unset_ones_stay_out() {
+        let shown = RdDocument { key: KEY.into(), cursor: Some(true), ..RdDocument::default() };
+        assert!(shown.text().contains("a=cmux-rd-cursor:1\r\n"));
+        assert_eq!(RdDocument::parse(&shown.text()), Some(shown));
+        // Today's offer: no bitrate cap and no cursor line, so an older host reads the same.
+        let plain = RdDocument { key: KEY.into(), ..RdDocument::default() }.text();
+        assert!(!plain.contains("max-kbps") && !plain.contains("cmux-rd-cursor"));
+        // A value this side does not know is no wish, not a wrong one.
+        let odd = format!("{plain}a=cmux-rd-cursor:yes\r\na=cmux-rd-max-kbps:-3\r\n");
+        let parsed = RdDocument::parse(&odd).unwrap();
+        assert_eq!((parsed.cursor, parsed.max_kbps), (None, None));
     }
 
     #[test]
