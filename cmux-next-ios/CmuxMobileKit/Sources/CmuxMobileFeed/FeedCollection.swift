@@ -530,6 +530,8 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     /// How many spare cells the Feed keeps ready: more than the rows a fast flick shows past the
     /// reuse pool's first fill.
     static let spareTarget = 6
+    /// How long the list must have been still before a spare is built (seconds).
+    static let spareStillness: CFTimeInterval = 0.5
     private(set) var sparesMade = 0
     private var warmQueue: [FeedRowLayout] = []
     private var warmScheduled = false
@@ -603,6 +605,17 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
                 defer { FeedCellTiming.log("warm", t0) }
                 #endif
                 guard !self.warmQueue.isEmpty else {
+                    // A spare only once the list has been still for a while: a scroll driven from code
+                    // (the list rig, a jump to the top) sets no tracking flag, and a spare built
+                    // between two of its frames would cost one of them.
+                    let still = CACurrentMediaTime() - self.lastScroll
+                    if still < Self.spareStillness {
+                        Task { @MainActor [weak self] in
+                            try? await Task.sleep(for: .milliseconds(Int((Self.spareStillness - still) * 1000) + 20))
+                            self?.pumpWarmUp()
+                        }
+                        return
+                    }
                     self.makeSpare()
                     self.pumpWarmUp()
                     return
@@ -656,6 +669,12 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         cell.overrideUserInterfaceStyle = .unspecified
         spares.append(cell)
         sparesMade += 1
+        #if DEBUG
+        if FeedStressRig.shared.config.isActive {
+            Logger(subsystem: "dev.cmux.mobile", category: "frames").notice(
+                "FRAMELOG feed-spare made=\(self.sparesMade, privacy: .public) since_scroll_ms=\(Int((CACurrentMediaTime() - self.lastScroll) * 1000), privacy: .public) settled=\(self.rowsSettled, privacy: .public)")
+        }
+        #endif
     }
 
     private static let emptyKey = FeedRowKey(
