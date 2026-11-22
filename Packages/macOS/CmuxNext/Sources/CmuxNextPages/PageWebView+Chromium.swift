@@ -32,11 +32,22 @@ extension PageWebView {
     /// a prewarmed page waits there to paint before it is adopted. Nor does any ancestor's alpha
     /// once the page lies wholly outside its window's content (``liesOutsideWindowContent``): its
     /// child window shows nothing there, and a hidden page drew a held chat only when its paint hold gave up (an adopted spare, HQ#5914).
+    /// A page out of sight (outside the window's content, or in an off-screen parking) is visible only
+    /// while it has to draw there (``drawsAway``, `PageWebView+AwayDrawing`), then hidden like a chat
+    /// behind another tab, so it can be frozen and released (CMUX-571).
     public func setChromiumVisibility(_ requested: Bool) {
-        let visible = requested && window != nil && !isHiddenOrHasHiddenAncestor
-            && (liesOutsideWindowContent || sequence(first: self as NSView, next: \.superview).dropFirst()
-                .allSatisfy { $0.alphaValue > 0.001 || $0 is PageOffscreenParking })
-        chromiumSession?.setVisible(visible)
+        guard let session = chromiumSession else { return }
+        guard requested, window != nil, !isHiddenOrHasHiddenAncestor else { return session.setVisible(false) }
+        let ancestors = sequence(first: self as NSView, next: \.superview).dropFirst()
+        let clear = ancestors.contains { $0.alphaValue <= 0.001 && !($0 is PageOffscreenParking) }
+        let outside = liesOutsideWindowContent
+        let shown = outside || !clear
+        // Out of sight on purpose: parked, or outside the window under a clear ancestor (the reserved Cmd-N
+        // workspace, `addPrewarmedSubview`). A page outside the window with no clear ancestor (a column
+        // scrolled out of the viewport) keeps its visibility: nothing lays it out again when it scrolls back.
+        let away = shown && (inOffscreenParking || (outside && clear))
+        session.setVisible(away ? drawsAway : shown)
+        if away, drawsAway { drawAwayIfNeeded() }
     }
     public var chromiumShows: Bool { chromiumSession?.shows == true } // what ``setChromiumVisibility(_:)`` told the Chromium page last; false on WebKit
 
@@ -110,6 +121,7 @@ extension PageWebView {
 
     /// Loads `url` (a document of this page) in whichever engine shows it.
     func loadDocument(_ url: URL) {
+        documentStarted()
         if let chromiumSession {
             chromiumSession.questionKeys?.invalidate()
             navigateChromium(chromiumSession) { $0.load(url) }
@@ -122,6 +134,9 @@ extension PageWebView {
 
     /// Reloads the document in whichever engine shows it.
     func reloadPage() {
+        // At once, before WebKit's provisional start or Chromium's bridge: health must not read the
+        // crash this reload answers, or the old document's silence, as a page to repair.
+        documentStarted()
         chromiumSession?.questionKeys?.invalidate()
         if let chromiumSession { navigateChromium(chromiumSession) { $0.reload() } } else { webView.reload() }
     }
