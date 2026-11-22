@@ -234,14 +234,13 @@ describe("after sign-in native handoff", () => {
   // A side-instance copy of an installed app (side-instance.sh, `cmux app try`)
   // signs in with its own scheme, so a copy of cmux NIGHTLY can use Cloud.
   for (const scheme of ["cmux-side-pr-48210-3f9a0c", "cmux-side-try-1a2b3c", `cmux-side-${"a".repeat(40)}-abcdef`]) {
-    test(`redirects verified handoffs to the ${scheme} side instance`, async () => {
+    test(`hands verified handoffs to the ${scheme} side instance`, async () => {
       handoffCookie = "handoff-nonce";
       const nativeReturnTo = `${scheme}://auth-callback?cmux_auth_state=state-side`;
 
       const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
 
-      expect(response.status).toBe(307);
-      const callbackURL = new URL(response.headers.get("location")!);
+      const callbackURL = await verifiedHandoffCallback(response);
       expect(callbackURL.protocol).toBe(`${scheme}:`);
       expect(callbackURL.hostname).toBe("auth-callback");
       expect(callbackURL.searchParams.get("cmux_auth_state")).toBe("state-side");
