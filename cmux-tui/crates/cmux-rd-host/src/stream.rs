@@ -244,6 +244,26 @@ struct PacedLog {
     line: serde_json::Value,
 }
 
+/// A desktop and its frame source opened ahead of the session (`cmux-rd serve` opens them while
+/// the link shakes hands), for the cursor choice `cursor`, asked at `open_us` and ready at
+/// `ready_us`.
+pub struct OpenedDesktop {
+    desktop: Box<dyn Desktop>,
+    frames: Box<dyn FrameSource>,
+    cursor: bool,
+    open_us: u64,
+    ready_us: u64,
+}
+
+impl OpenedDesktop {
+    /// Opens this OS's desktop; `cursor`: the viewer draws the cursor (cap `cursor`).
+    pub fn open(cfg: &SessionCfg, cursor: bool) -> Res<Self> {
+        let open_us = now_us();
+        let (desktop, frames) = crate::desktop::open(cfg, cursor)?;
+        Ok(Self { desktop, frames, cursor, open_us, ready_us: now_us() })
+    }
+}
+
 impl MediaSession {
     pub fn open(
         cfg: &SessionCfg,
@@ -251,9 +271,33 @@ impl MediaSession {
         negotiated_caps: &[String],
         sink: Box<dyn UpstreamSink>,
     ) -> Res<Self> {
-        let open_us = now_us();
-        let (desktop, frames) = crate::desktop::open(cfg, wants_cursor(negotiated_caps))?;
-        let ready_us = now_us();
+        Self::on_desktop(
+            OpenedDesktop::open(cfg, wants_cursor(negotiated_caps))?,
+            cfg,
+            max_datagram,
+            negotiated_caps,
+            sink,
+        )
+    }
+
+    /// A session on a desktop opened earlier (`cmux-rd serve` opens it during the handshake).
+    /// One opened for the other cursor choice than the viewer negotiated is opened again.
+    pub fn on_desktop(
+        opened: OpenedDesktop,
+        cfg: &SessionCfg,
+        max_datagram: usize,
+        negotiated_caps: &[String],
+        sink: Box<dyn UpstreamSink>,
+    ) -> Res<Self> {
+        let cursor = wants_cursor(negotiated_caps);
+        let opened = if opened.cursor == cursor {
+            opened
+        } else {
+            // The capture closes before it opens again.
+            drop(opened);
+            OpenedDesktop::open(cfg, cursor)?
+        };
+        let OpenedDesktop { desktop, frames, open_us, ready_us, .. } = opened;
         let mut session =
             Self::with_desktop(desktop, frames, cfg, max_datagram, negotiated_caps, sink)?;
         if let Some(timing) = session.timing.as_mut() {

@@ -7,6 +7,13 @@ and counts what comes back. Proves the viewer bridge end to end without the app.
 """
 import json, os, select, socket, struct, subprocess, sys, tempfile, time
 
+def unbuffered(stream):
+    """A child's stdout with no read-ahead. select() waits on the descriptor, so a buffered
+    readline() that pulled a whole burst in (key, candidates, candidates_done in one write)
+    leaves the rest where select() never sees it, and the next wait sits out its timeout."""
+    return os.fdopen(os.dup(stream.fileno()), "rb", buffering=0)
+
+
 binary = sys.argv[1]
 stun = [sys.argv[sys.argv.index("--stun") + 1]] if "--stun" in sys.argv else []
 seconds = float(sys.argv[sys.argv.index("--seconds") + 1]) if "--seconds" in sys.argv else 2.0
@@ -16,24 +23,26 @@ os.chmod(private, 0o700)
 sock_path = os.path.join(private, "pane.sock")
 
 viewer = subprocess.Popen([binary, "connect"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
-viewer_key = json.loads(viewer.stdout.readline())["key"]
+viewer_out = unbuffered(viewer.stdout)
+viewer_key = json.loads(viewer_out.readline())["key"]
 host = subprocess.Popen([binary, "serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
+host_out = unbuffered(host.stdout)
 host.stdin.write(json.dumps({"session": session, "peer_key": viewer_key, "scope": "view", "stun": stun,
                              "viewer": {"user": "viewer", "install": "pane"}}) + "\n"); host.stdin.flush()
-host_line = json.loads(host.stdout.readline())
+host_line = json.loads(host_out.readline())
 if "displays" in host_line:  # serve reports its displays before its key
     print("host displays:", host_line["displays"], "current:", host_line.get("current"), file=sys.stderr)
-    host_line = json.loads(host.stdout.readline())
+    host_line = json.loads(host_out.readline())
 host_key = host_line["key"]
 cands, deadline = [], time.time() + 3
-while time.time() < deadline and select.select([host.stdout], [], [], deadline - time.time())[0]:
-    line = json.loads(host.stdout.readline())
+while time.time() < deadline and select.select([host_out], [], [], deadline - time.time())[0]:
+    line = json.loads(host_out.readline())
     if "candidate" in line: cands.append(line["candidate"])
     if line.get("candidates_done"): break
 viewer.stdin.write(json.dumps({"session": session, "peer_key": host_key, "stun": stun, "candidates": cands,
                                "socket": sock_path}) + "\n"); viewer.stdin.flush()
 while True:
-    line = json.loads(viewer.stdout.readline())
+    line = json.loads(viewer_out.readline())
     if "candidate" in line:
         host.stdin.write(json.dumps(line) + "\n"); host.stdin.flush()
     if line.get("listening"): break
@@ -48,9 +57,9 @@ buf, controls, datagrams, end = b"", [], 0, time.time() + seconds + 10
 pane.settimeout(0.2)
 first_datagram_at = None
 while time.time() < end:
-    for s in select.select([viewer.stdout, host.stdout], [], [], 0)[0]:
+    for s in select.select([viewer_out, host_out], [], [], 0)[0]:
         line = s.readline()
-        if line: print(("viewer" if s is viewer.stdout else "host") + ": " + line.rstrip(), file=sys.stderr)
+        if line: print(("viewer" if s is viewer_out else "host") + ": " + line.decode(errors="replace").rstrip(), file=sys.stderr)
     try:
         chunk = pane.recv(1 << 20)
     except socket.timeout:

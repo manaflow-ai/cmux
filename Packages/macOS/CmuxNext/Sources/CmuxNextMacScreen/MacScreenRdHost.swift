@@ -113,7 +113,8 @@ nonisolated final class MacScreenRdHost: Sendable {
                         answer?.candidates.append(candidate)
                     }
                 }
-                // The answer goes once every candidate this side will find is known.
+                // The answer goes once this side's host candidates are known (serve says
+                // candidates_done then); reflexive and relayed ones trickle after it.
                 if line.candidatesDone == true, !answered, let document = answer {
                     answered = true
                     answerDeadline.cancel()

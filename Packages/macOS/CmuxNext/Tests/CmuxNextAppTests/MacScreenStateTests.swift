@@ -91,6 +91,21 @@ struct MacScreenConnectTimingsTests {
         #expect(timings.firstFrameMs == nil && timings.rtt.count == 0)
     }
 
+    /// Connect to first frame counts from the person's request, before the approval and its ticket.
+    @Test func clickToFirstFrameCountsFromTheRequest() {
+        var timings = MacScreenConnectTimings()
+        let click = ContinuousClock.now
+        let ticket = click + .milliseconds(120)
+        timings.connectStarted(at: Date(), ticket, requested: click)
+        timings.firstFrame(at: ticket + .milliseconds(200))
+        #expect(timings.firstFrameMs == 200)
+        #expect(timings.clickToFirstFrameMs == 320)
+        // A restart without a click (a quality change) has no click number.
+        timings.connectStarted(at: Date(), ticket + .seconds(5))
+        timings.firstFrame(at: ticket + .seconds(6))
+        #expect(timings.clickToFirstFrameMs == nil && timings.firstFrameMs == 1000)
+    }
+
     /// Each stage ends once, when the connect first gets past it; a skipped stage ends with the later one.
     @Test func eachConnectStageEndsOnce() {
         var timings = MacScreenConnectTimings()

@@ -97,33 +97,42 @@ nonisolated struct MacScreenConnectTimings: Equatable, Sendable {
     /// Wall clock when this session's connect started (the approved ticket's stream began).
     private(set) var startedAt: Date?
     private(set) var started: ContinuousClock.Instant?
+    /// When the person asked (Connect, Try Again): the hub request before the approval and its ticket.
+    private(set) var requested: ContinuousClock.Instant?
     /// Connect start to the first decoded frame reaching the screen, in milliseconds.
     private(set) var firstFrameMs: Double?
+    /// The person's Connect to the first frame on screen, in milliseconds (nil when the session
+    /// started without one, as a quality restart does).
+    private(set) var clickToFirstFrameMs: Double?
     /// Connect start to the end of each stage the connect got past, in milliseconds: `answer` (the host
     /// answered), `link` (the link came up), `frame` (a picture showed). A stage skipped over ends when the
     /// later one does.
     private(set) var stageMs: [MacScreenConnectStage: Double] = [:]
     private(set) var rtt = MacScreenRollingSamples(capacity: rttWindow)
 
-    /// A new connect: everything before it is gone.
-    mutating func connectStarted(at wall: Date, _ instant: ContinuousClock.Instant) {
+    /// A new connect (`requested`: when the person asked for it): everything before it is gone.
+    mutating func connectStarted(at wall: Date, _ instant: ContinuousClock.Instant, requested: ContinuousClock.Instant? = nil) {
         self = MacScreenConnectTimings()
         startedAt = wall
         started = instant
+        self.requested = requested.flatMap { $0 <= instant ? $0 : nil }
     }
 
     /// The first frame showed at `instant`; only the first one after a connect counts.
     mutating func firstFrame(at instant: ContinuousClock.Instant) {
         guard firstFrameMs == nil, let started, instant >= started else { return }
-        let elapsed = started.duration(to: instant)
-        firstFrameMs = (Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15).rounded()
+        firstFrameMs = Self.ms(started.duration(to: instant))
+        if let requested { clickToFirstFrameMs = Self.ms(requested.duration(to: instant)) }
+    }
+
+    private static func ms(_ elapsed: Duration) -> Double {
+        (Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15).rounded()
     }
 
     /// The connect reached `stage` at `instant`: every stage before it that has no end yet ends now.
     mutating func reached(_ stage: MacScreenConnectStage, at instant: ContinuousClock.Instant) {
         guard let started, instant >= started else { return }
-        let elapsed = started.duration(to: instant)
-        let ms = (Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15).rounded()
+        let ms = Self.ms(started.duration(to: instant))
         for done in MacScreenConnectStage.allCases where done < stage && stageMs[done] == nil { stageMs[done] = ms }
     }
 
