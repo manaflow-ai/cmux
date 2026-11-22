@@ -30,7 +30,8 @@ import time
 
 SCHEMA = 1
 PURPOSE = "cmux-web-pieces"
-CHANNELS = ("every-merge", "nightly")
+# A drill- channel rehearses the one it names: no app reads it unless told to (web_pieces.rs CHANNELS).
+CHANNELS = ("every-merge", "nightly", "drill-every-merge", "drill-nightly")
 # cmux-web-pieces PIECES; tests/test_web_pieces_file.sh holds the two lists equal.
 PIECES = ("agent-pane", "pages", "agent-activity", "webviews-app", "inspector")
 SERVES = ("last-good", "bundled")

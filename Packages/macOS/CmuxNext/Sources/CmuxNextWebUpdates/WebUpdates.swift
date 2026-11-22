@@ -54,6 +54,9 @@ public final class WebUpdates {
     var pieces: WebPiecesAnswer?
     /// The read of the switch file that runs now; the next one waits for it.
     @ObservationIgnored var piecesRead: Task<Void, Never>?
+    /// Reads the channel's drill switch file instead (`updates.web.pieces.check` with `drill`), until
+    /// cmux quits: a switch is rehearsed on this Mac before every app takes it.
+    @ObservationIgnored var piecesDrill = false
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     @ObservationIgnored private var started = false
 

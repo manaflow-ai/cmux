@@ -19,7 +19,7 @@ on:
       channel:
         description: "The web update channel"
         type: choice
-        options: [every-merge, nightly]
+        options: [every-merge, nightly, drill-every-merge, drill-nightly]
         default: every-merge
       out_of:
         description: "Pieces to swap out, space separated: PIECE=last-good or PIECE=bundled (agent-pane, pages, agent-activity, webviews-app, inspector, or PIECE/NAME)"

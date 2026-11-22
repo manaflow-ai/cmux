@@ -93,7 +93,8 @@ extension WebUpdates {
     }
 
     /// `updates.web.pieces.check`: one read now, then the status.
-    func piecesChecked() async -> JSONValue {
+    func piecesChecked(drill: Bool? = nil) async -> JSONValue {
+        if let drill { piecesDrill = drill }
         await readPieces(offline: false)?.value
         return Self.json(self)
     }
@@ -126,13 +127,16 @@ extension WebUpdates {
         where pointer.key != active?.key && !candidates.contains(where: { $0.key == pointer.key }) {
             candidates.append(pointer)
         }
-        var words = ["app", "web-pieces", "check", "--state", store.base.path, "--channel", channel.rawValue]
+        // A drill has its own file, serial and log, so it never moves the channel's own.
+        let drill = piecesDrill
+        var words = ["app", "web-pieces", "check", "--state", (drill ? store.base.appending(path: "pieces-drill") : store.base).path,
+                     "--channel", (drill ? "drill-" : "") + channel.rawValue]
         if let active { words += ["--active", active.key] }
         for pointer in candidates { words += ["--kept", pointer.key] }
         if offline { words.append("--offline") }
         // No answer (no CLI, a failed run): what is served stays.
         guard let output = await cli(words), let answer = WebPiecesAnswer.parse(output) else { return false }
-        guard updater.channel == channel, updater.state.active?.key == active?.key else { return false }
+        guard updater.channel == channel, updater.state.active?.key == active?.key, piecesDrill == drill else { return false }
         if answer.refusedActive, active != nil {
             guard !launch else { return true }
             // Rolled back like `updates.web.rollback`: the update before it (the bundled web when

@@ -23,8 +23,11 @@ use super::{AppCommand, GlobalArgs, Options, UsageError};
 
 /// Where the switch files are published; `ota/pieces-<channel>.json` under it.
 pub(super) const DEFAULT_BASE: &str = "https://files.cmux.com/cmux-next-web/";
-/// The channels that have a switch file.
-pub(super) const CHANNELS: &[&str] = &["every-merge", "nightly"];
+/// The channels that have a switch file. A `drill-` channel is the rehearsal of the one it names:
+/// the same key and route, and no app reads it unless told to (`updates.web.pieces.check` with
+/// `drill`), so a switch can be tried on one Mac before every app takes it.
+pub(super) const CHANNELS: &[&str] =
+    &["every-merge", "nightly", "drill-every-merge", "drill-nightly"];
 /// The state file in `--state`: `{"channel", "floor", "last", "etag", "checked_at"}`.
 pub(super) const STATE_FILE: &str = "web-pieces.json";
 /// The log in `--state`: one `log` object of a reply per line.
@@ -39,7 +42,7 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 const ETAG_MAX: usize = 256;
 
 /// English like the JSON it documents: the app, not a person, runs this.
-pub(in crate::cli) const USAGE: &str = "usage: cmux app web-pieces check --state <dir> --channel <every-merge|nightly> [--base <url>] [--active <key>] [--kept <key>]... [--offline]\n       cmux app web-pieces status --state <dir>\ncheck reads the signed switch file of cmux's web updates (<base>ota/pieces-<channel>.json; base\ndefaults to https://files.cmux.com/cmux-next-web/) and prints one JSON line: what each web piece serves\n(the live update, the last good one or the app's bundle). --active is the key of the web update served now,\n--kept the keys of the older ones on disk, newest first; --offline plans from the kept state with no\nnetwork. It keeps web-pieces.json and web-pieces.log.jsonl in --state. status prints both; no network.";
+pub(in crate::cli) const USAGE: &str = "usage: cmux app web-pieces check --state <dir> --channel <every-merge|nightly|drill-every-merge|drill-nightly> [--base <url>] [--active <key>] [--kept <key>]... [--offline]\n       cmux app web-pieces status --state <dir>\ncheck reads the signed switch file of cmux's web updates (<base>ota/pieces-<channel>.json; base\ndefaults to https://files.cmux.com/cmux-next-web/) and prints one JSON line: what each web piece serves\n(the live update, the last good one or the app's bundle). --active is the key of the web update served now,\n--kept the keys of the older ones on disk, newest first; --offline plans from the kept state with no\nnetwork. It keeps web-pieces.json and web-pieces.log.jsonl in --state. status prints both; no network.";
 
 #[derive(Debug, PartialEq, Eq)]
 pub(in crate::cli) enum Command {

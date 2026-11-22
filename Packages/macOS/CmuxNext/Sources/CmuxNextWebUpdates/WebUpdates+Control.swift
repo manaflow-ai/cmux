@@ -50,8 +50,9 @@ extension WebUpdates {
                     return await MainActor.run { Self.json(web) }
                 }
             }.withDeadline(.fixed(.seconds(60))),
-            .mainActor("updates.web.pieces.check") { _ in
-                .followUp { await web.piecesChecked() }
+            .mainActor("updates.web.pieces.check") { call in
+                let drill = call.params["drill"]?.boolValue
+                return .followUp { await web.piecesChecked(drill: drill) }
             }.withDeadline(.fixed(.seconds(30))),
             .mainActor("updates.web.apply") { _ in
                 let reloaded = web.applyPending()
@@ -85,6 +86,7 @@ extension WebUpdates {
             // What the channel's signed switch file switched out of the active update (each piece:
             // `bundled` or `last-good`, and why), its serial, and why the newest file was refused.
             "pieces": web.pieces?.json ?? .null,
+            "pieces_drill": .bool(web.piecesDrill),
             "app_abi": JSONValue(updater.app.abi),
             "app_web_built_at": JSONValue(updater.app.webBuiltAt),
             "last_check": updater.lastCheck.map { .string(ISO8601DateFormatter().string(from: $0)) } ?? .null,

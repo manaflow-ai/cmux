@@ -8,8 +8,8 @@ use sha2::{Digest as _, Sha256};
 
 use super::super::{AppCommand, parse};
 use super::{
-    Check, Command, DEFAULT_BASE, Fetched, LOG_FILE, STATE_FILE, STATUS_LINES, apply, base_url,
-    fetch, file_url, log, status,
+    CHANNELS, Check, Command, DEFAULT_BASE, Fetched, LOG_FILE, STATE_FILE, STATUS_LINES, apply,
+    base_url, fetch, file_url, log, status,
 };
 
 const A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -414,6 +414,24 @@ fn an_unparsable_state_is_empty() {
             .unwrap();
     assert_eq!(reply["taken"], true);
     assert_eq!(state(dir.path())["floor"], 1);
+}
+
+/// A drill file is never a channel's own: its own name, and its payload names the drill channel.
+#[test]
+fn a_drill_channel_reads_its_own_file_only() {
+    assert!(CHANNELS.contains(&"drill-every-merge") && CHANNELS.contains(&"drill-nightly"));
+    assert_eq!(
+        file_url(DEFAULT_BASE, "drill-nightly"),
+        "https://files.cmux.com/cmux-next-web/ota/pieces-drill-nightly.json"
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let pair = pair(7);
+    // The real channel's file, served where the drill's is read, is refused.
+    let reply =
+        apply(&check(dir.path(), "drill-every-merge"), Some(switched(&pair, 3)), &keys(&pair), NOW)
+            .unwrap();
+    assert_eq!(reply["refusal"]["code"], "wrong_channel", "{reply}");
+    assert_eq!(reply["taken"], false);
 }
 
 #[test]
