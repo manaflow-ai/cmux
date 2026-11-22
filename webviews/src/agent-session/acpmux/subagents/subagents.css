@@ -1420,6 +1420,18 @@ button.cv-subagent > :last-child {
 .cv-subagent-done[data-state="retrying"] {
   color: var(--cv-text-dim);
 }
+/* A menu open from a failed row, the running tray or the pull tab is a flag on it (`--popup-in-<its class>`),
+   read by its parts through a style query, never `.row:has([data-popup-open]) > .part`: each part such a
+   rule names restyles on every DOM insert under the pane (conversation.css `--popup-in-cv-user`). */
+.cv-subagent-done-row:has([data-popup-open]) {
+  --popup-in-cv-subagent-done-row: 1;
+}
+.acpmux-running-tray:has([data-popup-open]) {
+  --popup-in-acpmux-running-tray: 1;
+}
+.acpmux-tray-pull__tab:has([data-popup-open]) {
+  --popup-in-acpmux-tray-pull__tab: 1;
+}
 /* A failed line's Retry (SubagentDoneLine.tsx): a small outlined button in the accent, or a link
    after the line; a refusal's note after it, dim. It shows under the pointer or with keyboard focus,
    as the line's other actions do, and keeps its room at rest so nothing moves (Leo, 2026-11-11, on a
@@ -1427,13 +1439,21 @@ button.cv-subagent > :last-child {
 .cv-subagent-done-row > :is(.cv-subagent-retry, .cv-subagent-retry-link):not(:focus-visible) {
   opacity: 0;
 }
-.cv-subagent-done-row:hover > :is(.cv-subagent-retry, .cv-subagent-retry-link),
-.cv-subagent-done-row:has([data-popup-open]) > :is(.cv-subagent-retry, .cv-subagent-retry-link) {
+.cv-subagent-done-row:hover > :is(.cv-subagent-retry, .cv-subagent-retry-link) {
   opacity: 1;
 }
-.cv-subagent-done-row:hover > :is(.cv-subagent-retry, .cv-subagent-retry-link):disabled,
-.cv-subagent-done-row:has([data-popup-open]) > :is(.cv-subagent-retry, .cv-subagent-retry-link):disabled {
+@container style(--popup-in-cv-subagent-done-row: 1) {
+  .cv-subagent-done-row.cv-subagent-done-row > :is(.cv-subagent-retry, .cv-subagent-retry-link) {
+    opacity: 1;
+  }
+}
+.cv-subagent-done-row:hover > :is(.cv-subagent-retry, .cv-subagent-retry-link):disabled {
   opacity: 0.55;
+}
+@container style(--popup-in-cv-subagent-done-row: 1) {
+  .cv-subagent-done-row.cv-subagent-done-row > :is(.cv-subagent-retry, .cv-subagent-retry-link):disabled {
+    opacity: 0.55;
+  }
 }
 @media (prefers-reduced-motion: no-preference) {
   .cv-subagent-done-row > :is(.cv-subagent-retry, .cv-subagent-retry-link) {
@@ -2065,11 +2085,17 @@ button.cv-subagent > :last-child {
   width: 100%;
 }
 .acpmux-running-tray:hover > .acpmux-running-tray__tuck,
-.acpmux-running-tray:has([data-popup-open]) > .acpmux-running-tray__tuck,
 .acpmux-running-tray__tuck:focus-visible {
   opacity: 1;
   pointer-events: auto;
   transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+}
+@container style(--popup-in-acpmux-running-tray: 1) {
+  .acpmux-running-tray.acpmux-running-tray > .acpmux-running-tray__tuck {
+    opacity: 1;
+    pointer-events: auto;
+    transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+  }
 }
 /* From an expand or a fold until the pointer leaves the hat, the tuck stays away: it fades out if it
    showed and never fades in while the hat moves (SubagentTray.tsx `tuckQuiet`; Leo, 2026-11-08, on the
@@ -2138,11 +2164,17 @@ button.cv-subagent > :last-child {
    a line behind the count, poking out on both sides. The card's own line already runs up to the pill's rim
    (below), so the pill and that line are the one shape; keyboard focus is the pill's outline.
    test/composer-hat-line-gap.test.ts measures that nothing is drawn beside the pill over the line. */
-.acpmux-tray-pull__tab:hover > .acpmux-tray-pull__hat,
-.acpmux-tray-pull__tab:has([data-popup-open]) > .acpmux-tray-pull__hat {
+.acpmux-tray-pull__tab:hover > .acpmux-tray-pull__hat {
   background: color-mix(in srgb, var(--glass-surface, Canvas) 30%, transparent);
   box-shadow: var(--glass-rim-shadow, inset 0 0 0 var(--cmux-hairline) var(--glass-edge)),
     0 var(--ds-space-1) var(--ds-space-2) color-mix(in srgb, var(--glass-surface, CanvasText) 12%, transparent);
+}
+@container style(--popup-in-acpmux-tray-pull__tab: 1) {
+  .acpmux-tray-pull__tab.acpmux-tray-pull__tab > .acpmux-tray-pull__hat {
+    background: color-mix(in srgb, var(--glass-surface, Canvas) 30%, transparent);
+    box-shadow: var(--glass-rim-shadow, inset 0 0 0 var(--cmux-hairline) var(--glass-edge)),
+      0 var(--ds-space-1) var(--ds-space-2) color-mix(in srgb, var(--glass-surface, CanvasText) 12%, transparent);
+  }
 }
 .acpmux-tray-pull__tab:focus-visible > .acpmux-tray-pull__hat {
   outline: 2px solid var(--agent-accent);
@@ -2416,9 +2448,13 @@ button.cv-subagent > :last-child {
   opacity: 0.8;
 }
 .acpmux-tray-pull__tab:hover .acpmux-tray-pull__hat > svg[data-icon],
-.acpmux-tray-pull__tab:has([data-popup-open]) .acpmux-tray-pull__hat > svg[data-icon],
 .acpmux-tray-pull__tab:focus-visible .acpmux-tray-pull__hat > svg[data-icon] {
   opacity: 1;
+}
+@container style(--popup-in-acpmux-tray-pull__tab: 1) {
+  .acpmux-tray-pull__tab.acpmux-tray-pull__tab .acpmux-tray-pull__hat > svg[data-icon] {
+    opacity: 1;
+  }
 }
 
 /* ---------- The composer hat's own polish (Leo, 2026-11-07) ---------- */

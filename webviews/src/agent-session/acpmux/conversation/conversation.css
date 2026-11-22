@@ -781,8 +781,14 @@
 :root[data-prompt-pending-look="clock"] .cv-user__pending-words {
   display: none;
 }
-:root[data-prompt-pending-look="dim"] .cv-user:has(.cv-user__actions--pending) .cv-user__bubble {
-  color: var(--cv-text-muted);
+:root[data-prompt-pending-look="dim"] .cv-user:has(.cv-user__actions--pending) {
+  --cv-user-pending: 1;
+}
+/* Read as a style query, not `.cv-user:has(...) .cv-user__bubble`: see `--popup-in-cv-user` below. */
+@container style(--cv-user-pending: 1) {
+  :root[data-prompt-pending-look="dim"] .cv-user.cv-user .cv-user__bubble {
+    color: var(--cv-text-muted);
+  }
 }
 .cv-user__status--failed {
   flex-direction: column;
@@ -1033,18 +1039,34 @@
   }
   .cv-received:hover .cv-received-actions,
   .cv-received > .cv-disclosure__line:hover .cv-received__hover,
-  .cv-received > .cv-disclosure__line:has([data-popup-open]) .cv-received__hover,
   .cv-received > .cv-agentmsg__line:hover .cv-received__hover,
-  .cv-received > .cv-agentmsg__line:has([data-popup-open]) .cv-received__hover,
   .acpmux-assistant:hover .cv-reply-actions,
-  .acpmux-assistant:has([data-popup-open]) .cv-reply-actions,
   .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
   .acpmux-turnSummary:hover .cv-turn-actions,
-  .acpmux-turnSummary:has([data-popup-open]) .cv-turn-actions,
   .acpmux-turnSummary[data-turn-revealed] .cv-turn-time,
   .acpmux-turnSummary:hover .cv-turn-time,
   .acpmux-assistant:hover .cv-reply-actions .cv-turn-time {
     transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+  }
+  @container style(--popup-in-cv-disclosure__line: 1) {
+    .cv-received > .cv-disclosure__line.cv-disclosure__line .cv-received__hover {
+      transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+    }
+  }
+  @container style(--popup-in-cv-agentmsg__line: 1) {
+    .cv-received > .cv-agentmsg__line.cv-agentmsg__line .cv-received__hover {
+      transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+    }
+  }
+  @container style(--popup-in-acpmux-assistant: 1) {
+    .acpmux-assistant.acpmux-assistant .cv-reply-actions {
+      transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+    }
+  }
+  @container style(--popup-in-acpmux-turnSummary: 1) {
+    .acpmux-turnSummary.acpmux-turnSummary .cv-turn-actions {
+      transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+    }
   }
 }
 @media (prefers-reduced-motion: no-preference) {
@@ -1056,8 +1078,43 @@
     transition: none;
   }
 }
+/* A menu open from a block is a flag on the block (`--popup-in-<its class>: 1`), set here by a `:has()`
+   whose subject is the block itself; the block's parts read it through a style query. Never
+   `.block:has([data-popup-open]) .part`: Chromium keeps one invalidation set for every `:has()` whose
+   subject is below its anchor, and each part such a rule names joined it, so every node the composer
+   or the transcript inserted restyled every icon button, footer row and action row the pane had drawn
+   (a tall draft's send: 6 passes over about 700 elements each; Leo, 2026-11-22: "THE FUCSKING
+   COLLAPSING OF THE FUCKING COMPOSER / IT TAKES TOO FUCKING LONG"; cmuxterm-hq
+   docs/handbook/pane-level-has-restyles-every-row.md). The parts' rules double the block's class in
+   place of the `:has()`, so their specificity is what it was. */
+.cv-user:has([data-popup-open]) {
+  --popup-in-cv-user: 1;
+}
+.acpmux-assistant:has([data-popup-open]) {
+  --popup-in-acpmux-assistant: 1;
+}
+.acpmux-turnSummary:has([data-popup-open]) {
+  --popup-in-acpmux-turnSummary: 1;
+}
+.cv-received > .cv-disclosure__line:has([data-popup-open]) {
+  --popup-in-cv-disclosure__line: 1;
+}
+.cv-received > .cv-agentmsg__line:has([data-popup-open]) {
+  --popup-in-cv-agentmsg__line: 1;
+}
+.cv-codeblock:has([data-popup-open]) {
+  --popup-in-cv-codeblock: 1;
+}
+.cv-codeblock--corner:has([data-popup-open]) {
+  --popup-in-cv-codeblock--corner: 1;
+}
+.cv-edit-diff:has([data-popup-open]) {
+  --popup-in-cv-edit-diff: 1;
+}
+.cv-shell:has([data-popup-open]) {
+  --popup-in-cv-shell: 1;
+}
 .cv-user:hover .cv-user__actions,
-.cv-user:has([data-popup-open]) .cv-user__actions,
 /* A prompt row the keyboard is on (the transcript's roving row stop) shows its row, as a reply's and a
    turn footer's do, so its actions are never pointer only. */
 .acpmux-user:focus-visible .cv-user__actions,
@@ -1065,6 +1122,11 @@
 .cv-user__actions:has([aria-haspopup="menu"][aria-expanded="true"]),
 .cv-user__actions--versions {
   opacity: 1;
+}
+@container style(--popup-in-cv-user: 1) {
+  .cv-user.cv-user .cv-user__actions {
+    opacity: 1;
+  }
 }
 /* A rewind on its way or done (MessageActions.tsx RewindButton) keeps its prompt's row shown with the
    pointer elsewhere, as Read aloud keeps a reply's: the spinner and then its time stay in view, in
@@ -1915,18 +1977,26 @@
   .cv-codeblock--corner .cv-codeblock__header {
     transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   }
-  .cv-codeblock--corner:hover .cv-codeblock__header,
-  .cv-codeblock--corner:has([data-popup-open]) .cv-codeblock__header {
+  .cv-codeblock--corner:hover .cv-codeblock__header {
     transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+  }
+  @container style(--popup-in-cv-codeblock--corner: 1) {
+    .cv-codeblock--corner.cv-codeblock--corner .cv-codeblock__header {
+      transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+    }
   }
   .cv-codeblock--corner:focus-within .cv-codeblock__header {
     transition: none;
   }
 }
 .cv-codeblock--corner:hover .cv-codeblock__header,
-.cv-codeblock--corner:focus-within .cv-codeblock__header,
-.cv-codeblock--corner:has([data-popup-open]) .cv-codeblock__header {
+.cv-codeblock--corner:focus-within .cv-codeblock__header {
   opacity: 1;
+}
+@container style(--popup-in-cv-codeblock--corner: 1) {
+  .cv-codeblock--corner.cv-codeblock--corner .cv-codeblock__header {
+    opacity: 1;
+  }
 }
 .cv-codeblock--corner .cv-codeblock__body {
   margin-top: 13px;
@@ -2013,9 +2083,13 @@
   mask-repeat: no-repeat;
 }
 .cv-codeblock--corner:hover .cv-codeblock__body,
-.cv-codeblock--corner:focus-within .cv-codeblock__body,
-.cv-codeblock--corner:has([data-popup-open]) .cv-codeblock__body {
+.cv-codeblock--corner:focus-within .cv-codeblock__body {
   --cv-code-corner-veil: 1;
+}
+@container style(--popup-in-cv-codeblock--corner: 1) {
+  .cv-codeblock--corner.cv-codeblock--corner .cv-codeblock__body {
+    --cv-code-corner-veil: 1;
+  }
 }
 /* It moves with the actions' own fade (above): out quickly at rest, in for as long as the pointer
    stays, at once for keyboard focus. */
@@ -2023,9 +2097,13 @@
   .cv-codeblock--corner .cv-codeblock__body {
     transition: --cv-code-corner-veil var(--cv-actions-out) var(--cv-actions-out-ease);
   }
-  .cv-codeblock--corner:hover .cv-codeblock__body,
-  .cv-codeblock--corner:has([data-popup-open]) .cv-codeblock__body {
+  .cv-codeblock--corner:hover .cv-codeblock__body {
     transition: --cv-code-corner-veil var(--cv-actions-in) var(--cv-actions-in-ease);
+  }
+  @container style(--popup-in-cv-codeblock--corner: 1) {
+    .cv-codeblock--corner.cv-codeblock--corner .cv-codeblock__body {
+      transition: --cv-code-corner-veil var(--cv-actions-in) var(--cv-actions-in-ease);
+    }
   }
   .cv-codeblock--corner:focus-within .cv-codeblock__body {
     transition: none;
@@ -2058,15 +2136,27 @@
   opacity: 0;
 }
 :root[data-code-actions="block-hover"] .cv-codeblock:hover .cv-codeblock__actions,
-:root[data-code-actions="block-hover"] .cv-codeblock:has([data-popup-open]) .cv-codeblock__actions,
 :root[data-code-actions="block-hover"] .cv-codeblock:focus-within .cv-codeblock__actions,
 :root[data-code-actions="block-hover"] .cv-edit-diff:hover .cv-edit-diff__header > .cv-iconbtn,
-:root[data-code-actions="block-hover"] .cv-edit-diff:has([data-popup-open]) .cv-edit-diff__header > .cv-iconbtn,
 :root[data-code-actions="block-hover"] .cv-edit-diff:focus-within .cv-edit-diff__header > .cv-iconbtn,
 :root[data-code-actions="block-hover"] .cv-shell:hover .cv-shell__actions,
-:root[data-code-actions="block-hover"] .cv-shell:has([data-popup-open]) .cv-shell__actions,
 :root[data-code-actions="block-hover"] .cv-shell:focus-within .cv-shell__actions {
   opacity: 1;
+}
+@container style(--popup-in-cv-codeblock: 1) {
+  :root[data-code-actions="block-hover"] .cv-codeblock.cv-codeblock .cv-codeblock__actions {
+    opacity: 1;
+  }
+}
+@container style(--popup-in-cv-edit-diff: 1) {
+  :root[data-code-actions="block-hover"] .cv-edit-diff.cv-edit-diff .cv-edit-diff__header > .cv-iconbtn {
+    opacity: 1;
+  }
+}
+@container style(--popup-in-cv-shell: 1) {
+  :root[data-code-actions="block-hover"] .cv-shell.cv-shell .cv-shell__actions {
+    opacity: 1;
+  }
 }
 /* They take the transcript's shared hover fade (transcript-hover-fade.test.ts). */
 @media (prefers-reduced-motion: no-preference) {
@@ -2079,12 +2169,24 @@
     transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   }
   :root[data-code-actions="block-hover"] .cv-codeblock:hover .cv-codeblock__actions,
-  :root[data-code-actions="block-hover"] .cv-codeblock:has([data-popup-open]) .cv-codeblock__actions,
   :root[data-code-actions="block-hover"] .cv-edit-diff:hover .cv-edit-diff__header > .cv-iconbtn,
-  :root[data-code-actions="block-hover"] .cv-edit-diff:has([data-popup-open]) .cv-edit-diff__header > .cv-iconbtn,
-  :root[data-code-actions="block-hover"] .cv-shell:hover .cv-shell__actions,
-  :root[data-code-actions="block-hover"] .cv-shell:has([data-popup-open]) .cv-shell__actions {
+  :root[data-code-actions="block-hover"] .cv-shell:hover .cv-shell__actions {
     transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+  }
+  @container style(--popup-in-cv-codeblock: 1) {
+    :root[data-code-actions="block-hover"] .cv-codeblock.cv-codeblock .cv-codeblock__actions {
+      transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+    }
+  }
+  @container style(--popup-in-cv-edit-diff: 1) {
+    :root[data-code-actions="block-hover"] .cv-edit-diff.cv-edit-diff .cv-edit-diff__header > .cv-iconbtn {
+      transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+    }
+  }
+  @container style(--popup-in-cv-shell: 1) {
+    :root[data-code-actions="block-hover"] .cv-shell.cv-shell .cv-shell__actions {
+      transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+    }
   }
   :root[data-code-actions="block-hover"] .cv-codeblock:focus-within .cv-codeblock__actions,
   :root[data-code-actions="block-hover"] .cv-edit-diff:focus-within .cv-edit-diff__header > .cv-iconbtn,
@@ -5205,13 +5307,23 @@ button.cv-video-frames__frame:focus-visible {
   pointer-events: none;
 }
 .cv-received > .cv-disclosure__line:hover .cv-received__hover,
-.cv-received > .cv-disclosure__line:has([data-popup-open]) .cv-received__hover,
 .cv-received > .cv-agentmsg__line:hover .cv-received__hover,
-.cv-received > .cv-agentmsg__line:has([data-popup-open]) .cv-received__hover,
 .cv-received__hover:focus-within,
 .cv-received__hover:has([aria-haspopup="menu"]:is([aria-expanded="true"], [data-popup-open])) {
   opacity: 1;
   pointer-events: auto;
+}
+@container style(--popup-in-cv-disclosure__line: 1) {
+  .cv-received > .cv-disclosure__line.cv-disclosure__line .cv-received__hover {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+@container style(--popup-in-cv-agentmsg__line: 1) {
+  .cv-received > .cv-agentmsg__line.cv-agentmsg__line .cv-received__hover {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 /* Pointing at the sender's open chip is not pointing at the line: its actions stay hidden. */
 .cv-received
@@ -6233,12 +6345,16 @@ a.cv-sha:focus-visible {
 .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
 .acpmux-turnSummary:focus-visible .cv-turn-actions,
 .acpmux-turnSummary:hover .cv-turn-actions,
-.acpmux-turnSummary:has([data-popup-open]) .cv-turn-actions,
 .acpmux-turnSummary .cv-turn-actions:focus-within,
 .acpmux-turnSummary .cv-turn-actions--failed,
 .acpmux-turnSummary .cv-turn-actions--resumable,
 .acpmux-row--final-footer .cv-turn-actions {
   opacity: 1;
+}
+@container style(--popup-in-acpmux-turnSummary: 1) {
+  .acpmux-turnSummary.acpmux-turnSummary .cv-turn-actions {
+    opacity: 1;
+  }
 }
 /* A reply's time comes after its buttons, hidden at rest, and shows while the reader points at the
    reply, as ChatGPT's exact time does (MessageActions.tsx ReplyTime; Leo, 2026-11-02: "notice how on
@@ -6248,14 +6364,22 @@ a.cv-sha:focus-visible {
 }
 .acpmux-turnSummary[data-turn-revealed] .cv-turn-time,
 .acpmux-turnSummary:hover .cv-turn-time,
-.acpmux-turnSummary:has([data-popup-open]) .cv-turn-time,
 .acpmux-turnSummary:focus-visible .cv-turn-time,
 .acpmux-turnSummary .cv-turn-actions:focus-within .cv-turn-time,
 .acpmux-assistant:hover .cv-reply-actions .cv-turn-time,
-.acpmux-assistant:has([data-popup-open]) .cv-reply-actions .cv-turn-time,
 .acpmux-assistant:focus-visible .cv-reply-actions .cv-turn-time,
 .cv-reply-actions:focus-within .cv-turn-time {
   opacity: 1;
+}
+@container style(--popup-in-acpmux-turnSummary: 1) {
+  .acpmux-turnSummary.acpmux-turnSummary .cv-turn-time {
+    opacity: 1;
+  }
+}
+@container style(--popup-in-acpmux-assistant: 1) {
+  .acpmux-assistant.acpmux-assistant .cv-reply-actions .cv-turn-time {
+    opacity: 1;
+  }
 }
 /* A reply's own row (MessageActions.tsx ReplyActions: a steer, another agent's message or a tool
    row follows the reply): the footer's line under it at the meta gap, its space kept, shown while
@@ -6270,10 +6394,14 @@ a.cv-sha:focus-visible {
   opacity: 0;
 }
 .acpmux-assistant:hover .cv-reply-actions,
-.acpmux-assistant:has([data-popup-open]) .cv-reply-actions,
 .acpmux-assistant:focus-visible .cv-reply-actions,
 .cv-reply-actions:focus-within {
   opacity: 1;
+}
+@container style(--popup-in-acpmux-assistant: 1) {
+  .acpmux-assistant.acpmux-assistant .cv-reply-actions {
+    opacity: 1;
+  }
 }
 /* While a message is read aloud its row stays shown, its Stop in reach without the pointer on it
    (MessageActions.tsx ReadAloudButton, user 2026-10-29), and the button reads as on. */
@@ -8026,8 +8154,12 @@ article.acpmux-row.acpmux-row--reply-room {
    payload never came) takes no room: the 34px floor and the gap under it were a blank band each,
    between "Worked for" and the reply. The element selector outranks every row-kind padding. Every
    row holds its gap target (`.acpmux-row__gap`, App.tsx RowFrame), so such a row has no other child
-   rather than none at all (`:empty` stopped matching with #26704). */
-article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
+   rather than none at all (`:empty` stopped matching with #26704). It names the gap, not "any other
+   child": a `:has()` argument that matches any element (`> :not(.x)`) makes Chromium check the rule
+   again for every node inserted anywhere under every element its other `:has()` rules mark, the pane
+   included, so each line the composer drew or cleared restyled every drawn row (ask-fac73c9b41,
+   docs: cmuxterm-hq handbook pane-level-has-restyles-every-row.md). Same specificity as before. */
+article.acpmux-row:has(> .acpmux-row__gap:where(:only-child)) {
   min-height: 0;
   padding-bottom: 0;
 }
@@ -8095,7 +8227,6 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   opacity: 0;
 }
 .cv-user:hover .cv-user__queued-hover,
-.cv-user:has([data-popup-open]) .cv-user__queued-hover,
 /* The keyboard shows the same group the pointer does, in the room it always keeps (G03): focus
    anywhere in the prompt (Tab onto Send now or a hidden button), or the transcript's roving row stop
    on its row, as a reply's and a turn footer's rows show on that focus. */
@@ -8104,13 +8235,22 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 .cv-user__queued-hover:has([aria-haspopup="menu"][aria-expanded="true"]) {
   opacity: 1;
 }
+@container style(--popup-in-cv-user: 1) {
+  .cv-user.cv-user .cv-user__queued-hover {
+    opacity: 1;
+  }
+}
 @media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
   .cv-user__queued-hover {
     transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   }
-  .cv-user:hover .cv-user__queued-hover,
-  .cv-user:has([data-popup-open]) .cv-user__queued-hover {
+  .cv-user:hover .cv-user__queued-hover {
     transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+  }
+  @container style(--popup-in-cv-user: 1) {
+    .cv-user.cv-user .cv-user__queued-hover {
+      transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+    }
   }
 }
 /* The X that takes a waiting steer back to edit (PendingSteer.tsx): a plain glyph, as muted as
@@ -8410,20 +8550,30 @@ button.cv-user__file-open:focus-visible {
    first) as a sent prompt's, so sending a steer moves nothing (#27580 left the steer's row in flow:
    the row lost 28px on send and the transcript shifted). A waiting prompt of images alone has no
    bubble, so its row stays in flow (model.ts userMetaHeight). */
-.cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__actions,
-.cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__body > .cv-user__actions {
-  position: absolute;
+/* A prompt whose row stays in flow (waiting, no bubble) is a flag its row reads through a style query, not
+   `.cv-user:is(...:has()...) > .cv-user__actions`: see `--popup-in-cv-user`. The doubled class keeps the
+   old rule's specificity. */
+.cv-user:has(.cv-user__pending):not(:has(.cv-user__bubble)) {
+  --cv-user-row-in-flow: 1;
+}
+@container not style(--cv-user-row-in-flow: 1) {
+  .cv-user.cv-user > .cv-user__actions,
+  .cv-user.cv-user > .cv-user__body > .cv-user__actions {
+    position: absolute;
   right: calc(-1 * var(--cv-action-inset));
-  top: calc(100% + (var(--grid-gap-turn) - var(--cv-meta-row)) / 2);
-  margin: 0;
-  padding: 0;
+    top: calc(100% + (var(--grid-gap-turn) - var(--cv-meta-row)) / 2);
+    margin: 0;
+    padding: 0;
+  }
 }
 /* Over the live line the gap is the block gap (24), not the turn gap (transcriptGrid.ts waiting
    rule), so the row is centred in that: its 28 hit box overhangs the gap by 2 on each side
    (grid.md Rule 6 allows 6), and its 16 glyphs keep 4 to the bubble and 4 to the live line. */
-article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__actions,
-article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__body > .cv-user__actions {
-  top: calc(100% + (var(--grid-gap-block) - var(--cv-meta-row)) / 2);
+@container not style(--cv-user-row-in-flow: 1) {
+  article.acpmux-row--before-indicator .cv-user.cv-user > .cv-user__actions,
+  article.acpmux-row--before-indicator .cv-user.cv-user > .cv-user__body > .cv-user__actions {
+    top: calc(100% + (var(--grid-gap-block) - var(--cv-meta-row)) / 2);
+  }
 }
 
 
@@ -8841,14 +8991,26 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   align-self: var(--cv-user-align, flex-end);
   max-width: var(--cv-user-bubble-share, 70%);
 }
-.cv-user__body:has(> .cv-user__actions--pending) > .cv-user__bubble {
-  max-width: none;
+/* What the body holds is a flag on it, read by its children through a style query (`--popup-in-cv-user`
+   says why); the doubled class keeps each rule's specificity. */
+.cv-user__body:has(> .cv-user__actions--pending) {
+  --cv-user-body-pending: 1;
 }
-.cv-user .cv-user__body:has(> .cv-user__bubble) > .cv-user__actions.cv-user__actions--pending {
-  right: calc(-1 * var(--cv-action-inset));
-  width: max-content;
-  min-width: calc(100% - var(--cv-bubble-pad-inline) + var(--cv-action-inset));
-  justify-content: flex-start;
+.cv-user__body:has(> .cv-user__bubble) {
+  --cv-user-body-bubble: 1;
+}
+@container style(--cv-user-body-pending: 1) {
+  .cv-user__body.cv-user__body > .cv-user__bubble {
+    max-width: none;
+  }
+}
+@container style(--cv-user-body-bubble: 1) {
+  .cv-user .cv-user__body.cv-user__body > .cv-user__actions.cv-user__actions--pending {
+    right: calc(-1 * var(--cv-action-inset));
+    width: max-content;
+    min-width: calc(100% - var(--cv-bubble-pad-inline) + var(--cv-action-inset));
+    justify-content: flex-start;
+  }
 }
 
 /* A read's file name (ReadLabel.tsx): underlined under the pointer, as the Codex app's is; its full
@@ -8874,29 +9036,25 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 :root[data-transcript-timestamps="always"] :is(.cv-user__time, .cv-turn-time) {
   opacity: 1;
 }
-/* At rest is a flag on the footer row, read by its children through a style query: a `:has()` rule that
-   ended in `> :not(.cv-user__time)` put "every descendant" in Chromium's one invalidation set for all
-   non-subject `:has()` rules, so each DOM change under the pane or the composer restyled the whole pane
-   (a send: 16 forced recalcs of about 2,200 elements each, a tall draft's composer collapse late by about
-   a second at 4x CPU; Leo, 2026-11-22: "THE FUCSKING COLLAPSING OF THE FUCKING COMPOSER / IT TAKES TOO
-   FUCKING LONG"; docs/handbook/pane-level-has-restyles-every-row.md). The children's rules keep the old
-   selectors without the `:has()`, so their specificity is what it was. */
-:root[data-transcript-timestamps="always"]
-  .cv-user:not(:hover, :focus-within, :has([data-popup-open]))
-  .cv-user__actions:not(.cv-user__actions--versions)
-  .cv-message-footer-row,
-:root[data-transcript-timestamps="always"]
-  .acpmux-assistant:not(:hover, :focus-visible, :has([data-popup-open]))
-  .cv-reply-actions:not(:focus-within)
-  .cv-message-footer-row {
-  --cv-footer-row-rest: 1;
-}
-@container style(--cv-footer-row-rest: 1) {
+/* At rest the footer row's parts fade but the time. The open-menu case reads the prompt's or the reply's
+   flag (`--popup-in-cv-user`, `--popup-in-acpmux-assistant`, above) through a style query: the
+   `:has([data-popup-open])` these rules once held, followed by `> :not(.cv-user__time)`, put "every
+   descendant" in Chromium's one invalidation set for all non-subject `:has()` rules, so each DOM change
+   under the pane or the composer restyled the whole pane (a send: 16 forced recalcs of about 2,200
+   elements each, a tall draft's composer collapse late by about a second at 4x CPU; Leo, 2026-11-22: "THE
+   FUCSKING COLLAPSING OF THE FUCKING COMPOSER / IT TAKES TOO FUCKING LONG";
+   docs/handbook/pane-level-has-restyles-every-row.md). Dropping `:has()` from `:not(:hover, ...)` keeps
+   its specificity (`:not()` takes its most specific argument, here a pseudo-class like the `:has()`). */
+@container not style(--popup-in-cv-user: 1) {
   :root[data-transcript-timestamps="always"]
     .cv-user:not(:hover, :focus-within)
     .cv-user__actions:not(.cv-user__actions--versions)
     .cv-message-footer-row
-    > :not(.cv-user__time),
+    > :not(.cv-user__time) {
+    opacity: 0;
+  }
+}
+@container not style(--popup-in-acpmux-assistant: 1) {
   :root[data-transcript-timestamps="always"]
     .acpmux-assistant:not(:hover, :focus-visible)
     .cv-reply-actions:not(:focus-within)
