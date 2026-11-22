@@ -426,11 +426,19 @@ extension CMUXCLI {
         } catch {
             return nil
         }
+        // The output below is written while the child holds the terminal. With
+        // `stty tostop` such a write would stop this process before it hands
+        // the terminal back, so SIGTTOU is ignored until then. Set after the
+        // launch so the child does not inherit it.
+        let previousTerminalOutputHandler = signal(SIGTTOU, SIG_IGN)
+        defer { _ = signal(SIGTTOU, previousTerminalOutputHandler) }
         // `Process` starts `script` in a process group of its own. `script`
         // sets the terminal to raw mode, and from a background group that
         // stops it before setup-token runs, so it gets the terminal first.
+        // Only a foreground caller has the terminal to give: started with `&`,
+        // this would take it from the shell.
         var didForegroundChild = false
-        if originalForegroundProcessGroup > 0 {
+        if originalForegroundProcessGroup > 0, originalForegroundProcessGroup == getpgrp() {
             let childProcessGroup = getpgid(process.processIdentifier)
             if childProcessGroup > 0, childProcessGroup != originalForegroundProcessGroup,
                (try? setTerminalForegroundProcessGroup(childProcessGroup)) != nil {
