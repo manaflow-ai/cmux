@@ -70,6 +70,7 @@ mod codex_auth_file;
 mod codex_cloud_auth;
 pub mod codex_cmux_entry;
 pub mod codex_desktop;
+pub mod codex_repo_gate;
 pub mod complete;
 pub mod computer_use;
 pub mod config;
@@ -258,6 +259,7 @@ pub(crate) mod sender_env;
 pub mod sender_harness;
 pub mod sender_program;
 pub mod sender_token;
+pub mod sent_by;
 pub mod server;
 pub mod session_env;
 mod session_handle;
@@ -287,6 +289,7 @@ pub mod sidecar_census;
 pub mod sim_agent;
 pub(crate) mod slow_notice;
 // The scanner is `test_support`'s, a unix module; the scan reads the same sources anywhere.
+pub mod perf_watch;
 #[cfg(all(test, unix))]
 mod single_shot_list_tests;
 #[cfg(test)]
@@ -307,6 +310,7 @@ pub mod subsession_settings;
 pub mod subsession_worktree;
 pub mod suggestion_gate;
 pub(crate) mod supervise;
+pub mod surge_triage;
 pub mod tailnet;
 pub mod task_list;
 #[cfg(unix)]
