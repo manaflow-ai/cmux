@@ -71,6 +71,7 @@ tempfile = "3"
 cmux-json.workspace = true
 cmux-build-space.workspace = true
 cmux-cloud-client.workspace = true
+cmux-apps.workspace = true
 cmux-cloud-environment.workspace = true
 cmux-cloud-machine.workspace = true
 cmux-cloud-wire.workspace = true
@@ -253,6 +254,8 @@ cmux-relay = { path = "../cmux-relay" }
 # Paused-clock tests of the Cloud dial's handshake wait.
 tokio = { workspace = true, features = ["test-util"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
+# tests/terminal_restart_settled.rs: restores a GHOSTSNP READY the way the Mac surface does.
+ghostty-vt-sys = { workspace = true }
 # `read_timeout_or_ended`: a read timeout for a test socket whose peer can have closed first.
 cmux-tui-platform = { workspace = true, features = ["test-support"] }
 rusqlite.workspace = true

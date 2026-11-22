@@ -68,7 +68,7 @@ extension SettingsSchema {
         // The cmux model router's default model is the same choice exposed by its Settings and MCP pickers.
         "agents.modelRouter.model",
         "layout.minimumPaneWidth", "layout.minimumPaneHeight", "appearance.theme", "appearance.appTheme",
-        "appearance.accent",
+        "appearance.accent", "appearance.selection",
         // Cosmetic icon preference; the reserved Neko value currently falls back to default artwork
         "appearance.iconTheme",
         // The app's one selected-text color (looks only)
@@ -123,9 +123,9 @@ extension SettingsSchema {
         "sidebar.nowPlaying.enabled", "tabs.newTabNowPlaying", "media.pictureInPicture.enabled", "sidebar.showProjects",
         "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton",
         "sidebar.showNewWorkspaceChooser", "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide",
-        "sidebar.groupBy", "sidebar.priorityView.enabled", "sidebar.priorityView.shown", "browser.defaultEngine",
-        "browser.siteEngines", "browser.newTabPage", "browser.showBookmarksBar", "browser.vimKeys",
-        "browser.showLoadingBar",
+        "sidebar.groupBy", "sidebar.nav", "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
+        "browser.defaultEngine", "browser.siteEngines", "browser.newTabPage", "browser.showBookmarksBar",
+        "browser.vimKeys", "browser.showLoadingBar",
         // Whether browser tabs offer to import cookies: the card reads nothing until the person clicks Import.
         "browser.import.cookieBanner",
         "browser.toolbarButtons", "browser.hibernation", "browser.hibernationExclusions", "browser.hibernatePinnedTabs",
@@ -157,7 +157,7 @@ extension SettingsSchema {
         // Needs you in the agent chat header (an App Store item): a display the person can hide again.
         "agentPane.needsYou.enabled",
         // Start New Chats In (This Mac or Cloud): the person asks an agent to set it (Leo, 2026-10-31); a new chat's composer can still change it for that chat.
-        "agentPane.newChatsIn",
+        "agentPane.newChatsIn", "agentPane.sessionWorktrees",
         // The default `cmux chat` target (`cmux config set on cloud`): where the CLI starts a chat when neither --on nor CMUX_ON names one; the person may ask an agent to set it.
         "chat.on",
         "updates.notify", "updates.showWhatsNew",
