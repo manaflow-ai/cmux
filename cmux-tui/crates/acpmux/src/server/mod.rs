@@ -203,6 +203,8 @@ pub struct Conn {
     /// one peer's rows as one `_acpmux/peer_rows_changed` (`Events::send_remote_batch`) and
     /// follow the list for them, not one `session_changed` per row.
     peer_row_batches: AtomicBool,
+    /// Compact text chunks on its event streams (`chunk_deltas.rs`), when its `initialize` asked.
+    chunk_deltas: chunk_deltas::ChunkDeltas,
     watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
@@ -1767,6 +1769,7 @@ async fn serve_connection_from(
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
         peer_row_batches: AtomicBool::new(false),
+        chunk_deltas: Default::default(),
         watch_inventory: StdMutex::new(false),
         peer,
         socket_peer,
@@ -2309,10 +2312,8 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             // Sent by the replay.
         } else if sub.event_stream {
             if sub.filter.matches_live(rec) {
-                conn.send(&Message::notification(
-                    method::MUX_EVENT,
-                    routed(event_value(&ev.session_id, rec)),
-                ));
+                let params = routed(event_value(&ev.session_id, rec));
+                conn.send(&conn.chunk_deltas.frame(&ev.session_id, params));
             }
         } else {
             // Agent -> client updates as standard ACP notifications.
@@ -2499,6 +2500,7 @@ pub(crate) use crate::clock_text::{civil_from_days, iso};
 pub(crate) use change_kind::session_change_kind;
 mod change_kind;
 mod chat_windows;
+mod chunk_deltas;
 pub use chat_windows::live_tasks as live_chat_window_tasks;
 pub mod carrier;
 mod chats;

@@ -549,6 +549,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TURN_ATTESTATION, Request),
         // Notifications.
         notification::<events::SessionEvent>(method::MUX_EVENT),
+        notification::<events::ChunkDelta>(method::MUX_CHUNK),
         notification::<MessageEvent>(method::MUX_MESSAGE),
         notification::<SessionChanged>(method::MUX_SESSION_CHANGED),
         notification::<PeerRowsChanged>(method::MUX_PEER_ROWS_CHANGED),

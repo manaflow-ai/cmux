@@ -55,6 +55,8 @@ pub(super) fn attach(hub: &Hub, conn: &Conn, s: &crate::hub::Session, opts: SubO
         }
     };
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
+    // The client starts this chat over: its next chunk goes whole (`chunk_deltas.rs`).
+    conn.chunk_deltas.forget(&s.id);
     match subs.insert(s.id.clone(), opts) {
         // A peer's chat of the same raw id counted nothing here: this attachment is new.
         None => count_new(hub),
@@ -104,6 +106,9 @@ pub(super) fn subscribe_remote(hub: &Hub, conn: &Conn, id: &str, opts: Option<Su
         hub.presence.leave(id, &conn.id);
         conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).forget(None, id);
     }
+    if opts.is_some() {
+        conn.chunk_deltas.forget(id);
+    }
     let mut next = opts.or(before).unwrap_or_default();
     next.remote = true;
     next.idle = false;
@@ -136,6 +141,7 @@ pub(super) fn subscribe_local(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
 pub(super) fn detach(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
     conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).forget(None, &s.id);
+    conn.chunk_deltas.forget(&s.id);
     if let Some(mut before) = subs.remove(&s.id) {
         conn.unbind_mailbox_receipt(&s.id);
         if !before.remote {

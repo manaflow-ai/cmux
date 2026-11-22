@@ -267,6 +267,20 @@ impl Link {
         token: &str,
         deadline: Instant,
     ) -> Result<Self, String> {
+        Self::open_with(addr, token, deadline, false).await
+    }
+
+    /// [`Self::open`]; `chunk_deltas`: its `initialize` asks for compact text chunks.
+    async fn open_with(
+        addr: std::net::SocketAddr,
+        token: &str,
+        deadline: Instant,
+        chunk_deltas: bool,
+    ) -> Result<Self, String> {
+        let mut meta = json!({"acpmux": {"localAppToken": token}});
+        if chunk_deltas {
+            meta["acpmux"]["chunkDeltas"] = json!(true);
+        }
         let mut link = tokio::time::timeout_at(deadline, Self::dial(addr))
             .await
             .map_err(|_| "connect timed out".to_owned())??;
@@ -274,7 +288,7 @@ impl Link {
             .post(
                 "initialize",
                 json!({"protocolVersion": 1, "clientInfo": {"name": "cmux-ios", "version": "1"},
-                       "clientCapabilities": {}, "_meta": {"acpmux": {"localAppToken": token}}}),
+                       "clientCapabilities": {}, "_meta": meta}),
             )
             .await?;
         let watch =
@@ -739,6 +753,9 @@ struct TapInner {
     up: std::collections::BTreeMap<String, (u64, u64)>,
     link_down: u64,
     link_up: u64,
+    /// When the first text chunk came (`agent_message_chunk` as `_acpmux/event`, or
+    /// `_acpmux/chunk`), since the last `take`.
+    first_chunk: Option<Instant>,
 }
 
 /// cmux-mobile-link `frame.rs`: `u32 length | u32 channel | u8 type`, payloads split at 256 KiB.
@@ -840,6 +857,11 @@ impl Tap {
             Message::Pong(b) => ("ws:pong".to_owned(), b.len() as u64, 0),
             _ => return,
         };
+        if t.first_chunk.is_none()
+            && (key.ends_with("/agent_message_chunk") || key == method::MUX_CHUNK)
+        {
+            t.first_chunk = Some(Instant::now());
+        }
         Self::add(&mut t.down, key, len);
         t.link_down += link;
     }
@@ -852,6 +874,7 @@ impl Tap {
         t.up.clear();
         t.link_down = 0;
         t.link_up = 0;
+        t.first_chunk = None;
         out
     }
 }
@@ -861,6 +884,9 @@ impl Tap {
 enum App {
     /// cmux-next-ios `AcpmuxHub.swift` (as `Link::open` and `Link::attach`), over the phone's link.
     Ios,
+    /// [`App::Ios`] that asks for compact text chunks (`initialize` `_meta.acpmux.chunkDeltas`,
+    /// `server/chunk_deltas.rs`).
+    IosCompact,
     /// The macOS agent pane (webviews `direct.ts` `initializeParams`, `sessionPages.ts`
     /// `SESSION_PAGE`, `attachParams.ts` `plainAttach` local with `settled`), a WebSocket.
     Macos,
@@ -870,6 +896,7 @@ impl App {
     fn name(self) -> &'static str {
         match self {
             App::Ios => "ios",
+            App::IosCompact => "ios-compact",
             App::Macos => "macos",
         }
     }
@@ -882,8 +909,8 @@ impl Link {
         token: &str,
         deadline: Instant,
     ) -> Result<Self, String> {
-        if app == App::Ios {
-            return Self::open(addr, token, deadline).await;
+        if app != App::Macos {
+            return Self::open_with(addr, token, deadline, app == App::IosCompact).await;
         }
         let mut link = tokio::time::timeout_at(deadline, Self::dial(addr))
             .await
@@ -914,7 +941,7 @@ impl Link {
         session: &str,
         deadline: Instant,
     ) -> Result<(Instant, Value), String> {
-        if app == App::Ios {
+        if app != App::Macos {
             return self.attach(session, None, deadline).await;
         }
         let settled = self.capabilities.iter().any(|c| c == "settled-attach-v1");
@@ -947,7 +974,7 @@ fn emit_rates(k: &Key, t: &TapInner, wire: (u64, u64), secs: f64, app: App, per_
     let rate = |b: u64| Some((b as f64 * scale).round());
     emit(k, &format!("bytes{unit}_down"), rate(wire.1));
     emit(k, &format!("bytes{unit}_up"), rate(wire.0));
-    if app == App::Ios {
+    if app != App::Macos {
         let pings = if per_min { (secs / 15.0).floor() as u64 * LINK_PING_BYTES } else { 0 };
         emit(k, &format!("link_bytes{unit}_down"), rate(t.link_down + pings));
         emit(k, &format!("link_bytes{unit}_up"), rate(t.link_up + pings));
@@ -973,7 +1000,7 @@ fn window(shaper: &Shaper, link: &Link) -> (TapInner, (u64, u64)) {
 /// idle, a streaming turn and a tool-calling turn, each a fixed window. One `NETCOND` line per
 /// value, `phase` `bw_open|bw_idle|bw_stream|bw_tools`, `scale` the app. Env:
 /// `NETCOND_BW_PROFILE` (lte), `NETCOND_BW_TURNS` (10000 seeded turns), `NETCOND_BW_SECS` (60),
-/// `NETCOND_BW_APPS` (ios,macos).
+/// `NETCOND_BW_APPS` (ios,macos; `ios-compact` is the phone asking for compact chunks).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "the bandwidth bench: run with --ignored --nocapture"]
 async fn chat_bytes_per_minute() {
@@ -1007,7 +1034,11 @@ async fn chat_bytes_per_minute() {
 
     let trace = Trace::new();
     for app_name in env_list("NETCOND_BW_APPS", &["ios", "macos"]) {
-        let app = if app_name == "macos" { App::Macos } else { App::Ios };
+        let app = match app_name.as_str() {
+            "macos" => App::Macos,
+            "ios-compact" => App::IosCompact,
+            _ => App::Ios,
+        };
         let scale = app.name();
         let key = |phase| Key { profile: &name, phase, scale, run: 0, seed: 0 };
         let shaper = Shaper::start(upstream, profile.clone(), 0, &trace).await.unwrap();
@@ -1031,11 +1062,15 @@ async fn chat_bytes_per_minute() {
 
         // A streaming answer: a chunk every 50 ms (about a model's token rate), for the window.
         let chunks = secs * 20 + 20;
+        let asked = Instant::now();
         let turn = control.prompt(&session, &format!("ticking:{chunks}:50")).await;
         let t0 = Instant::now();
         link.drain(t0 + window_len).await;
         let (t, wire) = window(&shaper, &link);
-        emit_rates(&key("bw_stream"), &t, wire, t0.elapsed().as_secs_f64(), app, true);
+        let k = key("bw_stream");
+        // The prompt to its first chunk on the phone's side of the link.
+        emit(&k, "first_chunk_ms", t.first_chunk.map(|at| ms(at - asked)));
+        emit_rates(&k, &t, wire, t0.elapsed().as_secs_f64(), app, true);
         let _ = control.answer(turn, BOUND).await;
         link.drain(Instant::now() + Duration::from_secs(1)).await;
         let _ = window(&shaper, &link);
