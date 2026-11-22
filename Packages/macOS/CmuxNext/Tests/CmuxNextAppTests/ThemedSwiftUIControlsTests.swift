@@ -209,7 +209,7 @@ import Testing
         let hint = field.placeholderAttributedString.flatMap { text in
             text.length > 0 ? text.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor : nil
         }
-        #expect(hint.map { ThemedOverlayColorsTests.same($0, scope.perform { Palette.textTertiary }) } == true,
+        #expect(hint.map { ThemedOverlayColorsTests.same($0, scope.perform { Palette.textSecondary }) } == true,
                 "\(name): placeholder in the theme hint ink")
     }
 }

@@ -84,10 +84,10 @@ export function subagentTabTitle(agent: Pick<Subagent, "id" | "name" | "task"> |
 /// no summary), never the chat it came from; else the chat, renamable, with its rolling summary.
 /// Leo, 2026-11-22: "i notice there's differing layouts among it and normal chats. like the metadata
 /// about provenance or whatever like subagent of something. we shouldn't have those."
-export function paneHeading(
+export function paneHeading<Summary>(
   subagentTitle: string | undefined,
-  chat: { title: string; summary?: string },
-): { title: string; summary?: string; renamable: boolean } {
+  chat: { title: string; summary?: Summary },
+): { title: string; summary?: Summary; renamable: boolean } {
   if (subagentTitle !== undefined) return { title: subagentTitle, renamable: false };
   return { title: chat.title, summary: chat.summary, renamable: true };
 }
