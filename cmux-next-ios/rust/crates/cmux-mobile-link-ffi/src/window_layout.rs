@@ -183,7 +183,9 @@ mod tests {
 
     #[test]
     fn an_unknown_size_is_one_pane() {
-        for (w, h) in [(0.0, 0.0), (f64::NAN, 900.0), (-10.0, 900.0), (f64::INFINITY, f64::INFINITY), (900.0, 0.0)] {
+        for (w, h) in
+            [(0.0, 0.0), (f64::NAN, 900.0), (-10.0, 900.0), (f64::INFINITY, f64::INFINITY), (900.0, 0.0)]
+        {
             let layout = window_layout(w, h);
             assert!(!layout.two_pane, "{w}x{h}");
             assert!(!layout.unfolded, "{w}x{h}");

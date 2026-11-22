@@ -945,6 +945,8 @@ def fetch(url: str) -> dict:
 DEFAULT_DEVICE_FAMILIES = frozenset({"1", "2"})
 DEVICE_FAMILY_RE = re.compile(r'^\s*"?TARGETED_DEVICE_FAMILY"?:\s*"?([0-9 ,]*)"?\s*(?:#.*)?$', re.M)
 APP_TARGET = "CmuxMobileApp"
+# Configurations no App Store build uses, whose device families the gate ignores.
+NON_SHIPPING_CONFIGS = frozenset({"Debug:"})
 
 
 def app_device_families(root: Path, target: str = APP_TARGET) -> frozenset[str]:
@@ -973,9 +975,27 @@ def app_device_families(root: Path, target: str = APP_TARGET) -> frozenset[str]:
             outside.append(line)
         i += 1
 
+    def shipped(block: list[str]) -> list[str]:
+        """The block without its Debug config: Debug builds also run on an
+        iPad mini simulator (an unfolded foldable's stand-in), and no Debug
+        build reaches App Review."""
+        kept: list[str] = []
+        skip_deeper: int | None = None
+        for line in block:
+            indent = len(line) - len(line.lstrip())
+            if skip_deeper is not None:
+                if not line.strip() or indent > skip_deeper:
+                    continue
+                skip_deeper = None
+            if line.strip() in NON_SHIPPING_CONFIGS:
+                skip_deeper = indent
+                continue
+            kept.append(line)
+        return kept
+
     def families(block: list[str]) -> set[str]:
         found: set[str] = set()
-        for value in DEVICE_FAMILY_RE.findall("\n".join(block)):
+        for value in DEVICE_FAMILY_RE.findall("\n".join(shipped(block))):
             found |= {part.strip() for part in value.split(",") if part.strip()}
         return found
 
