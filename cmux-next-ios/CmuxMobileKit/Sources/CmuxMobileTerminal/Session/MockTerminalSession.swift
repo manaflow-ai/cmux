@@ -499,10 +499,14 @@ public final class MockTerminalSession: TerminalSession {
             tasks.append(task)
             return
         case "claudefull":
-            // claudefull [ROWS=1500] [mouse|keys]: Claude Code's full-screen
-            // mode on the alternate screen; `mouse` asks for the mouse.
+            // claudefull [ROWS=1500] [mouse|keys] [stream=MS]: Claude Code's
+            // full-screen mode on the alternate screen; `mouse` asks for the
+            // mouse. `stream=MS`: a new transcript row and a whole-screen
+            // redraw every MS ms (a reply streaming in), else the spinner
+            // alone every 80 ms.
             let count = max(1, parts.count > 1 ? Int(parts[1]) ?? 1500 : 1500)
             let mouse = !parts.contains("keys")
+            let stream = parts.first { $0.hasPrefix("stream=") }.flatMap { Int($0.dropFirst(7)) }.map { max(5, $0) }
             busy = false
             let full = MockClaudeFull(rows: count, mouse: mouse)
             program = .agentFull(full)
@@ -511,11 +515,16 @@ public final class MockTerminalSession: TerminalSession {
             write(full.render(columns: columns, rows: rows))
             let task = Task { [weak self] in
                 while !Task.isCancelled {
-                    do { try await self?.pause(80) } catch { return }
+                    do { try await self?.pause(stream ?? 80) } catch { return }
                     guard let self, case .agentFull(var full) = self.program else { return }
                     full.tick += 1
+                    if stream != nil {
+                        // A scrolled-back view stays on its rows as new ones come.
+                        full.rows += 1
+                        if full.offset > 0 { full.offset += 1 }
+                    }
                     self.program = .agentFull(full)
-                    self.write(full.statusRow(rows: self.rows))
+                    self.write(stream != nil ? full.render(columns: self.columns, rows: self.rows) : full.statusRow(rows: self.rows))
                 }
             }
             tasks.append(task)
@@ -608,7 +617,7 @@ public final class MockTerminalSession: TerminalSession {
 /// transcript and draws the part it scrolled to; the phone holds only the
 /// screen. A wheel report (SGR buttons 64/65) or a cursor key moves it 3 rows.
 struct MockClaudeFull: Equatable {
-    let rows: Int
+    var rows: Int
     let mouse: Bool
     /// Rows scrolled up from the newest.
     var offset = 0
