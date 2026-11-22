@@ -1068,7 +1068,7 @@ fn enable_menu_item(
     let title = item.string("AXTitle").unwrap_or_default();
     let key = key_in_app(d, t).ok_or_else(|| {
         DesktopError::Unsupported(format!(
-            "menu item {title:?} ({element_id}) is disabled while its app is in the background, and the window could not be made the app's key window; nothing was pressed. Use delivery foreground if it is allowed"
+            "menu item {title:?} ({element_id}) is disabled while its app is in the background, and the window could not be made the app's key window; nothing was pressed. A context menu runs in the background: click the window's content or an item in it with button right and menu_item, if it lists the command; else delivery foreground if it is allowed"
         ))
     })?;
     // Short reads; the item keeps them while the scope is open (the caller
