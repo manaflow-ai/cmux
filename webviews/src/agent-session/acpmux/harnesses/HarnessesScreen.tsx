@@ -16,6 +16,7 @@ type Native = (method: string, params?: Record<string, unknown>) => Promise<unkn
 
 const STATUS: Record<HarnessStatus, StringKey> = {
   ready: "harnesses.ready",
+  unverified: "harnesses.signInUnverified",
   signIn: "harnesses.signedOut",
   unavailable: "harnesses.unavailable",
   notInstalled: "harnesses.notInstalled",
@@ -335,7 +336,7 @@ export function HarnessesScreen({
       openDocs(row);
     } else if (row.status === "unavailable") {
       fix(row).run();
-    } else if (row.status === "ready") {
+    } else if (row.status === "ready" || row.status === "unverified") {
       if (onStartChat) return onStartChat(row.harness);
       launch(
         row,
@@ -357,7 +358,7 @@ export function HarnessesScreen({
     })().catch(() => undefined);
   };
   const action = (row: HarnessRow): string | undefined =>
-    row.status === "ready"
+    row.status === "ready" || row.status === "unverified"
       ? t("harnesses.startChat")
       : row.status === "signIn" && row.login
         ? t("harnesses.signIn")
@@ -473,7 +474,11 @@ export function HarnessesScreen({
                   {label && (
                     <button
                       type="button"
-                      className={row.status === "ready" ? "acpmux-harness-action" : "acpmux-harness-action is-primary"}
+                      className={
+                        row.status === "ready" || row.status === "unverified"
+                          ? "acpmux-harness-action"
+                          : "acpmux-harness-action is-primary"
+                      }
                       disabled={doing?.kind === "launching"}
                       onClick={() => (failedFix ? failedFix.run() : act(row))}
                     >

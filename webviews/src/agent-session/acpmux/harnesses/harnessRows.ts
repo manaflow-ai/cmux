@@ -6,7 +6,10 @@ import type { AcpmuxSnapshot } from "../model";
 import type { PickerCatalog } from "../modelCatalogData";
 import { withNetworkRetry } from "./installRetry";
 
-export type HarnessStatus = "ready" | "signIn" | "unavailable" | "notInstalled" | "checking";
+/// `unverified`: installed, its sign-in unknown or its proof stale (acpmux's readiness says so). It
+/// starts a chat like `ready` ("even if you don't trust something, like you should still be able
+/// to use it", Leo) and is labelled as not verified, never as Ready.
+export type HarnessStatus = "ready" | "unverified" | "signIn" | "unavailable" | "notInstalled" | "checking";
 
 /// npm where this machine has it (an npm setup keeps its channel), else the vendor's own installer,
 /// which needs no Node. Bash ships with macOS; pipefail (``withNetworkRetry``) preserves a failed
@@ -85,6 +88,15 @@ function chiefRow(chief: HarnessRow, agent: HarnessRow): HarnessRow {
   };
 }
 
+/// acpmux's typed readiness as the page's status. A catalog's own incompatibility (`unavailable`)
+/// still wins over a usable verdict: that harness cannot run here whatever its sign-in.
+function fromReadiness(state: NonNullable<HarnessHealth["readiness"]>["state"], unavailable?: string): HarnessStatus {
+  if (state === "missing") return "notInstalled";
+  if (state === "signIn") return "signIn";
+  if (unavailable) return "unavailable";
+  return state;
+}
+
 export function harnessRows(
   catalog: PickerCatalog,
   acpmux: AcpmuxSnapshot["catalog"],
@@ -102,19 +114,22 @@ export function harnessRows(
       // is the unqualified fallback while health has not answered.
       const login =
         checked?.login?.trim() || acpmux.find((candidate) => candidate.id === harness)?.auth?.login || undefined;
+      const readiness = checked?.readiness;
       const status: HarnessStatus = !entry.installed
         ? checking
           ? "checking"
           : "notInstalled"
         : !checked
           ? "checking"
-          : needsLogin(checked.auth)
-            ? "signIn"
-            : // Ready only on evidence of a sign-in: an answer without one (no `auth`, unknown, or a
-              // state this page does not know) is not ready, and the row offers its fix instead.
-              checked.auth !== "signedIn" || entry.unavailable
-              ? "unavailable"
-              : "ready";
+          : readiness
+            ? fromReadiness(readiness.state, entry.unavailable)
+            : needsLogin(checked.auth)
+              ? "signIn"
+              : // Ready only on evidence of a sign-in: an answer without one (no `auth`, unknown, or a
+                // state this page does not know) is not ready, and the row offers its fix instead.
+                checked.auth !== "signedIn" || entry.unavailable
+                ? "unavailable"
+                : "ready";
       return {
         harness,
         name: entry.name,
