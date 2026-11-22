@@ -1370,5 +1370,22 @@ class ReadTokenTests(unittest.TestCase):
         self.assertLess(steps.index(mint), steps.index(step))
 
 
+    def test_the_pools_step_reads_online_runners_with_a_read_only_administration_token(self) -> None:
+        steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["watch"]["steps"]
+        [mint] = [s for s in steps if s.get("id") == "runners-token"]
+        self.assertEqual({k: v for k, v in mint["with"].items() if k.startswith("permission-")},
+                         {"permission-administration": "read"})
+        self.assertEqual(mint["with"]["repositories"], "${{ github.event.repository.name }}")
+        self.assertTrue(mint["continue-on-error"])
+        [pools] = [s for s in steps if s.get("id") == "pools"]
+        self.assertEqual(pools["env"]["RUNNER_ADMISSION_RUNNERS_TOKEN"], "${{ steps.runners-token.outputs.token }}")
+        self.assertLess(steps.index(mint), steps.index(pools))
+        for other in steps:
+            if other is not pools:
+                self.assertNotIn("runners-token", json.dumps(other.get("env", {})), other.get("name"))
+        [spill] = [s for s in steps if s.get("id") == "spill-tooling"]
+        self.assertIn("f95bc766b1fc840ab8817e4d9bb61348a2084b07", spill["with"]["ref"])
+
+
 if __name__ == "__main__":
     unittest.main()
