@@ -17,6 +17,9 @@
 //! network changed" every 1-2 min on a wired Mac, each one dropping the
 //! phone's link to no path and back to TURN).
 
+// The judge runs only on macOS (the routing socket); its tests run everywhere.
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
+
 use std::collections::{BTreeSet, HashMap};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::OnceLock;
@@ -62,9 +65,6 @@ pub(crate) struct View {
     pub networks: Vec<Network>,
     pub primary: Option<IpAddr>,
     pub sources: Vec<IpAddr>,
-    /// Where the sessions' plain UDP goes, for the routes on a subnet of
-    /// one interface (a session that moved after the last judgment).
-    pub destinations: Vec<IpAddr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,24 +72,6 @@ pub(crate) struct Network {
     pub interface: String,
     pub address: IpAddr,
     pub prefix: u8,
-}
-
-impl Network {
-    fn contains(&self, ip: IpAddr) -> bool {
-        match (self.address, ip) {
-            (IpAddr::V4(own), IpAddr::V4(other)) => {
-                let bits = u32::from(self.prefix.min(32));
-                let mask = if bits == 0 { 0 } else { u32::MAX << (32 - bits) };
-                u32::from(own) & mask == u32::from(other) & mask
-            }
-            (IpAddr::V6(own), IpAddr::V6(other)) => {
-                let bits = u32::from(self.prefix.min(128));
-                let mask = if bits == 0 { 0 } else { u128::MAX << (128 - bits) };
-                u128::from(own) & mask == u128::from(other) & mask
-            }
-            _ => false,
-        }
-    }
 }
 
 impl View {
@@ -105,7 +87,6 @@ impl View {
             networks,
             primary: cmux_mobile_link::dial::wireguard::primary_local_ip(),
             sources: destinations.iter().filter_map(|to| source_toward(*to)).collect(),
-            destinations: destinations.iter().map(SocketAddr::ip).collect(),
         }
     }
 
@@ -117,22 +98,18 @@ impl View {
         self.networks.iter().filter(|net| net.interface == interface).map(|net| net.address).collect()
     }
 
-    /// The interfaces a session may be on: the primary one (signaling, TURN,
-    /// every routed path), the ones the sessions' plain UDP leaves from, and
-    /// every one whose subnet holds a session's direct destination.
+    /// The interfaces a session is on: the primary one (signaling, TURN,
+    /// every routed path) and the ones the sessions' plain UDP leaves from,
+    /// as the OS routes it. A second interface on the same subnet (Leo's Mac:
+    /// Ethernet en7 and Wi-Fi en0 both on 172.20.21.0/24) carries nothing
+    /// while the routing table sends from the first, so it is not in use.
     fn in_use(&self) -> BTreeSet<String> {
-        let mut used = BTreeSet::new();
-        for ip in self.primary.iter().chain(&self.sources) {
-            if let Some(interface) = self.interface_of(*ip) {
-                used.insert(interface.to_owned());
-            }
-        }
-        for ip in &self.destinations {
-            for net in self.networks.iter().filter(|net| net.contains(*ip)) {
-                used.insert(net.interface.clone());
-            }
-        }
-        used
+        self.primary
+            .iter()
+            .chain(&self.sources)
+            .filter_map(|ip| self.interface_of(*ip))
+            .map(str::to_owned)
+            .collect()
     }
 }
 
@@ -169,15 +146,35 @@ pub(crate) fn resets(before: &View, after: &View, links: &BTreeSet<String>) -> O
     None
 }
 
-/// The interfaces a burst touched that the judge let pass (for the log).
-fn changed_interfaces(before: &View, after: &View, links: &BTreeSet<String>) -> Vec<String> {
-    let mut names: BTreeSet<String> = links.clone();
-    for net in before.networks.iter().chain(&after.networks) {
-        if before.addresses_of(&net.interface) != after.addresses_of(&net.interface) {
-            names.insert(net.interface.clone());
+/// What a burst changed, for the log: the primary (default-route) address
+/// if it moved, each interface whose addresses changed (before -> after),
+/// and each whose link flipped.
+pub(crate) fn what_changed(before: &View, after: &View, links: &BTreeSet<String>) -> Vec<String> {
+    let mut out = Vec::new();
+    if before.primary != after.primary {
+        out.push(format!("primary {} -> {}", show(before.primary), show(after.primary)));
+    }
+    let names: BTreeSet<&str> =
+        before.networks.iter().chain(&after.networks).map(|net| net.interface.as_str()).collect();
+    for name in names {
+        let (was, is) = (before.addresses_of(name), after.addresses_of(name));
+        if was != is {
+            out.push(format!("{name} {} -> {}", list(&was), list(&is)));
         }
     }
-    names.into_iter().collect()
+    out.extend(links.iter().map(|name| format!("{name} link flipped")));
+    out
+}
+
+fn show(ip: Option<IpAddr>) -> String {
+    ip.map_or_else(|| "none".to_owned(), |ip| ip.to_string())
+}
+
+fn list(ips: &BTreeSet<IpAddr>) -> String {
+    if ips.is_empty() {
+        return "none".to_owned();
+    }
+    ips.iter().map(IpAddr::to_string).collect::<Vec<_>>().join(",")
 }
 
 /// Link state per interface index, from `RTM_IFINFO` messages: which ones
@@ -262,24 +259,21 @@ async fn watch() -> std::io::Result<()> {
         let settle = tokio::time::sleep(SETTLE);
         tokio::pin!(settle);
         loop {
-            tokio::select! {
+            let len = tokio::select! {
                 () = &mut settle => break,
-                read = read(&socket, &mut buffer) => {
-                    let len = read?;
-                    note(&buffer[..len], &mut flipped);
-                }
-            }
+                read = read(&socket, &mut buffer) => read?,
+            };
+            note(&buffer[..len], &mut flipped);
         }
         let now = View::now();
+        let what = what_changed(&seen, &now, &flipped);
+        let in_use = now.in_use();
         match resets(&seen, &now, &flipped) {
             Some(why) => {
-                tracing::info!(why, "the Mac's network changed; refreshing signaling and endpoints");
+                tracing::info!(why, ?what, ?in_use, "the Mac's network changed; refreshing signaling and endpoints");
                 changed();
             }
-            None => tracing::info!(
-                interfaces = ?changed_interfaces(&seen, &now, &flipped),
-                "network change on interfaces no session uses; nothing reset"
-            ),
+            None => tracing::info!(?what, ?in_use, "network change on interfaces no session uses; nothing reset"),
         }
         seen = now;
     }
@@ -369,7 +363,6 @@ mod tests {
             networks,
             primary: Some("192.168.1.20".parse().unwrap()),
             sources: vec!["192.168.1.20".parse().unwrap()],
-            destinations: vec!["192.168.1.30".parse().unwrap()],
         }
     }
 
@@ -425,7 +418,6 @@ mod tests {
         // A session on the Thunderbolt bridge loses it.
         let mut bridged = view(wired_mac());
         bridged.sources.push("169.254.10.2".parse().unwrap());
-        bridged.destinations.push("169.254.10.3".parse().unwrap());
         let mut gone = bridged.clone();
         gone.networks.retain(|net| net.interface != "bridge0");
         gone.sources.retain(|ip| ip.to_string() != "169.254.10.2");
@@ -479,6 +471,108 @@ mod tests {
             step += 1;
         }
         eprintln!("resets per 10 min (unrelated flap every 60-120 s, relay hop): before {before_resets}, after {after_resets}");
+        assert!(before_resets >= 5);
+        assert_eq!(after_resets, 0);
+    }
+
+    /// Leo's Mac (`scutil --nwi`, 2026-11-22 19:2xZ): Ethernet en7
+    /// 172.20.21.235 and Wi-Fi en0 172.20.21.236 on one subnet, en7 primary
+    /// and the one the phone's direct path leaves from, plus utun16.
+    fn dual_homed() -> View {
+        View {
+            networks: vec![
+                net("en7", "172.20.21.235", 24),
+                net("en0", "172.20.21.236", 24),
+                net("utun16", "fe80::16", 64),
+            ],
+            primary: Some("172.20.21.235".parse().unwrap()),
+            sources: vec!["172.20.21.235".parse().unwrap()],
+        }
+    }
+
+    /// The second interface on the same subnet (Wi-Fi beside Ethernet) and
+    /// the utun come and go: 0 resets, and the log names what changed.
+    #[test]
+    fn dual_homed_mac_resets_nothing_on_its_second_interface_or_utun() {
+        let before = dual_homed();
+        let without = |name: &str| {
+            let mut view = dual_homed();
+            view.networks.retain(|net| net.interface != name);
+            view
+        };
+        let renewed = {
+            let mut view = without("en0");
+            view.networks.push(net("en0", "172.20.21.237", 24));
+            view
+        };
+        let none = BTreeSet::new();
+        let en0: BTreeSet<String> = ["en0".to_owned()].into();
+        let utun: BTreeSet<String> = ["utun16".to_owned()].into();
+        let cases = [
+            (without("en0"), &none, "en0 172.20.21.236 -> none"),
+            (renewed, &none, "en0 172.20.21.236 -> 172.20.21.237"),
+            (dual_homed(), &en0, "en0 link flipped"),
+            (without("utun16"), &none, "utun16 fe80::16 -> none"),
+            (dual_homed(), &utun, "utun16 link flipped"),
+        ];
+        for (after, links, logged) in cases {
+            assert_eq!(resets(&before, &after, links), None, "{logged}");
+            assert_eq!(resets(&after, &before, links), None, "back: {logged}");
+            assert_eq!(what_changed(&before, &after, links), vec![logged.to_owned()]);
+        }
+        // The interface the link uses changing still resets, and says so.
+        let unplugged = View {
+            primary: Some("172.20.21.236".parse().unwrap()),
+            sources: vec!["172.20.21.236".parse().unwrap()],
+            ..without("en7")
+        };
+        assert!(resets(&before, &unplugged, &none).is_some());
+        assert_eq!(
+            what_changed(&before, &unplugged, &none),
+            vec!["primary 172.20.21.235 -> 172.20.21.236".to_owned(), "en7 172.20.21.235 -> none".to_owned()]
+        );
+        let en7: BTreeSet<String> = ["en7".to_owned()].into();
+        assert_eq!(resets(&before, &dual_homed(), &en7).as_deref(), Some("link of en7 changed"));
+    }
+
+    /// Resets per 10 minutes on Leo's dual-homed Mac under duress: en0 or
+    /// utun16 changes every 60-120 s (seeded), the phone's session direct
+    /// from en7 and one relay hop. Before: every burst reset.
+    #[test]
+    fn dual_homed_resets_per_10_min_under_second_interface_flaps() {
+        let mut seed: u64 = 0x2545_f491_4f6c_dd1d;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let (mut at, mut step) = (0u64, 0usize);
+        let (mut before_resets, mut after_resets) = (0, 0);
+        let mut seen = dual_homed();
+        loop {
+            at += 60 + next() % 61;
+            if at > 600 {
+                break;
+            }
+            let name = ["en0", "utun16"][step % 2];
+            let mut now = dual_homed();
+            let mut links = BTreeSet::new();
+            match step % 3 {
+                0 => now.networks.retain(|net| net.interface != name),
+                1 => {}
+                _ => {
+                    links.insert(name.to_owned());
+                }
+            }
+            before_resets += 1;
+            if resets(&seen, &now, &links).is_some() {
+                after_resets += 1;
+            }
+            seen = now;
+            step += 1;
+        }
+        eprintln!("dual-homed resets per 10 min (en0/utun16 change every 60-120 s, relay hop): before {before_resets}, after {after_resets}");
         assert!(before_resets >= 5);
         assert_eq!(after_resets, 0);
     }

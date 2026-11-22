@@ -52,7 +52,7 @@ mod roam;
 use roam::{Control, Session};
 #[path = "wireguard_paths.rs"]
 mod paths;
-pub use roam::{network_changed, rehome, roam_timeline};
+pub use roam::{network_changed, rehome, roam_timeline, route_destinations};
 #[doc(hidden)]
 pub use roam::{roam_session, session_endpoints, simulate_network_loss, simulate_turn_loss};
 
@@ -2422,6 +2422,7 @@ mod tests {
                 turn: None,
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &DialOptions::default(),
@@ -2458,6 +2459,7 @@ mod tests {
                 turn: None,
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &DialOptions::default(),
@@ -2496,6 +2498,7 @@ mod tests {
                 turn: None,
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &DialOptions::default(),
@@ -2585,6 +2588,7 @@ mod tests {
                 turn: None,
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &DialOptions::default(),
@@ -2642,6 +2646,7 @@ mod tests {
                 turn: None,
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &DialOptions::default(),
@@ -2723,6 +2728,7 @@ mod tests {
                 turn: Some(first),
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &options,
