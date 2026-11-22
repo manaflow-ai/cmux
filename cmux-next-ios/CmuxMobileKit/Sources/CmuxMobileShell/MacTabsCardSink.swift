@@ -36,13 +36,13 @@ final class MacTabsCardSink: MacTabsSink {
         cards.save(bytes, hash: hash, macID: macID)
     }
 
-    func cards(_ cards: [MacTabCard], macID: String) {
+    func cards(_ cards: [MacTabCard], epoch: String, macID: String) {
         self.cards.cards(cards.map { card in
             (tabID: card.tabID, info: MacCardInfo(
                 title: card.title, kind: card.kind, faviconHash: card.faviconHash, thumbHash: card.thumbHash,
                 screenHash: card.screenHash, screenColumns: card.screenColumns, screenRows: card.screenRows,
                 capturedAtMs: Int64((card.capturedAt.timeIntervalSince1970 * 1000).rounded())))
-        }, macID: macID)
+        }, epoch: epoch, macID: macID)
     }
 
     func blobArrived(hash: String, tabIDs: [String], macID: String) {

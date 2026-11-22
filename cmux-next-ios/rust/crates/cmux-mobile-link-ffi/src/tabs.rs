@@ -74,7 +74,9 @@ pub struct TabsRow {
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum TabsEvent {
     /// The rows changed (a manifest or a delta): show them. `send` asks for what is missing.
-    Rows { rev: u64, rows: Vec<TabsRow>, send: Vec<Vec<u8>> },
+    /// `epoch` names the Mac's run that handed out the tab ids: under another epoch the same
+    /// id is another tab, so what was kept by id under the old one is void.
+    Rows { epoch: String, rev: u64, rows: Vec<TabsRow>, send: Vec<Vec<u8>> },
     /// A blob whose bytes match its hash: save `bytes` under `hash`. `tab_ids` are the cards
     /// it completes a part of. `fresh` is false when the phone held it already.
     Blob { hash: String, mime: String, bytes: Vec<u8>, fresh: bool, tab_ids: Vec<String> },
@@ -208,7 +210,7 @@ impl TabsMirror {
         match state.mirror.apply(msg) {
             Ok(Applied::Manifest { rev } | Applied::Delta { rev }) => {
                 let send = state.want();
-                TabsEvent::Rows { rev, rows: state.rows(), send }
+                TabsEvent::Rows { epoch: state.mirror.epoch().to_owned(), rev, rows: state.rows(), send }
             }
             Ok(Applied::Gap { .. }) => {
                 TabsEvent::Gap { send: state.mirror.resume_frame().iter().map(|f| framed(f)).collect() }
@@ -411,9 +413,10 @@ mod tests {
     #[test]
     fn a_manifest_shows_rows_and_asks_for_what_the_disk_lacks() {
         let mirror = TabsMirror::new(vec![h(b"f1").to_hex(), "not-a-hash".to_owned()]);
-        let TabsEvent::Rows { rev, rows, send } = recv(&mirror, manifest(7, three())) else {
+        let TabsEvent::Rows { epoch, rev, rows, send } = recv(&mirror, manifest(7, three())) else {
             panic!("rows expected");
         };
+        assert_eq!(epoch, "e1", "the rows say which run named their tabs");
         assert_eq!(rev, 7);
         assert_eq!(rows.iter().map(|r| r.tab_id.as_str()).collect::<Vec<_>>(), ["a", "b", "c"]);
         assert_eq!(rows[0].favicon_hash, Some(h(b"f1").to_hex()));

@@ -53,8 +53,9 @@ public protocol MacTabsSink: AnyObject {
     /// Bytes that hash to `hash` (checked in Rust). Saved before ``cards(_:macID:)`` or
     /// ``blobArrived(hash:tabIDs:macID:)`` names it.
     func save(_ bytes: Data, hash: String, mime: String, macID: String)
-    /// The Mac's tabs, in its order (a manifest or a delta).
-    func cards(_ cards: [MacTabCard], macID: String)
+    /// The Mac's tabs, in its order (a manifest or a delta). `epoch` names the Mac's run that
+    /// handed out the tab ids: what was kept by tab id under another epoch is another tab's.
+    func cards(_ cards: [MacTabCard], epoch: String, macID: String)
     /// A blob of these cards is saved: they can draw it.
     func blobArrived(hash: String, tabIDs: [String], macID: String)
     /// Blobs no card names any more: delete them.
@@ -148,7 +149,9 @@ public final class MacTabsFeed {
             if sessions[macID]?.mirror === session.mirror { sessions[macID] = nil }
         }
         write(session.mirror.linkUp(viewport: viewport), to: session)
-        if let near = near[macID], !near.isEmpty { write(session.mirror.setNear(tabIds: near), to: session) }
+        if let near = near[macID], !near.isEmpty {
+            write(session.mirror.setNear(tabIds: near.map(Self.wireID(tabID:))), to: session)
+        }
         do {
             // The link cuts the stream where it likes: Rust keeps the partial frame and
             // answers with one event per frame a chunk completes.
@@ -172,10 +175,10 @@ public final class MacTabsFeed {
 
     private func apply(_ event: TabsEvent, session: Session, macID: String) {
         switch event {
-        case .rows(_, let rows, let send):
+        case .rows(let epoch, _, let rows, let send):
             write(send, to: session)
             guard let sink else { return }
-            sink.cards(rows.map(MacTabCard.init), macID: macID)
+            sink.cards(rows.map(MacTabCard.init), epoch: epoch, macID: macID)
             // What no card names any more goes, once the Mac has said what it has.
             let gone = session.mirror.unreferenced(onDisk: sink.heldBlobs(macID: macID))
             if !gone.isEmpty { sink.remove(blobs: gone, macID: macID) }
