@@ -541,7 +541,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           {/* The reply's age after its buttons ("4 minutes ago", the exact time on its tooltip), shown
               with the row while the pointer is on the turn, as Claude's (Leo, 2026-11-22: "you hover
               and you get the timing ... and we already have logic for the timing"). */}
-          {!messages && <ReplyTime at={row.at} />}
+          {!messages && !failed && <ReplyTime at={row.at} />}
         </MessageFooterRow>
       </div>
       {!messages && timeline.panel}

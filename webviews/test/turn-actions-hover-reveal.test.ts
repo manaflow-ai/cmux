@@ -28,8 +28,8 @@ const opacityOne = (rule: { body: string }) => /(^|;)\s*opacity:\s*1\s*(;|$)/.te
 
 describe("a turn's action row", () => {
   test("is hidden at rest", () => {
-    const rest = rules.find((rule) => rule.selectors.includes(".acpmux-turnSummary .cv-turn-actions"));
-    expect(rest?.body).toMatch(/opacity:\s*0/);
+    const rest = rules.filter((rule) => rule.selectors.includes(".acpmux-turnSummary .cv-turn-actions"));
+    expect(rest.some((rule) => /(^|;)\s*opacity:\s*0\s*(;|$)/.test(rule.body))).toBe(true);
   });
 
   test("no rule shows a finished turn's row at rest (the 2026-11-03 rule, cmux#34939)", () => {
@@ -50,7 +50,7 @@ describe("a turn's action row", () => {
       ".acpmux-turnSummary[data-turn-revealed] .cv-turn-actions",
       ".acpmux-turnSummary:hover .cv-turn-actions",
       ".acpmux-turnSummary:focus-visible .cv-turn-actions",
-      ".acpmux-turnSummary .cv-turn-actions:focus-within",
+      ".acpmux-turnSummary .cv-turn-actions:has(:focus-visible)",
     ])
       expect(shown).toContain(selector);
   });

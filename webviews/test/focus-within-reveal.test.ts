@@ -46,8 +46,6 @@ const KNOWN = new Set([
   "src/agent-session/acpmux/conversation/conversation.css: .cv-sent-actions:focus-within",
   "src/agent-session/acpmux/conversation/conversation.css: .cv-received__hover:focus-within",
   "src/agent-session/acpmux/conversation/conversation.css: .cv-tool-output__actions:focus-within",
-  "src/agent-session/acpmux/conversation/conversation.css: .acpmux-turnSummary .cv-turn-actions:focus-within",
-  "src/agent-session/acpmux/conversation/conversation.css: .acpmux-turnSummary .cv-turn-actions:focus-within .cv-turn-time",
   "src/agent-session/acpmux/conversation/conversation.css: .cv-reply-actions:focus-within .cv-turn-time",
   "src/agent-session/acpmux/conversation/conversation.css: .cv-reply-actions:focus-within",
   "src/agent-session/acpmux/conversation/conversation.css: .cv-user__pending:focus-within .cv-user__queued-hover",

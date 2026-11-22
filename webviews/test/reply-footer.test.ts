@@ -199,6 +199,8 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         expect(await boxes(), "no transcript row moves when the row shows").toEqual(restBoxes);
         // Keyboard focus inside the turn shows the row too, its age included.
         await page.mouse.move(1, 1);
+        // A key earns :focus-visible (src/ui/focusModality.ts), then focus lands in the row.
+        await page.keyboard.press("Shift");
         await page.locator(`${last} .cv-turn-action-group .cv-iconbtn`).first().focus();
         const [focused] = await footers(page, last);
         expect(focused!.actionsOpacity).toBe(1);
