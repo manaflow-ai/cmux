@@ -220,7 +220,8 @@ fn a_starts_reads_back_to_the_newest_turn_never_read_a_long_chats_whole_log() {
     let later = hub_over(&sessions);
     let s = later.resolve("c").unwrap();
     later.load_session_log(&s);
-    assert_eq!(s.meta().last_seq, last);
+    // The first load may close the unfinished turns it found (records past `last`).
+    assert!(s.meta().last_seq >= last, "{} < {last}", s.meta().last_seq);
     let measure = |what: &str, read: &dyn Fn()| {
         let before = read_bytes();
         read();
