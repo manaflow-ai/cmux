@@ -710,6 +710,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     if fetch_catalog {
         hub.catalog.attach_feed(std::sync::Arc::new(crate::catalog::feed::FeedFetcher::default()));
     }
+    // Model-name reroutes (`model_reroute`) follow the catalog in use: its aliases are the
+    // fleet-wide hot patch.
+    hub.catalog.publish_reroutes();
     if fetch_catalog {
         let catalog = hub.catalog.clone();
         crate::supervise::restarting("catalog", &hub.fatal, move || catalog.clone().run());

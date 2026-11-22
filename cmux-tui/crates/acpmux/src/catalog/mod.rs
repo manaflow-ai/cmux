@@ -93,6 +93,9 @@ pub struct CatalogService {
     /// One network read at a time.
     refreshing: tokio::sync::Mutex<()>,
     changed: broadcast::Sender<Value>,
+    /// Whether the catalog in use is the process's model-name reroute table
+    /// ([`Self::publish_reroutes`]; the daemon's service only, never a test's).
+    reroutes: std::sync::atomic::AtomicBool,
 }
 
 fn now_ms() -> u64 {
@@ -180,6 +183,7 @@ impl CatalogService {
             feed_fetcher: Mutex::new(None),
             refreshing: tokio::sync::Mutex::new(()),
             changed: broadcast::channel(16).0,
+            reroutes: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -316,9 +320,20 @@ impl CatalogService {
             reply.set("feedError", json!(error));
         }
         if changed {
+            if self.reroutes.load(std::sync::atomic::Ordering::Relaxed) {
+                crate::model_reroute::install(&self.current());
+            }
             let _ = self.changed.send(self.summary());
         }
         reply
+    }
+
+    /// Makes this catalog's model ids and aliases the process's model-name reroutes
+    /// (`crate::model_reroute`), now and after every change, so an alias published to the
+    /// catalog is a fleet-wide hot patch.
+    pub fn publish_reroutes(&self) {
+        self.reroutes.store(true, std::sync::atomic::Ordering::Relaxed);
+        crate::model_reroute::install(&self.current());
     }
 
     async fn fetch_once(&self, fetcher: &dyn Fetcher) -> (bool, Option<String>) {

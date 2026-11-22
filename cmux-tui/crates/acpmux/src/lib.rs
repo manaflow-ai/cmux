@@ -184,6 +184,8 @@ pub mod mesh_relay_config;
 pub mod mesh_retry;
 pub mod meta_fields;
 pub mod model_copies;
+/// Model-name auto-reroute: a misspelled id runs as the one it plainly names (catalog aliases, `model-aliases.json`).
+pub mod model_reroute;
 pub mod name_match;
 #[cfg(target_os = "macos")]
 mod named_files_watch;

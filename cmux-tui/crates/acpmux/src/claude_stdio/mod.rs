@@ -164,8 +164,13 @@ fn effort_value(effort: &str) -> &str {
 /// fails with "There's an issue with the selected model (opus-5-5)". It takes
 /// the prefix, as the live list's `launch_id` does. Bare aliases (`opus`,
 /// `opusplan`), full ids and other providers' names pass unchanged.
+///
+/// Before that, a misspelled Claude id (`fable-5.2`, `claude-fable-5.2`) is rerouted to the one
+/// it names (`crate::model_reroute`: the host's `model-aliases.json`, the catalog's aliases, then
+/// spelling), so a lane started on it runs instead of failing every turn.
 pub fn model_id(value: &str) -> String {
-    let value = value.trim();
+    let rerouted = crate::model_reroute::resolve("claude", value);
+    let value = rerouted.trim();
     let versioned = ["opus-", "sonnet-", "haiku-"].iter().any(|family| {
         value
             .strip_prefix(family)
