@@ -50,6 +50,83 @@ use std::process::Command as StdCommand;
 #[path = "session_move_preflight.rs"]
 mod preflight;
 
+/// `--timeout`'s default: the longest an `--after-turn` move waits for the running turn.
+pub(crate) const DEFAULT_TURN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// How often a move that waits on something says what (`waiting`).
+const PROGRESS_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// `fut`, with a line on stderr every [`PROGRESS_EVERY`] while it runs naming the chat and the
+/// step it waits on: no step of a move is silent for longer (a `--cwd --after-turn` move once
+/// sat 12 minutes with no output).
+async fn waiting<T>(chat: &str, step: &str, fut: impl std::future::Future<Output = T>) -> T {
+    progress_every(PROGRESS_EVERY, fut, |secs| eprintln!("{}", progress_line(chat, step, secs)))
+        .await
+}
+
+/// `move: CHAT: STEP (Ns so far)`.
+fn progress_line(chat: &str, step: &str, secs: u64) -> String {
+    format!("move: {chat}: {step} ({secs}s so far)")
+}
+
+/// Runs `fut`, calling `tick` with the whole seconds waited every `every` until it ends.
+async fn progress_every<T>(
+    every: std::time::Duration,
+    fut: impl std::future::Future<Output = T>,
+    mut tick: impl FnMut(u64),
+) -> T {
+    tokio::pin!(fut);
+    let start = tokio::time::Instant::now();
+    let mut ticks = tokio::time::interval_at(start + every, every);
+    loop {
+        tokio::select! {
+            out = &mut fut => return out,
+            _ = ticks.tick() => tick(start.elapsed().as_secs()),
+        }
+    }
+}
+
+/// How much longer than `--timeout` this client waits for the daemon's own bounded wait to
+/// answer before it gives up itself (a daemon too old to read the bound waits 15 minutes).
+const TURN_TIMEOUT_SLACK: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// [`super::transfer::begin_move`] for the chat `name`, every wait said: with `--after-turn`,
+/// a line every 5 s naming the turn it waits for, and an end at `args.turn_timeout` that names
+/// the chat and the step.
+async fn begin_waiting(
+    src: &Client,
+    id: &str,
+    name: &str,
+    watch: Option<Value>,
+    args: &MoveArgs,
+) -> Result<super::transfer::Begun> {
+    let running = (args.interrupt, args.after_turn);
+    let bound = args.after_turn.then_some(args.turn_timeout);
+    let begin = super::transfer::begin_move(src, id, watch, running, bound);
+    let Some(bound) = bound else {
+        return waiting(name, "freezing the chat for its move", begin).await;
+    };
+    let step = format!("waiting for its running turn to end (at most {}s)", bound.as_secs());
+    match tokio::time::timeout(bound + TURN_TIMEOUT_SLACK, waiting(name, &step, begin)).await {
+        Ok(Ok(begun)) => Ok(begun),
+        // The daemon's own bound (`hub/transfer_out.rs` `transfer_begin`) ended the wait.
+        Ok(Err(e)) if format!("{e:#}").contains("did not end within") => {
+            Err(e.context(after_turn_failed(name, bound)))
+        }
+        Ok(Err(e)) => Err(e),
+        Err(_) => Err(anyhow!("{}", after_turn_failed(name, bound))),
+    }
+}
+
+/// What an `--after-turn` move that ended without the turn says: the chat, the step, the bound.
+fn after_turn_failed(name: &str, bound: std::time::Duration) -> String {
+    format!(
+        "{name}: step `wait for the running turn` gave up: its turn did not end within {}s \
+         (--timeout); nothing moved. Try again later, raise --timeout, or pass --interrupt",
+        bound.as_secs()
+    )
+}
+
 pub(crate) struct MoveArgs {
     pub sessions: Vec<String>,
     pub host: String,
@@ -57,6 +134,8 @@ pub(crate) struct MoveArgs {
     pub interrupt: bool,
     /// `--after-turn`: a running turn ends on its own first; the chat moves at its end.
     pub after_turn: bool,
+    /// `--timeout`: with `after_turn`, the longest the move waits for the running turn.
+    pub turn_timeout: std::time::Duration,
     pub leave_dirty: bool,
     /// `--carry-changes`: the checkout's uncommitted work goes with the chat
     /// (`session_move_carry.rs`).
@@ -231,6 +310,7 @@ pub(crate) async fn move_off_interactive(src: &Client, id: &str) -> Result<Moved
         all_idle: false,
         interrupt: false,
         after_turn: false,
+        turn_timeout: DEFAULT_TURN_TIMEOUT,
         leave_dirty: false,
         carry_changes: false,
         cwd: None,
@@ -369,11 +449,11 @@ async fn move_steps(
         .unwrap_or(0),
         None => 0,
     };
-    let target = targets.pick(src, &group, need).await?;
+    let target = waiting(&o.name, "choosing the machine", targets.pick(src, &group, need)).await?;
     o.host = Some(target.name.clone());
     let remote = match target.probed.clone() {
         Some(r) => r,
-        None => target.remote().await?,
+        None => waiting(&o.name, "asking the target about itself", target.remote()).await?,
     };
     let target_cwd = args.cwd.as_deref();
     let planned = plan::plan_folder(
@@ -417,9 +497,14 @@ async fn move_steps(
         }
         Source::Peer { .. } => None,
     };
-    let begun =
-        super::transfer::begin_move(src, &id, watch, (args.interrupt, args.after_turn)).await?;
-    let prepared = prepare(&cwd, &home, &target, &remote, args, source, o).await;
+    let name = o.name.clone();
+    let begun = begin_waiting(src, &id, &name, watch, args).await?;
+    let prepared = waiting(
+        &name,
+        "making its folder on the target",
+        prepare(&cwd, &home, &target, &remote, args, source, o),
+    )
+    .await;
     let (record, forward, dst, dst_init) = match prepared {
         Ok(p) => p,
         Err(e) => {
@@ -428,9 +513,12 @@ async fn move_steps(
         }
     };
     let there = record.get("cwd").and_then(Value::as_str).map(str::to_owned);
-    let moved =
-        super::transfer::finish_move(src, &dst, &dst_init, &id, &begun, there, None, record)
-            .await?;
+    let moved = waiting(
+        &name,
+        "copying the chat to the target",
+        super::transfer::finish_move(src, &dst, &dst_init, &id, &begun, there, None, record),
+    )
+    .await?;
     targets.placed(&target.name);
     o.moved = true;
     o.there = moved.get("sessionId").and_then(Value::as_str).map(str::to_owned);
@@ -444,7 +532,9 @@ async fn move_steps(
         };
         o.resumed = resumed.map_err(|e| format!("{e:#}"));
     }
-    drop(forward);
+    if let Some(forward) = forward {
+        forward.close().await;
+    }
     if let Some(name) = moved.get("name").and_then(Value::as_str) {
         o.name = name.to_owned();
     }

@@ -353,6 +353,7 @@ async fn move_dry_run_reports_running_and_dirty_together_without_changing_the_ch
             all_idle: false,
             interrupt: false,
             after_turn: true,
+            turn_timeout: DEFAULT_TURN_TIMEOUT,
             leave_dirty: false,
             carry_changes,
             cwd: None,
@@ -456,4 +457,116 @@ async fn move_from_reads_placement_from_the_initiating_daemon() {
     local_server.await.unwrap();
     // Client owns a background reader; stop the fixture rather than wait for that task to close.
     remote_server.abort();
+}
+
+/// Item C (a `--cwd --after-turn` move sat 12 minutes with no output): every wait prints a line
+/// at least every 5 s naming the chat and the step, and none while the step is quick.
+#[tokio::test(start_paused = true)]
+async fn a_wait_says_what_it_waits_for_every_five_seconds() {
+    let mut said = Vec::new();
+    let slow = tokio::time::sleep(std::time::Duration::from_secs(17));
+    let out = progress_every(
+        PROGRESS_EVERY,
+        async {
+            slow.await;
+            7
+        },
+        |secs| said.push(progress_line("Chat", "waiting for its running turn to end", secs)),
+    )
+    .await;
+    assert_eq!(out, 7);
+    assert_eq!(
+        said,
+        [5, 10, 15]
+            .map(|s| format!("move: Chat: waiting for its running turn to end ({s}s so far)"))
+    );
+    let mut quiet = 0;
+    progress_every(PROGRESS_EVERY, async {}, |_| quiet += 1).await;
+    assert_eq!(quiet, 0);
+}
+
+/// Item C: `--after-turn` waits at most `--timeout` (sent as `afterTurnTimeoutMs`, which the
+/// daemon bounds its own wait by), and the failure names the chat and the step, non-zero.
+#[cfg(unix)]
+#[tokio::test]
+async fn after_turn_waits_at_most_its_timeout_and_names_the_chat_and_step() {
+    use crate::rpc::{Message, RpcError};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let socket_dir = tempfile::tempdir().unwrap();
+    let socket = socket_dir.path().join("daemon.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (rd, mut wr) = stream.into_split();
+        let mut lines = BufReader::new(rd).lines();
+        loop {
+            let line = lines.next_line().await.unwrap().unwrap();
+            let Message::Request { id, method: called, params, .. } =
+                Message::parse(&line).unwrap()
+            else {
+                panic!("expected a request");
+            };
+            if called == method::INITIALIZE {
+                wr.write_all(Message::ok(id, json!({})).to_line().as_bytes()).await.unwrap();
+                continue;
+            }
+            assert_eq!(called, "_acpmux/transfer_begin");
+            let params = params.unwrap_or_default();
+            assert_eq!(params["afterTurn"], true);
+            assert_eq!(params["afterTurnTimeoutMs"], 1000);
+            let e = RpcError::invalid_params(
+                "the running turn did not end within 1s; try again, or pass --interrupt",
+            );
+            wr.write_all(Message::err(id, e).to_line().as_bytes()).await.unwrap();
+            return;
+        }
+    });
+    let client = Client::connect(&socket).await.unwrap();
+    let args = MoveArgs {
+        sessions: vec!["chat".into()],
+        host: "target".into(),
+        all_idle: false,
+        interrupt: false,
+        after_turn: true,
+        turn_timeout: std::time::Duration::from_secs(1),
+        leave_dirty: false,
+        carry_changes: false,
+        cwd: Some("/srv/x".into()),
+        dry_run: false,
+        resume_there: false,
+        from: None,
+    };
+    let e = match begin_waiting(&client, "chat", "Chat", None, &args).await {
+        Ok(_) => panic!("a turn that outlasts --timeout must not move"),
+        Err(e) => format!("{e:#}"),
+    };
+    assert!(e.starts_with("Chat: step `wait for the running turn` gave up"), "{e}");
+    assert!(e.contains("within 1s (--timeout)"), "{e}");
+    server.await.unwrap();
+}
+
+/// Item C: `--timeout` parses, 600 s by default.
+#[test]
+fn move_timeout_defaults_to_ten_minutes() {
+    use crate::cli::command::{Cli, Command, flatten};
+    use clap::Parser as _;
+    let parse = |argv: &[&str]| match flatten(Cli::try_parse_from(argv).unwrap().command.unwrap()) {
+        Command::MoveSessions(a) => a.timeout,
+        _ => panic!("not a move"),
+    };
+    assert_eq!(parse(&["acpmux", "session", "move", "a", "--machine", "m", "--after-turn"]), 600);
+    assert_eq!(
+        parse(&[
+            "acpmux",
+            "session",
+            "move",
+            "a",
+            "--machine",
+            "m",
+            "--after-turn",
+            "--timeout",
+            "30"
+        ]),
+        30
+    );
 }
