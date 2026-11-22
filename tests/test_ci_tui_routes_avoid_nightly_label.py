@@ -6,8 +6,8 @@ on blacksmith-12vcpu-macos-26. Two cmux-tui workloads reached that label through
 vars.MACOS_RUNNER_PR (which names it):
 
 - cmux-tui.yml's release-path dogfood build, on every attempt (#20612).
-- cmux-tui-artifacts.yml's cmux_next_ daemon tests (on Blacksmith Linux
-  since 2026-10-26) and macOS build legs on a re-run: attempt 1 takes the owned side label, but
+- cmux-tui-artifacts.yml's cmux_next_ daemon tests and macOS build legs on a
+  re-run: the first macOS attempt takes the owned side label, but
   cmux-tui-artifacts-retry re-runs a failed run's jobs (attempt 2 and 3), and
   those fell through to vars.MACOS_RUNNER_PR. Run 38579574731 attempt 2 ran
   the daemon tests on blacksmith-12vcpu-macos-26.
@@ -26,7 +26,6 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
-from blacksmith_linux_sizes import size_label  # noqa: E402
 from runs_on_labels import pool_members  # noqa: E402
 
 from test_ci_fork_runner_routing import parse_expression  # noqa: E402
@@ -39,7 +38,6 @@ PROMOTE_LABEL = "glaeda-promote-trusted-std-xcode-26.6"
 DAEMON_LABEL = "glaeda-daemon-tests-xcode-26.6"
 LIGHT_LABEL = "glaeda-side-light-xcode-26.6"
 PIN_LABEL = "glaeda-pin-daemon-xcode-26.6"
-LINUX_DAEMON_LABEL = size_label("cmux-tui-artifacts.yml", "cmux-next-daemon-tests")
 PIN_REF = "refs/heads/cmux-tui-pin-0123456789ab"
 
 # The repository's variables as of 2026-10-14 (gh variable list), the ones
@@ -193,10 +191,6 @@ def test_dogfood_artifacts_never_take_the_nightly_label() -> None:
 
 
 def test_daemon_tests_never_take_a_mac() -> None:
-    # 2026-10-26 (Leo: "I THOUGHT THESE COULD JUST GO ON LINUX"): the
-    # promotion gate runs on Blacksmith Linux on every attempt, so no re-run
-    # reaches the nightly label, the side lane or the promote pool
-    # (tests/test_cmux_tui_daemon_tests_gate.py).
     cells = workflow_jobs.runs_on_cells(load("cmux-tui-artifacts.yml")["jobs"]["cmux-next-daemon-tests"])
     assert cells is not None and len(cells) == 1, cells
     runs_on = cells[0]
@@ -207,15 +201,8 @@ def test_daemon_tests_never_take_a_mac() -> None:
                      context["github.ref"], context["github.run_attempt"], owned)
             if context["github.repository_owner"] != "manaflow-ai":
                 assert label == "ubuntu-24.04", where
-            elif context["github.run_attempt"] == 1 and (
-                    context["github.event_name"] == "workflow_dispatch"
-                    or context["github.ref"] in ("refs/heads/feat-cmux-next", "refs/heads/nightly-next")):
-                # Attempt 1 of the nightly path queues on an owned GCP Linux label (#47811,
-                # tests/test_ci_owned_first_not_census_frozen.py): Linux, never a Mac.
-                assert label in ("cmux-gcp-lane-build-x64", "cmux-gcp-nightly-x64"), (where, label)
             else:
-                # Its size's RUNNER_POOLS read (#47603), which may hold the fleet's one-job Linux label first.
-                assert label in (LINUX_DAEMON_LABEL, "cmux-fleet-linux-x64"), (where, label)
+                assert label == "cmux-linux", (where, label)
 
 
 def _pin_variable_combinations():
