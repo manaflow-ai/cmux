@@ -1313,8 +1313,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
             followCards(cardsFollowChats)
         } else {
             prefetchPrograms(false)
-            // Programs may change unheard while away: only the Mac's answer counts after.
-            programCache = TabProgramCache()
+            // Programs may change unheard while away: what is known stays, marked
+            // stale, until the grid reads the Mac again on return.
+            programCache.markStale(at: Self.uptime)
             followCards(false)
         }
     }

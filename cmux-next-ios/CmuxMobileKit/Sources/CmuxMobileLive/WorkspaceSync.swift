@@ -17,6 +17,13 @@ public final class WorkspaceSync {
         didSet { tabsBySurface = nil }
     }
     public private(set) var identity: String?
+    /// What the phone shows of this Mac (the tree, its activity times, its
+    /// order and pins) is the last link's: unbound, or bound again and its
+    /// first answer not in yet. Kept on screen meanwhile, never cleared, and
+    /// replaced by the new link's values as they arrive (Leo, 2026-11-22:
+    /// "shit shouldnt somehow instantly dissipate after i navigate away for
+    /// like one second").
+    public private(set) var isStale = false
     public private(set) var lastError: String? {
         didSet { if lastError != oldValue { onErrorChanged?() } }
     }
@@ -102,8 +109,10 @@ public final class WorkspaceSync {
         client = nil
         connectionSerial += 1
         let serial = connectionSerial
-        activity = [:]
+        // The activity times stay with the rows they date until the next
+        // link's list replaces them: only the title repeats are per link.
         titles = [:]
+        if tree != nil { isStale = true }
         if channel == nil {
             lastError = nil
             identity = nil
@@ -171,10 +180,16 @@ public final class WorkspaceSync {
         initializing = true
         projection = WorkspaceProjection()
         let projection = projection
-        activity = [:]
+        // The same Mac again (a redial): its activity times, order and pins
+        // stay, marked stale (`isStale`, `arrangementStale`), for the first
+        // list to keep and the next reads to replace. Another Mac's never do.
+        if macID != self.macID {
+            activity = [:]
+            arrangement = nil
+        }
+        if tree != nil { isStale = true }
         titles = [:]
         agents.bySurface = [:]
-        arrangement = nil
         arrangementStale = true
         listsKnown = false
         self.macID = macID
@@ -244,6 +259,7 @@ public final class WorkspaceSync {
             // reply arrival is not a watermark for the captured snapshot.
             discardBeforeSnapshot()
             tree = next
+            isStale = false
             lastError = nil
             initializing = false
             onTree?(next)
