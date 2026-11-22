@@ -423,6 +423,9 @@
         "notifications.sources.agent.dismissal",
         "notifications.sources.terminal.dismissal",
         "notifications.sources.cli.dismissal",
+        "notifications.delivery.permissionRequest",
+        "notifications.delivery.question",
+        "notifications.delivery.taskComplete",
         "notifications.desktop",
         "notifications.sound",
         "notifications.quietHours",
@@ -474,6 +477,8 @@
       "keys": [
         "experiments.glassToolbarGroups",
         "experiments.composerV2",
+        "experiments.agentBadges",
+        "experiments.agentBadgesBeam",
         "experiments.toastsV2"
       ]
     },
@@ -996,6 +1001,13 @@
       "keys": [
         "agents.chats.coldArchive",
         "agents.chats.coldArchiveAfterDays"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether inactive chats are archived on their own, and after how long: reversible (Unarchive brings a chat back), it only moves chats off the lists.",
+      "keys": [
+        "agents.chats.archiveInactive"
       ]
     },
     {

@@ -3507,12 +3507,6 @@
       "title" : "Glass Toolbar Groups",
       "type" : "boolean"
     },
-    "experiments.toastsV2" : {
-      "default" : false,
-      "description" : "Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat.",
-      "title" : "Toasts v2",
-      "type" : "boolean"
-    },
     "feed.agentPermissionPrompts" : {
       "default" : false,
       "description" : "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it.",
