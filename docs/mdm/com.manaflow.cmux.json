@@ -164,6 +164,38 @@
       "title" : "Model Picker Harness Placement",
       "type" : "string"
     },
+    "agentPane.display.layout.composer" : {
+      "default" : "rounded",
+      "description" : "The message box's outline: rounded, a pill, or square and docked.",
+      "enum" : [
+        "rounded",
+        "pill",
+        "square"
+      ],
+      "title" : "Message Box Shape",
+      "type" : "string"
+    },
+    "agentPane.display.layout.header" : {
+      "default" : "full",
+      "description" : "Full shows the chat's header tools at all times; Quiet shows them only while the pointer is over the header.",
+      "enum" : [
+        "full",
+        "quiet"
+      ],
+      "title" : "Chat Header",
+      "type" : "string"
+    },
+    "agentPane.display.layout.messages" : {
+      "default" : "bubbles",
+      "description" : "How your messages sit in the chat: a bubble on the right, a flat row on the left with an accent rule, or a card on the left.",
+      "enum" : [
+        "bubbles",
+        "flat",
+        "card"
+      ],
+      "title" : "Message Layout",
+      "type" : "string"
+    },
     "agentPane.display.minimap" : {
       "default" : "compact",
       "description" : "What runs down the chat's edge.",
