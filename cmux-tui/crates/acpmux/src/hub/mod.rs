@@ -62,6 +62,7 @@ mod bookmarks;
 pub(crate) mod cancel;
 mod catalog_reload;
 mod complete;
+mod composer_view;
 pub mod composers;
 mod cursor_ext;
 mod digest;

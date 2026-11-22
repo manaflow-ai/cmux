@@ -2645,6 +2645,8 @@ async fn dispatch_request_with_identity(
             )
             .await
         }
+        // Read only: a remote-origin connection gets the selection its own session/new would get.
+        method::MUX_COMPOSER => hub.composer_answer(&params, conn.origin.web_class()).await,
         "_acpmux/set_default_policy" => {
             let policy: PermissionPolicy = str_param(&params, "policy")
                 .ok_or_else(|| RpcError::invalid_params("policy is required"))?

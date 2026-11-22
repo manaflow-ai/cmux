@@ -253,10 +253,10 @@ impl World {
     /// efforts names its default. The daemon's own worlds are checked against it in tests, so a
     /// catalog or a start rule that hides a value fails there.
     pub fn flaw(&self) -> Option<String> {
-        if let Some(id) = &self.default_harness {
-            if !self.harnesses.contains_key(id) {
-                return Some(format!("the default harness {id} is not offered"));
-            }
+        if let Some(id) = &self.default_harness
+            && !self.harnesses.contains_key(id)
+        {
+            return Some(format!("the default harness {id} is not offered"));
         }
         for (id, offer) in &self.harnesses {
             let named = |what: &str, list: &[String], value: &Option<String>| match value {
@@ -325,7 +325,9 @@ mod tests {
                 if models.is_empty() { vec![None] } else { models.iter().map(Some).collect() };
             for start in starts {
                 let efforts: Vec<Option<String>> = match start {
-                    Some(m) if !m.efforts.is_empty() => m.efforts.iter().cloned().map(Some).collect(),
+                    Some(m) if !m.efforts.is_empty() => {
+                        m.efforts.iter().cloned().map(Some).collect()
+                    }
                     _ => vec![None],
                 };
                 for start_effort in efforts {
@@ -465,7 +467,10 @@ mod tests {
     fn check(world: &World, before: &Selection, pick: &Pick, after: &Selection) {
         assert_eq!(world.broken(after), None, "{before:?} + {pick:?} = {after:?} in {world:?}");
         if offered(world, before, pick) {
-            assert!(took(after, pick), "{before:?} + {pick:?} = {after:?}: an offered pick is taken");
+            assert!(
+                took(after, pick),
+                "{before:?} + {pick:?} = {after:?}: an offered pick is taken"
+            );
         } else {
             assert_eq!(after, before, "{pick:?} is not offered: nothing changes");
         }
@@ -474,7 +479,10 @@ mod tests {
         match pick {
             Pick::Harness(_) => {}
             Pick::Model(_) => {
-                assert_eq!((&after.harness, &after.account, &after.mode), (&before.harness, &before.account, &before.mode));
+                assert_eq!(
+                    (&after.harness, &after.account, &after.mode),
+                    (&before.harness, &before.account, &before.mode)
+                );
                 let kept = world.harnesses[&after.harness]
                     .model(after.model.as_deref().unwrap_or_default())
                     .is_some_and(|m| before.effort.as_ref().is_some_and(|e| m.efforts.contains(e)));
@@ -585,7 +593,12 @@ mod tests {
         // Another harness starts on its own values: Claude's mode and account name nothing there.
         let codex = pick(&high, Pick::Harness("codex".to_owned()));
         assert_eq!(
-            (codex.model.as_deref(), codex.effort.as_deref(), codex.mode.as_deref(), codex.account),
+            (
+                codex.model.as_deref(),
+                codex.effort.as_deref(),
+                codex.mode.as_deref(),
+                codex.account.as_deref()
+            ),
             (Some("sol"), Some("high"), Some("agent-full-access"), None)
         );
         // A mode the harness lacks is not taken.
@@ -596,7 +609,10 @@ mod tests {
         assert!(world.holds(&pi));
         // An account pick moves nothing else.
         let home = pick(&high, Pick::Account("home".to_owned()));
-        assert_eq!((home.model, home.effort, home.mode), (high.model.clone(), high.effort.clone(), high.mode.clone()));
+        assert_eq!(
+            (home.model, home.effort, home.mode),
+            (high.model.clone(), high.effort.clone(), high.mode.clone())
+        );
         // A remote host is another world: full access is not offered there, so a selection that
         // held it settles on that world's start mode, and keeps its model and effort.
         let mut remote = world.clone();
@@ -611,7 +627,11 @@ mod tests {
         );
         // A fork or a resumed chat seeds the composer with the chat's own values, settled: a
         // retired model gives way to the start model, the rest stays.
-        let old = Selection { model: Some("retired".to_owned()), effort: Some("max".to_owned()), ..full.clone() };
+        let old = Selection {
+            model: Some("retired".to_owned()),
+            effort: Some("max".to_owned()),
+            ..full.clone()
+        };
         let seeded = world.settle(&old).unwrap();
         assert_eq!(
             (seeded.model.as_deref(), seeded.effort.as_deref(), seeded.mode.as_deref()),
@@ -641,7 +661,8 @@ mod tests {
         assert!(flaw(Offer { start_model: None, ..sound.clone() }).is_some());
         assert!(flaw(Offer { start_mode: Some("gone".to_owned()), ..sound.clone() }).is_some());
         assert!(
-            flaw(Offer { models: vec![model("opus", &["medium"], None)], ..sound.clone() }).is_some()
+            flaw(Offer { models: vec![model("opus", &["medium"], None)], ..sound.clone() })
+                .is_some()
         );
         let lost = World { default_harness: Some("gone".to_owned()), ..world(&sound, &sound) };
         assert!(lost.flaw().is_some());
