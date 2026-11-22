@@ -144,7 +144,9 @@ function makeTransaction(thread: HTMLElement): ThreadTransaction {
       easing: foldMotion.easing(thread),
       composite: "add",
     });
-    move.startTime = plan.start;
+    // On its start: the time since it, not `startTime`, so the plan holds on any timeline origin (a
+    // page that reads `document.timeline` through a clock of its own, frameClock.ts, included).
+    move.currentTime = Math.max(0, now() - plan.start);
     drawn = move;
     move.addEventListener("finish", () => {
       if (drawn !== move) return;

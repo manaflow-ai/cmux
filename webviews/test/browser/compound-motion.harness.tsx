@@ -24,6 +24,7 @@ import "../../src/agent-session/acpmux/composerControls.css";
 import "../../src/agent-session/acpmux/composerStates.css";
 import "../../src/agent-session/acpmux/bottomStack.css";
 import "../../src/agent-session/acpmux/markdownField.css";
+import { TOGGLE_CALL_ID } from "../../src/agent-session/acpmux/conversation/scriptedTurn";
 import { TRANSCRIPT_ROW } from "../../src/agent-session/acpmux/transcriptSelectors";
 
 const query = new URLSearchParams(location.search);
@@ -40,7 +41,8 @@ Object.assign(root.style, { height: "100%", display: "flex", flexDirection: "col
 createRoot(root).render(<CompoundPane sessionId="compound-motion" bind={(set) => (show = set)} />);
 
 export type RowTop = { id: string; top: number; height: number };
-export type Sample = { t: number; phase: string; rows: RowTop[]; middle: number };
+/// `opened`: the toggled call's line reads open (the fold cases' click landed).
+export type Sample = { t: number; phase: string; rows: RowTop[]; middle: number; opened: boolean };
 
 const samples: Sample[] = [];
 let phase = "idle";
@@ -61,7 +63,14 @@ const sampleFrame = () => {
     const box = row.getBoundingClientRect();
     if (box.height > 0) rows.push({ id: row.dataset.rowId!, top: box.top, height: box.height });
   }
-  samples.push({ t: frameAt, phase, rows, middle: (view.top + view.bottom) / 2 });
+  const line = scroller.querySelector(`[data-tool-id="${TOGGLE_CALL_ID}"][aria-expanded]`);
+  samples.push({
+    t: frameAt,
+    phase,
+    rows,
+    middle: (view.top + view.bottom) / 2,
+    opened: line?.getAttribute("aria-expanded") === "true",
+  });
 };
 const tick = (t: number) => {
   frameAt = t;

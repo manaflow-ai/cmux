@@ -21,6 +21,8 @@ export type RunReport = {
   maxJump: number;
   /// The frames from the event to the anchor's last move.
   settleFrames: number;
+  /// The toggled call's line read open in the window (the fold cases' click landed).
+  opened: boolean;
 };
 
 const median = (values: readonly number[]) => {
@@ -75,6 +77,7 @@ export function analyzeRun(samples: readonly Sample[], step: string, windowFrame
     travel: deltas.reduce((sum, value) => sum + Math.abs(value), 0),
     maxJump: Math.max(0, ...deltas.map(Math.abs)),
     settleFrames: lastMove + 1,
+    opened: samples.slice(event, event + windowFrames).some((sample) => sample.opened),
   };
 }
 
@@ -87,6 +90,8 @@ export type CaseReport = {
   net: number;
   travel: number;
   settleFrames: number;
+  /// Every run's toggled line opened.
+  opened: boolean;
   /// The median run's phases, for the map ("frames x median px/frame").
   shape: string;
 };
@@ -103,6 +108,7 @@ export function summarize(runs: readonly RunReport[]): CaseReport {
     net: pick((run) => run.net),
     travel: pick((run) => run.travel),
     settleFrames: pick((run) => run.settleFrames),
+    opened: runs.every((run) => run.opened),
     shape:
       typical?.phases
         .map(

@@ -109,6 +109,9 @@ await requireBrowserLane("compound-motion.test.ts", async () => {
         console.log(`compound-motion ${scenario} ${arm}: ${JSON.stringify({ summary, runs })}`);
         // The control: nothing happens, nothing moves (a harness that reads motion with none is broken).
         if (scenario === "control") expect(summary.movingFrames).toBe(0);
+        // A fold the reader opens keeps the line they clicked where it is (the anchor holds: 0 is the
+        // goal), so its proof the event ran is the line reading open.
+        else if (scenario === "fold-stream") expect(summary.opened).toBe(true);
         // Everything else moves: a case that reads still is not in view, or its event never ran.
         else expect(summary.travel).toBeGreaterThan(0.5);
         // The send's composer collapse and its rows: one motion with the transaction, never two.
