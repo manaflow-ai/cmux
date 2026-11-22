@@ -52,6 +52,9 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
+
 API = "https://api.github.com"
 LIST_CAP = 1000  # GitHub answers a filtered run listing with at most this many results.
 MIN_WINDOW = dt.timedelta(seconds=2)
@@ -196,21 +199,21 @@ class GitHub:
             self.calls += 1
             req = urllib.request.Request(API + path, headers=self.headers, method=method)
             try:
-                with urllib.request.urlopen(req, timeout=30) as response:
-                    raw = response.read()
-                    return json.loads(raw) if raw else {}
-            except urllib.error.HTTPError as error:
-                body = error.read().decode(errors="replace")[:300]
-                secondary = error.code in (403, 429) and "secondary" in body.lower()
-                if secondary or error.code in (502, 503, 504):
-                    time.sleep(min(60, int(error.headers.get("Retry-After") or 0) or 10 * (attempt + 1)))
-                    continue
-                raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.code}): {body}") from error
-            except urllib.error.URLError as error:
+                status, raw, headers = deadline_http.request(req, 30)
+            except (urllib.error.URLError, TimeoutError) as error:
                 if attempt < 3:
                     time.sleep(5)
                     continue
-                raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.reason})") from error
+                reason = getattr(error, "reason", error)
+                raise RuntimeError(f"{method} {path.split('?')[0]} failed ({reason})") from error
+            if status < 400:
+                return json.loads(raw) if raw else {}
+            body = raw.decode(errors="replace")[:300]
+            secondary = status in (403, 429) and "secondary" in body.lower()
+            if secondary or status in (502, 503, 504):
+                time.sleep(min(60, int(headers.get("Retry-After") or 0) or 10 * (attempt + 1)))
+                continue
+            raise RuntimeError(f"{method} {path.split('?')[0]} failed ({status}): {body}")
         raise RuntimeError(f"{method} {path.split('?')[0]} kept failing")
 
     def _page(self, lo: dt.datetime, hi: dt.datetime, page: int, status: str = "queued") -> dict[str, Any]:

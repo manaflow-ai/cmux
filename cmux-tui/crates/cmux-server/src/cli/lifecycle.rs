@@ -224,6 +224,11 @@ pub fn install(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     if args.has("user") && args.has("system") {
         return Err(Error::usage("--user and --system do not go together"));
     }
+    if args.has("label") {
+        return Err(Error::usage(
+            "--label names a machine set up over ssh://; it does not go with an install here",
+        ));
+    }
     let layout = mutating_layout(ctx, args.has("system"))?;
     let mode = layout.mode;
     // Flags that ask for the signed store keep its refusals; without them a
@@ -598,7 +603,7 @@ pub fn pin(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     Ok(Output::new(json!({"pinned": pinned}), human))
 }
 
-/// `cmux server logs [--lines N] [--follow]`: the service's log. On Linux
+/// `cmux server logs [--lines N | -n N] [--follow | -f]`: the service's log. On Linux
 /// the unit's journal (`journalctl`), on macOS the LaunchAgent's log file.
 pub fn logs(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     let layout = layout(ctx, false)?;
@@ -640,7 +645,7 @@ pub fn logs(ctx: &Context<'_>, args: &Args) -> Result<Output> {
                     Err(e) => return Err(Error::io(log.display(), e)),
                 };
                 let all: Vec<&str> = text.lines().collect();
-                let tail = &all[all.len().saturating_sub(lines as usize)..];
+                let tail = all.get(all.len().saturating_sub(lines as usize)..).unwrap_or_default();
                 let mut human = tail.join("\n");
                 if !human.is_empty() {
                     human.push('\n');
