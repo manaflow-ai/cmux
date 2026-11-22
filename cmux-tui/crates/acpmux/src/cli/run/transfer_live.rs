@@ -48,7 +48,7 @@ pub(super) const WHOLE_FREEZE_LIMIT: u64 = 256 << 20;
 pub(crate) struct Live {
     /// Stop a copy whose estimate is past this (`SLOW`); `None`: no bound.
     pub max_copy: Option<Duration>,
-    /// Where the target is, for the progress line (`gcp-agent-lane-7`).
+    /// Where the target is, for the progress line (`lane-vm-7`).
     pub target: String,
     /// Print progress to stderr.
     pub verbose: bool,
@@ -366,10 +366,10 @@ mod tests {
         let r = json!({"phase": "pre-copy", "round": 1, "totalBytes": 6_800_000_000u64,
                        "doneBytes": 120_300_000u64, "wireBytes": 12_100_000u64,
                        "bytesPerSec": 1_000_000u64, "etaSecs": 6720u64,
-                       "target": "gcp-agent-lane-7"});
+                       "target": "lane-vm-7"});
         assert_eq!(
             progress_text(&r),
-            "pre-copy round 1 to gcp-agent-lane-7: 120.3 MB of 6.80 GB (wire 12.1 MB, 1.0 MB/s), \
+            "pre-copy round 1 to lane-vm-7: 120.3 MB of 6.80 GB (wire 12.1 MB, 1.0 MB/s), \
              about 1h 52m left"
         );
         assert_eq!(move_progress_line(&json!({"moveProgress": null})), None);

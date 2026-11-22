@@ -84,7 +84,7 @@ mod tests {
 
     #[test]
     fn the_incident_estimates_hours_over_the_relay_and_minutes_over_a_direct_link() {
-        // Mango: 6.8 GB of event log.
+        // The 2026-11-22 coordinator chat: 6.8 GB of event log.
         let wire = wire_bytes(6_800_000_000);
         assert!(copy_secs(wire, 96_000.0) > SLOW_COPY.as_secs_f64());
         assert!(copy_secs(wire, 1_000_000.0) < SLOW_COPY.as_secs_f64() / 4.0);
