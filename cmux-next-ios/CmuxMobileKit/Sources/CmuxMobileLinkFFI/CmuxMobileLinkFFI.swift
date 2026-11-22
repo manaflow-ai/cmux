@@ -4247,14 +4247,22 @@ public func FfiConverterTypeTabFace_lower(_ value: TabFace) -> RustBuffer {
 public enum TerminalChatPrompt: Equatable, Hashable {
     
     /**
-     * Not sent: only whitespace, or the tab is not a terminal with a chat face.
+     * Not sent: only whitespace, or the tab is not a terminal with a chat face. A chat
+     * tab's own composer sends to its own acpmux chat, as before.
      */
     case nothing
     /**
-     * Typed into the tab's terminal the way the terminal face's own composer sends a prompt.
+     * Typed into the tab's terminal the way the terminal face's own composer sends a
+     * prompt (one paste, then Return), so the agent running there takes it as typed and
+     * the chat face shows the turn as the agent writes it.
      */
     case terminal(text: String
     )
+
+
+
+
+
 }
 
 #if compiler(>=6)
@@ -5123,6 +5131,20 @@ public func terminalChatPairing(chats: [TerminalChatCandidate], listedWhole: Boo
 })
 }
 /**
+ * What Send does with `text` in tab `facts`' chat face (Leo, 2026-11-22: "dont have it read
+ * only. just do it properly."). A terminal's chat face is a View Only chat of its session,
+ * which acpmux refuses a prompt (`hub/watch.rs` `watch.read_only`): the prompt goes to the
+ * terminal running the session instead, where the person's own typing goes.
+ */
+public func terminalChatPrompt(facts: TerminalChatFacts, text: String) -> TerminalChatPrompt  {
+    return try!  FfiConverterTypeTerminalChatPrompt_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_chat_prompt(
+        FfiConverterTypeTerminalChatFacts_lower(facts),
+        FfiConverterString.lower(text),$0
+    )
+})
+}
+/**
  * The chat among `chats` that already shows `harness` session `session`, if any: a View
  * Only chat first (it follows the terminal), else one that resumed it and is not closed.
  * acpmux would answer an adopt of the session with the same chat
@@ -5134,17 +5156,6 @@ public func terminalChatSession(chats: [TerminalChatCandidate], harness: String,
         FfiConverterSequenceTypeTerminalChatCandidate.lower(chats),
         FfiConverterString.lower(harness),
         FfiConverterString.lower(session),$0
-    )
-})
-}
-/**
- * What Send does with `text` in tab `facts`' chat face.
- */
-public func terminalChatPrompt(facts: TerminalChatFacts, text: String) -> TerminalChatPrompt  {
-    return try!  FfiConverterTypeTerminalChatPrompt_lift(try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_func_terminal_chat_prompt(
-        FfiConverterTypeTerminalChatFacts_lower(facts),
-        FfiConverterString.lower(text),$0
     )
 })
 }
@@ -5230,11 +5241,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_pairing() != 6333) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_session() != 14930) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_prompt() != 8354) {
         return InitializationResult.apiChecksumMismatch
     }
-    // REGENERATE: hand-written until the fleet's uniffi-bindgen output replaces this file.
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_prompt() != 0) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_session() != 14930) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_swap() != 57193) {
