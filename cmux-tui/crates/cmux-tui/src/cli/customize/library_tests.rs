@@ -258,3 +258,24 @@ fn refresh_runs_at_start_only_when_the_app_commit_changed() {
     assert!(refresh_when(&customize, Some("e5f6071"), true, failed).is_err());
     assert_eq!(customize.library_refreshed_on().unwrap().as_deref(), Some("d3e4f50"));
 }
+
+#[test]
+fn keys_that_no_longer_apply_add_one_quiet_line_and_nothing_when_all_apply() {
+    use cmux_customize::library::Stale;
+    let answer =
+        || Answer::Library { json: json!({ "layers": {} }), human: "customize: 1 on\n".into() };
+    let Answer::Library { json, human } = no_longer_applies_into(answer(), &[]) else { panic!() };
+    assert_eq!((json, human.as_str()), (json!({ "layers": {} }), "customize: 1 on\n"));
+    let stale = [NoLongerApplies {
+        name: "x".into(),
+        keys: vec![Stale { key: "foo.bar".into(), why: "gone".into(), in_file: false }],
+    }];
+    let Answer::Library { json, human } = no_longer_applies_into(answer(), &stale) else {
+        panic!()
+    };
+    assert_eq!(
+        human,
+        "customize: 1 on\nsettings layer \"x\": 1 key no longer applies: foo.bar (gone)\n"
+    );
+    assert_eq!(json["no_longer_apply"][0]["keys"][0], json!({ "key": "foo.bar", "why": "gone" }));
+}

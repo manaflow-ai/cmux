@@ -97,6 +97,66 @@ struct WebBundleOverlayTests {
         // With no tree (the bundle) a request keeps its bundled root.
         #expect(overlay.root(for: settings, tree: nil) == settings)
     }
+
+    /// One piece switched out is served from its own folder (a kept update, or the bundle) while
+    /// the other pieces stay on the active update.
+    @Test func aSwitchedOutPieceIsServedFromItsOwnFolder() async {
+        let overlay = Self.overlay()
+        let lastGood = URL(fileURLWithPath: "/Support/web-updates/trees/old", isDirectory: true)
+        let settings = Self.bundledPages.appending(path: "settings", directoryHint: .isDirectory)
+        overlay.activate(Self.tree)
+        #expect(overlay.setSwitches([Self.paneOutput: lastGood]))
+        #expect(!overlay.setSwitches([Self.paneOutput: lastGood]))
+        #expect(await overlay.root(for: Self.bundledPane).path == lastGood.path + "/" + Self.paneOutput)
+        #expect(await overlay.root(for: settings).path == Self.tree.path + "/" + WebBundleOverlay.pagesOutput + "/settings")
+        #expect(overlay.switchedTrees == [lastGood.standardizedFileURL])
+        // To the bundle: its bundled root, with the update still active for the rest.
+        #expect(overlay.setSwitches([Self.paneOutput: nil]))
+        #expect(await overlay.root(for: Self.bundledPane) == Self.bundledPane)
+        #expect(await overlay.root(for: settings).path.hasPrefix(Self.tree.path + "/"))
+        #expect(overlay.switchedTrees.isEmpty)
+        // A piece switched to a kept update is served from it even with no active update.
+        overlay.activate(nil)
+        overlay.setSwitches([Self.paneOutput: lastGood])
+        #expect(await overlay.root(for: Self.bundledPane).path == lastGood.path + "/" + Self.paneOutput)
+        #expect(await overlay.root(for: settings) == settings)
+        // Live again.
+        #expect(overlay.setSwitches([:]))
+        #expect(await overlay.root(for: Self.bundledPane) == Self.bundledPane)
+    }
+
+    /// A switch reloads the pages that read the switched piece and no other page, and a page keeps
+    /// the folders it loaded with until then.
+    @Test func aSwitchPutsOnlyThePagesOfItsPieceBehind() async {
+        let overlay = Self.overlay()
+        let lastGood = URL(fileURLWithPath: "/Support/web-updates/trees/old", isDirectory: true).standardizedFileURL
+        let pane = NSObject(), page = NSObject()
+        var pins = WebBundlePins()
+        overlay.activate(Self.tree)
+        let loaded = await overlay.serving()
+        for (view, bundled) in [(pane, Self.bundledPane), (page, Self.bundledPages)] {
+            pins.pin(ObjectIdentifier(view), to: loaded)
+            pins.read(ObjectIdentifier(view), output: overlay.output(for: bundled) ?? "")
+        }
+        overlay.setSwitches([Self.paneOutput: lastGood])
+        let target = overlay.serving(tree: overlay.activeTree)
+        #expect(pins.isBehind(ObjectIdentifier(pane), target))
+        #expect(!pins.isBehind(ObjectIdentifier(page), target))
+        // Until it reloads the pane reads the update it loaded with, which stays on disk.
+        #expect(overlay.root(for: Self.bundledPane, serving: pins.serving(for: ObjectIdentifier(pane)) ?? target).path
+            == Self.tree.path + "/" + Self.paneOutput)
+        pins.pin(ObjectIdentifier(pane), to: target)
+        #expect(!pins.isBehind(ObjectIdentifier(pane), target))
+        #expect(pins.pinned == [Self.tree.standardizedFileURL, lastGood])
+        // Live again: only the pane is behind.
+        overlay.setSwitches([:])
+        let live = overlay.serving(tree: overlay.activeTree)
+        #expect(pins.isBehind(ObjectIdentifier(pane), live))
+        #expect(!pins.isBehind(ObjectIdentifier(page), live))
+        // A newer update puts both behind.
+        let newer = WebBundleOverlay.Serving(tree: URL(fileURLWithPath: "/Support/web-updates/trees/def", isDirectory: true))
+        #expect(pins.isBehind(ObjectIdentifier(pane), newer) && pins.isBehind(ObjectIdentifier(page), newer))
+    }
     /// A Chromium page asks for its files with no web view of its own: each request read whichever
     /// update was active, so a chat loaded with one merge's entry took the next merge's unhashed
     /// `chunks/X.mjs` after a swap, and a swap never reloaded it. It reads the update its document
