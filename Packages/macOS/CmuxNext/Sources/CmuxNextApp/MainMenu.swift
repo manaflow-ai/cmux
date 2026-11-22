@@ -8,7 +8,8 @@ import CmuxNextDesign
 /// standard responder-chain items so text fields (rename, omnibox) work;
 /// the Help menu is in MainMenu+Placements.swift.
 enum MainMenu {
-    static func make(registry: ActionRegistry) -> NSMenu {
+    /// - Parameter customizations: App menu > Customizations (`CustomizationsMenu`), placed under Customize….
+    static func make(registry: ActionRegistry, customizations: NSMenuItem? = nil) -> NSMenu {
         let mainMenu = NSMenu()
         // About (`about`: the standard panel with the build's credits) comes first, as in every Mac app.
         var app: [NSMenuItem] = registry.makeMenuItem(for: "about").map { [$0, .separator()] } ?? []
@@ -18,6 +19,12 @@ enum MainMenu {
         let quitIDs: [ActionID] = ["quit"]
         let placedElsewhere = Set((quitIDs + [ActionID("about")]).compactMap { registry.title(for: $0) })
         app += compactMainMenuItems(for: .app, registry: registry).filter { !placedElsewhere.contains($0.title) }
+        if let customizations {
+            let after = [registry.title(for: "customize.open"), registry.title(for: "openSettings")].compactMap { title in
+                app.lastIndex(where: { $0.title == title })
+            }.first
+            app.insert(customizations, at: after.map { $0 + 1 } ?? app.count)
+        }
         app += [
             .separator(),
             NSMenuItem(title: Strings.menuHide, action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"),

@@ -8,6 +8,12 @@ enum Strings {
     static var menuHide: String { String(localized: "menu.app.hide", defaultValue: "Hide cmux", bundle: .module.inAppLanguage) }
     static var menuHideOthers: String { String(localized: "menu.app.hideOthers", defaultValue: "Hide Others", bundle: .module.inAppLanguage) }
     static var menuShowAll: String { String(localized: "menu.app.showAll", defaultValue: "Show All", bundle: .module.inAppLanguage) }
+    static var menuCustomizations: String {
+        String(localized: "menu.app.customizations", defaultValue: "Customizations", bundle: .module.inAppLanguage)
+    }
+    static var menuAllCustomizations: String {
+        String(localized: "menu.app.customizations.all", defaultValue: "All Customizations…", bundle: .module.inAppLanguage)
+    }
     static var menuFile: String { String(localized: "menu.file", defaultValue: "File", bundle: .module.inAppLanguage) }
     static var menuEdit: String { String(localized: "menu.edit", defaultValue: "Edit", bundle: .module.inAppLanguage) }
     static var menuUndo: String { String(localized: "menu.edit.undo", defaultValue: "Undo", bundle: .module.inAppLanguage) }

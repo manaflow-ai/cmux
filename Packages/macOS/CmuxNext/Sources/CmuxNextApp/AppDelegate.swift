@@ -195,7 +195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startSettingsAndControl(services: services, launch: settingsRead, bare: launch.kind == .bare)
         services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
         DebugTimings.markLaunch("dfl.settings")
-        NSApp.mainMenu = MainMenu.make(registry: services.registry)
+        NSApp.mainMenu = MainMenu.make(registry: services.registry, customizations: CustomizationsMenu.item(services: services))
         DebugTimings.markLaunch("dfl.menu")
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         WindowActivation.activateApp()
