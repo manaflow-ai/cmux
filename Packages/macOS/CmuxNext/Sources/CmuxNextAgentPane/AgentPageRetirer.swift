@@ -35,6 +35,9 @@ public final class AgentPageRetirer {
         self?.teardown($0)
     }
 
+    /// How the app's chat pages were made (spare, kept, cold), every build; read by `agent.chat.perf page_source`.
+    public let sources = AgentPageSources()
+
     public init(measure: @escaping @MainActor (String, () -> Void) -> Void = { _, body in body() }) {
         self.measure = measure
     }
@@ -44,7 +47,11 @@ public final class AgentPageRetirer {
     public var keptPages: [(key: String, view: AgentPaneView)] { kept.pages.map { ("kept:\($0.session)", $0.page) } }
 
     /// The kept page of closed chat `session`, taken back.
-    public func takeKept(_ session: String) -> AgentPaneView? { kept.take(session) }
+    public func takeKept(_ session: String) -> AgentPaneView? {
+        let page = kept.take(session)
+        if page != nil { sources.record(.kept) }
+        return page
+    }
 
     /// Retires `view`; a chat page of this Mac showing `session` is kept first.
     public func retire(_ view: AgentPaneView, keeping session: String? = nil) {
