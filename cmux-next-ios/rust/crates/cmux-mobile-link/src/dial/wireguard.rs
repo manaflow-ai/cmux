@@ -55,7 +55,9 @@ mod paths;
 pub use paths::{app_backgrounded, set_app_backgrounded};
 pub use roam::{network_changed, rehome, roam_timeline, route_destinations};
 #[doc(hidden)]
-pub use roam::{roam_session, session_endpoints, simulate_network_loss, simulate_turn_loss};
+pub use roam::{
+    roam_session, session_endpoints, simulate_blackout, simulate_network_loss, simulate_turn_loss,
+};
 
 /// The link's TCP port inside the tunnel (PROTOCOL.md).
 pub const LINK_PORT: u16 = 7420;
@@ -72,8 +74,8 @@ pub(crate) const KEEPALIVE_SECONDS: u16 = 10;
 /// A confirmed route silent this long is no longer trusted: every datagram
 /// goes on every route again until the peer confirms one. Longer than the
 /// WireGuard keepalive (10 s), shorter than the link keepalive timeout
-/// (20 s), so a route that dies in both directions recovers on TURN before
-/// the link gives up.
+/// (`link::KEEPALIVE_TIMEOUT`, 45 s), so a route that dies in both
+/// directions recovers on TURN before the link gives up.
 const DIRECT_STALE: Duration = Duration::from_secs(14);
 const STUN_WAIT: Duration = Duration::from_millis(1500);
 
@@ -594,7 +596,8 @@ const ROAM_SPRAY_GAP: Duration = Duration::from_millis(100);
 /// the dead route would otherwise cost TCP inside the tunnel its 1 s
 /// minimum retransmission timeout, or after a long outage (airplane mode)
 /// its backed-off one. WireGuard's replay window drops the copies that did
-/// arrive. As long as the link's own keepalive timeout.
+/// arrive. The link's old keepalive timeout; what a replay sends is
+/// bounded by [`REPLAY_MAX`] and [`REPLAY_BYTES`] whatever the age.
 const REPLAY_AGE: Duration = Duration::from_secs(20);
 /// At most this many datagrams are kept for that (about 100 ms of a
 /// 15 Mbit/s stream; a whole outage of retransmissions and keepalives).
@@ -729,6 +732,9 @@ struct HybridUnderlay {
     /// The socket's network is gone (debug and tests): nothing it sends
     /// leaves and nothing arrives.
     blackhole: bool,
+    /// The network is dark for now (debug and tests, [`Control::Dark`]):
+    /// as `blackhole`, but the socket and the TURN allocation stay.
+    dark: bool,
     /// Test support: addresses plain UDP was sent to; with
     /// `DialOptions::restrict_inbound_udp`, UDP from anywhere else is dropped.
     sent_to: HashSet<SocketAddr>,
@@ -833,6 +839,7 @@ impl HybridUnderlay {
             next_spray: None,
             roam: None,
             blackhole: false,
+            dark: false,
             sent_to: HashSet::new(),
             recent: std::collections::VecDeque::new(),
             last_replay: None,
@@ -1054,6 +1061,7 @@ impl HybridUnderlay {
                 self.retire_turn();
                 self.turn_targets.clear();
             }
+            Control::Dark(dark) => self.dark = dark,
             Control::KillTurn => {
                 if let Some(turn) = &self.turn {
                     turn.kill();
@@ -1326,6 +1334,7 @@ impl HybridUnderlay {
         if self.options.drop_outbound_udp
             || self.options.block_udp
             || self.blackhole
+            || self.dark
             || self.options.drop_udp_to.is_some_and(|drop| drop(&target))
         {
             return true;
@@ -1347,6 +1356,9 @@ impl HybridUnderlay {
     /// Through this side's TURN allocation to every peer endpoint it can
     /// reach.
     fn send_turn_targets(&self, datagram: &[u8], class: SendClass) {
+        if self.dark {
+            return;
+        }
         if let Some(turn) = &self.turn {
             for target in &self.turn_targets {
                 turn.send(datagram, *target, class);
@@ -1369,7 +1381,9 @@ impl HybridUnderlay {
             }
             Carrier::Turn => match &self.turn {
                 Some(turn) if !turn.is_dead() => {
-                    turn.send(datagram, route.addr, class);
+                    if !self.dark {
+                        turn.send(datagram, route.addr, class);
+                    }
                     true
                 }
                 _ => false,
@@ -1468,7 +1482,7 @@ impl HybridUnderlay {
     fn impaired(&mut self, datagram: &[u8], origin: Origin) -> bool {
         let Some(impair) = self.options.impair_inbound else { return false };
         let Some(from) = origin.addr else { return false };
-        match impair(origin.path == TURN_PATH, &from) {
+        match impair(origin.path == TURN_PATH, &from, datagram.len()) {
             None => true,
             Some(delay) if delay.is_zero() => false,
             Some(delay) => {
@@ -1678,6 +1692,7 @@ impl Underlay for HybridUnderlay {
                 Poll::Ready(Ok(source)) => {
                     let len = read.filled().len();
                     if self.blackhole
+                        || self.dark
                         || self.options.block_udp
                         || (self.options.restrict_inbound_udp && !self.sent_to.contains(&source))
                         || self.stun_answer(&buffer[..len], source)
@@ -1707,6 +1722,9 @@ impl Underlay for HybridUnderlay {
         while let Some(turn) = &mut self.turn
             && let Poll::Ready(Some((datagram, from))) = turn.inbound.poll_recv(cx)
         {
+            if self.dark {
+                continue;
+            }
             let origin = Origin { path: TURN_PATH, addr: Some(from) };
             if self.impaired(&datagram, origin) {
                 continue;
