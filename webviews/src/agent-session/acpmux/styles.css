@@ -1146,14 +1146,14 @@ fieldset.acpmux-question[hidden]{display:none}
   border-inline-end: 1px solid var(--agent-border);
   background: var(--agent-surface);
 }
-.acpmux-browser-sidebar h2 { margin: 4px 8px 12px; font-size: 13px; }
-.acpmux-browser-sidebar input { width: 100%; box-sizing: border-box; margin-bottom: 8px; padding: 5px 8px; }
+.acpmux-browser-sidebar h2 { margin: 4px 8px 12px; font-size: var(--text-body); }
+.acpmux-browser-sidebar input { width: 100%; box-sizing: border-box; margin-bottom: 8px; padding: 4px 8px; }
 .acpmux-browser-sidebar button {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 5px 8px;
+  padding: 4px 8px;
   border: 0;
   border-radius: var(--ds-radius-control);
   color: inherit;
@@ -1166,11 +1166,12 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-browser-sidebar button span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .acpmux-browser-sidebar-heading { display: flex; align-items: center; justify-content: space-between; }
-.acpmux-browser-sidebar-heading button { width: auto; color: var(--agent-muted); font-size: 11px; }
-.acpmux-browser-sidebar details { margin: 4px 0 10px; }
-.acpmux-browser-sidebar summary { padding: 5px 8px; cursor: pointer; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-browser-sidebar-heading button { width: auto; color: var(--agent-muted); font-size: var(--text-caption); }
+.acpmux-browser-sidebar details { margin: 4px 0 12px; }
+.acpmux-browser-sidebar summary { padding: 4px 8px; cursor: pointer; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-browser-workspace-chats { padding-inline-start: 12px; }
-.acpmux-browser-sidebar p { margin: 6px 8px; color: var(--agent-muted); font-size: 12px; }
+.acpmux-browser-sidebar p,
+.acpmux-browser-sidebar output { display: block; margin: 4px 8px; color: var(--agent-muted); font-size: var(--text-detail); }
 .acpmux-browser-sidebar button:disabled { color: var(--agent-muted); cursor: default; }
 .acpmux-browser-sidebar button:disabled:hover { background: transparent; }
 .acpmux-browser-sidebar summary:focus-visible,

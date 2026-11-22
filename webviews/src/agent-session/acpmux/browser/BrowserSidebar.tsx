@@ -63,7 +63,7 @@ export const BrowserSidebar = memo(function BrowserSidebar({
           setLimit(60);
         }}
       />
-      {workspaces && !workspaces.available && <p role="status">{t("picker.unavailable")}</p>}
+      {workspaces && !workspaces.available && <output>{t("picker.unavailable")}</output>}
       {visibleWorkspaces.map((workspace) => (
         <details key={`${workspaces?.registryId}:${workspace.id}`} data-workspace={workspace.id} open>
           <summary title={workspace.title || workspace.name}>{workspace.title || workspace.name}</summary>
