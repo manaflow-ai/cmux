@@ -826,6 +826,35 @@ export default agentPaneEntry({
         summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
     },
+    // Lawrence 2026-11-19: "hovering on each of the things should show keyboard shortcuts like cmd
+    // ctrl m". The host pushes its bound keys (applyShortcuts); each chip's tooltip ends with its key.
+    "chip-shortcut-tooltips": {
+      note: "The host's bound keys reach the page; hovering the model chip shows its tooltip with ⌃⌘M after it.",
+      ready: { newSession: true, cwd: CWD },
+      snapshot: noChat([session({ sessionId: "older", title: "An older chat" })], {
+        summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
+      }),
+      play: async (ctx) => {
+        const bridge = (
+          ctx.document.defaultView as unknown as {
+            cmuxAcpmuxBridge?: { applyShortcuts?(labels: Record<string, string>): void };
+          }
+        ).cmuxAcpmuxBridge;
+        bridge?.applyShortcuts?.({
+          "agentPane.switchModel": "⌃⌘M",
+          "agentPane.composer.addMenu": "⌃⌥⌘A",
+          "agentPane.composer.chooseFolder": "⌃⌥⌘O",
+          "agentPane.composer.chooseComputer": "⌃⌥⌘K",
+          "agentPane.composer.switchMode": "⌃⌥⌘M",
+          "agentPane.composer.togglePlan": "⌃⌥⌘P",
+          "agentPane.composer.agentOptions": "⌃⌥⌘G",
+          "agentPane.composer.showContextUsage": "⌃⌥⌘U",
+        });
+        await ctx.waitFor(() => ctx.document.querySelector(`${MODEL_PICKER}[data-tooltip-shortcut="⌃⌘M"]`));
+        await ctx.hover(MODEL_BUTTON);
+        await ctx.waitFor(() => ctx.document.querySelector(".ui-title-tooltip:not([hidden]) .ui-tooltip-hint"));
+      },
+    },
     "side-session": {
       note: "A side session (/btw) is available by default: the empty prompt reads Reply in this session…, and /btw is not offered in it.",
       snapshot: sideSession,
@@ -1428,7 +1457,7 @@ export default agentPaneEntry({
         await ctx.waitFor(() => {
           const failed = ctx.document.querySelector<HTMLElement>(".acpmux-attachment-failed");
           return Boolean(
-            failed?.querySelector(".acpmux-attachment-failed-name")?.textContent === "build-logs.zip" &&
+            failed?.querySelector(".acpmux-file-chip__name")?.textContent === "build-logs.zip" &&
             failed.getAttribute("title")?.includes("build-logs.zip") &&
             failed.querySelectorAll(".acpmux-attachment-remove").length === 1 &&
             !failed.querySelector(".acpmux-attachment-retry"),
@@ -2766,7 +2795,7 @@ export default agentPaneEntry({
     // composer/extensionCommands.ts reads its answer, and they sit in the same menu as the agent's,
     // labelled with the extension's name. Picking one writes its text over the typed /word.
     "slash-menu-extension-command": {
-      note: "Play: type /st in a chat with an installed extension that adds /standup; the row is labelled Standup, and picking it writes the extension's text in the prompt.",
+      note: "Play: type /st in a chat with an installed extension that adds /standup; the row is labelled Standup beside other sources, and picking it writes the extension's text in the prompt.",
       snapshot: chat(finished, {
         commands: [
           { name: "compact", description: "Clear conversation history but keep a summary in context" },
@@ -2778,9 +2807,12 @@ export default agentPaneEntry({
         const prompt = { selector: "[contenteditable='true']" } as const;
         await ctx.click(prompt);
         await ctx.type("/st");
+        // The tag shows when the list holds more than one source (cmux's own /status matches too).
         await ctx.waitFor(() =>
-          [...ctx.document.querySelectorAll("#acpmux-slash-menu .acpmux-slash-source")].some(
-            (label) => label.textContent?.trim() === "Standup",
+          [...ctx.document.querySelectorAll("#acpmux-slash-menu [role='option']")].some(
+            (option) =>
+              option.querySelector(".acpmux-slash-name")?.textContent === "/standup" &&
+              ["Standup", undefined].includes(option.querySelector(".acpmux-slash-source")?.textContent?.trim()),
           ),
         );
       },
@@ -3090,18 +3122,17 @@ export default agentPaneEntry({
             (option) => option.querySelector(".acpmux-slash-name")?.textContent === `/${name}`,
           );
         await ctx.waitFor(() => !!row("import") && !!row("fork") && !!row("side"));
-        if (
-          row("import")?.querySelector(".acpmux-slash-description")?.textContent !==
-          "Start a new chat with this transcript as its first prompt"
-        )
+        // The highlighted row shows what it does; the others say it to a screen reader only.
+        const said = (name: string) =>
+          row(name)?.querySelector(".acpmux-slash-description")?.textContent ??
+          row(name)?.getAttribute("aria-description");
+        if (said("import") !== "Start a new chat with this transcript as its first prompt")
           throw new Error("/import description does not explain the transcript's first prompt");
-        if (
-          row("fork")?.querySelector(".acpmux-slash-description")?.textContent !== "Fork this turn into a new chat tab"
-        )
+        if (said("fork") !== "Fork this turn into a new chat tab")
           throw new Error("/fork description does not describe its new chat");
         // /side reads as /fork does (#43977): the same wording, and no dim argument hint between
         // its name and its description.
-        if (row("side")?.querySelector(".acpmux-slash-description")?.textContent !== "Fork this turn into a side chat")
+        if (said("side") !== "Fork this turn into a side chat")
           throw new Error("/side description does not match /fork's wording");
         for (const name of ["fork", "side"])
           if (row(name)?.querySelector(".acpmux-slash-hint"))

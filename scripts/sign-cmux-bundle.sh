@@ -25,6 +25,12 @@
 #                              pack (scripts/cmux-next/cef-runtime-pack.sh) written to
 #                              CMUX_NEXT_CEF_RUNTIME_OUT, pinned to
 #                              CMUX_NEXT_CEF_RUNTIME_BASE_URL, before the app is signed
+#   CMUX_NEXT_LANGUAGE_PACKS   "1" moves every non-English .lproj of the CmuxNext_*.bundle
+#                              resource bundles into language packs
+#                              (scripts/cmux-next/language-packs.py) written to
+#                              CMUX_NEXT_LANGUAGE_PACKS_OUT, pinned to
+#                              CMUX_NEXT_LANGUAGE_PACKS_BASE_URL (default
+#                              https://files-next.cmux.com/language-packs), before the app is sealed
 #   CMUX_SIGN_MODE             "all" (default) or "main-only" (re-seal only the
 #                              main bundle, keeping every nested signature).
 #
@@ -205,6 +211,21 @@ if [[ "$SIGN_MODE" == "all" ]]; then
       "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --deep "$framework"
     done < <(find "$APP_PATH/Contents/Frameworks" -mindepth 1 -maxdepth 1 -print0)
   fi
+
+  # 4b. Languages download on first use (CMUX-570). The resource bundles carry no signature of
+  # their own (no _CodeSignature; language-packs.py refuses one that does), and .strings are not
+  # code, so their .lproj leave after the inner code is signed and step 5 seals what is left.
+  # A re-sign of an app already split (it has the pin) keeps its pin and packs.
+  if [[ "${CMUX_NEXT_LANGUAGE_PACKS:-}" == 1 ]]; then
+    if [[ -f "$APP_PATH/Contents/Resources/language-packs.json" ]]; then
+      echo "==> language packs: already split (Contents/Resources/language-packs.json)"
+    else
+      echo "==> moving non-English strings into language packs"
+      python3 -I "$SCRIPT_DIR/cmux-next/language-packs.py" split "$APP_PATH" \
+        "${CMUX_NEXT_LANGUAGE_PACKS_OUT:?CMUX_NEXT_LANGUAGE_PACKS=1 needs CMUX_NEXT_LANGUAGE_PACKS_OUT}" \
+        --base-url "${CMUX_NEXT_LANGUAGE_PACKS_BASE_URL:-https://files-next.cmux.com/language-packs}"
+    fi
+  fi
 fi
 
 # 5. Main app bundle (no --deep), with the effective entitlements.
@@ -225,6 +246,11 @@ for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
   [[ -d "$screen_helper" ]] || continue
   /usr/bin/codesign --verify --strict --verbose=2 "$screen_helper"
 done
+# One Screen Recording holder whose bundle id and requirement stay the same between builds, so a
+# grant survives every update (an ad-hoc signing's requirement is a cdhash by design).
+if [[ "$SIGN_MODE" == "all" && "$IDENTITY" != "-" ]]; then
+  "$SCRIPT_DIR/ci/check-screen-share-identity.sh" "$APP_PATH"
+fi
 # An unsandboxed app extension is one macOS never lists in the Share menu.
 share_extension="$APP_PATH/Contents/PlugIns/$SHARE_EXTENSION"
 if [[ -d "$share_extension" ]]; then

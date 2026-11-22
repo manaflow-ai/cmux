@@ -249,6 +249,20 @@ export async function papercutPane(
   const count = (method: string) => methods.filter((sent) => sent === method).length;
   const sent = (method: string, after: number) =>
     count(method) > after ? Promise.resolve() : new Promise<void>((done) => void waiters.push({ method, after, done }));
+  /// Requests whose replies the stand-in holds, as a busy acpmux does: `stall(methods)` holds each
+  /// later request of those methods unanswered, and `stall([])` answers every held one, in order.
+  const stalled = { methods: new Set<string>(), held: [] as (() => void)[] };
+  const stall = (methods: string[]) => {
+    stalled.methods = new Set(methods);
+    if (methods.length) return;
+    for (const reply of stalled.held.splice(0)) {
+      try {
+        reply();
+      } catch {
+        // The page's socket closed meanwhile: its reconnect asks again.
+      }
+    }
+  };
   const daemon = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -278,7 +292,8 @@ export async function papercutPane(
           const reply = () =>
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) }));
           const slow = slowReplies.ms;
-          if (slow > 0) {
+          if (stalled.methods.has(message.method)) stalled.held.push(reply);
+          else if (slow > 0) {
             // A slow acpmux (5–12 s replies, Leo 2026-11-18): every answer lands that late.
             // fixed-wait: the daemon's latency is the condition under test.
             setTimeout(reply, slow);
@@ -395,7 +410,7 @@ export async function papercutPane(
   /// The chat's page address, for a page this helper does not open (support/frames120.ts's 120 Hz one).
   const address = () =>
     `http://127.0.0.1:${pagePort}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${PAPERCUT_CHAT}`;
-  return { open, close, methods, prompts, record, recordAway, drop, sent, address, history, slowReplies };
+  return { open, close, methods, prompts, record, recordAway, drop, sent, address, history, stall, slowReplies };
 }
 
 /// Settings > Agent Chat > Session Info: Push always (or back to the default), as the host's `display`
