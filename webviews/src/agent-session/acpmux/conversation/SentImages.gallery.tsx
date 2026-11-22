@@ -2,10 +2,19 @@
 // The images a sent prompt carries, above its bubble (UserBubble.tsx SentImages): each a rounded
 // thumbnail of the whole image at most 160px tall and 480px wide, in the bubble's column with its
 // right edge on the bubble's, its slot held while acpmux reads it, named on hover by its file name
-// or, for a pasted screenshot, its size; one that cannot be drawn says so.
+// or, for a pasted screenshot, its size; one that cannot be drawn says so. A prompt whose images
+// were placed in its text draws each where it was put, at the same size, in its final box from the
+// first frame (Leo, 2026-11-22: "there should be no problem doing so for inline attachments after
+// send").
 import { useEffect, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
+import {
+  attachmentsHoldTheirBoxes,
+  heldUntilReleased,
+  paintShot,
+  type Shot,
+} from "../../../gallery/fixtures/sentMedia";
 import type { AcpmuxRow, PromptImage } from "../model";
 import { primeSentImages } from "./imageEntries";
 import { ImageViewerContext } from "./imageViewerContext";
@@ -13,7 +22,6 @@ import { PresentationContext } from "./presentationContextModel";
 import { TurnActionsContext, type TurnActions } from "./turnActions";
 import { SentImages, UserBubble } from "./UserBubble";
 
-type Shot = { width: number; height: number; hue: number };
 type Props = {
   images: (PromptImage & { shot?: Shot; broken?: boolean })[];
   pending?: boolean;
@@ -23,27 +31,18 @@ type Props = {
   attachmentOnly?: "sending" | "actions";
   /// Also sends the first image inside a prompt's text (InlinePromptContent.tsx).
   inline?: boolean;
-  /// Only a prompt with every image placed in its text, as the composer sends a paste: the block
-  /// above the bubble (UserBubble.tsx `.cv-user__inline-strip`), over this text.
+  /// Only a prompt with every image placed in its text, as the composer sends a paste: the images
+  /// where they were put (InlinePromptContent.tsx), after `placedBefore` and before this text.
   placedIn?: string;
+  placedBefore?: string;
+  /// The chat's width in px: a pane split in half, a third or a quarter of a 1440px window.
+  column?: number;
+  /// acpmux's reads answer only when the play releases them (gallery/fixtures/sentMedia.ts), so the
+  /// first frame draws every image before its bytes.
+  held?: boolean;
 };
 
-/// A screenshot-like image `shot.width`×`shot.height`: a title bar, a sidebar and lines of text.
-function paint({ width, height, hue }: Shot): string {
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ink = canvas.getContext("2d")!;
-  ink.fillStyle = `hsl(${hue} 30% 16%)`;
-  ink.fillRect(0, 0, width, height);
-  ink.fillStyle = `hsl(${hue} 30% 24%)`;
-  ink.fillRect(0, 0, width, height * 0.07);
-  ink.fillRect(0, 0, width * 0.22, height);
-  ink.fillStyle = `hsl(${hue} 70% 62%)`;
-  for (let line = 0; line < 9; line += 1)
-    ink.fillRect(width * 0.27, height * (0.14 + line * 0.08), width * (0.3 + ((line * 37) % 40) / 100), height * 0.025);
-  return canvas.toDataURL("image/png");
-}
+const paint = (shot: Shot) => paintShot(shot);
 
 /// The id acpmux names a data URL's image by: the SHA-256 of its bytes.
 async function acpmuxId(src: string): Promise<string> {
@@ -95,9 +94,13 @@ function GallerySentImages({
   inline = false,
   attachmentOnly,
   placedIn,
+  placedBefore,
+  column,
+  held,
 }: Props) {
   if (primedLate) return <GalleryPrimedLate images={images} />;
-  if (placedIn !== undefined) return <GalleryPlacedImages images={images} text={placedIn} />;
+  if (placedIn !== undefined)
+    return <GalleryPlacedImages images={images} text={placedIn} before={placedBefore} column={column} held={held} />;
   if (attachmentOnly) return <GalleryAttachmentOnly images={images} state={attachmentOnly} />;
   return <GalleryShownImages images={images} pending={pending} inline={inline} />;
 }
@@ -149,63 +152,58 @@ function GalleryAttachmentOnly({ images, state }: { images: Props["images"]; sta
   );
 }
 
-/// A prompt whose images were placed in its text: its words around them, the images in the block
-/// above its bubble.
-function GalleryPlacedImages({ images, text }: { images: Props["images"]; text: string }) {
+/// A prompt whose images were placed in its text: its words around them, each image where it was
+/// put. Each part carries its size, as acpmux's record does (hub/prompt_images.rs reads it from the
+/// image's header), so its box is final before its bytes land.
+function GalleryPlacedImages({
+  images,
+  text,
+  before,
+  column,
+  held = false,
+}: {
+  images: Props["images"];
+  text: string;
+  before?: string;
+  column?: number;
+  held?: boolean;
+}) {
   const [actions] = useState<TurnActions>(() => {
     const urls = new Map(images.map((image) => [image.id, image.shot && paint(image.shot)]));
-    return { promptImage: (id: string) => Promise.resolve(urls.get(id)) };
+    return {
+      promptImage: (id: string) => (held ? heldUntilReleased(urls.get(id)) : Promise.resolve(urls.get(id))),
+    };
   });
+  const sized = images.map((image) => ({
+    ...image,
+    ...(image.shot && { width: image.shot.width, height: image.shot.height }),
+  }));
   const row: AcpmuxRow = {
     id: "placed",
     version: 1,
     kind: "user",
     at: 1,
-    text,
+    text: [before, text].filter(Boolean).join(" "),
     inlineParts: [
-      ...images.map((image) => ({ kind: "image" as const, ...image, placed: true as const })),
-      { kind: "text" as const, text },
+      ...(before ? [{ kind: "text" as const, text: `${before} ` }] : []),
+      ...sized.map((image) => ({ kind: "image" as const, ...image, placed: true as const })),
+      ...(text ? [{ kind: "text" as const, text: ` ${text}` }] : []),
     ],
   };
   return (
     <ImageViewerContext.Provider value={() => {}}>
       <TurnActionsContext.Provider value={actions}>
-        <div className="cv-user" style={{ padding: 16 }}>
-          <UserBubble row={row} text={text} />
+        <div className="cv-user" style={{ padding: 16, ...(column && { width: column, boxSizing: "border-box" }) }}>
+          <UserBubble row={row} text={row.text!} />
         </div>
       </TurnActionsContext.Provider>
     </ImageViewerContext.Provider>
   );
 }
 
-/// Every sent image draws whole and belongs to its message (Leo, 2026-11-21: "if you sent it
-/// iinline you prob shouldn't have such odd stuff"): its drawn box has the image's own shape (within
-/// 2%, so nothing is cropped), it sits in the bubble's column, the block's right edge is the
-/// bubble's, and the block stands the same small gap above the bubble.
-const wholeAndAttached: Play = async ({ waitFor, document }) => {
-  const drawn = () => [...document.querySelectorAll<HTMLImageElement>("img.cv-user__image")];
-  await waitFor(() => drawn().length > 0 && drawn().every((image) => image.complete && image.naturalWidth > 0));
-  const bubble = document.querySelector(".cv-user__bubble")?.getBoundingClientRect();
-  const column = document.querySelector(".cv-user")?.getBoundingClientRect();
-  if (!bubble || !column) throw new Error("no bubble to attach the images to");
-  let right = -Infinity;
-  let bottom = -Infinity;
-  for (const image of drawn()) {
-    const box = image.getBoundingClientRect();
-    const natural = image.naturalWidth / image.naturalHeight;
-    const shown = box.width / box.height;
-    if (Math.abs(shown / natural - 1) > 0.02)
-      throw new Error(`a ${image.naturalWidth}x${image.naturalHeight} image draws ${box.width}x${box.height}: cropped`);
-    if (box.width > 0.7 * (column.width - 32) + 1)
-      throw new Error(`an image ${box.width}px wide runs past the bubble's column`);
-    right = Math.max(right, box.right);
-    bottom = Math.max(bottom, box.bottom);
-  }
-  if (Math.abs(right - bubble.right) > 1.5)
-    throw new Error(`the images' right edge ${right} is not the bubble's ${bubble.right}`);
-  const gap = bubble.top - bottom;
-  if (gap < 4 || gap > 8) throw new Error(`the images stand ${gap}px above their bubble, not 6`);
-};
+/// Every placed image draws where it was put (Leo, 2026-11-22: "there should be no problem doing so
+/// for inline attachments after send"), whole, in its final box from the first frame.
+const placedHolds = attachmentsHoldTheirBoxes({ inBubble: true });
 
 function GalleryShownImages({ images, pending = false, inline = false }: Props) {
   const [actions] = useState(() => {
@@ -282,7 +280,7 @@ export default componentEntry<Props>({
       },
     },
     narrow: {
-      note: "The wide strip in a narrow chat, above a legacy prompt and placed mid-text in another: each in the block above its bubble, scaled down whole, never past its edge.",
+      note: "The wide strip in a narrow chat, above a prompt and inside one: each scales down to the bubble, whole, never past its edge.",
       props: {
         images: [{ id: "w", mimeType: "image/png", name: "image.png", shot: { width: 1568, height: 74, hue: 250 } }],
         inline: true,
@@ -303,27 +301,111 @@ export default componentEntry<Props>({
       },
     },
     "placed-wide": {
-      note: "Leo's case (2026-11-21): a wide, short screenshot (1550×300) pasted into the text. Whole, 480px wide, in the bubble's column, its right edge on the bubble's and 6px above it; was a 320px strip of unreadable text 4px in from the bubble's edge under a bright frame.",
-      props: { images: leoWide, placedIn: leoText },
-      play: wholeAndAttached,
+      note: "Leo's case (2026-11-21): a wide, short screenshot (1550×300) pasted into the text. Whole, at most 480px wide, where it was put in the bubble's text, in its final box from the first frame (Leo, 2026-11-22: \"there should be no problem doing so for inline attachments after send\").",
+      height: 320,
+      props: { images: leoWide, placedIn: leoText, held: true },
+      play: placedHolds,
+    },
+    "placed-mid-wide": {
+      note: "A wide screenshot placed mid-sentence, words before and after it: whole at its own shape, on its line; nothing moves when its bytes land.",
+      height: 320,
+      props: {
+        images: [{ ...leoWide[0]!, id: "mid-wide" }],
+        placedBefore: "The plan list here",
+        placedIn: "keeps its old items after the task ends.",
+        held: true,
+      },
+      play: placedHolds,
     },
     "placed-tall": {
-      note: "A tall phone screenshot (780×1688) pasted into the text: whole at 160px tall, never cropped to a square, attached to its bubble.",
+      note: "A tall phone screenshot (780×1688) pasted into the text: whole at 160px tall, never cropped to a square, where it was put.",
       height: 320,
       props: {
         images: [{ id: "tall", mimeType: "image/png", name: "image.png", shot: { width: 780, height: 1688, hue: 30 } }],
         placedIn: "Why is the tab bar cut off on this screen?",
+        held: true,
       },
-      play: wholeAndAttached,
+      play: placedHolds,
+    },
+    "placed-mid-portrait": {
+      note: "A portrait screenshot mid-sentence: its line 160px tall, the words before and after it on the same line.",
+      height: 320,
+      props: {
+        images: [
+          { id: "mid-tall", mimeType: "image/png", name: "image.png", shot: { width: 780, height: 1688, hue: 30 } },
+        ],
+        placedBefore: "On the phone",
+        placedIn: "the tab bar is cut off.",
+        held: true,
+      },
+      play: placedHolds,
     },
     "placed-several": {
-      note: "Three pasted screenshots (square, wide, tall) in one prompt: each whole in its own shape, wrapping inside the bubble's column, the block's right edge on the bubble's.",
-      height: 480,
+      note: "Three pasted screenshots (square, wide, tall) in one prompt: each whole in its own shape where it was put, wrapping inside the bubble.",
+      height: 560,
       props: {
         images: pasted.map((image) => ({ ...image, id: `placed-${image.id}` })),
         placedIn: "These three screens disagree about the toolbar.",
+        held: true,
       },
-      play: wholeAndAttached,
+      play: placedHolds,
+    },
+    "placed-several-one-line": {
+      note: "Three small captures placed in one line of text: each at its own size (never enlarged), the line as tall as the tallest.",
+      height: 280,
+      props: {
+        images: [
+          { id: "one-a", mimeType: "image/png", name: "image.png", shot: { width: 120, height: 90, hue: 200 } },
+          { id: "one-b", mimeType: "image/png", name: "image.png", shot: { width: 96, height: 120, hue: 120 } },
+          { id: "one-c", mimeType: "image/png", name: "image.png", shot: { width: 140, height: 70, hue: 20 } },
+        ],
+        placedBefore: "Icons:",
+        placedIn: "which one reads best?",
+        held: true,
+      },
+      play: placedHolds,
+    },
+    "placed-text-before-only": {
+      note: "Words, then the screenshot last: it ends the bubble, nothing after it.",
+      height: 320,
+      props: { images: [{ ...leoWide[0]!, id: "before-only" }], placedBefore: "This list:", placedIn: "", held: true },
+      play: placedHolds,
+    },
+    "placed-half": {
+      note: "The mid-sentence wide screenshot in a pane split in half (720px): whole, in its final box from the first frame.",
+      height: 320,
+      props: {
+        images: [{ ...leoWide[0]!, id: "half" }],
+        placedBefore: "The plan list here",
+        placedIn: "keeps its old items after the task ends.",
+        column: 720,
+        held: true,
+      },
+      play: placedHolds,
+    },
+    "placed-third": {
+      note: "The same in a pane split in thirds (480px): the screenshot scales down to the bubble, whole.",
+      height: 320,
+      props: {
+        images: [{ ...leoWide[0]!, id: "third" }],
+        placedBefore: "The plan list here",
+        placedIn: "keeps its old items after the task ends.",
+        column: 480,
+        held: true,
+      },
+      play: placedHolds,
+    },
+    "placed-quarter": {
+      note: "The same in a pane split in quarters (360px).",
+      height: 320,
+      props: {
+        images: [{ ...leoWide[0]!, id: "quarter" }],
+        placedBefore: "The plan list here",
+        placedIn: "keeps its old items after the task ends.",
+        column: 360,
+        held: true,
+      },
+      play: placedHolds,
     },
     failed: {
       note: "An image acpmux answers but the engine cannot draw: its slot says Couldn't load image.",

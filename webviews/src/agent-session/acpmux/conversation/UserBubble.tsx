@@ -43,6 +43,7 @@ import { recordedPromptParts } from "../inlinePrompt";
 import { inlineBubbleParts, isStripMedia } from "./promptCollapse";
 import { attachmentOnly, imageOriginals } from "./bubbleParts";
 import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
+import { useComposerSettings } from "../composerSettings";
 import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 
 import { SourceBadge } from "../composer/SourceBadge";
@@ -55,7 +56,7 @@ import { SkillWordsContext } from "./skillWords";
 import { tourBubbleText } from "../repoTour/tourModel";
 import { SentVideoTile } from "./SentVideoTile";
 import { sentVideoOf, sentVideosOf, type SentVideo } from "./sentVideos";
-import { recordedFiles, isImageOriginal, SENT_IMAGE_HEIGHT, sentImageWidth, sentImageSize } from "./userBubbleModel";
+import { recordedFiles, isImageOriginal, sentImageSize } from "./userBubbleModel";
 
 /// A waiting steer replaces the hover actions with queue controls until delivery is accepted.
 export function UserBubble({
@@ -125,21 +126,22 @@ export function UserBubble({
     const kept = imageOriginals(row);
     return recordedPromptParts(row)?.filter((part) => !isImageOriginal(part, kept));
   }, [row]);
-  // A prompt whose attachments the composer placed in its text (`placed`, acpmux keeps it;
-  // inlinePrompt.ts), or whose text follows an attachment (which the old shape never has), draws
-  // every attachment in one block above its bubble, in its recorded order, and its text as plain
-  // flow in the bubble below (Leo, 2026-11-17: "Attachments render inline in the middle of the
-  // text line, at odd sizes. Put them in a block above the text."), in every attachment view: the
-  // view places attachments in the composer only. The old shape (its text, then its pastes, then
-  // its attachments) keeps the legacy bands above the bubble.
-  // The row's height estimate reads the same rule (bubbleParts.ts `bubbleLayout`).
+  // A prompt whose attachments the composer placed draws in its recorded order, each attachment
+  // where it was put, the last part included (Leo, 2026-11-22: "there should be no problem doing so
+  // for inline attachments after send"; each at its final size from the first frame, sentImageSize
+  // and sentVideoSize, which the row's estimate reads too). Placed: the pane marked it so (`placed`, acpmux
+  // keeps it; inlinePrompt.ts), or text follows an attachment, which the old shape never has.
+  // The old shape (its text, then its pastes, then its attachments), and a prompt with nothing
+  // to read beside its attachments, keep the legacy bands above the bubble.
+  const placed = orderedParts?.some((part) => part.kind !== "text" && part.placed === true) ?? false;
+  // The row's height estimate reads the same rule (promptCollapse.ts `inlineBubbleParts`).
   const hasInterleaved = orderedParts !== undefined && inlineBubbleParts(orderedParts) !== undefined;
   // An attachment-only inline prompt has no text bubble to host its media. Keep its attachments
   // in the same strip as the legacy `images` shape, otherwise the estimator reserves a thumbnail
   // row while the DOM draws nothing and the next virtualized row jumps into that space.
   // The row's estimate reads the same rule (bubbleParts.ts `attachmentOnlyPrompt`).
   const inlineAttachmentOnly = attachmentOnly(orderedParts, text);
-  const strip = hasInterleaved || inlineAttachmentOnly;
+  const strip = (useComposerSettings().attachmentView === "strip" && hasInterleaved) || inlineAttachmentOnly;
   // The legacy bands draw a prompt's `images` and files only when its recorded parts do not: an
   // attachment-only row carries both shapes (send and replay record each), and drawing both drew
   // every attachment twice.
@@ -151,7 +153,9 @@ export function UserBubble({
     inlineAttachmentOnly && (row.images?.length ?? 0) > inlineImages.length
       ? row.images!.filter((image) => !inlineImages.some((part) => part.id === image.id))
       : [];
-  const banded = (part: PromptContentPart) => strip && isStripMedia(part);
+  // A placed prompt's attachments the composer left in the strip (unmarked) stay in the band.
+  const banded = (part: PromptContentPart) =>
+    isStripMedia(part) && (strip || (hasInterleaved && placed && part.placed !== true));
   const stripMedia = orderedParts?.filter(isStripMedia).filter(banded) ?? [];
   // These are bubbleParts.ts `bubbleParts` in the pane's view, which Find and the row's estimate read.
   const shownParts = orderedParts?.filter((part) => !banded(part));
@@ -161,7 +165,7 @@ export function UserBubble({
       const video = sentVideoOf(part, videos);
       return video ? (
         <span className="cv-user__inline-image">
-          <SentVideoTile video={video} width={sentImageWidth(video)} height={SENT_IMAGE_HEIGHT} />
+          <SentVideoTile video={video} />
         </span>
       ) : undefined;
     },
@@ -342,16 +346,9 @@ export const SentImages = memo(function SentImages({
   );
 });
 
-/// A prompt's videos, each at a sent image's height in its own shape.
+/// A prompt's videos, each in its own shape under a sent image's rule (userBubbleModel.ts `sentVideoSize`).
 export function SentVideoTiles({ videos }: { videos: readonly SentVideo[] }) {
-  return videos.map((video) => (
-    <SentVideoTile
-      key={`${video.name}\n${video.path}`}
-      video={video}
-      width={sentImageWidth(video)}
-      height={SENT_IMAGE_HEIGHT}
-    />
-  ));
+  return videos.map((video) => <SentVideoTile key={`${video.name}\n${video.path}`} video={video} />);
 }
 
 /// One sent image, read from acpmux by its id (conversation/imageEntries.ts keeps it, so a
