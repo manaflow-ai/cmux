@@ -95,7 +95,7 @@ export const FAULTS: Array<{ name: string; secs: number; command: string }> = [
   {
     name: "agent daemon restart",
     secs: 0,
-    command: 'p=$("$c" acp --json daemon status 2>/dev/null | sed -n \'s/.*"pid": *\\([0-9]*\\).*/\\1/p\' | head -1); [ -n "$p" ] && kill -KILL "$p" && echo "@@ok $p"',
+    command: `p=$("$c" acp --json daemon status 2>/dev/null | sed -n 's/.*"pid": *\\([0-9]*\\).*/\\1/p' | head -1); [ -n "$p" ] && kill -KILL "$p" && echo "@@ok $p" && ${restartStatusSampler()}`,
   },
 ];
 
@@ -443,6 +443,8 @@ export class ChatClient {
   }
   private stopped = false;
   private reattaching = false;
+  /** Each re-attach's tries: when each failed (and why) and when one took, epoch ms, for a fault's timeline. */
+  reattachLog: { at: number; text: string }[] = [];
   readonly dial: DialLike;
   private ready: Promise<void>;
   private readyNow!: () => void;
@@ -586,11 +588,14 @@ export class ChatClient {
     this.reattaching = true;
     try {
       while (!this.stopped && !this.attached) {
+        const tried = Date.now();
         try {
           await this.resolveSurface();
           await this.attach(this.held);
+          this.reattachLog.push({ at: Date.now(), text: `attached (try of ${Date.now() - tried} ms)` });
         } catch (e) {
           this.lastError = (e as Error).message;
+          this.reattachLog.push({ at: Date.now(), text: `${this.lastError.slice(0, 120)} (try of ${Date.now() - tried} ms)` });
           await sleep(1_000);
         }
       }
@@ -955,33 +960,57 @@ export const STALL_FACTS_COMMAND = [
   `echo "@@daemon.log"; tail -n 400 "$HOME"/.acpmux/daemon.log "$HOME"/.cmux/acpmux/daemon.log 2>/dev/null | grep -iE 'warn|error|lag|overrun|attach|subscri|peer|fanout|too.slow' | tail -n 15 | cut -c1-300`,
 ].join("; ");
 
-/**
- * The machine's acpmux.service journal since `sinceMs` (epoch ms), with each line's time: systemd's restart lines and
- * the daemon's own startup steps (lock, ready line, "agents may start", "startup complete", a host replay that stalled).
- */
-export function restartTimelineCommand(sinceMs: number): string {
-  const since = `@${Math.floor(sinceMs / 1000) - 1}`;
-  const read = `journalctl -u acpmux.service --since ${since} --no-pager -o short-unix`;
-  return `echo "@@now $(date +%s%3N)"; { sudo -n ${read} 2>/dev/null || ${read} 2>/dev/null; } | grep -iE 'start|stop|ready|lock|replay|adopt|kill|exited|signal' | head -n 40 | cut -c1-260`;
+/** Where the restart fault's status sampler writes on the machine (a function: the fault list reads it first). */
+export function restartStatusFile(): string {
+  return "/tmp/crn-restart-status.txt";
 }
 
 /**
- * The timeline's lines as `+ms text`, from `zeroMs` (the kill, on this runner's clock), in the journal's order. The
- * machine's `@@now` against `readAtMs` (when this runner got the answer) corrects for the two clocks' skew.
+ * Started right after the kill, in the background: asks the restarted acpmux for its status every 250 ms for 30 s
+ * and writes one `unix.secs status ...` line each time the answer changes (no answer, then each loading phase, then
+ * ready), so the restart timeline shows how long each startup phase held the chat.
  */
-export function restartTimeline(stdout: string, zeroMs: number, readAtMs = Number.NaN): string {
+export function restartStatusSampler(): string {
+  const file = restartStatusFile();
+  const ask = `timeout 2 "$c" acp --json daemon status 2>&1 | tr -d '\\n' | grep -oE '"(phase|state|ready|loading)": *("[^"]*"|true|false|null|[0-9]+)' | tr '\\n' ' '`;
+  return `( s=""; for i in $(seq 120); do t=$(${ask}); [ -n "$t" ] || t="no answer"; [ "$t" = "$s" ] || echo "$(date +%s.%N) sampler status: $t"; s=$t; sleep 0.25; done ) </dev/null >${file} 2>&1 &`;
+}
+
+/**
+ * acpmux's own record of a restart from `sinceMs` (epoch ms): systemd's lines for the user unit acpmux.service (the
+ * kill, the restart) and the daemon's own `daemon.log` lines (each with its time: the lock, the ready line, "agents
+ * may start", "startup complete", a host replay that stalled, each warning). acpmux.service is a user unit, so the
+ * journal is read with `--user`; a machine whose user journal is off still has the daemon's file.
+ */
+export function restartTimelineCommand(sinceMs: number): string {
+  const since = `@${Math.floor(sinceMs / 1000) - 1}`;
+  const journal = `journalctl --user -u acpmux.service --since ${since} --no-pager -o short-unix 2>/dev/null | grep -iE 'start|stop|kill|exited|signal|fail' | head -n 15`;
+  const kept = `tail -n 600 "$HOME"/.acpmux/daemon.log "$HOME"/.cmux/acpmux/daemon.log 2>/dev/null | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' | grep -vE ' (DEBUG|TRACE) '`;
+  return `echo "@@now $(date +%s%3N)"; ${journal}; ${kept}; cat ${restartStatusFile()} 2>/dev/null`;
+}
+
+/**
+ * The timeline's lines as `+ms text`, from `zeroMs` (the kill, on this runner's clock), in time order, at most `max`
+ * of them: the journal's `short-unix` lines and daemon.log's RFC 3339 ones. The machine's `@@now` against `readAtMs`
+ * (when this runner got the answer) corrects for the two clocks' skew.
+ */
+export function restartTimeline(stdout: string, zeroMs: number, readAtMs = Number.NaN, max = 90): string {
   const now = Number(/@@now (\d+)/.exec(stdout)?.[1]);
   const skew = Number.isFinite(now) && Number.isFinite(readAtMs) ? now - readAtMs : 0;
   zeroMs += skew;
-  const out: string[] = [];
-  for (const line of stdout.split("\n")) {
-    const m = /^(\d+\.\d+)\s+\S+\s+(.*)$/.exec(line.trim());
-    if (!m) continue;
-    const at = Math.round(Number(m[1]) * 1000 - zeroMs);
-    if (at < -1000) continue;
-    out.push(`+${at} ms ${m[2].replace(/\x1b\[[0-9;]*m/g, "").replace(/\s+/g, " ").slice(0, 200)}`);
+  const rows: { at: number; text: string }[] = [];
+  for (const raw of stdout.split("\n")) {
+    const line = raw.replace(/\x1b\[[0-9;]*m/g, "").trim();
+    const unix = /^(\d+\.\d+)\s+\S+\s+(.*)$/.exec(line);
+    const iso = unix ? null : /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\s+(.*)$/.exec(line);
+    const ms = unix ? Number(unix[1]) * 1000 : iso ? Date.parse(iso[1]) : Number.NaN;
+    if (!Number.isFinite(ms)) continue;
+    const at = Math.round(ms - zeroMs);
+    if (at < -1000 || at > 120_000) continue;
+    rows.push({ at, text: (unix ?? iso)![2].replace(/\s+/g, " ").slice(0, 200) });
   }
-  return out.join(" | ");
+  rows.sort((a, b) => a.at - b.at);
+  return rows.slice(0, max).map((r) => `+${r.at} ms ${r.text}`).join(" | ");
 }
 
 async function machineAtStall(ctx: ChaosContext): Promise<string> {
@@ -1144,6 +1173,8 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
       // A daemon restart: where the time to the take went, from the machine's own journal.
       if (f.name === "agent daemon restart") {
         const tl = await ctx.exec(`${ctx.guest}${restartTimelineCommand(injectedAt)}`, 45_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
+        const tries = felt.reattachLog.filter((r) => r.at >= injectedAt).map((r) => ({ at: r.at - injectedAt, text: r.text.replace(/ \(try of \d+ ms\)$/, "") }));
+        ctx.log?.(`chaos: ${f.name}: the felt chat's re-attach from the kill: ${tries.length ? refusalTrail(tries) : "none"}; tries: ${felt.reattachLog.filter((r) => r.at >= injectedAt).map((r) => `+${r.at - injectedAt} ${/try of (\d+) ms/.exec(r.text)?.[1] ?? "?"} ms`).join(", ")}`);
         ctx.log?.(`chaos: ${f.name}: the machine's acpmux journal from the kill: ${restartTimeline(tl.stdout, injectedAt, Date.now()) || `nothing read (${tl.stdout.trim().slice(-200)})`}`);
       }
       ctx.log?.(`chaos: ${f.name}: ${result.detail}`);
