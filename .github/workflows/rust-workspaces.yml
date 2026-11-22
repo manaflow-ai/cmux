@@ -66,6 +66,7 @@ on:
       - "schemas/remote-tab/session.json"
       - "schemas/settings/retired-keys.json"
       - "schemas/settings/settings-schema.json"
+      - "schemas/terminal-size-claim/table.json"
       - "schemas/theme/theme-ink-vectors.json"
       - "scripts/ci/api_call_log/env.sh"
       - "scripts/ci/init-submodule.sh"

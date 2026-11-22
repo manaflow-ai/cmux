@@ -88,6 +88,8 @@ FRESH_VM_JOBS = {
     ("sdk-release-cut.yml", "cut-tags"): "holds the release app's signing key (#48337); a `# ephemeral-required` tag would "
                                          "need a JIT lead (tests/test_ci_write_token_jit_label.py)",
     ("cmux-next-dev-kick.yml", "kick"): "holds a write token; tests/test_cmux_next_dev_kick.py keeps it on the ephemeral_only pool",
+    ("device-hub-logs.yml", "read"): "holds the Cloudflare API token; keeps the ephemeral_only linux_4 pool",
+    ("cmux-next-web-pieces.yml", "switch"): "holds the R2 keys and the web OTA signing key; keeps the ephemeral_only linux_4 pool",
     ("nightly-sign.yml", "admit"): "nightly shadow job: reads no repository variable (tests/test_nightly_sign_shadow_workflow.py)",
     ("cmux-next.yml", "fast-tier-cargo"): "tests/test_cmux_next_checks_workflow.py needs an ephemeral Linux VM, never a reused host",
     **{("cmux-next.yml", job): _SUBMODULES for job in (

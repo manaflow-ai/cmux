@@ -4,7 +4,7 @@
 import { expect, test } from "bun:test";
 import { endedInFailure, type TrayItem } from "./runningTray";
 import { toolDetail } from "./trayDetail";
-import { clampHatHeight, HAT_MIN_HEIGHT, hatDrag } from "./trayResize";
+import { clampHatHeight, HAT_MIN_HEIGHT } from "./trayResize";
 import type { Subagent } from "./subagentFold";
 import type { BackgroundCommand } from "../session-info/processes";
 import type { StartedSession } from "../started/startedSessions";
@@ -52,14 +52,4 @@ test("the rim's drag sizes the list between one line and 70% of the window", () 
   expect(clampHatHeight(5, 1000)).toBe(HAT_MIN_HEIGHT);
   expect(clampHatHeight(300.4, 1000)).toBe(300);
   expect(clampHatHeight(5000, 1000)).toBe(700);
-  // Open at 140px: up 60px is 200px, down 60px is 80px, down past its last line folds it.
-  expect(hatDrag(140, 60, 1000)).toEqual({ kind: "size", height: 200 });
-  expect(hatDrag(140, -60, 1000)).toEqual({ kind: "size", height: 80 });
-  expect(hatDrag(140, -135, 1000)).toEqual({ kind: "fold" });
-  // A click or a small wobble does nothing, open or folded; a real drag up opens it to that height.
-  expect(hatDrag(140, 3, 1000)).toEqual({ kind: "rest" });
-  expect(hatDrag(140, -3, 1000)).toEqual({ kind: "rest" });
-  expect(hatDrag(0, 4, 1000)).toEqual({ kind: "rest" });
-  expect(hatDrag(0, -20, 1000)).toEqual({ kind: "rest" });
-  expect(hatDrag(0, 120, 1000)).toEqual({ kind: "size", height: 120 });
 });

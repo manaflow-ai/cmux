@@ -151,6 +151,16 @@ on:
         type: string
         required: false
         default: feat-cmux-next
+    # A called workflow sees only the secrets its caller passes, even in a job
+    # with `environment: release`: without these, asc-validate ran with an
+    # empty key and blocked on "missing authentication" (run 45038240860).
+    secrets:
+      ASC_API_KEY_ID:
+        required: false
+      ASC_API_ISSUER_ID:
+        required: false
+      ASC_API_KEY_P8_BASE64:
+        required: false
     outputs:
       blocking:
         description: Number of blocking findings
@@ -898,7 +908,7 @@ jobs:
             if [ -f "$RUNNER_TEMP/screens.md" ]; then
               # Also into the log: a step summary has no API to read it back with.
               tee -a review-gate.md "$GITHUB_STEP_SUMMARY" < "$RUNNER_TEMP/screens.md"
-              unjustified="$(grep -m1 -oE '[0-9]+ iOS screens differ from feat-cmux-next with no Visual-change line' "$RUNNER_TEMP/screens.md" || true)"
+              unjustified="$(grep -m1 -E '[0-9]+ iOS screens differ from feat-cmux-next with no Visual-change line' "$RUNNER_TEMP/screens.md" | tr -d '*' || true)"
               if [ -n "$unjustified" ]; then echo "::warning::$unjustified (see the run summary)"; fi
             fi
           fi

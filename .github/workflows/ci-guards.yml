@@ -460,6 +460,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 tests/test_ci_ios_conventions_diff.py
+          # --files-from grades only files under the lint's own roots: it is the iOS line's lint.
+          python3 tests/test_lint_ios_conventions_scope.py
           # The conventions lint scans the whole repository, so gating a PR on
           # it directly turns every open PR red whenever main carries one
           # unrelated violation (#10409). Judge the change instead: report only
