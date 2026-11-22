@@ -1,0 +1,923 @@
+{
+  "version": 1,
+  "build": "4504152901801",
+  "notes": "notes/4504152901801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 46929,
+      "title": "Builds made for people open on the production Cloud",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50335,
+      "title": "docs(ios): the App Store submission is cmux INTERNAL, not com.cmux.app",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50338,
+      "title": "iOS: cmux INTERNAL to the App Store: submittable builder input, internal-submission gate lane, hand-dispatched submit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50336,
+      "title": "cmux-next CI: the Mac fast tier gets 60 minutes, not 30 (cold CmuxNext build-tests ran 28.5 min)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49549,
+      "title": "acpmux-core: the actor-line gate's setup books its rows raw-backed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50456,
+      "title": "measure: a letter that the tool's own select typed is no pass (new-tab-letters)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50507,
+      "title": "cmux-rd-host: depend on cmux-process on macOS too (nightly red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50027,
+      "title": "fix(actions): home.meetChief names its CLI command",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46036,
+      "title": "measure(launch): a launch's settle in every build (LR-LAYOUT): last layout change after the first frame, largest move, and the chat page's own",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48891,
+      "title": "remote --via-machine: name a machine by the name the hub lists, and refuse this machine itself at once",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/48891/hv-a13766db9e2b-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 49150,
+      "title": "launch-ready seed: a front left on docked Home reads as Home",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49672,
+      "title": "acpmux host self-update keeps a joined Linux machine's cmux-rd on the channel's build",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/49672/hv-a0a8998b57df-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 47165,
+      "title": "measure: firstexec-study, what a new copy's first exec scales with",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44225,
+      "title": "Screen Sharing: no Connecting or Reconnecting label while a connect or reconnect is still young",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46738,
+      "title": "Composer look \"studio\": the Studio reference composer, picked by agentPane.composerLook",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50132,
+      "title": "Feel checks: a simulated cursor for any surface (plan tray and composer hat first)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50285,
+      "title": "acpmux bg_list: read status as state, name a stray key, say the counts are the whole list's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40319,
+      "title": "billing: the usage sync's live switch, built and off",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49787,
+      "title": "iOS: star the swears in quoted Leo lines in comments",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49649,
+      "title": "Chat: bench and fix a fast fling and prompt-rail clicks at hundreds of sessions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49552,
+      "title": "rd: skip desktop capture on runners with no interactive desktop; let base push runs finish",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46848,
+      "title": "Claude look: replies in a serif, your messages in the sans (transcript look tokens for each part's font and size)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50151,
+      "title": "ci(next): fast-tier-cargo off Blacksmith restores its cargo build from R2 (GitHub cache is full)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50469,
+      "title": "bench: infinite tabs requires the Chromium engine and stops when no page opens",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47564,
+      "title": "Bound repeated event-page segment discovery and path copies",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50169,
+      "title": "Launch: a restart loop starts the updater before the daemon and the windows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49976,
+      "title": "cmux-tui: save the macOS-on-Linux and Linux cargo caches on feat-cmux-next dispatch builds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47003,
+      "title": "acpmux: a turn's cost by stage with a stand-in model (turn_overhead bench)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49465,
+      "title": "Agent chat: every finished turn ends with its Copy and done/failed row (carries #46905)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/49465/hv-c82153da2648-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 50330,
+      "title": "Time a hibernated tab's last frame on wake (picture_ms)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50177,
+      "title": "cmux-next: a superseded feat-cmux-next push skips its fleet compile and Mac canary",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49500,
+      "title": "cmux NEXT: CI flags a blocking call in a caller-isolated async function; main-thread model guide",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46824,
+      "title": "agent pane: no-movement detector for a bottom-pinned, ticking chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50162,
+      "title": "acpmux: a Claude chat forked mid-reply remembers the partial reply",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50313,
+      "title": "React app check: select() runs every file only for inputs every test loads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49774,
+      "title": "ci: run fleet/rd-host-macos once per 2 h window on feat-cmux-next, not per PR",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48009,
+      "title": "Chat: Waiting on N subagents times the wait, not the whole turn",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/48009/hv-ea342850114b-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 50142,
+      "title": "React app check: fast, sampled and full push classes, and a culprit list from the base batch bisect",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50388,
+      "title": "ios-sim: test duress=SPEC runs the UI suites once per duress spec on one simulator",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49431,
+      "title": "ci(cmux-tui artifacts): a PR head that changes no tree-key input builds no musl, macOS or daemon-test leg",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49745,
+      "title": "app try SHA and try-pr: decide live on the daemon ABI, name the Swift left out",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49187,
+      "title": "New Tab page: a view made from a stored page shows the list of now",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49394,
+      "title": "mobile host: the Mac answers offers without waiting on ICE or STUN",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49885,
+      "title": "base red: language_packs.ensure is a router connection operation",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50269,
+      "title": "nightly-next health: a blind gate opens one issue and turns the run red",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47588,
+      "title": "acpmux: a follower that falls a lap behind resyncs from the store instead of losing events",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50307,
+      "title": "side-instance: every copy shows a SIM icon, never the NIGHTLY's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49739,
+      "title": "Customize: every customization one click away (checklist in Settings and a Customize cmux… card)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45108,
+      "title": "mobile worker: an optional second APNs key signs sandbox sends only",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50115,
+      "title": "ci: feat-cmux-next's PR-control and repair jobs lead with our GCP JIT labels",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39716,
+      "title": "acpmux: a lane's report and a sub-session's send steer into its busy parent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49813,
+      "title": "cmux Helper: Computer Use picks up a new Screen Recording grant without restarting cmux",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50017,
+      "title": "ci: a PR that adds a cache an untrusted job writes and a release job trusts fails; the rest reports",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50054,
+      "title": "ext-rows-nightly: status item and background event worker rows, composer row names #49239",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50013,
+      "title": "ci: fail a PR on a workflow security hole or secret it adds (zizmor, gitleaks)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50187,
+      "title": "startup_loop compile floor: match a bare swift-frontend line; say what the logs held",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50014,
+      "title": "React app check: a ci-web.yml or selection-script edit alone runs shard 1 and two sampled shards",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50109,
+      "title": "perf cron: ask the controller for a measurement's Mac parts back to back (perf-cron-batch line)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48985,
+      "title": "Home previews: copy plain runs whole, so the list is fast again in Debug",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48747,
+      "title": "ci: tip test-compile runs in the post-merge batch, not on each feat-cmux-next push",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40509,
+      "title": "test(acpmux): queue tests stop the turn once its agent runs it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36655,
+      "title": "Pairing: revoke and unpair cover invite-paired servers; add cmux server unpair / cmux unpair",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/36655/hv-ece387e0b7ab-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 48177,
+      "title": "ci(cmux-tui): branch builds never take the feat tree's reserved lane-build label",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50073,
+      "title": "nightly: a 404 is not retried when macOS curl exits 56 for it; the tree fallback search drops 6-12 min from each nightly-next build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50231,
+      "title": "cmux-tui web: open cmux in a plain browser from the daemon's own listener",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49815,
+      "title": "ci(cmux-tui): build each Linux musl target once; the machine channel takes build's bytes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48152,
+      "title": "Prove draw-on-input is live before measuring it: bind the fork's per-key frame counter, give the typing bench an A/B arm",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49093,
+      "title": "cmux remote: exec to a link's local socket fails at once; every command refuses a group-writable --state-dir",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49018,
+      "title": "base red: selector table rows for NSPopUpButtonCell drawTitle and two NSTextView calls",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49811,
+      "title": "ci: path-filter drift report (too-wide filters with replayed minutes, too-narrow from the detector)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50182,
+      "title": "webviews tests: skip the agent pane strings rebuild when its stamp is current",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50136,
+      "title": "post-merge batch: hot swap out a first red's piece, not its whole commit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50012,
+      "title": "Mac Screen: a person's screen tab connects unseen; mac-screens reads state and error",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47739,
+      "title": "acpmux: a flapping peer path keeps its recovery backoff",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50100,
+      "title": "cmux-vm: pin cmux-rd 0.2.8 (release cmux-rd-v0.2.8, run 45005880299); clear pendingRelease",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50184,
+      "title": "StackAuth: a refresh 400/401 that blames the client keeps the session",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44585,
+      "title": "acpmux: a peer journal restore goes in pages, owned by a hold, and resumes after a cut (F19)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49396,
+      "title": "cmux-tui artifacts: a runner-lost musl leg no longer turns off the macOS fallback",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48933,
+      "title": "fix(ios): terminal composer keeps its look past three lines (clear glass)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49727,
+      "title": "cmux-next checks: base reds in text budget, main-actor work, l10n, scrollbars and crash ratchet",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49766,
+      "title": "protocol: cloud.surge.preview and cloud.surge.create in the Cloud catalog, so cmux-api forwards them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49400,
+      "title": "cmux-fault: lan and internet-down-lan-up link profiles",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49985,
+      "title": "acpmux surge inbox: a preview, the fire gate, SmallOnly triage, held counter and restart backlog",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44893,
+      "title": "Agent pane: a very long chat holds its running and recent processes, so it no longer draws blank",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49083,
+      "title": "Screen share: pacer sends a frame within 8 ms at any frame rate, rate ramp simulator",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43040,
+      "title": "Agent chat draws an extension's chat widget under a tool call",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38731,
+      "title": "cmux-host updater: a rollback waits for a bind in flight; the restart gate fails closed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49747,
+      "title": "cmux live --rust: send a build host every file the build reads outside cmux-tui/; start takes --socket",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49896,
+      "title": "owned_catch_up.sh: make the web bundles current and fetch this tree's cmux-tui before the build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44262,
+      "title": "fix: reconcile workflow daemon follow-ups (#35755)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49398,
+      "title": "iOS: input latency trace (keyboard, typing, send, main-thread hitches with stacks)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50189,
+      "title": "prod-logs: keep cloud.spare.gateway_read and its read (cmux-platform#1629)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47490,
+      "title": "cloud-journey reads its start's waterfall: per-hop ms and the last day's p50/p95",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49608,
+      "title": "agent pane: the relay takes catalog.get, catalog.refresh and _acpmux/info; every open was refused",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46658,
+      "title": "acpmux: session/load replays the newest records and says what it left out",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/46658/hv-ae248523e069-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 47972,
+      "title": "Fix Hosts demo at fleet scale and focus each look's page",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50063,
+      "title": "ci: the submodule forward-only guard runs as a step-table step on feat-cmux-next PRs (ci-v2 step table slice 8)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50121,
+      "title": "cmux-history: an unreadable visit log is moved aside, kept, and a new one opens",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50005,
+      "title": "ci: run the VM pair-e2e step under its own HOME",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48351,
+      "title": "launch-ready profile: --dsym names CmuxNextApp.framework's frames, not only the stub's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49898,
+      "title": "fast tier: build each cargo package alone, so no entry compiles inside its cap",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40332,
+      "title": "vm-hassle: measure long-running Cloud VM setup, redo and cleanup in steps and seconds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49973,
+      "title": "ci(web): react-apps-check shards stop alone retries once the first 5 all fail again, and a base file-level red skips its file's retry",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49946,
+      "title": "ci: skip a react-apps-check shard that already went green on the same inputs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49940,
+      "title": "ci-web: webview shards: batch runs on the owned runner, full matrix at 8",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49455,
+      "title": "Agent chat: question cards show the whole question (carries #46934)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50165,
+      "title": "bench: infinite tabs on the Mac app (500 tabs, 200 workspaces, 100 chats vs empty)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44619,
+      "title": "iOS: lean terminal stream (shell lines, coalesced PTY output) as an opt-in under Settings > Transport",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49830,
+      "title": "ci-web: batch ticks record the webview history again, so PR shards skip base-red retries",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49503,
+      "title": "feat(next): opt-in pause for agent Cloud machines (Mac pause/resume, first slice)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44562,
+      "title": "acpmux: list order notes follow-ups (CI, debug-only, clock, nested json! lines)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49982,
+      "title": "React app check: a deleted source or a read baseline no longer runs all 12 shards; two reviewed runtime loads leave the always-run set",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50106,
+      "title": "Sidebar, tabs: cloud mark trails, leading slot is state only",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50129,
+      "title": "webviews: cut three type-only edges that pulled the agent pane into the diff, GitHub and home channels pages",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50160,
+      "title": "perf-cron: a part with no row anywhere runs before one with old rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50181,
+      "title": "cmux-host: server_bootstrap test sets Context.terminal_socket",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49343,
+      "title": "cmux-tui: terminal attach resumes by byte offset (terminal-resume-v1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43012,
+      "title": "cmux <app> <command>: an installed extension's CLI name runs its ops",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40426,
+      "title": "carrier: a parked dial asks for the key again and ends at a refusal for good",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49997,
+      "title": "ci: every feat-cmux-next push typechecks the whole webviews tree",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49825,
+      "title": "iOS link: no second recovery after a rebind that finished during the probe",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47512,
+      "title": "screen-stream-eval rd.sh: two-Mac rd runs no longer abort on macOS bash 3.2 (empty eval_flags)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49420,
+      "title": "cmux-next-ios: relay path probe, setup/RTT/loss per phone link path (WG direct, TURN/UDP, TURN/TLS, WebRTC)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47543,
+      "title": "fix(bench): read the console user from the on-console session, not the last login",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49582,
+      "title": "cmux NEXT: hover controls replace every row mark; the row pin pins its own row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45832,
+      "title": "Bring Back over a projected folder: plan apply/delete/conflict from upper + whiteouts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49793,
+      "title": "cmux NEXT: a tab move or an unloaded tab's click leaves the source pane untouched (identity proof + layout-motion scenario)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50040,
+      "title": "skills(cmux-ghostty): ghostty-next syncs to the newest upstream vt-* release tag",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46737,
+      "title": "Studio look: the reference workbench, in dark, light and ember",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44152,
+      "title": "cmux-tui attach bench: message sizes, a 5 MB flood, an 80x24 TUI, 1 key/s and a hidden viewer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49842,
+      "title": "measure: helper-fresh-grant, a grant made while cmux runs reaches Computer Use with no restart",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49165,
+      "title": "Mac Screen: Customize the stream's bitrate cap and cursor",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49250,
+      "title": "looks/tabs: bind Cmd+' to strict Go to Recent Tab in Workspace",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49331,
+      "title": "ci: run the fleet compile reader without GNU timeout (Mac runners have none)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50007,
+      "title": "CmuxNext: macScreen.open returns its refusal; a listed device with no screen says why",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49917,
+      "title": "cmux-projection: fetch missing blobs from fleet peers, the controller SSD and R2 before GitHub",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49981,
+      "title": "cmux NEXT agent pane: re-read a pane's sight after the frame commit on an occlusion change",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46854,
+      "title": "cmux NEXT: an agent's workspace, space and tab say who made them and why",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50044,
+      "title": "perf cron: a Linux part's setup finds a node on the pool workers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48188,
+      "title": "ci: PR-gate Linux jobs run on cmux-linux; delete the remaining picker jobs (replaces #47983)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49824,
+      "title": "Composer hat: one icon per subagent, named as the cursor crosses them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49416,
+      "title": "cmux NEXT: frame and layout probes in Release, off by default (perf.*)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49922,
+      "title": "ci(web): a react-apps-check shard at a newer head skips the files that passed at the previous one",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49840,
+      "title": "acpmux: a foreground CI wait runs as a daemon task, so it never keeps an idle harness up",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49996,
+      "title": "nightly-next: the signer pick accepts a census as old as the run reads it, so two builds run at once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49888,
+      "title": "Agent pane: a tall send is one motion, not collapse then glide",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49921,
+      "title": "Search Everything: in:tabs, -in:history and kind: filters (step B)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48903,
+      "title": "iOS: replay controls work out the tool-call ticks once, not every 100 ms",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49782,
+      "title": "ci(cmux-tui): the feat-cmux-next dispatch that builds a tree requests its Team-signed set",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49064,
+      "title": "fix(agent chat): an answered \"Needs your input\" card leaves at once, and its header row never blanks the transcript (#45718, merged with base)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48814,
+      "title": "Setups and profiles: resolve explicit relative file sources",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
