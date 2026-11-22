@@ -7,6 +7,7 @@
 //!   {"session":"<hub session id>","peer_key":"<viewer session key, 64 hex>",
 //!    "viewer":{"user":"..","install":".."},"scope":"view"|"control",
 //!    "stun":["host:port",..],"display":"main","max_fps":60,"max_width":null,
+//!    "max_kbps":null,"cursor":null (the viewer's Customize wishes, src/serve_wish.rs),
 //!    "capture":"x11"|"portal" (Linux, optional)}
 //! On Linux the display is the session's X display (`--display`, else `$DISPLAY`, else
 //! `:0`; `--xauthority` or `XAUTHORITY` for its cookie) and the capture backend is
@@ -30,6 +31,7 @@ use crate::stream::{MediaSession, SessionCfg};
 use crate::wire::Control;
 use crate::Res;
 use cmux_rd_core::policy::{ConsentRule, HostPolicy, Mode, Principal, PrincipalClass};
+use cmux_rd_core::profile::EncodeProfile;
 use cmux_rd_core::service::{negotiate, SERVICE_DESKTOP};
 use cmux_rd_core::session::{Actor, SessionTable, StartRequest};
 use cmux_rd_link::net::{Candidate, Net, NetConfig, NetEvent};
@@ -70,6 +72,12 @@ struct Setup {
     max_fps: Option<u32>,
     #[serde(default)]
     max_width: Option<u32>,
+    /// The viewer's bitrate cap in kbit/s (`a=cmux-rd-max-kbps`; src/serve_wish.rs).
+    #[serde(default)]
+    max_kbps: Option<u32>,
+    /// Whether the stream shows the cursor (`a=cmux-rd-cursor`; none: it does).
+    #[serde(default)]
+    cursor: Option<bool>,
     /// This side reaches the viewer through TURN alone.
     #[serde(default)]
     relay_only: bool,
@@ -79,6 +87,18 @@ struct Setup {
     /// The person sharing turned clipboard text sync on for this session (default off).
     #[serde(default)]
     clipboard: bool,
+    /// The profile the viewer asks for (`standard` or `ultra`, the person's choice).
+    #[serde(default)]
+    encode_profile: Option<String>,
+}
+
+/// The session's profile: the viewer's choice, else `--encode-profile`, else standard. A
+/// profile this host does not know runs standard, so a newer viewer still gets a picture.
+fn session_profile(opts: &Opts, setup: &Setup) -> Result<EncodeProfile, String> {
+    match setup.encode_profile.as_deref() {
+        Some(asked) => Ok(EncodeProfile::parse(asked).unwrap_or_default()),
+        None => opts.encode_profile(),
+    }
 }
 
 #[derive(Deserialize)]
@@ -346,10 +366,13 @@ pub fn run(opts: &Opts) -> Res<()> {
     #[cfg(target_os = "linux")]
     say(linux_displays(capture, &display));
     #[cfg(target_os = "macos")]
-    match crate::desktop::displays() {
-        Ok((sizes, current)) => {
-            say(AppLine { displays: Some(sizes), current: Some(current), ..AppLine::default() })
-        }
+    match crate::desktop::displays(&display) {
+        Ok((sizes, current, ids)) => say(AppLine {
+            displays: Some(sizes),
+            current: Some(current),
+            display_ids: (!ids.is_empty()).then_some(ids),
+            ..AppLine::default()
+        }),
         Err(e) => say(AppLine {
             displays: Some(Vec::new()),
             current: Some(0),
@@ -471,9 +494,12 @@ fn serve_session(
     let sink = crate::upstream::session_sink(None, 0);
     let mut host_caps = crate::upstream::offered_caps(&*sink);
     // The cursor as metadata where this desktop reports it: the viewer draws one cursor.
-    if crate::desktop::reports_cursor() {
+    let show_cursor = crate::serve_wish::show_cursor(setup.cursor);
+    if show_cursor && crate::desktop::reports_cursor() {
         host_caps.push(cmux_rd_core::service::caps::CURSOR);
     }
+    // The session clock (C8; the engine answers every ping) and the stage ledger (D8).
+    host_caps.extend([cmux_rd_core::service::caps::CLOCK, cmux_rd_core::service::caps::LEDGER]);
     // Clipboard text only when the app's setup turned it on and this host has a clipboard it
     // can watch (macOS). A `view` scope session still never applies or sends one: it never
     // holds control (clipboard.rs).
@@ -514,14 +540,26 @@ fn serve_session(
     let display = display.to_owned();
     // The viewer's rate wins; else the display's refresh rate (60 when it cannot be read).
     let max_fps = setup.max_fps.unwrap_or_else(|| crate::desktop::default_max_fps(&display));
-    let max_kbps = opts.num_or("max-kbps", 50_000)?;
-    let start_kbps = opts.num_or(
-        "start-kbps",
-        default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, max_kbps),
-    )?;
+    // Ultra (the viewer's choice or `--encode-profile ultra`): frames at that rate up to 120,
+    // a higher ceiling, and the encoder's ultra settings. Standard (the default) is unchanged.
+    let encode_profile = session_profile(opts, setup)?;
+    let max_fps = encode_profile.stream_fps(max_fps);
+    let explicit_max_kbps = opts.get("max-kbps").map(|_| opts.num_or("max-kbps", 0)).transpose()?;
+    // The host's ceiling (profile and `--max-kbps`), then the viewer's Customize cap within it:
+    // one cap, the congestion controller's `max_bps`.
+    let host_max_kbps = cmux_rd_core::profile::max_kbps(encode_profile, explicit_max_kbps, 50_000);
+    let max_kbps = crate::serve_wish::max_kbps(setup.max_kbps, host_max_kbps);
+    let start_kbps = crate::serve_wish::start_kbps(
+        opts.num_or(
+            "start-kbps",
+            default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, max_kbps),
+        )?,
+        max_kbps,
+    );
     let cfg = SessionCfg {
         display,
         max_fps,
+        encode_profile,
         start_kbps,
         max_kbps,
         preset: String::new(),
@@ -535,6 +573,7 @@ fn serve_session(
         upstream_record: None,
         upstream_record_max_bytes: 0,
         max_width: setup.max_width,
+        show_cursor,
         // On by default: the frame that shows an input's effect goes out at once instead of
         // waiting out the frame-rate interval. `--input-frame-now 0` turns it off.
         input_frame_now: opts.flag_or("input-frame-now", true),
@@ -646,6 +685,39 @@ mod tests {
             assert_eq!(AppLine::decode(read[i]).as_ref(), Some(line));
         }
         assert_eq!(out.flushed.last(), Some(&b'\n'));
+    }
+
+    #[test]
+    fn the_viewers_profile_wins_and_standard_is_the_default() {
+        let setup = |profile: Option<&str>| -> Setup {
+            let mut line = serde_json::json!({
+                "session": "s1", "peer_key": "ab".repeat(32),
+                "viewer": {"user": "v", "install": "v"}, "scope": "view",
+            });
+            if let Some(p) = profile {
+                line["encode_profile"] = p.into();
+            }
+            serde_json::from_value(line).unwrap()
+        };
+        let flags = |args: &[&str]| {
+            Opts::parse(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap()
+        };
+        let none = flags(&[]);
+        let ultra_flag = flags(&["--encode-profile", "ultra"]);
+        // An old viewer sends no profile: the flag decides, else standard.
+        assert_eq!(session_profile(&none, &setup(None)), Ok(EncodeProfile::Standard));
+        assert_eq!(session_profile(&ultra_flag, &setup(None)), Ok(EncodeProfile::Ultra));
+        // The person's choice in the viewer wins over the host's flag, either way.
+        assert_eq!(session_profile(&none, &setup(Some("ultra"))), Ok(EncodeProfile::Ultra));
+        assert_eq!(
+            session_profile(&ultra_flag, &setup(Some("standard"))),
+            Ok(EncodeProfile::Standard)
+        );
+        // A profile this host does not know still streams, as standard.
+        assert_eq!(
+            session_profile(&ultra_flag, &setup(Some("hyper"))),
+            Ok(EncodeProfile::Standard)
+        );
     }
 
     #[test]
