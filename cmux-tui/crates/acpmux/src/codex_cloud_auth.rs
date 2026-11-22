@@ -40,6 +40,9 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+/// Where `cr use` records each agent's choice, under the home (`<dir>/<agent>`: `own` or `team`).
+pub(crate) const CHOICE_DIR: &str = ".config/cmux/agent-auth";
+
 /// The public placeholder every guest sends (`agent-auth.sh` `cmux_aa_placeholder`).
 /// An owner's cmux Cloud machine whose image has the own-or-team script, under `root`.
 pub(crate) fn owner_cloud_image_at(root: &Path) -> bool {
@@ -78,8 +81,7 @@ impl Inputs<'_> {
 
     /// The mode `cr use` recorded for `agent` (`~/.config/cmux/agent-auth/<agent>`).
     pub(crate) fn choice_for(&self, agent: &str) -> Option<&'static str> {
-        let text =
-            std::fs::read_to_string(self.home.join(".config/cmux/agent-auth").join(agent)).ok()?;
+        let text = std::fs::read_to_string(self.home.join(CHOICE_DIR).join(agent)).ok()?;
         mode(text.lines().next().unwrap_or(""))
     }
 
@@ -212,7 +214,8 @@ pub fn apply(
     cmux_config: bool,
 ) {
     if cmux_config && !argv.iter().any(|a| a.starts_with("model_provider=")) && !argv.is_empty() {
-        // After the subcommand: codex drops an override before it (`codex_config_index`).
+        // After the profile's own overrides (`codex_config_index`); the launch keeps them all before
+        // the subcommand (`harness_limits::codex_args`).
         let at = crate::agent_credentials::codex_config_index(argv);
         for (i, a) in OWN_PROVIDER_ARGS.iter().enumerate() {
             argv.insert(at + i, (*a).to_owned());

@@ -329,7 +329,11 @@ fn cloud_create_list_run_and_the_plan_refusal() {
         .find(|p| p["op"] == "automation.create" && p["params"]["body"]["type"] == "steps")
         .unwrap();
     let steps = command["params"]["body"]["steps"].as_array().unwrap();
-    assert_eq!(steps.len(), 1 + 5, "a start step, then waits that cover 20 minutes");
+    assert_eq!(
+        steps.len(),
+        1 + 5,
+        "a start step, then waits of at most 280 s that cover 20 minutes"
+    );
     assert!(steps.iter().all(|s| s["machine"] == "vm_abcdefghij0123456789"));
     assert!(steps[0]["command"].as_str().unwrap().contains("fetch --quiet origin feat-cmux-next"));
     assert_eq!(command["params"]["catch_up"], "latest");

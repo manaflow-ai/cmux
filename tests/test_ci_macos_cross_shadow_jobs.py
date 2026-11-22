@@ -47,7 +47,7 @@ def needs(block: str) -> set[str]:
 def ordering_only(block: str, shadow: str) -> bool:
     condition = re.search(r"^    if:\s*(.+)$", block, re.M)
     return (condition is not None
-            and re.match(r"\$\{\{\s*always\(\)\s*&&", condition.group(1)) is not None
+            and re.match(r"\$\{\{\s*(always\(\)|!cancelled\(\))\s*&&", condition.group(1)) is not None
             and f"needs.{shadow}." not in block
             and not re.search(rf"needs\[\s*['\"]{re.escape(shadow)}['\"]\s*\]", block))
 
@@ -71,7 +71,7 @@ class ShadowJobTests(unittest.TestCase):
                 # Only another compare-only shadow job may need a shadow job.
                 shadows = {job for wf, job, _ in SHADOWS if wf == workflow}
                 # A job may still order itself after a shadow job when it runs
-                # whatever the shadow's result (`if: ${{ always() && ...`) and
+                # whatever the shadow's result (`if: ${{ always() && ...` or `!cancelled() &&`) and
                 # never reads it: cmux-tui-artifacts' notify-unpublished-tree
                 # waits so it ends the run (cx-urd.26).
                 dependents = sorted(job for job, other in all_jobs.items()

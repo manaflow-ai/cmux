@@ -120,8 +120,8 @@ import AppKit
         }
     }
 
-    /// The document takes the drag into section `id` (a section the table lacks takes it, as its slot does). Pinned
-    /// refuses an item from outside it (`keepingPinned`: Pin is the way in), so it opens no zone for one.
+    /// The document takes the drag into section `id` (a section the table lacks takes it, as its slot does). A
+    /// section that refuses the drag opens no zone that would take nothing.
     private static func takes(_ drag: SidebarListDrag, _ id: String) -> Bool {
         drag.docItems == nil || drag.docAcceptance.isEmpty || (drag.docAcceptance[id]?.into ?? true)
     }

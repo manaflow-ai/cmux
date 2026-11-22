@@ -11,6 +11,14 @@
 
 /// Runs the worker; the process exit code.
 pub(crate) fn run(args: &[String]) -> i32 {
+    if wants_no_new_privs(
+        std::env::var(cmux_tui_core::computer_use_host::NO_NEW_PRIVS_ENV).ok().as_deref(),
+    ) && let Err(error) = drop_privilege_gain()
+    {
+        // Asked for and not possible: no worker rather than one that can gain privileges.
+        eprintln!("cmux Computer Use worker: cannot drop the right to gain privileges: {error}");
+        return 1;
+    }
     match args {
         [] => cmux_computer_use::worker::run_stdio(std::io::stdin().lock(), std::io::stdout()),
         [flag, name] if flag == "--control" && control_name(name) => control_pipes(name),
@@ -22,6 +30,27 @@ pub(crate) fn run(args: &[String]) -> i32 {
             2
         }
     }
+}
+
+/// Whether the worker's env (`NO_NEW_PRIVS_ENV`) asks it to give up gaining privileges: `1` only.
+fn wants_no_new_privs(value: Option<&str>) -> bool {
+    value.is_some_and(|v| v.trim() == "1")
+}
+
+/// `PR_SET_NO_NEW_PRIVS` for this process; every child it starts inherits it.
+#[cfg(target_os = "linux")]
+fn drop_privilege_gain() -> std::io::Result<()> {
+    // SAFETY: prctl with integer arguments only.
+    if unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn drop_privilege_gain() -> std::io::Result<()> {
+    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "no PR_SET_NO_NEW_PRIVS here"))
 }
 
 /// Only the daemon's own pipe names (`cmux-cu-ctl-<hex>`).
@@ -57,12 +86,5 @@ fn control_pipes(_name: &str) -> i32 {
 }
 
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn only_the_daemons_pipe_names_are_accepted() {
-        assert!(super::control_name("cmux-cu-ctl-0a1b"));
-        assert!(!super::control_name("cmux-cu-ctl-"));
-        assert!(!super::control_name("cmux-cu-ctl-..\\x"));
-        assert!(!super::control_name("other"));
-    }
-}
+#[path = "computer_use_worker_tests.rs"]
+mod tests;
