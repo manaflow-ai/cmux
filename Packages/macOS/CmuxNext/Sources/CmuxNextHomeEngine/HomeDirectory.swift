@@ -172,6 +172,22 @@ public final class HomeDirectory {
         if chiefHarnesses.isEmpty { chiefHarnesses = snapshot.chiefHarnesses }
     }
 
+    /// `chief.create` with a display name; the new Chief's main conversation
+    /// reaches the inbox through the owner (UserDO's outbox).
+    public func createChief(named name: String) async throws -> HomeChiefRecord {
+        // A new key per attempt: the owner keeps a refused key's answer, so a
+        // retry after user.ensure under the same key would replay the refusal.
+        let value = try await ensuringUser {
+            let body: [String: Any] = ["op": "chief.create", "params": ["display_name": name],
+                                       "idempotency_key": "chief-create-" + UUID().uuidString.lowercased(), "origin": "user"]
+            return try Self.value(try await self.call("v1/ops", body))
+        }
+        guard let record = HomeChiefRecord.parse(value) else { throw FeedServiceError.badReply }
+        chiefs.removeAll { $0.id == record.id }
+        chiefs.append(record)
+        return record
+    }
+
     /// Chief channels (plans/cmux-next/chief-channels-DESIGN.md): `channel.create` makes a group the user
     /// owns with its own Chief scoped to it, then each person is invited on the channel (an email gets
     /// `invite.create`, an account `participants.add`). One person's refusal is that person's result; the

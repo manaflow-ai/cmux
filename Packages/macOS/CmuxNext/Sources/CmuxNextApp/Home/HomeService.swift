@@ -193,6 +193,9 @@ final class HomeService {
         guard let connection = self?.connection else { return nil }
         return HomeLocalChiefCreator(connection: connection, me: Self.localUser)
     }
+    /// New Chief's `chief.create` on the signed-in account's cloud Chiefs, the default for an engine
+    /// whose Chiefs are not this Mac's (Claude). Tests give it a fake owner.
+    @ObservationIgnored lazy var cloudChiefCreate: @MainActor (String) async throws -> HomeChiefRecord = { [weak self] in try await (self?.directory ?? { throw CancellationError() }()).createChief(named: $0) }
     /// The active team (`ActiveTeam`, Switch Active Team) as the Worker names it: Home lists its people only.
     var activeWorkerTeam: String? {
         let auth = services.cloud.auth

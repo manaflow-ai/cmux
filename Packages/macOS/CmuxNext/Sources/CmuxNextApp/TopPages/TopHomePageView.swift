@@ -558,6 +558,7 @@ final class TopHomePageView: NSView {
         let home = services.home
         let sheet = HomeNewChiefSheet()
         sheet.onCreate = { name, backend in await home.createChief(named: name, backend: backend) }
+        sheet.onCreateOnThisMac = { name, backend in await home.createChief(named: name, backend: backend, onThisMac: true) }
         present(sheet)
     }
 
