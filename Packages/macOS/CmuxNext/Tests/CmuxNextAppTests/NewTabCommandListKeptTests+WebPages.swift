@@ -326,7 +326,7 @@ extension NewTabCommandListKeptTests {
     }
 
     /// What each of `keys` is, for the words of an issue: its key, if it has a view, and if it is a tab of `pane`.
-    private static func named(_ keys: [AgentTabKey], _ services: AppServices, _ pane: PaneController) -> String {
+    static func named(_ keys: [AgentTabKey], _ services: AppServices, _ pane: PaneController) -> String {
         let inPane = Set(pane.pane.tabs.map(\.id))
         let words = keys.map { key in
             let view = services.agentTabs.views[key] == nil ? "no view" : "a view"
@@ -342,7 +342,7 @@ extension NewTabCommandListKeptTests {
     /// leaves or that no pane shows (`AgentTabStore.idlePage`): the view of a page of before can be a new page's view.
     /// The page of the next workspace is none of them: the app makes it ahead of its key in idle frames (the row's own
     /// frames too), so it can come at any frame of a row.
-    private static func opened(_ services: AppServices, after known: Set<AgentTabKey>) -> [AgentTabKey] {
+    static func opened(_ services: AppServices, after known: Set<AgentTabKey>) -> [AgentTabKey] {
         let tabs = services.agentTabs
         let ahead = services.daemon.store.reservedWorkspace?.tabKey
         return tabs.newTabPages.keys.filter { key in key.key != ahead && !known.contains(key) }
@@ -352,7 +352,7 @@ extension NewTabCommandListKeptTests {
     /// its key). A tab that the app made has a provisional id until the store answers; its page goes to the store's id
     /// then, and the app keeps the link of the two ids only while the store lists the provisional tab. So the fixture
     /// takes the keys of before only when no answer is in the air. This wait is the fixture's, not the row's.
-    private static func settle(_ services: AppServices) async throws {
+    static func settle(_ services: AppServices) async throws {
         let tabs = services.agentTabs, store = services.daemon.store
         @MainActor func waiting() -> [String] {
             tabs.newTabPages.keys.map(\.key).filter { ProvisionalTab.isProvisional($0) && $0 != store.reservedWorkspace?.tabKey }

@@ -214,6 +214,8 @@ extension NewTabCommandListKeptTests {
         lister.fill { [] }
         let idle = Self.firstTask(services, after: start)
         let byNoPage = lister.counts.started - start.started
+        // The control's own check, before the check of the case: a fill for no page that starts a listing leaves the lister a task too.
+        try #require(byNoPage == 0, "a fill for no page started \(byNoPage) listings in \(idle) frames of the row")
         try #require(!frames.activeClients.contains(Self.lister), "the row did not make its case: the lister has a task after the fill for no page")
         lister.fill { [AgentPaneNewTabActions.Page(view: nil)] }
         let first = Self.firstTask(services, after: lister.counts)
@@ -225,7 +227,6 @@ extension NewTabCommandListKeptTests {
             + "with no kept list: \(byThePage) listings started in \(first) frames of the row; \(end.started - start.started) listings and "
             + "\(end.actionsRead - start.actionsRead) catalog actions read to the hand-over of the row's ask, \(asked.frames) frames with a lister task")
         #expect(AgentPaneNewTabActions.Page(view: nil).lacks, "a page with no view does not say that it shows no palette action")
-        #expect(byNoPage == 0, "a fill for no page started \(byNoPage) listings in \(idle) frames of the row")
         #expect(byThePage == 1, "a fill for one page with no view started \(byThePage) listings in \(first) frames of the row while no list is kept; 1 is wanted")
         #expect(end.started == start.started + 1, "the two fills and the row's ask started \(end.started - start.started) listings; 1 is wanted")
     }
