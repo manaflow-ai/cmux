@@ -324,7 +324,33 @@ const plain = papercutEvents({
 });
 if (FIXTURE !== "plain" && (RUNNING || CONTENT !== "plain"))
   throw new Error(`FIXTURE=${FIXTURE} takes no RUNNING or CONTENT`);
-const worked = (FIXTURE === "work" ? longRun(TURNS).events : FIXTURE === "replay" ? replayed : []).map((event) => ({
+/// OPEN=1 (FIXTURE=work): the last turn never ended, as a coordinator's that keeps working does: its records stop
+/// before its `turn_end`, and the chat is running. A reload of it on the v1 attach (no ROWS_WINDOW) then draws the
+/// turn as a watcher sees it (liveTurnWork `open`: every finished call in sight until the turn ends), and goneRows
+/// counts any row the reload drew that the still-open turn no longer draws.
+const OPEN = process.env.OPEN === "1";
+if (OPEN && FIXTURE !== "work") throw new Error("OPEN=1 needs FIXTURE=work");
+const workRecords = (() => {
+  const all = longRun(TURNS).events;
+  if (!OPEN) return all;
+  let end = all.length;
+  while (end > 0 && all[end - 1]!.kind !== "turn_end") end -= 1;
+  if (end === 0) throw new Error("OPEN=1: the work fixture has no turn_end");
+  return all.slice(0, end - 1);
+})();
+/// The open turn's ids (OPEN=1), from its `turn_started`, for the session's `turn`.
+const openTurn = (() => {
+  if (!OPEN) return null;
+  const started = workRecords.findLast((event) => event.kind === "turn_started");
+  const msg = (started?.msg ?? {}) as { turnId?: string; promptId?: string };
+  return {
+    turnId: msg.turnId ?? `turn-${TURNS}`,
+    promptId: msg.promptId ?? "",
+    startedAt: started?.at ?? 0,
+    prompt: "",
+  };
+})();
+const worked = (FIXTURE === "work" ? workRecords : FIXTURE === "replay" ? replayed : []).map((event) => ({
   ...event,
   sessionId: PAPERCUT_CHAT,
 }));
@@ -333,7 +359,8 @@ const session =
   FIXTURE !== "plain"
     ? {
         ...plain.session,
-        status: "ready",
+        status: OPEN ? "running" : "ready",
+        ...(OPEN ? { turn: openTurn } : {}),
         turnCount: TURNS,
         updatedAt: worked.at(-1)?.at ?? plain.session.updatedAt,
         lastSeq: worked.length,
@@ -1644,6 +1671,7 @@ try {
       shifts: median(settled.map((one) => one.shifts)),
       shiftPxMax: max(settled.map((one) => one.shiftPxMax)),
       fixture: FIXTURE,
+      open: OPEN,
       cpu: CPU,
       goneRows: median(settled.map((one) => one.goneRows)),
       goneFrames: median(settled.map((one) => one.goneFrames)),
