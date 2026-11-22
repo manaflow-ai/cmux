@@ -37,6 +37,7 @@
 // Motion is sampled, not filmed: every CSS animation and Web Animation on the stage is paused and seeked to each
 // frame's time, so the loop is exact on any machine, however slow its renderer. A stage that moves by script alone
 // (no Web Animation) is filmed in real time instead, as fast as screenshots come.
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -63,6 +64,7 @@ const { values: args } = parseArgs({
     "min-cell": { type: "string", default: "640" },
     hover: { type: "string" },
     before: { type: "string" },
+    at: { type: "string" },
     compiler: { type: "string", default: "oxc" },
     keep: { type: "string", default: "1" },
     idle: { type: "string", default: "20" },
@@ -71,8 +73,9 @@ const { values: args } = parseArgs({
   },
 });
 
-const root = path.resolve(import.meta.dir, "../..");
-const repo = path.resolve(root, "..");
+/** This checkout's webviews/: the tool, its dependencies. */
+const toolRoot = path.resolve(import.meta.dir, "../..");
+const repo = path.resolve(toolRoot, "..");
 const out = path.resolve(args.out ?? process.env.FAST_CHECKS_OUT ?? "proof-clip-out");
 fs.mkdirSync(out, { recursive: true });
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "proof-clip-"));
@@ -117,7 +120,64 @@ function run(cmd, argv, opts = {}) {
   return result.stdout;
 }
 
+/** A checkout ready to render: its dependencies (linked from this one's when the lockfiles match) and its generated
+ *  strings and theme, which the gallery's modules import. Once per checkout; seconds after the first. */
+const prepared = new Set();
+function prepare(projectRoot) {
+  if (prepared.has(projectRoot)) return;
+  prepared.add(projectRoot);
+  if (!fs.existsSync(path.join(projectRoot, "node_modules"))) {
+    // A throwaway checkout (a PR's head, --before's base) with this one's lockfile borrows its node_modules: a link,
+    // not a minute of bun install.
+    const lock = (dir) => fs.readFileSync(path.join(dir, "bun.lock"), "utf8");
+    if (projectRoot !== toolRoot && lock(projectRoot) === lock(toolRoot))
+      fs.symlinkSync(path.join(toolRoot, "node_modules"), path.join(projectRoot, "node_modules"), "dir");
+    else run("bun", ["install", "--frozen-lockfile"], { cwd: projectRoot, stdio: "ignore" });
+  }
+  // Only what is missing or older than its inputs: 70 ms when nothing is.
+  run("node", ["scripts/pages/gen-strings.mjs", "--if-stale"], { cwd: projectRoot, stdio: "ignore" });
+}
+
 // ------------------------------------------------------------------------------------------- which states
+/** The webviews/ of REF's tree, checked out once (sparse: what the gallery reads, ~140 MB, a few seconds) and reused:
+ *  another commit is rendered without a checkout of its own (--at, --before). A folder is used as it is. */
+function treeAt(ref) {
+  if (fs.existsSync(path.join(ref, "package.json"))) return path.resolve(ref);
+  if (fs.existsSync(path.join(ref, "webviews/package.json"))) return path.resolve(ref, "webviews");
+  const resolve = () =>
+    spawnSync("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], {
+      cwd: repo,
+      encoding: "utf8",
+    }).stdout.trim();
+  let sha = resolve();
+  if (!sha) {
+    run("git", ["fetch", "--quiet", "origin", ref], { cwd: repo });
+    sha = resolve() || run("git", ["rev-parse", "FETCH_HEAD"], { cwd: repo }).trim();
+  }
+  const dir = path.join(os.homedir(), ".cache/proof-clip/trees", sha.slice(0, 12));
+  if (!fs.existsSync(path.join(dir, "webviews/package.json"))) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    run("git", ["worktree", "prune"], { cwd: repo });
+    run("git", ["worktree", "add", "--quiet", "--no-checkout", "--detach", dir, sha], { cwd: repo });
+    // Everything the gallery's modules and gen-strings read outside webviews/.
+    run(
+      "git",
+      ["sparse-checkout", "set", "--no-cone"].concat(
+        ["/webviews/", "/release-notes/", "/schemas/", "/design/icons/", "/first-party-apps/", "/web/data/"],
+        ["/Packages/Shared/CmuxAgentQuestion/", "/Resources/markdown-viewer/", "/cmux-tui/spec/", "/clients/ts/"],
+        ["/Packages/macOS/CmuxNext/Sources/CmuxNextDesign/", "/Resources/ghostty/themes/", "/Resources/cmux-themes/"],
+        ["/examples/looks/", "/scripts/cmux-next/build-agent-pane-web.sh", "/config/vite-plus/", "/package.json"],
+        ["*.xcstrings"],
+      ),
+      { cwd: dir },
+    );
+    run("git", ["checkout", "--quiet"], { cwd: dir });
+  }
+  return path.join(dir, "webviews");
+}
+/** The webviews/ rendered: --at's tree, else this checkout's. */
+const root = args.at ? treeAt(args.at) : toolRoot;
+prepare(root);
 let t0 = performance.now();
 /** [{ entry, variant? }]: a missing variant means "the entry's variants". */
 let wanted = [];
@@ -131,10 +191,19 @@ if (args.states) {
 } else {
   const changed = args.changed
     ? fs.readFileSync(args.changed, "utf8")
-    : run("git", ["diff", "--name-only", `${args.base ?? "origin/feat-cmux-next"}...HEAD`], { cwd: repo });
+    : run("git", ["diff", "--name-only", `${args.base ?? "origin/feat-cmux-next"}...HEAD`], {
+        cwd: path.dirname(root),
+      });
   const list = path.join(work, "changed.txt");
   fs.writeFileSync(list, changed);
-  const touched = JSON.parse(run("bun", ["scripts/gallery/touched.ts", "--changed", list], { cwd: root }));
+  // This checkout's touched.ts, beside the rendered tree's own entries.ts: an older tree's copy walked every
+  // entry's imports file by file (128 s for one change, where this one takes about 2 s).
+  let touchedScript = "scripts/gallery/touched.ts";
+  if (root !== toolRoot) {
+    touchedScript = "scripts/gallery/.proof-clip-touched.ts";
+    fs.copyFileSync(path.join(toolRoot, "scripts/gallery/touched.ts"), path.join(root, touchedScript));
+  }
+  const touched = JSON.parse(run("bun", [touchedScript, "--changed", list], { cwd: root }));
   // The changed component's own entries only (tier 0); a shared stylesheet's far reach is not this PR's proof.
   const own = (touched.ranked ?? []).filter((r) => (r.tier ?? 0) === 0).slice(0, 2);
   if (!own.length) {
@@ -161,7 +230,9 @@ function alive(pid) {
   }
 }
 async function ensureServer(projectRoot) {
-  const state = path.join(projectRoot, "node_modules/.cache/proof-clip/server.json");
+  // Keyed by checkout: a checkout whose node_modules is linked to this one's shares the folder.
+  const key = createHash("sha1").update(projectRoot).digest("hex").slice(0, 12);
+  const state = path.join(projectRoot, `node_modules/.cache/proof-clip/server-${key}.json`);
   const read = () => {
     try {
       return JSON.parse(fs.readFileSync(state, "utf8"));
@@ -170,24 +241,22 @@ async function ensureServer(projectRoot) {
     }
   };
   const have = read();
-  if (have && have.compiler === args.compiler && alive(have.pid)) {
+  if (have && have.root === projectRoot && have.compiler === args.compiler && alive(have.pid)) {
     const ok = await fetch(`${have.url}/frame.html`).then(
       (r) => r.ok,
       () => false,
     );
     if (ok) return { url: have.url, reused: true };
   }
-  if (!fs.existsSync(path.join(projectRoot, "node_modules")))
-    run("bun", ["install", "--frozen-lockfile"], { cwd: projectRoot, stdio: "ignore" });
-  if (!fs.existsSync(path.join(projectRoot, "src/ui/theme.generated.css")))
-    run("node", ["scripts/pages/gen-strings.mjs"], { cwd: projectRoot, stdio: "ignore" });
+  prepare(projectRoot);
   fs.rmSync(state, { force: true });
   fs.mkdirSync(path.dirname(state), { recursive: true });
-  const logFd = fs.openSync(path.join(path.dirname(state), "server.log"), "w");
+  const log = state.replace(/\.json$/, ".log");
+  const logFd = fs.openSync(log, "w");
   const child = spawn(
     "node",
     [
-      path.join(root, "scripts/gallery/proof-clip-server.mjs"),
+      path.join(toolRoot, "scripts/gallery/proof-clip-server.mjs"),
       "--root",
       projectRoot,
       "--state",
@@ -209,11 +278,9 @@ async function ensureServer(projectRoot) {
     if (child.exitCode !== null) break;
     await new Promise((r) => setTimeout(r, 50));
   }
-  throw new Error(
-    `the gallery server in ${projectRoot} did not start in 60 s: ${path.join(path.dirname(state), "server.log")}`,
-  );
+  throw new Error(`the gallery server in ${projectRoot} did not start in 60 s: ${log}`);
 }
-const beforeRoot = args.before ? path.resolve(args.before) : null;
+const beforeRoot = args.before ? treeAt(args.before) : null;
 const [after, before] = await Promise.all([ensureServer(root), beforeRoot ? ensureServer(beforeRoot) : null]);
 const baseUrl = after.url;
 lap("serve", t0);
@@ -245,10 +312,11 @@ function measureStage(clipSelector) {
   if (clipSelector) boxes.push(scope.getBoundingClientRect());
   else
     for (const el of scope.querySelectorAll("*")) {
-      // The stage's own full-size wrappers paint the page background; they are not the component.
+      // The stage's own wrappers paint the page background, the whole height or the whole width of it (a pane
+      // column): they are not the component.
       const r = el.getBoundingClientRect();
       if (r.width < 1 || r.height < 1) continue;
-      if (r.width >= innerWidth - 1 && r.height >= innerHeight - 1) continue;
+      if (r.width >= innerWidth - 1 || r.height >= innerHeight - 1) continue;
       if (painted(el)) boxes.push(r);
     }
   if (!boxes.length) return { error: "the stage painted nothing" };
@@ -281,10 +349,13 @@ const sharedContext = await browser.newContext({
   viewport: { width: 1040, height: 900 },
   deviceScaleFactor: SCALE,
   reducedMotion: "no-preference",
-  // The warm server's own self-signed loopback certificate (HTTP/2; proof-clip-server.mjs).
 });
 async function openStage(entry, variant, scheme, url = baseUrl, hover = null) {
   const page = await sharedContext.newPage();
+  // A stage that cannot load (a module the server refused) says why instead of waiting out the timeout.
+  const failures = [];
+  page.on("pageerror", (error) => failures.push(String(error.message).split("\n")[0]));
+  page.on("response", (r) => r.status() >= 400 && failures.push(`${r.status()} ${r.url().replace(url, "")}`));
   await page.emulateMedia({ colorScheme: scheme, reducedMotion: "no-preference" });
   const context = { newCDPSession: (p) => sharedContext.newCDPSession(p), close: () => page.close() };
   // settle: a stage that never goes still (the thinking line) is ready after this, not the gallery's 4 s; the
@@ -298,13 +369,15 @@ async function openStage(entry, variant, scheme, url = baseUrl, hover = null) {
   });
   if (variant) query.set("variant", variant);
   await page.goto(`${url}/frame.html?${query}`, { waitUntil: "domcontentloaded" });
-  await page.waitForFunction(
-    () => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
-    undefined,
-    {
-      timeout: 90_000,
-    },
-  );
+  await page
+    .waitForFunction(() => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""), undefined, {
+      timeout: 30_000,
+    })
+    .catch((error) => {
+      throw new Error(
+        `${entry}/${variant ?? ""} (${scheme}) was not ready in 30 s: ${failures.slice(0, 4).join("; ") || error.message}`,
+      );
+    });
   const status = await page.evaluate(() => document.documentElement.dataset.galleryReady);
   if (status !== "1") throw new Error(`${entry}/${variant ?? ""} did not render (${scheme})`);
   if (hover) {
@@ -367,13 +440,13 @@ async function captureCell(state, key, scheme) {
     // scaling pixels up.
     const scale = Math.min(MAX_SCALE, Math.max(SCALE, Math.floor(MIN_CELL / clip.width)));
     const cdp = await context.newCDPSession(page);
-    if (scale !== SCALE)
-      await cdp.send("Emulation.setDeviceMetricsOverride", {
-        width: m.viewport.width,
-        height: m.viewport.height,
-        deviceScaleFactor: scale,
-        mobile: false,
-      });
+    // Always: a raw CDP capture does not see the context's own deviceScaleFactor and would come back at 1x.
+    await cdp.send("Emulation.setDeviceMetricsOverride", {
+      width: m.viewport.width,
+      height: m.viewport.height,
+      deviceScaleFactor: scale,
+      mobile: false,
+    });
     const shot = async () =>
       Buffer.from(
         (
@@ -548,59 +621,59 @@ async function segment(rate, seconds, file, tag) {
     graph,
     "-map",
     `[${last}]`,
-    "-t",
-    seconds.toFixed(3),
-    "-r",
-    String(FPS),
-    // Lossless here: the one lossy step is the final encode, from these.
-    "-c:v",
-    "libx264rgb",
-    "-crf",
-    "0",
-    "-preset",
-    "ultrafast",
+    // A still is one PNG frame; motion is a lossless segment, and the one lossy step is the final encode, from these.
+    ...(file.endsWith(".png")
+      ? ["-frames:v", "1"]
+      : ["-t", seconds.toFixed(3), "-r", String(FPS), "-c:v", "libx264rgb", "-crf", "0", "-preset", "ultrafast"]),
     file,
   ]);
 }
 
+// Nothing moves: the proof is one picture (a video of a still is seconds of encoding and a worse image).
+const clipFile = path.join(out, animated ? "proof.mp4" : "proof.png");
+const gifFile = animated ? path.join(out, "proof.gif") : null;
 const parts = [path.join(work, "fast.mkv")];
 if (slowSeconds > 0.2) parts.push(path.join(work, "slow.mkv"));
-await Promise.all([
-  segment(1, fastSeconds, parts[0], "fast"),
-  parts[1] ? segment(SLOW, slowSeconds, parts[1], "slow") : null,
-]);
-const clipFile = path.join(out, "proof.mp4");
-const gifFile = path.join(out, "proof.gif");
+if (!animated) await segment(1, 0.1, clipFile, "still");
+else
+  await Promise.all([
+    segment(1, fastSeconds, parts[0], "fast"),
+    parts[1] ? segment(SLOW, slowSeconds, parts[1], "slow") : null,
+  ]);
 const list = path.join(work, "parts.txt");
 fs.writeFileSync(list, parts.map((p) => `file '${p}'`).join("\n"));
 const concat = ["-nostdin", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", list];
-await Promise.all([
-  // The mp4 for players: near-lossless (crf 12, tuned for flat UI), 4:2:0 at two or more device pixels per CSS pixel.
-  runAsync("ffmpeg", [
-    ...concat,
-    "-c:v",
-    "libx264",
-    "-pix_fmt",
-    "yuv420p",
-    "-crf",
-    "12",
-    "-tune",
-    "animation",
-    "-preset",
-    "veryfast",
-    "-movflags",
-    "+faststart",
-    clipFile,
-  ]),
-  // The gif a PR body shows inline: one palette from every frame, no dithering, so UI colors stay flat and exact.
-  runAsync("ffmpeg", [
-    ...concat,
-    "-filter_complex",
-    "fps=25,split[a][b];[a]palettegen=stats_mode=full:max_colors=256[p];[b][p]paletteuse=dither=none",
-    gifFile,
-  ]),
-  runAsync("ffmpeg", [...concat, "-frames:v", "1", path.join(out, "proof.png")]),
-]);
+await Promise.all(
+  !animated
+    ? []
+    : [
+        // The mp4 for players: near-lossless (crf 12, tuned for flat UI), 4:2:0 at two or more device pixels per CSS pixel.
+        runAsync("ffmpeg", [
+          ...concat,
+          "-c:v",
+          "libx264",
+          "-pix_fmt",
+          "yuv420p",
+          "-crf",
+          "12",
+          "-tune",
+          "animation",
+          "-preset",
+          "veryfast",
+          "-movflags",
+          "+faststart",
+          clipFile,
+        ]),
+        // The gif a PR body shows inline: one palette from every frame, no dithering, so UI colors stay flat and exact.
+        runAsync("ffmpeg", [
+          ...concat,
+          "-filter_complex",
+          "fps=25,split[a][b];[a]palettegen=stats_mode=full:max_colors=256[p];[b][p]paletteuse=dither=none",
+          gifFile,
+        ]),
+        runAsync("ffmpeg", [...concat, "-frames:v", "1", path.join(out, "proof.png")]),
+      ],
+);
 lap("compose", t0);
 
 await browser.close();
@@ -608,9 +681,9 @@ await browser.close();
 if (!KEEP) for (const pid of started_servers) alive(pid) && process.kill(pid, "SIGTERM");
 
 // ------------------------------------------------------------------------------------------- sidecar
-const duration = Number(
-  run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", clipFile]).trim(),
-);
+const duration = animated
+  ? Number(run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", clipFile]).trim())
+  : 0;
 // The component's share of the frame: each cell's painted element (not its margin, not the labels) over the whole.
 const elementArea = allCells.reduce((sum, c) => sum + c.element.width * c.scale * (c.element.height * c.scale), 0);
 const sidecar = {
@@ -634,8 +707,8 @@ const sidecar = {
     ]),
   ),
   gif: gifFile,
-  gif_bytes: fs.statSync(gifFile).size,
-  mp4_bytes: fs.statSync(clipFile).size,
+  gif_bytes: gifFile ? fs.statSync(gifFile).size : null,
+  bytes: fs.statSync(clipFile).size,
   max_scale: Math.max(...allCells.map((c) => c.scale)),
   compiler: args.compiler,
   server_reused: Boolean(after.reused && (!before || before.reused)),

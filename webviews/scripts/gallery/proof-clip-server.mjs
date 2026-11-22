@@ -42,11 +42,15 @@ const server = await createServer({
   configFile: path.join(root, "vite.config.gallery-dev.ts"),
   root,
   logLevel: "warn",
+  // Its own dependency cache: checkouts sharing a linked node_modules would otherwise rewrite one node_modules/.vite.
+  cacheDir: args.state.replace(/\.json$/, "-vite"),
   // A stale error overlay would be filmed as the component.
   server: {
     port,
     strictPort: true,
     hmr: { overlay: false },
+    // A linked node_modules (proof-clip.mjs borrows one for a throwaway checkout) lives in another checkout.
+    fs: { allow: [fs.realpathSync(path.join(root, "node_modules"))] },
   },
   plugins: [
     {
