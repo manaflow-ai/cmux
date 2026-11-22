@@ -211,3 +211,34 @@ fn a_translucent_text_color_is_measured_as_drawn() {
         check(&[&ops], Surface::Widget).into_iter().filter(|f| f.check == "contrast").collect();
     assert!(contrast.iter().any(|f| f.message.contains("light surface")), "{contrast:?}");
 }
+
+/// The `DesignCheck` gallery entry shows each recorded scene's warnings as this check gives them, so
+/// the record must follow the check. On a mismatch the message carries the current warnings: put
+/// them under each scene's `warnings` in the fixture.
+#[test]
+fn the_design_check_gallery_fixture_records_this_check() {
+    let text =
+        include_str!("../../../../../../webviews/src/apps/scene/fixtures/design-check-scenes.json");
+    let fixture: Value = serde_json::from_str(text).expect("the fixture reads");
+    let mut current = serde_json::Map::new();
+    let mut stale = Vec::new();
+    for (name, recorded) in fixture.as_object().expect("an object of scenes") {
+        let mut sides = serde_json::Map::new();
+        for side in ["before", "after"] {
+            let got: Vec<Value> = check(&[&recorded[side]], Surface::Widget)
+                .iter()
+                .map(|f| json!({"check": f.check, "count": f.count, "message": f.message}))
+                .collect();
+            if recorded["warnings"][side] != Value::Array(got.clone()) {
+                stale.push(format!("{name}.{side}"));
+            }
+            sides.insert(side.into(), Value::Array(got));
+        }
+        current.insert(name.clone(), Value::Object(sides));
+    }
+    assert!(
+        stale.is_empty(),
+        "stale warnings in design-check-scenes.json: {stale:?}\nCURRENT-WARNINGS {}",
+        Value::Object(current)
+    );
+}

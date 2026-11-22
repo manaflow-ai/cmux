@@ -819,7 +819,7 @@ test("a font name draws the one scene type table's size and weight, the table Ap
   const { container } = render([
     { op: "create", id: "root", type: "VStack" },
     ...names.map((style) => ({
-      op: "create",
+      op: "create" as const,
       id: style.name,
       type: "Text",
       props: { text: style.name, font: style.name },
