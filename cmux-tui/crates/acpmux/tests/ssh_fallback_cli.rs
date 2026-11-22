@@ -334,6 +334,72 @@ fn a_send_to_a_down_ssh_peer_is_delivered_once_over_ssh_and_not_again_on_reconne
     assert_eq!(pair.status(&id)["status"], "delivered");
 }
 
+/// B's `user_message` record of the prompt whose text holds `words`, once it is there.
+fn carried(pair: &Pair, words: &str) -> Value {
+    let info = json_of(&cli(&pair.b.home, &["--json", "info", "lane-x"]));
+    let session = info["sessionId"].as_str().or(info["id"].as_str()).expect("lane-x's id");
+    within(60, words, || {
+        let page = unix(
+            &pair.b.home,
+            "_acpmux/events",
+            json!({"sessionId": session, "kinds": ["user_message"]}),
+        );
+        page["result"]["events"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|e| e["msg"].clone())
+            .find(|m| m["text"].as_str().is_some_and(|t| t.contains(words)))
+    })
+}
+
+/// Leo, 2026-11-22, on a lane's messages drawn in his chat as his own bubbles ("you · via CLI on
+/// cosmic-gray"): "these shouldn't have been shown like that." A send from an agent's shell that
+/// proved no session to machine A is carried over ssh as a relayed message: B never records it
+/// as its owner's terminal send. The person's own send, carried the same way, stays the person's.
+#[test]
+fn an_agents_send_carried_over_ssh_is_never_recorded_as_the_person() {
+    let pair = Pair::start("who");
+    within(30, "B's warm-up turn", || Some(pair.turns()).filter(|n| *n >= 1));
+
+    // An agent's shell whose token goes to another daemon's socket: A is told of no session
+    // and no terminal (`tests/caller_declared_cli.rs`).
+    let mut cmd = daemon_env::command(&pair.a.home, daemon_env::Agents::StandIn, &[]);
+    let sent = cmd
+        .args(["--json", "send", "--no-wait", "box/lane-x", "agent-shell-words"])
+        .env("ACPMUX_HOME", &pair.a.home)
+        .env("ACPMUX_SOCKET", pair.a.home.join("s.sock"))
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .env_remove("ACPMUX_FROM")
+        .env("ACPMUX_SESSION_ID", "0199aaaa-0000-7000-8000-000000000001")
+        .env("ACPMUX_SESSION_TOKEN", "a".repeat(64))
+        .env("ACPMUX_SESSION_TOKEN_SOCKET", pair.a.home.join("other.sock"))
+        .current_dir(pair.a.home.join("p"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .unwrap();
+    assert!(sent.status.success(), "{}", text(&sent));
+    let agent = carried(&pair, "agent-shell-words");
+    assert_eq!(agent.pointer("/_meta/origin"), None, "an agent's shell is no person: {agent}");
+    assert_eq!(
+        agent.pointer("/_meta/provenance/fromRelay/by"),
+        Some(&json!("acpmux-ssh")),
+        "the record names the carry as its relay: {agent}"
+    );
+    assert!(
+        agent.pointer("/_meta/provenance/fromRelay/machine").is_some_and(Value::is_string),
+        "and the machine it came from: {agent}"
+    );
+
+    pair.send("owner-words");
+    let owner = carried(&pair, "owner-words");
+    assert_eq!(owner.pointer("/_meta/origin/actor"), Some(&json!("person")), "{owner}");
+    assert_eq!(owner.pointer("/_meta/provenance"), None, "{owner}");
+    assert_eq!(pair.calls("carry"), 2);
+}
+
 #[test]
 fn ls_lists_a_down_ssh_peers_sessions_read_over_ssh() {
     let pair = Pair::start("ls");
