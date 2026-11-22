@@ -444,20 +444,6 @@ beyond GATEWAY_JOBS', or placement lists nothing (side_lane_placement.fleet_gate
 and daemon-test are not cascade jobs, so placement never lists them; daemon-test also needs the
 same-tree cmux-tui daemon, which a fleet suite step reports as no result.
 
-## note-25
-
-Above `portable-placement` in `.github/workflows/cmux-next.yml`.
-
-cmux-next checks' runner.
-Jobs that need neither Linux nor Blacksmith take fleet Linux (vars.LINUX_RUNNER when it names our
-own Linux runner), else a mini idle now with no nightly job waiting on its pool, else their
-Blacksmith label (scripts/ci/portable_job_placement.py; Leo, 2026-10-31: "i mean the linux things
-cant our minis just run them"). Every step fails open: no output keeps each job's Blacksmith route.
-The placement code comes from the base branch, as macos-placement's does.
-This bootstrap must start independently of the labels it validates: Blacksmith 2 vCPU
-(RUNNER_POOLS.linux_2) on every attempt, like the other placement bootstraps. It took hosted Ubuntu on
-attempt 1 until 2026-11-18, when GitHub-hosted runners left it queued for hours (cmux#45735). Its consumers take live fleet capacity from its outputs.
-
 ## note-26
 
 Above `checks: needs` in `.github/workflows/cmux-next.yml`.
@@ -465,7 +451,6 @@ Above `checks: needs` in `.github/workflows/cmux-next.yml`.
 feat-cmux-next pushes run it again (Leo, 2026-10-19; cx-g34i had dropped it): a direct push's
 red shows on that push, and a pull request's red has a base run to be compared with.
 Not in a base tier run: the push of its commit already ran it.
-!cancelled(): a skipped or failed portable-placement (a fork, a re-run) leaves the Blacksmith route.
 
 ## note-27
 
