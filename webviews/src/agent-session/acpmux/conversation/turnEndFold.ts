@@ -317,12 +317,12 @@ function snapshotOf(node: HTMLElement, id: string): HTMLElement {
   return copy;
 }
 
-/// The recap entrance set over `node`, else the dev setting's, else the shipped `place`.
+/// The recap entrance set over `node`, else the dev setting's, else the shipped `hold`.
 export function turnEndRecap(node: Element): TurnEndRecap {
   const set = node.closest(`[${TURN_END_RECAP_ATTR}]`)?.getAttribute(TURN_END_RECAP_ATTR);
   if (TURN_END_RECAPS.includes(set as TurnEndRecap)) return set as TurnEndRecap;
   const arm = experimentArm(turnEndRecapLook);
-  return TURN_END_RECAPS.includes(arm) ? arm : "place";
+  return TURN_END_RECAPS.includes(arm) ? arm : "hold";
 }
 
 /// The attribute a recap card that arrives live carries: its entrance (conversation.css plays it).
@@ -346,7 +346,7 @@ export function turnEndLook(node: Element): TurnEndLook {
   const set = node.closest(`[${TURN_END_LOOK_ATTR}]`)?.getAttribute(TURN_END_LOOK_ATTR);
   if (TURN_END_LOOKS.includes(set as TurnEndLook)) return set as TurnEndLook;
   const arm = experimentArm(turnEndFoldLook);
-  return TURN_END_LOOKS.includes(arm) ? arm : "wipe";
+  return TURN_END_LOOKS.includes(arm) ? arm : "fade";
 }
 
 /// `glide`'s curve: a soft start and a soft landing, so no one frame takes the move's biggest step first.

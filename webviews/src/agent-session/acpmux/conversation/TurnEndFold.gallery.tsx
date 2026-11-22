@@ -4,9 +4,9 @@
 // overarching fold at the very end"). Run the turn: its calls arrive one by one, each in sight, a
 // short note between two runs on its own row; then the answer lands and the work folds under
 // "Worked for" on the house settle (turnEndFold.ts). The arms compare how the rows that fold go
-// (`data-turn-end-fold`): `wipe`, shipped (the fold matrix's pick, scripts/fold-matrix.ts), slides nothing:
+// (`data-turn-end-fold`): `wipe` (the fold matrix's pick, scripts/fold-matrix.ts) slides nothing:
 // an edge runs down from the Worked for line, the new frame above it and the old below; `snapshot`
-// cross-dissolves the two frames in place; `fade` fades each where it was while the answer and the rows
+// cross-dissolves the two frames in place; `fade`, shipped, fades each where it was while the answer and the rows
 // above slide to the folded line; `tuck` slides them up under the line as they fade; `stagger` fades
 // them from the last up. `live` stops before the end: the work in sight, nothing folded. The `-long`
 // states run a longer turn (a third run of calls) whose fold moves the answer far: it still ends with
