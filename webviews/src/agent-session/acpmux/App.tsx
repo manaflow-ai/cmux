@@ -12755,7 +12755,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     question,
                     anchor,
                     (guestQuestion, guestSession, harness) =>
-                      client.btwInline(guestQuestion, harness ?? guest.harnessId, guestSession),
+                      client
+                        .btwInline(guestQuestion, harness ?? guest.harnessId, guestSession)
+                        .catch((error: unknown) => {
+                          // A trust refusal opens Trust, as /btw's does (btwCapability.ts); the note keeps its Retry.
+                          client.routeTrustRefusal(error);
+                          throw error;
+                        }),
                     guest.harnessId,
                   );
                   return true;
