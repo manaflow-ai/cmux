@@ -22,132 +22,113 @@ import os from "node:os";
 import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
+import type { ShellFrame, ShellTrace } from "./support/caretFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-type ShellFrame = {
-  at: number;
-  readAt: number;
-  mounted: boolean;
-  focused: boolean;
-  value: string;
-  start: number;
-  end: number;
-  promptFocused: boolean;
-  promptText: string;
-  promptCaretAtEnd: boolean;
-};
-type ShellTrace = { inputAt: number; frames: ShellFrame[]; final: ShellFrame };
-
-declare global {
-  interface Window {
-    cmuxShellTrace?: { start(): void; stop(): ShellTrace; read(): ShellFrame };
-  }
-}
-
-const FRAME_MS = 1000 / 60;
-
-/** The page side; closes over nothing. */
-function defineShellTrace() {
-  if (window.cmuxShellTrace) return;
-  const PROMPT_SELECTOR =
-    ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
-  const caretAtEnd = (prompt: Element | null) => {
-    const selection = document.getSelection();
-    if (!prompt || !selection?.rangeCount || !selection.isCollapsed || !prompt.contains(selection.anchorNode))
-      return false;
-    const end = document.createRange();
-    end.selectNodeContents(prompt);
-    end.collapse(false);
-    return (
-      selection.getRangeAt(0).compareBoundaryPoints(Range.START_TO_START, end) === 0 ||
-      // The same place by text: everything before the caret is the whole text.
-      (() => {
-        const before = document.createRange();
-        before.selectNodeContents(prompt);
-        before.setEnd(selection.anchorNode!, selection.anchorOffset);
-        return before.toString().length === (prompt.textContent ?? "").length;
-      })()
-    );
-  };
-  const read = (): ShellFrame => {
-    const field = document.querySelector<HTMLTextAreaElement>(".acpmux-shell-field");
-    const prompt = document.querySelector(PROMPT_SELECTOR);
-    const active = document.activeElement;
-    return {
-      at: performance.now(),
-      readAt: performance.now(),
-      mounted: Boolean(field),
-      focused: Boolean(field) && active === field,
-      value: field?.value ?? "",
-      start: field?.selectionStart ?? -1,
-      end: field?.selectionEnd ?? -1,
-      promptFocused: Boolean(prompt) && (prompt === active || Boolean(prompt?.contains(active))),
-      promptText: (prompt?.textContent ?? "").trim(),
-      promptCaretAtEnd: caretAtEnd(prompt),
-    };
-  };
-  let frames: ShellFrame[] = [];
-  let inputAt = 0;
-  let stop: (() => void) | undefined;
-  const mark = (event: Event) => {
-    if (!inputAt) inputAt = event.timeStamp || performance.now();
-  };
-  const kinds = ["keydown", "beforeinput", "paste"];
-  window.cmuxShellTrace = {
-    start() {
-      stop?.();
-      frames = [];
-      inputAt = 0;
-      for (const kind of kinds) addEventListener(kind, mark, { capture: true });
-      stop = window.cmuxAfterPaint((frame) => {
-        if (!inputAt) return;
-        frames.push({ ...read(), at: frame });
-      });
-    },
-    stop() {
-      stop?.();
-      stop = undefined;
-      for (const kind of kinds) removeEventListener(kind, mark, { capture: true });
-      return { inputAt, frames, final: read() };
-    },
-    read,
-  };
-}
-
-/** What a frame shows, for comparing it with the final one. */
-const look = (frame: ShellFrame) =>
-  frame.mounted
-    ? `shell:${frame.focused}:${frame.value}:${frame.start}:${frame.end}`
-    : `prompt:${frame.promptFocused}:${frame.promptText}:${frame.promptCaretAtEnd}`;
-
-/** Input to the first frame from which the field stays as it ends, and the frames before it. */
-function judge(trace: ShellTrace) {
-  const after = trace.frames.filter((frame) => frame.at >= trace.inputAt - FRAME_MS);
-  const want = look(trace.final);
-  let settled = after.length;
-  for (let index = after.length - 1; index >= 0; index--) {
-    if (look(after[index]!) !== want) break;
-    settled = index;
-  }
-  const frame = after[settled];
-  return {
-    inputToCaretMs: frame ? Math.max(0, frame.at - trace.inputAt) : null,
-    inputToReadMs: frame ? Math.max(0, frame.readAt - trace.inputAt) : null,
-    framesToSettle: settled,
-    before: after
-      .slice(0, settled)
-      .map((each) => ({ afterInputMs: Math.round((each.at - trace.inputAt) * 10) / 10, look: look(each) })),
-    final: want,
-  };
-}
-
-const quantile = (values: number[], q: number) => {
-  const sorted = [...values].sort((a, b) => a - b);
-  if (sorted.length === 0) return null;
-  return Math.round(sorted[Math.min(sorted.length - 1, Math.round((sorted.length - 1) * q))]! * 10) / 10;
-};
-
 await requireBrowserLane("composer-shell-caret-frames.browser.test.ts", async () => {
+  const FRAME_MS = 1000 / 60;
+
+  /** The page side; closes over nothing. */
+  function defineShellTrace() {
+    if (window.cmuxShellTrace) return;
+    const PROMPT_SELECTOR =
+      ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
+    const caretAtEnd = (prompt: Element | null) => {
+      const selection = document.getSelection();
+      if (!prompt || !selection?.rangeCount || !selection.isCollapsed || !prompt.contains(selection.anchorNode))
+        return false;
+      const end = document.createRange();
+      end.selectNodeContents(prompt);
+      end.collapse(false);
+      return (
+        selection.getRangeAt(0).compareBoundaryPoints(Range.START_TO_START, end) === 0 ||
+        // The same place by text: everything before the caret is the whole text.
+        (() => {
+          const before = document.createRange();
+          before.selectNodeContents(prompt);
+          before.setEnd(selection.anchorNode!, selection.anchorOffset);
+          return before.toString().length === (prompt.textContent ?? "").length;
+        })()
+      );
+    };
+    const read = (): ShellFrame => {
+      const field = document.querySelector<HTMLTextAreaElement>(".acpmux-shell-field");
+      const prompt = document.querySelector(PROMPT_SELECTOR);
+      const active = document.activeElement;
+      return {
+        at: performance.now(),
+        readAt: performance.now(),
+        mounted: Boolean(field),
+        focused: Boolean(field) && active === field,
+        value: field?.value ?? "",
+        start: field?.selectionStart ?? -1,
+        end: field?.selectionEnd ?? -1,
+        promptFocused: Boolean(prompt) && (prompt === active || Boolean(prompt?.contains(active))),
+        promptText: (prompt?.textContent ?? "").trim(),
+        promptCaretAtEnd: caretAtEnd(prompt),
+      };
+    };
+    let frames: ShellFrame[] = [];
+    let inputAt = 0;
+    let stop: (() => void) | undefined;
+    const mark = (event: Event) => {
+      if (!inputAt) inputAt = event.timeStamp || performance.now();
+    };
+    const kinds = ["keydown", "beforeinput", "paste"];
+    window.cmuxShellTrace = {
+      start() {
+        stop?.();
+        frames = [];
+        inputAt = 0;
+        for (const kind of kinds) addEventListener(kind, mark, { capture: true });
+        stop = window.cmuxAfterPaint((frame) => {
+          if (!inputAt) return;
+          frames.push({ ...read(), at: frame });
+        });
+      },
+      stop() {
+        stop?.();
+        stop = undefined;
+        for (const kind of kinds) removeEventListener(kind, mark, { capture: true });
+        return { inputAt, frames, final: read() };
+      },
+      read,
+    };
+  }
+
+  /** What a frame shows, for comparing it with the final one. */
+  const look = (frame: ShellFrame) =>
+    frame.mounted
+      ? `shell:${frame.focused}:${frame.value}:${frame.start}:${frame.end}`
+      : `prompt:${frame.promptFocused}:${frame.promptText}:${frame.promptCaretAtEnd}`;
+
+  /** Input to the first frame from which the field stays as it ends, and the frames before it. */
+  function judge(trace: ShellTrace) {
+    const after = trace.frames.filter((frame) => frame.at >= trace.inputAt - FRAME_MS);
+    const want = look(trace.final);
+    let settled = after.length;
+    for (let index = after.length - 1; index >= 0; index--) {
+      if (look(after[index]!) !== want) break;
+      settled = index;
+    }
+    const frame = after[settled];
+    return {
+      inputToCaretMs: frame ? Math.max(0, frame.at - trace.inputAt) : null,
+      inputToReadMs: frame ? Math.max(0, frame.readAt - trace.inputAt) : null,
+      framesToSettle: settled,
+      before: after
+        .slice(0, settled)
+        .map((each) => ({ afterInputMs: Math.round((each.at - trace.inputAt) * 10) / 10, look: look(each) })),
+      final: want,
+    };
+  }
+
+  const quantile = (values: number[], q: number) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    if (sorted.length === 0) return null;
+    return Math.round(sorted[Math.min(sorted.length - 1, Math.round((sorted.length - 1) * q))]! * 10) / 10;
+  };
+
   setDefaultTimeout(600_000);
   const webviews = path.resolve(import.meta.dir, "..");
   const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
