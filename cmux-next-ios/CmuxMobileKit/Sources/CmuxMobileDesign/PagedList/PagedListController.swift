@@ -1116,7 +1116,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
                   let cell = collectionView.cellForItem(at: indexPath) else { continue }
             _ = cell
             guard let attributes = collectionView.layoutAttributesForItem(at: indexPath) else { continue }
-            rows.append((id, attributes.frame.minY - collectionView.contentOffset.y))
+            rows.append((id, attributes.frame.minY))
         }
         querying += 1
         let reading = referenceRow()?.id
