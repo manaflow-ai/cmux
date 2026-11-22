@@ -3,7 +3,7 @@
 // when what it draws can have moved: a streamed chunk re-renders it with a new `quietKey` and
 // `heardKey` and nothing else, and once read its boxes cost no forced layout per chunk.
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { act } from "react";
+import { act, Profiler } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { WorkingCounts } from "./workingForModel";
@@ -123,4 +123,30 @@ test("a change of words reads the line again, and the old words still roll out a
   const out = container.querySelector<HTMLElement>(".cv-roll-out");
   expect(out).not.toBeNull();
   expect(out!.style.width).toBe(`${WIDTH}px`);
+});
+
+const CALLS = 12;
+
+// Each new call (a tool call's start or end) rolls the live line's words: the old ones roll out with the tail they
+// were last drawn with, kept in the render that draws them (`useRoll`).
+test("each new call's words roll in one commit, the old words rolling out with their drawn tail", () => {
+  let commits = 0;
+  const onRender = () => {
+    commits += 1;
+  };
+  const call = (doing: string, index: number) => (
+    <Profiler id="line" onRender={onRender}>
+      {step(doing, index)}
+    </Profiler>
+  );
+  act(() => root!.render(call("Read 0.ts", 0)));
+  commits = 0;
+  for (let index = 1; index <= CALLS; index++) act(() => root!.render(call(`Read ${index}.ts`, index)));
+  const out = container.querySelector<HTMLElement>(".cv-roll-out");
+  expect(out?.dataset.text).toBe(` ${CALLS - 1}.ts`);
+  expect(out?.dataset.tail).toContain("2 commands");
+  console.log(`PER-CALL live line commits: ${commits / CALLS}`);
+  // One commit a call (13 for 12 at cmux#50032's head). Before it, the rolled-out tail was filled in by a layout
+  // effect: a second synchronous commit on every new call, 2 a call, and the transcript's with it.
+  expect(commits / CALLS).toBeLessThanOrEqual(1.25);
 });
