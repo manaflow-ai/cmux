@@ -644,6 +644,17 @@ struct AgentPaneCloudReservationTests {
         #expect(requests.count == 2)
     }
 
+    /// The reserve names the folder the Send would start with, so the App refuses to reserve a
+    /// machine for a start it would refuse (an untrusted folder); Rust's request keeps only the compose key.
+    @Test func aReserveCarriesTheSendsFolderForTheAppOnly() throws {
+        let params: [String: Any] = ["composeKey": "k", "cwd": "/tmp/repo", "harness": "claude", "model": "opus"]
+        let request = try #require(AgentPaneCloudReservationRequest(method: "cloud.reserve", params: params))
+        #expect(request.cwd == "/tmp/repo")
+        #expect(request.params == .object(["composeKey": .string("k")]))
+        let relative = try #require(AgentPaneCloudReservationRequest(method: "cloud.reserve", params: ["composeKey": "k", "cwd": "repo"]))
+        #expect(relative.cwd == nil)
+    }
+
     @Test func reservationNeedsACloudPickGestureAndStaysSinglePerPane() async throws {
         let model = AgentPaneModel(host: NoHost())
         var requests: [AgentPaneCloudReservationRequest] = []

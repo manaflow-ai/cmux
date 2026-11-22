@@ -130,8 +130,8 @@ struct CloudStartChat {
         guard start.uploads(folder) else { throw CloudMove.Failure(message: CloudMoveStrings.noFolder) }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
-        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
-        let folderName = (chat as NSString).lastPathComponent
+        if let refused = await services.cloud.move.untrustedSource(chat, acpmuxHome: QuitAgents.environment(services)?.home.path, log: { [logger = services.cloud.logger] in logger.notice("cloud start chat: \($0, privacy: .public)") }) { throw CloudMove.Failure(message: refused.userMessage) } // before any machine, the compose's reserved one included (its reserve checked it too)
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user), folderName = (chat as NSString).lastPathComponent
         let start = try await start.sized(CloudStartPreflight.answer(origin.preflight, root: folder.root, cli: cli), local: folder.root) // before any machine or lease: the size its copy needs, or its refusal
         timeline?.mark("preflight")
         report(.init(name: "machine", folder: folderName))
