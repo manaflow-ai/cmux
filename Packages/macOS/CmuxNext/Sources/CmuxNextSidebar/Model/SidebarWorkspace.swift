@@ -46,7 +46,6 @@ public nonisolated enum SidebarWorkspaceKind: String, Codable, Hashable, Sendabl
     }
 }
 
-/// One workspace row.
 /// Who made a workspace (`workspace-created-by-v1`: the daemon records it at the create).
 public nonisolated enum SidebarCreator: String, Hashable, Sendable {
     /// The person.
@@ -57,6 +56,7 @@ public nonisolated enum SidebarCreator: String, Hashable, Sendable {
     case script
 }
 
+/// One workspace row.
 public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var id: WorkspaceID
     /// The machine whose daemon owns this workspace. Workspaces never move
