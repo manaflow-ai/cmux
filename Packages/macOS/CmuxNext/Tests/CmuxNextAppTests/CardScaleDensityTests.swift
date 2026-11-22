@@ -93,4 +93,35 @@ import Testing
             #expect(Typography.dialogTitle.pointSize == Typography.cardSize(TypeScale.Base.title), "\(preset)")
         }
     }
+
+    /// Review of #49615: a toast's padding follows the density's spacing grid (its tuned 8 pt is Default's), so a
+    /// toast's gaps grow with its text; an explicit tuning still sets the Default size.
+    @Test func toastPaddingFollowsTheDensity() {
+        var look = CmuxToastLook()
+        look.shape = .rounded
+        look.compact = false
+        var tuning = CmuxToastTuning()
+        var last: CGFloat?
+        Self.atEachDensity { preset in
+            let padding = CmuxToastView.geometry(look: look, tuning: tuning).padding
+            #expect(padding == Metrics.scale(Metrics.tokens.space(tuning.padding)), "\(preset): toast padding \(padding)")
+            if let last { #expect(padding >= last, "\(preset): the toast's padding shrank as the density grew") }
+            last = padding
+        }
+        DensityTokens.$scoped.withValue(DensityPreset.cozy.tokens) {
+            tuning.padding = 12
+            #expect(CmuxToastView.geometry(look: look, tuning: tuning).padding == Metrics.scale(12), "a tuned padding is Default's size")
+        }
+    }
+
+    /// Review of #49615: the password reveal dialog's preview and the other read-only fields take the card scale, so
+    /// they grow with the dialog's title and buttons.
+    @Test func dialogCodeTextFollowsTheDensity() {
+        Self.atEachDensity { preset in
+            #expect(Typography.cardMonospaced(TypeScale.Base.body).pointSize == Typography.cardMessage.pointSize, "\(preset)")
+        }
+        let small = DensityTokens.$scoped.withValue(DensityPreset.ultraCompact.tokens) { Typography.cardMonospaced(TypeScale.Base.body).pointSize }
+        let large = DensityTokens.$scoped.withValue(DensityPreset.spacious.tokens) { Typography.cardMonospaced(TypeScale.Base.body).pointSize }
+        #expect(large > small, "the preview kept \(small) pt from Ultra-compact to Spacious")
+    }
 }

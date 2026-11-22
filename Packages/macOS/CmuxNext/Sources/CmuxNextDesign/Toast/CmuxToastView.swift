@@ -122,8 +122,10 @@ public final class CmuxToastView: NSView {
 
     /// The concentric geometry of a toast in `look` built with `tuning`.
     static func geometry(look: CmuxToastLook, tuning: CmuxToastTuning) -> ConcentricContainer {
-        // The tuned points follow the interface scale; a compact toast takes two thirds of the padding.
-        let padding = Metrics.scale(look.compact ? (tuning.padding * 2 / 3).rounded() : tuning.padding)
+        // The tuned points are Default's: they follow the density's spacing grid as every card's spacing does (#49579), and
+        // the interface scale; a compact toast takes two thirds of the padding.
+        let points = look.compact ? (tuning.padding * 2 / 3).rounded() : tuning.padding
+        let padding = Metrics.scale(Metrics.tokens.space(points))
         return look.shape == .capsule ? .capsule(controlHeight: CmuxToastButton.height, padding: padding)
             : Metrics.buttonContainer(padding: padding)
     }
@@ -162,7 +164,7 @@ public final class CmuxToastView: NSView {
             let block = NSStackView(views: [label, line])
             block.orientation = .vertical
             block.alignment = .leading
-            block.spacing = 2
+            block.spacing = Metrics.cardTextGap
             block.setContentHuggingPriority(.defaultLow, for: .horizontal)
             text = block
         }

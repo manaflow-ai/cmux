@@ -35,6 +35,11 @@ public extension Typography {
     static var cardCaption: NSFont { system(.default, size: cardSize(TypeScale.Base.caption), weight: TypeScale.regular) }
     /// A dialog's title: ``TypeScale/Base/title``, emphasized, at the density's text size.
     static var dialogTitle: NSFont { system(.default, size: cardSize(TypeScale.Base.title), weight: TypeScale.emphasis) }
+    /// A card's or dialog's code text (a password preview, a pairing code): `step` in the monospaced face, at the density's
+    /// text size, so it grows with the title and buttons around it.
+    static func cardMonospaced(_ step: CGFloat, weight: NSFont.Weight = TypeScale.regular) -> NSFont {
+        system(.monospaced, size: cardSize(step), weight: weight)
+    }
 }
 
 /// The spacing every card shares (``Typography/cardTitle`` is its type): one padding on every side, the gap under the
