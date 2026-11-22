@@ -51,6 +51,18 @@ pub struct SessionSummary {
     /// The session's spoken handle, independent of its task name and ids. Older peers omit it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub handle: Option<String>,
+    /// The name every human-visible surface shows for it (tab, sidebar row, lists, chat header,
+    /// notices, a message's sender): its handle when one was given (`acpmux rename @ Mango
+    /// --handle`), absent otherwise (a derived handle is no name a person chose; show `name`).
+    /// Its former names and handles are `formerNames` ("Mango (fka claude-sr2-coord-old)").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub display_name: Option<String>,
+    /// The icon it set (`session_icon.rs`), drawn like a harness `iconSpec`; absent draws the
+    /// harness mark.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub icon: Option<crate::session_icon::SessionIcon>,
     /// Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
     /// default. Absent otherwise, from a session named before it was kept, and from a peer on an
     /// older acpmux.

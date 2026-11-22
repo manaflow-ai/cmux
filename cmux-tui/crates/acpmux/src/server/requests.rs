@@ -3549,16 +3549,41 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_RENAME => {
             let s = hub.resolve(session_key(&params)?)?;
-            if let Some(handle) = params.get("newHandle") {
-                let handle = handle
-                    .as_str()
-                    .ok_or_else(|| RpcError::invalid_params("newHandle must be a string"))?;
+            // `newIcon`: the icon every surface draws for it (`session_icon.rs`), alone or with a
+            // new handle; null or "none" clears it.
+            let icon = match params.get("newIcon") {
+                None => None,
+                Some(Value::Null) => Some(None),
+                Some(Value::String(raw)) if crate::session_icon::clears(raw) => Some(None),
+                Some(Value::String(raw)) => {
+                    let (id, name) = s.read_meta(|m| {
+                        (m.id.clone(), m.handle.clone().unwrap_or_else(|| m.name.clone()))
+                    });
+                    let name = params.get("newHandle").and_then(Value::as_str).unwrap_or(&name);
+                    Some(Some(
+                        crate::session_icon::SessionIcon::parse(raw, &id, name)
+                            .map_err(RpcError::invalid_params)?,
+                    ))
+                }
+                Some(_) => {
+                    return Err(RpcError::invalid_params("newIcon must be a string or null"));
+                }
+            };
+            if params.get("newHandle").is_some() || icon.is_some() {
                 if params.get("newName").is_some() || params.get("to").is_some() {
                     return Err(RpcError::invalid_params(
-                        "rename a name or a handle in one request",
+                        "rename a name, or set a handle and an icon, in one request",
                     ));
                 }
-                hub.rename_spoken_handle(&s, handle)?;
+                if let Some(handle) = params.get("newHandle") {
+                    let handle = handle
+                        .as_str()
+                        .ok_or_else(|| RpcError::invalid_params("newHandle must be a string"))?;
+                    hub.rename_spoken_handle(&s, handle)?;
+                }
+                if let Some(icon) = icon {
+                    hub.set_session_icon(&s, icon)?;
+                }
                 return Ok(hub.session_summary(&s));
             }
             let name = str_param(&params, "newName")
