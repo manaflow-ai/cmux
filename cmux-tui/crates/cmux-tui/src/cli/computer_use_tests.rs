@@ -64,6 +64,58 @@ fn bad_commands_are_usage_errors() {
     assert!(parse(&machine_in_args).is_err());
 }
 
+#[test]
+fn record_parses_its_three_forms() {
+    use record::RecordRequest;
+    assert_eq!(
+        parse(&words("record --out /tmp/a.mp4 --seconds 2.5 --display 3 --machine studio"))
+            .unwrap(),
+        Request::Record(RecordRequest::Whole {
+            out: "/tmp/a.mp4".into(),
+            seconds: 2.5,
+            options: json!({"display": "3"}),
+            machine: Some("studio".into()),
+        })
+    );
+    assert_eq!(
+        parse(&words("record start --max-seconds 60 --fps 15 --max-edge 1280")).unwrap(),
+        Request::Record(RecordRequest::Start {
+            options: json!({"max_seconds": 60.0, "fps": 15, "max_edge": 1280}),
+            machine: None,
+        })
+    );
+    assert_eq!(
+        parse(&words("record stop --out a.mp4 --id rec-1")).unwrap(),
+        Request::Record(RecordRequest::Stop {
+            out: "a.mp4".into(),
+            id: Some("rec-1".into()),
+            machine: None,
+        })
+    );
+    for bad in [
+        "record",
+        "record --out a.mp4",
+        "record --seconds 2",
+        "record --out a.mp4 --seconds 0",
+        "record --out a.mp4 --seconds soon",
+        "record --out a.mp4 --seconds 2 --window w1",
+        "record --out a.mp4 --seconds 2 --fps fast",
+        "record start --out a.mp4",
+        "record start --seconds 2",
+        "record stop",
+        "record stop --out a.mp4 --seconds 2",
+    ] {
+        assert!(parse(&words(bad)).is_err(), "{bad}");
+    }
+    // Every flag the CLI sends is one the tool takes.
+    let tool = tools::find("record").unwrap().schema();
+    for key in
+        ["action", "seconds", "max_seconds", "display", "fps", "max_edge", "recording_id", "offset"]
+    {
+        assert!(tool["properties"].get(key).is_some(), "{key}");
+    }
+}
+
 /// What `cmux ARGS` asks the computer-use command for, globals applied.
 fn request(text: &str) -> Request {
     let (global, rest) = split(&words(text)).expect("a computer-use command");
