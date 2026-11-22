@@ -325,14 +325,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Start the web OTA launch check before any restored or prewarmed page can
         // request its entry document. Otherwise the entry can come from the app
         // bundle while later chunks come from the kept update tree.
-        // The switch file of web pieces is read by the bundled CLI (WebUpdates+Pieces.swift).
-        let bundledCLI = services.bundledCLI
-        WebUpdates.shared.piecesCLI = { words in
-            guard let cli = await bundledCLI.resolve(),
-                  let ran = await BundledCLIRun.run(cli, words, timeout: .seconds(20)), ran.status == 0 else { return nil }
-            return ran.stdout
-        }
-        WebUpdates.shared.prepare(launch.snapshot.updates, bundle: .main)
+        WebUpdates.shared.prepare(launch.snapshot.updates, bundle: .main, cli: services.bundledCLI)
         // Before any page asks: cmux Live off ignores web-dev.json from the first request.
         WebDevOverride.setAllowed(launch.snapshot.updates.liveWebReload)
         if LaunchIdentity.ignoresCustomizations(keysHeld: NSEvent.modifierFlags.isSuperset(of: [.option, .shift])) { WebDevOverride.ignoreThisRun() }

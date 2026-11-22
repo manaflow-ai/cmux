@@ -91,6 +91,12 @@ extension WebUpdates {
         return task
     }
 
+    /// `updates.web.pieces.check`: one read now, then the status.
+    func piecesChecked() async -> JSONValue {
+        await readPieces(offline: false)?.value
+        return Self.json(self)
+    }
+
     /// At launch, before the first page loads: the pieces that were switched out when cmux last
     /// ran stay out. Runs the CLI only when one was. Returns whether the switch file refuses the
     /// kept update (the launch then serves the bundled web until the roll back is saved).

@@ -51,10 +51,7 @@ extension WebUpdates {
                 }
             }.withDeadline(.fixed(.seconds(60))),
             .mainActor("updates.web.pieces.check") { _ in
-                .followUp {
-                    await MainActor.run { web.readPieces(offline: false) }?.value
-                    return await MainActor.run { Self.json(web) }
-                }
+                .followUp { await web.piecesChecked() }
             }.withDeadline(.fixed(.seconds(30))),
             .mainActor("updates.web.apply") { _ in
                 let reloaded = web.applyPending()

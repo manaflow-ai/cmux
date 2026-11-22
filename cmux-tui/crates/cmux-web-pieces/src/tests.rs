@@ -128,6 +128,32 @@ fn a_switch_this_build_cannot_read_serves_the_bundle() {
 }
 
 #[test]
+fn a_finer_id_switches_its_whole_piece() {
+    assert_eq!(piece_of("pages"), Some("pages"));
+    assert_eq!(piece_of("pages/settings"), Some("pages"));
+    assert_eq!(piece_of("agent-pane/pr-49884"), Some("agent-pane"));
+    // A name that only starts like a piece is no piece.
+    assert_eq!(piece_of("pages-later"), None);
+    assert_eq!(piece_of("agent"), None);
+    let switches = opened(&file(
+        1,
+        json!({
+            "pages/settings": {"serve": "last-good", "reason": "blank settings"},
+            "pages/onboarding": {"serve": "bundled"},
+            "agent-pane/composer": {"serve": "from-the-moon"},
+        }),
+        json!([]),
+    ))
+    .unwrap();
+    assert_eq!(switches.unknown, ["agent-pane"]);
+    let plan = plan(Some(&switches), Some(A), &[B]);
+    // Of two switches on one piece the bundle wins.
+    assert_eq!(plan.source("pages"), &Source::Bundled);
+    assert_eq!(plan.source("agent-pane"), &Source::Bundled);
+    assert_eq!(plan.source("inspector"), &Source::Update(A.to_owned()));
+}
+
+#[test]
 fn no_file_serves_the_active_update_everywhere() {
     let plan = plan(None, Some(A), &[B]);
     assert!(plan.pieces.iter().all(|(_, source)| *source == Source::Update(A.to_owned())));

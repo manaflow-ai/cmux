@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+public import CmuxNextDaemon
 import CmuxNextPages
 public import CmuxNextSettings
 public import CmuxNextUpdater
@@ -64,7 +65,16 @@ public final class WebUpdates {
     /// Starts the launch check with the launch settings before any restored or prewarmed page can
     /// request its entry document. Applying the channel first keeps `updates.web: off` on the
     /// bundled web even while the settings observer is still starting.
-    public func prepare(_ settings: UpdatesSettings, bundle: Bundle = .main) {
+    /// `cli`: the app's bundled `cmux`, which reads the switch file of web pieces
+    /// (WebUpdates+Pieces.swift); without it no piece is switched out.
+    public func prepare(_ settings: UpdatesSettings, bundle: Bundle = .main, cli: BundledExecutable? = nil) {
+        if let cli {
+            piecesCLI = { words in
+                guard let url = await cli.resolve(),
+                      let ran = await BundledCLIRun.run(url, words, timeout: .seconds(20)), ran.status == 0 else { return nil }
+                return ran.stdout
+            }
+        }
         start(bundle: bundle, settings: settings)
     }
 

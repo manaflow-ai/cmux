@@ -203,14 +203,24 @@ pub fn open(
     let mut pieces = BTreeMap::new();
     let mut unknown = Vec::new();
     for (name, value) in payload.pieces {
-        let known = PIECES.iter().any(|(piece, _)| *piece == name);
-        match serde_json::from_value::<Switch>(value) {
-            Ok(switch) if known => {
-                pieces.insert(name, switch);
+        match (piece_of(&name), serde_json::from_value::<Switch>(value)) {
+            // A finer id (`pages/settings`) switches its whole piece in this build; of several
+            // switches on one piece the bundle wins over the last good update.
+            (Some(piece), Ok(switch)) => {
+                let weaker =
+                    matches!(pieces.get(piece), Some(Switch { serve: Serve::Bundled, .. }))
+                        || (pieces.contains_key(piece) && matches!(switch.serve, Serve::LastGood));
+                if !weaker {
+                    pieces.insert(piece.to_owned(), switch);
+                }
             }
-            _ => unknown.push(name),
+            // A switch this build cannot read, on a piece it knows: the whole piece.
+            (Some(piece), Err(_)) => unknown.push(piece.to_owned()),
+            (None, _) => unknown.push(name),
         }
     }
+    unknown.sort();
+    unknown.dedup();
     Ok(Switches {
         channel: payload.channel,
         serial: payload.serial,
@@ -218,6 +228,16 @@ pub fn open(
         pieces,
         refuse: payload.refuse.into_iter().collect(),
         unknown,
+    })
+}
+
+/// The piece a switch name is about: the piece itself (`pages`) or a finer id under it
+/// (`pages/settings`, `agent-pane/pr-49884`), which a build that cannot switch that finely
+/// takes as the whole piece. None for a name of no piece this build knows.
+#[must_use]
+pub fn piece_of(name: &str) -> Option<&'static str> {
+    PIECES.iter().map(|(piece, _)| *piece).find(|piece| {
+        name.strip_prefix(piece).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
     })
 }
 
