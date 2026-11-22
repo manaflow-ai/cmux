@@ -10,6 +10,7 @@
 //!
 //! `cargo test -p cmux-mobile-host --test paint_latency_shaped -- --ignored --nocapture`
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
@@ -26,13 +27,49 @@ use cmux_terminal_projection::sync::SyncReceiver;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::{mpsc, oneshot};
 
-/// A redraw of a Claude Code screen streaming a reply: a few rows of styled text, 1 to 6 KB.
-fn redraw(i: u64) -> Vec<u8> {
-    let data = base64::engine::general_purpose::STANDARD.encode(redraw_vt(i));
+/// PTY bytes as the daemon's output line.
+fn output_line(vt: &[u8]) -> Vec<u8> {
+    let data = base64::engine::general_purpose::STANDARD.encode(vt);
     format!("{{\"data\":\"{data}\",\"event\":\"output\",\"surface\":1}}\n").into_bytes()
 }
 
-/// The PTY bytes of [`redraw`].
+/// A load: the PTY reads, one every 16 ms, at a host grid.
+#[derive(Clone)]
+struct Load {
+    name: &'static str,
+    reads: Arc<Vec<Vec<u8>>>,
+    cols: u16,
+    rows: u16,
+}
+
+/// The synthetic streaming reply: 500 redraws at 100x40 (every row it writes is on screen).
+fn synthetic() -> Load {
+    Load { name: "", reads: Arc::new((0..500).map(redraw_vt).collect()), cols: 100, rows: 40 }
+}
+
+/// A real Claude Code scroll, recorded at 120x40 (the projection crate's parity corpus): one
+/// read per `.steps` line (`t_ms offset len phase`).
+fn claude_code_scroll() -> Load {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../../cmux-tui/crates/cmux-terminal-projection/tests/parity/real");
+    let vt = std::fs::read(dir.join("claude_code_scroll.vt")).expect("the scroll recording");
+    let steps = std::fs::read_to_string(dir.join("claude_code_scroll.steps")).expect("its steps");
+    let grid = std::fs::read_to_string(dir.join("claude_code_scroll.grid")).expect("its grid");
+    let (cols, rows) = grid.trim().split_once('x').expect("COLSxROWS");
+    let reads = steps
+        .lines()
+        .filter(|line| !line.starts_with('#') && !line.trim().is_empty())
+        .map(|line| {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            let offset: usize = fields[1].parse().unwrap();
+            let len: usize = fields[2].parse().unwrap();
+            vt[offset..offset + len].to_vec()
+        })
+        .collect();
+    Load { name: "scroll ", reads: Arc::new(reads), cols: cols.parse().unwrap(), rows: rows.parse().unwrap() }
+}
+
+/// A redraw of a Claude Code screen streaming a reply: a few rows of styled text, 1 to 6 KB.
 fn redraw_vt(i: u64) -> Vec<u8> {
     let rows = 4 + (i % 24) as usize;
     let mut raw = Vec::new();
@@ -46,10 +83,6 @@ fn redraw_vt(i: u64) -> Vec<u8> {
     raw
 }
 
-/// The host grid of the datagram run: every row [`redraw_vt`] writes is on screen.
-const COLS: u16 = 100;
-const ROWS: u16 = 40;
-
 /// What crossed the stream run's link while the redraws flowed, and for how long.
 struct StreamBytes {
     counters: Counters,
@@ -58,9 +91,10 @@ struct StreamBytes {
 
 async fn run(
     profile: &str,
-    lines: u64,
+    load: &Load,
     every: Duration,
 ) -> (paint_latency::Summary, paint_latency::Summary, StreamBytes) {
+    let lines = load.reads.len() as u64;
     let link_profile = ProfileFile::builtin().get(profile).cloned().expect("profile");
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let shaper = Shaper::start(listener.local_addr().unwrap(), link_profile, 7, &Trace::new()).await.unwrap();
@@ -69,6 +103,7 @@ async fn run(
 
     let mac = tokio::spawn({
         let path = path.clone();
+        let reads = load.reads.clone();
         async move {
             let (stream, _) = listener.accept().await.unwrap();
             stream.set_nodelay(true).unwrap();
@@ -77,9 +112,9 @@ async fn run(
             let (sender, _receiver) = terminal.channel.split();
             let producer = tokio::spawn(async move {
                 let mut tick = tokio::time::interval(every);
-                for i in 0..lines {
+                for read in reads.iter() {
                     tick.tick().await;
-                    let (line, mark) = paint_latency::stamp_line(redraw(i));
+                    let (line, mark) = paint_latency::stamp_line(output_line(read));
                     assert!(mark.is_some());
                     sender.send_marked(Bytes::from(line), mark).await.unwrap();
                 }
@@ -186,7 +221,8 @@ fn per_min(bytes: u64, elapsed: Duration) -> f64 {
 /// behind a `UdpShaper`, the phone a `SyncReceiver` that acks every datagram it judges. Wire
 /// latency of redraw i: from its write to the host until the phone first holds a state with a
 /// seq at least the one of the first capture covering it (newest wins: a newer state covers it).
-async fn run_datagram(profile: &str, lines: u64, every: Duration) -> DatagramRow {
+async fn run_datagram(profile: &str, load: &Load, every: Duration) -> DatagramRow {
+    let lines = load.reads.len() as u64;
     let link_profile = ProfileFile::builtin().get(profile).cloned().expect("profile");
     let host = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let shaper = UdpShaper::start(host.local_addr().unwrap(), link_profile, 7, &Trace::new()).await.unwrap();
@@ -221,7 +257,8 @@ async fn run_datagram(profile: &str, lines: u64, every: Duration) -> DatagramRow
     });
 
     let peer = shaper.phone_addr_at_host().unwrap();
-    let mut sync = ViewportSync::new(COLS, ROWS, UDP_MAX_DATAGRAM, Config::default(), Instant::now());
+    let mut sync =
+        ViewportSync::new(load.cols, load.rows, UDP_MAX_DATAGRAM, Config::default(), Instant::now());
     sync.record_captures();
     let (output, batches) = mpsc::channel(1024);
     shaper.reset_counters();
@@ -230,10 +267,10 @@ async fn run_datagram(profile: &str, lines: u64, every: Duration) -> DatagramRow
         tokio::spawn(viewport_sync::run(sync, host, Some(peer), batches, None, Duration::from_secs(60)));
     let mut written = Vec::with_capacity(lines as usize);
     let mut tick = tokio::time::interval(every);
-    for i in 0..lines {
+    for read in load.reads.iter() {
         tick.tick().await;
         written.push(Instant::now());
-        output.send(redraw_vt(i)).await.unwrap();
+        output.send(read.clone()).await.unwrap();
     }
     drop(output);
     let sync = host_task.await.unwrap().unwrap();
@@ -285,50 +322,58 @@ async fn run_datagram(profile: &str, lines: u64, every: Duration) -> DatagramRow
 async fn mac_redraw_to_phone_receive_under_wifi_lte_and_lossy_3() {
     let mut rows = Vec::new();
     let mut converged = Vec::new();
-    for profile in ["good-wifi", "lte", "lossy-3", "lossy-10"] {
-        let (summary, truth, stream_bytes) = run(profile, 500, Duration::from_millis(16)).await;
-        let mac = summary.mac.expect("mac part");
-        let estimated = summary.wire.expect("wire part");
-        let wire = truth.wire.expect("wire part");
-        println!(
-            "PAINT-ROW {profile}: a mac p50 {} p95 {} | b wire p50 {} p95 {} (offset estimated {:?} from a {:?} ms probe: p50 {} p95 {}) | n {}",
-            mac.p50_ms,
-            mac.p95_ms,
-            wire.p50_ms,
-            wire.p95_ms,
-            summary.offset_ms,
-            summary.clock_rtt_ms,
-            estimated.p50_ms,
-            estimated.p95_ms,
-            wire.n
-        );
-        assert!(
-            (estimated.p50_ms - wire.p50_ms).abs() <= summary.clock_rtt_ms.unwrap() / 2.0 + 1.0,
-            "{profile}: the offset's error is bounded by half its probe"
-        );
-        let datagram = run_datagram(profile, 500, Duration::from_millis(16)).await;
-        let one_way = ProfileFile::builtin().get(profile).unwrap().rtt_ms as f64 / 2.0;
-        let StreamBytes { counters, elapsed } = stream_bytes;
-        println!(
-            "STATESYNC-ROW {profile}: stream p50 {:.1} p95 {:.1} bytes/min {:.0} down / {:.0} up | datagram p50 {:.1} p95 {:.1} bytes/min {:.0} down / {:.0} up | one-way {one_way} | superseded {} coalesced {} of 500 | pacer {:.0} B/s | datagram p95 <= 2x one-way: {}",
-            wire.p50_ms,
-            wire.p95_ms,
-            per_min(counters.down_bytes, elapsed),
-            per_min(counters.up_bytes, elapsed),
-            datagram.p50_ms,
-            datagram.p95_ms,
-            datagram.down_per_min,
-            datagram.up_per_min,
-            datagram.superseded,
-            datagram.coalesced,
-            datagram.rate,
-            if datagram.p95_ms <= 2.0 * one_way { "yes" } else { "no" },
-        );
-        rows.push((profile, mac, wire));
-        converged.push((profile, datagram.converged));
+    // The synthetic load's rows first; the recording loads after them, so a missing file
+    // still leaves the first table printed.
+    let loads: [fn() -> Load; 2] = [synthetic, claude_code_scroll];
+    for make in loads {
+        let load = make();
+        let name = load.name;
+        let n = load.reads.len();
+        for profile in ["good-wifi", "lte", "lossy-3", "lossy-10"] {
+            let (summary, truth, stream_bytes) = run(profile, &load, Duration::from_millis(16)).await;
+            let mac = summary.mac.expect("mac part");
+            let estimated = summary.wire.expect("wire part");
+            let wire = truth.wire.expect("wire part");
+            println!(
+                "PAINT-ROW {name}{profile}: a mac p50 {} p95 {} | b wire p50 {} p95 {} (offset estimated {:?} from a {:?} ms probe: p50 {} p95 {}) | n {}",
+                mac.p50_ms,
+                mac.p95_ms,
+                wire.p50_ms,
+                wire.p95_ms,
+                summary.offset_ms,
+                summary.clock_rtt_ms,
+                estimated.p50_ms,
+                estimated.p95_ms,
+                wire.n
+            );
+            assert!(
+                (estimated.p50_ms - wire.p50_ms).abs() <= summary.clock_rtt_ms.unwrap() / 2.0 + 1.0,
+                "{profile}: the offset's error is bounded by half its probe"
+            );
+            let datagram = run_datagram(profile, &load, Duration::from_millis(16)).await;
+            let one_way = ProfileFile::builtin().get(profile).unwrap().rtt_ms as f64 / 2.0;
+            let StreamBytes { counters, elapsed } = stream_bytes;
+            println!(
+                "STATESYNC-ROW {name}{profile}: stream p50 {:.1} p95 {:.1} bytes/min {:.0} down / {:.0} up | datagram p50 {:.1} p95 {:.1} bytes/min {:.0} down / {:.0} up | one-way {one_way} | superseded {} coalesced {} of {n} | pacer {:.0} B/s | datagram p95 <= 2x one-way: {}",
+                wire.p50_ms,
+                wire.p95_ms,
+                per_min(counters.down_bytes, elapsed),
+                per_min(counters.up_bytes, elapsed),
+                datagram.p50_ms,
+                datagram.p95_ms,
+                datagram.down_per_min,
+                datagram.up_per_min,
+                datagram.superseded,
+                datagram.coalesced,
+                datagram.rate,
+                if datagram.p95_ms <= 2.0 * one_way { "yes" } else { "no" },
+            );
+            rows.push((profile, mac, wire));
+            converged.push((name, profile, datagram.converged));
+        }
     }
-    for (profile, converged) in &converged {
-        assert!(converged, "{profile}: after quiescence the phone's screen is the host's capture");
+    for (name, profile, converged) in &converged {
+        assert!(converged, "{name}{profile}: after quiescence the phone's screen is the host's capture");
     }
     for (profile, _mac, wire) in &rows {
         let nominal = match *profile {
