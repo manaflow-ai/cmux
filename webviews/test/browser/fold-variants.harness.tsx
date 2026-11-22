@@ -403,7 +403,7 @@ async function run(
         requestAnimationFrame(tick);
       }
       flushSync(() => show({ rows, working: state.working, sends, look, ...options }));
-      if (sampling) window.__transcriptMotion!.rows?.(rows.map((row) => row.id));
+      if (sampling) window.__transcriptMotion!.rows?.(rows.map((row) => [row.id, JSON.stringify(row)] as const));
       if (step.type === "reader" && stray) {
         if (sampling) window.__transcriptMotion!.mark(`input:${step.label}`);
         await wheelScroll(step.reader);
