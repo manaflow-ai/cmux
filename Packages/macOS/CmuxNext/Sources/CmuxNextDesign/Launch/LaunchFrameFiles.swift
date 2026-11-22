@@ -5,7 +5,8 @@ public import Foundation
 /// terminal's (`TerminalLaunchFrames`) and a browser page's (`BrowserPageFrames`). A frame is
 /// `<key>@<scale>x.jpg` (a PNG keeps the same name; the read tells the formats apart by their bytes), so a
 /// key never has two files and a write that races another replaces one file.
-public nonisolated enum LaunchFrameFiles {
+public nonisolated struct LaunchFrameFiles {
+    public nonisolated init() {}
     /// The file of `key`'s frame at `scale` (1 to 3).
     public static func name(_ key: String, scale: Int) -> String { "\(key)@\(max(1, min(3, scale)))x.jpg" }
 

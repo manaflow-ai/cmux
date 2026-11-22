@@ -38,7 +38,7 @@ package final class BrowserPageFrames {
     /// The last run's pictures, compressed, by tab key; nil until the launch read ended.
     private var saved: [String: Data]?
     /// Set at quit before its own writes: no write or removal posted earlier lands after them.
-    private let stopped = Mutex(false)
+    private let stopped = StopFlag()
 
     package init(directory: URL?, capacity: Int = capacity) {
         self.directory = directory
@@ -86,22 +86,22 @@ package final class BrowserPageFrames {
     /// Writes `image` as `key`'s picture (off the main thread), replacing its last one and keeping the folder in its
     /// budget. A picture of this run replaces the last run's in memory too: it is no longer handed out.
     package func save(_ image: CGImage, for key: String, scale: Int = 2) {
-        guard let directory, let work, LaunchFrameFiles.isFileSafe(key), !stopped.withLock({ $0 }) else { return }
+        guard let directory, let work, LaunchFrameFiles.isFileSafe(key), !stopped.isSet else { return }
         saved?[key] = Data()
         let capacity = capacity, stopped = stopped
         work.post(.bestEffort, mayBlock: .files) {
-            guard let data = Self.encoded(image), !stopped.withLock({ $0 }) else { return }
+            guard let data = Self.encoded(image), !stopped.isSet else { return }
             Self.write(data, key: key, scale: scale, to: directory, capacity: capacity)
         }
     }
 
     /// `key`'s tab closed: its picture goes (none after a quit began: its tabs close, and reopen at the next launch).
     package func remove(_ key: String) {
-        guard let directory, let work, !stopped.withLock({ $0 }) else { return }
+        guard let directory, let work, !stopped.isSet else { return }
         saved?[key] = nil
         let stopped = stopped
         work.post(.bestEffort, mayBlock: .files) {
-            guard !stopped.withLock({ $0 }) else { return }
+            guard !stopped.isSet else { return }
             Self.removeAll(of: key, in: directory)
         }
     }
@@ -109,7 +109,7 @@ package final class BrowserPageFrames {
     /// The quit: every write and removal posted before stops here; `images` (the pages on screen) are written and
     /// awaited.
     package func saveForQuit(_ images: [String: (image: CGImage, scale: Int)]) async {
-        stopped.withLock { $0 = true }
+        stopped.set()
         guard let directory, let work else { return }
         let capacity = capacity
         for (key, picture) in images where LaunchFrameFiles.isFileSafe(key) {
@@ -178,4 +178,12 @@ package final class BrowserPageFrames {
         .sorted { $0.date != $1.date ? $0.date > $1.date : $0.name < $1.name }
         .map { ($0.name, $0.key, $0.size) }
     }
+}
+
+/// Set once, read from any thread: shared by the store and the writes it posts (a `Mutex` cannot be captured).
+private nonisolated final class StopFlag: Sendable {
+    // carve-out justification: a set-once flag read by writes on BackgroundWork threads; no actor can be read synchronously there.
+    private let value = Mutex(false)
+    var isSet: Bool { value.withLock { $0 } }
+    func set() { value.withLock { $0 = true } }
 }
