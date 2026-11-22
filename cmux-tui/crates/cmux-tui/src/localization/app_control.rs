@@ -320,7 +320,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         recorded: "Recorded {frames} frames in {seconds} s ({fps} fps of {asked} asked): {path}",
         masked: "Masked in grey (pixels scripts never get): {areas}",
         skipped: "{dropped} frames skipped while captures were still running, {failed} refused by the app",
-        no_ffmpeg: "ffmpeg is not installed, so no movie: the PNG frames and frames.json (their times) are in {dir}",
+        no_ffmpeg: "ffmpeg is not installed, so no movie: the PNG frames, frames.json (their times) and frames.ffconcat are in {dir}. On a Mac with ffmpeg, this makes the movie:",
         encode_failed: "ffmpeg failed ({error}); the PNG frames and frames.json are kept in {dir}",
     },
     launch_times: LaunchTimesMessages {
@@ -514,7 +514,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         recorded: "{seconds} 秒で {frames} フレームを録画しました ({asked} fps 指定のうち {fps} fps): {path}",
         masked: "灰色で隠した領域 (スクリプトには渡さないピクセル): {areas}",
         skipped: "キャプチャの実行中に {dropped} フレームを飛ばし、{failed} フレームはアプリが拒否しました",
-        no_ffmpeg: "ffmpeg がインストールされていないため動画は作りません: PNG フレームと frames.json (各フレームの時刻) は {dir} にあります",
+        no_ffmpeg: "ffmpeg がインストールされていないため動画は作りません: PNG フレーム、frames.json (各フレームの時刻)、frames.ffconcat は {dir} にあります。ffmpeg のある Mac では、次のコマンドで動画になります:",
         encode_failed: "ffmpeg が失敗しました ({error})。PNG フレームと frames.json は {dir} に残しています",
     },
     launch_times: LaunchTimesMessages {

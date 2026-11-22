@@ -239,6 +239,16 @@ pub(super) fn run(global: &GlobalArgs, request: Request) -> i32 {
             .replace("{error}", &error.to_string());
         return super::failure("record.write_failed", &message, global.output, 1);
     }
+    // The concat list is written whether or not ffmpeg is here, so the folder can be encoded later
+    // on another Mac with the same command (`encode`).
+    let list = place.frames.join(CONCAT_LIST);
+    if let Err(error) = std::fs::write(&list, concat_list(&report_frames)) {
+        let message = messages
+            .cannot_write
+            .replace("{path}", &list.to_string_lossy())
+            .replace("{error}", &error.to_string());
+        return super::failure("record.write_failed", &message, global.output, 1);
+    }
     let mut note = None;
     if let Some(movie) = &place.movie {
         match ffmpeg() {
@@ -422,25 +432,44 @@ pub(super) fn concat_list(frames: &[Value]) -> String {
     list
 }
 
-fn encode(
-    ffmpeg: &Path,
-    folder: &Path,
-    frames: &[Value],
-    fps: u64,
-    movie: &Path,
-) -> Result<(), String> {
-    let list = folder.join("frames.ffconcat");
-    std::fs::write(&list, concat_list(frames)).map_err(|error| error.to_string())?;
+/// The concat list's name in the frames' folder.
+const CONCAT_LIST: &str = "frames.ffconcat";
+
+/// ffmpeg's arguments after the program: the folder's concat list to `movie`, each frame for its
+/// own duration (variable frame rate, at most `fps` a second), even sides for yuv420p.
+pub(super) fn ffmpeg_args(folder: &Path, fps: u64, movie: &Path) -> Vec<String> {
+    let mut args: Vec<String> =
+        ["-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i"]
+            .map(str::to_owned)
+            .to_vec();
+    args.push(folder.join(CONCAT_LIST).to_string_lossy().into_owned());
+    args.extend(
+        [
+            "-vf",
+            "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+            "-fps_mode",
+            "vfr",
+            "-r",
+            &fps.to_string(),
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+        ]
+        .map(str::to_owned),
+    );
+    args.push(movie.to_string_lossy().into_owned());
+    args
+}
+
+fn encode(ffmpeg: &Path, folder: &Path, fps: u64, movie: &Path) -> Result<(), String> {
     if let Some(parent) = movie.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
     let output = cmux_process::Command::new(ffmpeg)
-        .args(["-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i"])
-        .arg(&list)
-        // Even sides for yuv420p; frames keep their own times, at most `fps` a second.
-        .args(["-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-fps_mode", "vfr", "-r", &fps.to_string()])
-        .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart"])
-        .arg(movie)
+        .args(ffmpeg_args(folder, fps, movie))
         .stdin(cmux_process::Stdio::null())
         .output()
         .map_err(|error| error.to_string())?;
@@ -495,6 +524,9 @@ pub(super) fn human(report: &Value, messages: &crate::localization::RecordMessag
     if let Some(note) = report["note"].as_str() {
         let _ = writeln!(out, "{note}");
     }
+    if let Some(command) = report["encode_command"].as_str() {
+        let _ = writeln!(out, "  {command}");
+    }
     out
 }
 
@@ -536,6 +568,24 @@ mod tests {
         ] {
             assert!(parse(Noun::Window, &words(bad)).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn window_record_is_the_recording_not_an_app_action() {
+        let parsed = super::super::parse(&words("window record --fps 10 --seconds 2")).unwrap();
+        let Some(AppCommand::Record(request)) = parsed else { panic!("{parsed:?}") };
+        assert_eq!((request.noun, request.fps, request.seconds), (Noun::Window, 10, 2));
+        assert!(super::super::parse(&words("window record --fps 0")).is_err());
+    }
+
+    #[test]
+    fn the_encode_reads_the_folders_list_at_the_frames_own_times() {
+        let args = ffmpeg_args(Path::new("/f"), 30, Path::new("/x/clip.mp4"));
+        let at = |word: &str| args.iter().position(|arg| arg == word).unwrap();
+        assert_eq!(args[at("-i") + 1], "/f/frames.ffconcat");
+        assert_eq!(args[at("-fps_mode") + 1], "vfr");
+        assert_eq!(args[at("-r") + 1], "30");
+        assert_eq!(args.last().unwrap(), "/x/clip.mp4");
     }
 
     #[test]
