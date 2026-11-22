@@ -1,9 +1,17 @@
-//! `cmux agent move SESSION --machine NAME|auto`.
+//! `cmux move`, `cmux teleport` and `cmux evacuate`: one verb that moves agent
+//! sessions to another machine (also spelled `cmux agent move|teleport|evacuate`).
 //!
-//! The move implementation belongs to acpmux (`session move`).  This small
-//! alias keeps the public `agent` vocabulary while forwarding every move
-//! option to that one implementation, so the menu, palette and CLI cannot
-//! drift apart.
+//! The move implementation belongs to acpmux (`session move`). This verb only
+//! reads its words and runs that one implementation through the same entry the
+//! `acpmux` CLI uses, so the menu, palette and CLI cannot drift apart.
+//!
+//! - `teleport` is `move`, word for word.
+//! - `evacuate` is `move` with `--to auto` unless a target is named, and with
+//!   every session here that is between turns (`--all-idle`) when none is named.
+//! - `--to`, `--machine` and `--host` name the target; `here` means this machine
+//!   (`local`, for a move `--from` another machine).
+//! - A close misspelling of an option (`--dryrun`, `--after_turn`, `--too`) is
+//!   taken as the option it clearly means, with a note on stderr.
 
 use std::time::Duration;
 
@@ -13,40 +21,141 @@ use super::{GlobalArgs, UsageError, chat_start::joined, wire};
 
 const MOVE_DEADLINE: Duration = Duration::from_secs(20 * 60);
 
+/// The three names of the verb.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Verb {
+    Move,
+    Teleport,
+    Evacuate,
+}
+
+impl Verb {
+    fn from_word(word: &str) -> Option<Self> {
+        match word {
+            "move" => Some(Self::Move),
+            "teleport" => Some(Self::Teleport),
+            "evacuate" => Some(Self::Evacuate),
+            _ => None,
+        }
+    }
+
+    fn word(self) -> &'static str {
+        match self {
+            Self::Move => "move",
+            Self::Teleport => "teleport",
+            Self::Evacuate => "evacuate",
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 struct MoveRequest {
     sessions: Vec<String>,
     machine: String,
+    all_idle: bool,
     options: Vec<String>,
 }
 
-/// Handles the alias before the noun-first parser sees `agent move`.
+/// Options that take no value, as acpmux spells them.
+const SWITCHES: &[&str] =
+    &["--all-idle", "--after-turn", "--interrupt", "--leave-dirty", "--carry-changes", "--dry-run"];
+/// Options that take a value, as acpmux spells them (`--to` is ours: acpmux's `--machine`).
+const VALUED: &[&str] = &["--to", "--cwd", "--from"];
+/// Other spellings that mean one of the options above.
+const SPELLINGS: &[(&str, &str)] = &[
+    ("--machine", "--to"),
+    ("--host", "--to"),
+    ("--target", "--to"),
+    ("--dest", "--to"),
+    ("--destination", "--to"),
+    ("--onto", "--to"),
+    ("--all", "--all-idle"),
+    ("--idle", "--all-idle"),
+    ("--dry", "--dry-run"),
+    ("-n", "--dry-run"),
+    ("--wait", "--after-turn"),
+    ("--force", "--interrupt"),
+    ("--dirty", "--leave-dirty"),
+    ("--carry", "--carry-changes"),
+    ("--with-changes", "--carry-changes"),
+    ("--dir", "--cwd"),
+    ("--folder", "--cwd"),
+];
+
+fn help(verb: Verb) -> String {
+    let lead = match verb {
+        Verb::Move => {
+            "cmux move: move agent sessions to another machine. Also `cmux teleport` (the same verb) and `cmux evacuate`."
+        }
+        Verb::Teleport => {
+            "cmux teleport: the same verb as `cmux move`: move agent sessions to another machine. Also `cmux evacuate`."
+        }
+        Verb::Evacuate => {
+            "cmux evacuate: `cmux move` for every session on this machine: with no SESSION, every session here that is between turns; with no --to, `--to auto`. Also `cmux move` and `cmux teleport`."
+        }
+    };
+    format!(
+        "\
+{lead}
+
+USAGE
+  cmux move [SESSION...] --to MACHINE|auto|here [OPTIONS]
+  cmux teleport [SESSION...] --to MACHINE|auto|here [OPTIONS]
+  cmux evacuate [SESSION...] [--to MACHINE|auto] [OPTIONS]
+
+A session moves with its history, queue and draft; its folder is made on the
+target (a checkout's branch is pushed and becomes a worktree there). It is
+acpmux's `session move`: `cmux agent move` and `acpmux session move` are the
+same move.
+
+OPTIONS
+  --to MACHINE|auto|here  Where to (`--machine` and `--host` work too). auto: the best
+                          of your machines, never a reserved one, one per checkout.
+                          here: this machine, for sessions moved --from another one.
+  --from MACHINE          The machine the sessions are on, when not this one
+  --all-idle              Every session here that is between turns (evacuate's default)
+  --after-turn            Let a running turn end on its own, then move
+  --interrupt             Stop a running turn instead of refusing the move
+  --leave-dirty           Move a checkout with uncommitted changes; they stay here
+  --carry-changes         Take a checkout's uncommitted changes along
+  --cwd PATH              Run the sessions in this folder there; no worktree is made
+  --dry-run               Say where each session would go and change nothing
+  --json                  Print one JSON result
+
+EXAMPLES
+  cmux move my-chat --to auto
+  cmux teleport my-chat --to build-box --after-turn
+  cmux move first second --to build-box --dry-run
+  cmux evacuate
+  cmux evacuate --to build-box --dry-run
+  cmux move my-chat --from build-box --to here
+"
+    )
+}
+
+/// The verb's name when `command` runs it: `move …`, or `agent move …`.
+fn verb_of(command: &[String]) -> Option<(Verb, usize)> {
+    match command {
+        [first, ..] if Verb::from_word(first).is_some() => Some((Verb::from_word(first)?, 1)),
+        [scope, second, ..] if scope == "agent" => Some((Verb::from_word(second)?, 2)),
+        _ => None,
+    }
+}
+
+/// Handles the verb before the noun-first parser sees it.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, command) = super::parse_globals(args).ok()?;
-    if command.first().map(String::as_str) != Some("agent")
-        || command.get(1).map(String::as_str) != Some("move")
-    {
-        return None;
-    }
-    if command.iter().any(|word| word == "--help" || word == "-h") {
-        println!(
-            "Usage: cmux agent move SESSION [SESSION…] --machine NAME|auto [--after-turn|--interrupt] [--leave-dirty] [--carry-changes] [--cwd PATH] [--from MACHINE] [--dry-run]"
-        );
+    let (verb, skip) = verb_of(&command)?;
+    let words = command.get(skip..).unwrap_or_default();
+    if words.iter().any(|word| word == "--help" || word == "-h" || word == "help") {
+        print!("{}", help(verb));
         return Some(0);
     }
-    let request = match parse_request(&global, command.get(2..).unwrap_or_default()) {
+    let request = match parse_request(verb, &global, words) {
         Ok(request) => request,
-        Err(error) => return Some(usage(&global, &error.0)),
+        Err(error) => return Some(usage(verb, &global, &error.0)),
     };
-
-    let mut words = vec!["session".to_owned(), "move".to_owned()];
-    words.extend(request.sessions);
-    words.push("--machine".to_owned());
-    words.push(request.machine);
-    words.extend(request.options);
-    // run_acp parses the final JSON value, but acpmux otherwise defaults to a
-    // human report with no JSON to return to this command.
-    words.push("--json".to_owned());
+    let words = acpmux_words(request);
     let refs: Vec<&str> = words.iter().map(String::as_str).collect();
     let executable = match std::env::current_exe() {
         Ok(executable) => executable,
@@ -67,104 +176,160 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     }
 }
 
-fn parse_request(global: &GlobalArgs, args: &[String]) -> Result<MoveRequest, UsageError> {
-    let machine = global
-        .machine
-        .clone()
-        .ok_or_else(|| UsageError::new("agent move requires --machine NAME|auto"))?;
-    if machine.trim().is_empty() {
-        return Err(UsageError::new("agent move requires a non-empty --machine value"));
+/// The `acpmux` words for a request: `session move …`.
+fn acpmux_words(request: MoveRequest) -> Vec<String> {
+    let mut words = vec!["session".to_owned(), "move".to_owned()];
+    words.extend(request.sessions);
+    words.push("--machine".to_owned());
+    words.push(request.machine);
+    if request.all_idle {
+        words.push("--all-idle".to_owned());
     }
-    let mut sessions = Vec::new();
-    let mut options = Vec::new();
-    let mut words = args.iter();
-    while let Some(word) = words.next() {
-        match word.as_str() {
-            "--interrupt" | "--after-turn" | "--leave-dirty" | "--carry-changes" | "--dry-run" => {
-                options.push(word.clone());
-            }
-            "--cwd" | "--from" => {
-                let value = words
-                    .next()
-                    .filter(|value| !value.starts_with('-'))
-                    .ok_or_else(|| UsageError::new(format!("agent move: {word} needs a value")))?;
-                options.push(word.clone());
-                options.push(value.clone());
-            }
-            value if value.starts_with('-') => {
-                return Err(UsageError::new(format!("agent move: unknown option {value}")));
-            }
-            session => sessions.push(session.to_owned()),
-        }
-    }
-    if sessions.is_empty() {
-        return Err(UsageError::new("agent move requires at least one SESSION"));
-    }
-    Ok(MoveRequest { sessions, machine, options })
+    words.extend(request.options);
+    // run_acp parses the final JSON value, but acpmux otherwise defaults to a
+    // human report with no JSON to return to this command.
+    words.push("--json".to_owned());
+    words
 }
 
-fn usage(global: &GlobalArgs, message: &str) -> i32 {
-    let error = serde_json::json!({
-        "code": "usage.invalid",
-        "message": message,
-        "details": {},
-        "retryable": false,
-    });
-    wire::print_local_error(&error, global.output, 2)
+/// The option `word` means: an exact spelling, another spelling of it, or a
+/// close misspelling (one or two edits from exactly one option).
+fn canonical(word: &str) -> Option<&'static str> {
+    let normal = word.replace('_', "-").to_ascii_lowercase();
+    let options = || SWITCHES.iter().chain(VALUED.iter()).copied();
+    if let Some(exact) = options().find(|option| *option == normal) {
+        return Some(exact);
+    }
+    if let Some((_, option)) = SPELLINGS.iter().find(|(spelling, _)| *spelling == normal) {
+        return Some(*option);
+    }
+    let squashed = |text: &str| text.replace('-', "");
+    if let Some(option) = options().find(|option| squashed(option) == squashed(&normal)) {
+        return Some(option);
+    }
+    if !normal.starts_with("--") || normal.len() < 5 {
+        return None;
+    }
+    let names = options().chain(SPELLINGS.iter().map(|(spelling, _)| *spelling));
+    let mut close = names
+        .filter(|name| name.len() >= 5 && edits(name, &normal) <= 2)
+        .map(|name| SPELLINGS.iter().find(|(s, _)| *s == name).map_or(name, |(_, option)| *option));
+    let first = close.next()?;
+    close.all(|other| other == first).then_some(first)
+}
+
+/// Levenshtein distance, for close misspellings of an option.
+fn edits(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut next = Vec::with_capacity(row.len());
+        next.push(i + 1);
+        for (cb, pair) in b.iter().zip(row.windows(2)) {
+            let [diagonal, up] = *pair else { continue };
+            let left = next.last().copied().unwrap_or(i + 1);
+            next.push((diagonal + usize::from(ca != *cb)).min(left + 1).min(up + 1));
+        }
+        row = next;
+    }
+    row.last().copied().unwrap_or(0)
+}
+
+/// The target as acpmux names it.
+fn target(verb: Verb, value: &str) -> Result<String, UsageError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(UsageError::new(format!(
+            "{}: --to needs a machine, auto or here",
+            verb.word()
+        )));
+    }
+    match value.to_ascii_lowercase().as_str() {
+        "here" | "local" | "this-machine" | "this-mac" => Ok("local".to_owned()),
+        "auto" | "any" | "best" => Ok("auto".to_owned()),
+        "cloud" => Err(UsageError::new(format!(
+            "{}: `--to cloud` is not a target acpmux's move knows yet; name the Cloud machine \
+             (`acpmux machine ls`), use `--to auto`, or use Move to Cloud in the app",
+            verb.word()
+        ))),
+        _ => Ok(value.to_owned()),
+    }
+}
+
+fn parse_request(
+    verb: Verb,
+    global: &GlobalArgs,
+    args: &[String],
+) -> Result<MoveRequest, UsageError> {
+    let name = verb.word();
+    let mut machine = global.machine.as_deref().map(|value| target(verb, value)).transpose()?;
+    let mut sessions = Vec::new();
+    let mut options = Vec::new();
+    let mut all_idle = false;
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        if word == "--" {
+            sessions.extend(words.by_ref().cloned());
+            break;
+        }
+        if !word.starts_with('-') || word == "-" {
+            sessions.push(word.clone());
+            continue;
+        }
+        let (flag, inline) = match word.split_once('=') {
+            Some((flag, value)) => (flag, Some(value.to_owned())),
+            None => (word.as_str(), None),
+        };
+        let option = canonical(flag)
+            .ok_or_else(|| UsageError::new(format!("{name}: unknown option {flag}")))?;
+        if option != flag && SPELLINGS.iter().all(|(spelling, _)| *spelling != flag) {
+            eprintln!("cmux {name}: taking {flag} as {option}");
+        }
+        if VALUED.contains(&option) {
+            let value = match inline {
+                Some(value) => value,
+                None => words
+                    .next()
+                    .filter(|value| !value.starts_with('-'))
+                    .cloned()
+                    .ok_or_else(|| UsageError::new(format!("{name}: {option} needs a value")))?,
+            };
+            if option == "--to" {
+                machine = Some(target(verb, &value)?);
+            } else {
+                options.push(option.to_owned());
+                options.push(value);
+            }
+        } else if inline.is_some() {
+            return Err(UsageError::new(format!("{name}: {option} takes no value")));
+        } else if option == "--all-idle" {
+            all_idle = true;
+        } else if !options.iter().any(|seen| seen == option) {
+            options.push(option.to_owned());
+        }
+    }
+    if verb == Verb::Evacuate {
+        machine.get_or_insert_with(|| "auto".to_owned());
+        all_idle |= sessions.is_empty();
+    }
+    let machine = machine.ok_or_else(|| {
+        UsageError::new(format!("{name} needs --to MACHINE|auto|here (try `--to auto`)"))
+    })?;
+    if all_idle && !sessions.is_empty() {
+        return Err(UsageError::new(format!("{name}: name sessions or --all-idle, not both")));
+    }
+    if sessions.is_empty() && !all_idle {
+        return Err(UsageError::new(format!(
+            "{name} needs a SESSION (or --all-idle; `cmux evacuate` moves every idle one)"
+        )));
+    }
+    Ok(MoveRequest { sessions, machine, all_idle, options })
+}
+
+fn usage(verb: Verb, global: &GlobalArgs, message: &str) -> i32 {
+    super::scope_usage_failure(global.output, verb.word(), message, &help(verb))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn global(machine: &str) -> GlobalArgs {
-        GlobalArgs { machine: Some(machine.into()), ..GlobalArgs::default() }
-    }
-
-    #[test]
-    fn parses_machine_and_forwards_move_options_in_order() {
-        let request = parse_request(
-            &global("gcp-3"),
-            &[
-                "chat".into(),
-                "--interrupt".into(),
-                "--cwd".into(),
-                "/tmp/chat".into(),
-                "--from".into(),
-                "mini".into(),
-                "--dry-run".into(),
-            ],
-        )
-        .unwrap();
-        assert_eq!(request.sessions, vec!["chat"]);
-        assert_eq!(request.machine, "gcp-3");
-        assert_eq!(
-            request.options,
-            vec!["--interrupt", "--cwd", "/tmp/chat", "--from", "mini", "--dry-run"]
-        );
-    }
-
-    #[test]
-    fn requires_machine_and_session() {
-        assert!(parse_request(&GlobalArgs::default(), &["chat".into()]).is_err());
-        assert!(parse_request(&global("auto"), &[]).is_err());
-    }
-
-    #[test]
-    fn global_scan_keeps_multiple_sessions_before_move_switches() {
-        let args = [
-            "--json".into(),
-            "agent".into(),
-            "move".into(),
-            "first".into(),
-            "second".into(),
-            "--interrupt".into(),
-            "--machine".into(),
-            "auto".into(),
-        ];
-        let (global, command) = super::super::parse_globals(&args).expect("globals parse");
-        assert!(matches!(global.output, super::super::OutputMode::Json));
-        assert_eq!(global.machine.as_deref(), Some("auto"));
-        assert_eq!(command, vec!["agent", "move", "first", "second", "--interrupt"]);
-    }
-}
+#[path = "agent_move_tests.rs"]
+mod tests;
