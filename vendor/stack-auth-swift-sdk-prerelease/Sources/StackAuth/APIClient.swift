@@ -405,7 +405,8 @@ actor APIClient {
     enum RefreshOutcome {
         /// The server minted a new access token.
         case success(accessToken: String)
-        /// The server rejected the refresh token (HTTP 400/401, e.g. `invalid_grant`).
+        /// The server rejected the refresh token (HTTP 400/401, e.g. `invalid_grant`,
+        /// and not an answer that blames the client: `refreshRejectionRevokesSession`).
         /// The refresh token will never work again; clearing is correct.
         case definitivelyRejected
         /// The refresh could not be completed for a reason that is not the token's
@@ -414,6 +415,28 @@ actor APIClient {
         /// The server answered 429. Tokens are preserved like a transient
         /// failure, and no new exchange starts until the backoff passes.
         case rateLimited(retryAfterSeconds: TimeInterval?, bodyKind: StackAuthRateLimitObservation.BodyKind)
+    }
+
+    /// OAuth `error` values that blame the request or the client, not the refresh token.
+    static let clientRefreshErrors: Set<String> = [
+        "invalid_client", "invalid_request", "unauthorized_client", "unsupported_grant_type", "invalid_scope",
+    ]
+
+    /// Whether a refresh answer means the refresh token will never work again, so the stored
+    /// session may be deleted: a 400 or 401 whose body is about the token (`invalid_grant`, a
+    /// Stack `REFRESH_TOKEN_*` code) or gives no readable reason (the old behaviour). A 400 or
+    /// 401 that blames the client (`clientRefreshErrors`, or a Stack code about the project,
+    /// client or key) keeps the session: that is a bug in the build, which a fix forward
+    /// repairs only if the sessions are still there.
+    static func refreshRejectionRevokesSession(statusCode: Int, body: Data) -> Bool {
+        guard statusCode == 400 || statusCode == 401 else { return false }
+        guard let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else { return true }
+        if let code = (json["code"] as? String)?.uppercased(), !code.contains("REFRESH_TOKEN"),
+           ["PROJECT", "CLIENT", "PUBLISHABLE", "API_KEY"].contains(where: code.contains) {
+            return false
+        }
+        if let error = json["error"] as? String, clientRefreshErrors.contains(error) { return false }
+        return true
     }
 
     /// Performs the actual token refresh request, classifying the result so the
@@ -458,10 +481,16 @@ actor APIClient {
 
             // The OAuth token endpoint returns 400 (e.g. `invalid_grant`) or 401
             // when the refresh token itself is no longer valid. Those are the only
-            // codes that mean "this token will never work again". Everything else
-            // (5xx, 429, redirects, unexpected) is treated as transient.
-            if httpResponse.statusCode == 400 || httpResponse.statusCode == 401 {
+            // codes that mean "this token will never work again", unless the
+            // answer blames the client (`refreshRejectionRevokesSession`): a build
+            // that sends a wrong client id, secret or key must not sign every
+            // user out for good. Everything else (5xx, 429, redirects,
+            // unexpected) is treated as transient.
+            if Self.refreshRejectionRevokesSession(statusCode: httpResponse.statusCode, body: data) {
                 return .definitivelyRejected
+            }
+            if httpResponse.statusCode == 400 || httpResponse.statusCode == 401 {
+                return .transientFailure
             }
             if httpResponse.statusCode == 429 {
                 return .rateLimited(
