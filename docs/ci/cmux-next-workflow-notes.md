@@ -196,8 +196,17 @@ compiled the nearest commit (scripts/ci/dev_landing_place.py with FRESH_LABEL, p
 runner listing: a host with any busy runner is occupied (whatever holds its host lock runs there); a
 pick claims a host only when its label resolves to exactly one idle runner (a DEV slot or root runner by
 its static label, or the one idle DEV slot), scored by the host's cmux-next-dev-cas-holder-<host>
-record. Otherwise the shared DEV slot label, then the side label, at once: it never waits. With nothing
-owned idle it prints no route and the compile keeps macos-placement's. A warm host compiles in about
+record. Otherwise an idle nightly slot (NIGHTLY_LABEL, from vars.CI_DEV_COMPILE_NIGHTLY_RUNNER, default
+glaeda-nightly-std-xcode-26.6, picked as nightly_build_runner.owned_route() picks the nightly's own): the
+runner hook ranks the DEV daily compile nightly-tier, and Leo's rule is "Nightlies come first on the fleet".
+Otherwise the shared DEV slot label at once: it never waits. Never the shared side label: GitHub
+hands that label's queue out oldest first, so an idle side runner in the one listing is no place in line,
+and the compile joins the tail behind every PR job there (run 44941204257, 2026-11-21: 76 min on
+glaeda-side-std-xcode-26.6 behind about 130 jobs, then a capacity refusal; Leo's rule: "Nightlies come first
+on the fleet"). With nothing owned idle it overflows to a moving Blacksmith macOS label, else waits on the DEV
+slot, else prints no route and the compile keeps macos-placement's. It places every attempt, not only the
+first: a re-run (the owned-pool rescue's after a refusal) is placed again instead of falling to the side
+label's tail. A warm host compiles in about
 130 s of xcodebuild, a host with no tree in about 808 s (2026-10-28, 15 DEV compiles, 4 warm).
 vars.CMUX_NEXT_DEV_COMPILE_AFFINITY=0 turns it off.
 It runs only when cmux-scheme-compile will (the same tree condition), so it never waits for a skipped compile.
@@ -462,10 +471,16 @@ attempt 1 until 2026-11-18, when GitHub-hosted runners left it queued for hours 
 
 Above `checks: needs` in `.github/workflows/cmux-next.yml`.
 
-feat-cmux-next pushes run it again (Leo, 2026-10-19; cx-g34i had dropped it): a direct push's
-red shows on that push, and a pull request's red has a base run to be compared with.
-Not in a base tier run: the push of its commit already ran it.
-!cancelled(): a skipped or failed portable-placement (a fork, a re-run) leaves the Blacksmith route.
+On feat-cmux-next it runs in the base tier run on the tip (cmux_next_base_tier.py), at most once every 15
+minutes, not on each push. Leo, 2026-11-21: "whatever we need to cut, we cut", and "maintaining a partial
+semblance of checks. and we can infrequenrly have fuller checks". It ran on all 80 pushes in 21-24Z on
+11-21: 739 runner-minutes, 9.2 a push. A pull request into feat-cmux-next skips it (unless labelled
+full-ci), so the base tier run is still the base run a pull request's red is compared with. A red names
+its commit range: the previous base tier run's tip to this one ("Previous checked tip" below), the range
+"Pushed commits add no violations" sweeps and base_red_checks.py compares against.
+vars.CMUX_NEXT_BASE_TIER_COALESCE = '0' puts it back on every push, with the base tier.
+Earlier (Leo, 2026-10-19; cx-g34i had dropped it) each push ran it so a direct push's red showed on that push.
+!cancelled(): a skipped or failed portable-placement (a fork, a re-run, a base tier run) leaves the Blacksmith route.
 
 ## note-27
 
@@ -952,6 +967,16 @@ Above `release-compile-fast: if` in `.github/workflows/cmux-next.yml`.
 On a gateway runner macos-placement saw idle this attempt it submits the fleet check; else it
 runs on Linux and reads the fleet's own Release (-Onone) compile of this push (cmux-next/compile).
 Only no verdict sends release-compile to a Mac (2026-11-02: a busy gateway queued it 2 h).
+
+It runs after compile-status, which already waits for the same fleet compile of this push. Before,
+both jobs waited on it side by side, about 15 runner-min each per push (and on a gateway Mac with no
+GNU `timeout`, the reader said `none` and the gateway compiled the head again). When compile-status
+passed with no handoff, this job skips the gateway and reads that verdict on Linux in seconds; any
+other compile-status outcome keeps the gateway or Linux choice above.
+When compile-status read no result in its 40-min wait (its `state` output `none`), this job does
+not wait again: the Linux reader hands to the Mac fallback at once and a gateway compiles without
+reading first. The fallback then starts after one wait (compile-status's 40 min), not two in a row;
+before this order it started after the fast check's own 20 min, a rare path (the fleet never recorded the push).
 
 ## note-65
 
@@ -3870,3 +3895,19 @@ past 1100 s (cmux#44271). `vars.CI_FAST_TIER_OWNED_SEED` = `0` switches it off: 
 the shared roots as before. The root's parent must exist, belong to the mini's user and hold the marker
 `.cmux-seed-root` (fleet setup); without
 them the tier falls back. The marker keeps a runner that works at that path (the nightly-next builder) out.
+
+## note-410
+
+Above the generated-files job's `Keep Swift package builds on this owned Mac` step in `.github/workflows/cmux-next.yml`.
+
+Generated files builds the same `swift build --build-tests` of CmuxNext as the fast tier (note-379), so on an
+owned mini it takes the mini's seed root the same way (note-409): `owned_spm_scratch.py lease` with
+`CMUX_FAST_TIER_OWNED_SEED`, the R2 base seed restored at the root and its input times replayed. It used
+`link`, whose kept build sits at the slot's own workspace path: 24 h to 2026-11-21T12Z, 542 owned jobs at p50
+38.6 min, and a job that found its kept 15.9 GiB build still compiled every one of ~15,200 steps (job
+136633693044), because the kept build was another base's and SwiftPM's absolute paths tie it to one slot.
+Every step that reads the build or writes the checkout (bun, web bundles, the build, the action and settings
+checks, both export packs, the regenerate) runs in the root (the mirror holds `.git`, so the checks'
+`git checkout HEAD^1` works there); the uploads read `$RUNNER_TEMP` and stay as they are. One job per mini
+holds the root, fast tier or generated files; the other takes a shared root or `link` as before.
+`vars.CI_FAST_TIER_OWNED_SEED` = `0` switches both off.

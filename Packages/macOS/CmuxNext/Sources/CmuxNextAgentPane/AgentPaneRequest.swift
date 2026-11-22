@@ -423,8 +423,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case transportClose(connection: Int)
     /// `transport.gesture {intent}`: reserve the user's current gesture for one pick sent later (a
     /// pick held behind a harness switch); answers `{ticket}`. Nil intent: the params break the
-    /// contract (``AgentPaneGestureIntent``).
-    case transportGesture(AgentPaneGestureIntent?)
+    /// contract (``AgentPaneGestureIntent``); then `method` is the intent's, if any, and `refusal`
+    /// why, for the app log (``AgentPaneRefusalLog``).
+    case transportGesture(AgentPaneGestureIntent?, method: String? = nil, refusal: String? = nil)
     /// `transport.gesture.release`: drop every ticket (the page's harness switch ended or failed).
     case transportGestureRelease
     /// What a reply links to: chips, images, the preview card's browsers (``AgentPaneReplyRequest``).

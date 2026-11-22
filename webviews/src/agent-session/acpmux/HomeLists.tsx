@@ -106,16 +106,10 @@ const HomeRow = memo(function HomeRow({
     <li>
       <button type="button" className="acpmux-home-row" {...pressToOpen(() => onSelect(session.sessionId))}>
         {mark}
-        <span className="acpmux-home-title" title={title ?? session.displayTitle}>
-          {title ?? session.displayTitle}
-        </span>
-        {detail && (
-          <span className="acpmux-home-detail" title={detail}>
-            {detail}
-          </span>
-        )}
+        <span className="acpmux-home-title">{title ?? session.displayTitle}</span>
+        {detail && <span className="acpmux-home-detail">{detail}</span>}
         {project && (
-          <span className="acpmux-home-meta acpmux-home-project" title={session.cwd}>
+          <span className="acpmux-home-meta acpmux-home-project" aria-description={session.cwd}>
             {project}
           </span>
         )}

@@ -14,6 +14,7 @@ import type { PullRequestOps, HeaderOperationAction } from "./pullRequestOps";
 import type { WorktreeOps } from "./worktreeOps";
 import { pullRequestStatus, checkPresentation } from "./pullRequestOps";
 import type { HeaderWorktree } from "./worktreePillModel";
+import { intl } from "../../../ui/intl";
 
 export const NATIVE_MAX_TOOLS = 16;
 export const NATIVE_MAX_MENU_ITEMS = 32;
@@ -81,7 +82,7 @@ export interface RowToolBinding {
   variableMenu?: NativeRowMenuItem[];
 }
 
-const characters = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+const characters = intl.Segmenter(undefined, { granularity: "grapheme" });
 const encoder = new TextEncoder();
 
 /// Match AgentPaneTabRowTools.swift: non-empty, at most 64 graphemes and 256 UTF-8 bytes.

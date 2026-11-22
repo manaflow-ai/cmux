@@ -68,23 +68,35 @@ function ListRows({
   ));
 }
 
-/** Spaces (General): the active window's spaces, or why the host has none. */
+/** The schema rows about spaces (Sidebar > Sidebar Buttons and Spaces). With one space the page
+ * draws none of them (Hide Spaces); search still finds them. */
+export const SPACE_ROWS: ReadonlySet<string> = new Set([
+  "sidebar.showSpaces",
+  "sidebar.spacesPosition",
+  "sidebar.spacesVisibility",
+]);
+
+/** Whether the active window has a second space: until then no Settings page names spaces. */
+export function useSeveralSpaces(): boolean {
+  const { host } = useSettingsState();
+  return (host?.rooms?.length ?? 0) > 1;
+}
+
+/**
+ * Spaces (Sidebar): the active window's spaces, from the second space on. With one space (or a host
+ * without spaces) no part of cmux names spaces (Hide Spaces, 2026-11-20), so the card is not drawn.
+ */
 export function SpacesSection() {
   const { host } = useSettingsState();
+  const rooms = host?.rooms ?? [];
   // The card arrives with the host's lists: after a blank first paint it fades in (shared/loadFade.ts).
-  const fade = useLoadFade(Boolean(host));
-  if (!host) return null;
+  const fade = useLoadFade(rooms.length > 1);
+  if (rooms.length < 2) return null;
   return (
     <section className={fade ? `group ${LOAD_FADE_CLASS}` : "group"} data-card="rooms">
       <h3 className="group-title">{t("settingsPage.group.spaces")}</h3>
       <div className="rows">
-        {host.rooms ? (
-          <ListRows rows={host.rooms} empty={t("settingsWindow.roomsEmpty")} marks />
-        ) : (
-          <div className="row">
-            <div className="empty">{t("settingsWindow.roomsUnavailable")}</div>
-          </div>
-        )}
+        <ListRows rows={rooms} empty={t("settingsWindow.roomsEmpty")} marks />
       </div>
     </section>
   );

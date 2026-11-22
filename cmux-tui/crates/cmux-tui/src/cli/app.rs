@@ -186,6 +186,10 @@ pub(super) enum AppCommand {
     Renderers {
         params: Value,
     },
+    /// `app renderers profile`: `renderers.profile` on one page (app/renderers.rs).
+    RendererProfile {
+        params: Value,
+    },
     /// `app chat perf`: `agent.chat.perf`, one chat page's frames and record-to-paint times over
     /// `seconds` (app/chat_perf.rs).
     ChatPerf {
@@ -900,6 +904,15 @@ pub(super) struct ConnectFailure {
 
 /// [`connect_command`] that says whether its failure may pass by waiting.
 pub(super) fn connect_command_or_wait(global: &GlobalArgs) -> Result<UnixStream, ConnectFailure> {
+    let stream = connect_command_or_wait_unchecked(global)?;
+    // Warns, once, when the app on the other end is older than this installed CLI.
+    if let Ok(socket) = command_socket(global) {
+        super::stale_app::warn_if_stale(global, &socket.path);
+    }
+    Ok(stream)
+}
+
+fn connect_command_or_wait_unchecked(global: &GlobalArgs) -> Result<UnixStream, ConnectFailure> {
     let fixed = |error| ConnectFailure { error, may_pass: false };
     let socket = command_socket(global).map_err(fixed)?;
     let uid = cmux_tui_core::platform::effective_uid();
@@ -995,6 +1008,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         }
         AppCommand::Renderers { params } => {
             return Ran::Done(renderers::run(global, stream, params));
+        }
+        AppCommand::RendererProfile { params } => {
+            return Ran::Done(renderers::run_profile(global, stream, params));
         }
         AppCommand::ChatPerf { params, seconds } => {
             return Ran::Done(chat_perf::run(global, stream, params, seconds));
