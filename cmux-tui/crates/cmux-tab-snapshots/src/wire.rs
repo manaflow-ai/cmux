@@ -2,8 +2,8 @@
 //! the body. Control bodies are JSON (camelCase); a blob body is binary:
 //! 32 raw hash bytes, 1 mime id byte, then the blob bytes.
 //!
-//! The link carries a frame as its payload and chunks it into link writes;
-//! that is not this module's job.
+//! On a link channel, which delivers bytes in chunks, each frame travels
+//! behind its length ([`crate::stream`]).
 
 use crate::hash::{BlobHash, Mime};
 use crate::row::{Row, RowPatch};
