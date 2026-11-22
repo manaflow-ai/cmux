@@ -1066,7 +1066,9 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         // The row is measured by its own id whatever else changed in the frame: a row inserted or
         // removed next to it does not excuse its move (the up-slow-flood frame that drew the rows
         // 75 pt off for one frame while a row went, step 3c24c106, video frame 224).
-        _ = indexPath
+        if let next = last.next, let gap = last.gap {
+            guard let nextPath = dataSource.indexPath(for: next), nextPath.item - indexPath.item == gap else { return }
+        }
         let was = last.windowY
         let shift = (now - was) + ledger.committedExplained
         report(shift)
