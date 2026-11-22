@@ -96,6 +96,8 @@ import { connectDelay, LinkPipe, linkProfile } from "./linkModel";
 import { goneRows, restartSettled } from "./restartSettled";
 import { longRun } from "../src/agent-session/acpmux/sim/scenarios";
 import { parseRecords } from "../src/agent-session/acpmux/sim/sanitize";
+import { hostTailOf, keptEvents } from "../src/agent-session/acpmux/tailCache";
+import type { EventRecord } from "../src/agent-session/acpmux/direct";
 
 const MODES_ALL = ["down", "slow-init", "native-ready", "native-ready-tail"] as const;
 const REOPEN_MODES = ["reopen", "reopen-no-copy", "reopen-spare"] as const;
@@ -331,18 +333,32 @@ function turnOpener(page: readonly (typeof events)[number][], hasMore: boolean):
   return null;
 }
 /// What the app host keeps for this chat and answers `chat.tail.get` with (tailCache.ts `KeptTail`, read
-/// back by `tailFromHost`): the newest KEPT_EVENTS (400) records, as the page hands them over
-/// (direct.ts `currentTail`), and the chat's summary. A finished chat whose kept page starts at a prompt
-/// needs no turn opener.
-const KEPT_EVENTS = 400;
-const keptTail = {
-  events: newest(KEPT_EVENTS).page,
-  summary: session,
-  historyExhausted: events.length <= KEPT_EVENTS,
-  queue: [],
-  configSeq: 0,
-  usageFromSeq: 0,
-};
+/// back by `tailFromHost`), made the way the page makes it: the attach page it read (the newest records
+/// within `OPEN_PAGE_BYTES`, direct.ts `sendAttach`), its newest `KEPT_EVENTS` messages (`keptEvents`),
+/// the prompt of the turn the kept page starts inside (direct.ts `currentTail`), and the host's byte
+/// bound (`hostTailOf`). A kept page without that prompt draws its turn's work unfolded, which the
+/// real page never does, so a stand-in without it measures a reload that does not happen.
+const OPEN_PAGE_BYTES = 128 * 1024;
+const keptTail = (() => {
+  const opened = newest(400, Infinity, OPEN_PAGE_BYTES);
+  const kept = keptEvents(opened.page as EventRecord[]);
+  const first = kept[0];
+  const opener =
+    first && !startsTurn(first)
+      ? ((kept.length < opened.page.length
+          ? [...opened.page.slice(0, opened.page.length - kept.length)].reverse().find(startsTurn)
+          : undefined) ?? turnOpener(opened.page, opened.hasMore))
+      : undefined;
+  return hostTailOf({
+    events: kept,
+    summary: session,
+    turnOpener: (opener ?? undefined) as EventRecord | undefined,
+    historyExhausted: !opened.hasMore && kept.length === opened.page.length,
+    queue: [],
+    configSeq: 0,
+    usageFromSeq: 0,
+  });
+})();
 
 const answer = (method: string, params: Record<string, unknown> = {}): unknown => {
   switch (method) {
