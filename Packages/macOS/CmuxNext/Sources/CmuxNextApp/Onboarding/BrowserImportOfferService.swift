@@ -11,8 +11,8 @@ import Foundation
 /// or user name field; Lawrence 2026-11-09), a glass card at its bottom
 /// offers to import sign-ins (cookies) from the most used browser on this Mac. Import
 /// opens Import from Browser with cookies checked, into the tab's profile;
-/// nothing (no keychain) is read before that click. Not Now keeps it away a week; Don't
-/// Show Again turns `browser.import.cookieBanner` off (``CookieBannerSwitch``);
+/// nothing (no keychain) is read before that click. Not now keeps it away a week; the
+/// permanent dismissal turns `browser.import.cookieBanner` off (``CookieBannerSwitch``);
 /// imported cookies end it (`BrowserImportOfferState`). It reads no browser
 /// data itself: the installed browsers come from Launch Services. Automation launches (`CMUX_NEXT_NO_ACTIVATE`)
 /// never see it unless `CMUX_NEXT_BROWSER_IMPORT_OFFER=1`.
@@ -97,7 +97,7 @@ final class BrowserImportOfferService {
         shownOn = chrome
         let offer = BrowserCookieImportOffer(icons: [first.icon], title: BrowserImportOfferStrings.title(browser: first.browser.displayName),
                                              importTitle: BrowserImportOfferStrings.importData, notNowTitle: BrowserImportOfferStrings.notNow,
-                                             neverTitle: BrowserImportOfferStrings.dontShowAgain)
+                                             neverTitle: BrowserImportOfferStrings.never(browser: first.browser == .chrome ? "Chrome" : first.browser.displayName))
         let target = BrowserProfileRecord.wireID(for: chrome.tab.profileID)
         // A window toast (a recovered draft, an undo) sits at the bottom too: the card rises above it
         // instead of waiting (an inactive window keeps its toasts, so waiting could last the launch).
