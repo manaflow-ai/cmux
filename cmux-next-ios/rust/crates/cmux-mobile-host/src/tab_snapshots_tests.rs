@@ -37,6 +37,60 @@ fn offer_image_refuses_bad_input_and_keeps_pictures_for_tabs_not_listed_yet() {
     assert_eq!(row(&tabs, "2").favicon_hash, Some(cmux_tab_snapshots::BlobHash::of(b"early")));
 }
 
+const JPEG: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3];
+const PNG: &[u8] = b"\x89PNG\r\n\x1a\nrest";
+
+fn picture(path: &Path, part: Part) -> PictureFile {
+    PictureFile {
+        surface: 4,
+        part,
+        path: path.to_string_lossy().into_owned(),
+        w: 576,
+        h: 360,
+        captured_at_ms: 9,
+    }
+}
+
+#[tokio::test]
+async fn offer_file_reads_a_jpeg_thumb_and_a_png_favicon_by_surface() {
+    let dir = tempfile::tempdir().unwrap();
+    let (thumb, favicon) = (dir.path().join("4-thumb.jpg"), dir.path().join("4-favicon.png"));
+    std::fs::write(&thumb, JPEG).unwrap();
+    std::fs::write(&favicon, PNG).unwrap();
+    let tabs = Tabs::new("e");
+    tabs.set_tabs(vec![tab("4", Kind::Browser, json!({}))]);
+    assert!(tabs.offer_file(&picture(&thumb, Part::Thumb)).await);
+    assert!(tabs.offer_file(&picture(&favicon, Part::Favicon)).await);
+    let r = row(&tabs, "4");
+    assert_eq!(r.thumb_hash, Some(cmux_tab_snapshots::BlobHash::of(JPEG)));
+    assert_eq!((r.thumb_w, r.thumb_h, r.thumb_mime), (576, 360, Mime::Jpeg));
+    assert_eq!(r.favicon_hash, Some(cmux_tab_snapshots::BlobHash::of(PNG)));
+}
+
+#[tokio::test]
+async fn offer_file_refuses_oversize_wrong_format_missing_links_and_relative_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    let tabs = Tabs::new("e");
+    tabs.set_tabs(vec![tab("4", Kind::Browser, json!({}))]);
+    let big = dir.path().join("big.jpg");
+    let mut bytes = JPEG.to_vec();
+    bytes.resize(MAX_IMAGE_BYTES + 1, 0);
+    std::fs::write(&big, bytes).unwrap();
+    let gif = dir.path().join("x.gif");
+    std::fs::write(&gif, b"GIF89a....").unwrap();
+    let empty = dir.path().join("empty.png");
+    std::fs::write(&empty, b"").unwrap();
+    let good = dir.path().join("good.png");
+    std::fs::write(&good, PNG).unwrap();
+    let link = dir.path().join("link.png");
+    std::os::unix::fs::symlink(&good, &link).unwrap();
+    for path in [big, gif, empty, dir.path().join("missing.png"), link, dir.path().to_path_buf()] {
+        assert!(!tabs.offer_file(&picture(&path, Part::Favicon)).await, "{}", path.display());
+    }
+    assert!(!tabs.offer_file(&picture(Path::new("good.png"), Part::Favicon)).await);
+    assert_eq!(row(&tabs, "4").favicon_hash, None);
+}
+
 #[test]
 fn set_tabs_orders_removes_and_keeps_screens() {
     let tabs = Tabs::new("e");

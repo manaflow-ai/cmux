@@ -14,8 +14,10 @@
 //! each terminal's screen text (read again on `surface-output`, at most once
 //! a second per terminal). It stops when the last phone leaves. Its daemon
 //! connections say `remote: true`, so the daemon hides incognito workspaces
-//! from it as from a phone. Favicons and thumbnails come from the Mac app
-//! through [`Tabs::offer_image`].
+//! from it as from a phone. Favicons and thumbnails come from the Mac app:
+//! it writes each to a file in its own cache folder and names it on a
+//! `tab_picture` control line ([`PictureFile`]); [`offer_file`] reads them in
+//! line order and hands them to [`Tabs::offer_image`].
 //!
 //! Each phone also sees only the tabs its chat exposure allows, by the rule
 //! the `daemon` service applies to its replies
@@ -34,10 +36,11 @@ use cmux_tab_snapshots::{
     Deframer, FaviconInput, ImageInput, Kind, Mime, Observation, Producer, RowFilter, ScreenInput, Session,
     length_prefixed,
 };
+use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 
 use crate::control::SessionExposure;
 use crate::services::Refusal;
@@ -68,10 +71,29 @@ pub static TABS: LazyLock<Arc<Tabs>> =
     LazyLock::new(|| Arc::new(Tabs::new(uuid::Uuid::new_v4().to_string())));
 
 /// Which picture of a tab [`Tabs::offer_image`] gives.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Part {
     Favicon,
     Thumb,
+}
+
+/// The `tab_picture` control line: a favicon or thumbnail the Mac app wrote
+/// to `path` (in its own cache folder, never a path a phone names). The
+/// format comes from the bytes; a `mime` the app also sends is ignored.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct PictureFile {
+    /// The tab's daemon surface id, the id [`listed_tabs`] gives it.
+    pub surface: u64,
+    pub part: Part,
+    pub path: String,
+    /// The image's pixels (a thumbnail's; 0 when unknown).
+    #[serde(default)]
+    pub w: u32,
+    #[serde(default)]
+    pub h: u32,
+    #[serde(default)]
+    pub captured_at_ms: i64,
 }
 
 /// One tab as the daemon lists it.
@@ -245,6 +267,27 @@ impl Tabs {
         changed
     }
 
+    /// Reads `file` and offers it ([`Tabs::offer_image`]): an absolute path
+    /// to a regular file (not a link) of at most [`MAX_IMAGE_BYTES`] holding
+    /// a JPEG or PNG. Returns true when the phone's view changed.
+    pub async fn offer_file(&self, file: &PictureFile) -> bool {
+        match read_picture(Path::new(&file.path)).await {
+            Ok((mime, bytes)) => self.offer_image(
+                &file.surface.to_string(),
+                file.part,
+                bytes,
+                file.w,
+                file.h,
+                mime,
+                file.captured_at_ms,
+            ),
+            Err(reason) => {
+                tracing::warn!(surface = file.surface, part = ?file.part, reason, "ignoring a tab picture");
+                false
+            }
+        }
+    }
+
     /// The daemon's tab list now, in order. Closed tabs leave.
     pub fn set_tabs(&self, listed: Vec<ListedTab>) -> bool {
         let mut state = self.lock();
@@ -344,6 +387,48 @@ impl Tabs {
         }
         false
     }
+}
+
+/// Hands the app's `tab_picture` line to one reader task, so the files are
+/// read off the control loop and still in line order (an older thumbnail
+/// never lands over a newer one).
+pub fn offer_file(file: PictureFile) {
+    static QUEUE: LazyLock<mpsc::UnboundedSender<PictureFile>> = LazyLock::new(|| {
+        let (tx, mut rx) = mpsc::unbounded_channel::<PictureFile>();
+        tokio::spawn(async move {
+            while let Some(file) = rx.recv().await {
+                TABS.offer_file(&file).await;
+            }
+        });
+        tx
+    });
+    let _ = QUEUE.send(file);
+}
+
+/// The picture at `path` and its format, or why it cannot be taken.
+async fn read_picture(path: &Path) -> Result<(Mime, Vec<u8>), &'static str> {
+    if !path.is_absolute() {
+        return Err("not an absolute path");
+    }
+    let metadata = tokio::fs::symlink_metadata(path).await.map_err(|_| "no such file")?;
+    if !metadata.is_file() {
+        return Err("not a regular file");
+    }
+    if metadata.len() == 0 || metadata.len() > MAX_IMAGE_BYTES as u64 {
+        return Err("empty or too large");
+    }
+    let bytes = tokio::fs::read(path).await.map_err(|_| "unreadable")?;
+    if bytes.is_empty() || bytes.len() > MAX_IMAGE_BYTES {
+        return Err("empty or too large");
+    }
+    let mime = if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Mime::Jpeg
+    } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Mime::Png
+    } else {
+        return Err("not a JPEG or PNG");
+    };
+    Ok((mime, bytes))
 }
 
 fn truncate(mut text: String, cap: usize) -> String {
