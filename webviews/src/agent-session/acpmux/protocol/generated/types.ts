@@ -414,8 +414,9 @@ export interface EventsParams {
   limit?: (number | null);
   maxBytes?: (number | null);
   /**
-   * Every prompt before `beforeSeq`, oldest first, each cut to its id and the start of its text,
-   * in one reply (`Hub::prompt_index`): `kinds`, `limit` and `maxBytes` are not read.
+   * The newest prompts before `beforeSeq`, oldest first, each cut to its id and text prefix.
+   * Honors `limit` and `maxBytes`; `kinds` is ignored. While `hasMore`, continue with
+   * `beforeSeq = events[0].seq`. `turnCount` is the total prompt count, not the page size.
    */
   promptIndex?: (boolean | null);
   sessionId: string;
