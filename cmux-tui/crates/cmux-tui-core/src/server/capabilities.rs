@@ -332,6 +332,7 @@ pub(super) fn advertised_capabilities(
         TERMINAL_PORTS_CAPABILITY,
         SERVER_STATS_CAPABILITY,
         DAEMON_SHUTDOWN_RESTART_CAPABILITY,
+        DAEMON_STOP_IF_IDLE_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
         TERMINAL_TAIL_PIN_CAPABILITY,
@@ -357,6 +358,7 @@ pub(super) fn advertised_capabilities(
         WORKSPACE_CREATE_FOCUS_CAPABILITY,
         WORKSPACE_SIDEBAR_PLACEMENT_CAPABILITY,
         WORKSPACE_CREATED_BY_CAPABILITY,
+        CREATED_BY_DETAIL_CAPABILITY,
         TERMINAL_READ_UNWRAP_CAPABILITY,
         TERMINAL_WAIT_NEW_CAPABILITY,
         TERMINAL_EXIT_STATUS_CAPABILITY,
@@ -527,6 +529,8 @@ pub(super) fn advertised_capabilities(
     capabilities.push(BROWSER_RUNTIME_CAPABILITY);
     #[cfg(unix)]
     capabilities.push(crate::shell_runs::CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(crate::language_packs::CAPABILITY);
     capabilities
 }
 

@@ -232,7 +232,7 @@ export function TeamAuditScreen({ load, initialRange = "30d", initialGroup = "pe
             <tbody>
               {rows.map((row) => (
                 <tr key={`${shown}:${row.key}`}>
-                  <th scope="row" className="tma-key" title={row.key}>
+                  <th scope="row" className="tma-key">
                     <span className="tma-key-text">
                       {row.key === TEAM_AUDIT_NONE ? t("teamAudit.none") : auditRowLabel(shown, row, locale)}
                     </span>

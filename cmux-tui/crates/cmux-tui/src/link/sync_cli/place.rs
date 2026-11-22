@@ -355,6 +355,11 @@ impl Dir {
         .map(drop)
     }
 
+    /// Removes the folder `name` here when it is empty (an error otherwise).
+    pub(super) fn remove_empty_dir(&self, name: &str) -> io::Result<()> {
+        self.unlink(name, true)
+    }
+
     fn unlink(&self, name: &str, folder: bool) -> io::Result<()> {
         let c = c_name(name)?;
         let flags = if folder { libc::AT_REMOVEDIR } else { 0 };
@@ -583,6 +588,12 @@ impl Transaction {
             self.undo.push(Undo::RemovedLink { relative: relative.into(), aside, text: found });
         }
         Err(Changed(relative.into()).into())
+    }
+
+    /// Makes the folder `relative` and any missing folder above it (each undone by roll back);
+    /// nothing when it is there.
+    pub(super) fn folder(&mut self, relative: &str) -> anyhow::Result<()> {
+        self.folder_for(&format!("{relative}/.")).map(drop)
     }
 
     /// Puts back everything this pull changed, newest first. The error
