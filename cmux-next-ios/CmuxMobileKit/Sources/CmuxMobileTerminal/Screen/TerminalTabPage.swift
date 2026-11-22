@@ -115,7 +115,8 @@ public struct TerminalTabPage: View {
                         // once; once attached the frame stays until the live rows
                         // are drawn, then goes in one frame: a cut, never a fade
                         // over live rows at other positions (R3-4).
-                        TerminalConnectingView(topInset: insets.top, lastFrame: model.coldFrame)
+                        TerminalConnectingView(topInset: insets.top, lastFrame: model.coldFrame,
+                                               screenText: model.cardScreenText)
                             .ignoresSafeArea()
                             .padding(.bottom, insets.bottom)
                             .transition(.identity)
