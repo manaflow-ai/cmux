@@ -2,6 +2,7 @@ import { useState } from "react";
 import { copyTextResult } from "../../agent-session/acpmux/conversation/clipboard";
 import { useT, type Translate } from "../../agent-session/acpmux/i18n";
 import type { SceneStatus } from "./store";
+import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
 
 /** What a failed mount says, in plain words: the native `AppFailureCopy`. The title says what
  * happened; `location` says where and why for a script error (`main.js · Line 2, column 12:
@@ -75,15 +76,19 @@ export function SceneFailure({
       {copy.location ? <span className="cmux-app-scene-failure-location">{copy.location}</span> : null}
       <span className="cmux-app-scene-failure-actions">
         {onReload ? (
-          <button
-            type="button"
-            className="cmux-app-scene-failure-action"
-            data-action="reload"
-            aria-description={t("apps.mount.reload.help")}
-            onClick={() => onReload()}
-          >
-            {t("apps.mount.reload")}
-          </button>
+          <WithFacts facts={[{ value: t("apps.mount.reload.help") }]}>
+            {(facts) => (
+              <button
+                {...facts}
+                type="button"
+                className="cmux-app-scene-failure-action"
+                data-action="reload"
+                onClick={() => onReload()}
+              >
+                {t("apps.mount.reload")}
+              </button>
+            )}
+          </WithFacts>
         ) : null}
         <button
           type="button"
