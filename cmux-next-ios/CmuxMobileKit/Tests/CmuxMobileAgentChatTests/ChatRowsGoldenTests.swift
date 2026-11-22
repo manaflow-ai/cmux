@@ -46,12 +46,22 @@ import UIKit
     }
 
     /// Each row the list shows: its id, its kind and a hash of everything it draws (its text,
-    /// a tool's name and state, a fold's state, its gap).
+    /// a tool's name and state, a fold's state, its gap). Wall-clock times are left out: the store
+    /// stamps a tool call's start and end with the time it applied the record, which differs per
+    /// run (seen: the same build hashed a fold and a tool row differently in two runs).
     static func rows(_ list: ChatTranscriptList) -> String {
         shown(list).map { id in
             guard let row = list.row(id) else { return "\(id)|missing" }
-            return "\(id)|\(row.hostedReuseKey)|\(fnv(String(reflecting: row.kind) + " gap \(row.gap)"))"
+            return "\(id)|\(row.hostedReuseKey)|\(fnv(withoutClockTimes(String(reflecting: row.kind)) + " gap \(row.gap)"))"
         }.joined(separator: ";")
+    }
+
+    /// The description with every date (`2026-11-22 10:13:51 +0000`) replaced by the fixture's
+    /// time when it is the fixture's, else by "now".
+    static func withoutClockTimes(_ text: String) -> String {
+        let fixture = String(describing: at)
+        let pattern = #/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \+\d{4}/#
+        return text.replacing(pattern) { match in String(match.output) == fixture ? "fixture" : "now" }
     }
 
     /// The chat as it opens: finished, edited, failed and running turns.
