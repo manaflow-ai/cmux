@@ -132,6 +132,53 @@ test("an installed app's grant switches use the same plain words, never the scop
   for (const { scope } of scopes) expect(html).not.toContain(scope);
 });
 
+test("an app with an external server offers a credential only once its server is allowed, then shows it", () => {
+  const server = {
+    scope: "server:execute",
+    reason: "Answer its commands.",
+    risk: "standard" as const,
+    optional: false,
+  };
+  const render = (granted: boolean, credential?: string) =>
+    renderToStaticMarkup(
+      <GrantsPanel
+        grants={{ app: "acme/ext", sandboxed: true, server: "external", scopes: [{ ...server, granted }] }}
+        store={{} as AppsStore}
+        strings={strings}
+        credential={credential ? { app: "acme/ext", credential } : undefined}
+      />,
+    );
+  const off = render(false);
+  expect(off).toContain(en["store.server.needsGrant"]!);
+  expect(off).toMatch(/<button[^>]*disabled=""[^>]*>[^<]*Make Credential/);
+  const on = render(true);
+  expect(on).toContain(en["store.server.help"]!);
+  expect(on).not.toContain("disabled");
+  const shown = render(true, "cmuxsrv1_abc");
+  expect(shown).toContain("cmuxsrv1_abc");
+  expect(shown).toContain(en["store.server.shownOnce"]!);
+  // Another app's credential is never shown here, and an app without an external server has no row.
+  expect(
+    renderToStaticMarkup(
+      <GrantsPanel
+        grants={{ app: "acme/other", sandboxed: true, server: "external", scopes: [{ ...server, granted: true }] }}
+        store={{} as AppsStore}
+        strings={strings}
+        credential={{ app: "acme/ext", credential: "cmuxsrv1_abc" }}
+      />,
+    ),
+  ).not.toContain("cmuxsrv1_abc");
+  expect(
+    renderToStaticMarkup(
+      <GrantsPanel
+        grants={{ app: "acme/js", sandboxed: true, server: "js", scopes: [] }}
+        store={{} as AppsStore}
+        strings={strings}
+      />,
+    ),
+  ).not.toContain(en["store.server.title"]!);
+});
+
 test("the listing page shows the tagline, the meta line, Shows up in and its facts, and no scope id", async () => {
   const store = new AppsStore(new MockAppsProvider(storeApps()), "#/discover?layout=grid&app=cmux/cloud");
   await store.start();

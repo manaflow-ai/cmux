@@ -170,6 +170,31 @@ struct Client {
 }
 
 impl Client {
+    /// One `cmux.protocol/2` request with `extra` envelope members.
+    fn v2(&mut self, operation: &str, params: Value, extra: Value) -> Value {
+        self.next += 1;
+        let id = format!("v2-{}", self.next);
+        let mut params = params;
+        params["machine"] = json!("current");
+        params["session"] = json!("current");
+        let mut request = json!({
+            "protocol": "cmux.protocol/2", "type": "request", "id": id,
+            "operation": operation, "params": params,
+        });
+        for (key, value) in extra.as_object().unwrap() {
+            request[key] = value.clone();
+        }
+        writeln!(self.reader.get_mut(), "{request}").unwrap();
+        loop {
+            let mut line = String::new();
+            assert_ne!(self.reader.read_line(&mut line).unwrap(), 0, "the daemon closed");
+            let reply: Value = serde_json::from_str(&line).unwrap();
+            if reply["id"] == json!(id) {
+                return reply;
+            }
+        }
+    }
+
     fn rpc(&mut self, mut request: Value) -> Value {
         self.next += 1;
         request["id"] = json!(self.next);
@@ -232,4 +257,85 @@ fn a_python_external_server_answers_cmux_apps_run_with_the_approved_credential()
     assert_eq!(daemon.servers[n].wait().unwrap().code(), Some(0));
     let run = daemon.apps_run("manaflow_ai.hello_python.hello", json!({}));
     assert!(String::from_utf8_lossy(&run.stderr).contains("apps.server_unapproved"), "{run:?}");
+}
+
+/// The host's confirmation token for `operation` with `params` on the page
+/// relay `relay_id`: what the app mints once the person approves the sheet.
+fn confirmation(app: &mut Client, relay_id: &str, operation: &str, params: &Value) -> String {
+    use sha2::Digest;
+    let mut sorted: std::collections::BTreeMap<String, Value> =
+        params.as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    sorted.insert("machine".into(), json!("current"));
+    sorted.insert("session".into(), json!("current"));
+    let digest = sha2::Sha256::digest(serde_json::to_string(&sorted).unwrap().as_bytes());
+    let digest: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    let issued = app.v2(
+        "origin.confirmation.issue",
+        json!({"operation": operation, "params_sha256": digest, "relay_connection_id": relay_id}),
+        json!({}),
+    );
+    assert_eq!(issued["ok"], true, "{issued}");
+    issued["result"]["token"].as_str().unwrap().to_owned()
+}
+
+/// The person makes the credential on the Apps page (`apps.server.credential`
+/// on the page relay), behind the app's native sheet: the page alone, a
+/// relay call without the sheet's confirmation, or an agent never gets one.
+#[test]
+fn the_apps_page_makes_the_external_server_credential_only_behind_the_sheet() {
+    let mut daemon = Daemon::start("hp-page");
+    let mut app = daemon.app();
+    let installed = app.rpc(json!({ "cmd": "apps-set", "origin": "user", "idempotency_key": "i1", "app": APP, "installed": true }));
+    assert_eq!(installed["ok"], true, "{installed}");
+
+    let mut relay =
+        Client { reader: BufReader::new(UnixStream::connect(&daemon.socket).unwrap()), next: 1 };
+    relay.reader.get_ref().set_read_timeout(Some(Duration::from_secs(12))).unwrap();
+    let hello = relay.rpc(json!({"cmd": "client-hello", "role": "page_relay", "page": "apps"}));
+    let relay_id = hello["data"]["connection_id"].as_str().unwrap().to_owned();
+    let confirm = &hello["data"]["page_operations"]["confirm"];
+    assert!(
+        confirm.as_array().is_some_and(|ops| ops.contains(&json!("apps.server.credential"))),
+        "{hello}"
+    );
+
+    // The grants panel learns the app's server kind, so it offers the row.
+    let page = json!({"origin": {"claim": "page"}});
+    let grants = relay.v2("apps.grants.get", json!({"app": APP}), page);
+    assert_eq!(grants["result"]["server"], "external", "{grants}");
+
+    // Without the sheet's confirmation it is refused.
+    let params = json!({"app": APP});
+    let refused =
+        relay.v2("apps.server.credential", params.clone(), json!({"idempotency_key": "c1"}));
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(refused["error"]["details"]["reason"], "confirmation_required", "{refused}");
+    // An agent connection is refused too.
+    let mut agent =
+        Client { reader: BufReader::new(UnixStream::connect(&daemon.socket).unwrap()), next: 1 };
+    let refused = agent.v2(
+        "apps.server.credential",
+        params.clone(),
+        json!({"idempotency_key": "a1", "origin": {"claim": "user"}}),
+    );
+    assert_eq!(refused["ok"], false, "{refused}");
+
+    // The person approved the sheet: the relay call carries its token.
+    let token = confirmation(&mut app, &relay_id, "apps.server.credential", &params);
+    let made = relay.v2(
+        "apps.server.credential",
+        params,
+        json!({"idempotency_key": "c2", "origin": {"claim": "user", "confirmation": token}}),
+    );
+    assert_eq!(made["ok"], true, "{made}");
+    let credential = made["result"]["credential"].as_str().expect("a credential").to_owned();
+    assert!(credential.starts_with("cmuxsrv1_"), "{made}");
+
+    // A Python process started with it serves the app's commands.
+    let n = daemon.python_server(&credential);
+    assert!(daemon.server_says(n).contains("serving"), "the server attached");
+    let run = daemon.apps_run("manaflow_ai.hello_python.hello", json!({ "name": "Leo" }));
+    assert!(run.status.success(), "{run:?}");
+    let answer: Value = serde_json::from_slice(&run.stdout).unwrap();
+    assert_eq!(answer["value"]["text"], "Hello, Leo, from Python", "{answer}");
 }

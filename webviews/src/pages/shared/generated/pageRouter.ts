@@ -35,6 +35,7 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
     "confirm": [
       "apps.grant.set",
       "apps.install",
+      "apps.server.credential",
       "apps.set",
       "apps.uninstall"
     ]
@@ -150,6 +151,7 @@ export const ROUTED_NAMESPACES: Readonly<Record<string, RoutedNamespace>> = {
       "apps.grant.set",
       "apps.hidden.set",
       "apps.install",
+      "apps.server.credential",
       "apps.set",
       "apps.uninstall"
     ]

@@ -28,6 +28,10 @@ nonisolated enum PageStrings {
     static var enable: String { t("pages.confirm.apps.enable", "Turn on “%@”?") }
     static var disable: String { t("pages.confirm.apps.disable", "Turn off “%@”?") }
     static var change: String { t("pages.confirm.apps.change", "Change “%@”?") }
+    static var serverCredential: String { t("pages.confirm.apps.serverCredential", "Make a server credential for “%@”?") }
+    static var serverCredentialDetail: String {
+        t("pages.confirm.apps.serverCredentialDetail", "A program you start with it answers this app’s commands on this Mac. It is shown once, and it replaces the last one.")
+    }
 
     static var cloudPublish: String { t("pages.confirm.cloud.publish", "Publish “%@” to the internet?") }
     static var cloudFirewall: String { t("pages.confirm.cloud.firewall", "Change the firewall of “%@”?") }
