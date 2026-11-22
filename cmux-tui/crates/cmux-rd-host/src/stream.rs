@@ -333,6 +333,15 @@ impl MediaSession {
         session: SessionId,
         viewer: &Principal,
     ) -> String {
+        // Measurement only: CMUX_RD_TEST_LOSS_PCT loses media datagrams (off unless set).
+        let mut lossy;
+        let carrier: &mut dyn Carrier = match crate::test_loss::TestLoss::from_env() {
+            Some(loss) => {
+                lossy = crate::test_loss::LossyCarrier { inner: carrier, loss };
+                &mut lossy
+            }
+            None => carrier,
+        };
         let reason = self.run_until_end(carrier, table, session, viewer);
         if let Some(line) = self.clipboard.as_ref().and_then(|c| c.counters().log_line()) {
             eprintln!("{line}");
