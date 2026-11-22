@@ -51,6 +51,22 @@ class ClassicFrozenGuardTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertTrue(lines[0].startswith("::notice::classic-migration"))
 
+    def test_teammate_passes_without_the_label(self) -> None:
+        # Leo, 2026-11-21: "and the whole label ceremony we need to make sure that doesnt block teammates and whatnot"
+        code, lines = guard.check(RULES, "main", [], ["web/app/api/vm/route.ts"], author="austinywang",
+                                  author_type="User")
+        self.assertEqual(code, 0, lines)
+        self.assertIn("austinywang's own pull request", lines[0])
+        self.assertFalse(any(line.startswith("::error::") for line in lines), lines)
+        code, _ = guard.check(RULES, "main", [], ["README.md"], 3001, 3000, author="austinywang", author_type="User")
+        self.assertEqual(code, 0)
+
+    def test_agents_and_unknown_authors_still_need_the_label(self) -> None:
+        for author, kind in (("teamleaderleo", "User"), ("cmux-agent[bot]", "Bot"), ("x[bot]", "User"),
+                             ("austinywang", None), (None, None)):
+            code, _ = guard.check(RULES, "main", [], ["web/app/api/vm/route.ts"], author=author, author_type=kind)
+            self.assertEqual(code, 1, (author, kind))
+
     def test_next_devbox_image_and_docs_stay_open_on_next(self) -> None:
         paths = [
             "web/services/vms/images/devbox/setup.sh",

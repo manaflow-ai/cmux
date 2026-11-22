@@ -1,8 +1,11 @@
 // What a pane does while nobody touches it (`debug.agent_pane idle_probe`, bench_power.py idle-chats).
 // For `ms` it counts, by call site, every animation frame, timeout and interval the page asks for,
-// every DOM mutation by target, the running animations, and Chromium's long animation frames with
+// every DOM mutation by target (and attribute), every host push by method, every request the page
+// posts to the app by method, the running animations, and Chromium's long animation frames with
 // their script attribution. The wrappers are put back when the window ends, so the page pays
 // nothing for this outside the probe. A measurement tool: no product code reads it.
+
+import { peekNativePosts } from "./native";
 
 export type IdleProbeOptions = { ms?: number };
 
@@ -40,6 +43,30 @@ function describe(node: Node | null): string {
   return `${element.tagName.toLowerCase()}${classes ? `.${classes}` : ""}`;
 }
 
+/** A host push frame's key: its JSON-RPC method (and a session update's kind), or "reply". */
+export function pushKey(frame: string): string {
+  try {
+    const message = JSON.parse(frame) as { method?: unknown; params?: { update?: { sessionUpdate?: unknown } } } | null;
+    if (typeof message?.method !== "string") return "reply";
+    const kind = message.params?.update?.sessionUpdate;
+    return typeof kind === "string" ? `${message.method} ${kind}` : message.method;
+  } catch {
+    return "?";
+  }
+}
+
+/** Posts made between two `peekNativePosts` counts, by method. */
+export function postsBetween(before: Record<string, number>, after: Record<string, number>): Map<string, Site> {
+  const out = new Map<string, Site>();
+  for (const [method, count] of Object.entries(after)) {
+    const added = count - (before[method] ?? 0);
+    if (added > 0) out.set(method, { count: added, sample: "" });
+  }
+  return out;
+}
+
+type Transport = { receive(event: { frames?: string[] }): void };
+
 function top(map: Map<string, Site>, limit = 12) {
   return [...map.entries()]
     .sort((a, b) => b[1].count - a[1].count)
@@ -66,6 +93,8 @@ async function probe(options: IdleProbeOptions): Promise<Record<string, unknown>
   const timeouts = new Map<string, Site>();
   const intervals = new Map<string, Site>();
   const mutations = new Map<string, Site>();
+  const pushes = new Map<string, Site>();
+  const postsBefore = peekNativePosts();
   const loafs: Record<string, unknown>[] = [];
   const note = (map: Map<string, Site>, key: string, sample: () => string) => {
     const site = map.get(key);
@@ -91,9 +120,21 @@ async function probe(options: IdleProbeOptions): Promise<Record<string, unknown>
     return Reflect.apply(original.interval, window, [handler, timeout, ...rest]) as number;
   } as typeof window.setInterval;
   const observer = new MutationObserver((records) => {
-    for (const record of records) note(mutations, `${record.type} ${describe(record.target)}`, () => "");
+    for (const record of records)
+      note(
+        mutations,
+        `${record.type} ${describe(record.target)}${record.attributeName ? ` [${record.attributeName}]` : ""}`,
+        () => "",
+      );
   });
   observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+  const transport = (window as { cmuxAcpmuxTransport?: Transport }).cmuxAcpmuxTransport;
+  const receive = transport?.receive;
+  if (transport && receive)
+    transport.receive = (event) => {
+      for (const frame of event?.frames ?? []) note(pushes, pushKey(frame), () => "");
+      receive.call(transport, event);
+    };
   let loafObserver: PerformanceObserver | undefined;
   try {
     loafObserver = new PerformanceObserver((list) => {
@@ -133,6 +174,7 @@ async function probe(options: IdleProbeOptions): Promise<Record<string, unknown>
     window.setTimeout = original.timeout;
     window.setInterval = original.interval;
     observer.disconnect();
+    if (transport && receive) transport.receive = receive;
     loafObserver?.disconnect();
   }
   const seconds = (performance.now() - started) / 1000;
@@ -151,6 +193,7 @@ async function probe(options: IdleProbeOptions): Promise<Record<string, unknown>
         visible: effect?.target ? ((effect.target as Element).checkVisibility?.() ?? null) : null,
       };
     });
+  const posts = postsBetween(postsBefore, peekNativePosts());
   const sum = (map: Map<string, Site>) => [...map.values()].reduce((total, site) => total + site.count, 0);
   return {
     seconds: Math.round(seconds * 10) / 10,
@@ -161,11 +204,15 @@ async function probe(options: IdleProbeOptions): Promise<Record<string, unknown>
       timeouts: Math.round((sum(timeouts) / seconds) * 10) / 10,
       intervals: Math.round((sum(intervals) / seconds) * 10) / 10,
       mutations: Math.round((sum(mutations) / seconds) * 10) / 10,
+      pushes: Math.round((sum(pushes) / seconds) * 10) / 10,
+      posts: Math.round((sum(posts) / seconds) * 10) / 10,
     },
     frames: top(frames),
     timeouts: top(timeouts),
     intervals: top(intervals),
     mutations: top(mutations),
+    pushes: top(pushes),
+    posts: top(posts),
     animations: animations.slice(0, 20),
     animation_count: animations.length,
     long_frames: loafs,
