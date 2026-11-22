@@ -62,7 +62,8 @@ public nonisolated struct TypeScale: Sendable {
 /// The scene DSL's type (RFD 0009): every name a scene node's `font` may take, a cmux type role or an
 /// Apple text style, at one size and weight. The web scene renderer reads the same table
 /// (schemas/type-scale/scene-type.json), so both draw a name alike.
-public nonisolated enum SceneType {
+public nonisolated struct SceneType {
+    public nonisolated init() {}
     /// One name's size in points at the default text size, and its weight.
     public struct Style: Sendable, Equatable {
         public let size: CGFloat
