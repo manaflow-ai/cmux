@@ -1217,10 +1217,11 @@ SUITES = {
     "cmux-next tip Swift suite · ": frozenset({"cmux-next swift test"}),
     "cmux-next tip daemon suite · ": frozenset({"cmux-next daemon tests"}),
     # cmux-next.yml base_tier: path routing's base_tier branch routes these, and nothing else. Its generated
-    # files are checked on the generated-files job itself (path routing's generated_host), never folded.
+    # files are checked on the generated-files job itself (path routing's generated_host), never folded. Since
+    # 2026-11-22 it also carries the checks job, which a feat-cmux-next push no longer runs (workflow note-26).
     "cmux-next base tier · ": frozenset({
         "cmux-next daemon tests", "cmux-next generated files", "cmux app scheme compile (Debug)",
-        "cmux-next crash ends the app",
+        "cmux-next crash ends the app", "cmux-next checks (god files, concurrency, crash safety, l10n)",
     }),
     # cmux-next.yml dispatches that route neither swift-test nor daemon-test (path routing's dev_daily branch).
     "cmux NEXT DEV daily": frozenset(),
@@ -1278,7 +1279,10 @@ SUITE_JOBS = frozenset().union(*SUITES.values())
 # read only when its check suite shows a verdict for the job (or cannot be read), and one with none is passed
 # over without spending a job-list read (cancelled_tier_without_verdict). For every other job it has none.
 BASE_TIER_TITLE = "cmux-next base tier · "
-CANCELLED_TIER_VERDICT_JOBS = frozenset({"cmux-next daemon tests", "cmux-next generated files"})
+# The checks job is a Linux job too, so a cancel that waited only on the Mac jobs can leave its verdict behind.
+CANCELLED_TIER_VERDICT_JOBS = frozenset({
+    "cmux-next daemon tests", "cmux-next generated files", "cmux-next checks (god files, concurrency, crash safety, l10n)",
+})
 
 
 def cancelled_base_tier(run: dict) -> bool:
