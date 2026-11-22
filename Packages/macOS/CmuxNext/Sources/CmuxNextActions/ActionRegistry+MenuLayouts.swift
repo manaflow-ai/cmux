@@ -52,7 +52,7 @@ extension ActionRegistry {
     }
 
     static var customizeMenuTitle: String {
-        String(localized: "menu.customize", defaultValue: "Customize Menu…", bundle: .module)
+        String(localized: "menu.customize", defaultValue: "Customize Menu…", bundle: .localizedModule)
     }
 }
 

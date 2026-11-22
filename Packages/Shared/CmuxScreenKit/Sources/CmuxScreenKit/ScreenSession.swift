@@ -84,6 +84,12 @@ public final class ScreenSession {
         didSet { if stream !== oldValue { abandonPendingPaste() } }
     }
     @ObservationIgnored public var onVideoTrack: ((VideoTrackBox) -> Void)?
+    #if DEBUG && canImport(UIKit)
+    /// DEBUG only: the screen-stream eval's probe. The viewer has it watch the video view it makes
+    /// (`ScreenPresentProbe.watch`), and each video track gets it after `onVideoTrack` ran, so its
+    /// frame callback follows the view's renderer. Set before the view appears.
+    @ObservationIgnored public var debugVideoProbe: ScreenPresentProbe?
+    #endif
     /// Stream displays (sizes) and the one streaming.
     @ObservationIgnored public var onStreamDisplays: (([CGSize], Int) -> Void)?
     /// A screen stream's pointers, as fractions of the streamed display:
@@ -123,6 +129,15 @@ public final class ScreenSession {
     }
 
     public private(set) var imagePaste = ImagePaste.idle
+
+    /// What the stream's Mac says its screen shows: live, or black because it
+    /// is locked or its display asleep (``ScreenSourceState``). Live for an
+    /// older Mac that never says, and again on each connect.
+    public private(set) var sourceState = ScreenSourceState.live
+    /// The Mac's source state, from the running stream's viewer (a demo may set it too).
+    public func receiveSourceState(_ state: ScreenSourceState) {
+        if sourceState != state { sourceState = state }
+    }
     /// The image ``imagePaste`` is about (another image's answer never settles it).
     @ObservationIgnored private var imagePasteID: String?
 
@@ -370,6 +385,13 @@ public final class ScreenSession {
         isStalled = false
         stats.targetFps = nil
         hostCapabilities = []
+        receiveSourceState(.live)
+        viewer.onSourceState = { [weak self, weak viewer] state in
+            Task { @MainActor in
+                guard let self, self.stream === viewer else { return }
+                self.receiveSourceState(state)
+            }
+        }
         viewer.onCapabilities = { [weak self, weak viewer] capabilities in
             Task { @MainActor in
                 guard let self, self.stream === viewer else { return }
@@ -390,7 +412,16 @@ public final class ScreenSession {
             guard error.isTURN else { return }
             Task { @MainActor in self?.relayErrors.append(error) }
         }
-        viewer.onVideo = { [weak self] box in Task { @MainActor in self?.onVideoTrack?(box) } }
+        viewer.onVideo = { [weak self] box in
+            Task { @MainActor in
+                self?.onVideoTrack?(box)
+                #if DEBUG && canImport(UIKit)
+                // After the view's own sinks: libwebrtc calls a track's sinks in order, so the
+                // probe sees each frame after the renderer took it.
+                self?.debugVideoProbe?.attach(box)
+                #endif
+            }
+        }
         viewer.onDisplays = { [weak self, weak viewer] message in
             Task { @MainActor in
                 guard let self, self.stream === viewer else { return }

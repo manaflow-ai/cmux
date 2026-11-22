@@ -859,7 +859,7 @@ pub struct ChildAgent {
     pub given_servers: std::sync::Mutex<Option<Value>>,
     /// The MCP servers its harness's configs named as it started (`LaunchServers::read`, before
     /// it started), for the idle census. None for a harness another daemon started.
-    pub(crate) launch: std::sync::Mutex<Option<crate::hub::LaunchServers>>,
+    pub(crate) launch: std::sync::Mutex<Option<crate::sidecar_census::LaunchServers>>,
     /// Set once the agent is replaced or stopped (`retire`): a /context answer it still sends
     /// is not the chat's context any more, and is neither logged nor handed to the hub. A lock,
     /// not a flag: the reader holds it while it checks and logs such an answer (`tap_live`), so a
@@ -870,7 +870,7 @@ pub struct ChildAgent {
     ended_on_purpose: std::sync::atomic::AtomicBool,
     /// The question preview format its command was pinned to, for a direct
     /// start (a host's is recorded where the host starts, `hub/hosts.rs`).
-    pub preview_format: Option<crate::hub::questions::PreviewFormat>,
+    pub preview_format: Option<crate::questions::PreviewFormat>,
     /// The CPU class its harness runs at once its session's start is over (`cpu_class.rs`), set
     /// by the start that spawned it; unset for a harness another daemon started.
     run_class: std::sync::OnceLock<crate::cpu_class::CpuClass>,
@@ -909,8 +909,8 @@ struct Spawned {
     stdin: Box<dyn tokio::io::AsyncWrite + Unpin + Send>,
     stdout: Box<dyn tokio::io::AsyncRead + Unpin + Send>,
     stderr: Box<dyn tokio::io::AsyncRead + Unpin + Send>,
-    launch: Option<crate::hub::LaunchServers>,
-    preview_format: Option<crate::hub::questions::PreviewFormat>,
+    launch: Option<crate::sidecar_census::LaunchServers>,
+    preview_format: Option<crate::questions::PreviewFormat>,
     run_class: std::sync::OnceLock<crate::cpu_class::CpuClass>,
     #[cfg(windows)]
     job: Option<crate::job::Job>,
@@ -929,7 +929,7 @@ impl Spawned {
     ) -> Result<Self> {
         let mut cmd = harness_command_ready(name, profile, cwd, command_line, session).await?;
         // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
-        let launch = crate::hub::LaunchServers::read(
+        let launch = crate::sidecar_census::LaunchServers::read(
             &Launch::of(&cmd, cwd),
             crate::config::derive_family(name, profile),
             profile.kind,
@@ -1308,7 +1308,7 @@ impl ChildAgent {
                             }
                         };
                         if let Some(kind) = crate::codex_app_server::tap_kind(&raw) {
-                            let safe = crate::codex_app_server::redact(&raw);
+                            let safe = crate::codex_app_server::logged(&raw);
                             tap(Direction::In, &Message::notification(&kind, safe), None);
                         }
                         let order = cx.order.lock().await;
@@ -2112,6 +2112,14 @@ impl ChildAgent {
         }
     }
 
+    /// Whether Claude Code's translator runs this agent, known without asking its host: a direct
+    /// child's own, or one its host's record says it runs (`HostRecord::claude_translator`).
+    /// False for a host of an older build, which never says.
+    pub fn runs_claude_translator(&self) -> bool {
+        self.translator.is_some()
+            || self.hosted.as_ref().is_some_and(|h| h.link().record.claude_translator)
+    }
+
     /// The Claude translator's state, wherever the translator runs.
     pub async fn claude_state(&self) -> Option<ClaudeState> {
         if let Some(tr) = &self.translator {
@@ -2196,6 +2204,15 @@ impl ChildAgent {
     /// The host record when this agent runs under a host.
     pub fn host_record(&self) -> Option<crate::agent_host::HostRecord> {
         self.hosted.as_ref().map(|h| h.link().record.clone())
+    }
+
+    /// Whether this agent runs under a host whose record says a level below `level`
+    /// (`HostRecord::host_level`) on another build than this one's (`hub/host_level.rs`).
+    pub fn host_below(&self, level: u32) -> bool {
+        self.hosted.as_ref().is_some_and(|h| {
+            let link = h.link();
+            link.record.host_level < level && link.record.host_build != crate::build_info::build()
+        })
     }
 
     /// The build its host runs (`HostRecord::host_build`), when this agent runs under a host.

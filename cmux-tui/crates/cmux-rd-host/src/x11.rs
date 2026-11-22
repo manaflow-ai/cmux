@@ -99,7 +99,7 @@ impl FrameSource for X11Frames {
                 r.y as usize,
                 r.w as usize,
                 r.h as usize,
-                2,
+                cmux_encode::convert_threads(),
             );
         }
         Ok(())
@@ -119,5 +119,9 @@ impl FrameSource for X11Frames {
 
     fn encoder_name(&self) -> String {
         self.enc.name()
+    }
+
+    fn idr_cause(&self) -> Option<&'static str> {
+        self.enc.idr_cause()
     }
 }

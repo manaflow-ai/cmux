@@ -6,8 +6,6 @@ extension PageInfoPages {
 
     func cookiesPage() -> NSView {
         var views: [NSView] = [header(PageInfoStrings.cookiesHeader, subtitle: model.site.displayName, back: true)]
-        views.append(padded(PageInfoStyle.label(PageInfoStrings.cookiesDescription, font: PageInfoStyle.captionFont,
-                                                color: PageInfoStyle.secondaryText, wraps: true)))
         guard let data = model.siteData else {
             views.append(PageInfoRowView(symbol: nil, title: PageInfoStrings.loading, interactive: false))
             return stack(views)
@@ -17,8 +15,10 @@ extension PageInfoPages {
                                          subtitle: PageInfoStrings.thirdPartyBlocked, interactive: false))
         }
         let counts = [PageInfoStrings.cookieCount(data.firstPartyCookies), PageInfoStrings.siteCount(data.siteCount)]
+        // A failed delete says so in the counts' place: counts read after it would look like the data were gone.
+        let result = model.siteDataDeleteFailure.map { PageInfoStrings.deleteSiteDataFailed($0.reason) } ?? counts.joined(separator: " · ")
         let manage = PageInfoRowView(symbol: "tray.full", title: PageInfoStrings.manageSiteData,
-                                     subtitle: counts.joined(separator: " · "), accessory: .externalLink,
+                                     subtitle: result, accessory: .externalLink,
                                      identifier: "pageInfo.manageSiteData")
         manage.onActivate = { send(.manageSiteData) }
         views.append(manage)

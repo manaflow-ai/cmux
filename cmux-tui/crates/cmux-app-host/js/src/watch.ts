@@ -116,7 +116,13 @@ function share(prev: unknown, next: unknown): unknown {
 
 const asError = (e: unknown) => (e instanceof CmuxError ? e : new CmuxError("operation.failed", e instanceof Error ? e.message : String(e)))
 
-function lookup(name: string, params: unknown): { def: SignalDef; params: Record<string, unknown> } {
+/**
+ * A source whose params declare `everySeconds` (http.json) takes the reader's pace from its params:
+ * it says how often this reader wants a re-read, not what is read, so it is not part of the entry.
+ */
+const pacedByParams = (def: SignalDef) => (def.params as { properties?: Record<string, unknown> }).properties?.everySeconds !== undefined
+
+function lookup(name: string, params: unknown): { def: SignalDef; params: Record<string, unknown>; pace?: number } {
   const def = typeof name === "string" ? SIGNALS[name] : undefined
   if (!def) throw new CmuxError("signal.unknown", `no signal source named ${String(name)}; sources: ${Object.keys(SIGNALS).sort().join(", ")}`, { signal: name })
   const p = (params ?? {}) as Record<string, unknown>
@@ -124,6 +130,10 @@ function lookup(name: string, params: unknown): { def: SignalDef; params: Record
   if (!v) validators.set(name, (v = new SchemaValidator(def.params)))
   const errors = v.validate(p)
   if (errors.length) throw new CmuxError("signal.params", `${name}: ${errors.map((e) => `${e.path || "params"} ${e.message}`).join("; ")}`, { signal: name, errors })
+  if (pacedByParams(def) && typeof p.everySeconds === "number") {
+    const { everySeconds, ...read } = p
+    return { def, params: JSON.parse(canonical(read)) as Record<string, unknown>, pace: everySeconds as number }
+  }
   return { def, params: JSON.parse(canonical(p)) as Record<string, unknown> }
 }
 
@@ -211,7 +221,8 @@ function schedule(e: Entry, ms: number) {
 function next(e: Entry, error: CmuxError | null) {
   if (!active(e)) return
   if (error) {
-    if (FINAL.has(error.code)) return schedule(e, -1)
+    // An upstream answer its reader marks not retryable (a 404, a 401) stays until a refresh or a remount.
+    if (FINAL.has(error.code) || (error.code === "upstream.failed" && !error.retryable)) return schedule(e, -1)
     const floor = e.def.pollFloorSeconds * 1000
     return schedule(e, Math.min(MAX_BACKOFF_MS, floor * 2 ** Math.min(e.failures - 1, 20)))
   }
@@ -380,10 +391,13 @@ function join(e: Entry, id: number, everySeconds: number | undefined): () => voi
  * a missing scope is the watch's error.
  */
 export function watch<T = unknown>(name: string, params?: unknown, options: { everySeconds?: number } = {}): Watch<T> {
-  const every = typeof options.everySeconds === "number" ? options.everySeconds : undefined
+  const option = typeof options.everySeconds === "number" ? options.everySeconds : undefined
+  // The reader's pace: the option, else everySeconds in the params of a source paced by them.
+  let every = option
   const id = nextReader++
   const resolve = (p: unknown) => {
     const found = lookup(name, p)
+    every = option ?? found.pace
     return entryFor(name, found.def, found.params)
   }
   const [current, setCurrent] = signal<Entry>(resolve(typeof params === "function" ? untrack(params as () => unknown) : params))
@@ -411,7 +425,14 @@ export function watch<T = unknown>(name: string, params?: unknown, options: { ev
           log("error", `watch ${name}: ${asError(err).message}`)
           return
         }
-        if (e === current.peek()) return
+        if (e === current.peek()) {
+          // Only the pace in the params changed (http.json's everySeconds): same entry, new pace.
+          if (e.readers.get(id) !== every && e.readers.has(id)) {
+            e.readers.set(id, every)
+            if (readerPaced(e) && e.timer !== null && !e.inFlight && e.failures === 0) schedule(e, pollMs(e))
+          }
+          return
+        }
         const old = release
         release = join(e, id, every)
         setCurrent(e)

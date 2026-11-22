@@ -343,6 +343,21 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object computerUseApprovals(ComputerUseApprovalsRequest request) throws CmuxException {
+        Object result = execute(Commands.COMPUTER_USE_APPROVALS, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object computerUseConfig(ComputerUseConfigRequest request) throws CmuxException {
+        Object result = execute(Commands.COMPUTER_USE_CONFIG, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object computerUseEndpoint() throws CmuxException {
+        Object result = execute(Commands.COMPUTER_USE_ENDPOINT, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final ConversationAgentTokenResult conversationAgentToken(ConversationAgentTokenRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_AGENT_TOKEN, request.toWire());
         return ConversationAgentTokenResult.fromWire(result);
@@ -558,6 +573,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final Object deviceSetup(DeviceSetupRequest request) throws CmuxException {
+        Object result = execute(Commands.DEVICE_SETUP, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final ExportLayoutResult exportLayout(ExportLayoutRequest request) throws CmuxException {
         Object result = execute(Commands.EXPORT_LAYOUT, request.toWire());
         return ExportLayoutResult.fromWire(result);
@@ -585,6 +605,11 @@ public abstract class GeneratedCmuxClient {
 
     public final Object feedLocalRead(FeedLocalReadRequest request) throws CmuxException {
         Object result = execute(Commands.FEED_LOCAL_READ, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object floatPane(FloatPaneRequest request) throws CmuxException {
+        Object result = execute(Commands.FLOAT_PANE, request.toWire());
         return Wire.immutableJson(result);
     }
 
@@ -978,6 +1003,11 @@ public abstract class GeneratedCmuxClient {
 
     public final Object putSession(PutSessionRequest request) throws CmuxException {
         Object result = execute(Commands.PUT_SESSION, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object quickTerminal(QuickTerminalRequest request) throws CmuxException {
+        Object result = execute(Commands.QUICK_TERMINAL, request.toWire());
         return Wire.immutableJson(result);
     }
 
