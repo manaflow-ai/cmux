@@ -15,6 +15,9 @@ final class BrowserPictureView: NSImageView {
     private var decoding: Task<Void, Never>?
     /// The decoded pixels the view shows now; nil while it is not in a window or still decoding.
     private(set) var decodedPicture: CGImage?
+    /// Called each time the view, in a window, got its decoded pixels (they draw in the next frame):
+    /// a hibernated tab's wake is timed to it (`HibernationWakes` `picture_ms`).
+    var onShown: (@MainActor () -> Void)?
 
     init(picture: @escaping @MainActor () -> CGImage?) {
         self.picture = picture
@@ -48,6 +51,7 @@ final class BrowserPictureView: NSImageView {
             let decoded = await Task.detached(priority: .userInitiated) { Self.decoded(picture) }.value
             guard let self, !Task.isCancelled else { return }
             show(decoded)
+            onShown?()
         }
     }
 
