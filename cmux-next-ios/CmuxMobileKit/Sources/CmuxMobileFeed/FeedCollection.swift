@@ -543,8 +543,9 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private(set) var newCellsBeforeSpare = 0
     /// The spare once a row took it (tests: it shows that row, whatever row it was built with).
     private(set) weak var spareGiven: FeedRowCell?
-    /// The parked spare (tests: hidden from accessibility, off screen).
+    /// The parked spare and its holder (tests: hidden from accessibility, off screen, not in the table).
     var parkedSpare: FeedRowCell? { spare }
+    var parkedHolder: UIView? { parkHolder }
     /// How long the list must have been still before the spare is built (one idle build).
     static let spareStillness: CFTimeInterval = 0.5
 
@@ -554,12 +555,27 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         return FeedRowCell(style: .default, reuseIdentifier: FeedRowCell.reuseID)
     }
 
+    /// The off-screen holder the spare waits in (hidden from accessibility and touches).
+    private var parkHolder: UIView?
+
+    private func sparePark(beside view: UIView) -> UIView {
+        if let parkHolder, parkHolder.superview != nil { return parkHolder }
+        let holder = UIView()
+        holder.isUserInteractionEnabled = false
+        holder.accessibilityElementsHidden = true
+        holder.isAccessibilityElement = false
+        holder.clipsToBounds = false
+        (view.superview ?? view).addSubview(holder)
+        parkHolder = holder
+        return holder
+    }
+
     private func takeSpare() -> FeedRowCell? {
         guard let cell = spare else { return nil }
         spare = nil
         cell.removeFromSuperview()
-        cell.accessibilityElementsHidden = false
-        cell.isUserInteractionEnabled = true
+        parkHolder?.removeFromSuperview()
+        parkHolder = nil
         cell.prepareForReuse()
         sparesTaken += 1
         spareGiven = cell
@@ -613,12 +629,15 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         #endif
         let cell = FeedRowCell(style: .default, reuseIdentifier: FeedRowCell.reuseID)
         cell.delegate = self
-        // Off screen, in the table: drawn at the next commit like any row, never seen or read.
-        cell.frame = CGRect(x: 0, y: -layout.height - 4000, width: CGFloat(layout.key.width), height: layout.height)
-        cell.isUserInteractionEnabled = false
-        cell.accessibilityElementsHidden = true
+        cell.frame = CGRect(x: 0, y: 0, width: CGFloat(layout.key.width), height: layout.height)
         cell.apply(layout, item: items[layout.key.item.id], settled: false)
-        view.addSubview(cell)
+        // Parked beside the table, not in it (a table lays its own subviews out as rows, and they
+        // stay accessibility elements: FeedParkedSpareUITests saw one at y 1419): in a holder off
+        // the window's bounds, hidden from accessibility and touches, its layers drawn at the next
+        // commit as any view in the window.
+        let holder = sparePark(beside: view)
+        holder.frame = CGRect(x: -CGFloat(layout.key.width) - 1000, y: 0, width: CGFloat(layout.key.width), height: layout.height)
+        holder.addSubview(cell)
         cell.layoutIfNeeded()
         spare = cell
         sparesMade += 1

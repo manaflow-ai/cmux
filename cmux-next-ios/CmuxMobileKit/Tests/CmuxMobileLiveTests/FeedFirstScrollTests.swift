@@ -55,7 +55,9 @@ import UIKit
         #expect(controller.sparesTaken == 1, "the scroll did not take the spare")
         #expect(controller.newCellsBeforeSpare == 0, "the scroll made \(controller.newCellsBeforeSpare) new cells before taking the spare")
         #expect(controller.sparesMade == 1, "a spare was built during the scroll")
-        /// The spare is filled with the heaviest row (a permission card) but the first row that needs
+    }
+
+    /// The spare is filled with the heaviest row (a permission card) but the first row that needs
     /// a cell is an answer: the spare shows that answer, with no command block left from the card,
     /// and while it was parked it was nowhere in the Feed's accessibility.
     @Test func theSpareShowsTheRowThatTakesItNotTheOneItWasBuiltWith() throws {
@@ -83,10 +85,14 @@ import UIKit
         for _ in 0..<40 where controller.sparesMade == 0 { settle() }
         let parked = try #require(controller.parkedSpare, "no spare was built")
         #expect(parked.showsCommandBlock, "the spare was not built with the permission card")
-        // Parked: off screen, and nothing VoiceOver or a UI test reads.
-        #expect(parked.accessibilityElementsHidden)
+        // Parked: not in the table, off the window, and nothing VoiceOver or a UI test reads.
+        let holder = try #require(controller.parkedHolder, "the spare has no holder")
+        #expect(parked.superview === holder)
+        #expect(!parked.isDescendant(of: feed), "the parked spare is in the table")
+        #expect(holder.accessibilityElementsHidden)
+        #expect(!holder.isUserInteractionEnabled)
+        #expect(!holder.convert(holder.bounds, to: window).intersects(window.bounds), "the parked spare is on screen")
         #expect(!feed.visibleCells.contains { $0 === parked }, "the parked spare counts as a visible row")
-        #expect(!parked.frame.intersects(feed.bounds), "the parked spare is on screen")
         for _ in 0..<60 {
             feed.contentOffset.y += 20
             feed.layoutIfNeeded()
@@ -96,7 +102,7 @@ import UIKit
         let id = given.accessibilityIdentifier ?? ""
         #expect(id.hasPrefix("feed.row.a"), "the spare shows \(id), not the answer that took it")
         #expect(!given.showsCommandBlock, "the answer that took the spare shows the card's command block")
-        #expect(!given.accessibilityElementsHidden, "the spare stayed hidden from accessibility in the list")
+        #expect(given.isDescendant(of: feed), "the spare is not in the table")
         // Every row on screen shows its own event.
         for cell in feed.visibleCells.compactMap({ $0 as? FeedRowCell }) {
             let rowID = String((cell.accessibilityIdentifier ?? "").dropFirst("feed.row.".count))
@@ -106,3 +112,4 @@ import UIKit
         }
     }
 }
+#endif
