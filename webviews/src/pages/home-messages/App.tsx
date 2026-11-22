@@ -28,6 +28,7 @@ import { ConversationList, DRAFT_ROW } from "./list/ConversationList";
 import { clampWidth, COMPACT_BELOW, HEADER, WIDTH } from "./list/layout";
 import { holdsOneConversation, listModel } from "./list/model";
 import type { HostMenuItem, MessagesChrome, MessagesDetail, MessagesHost } from "./types";
+import { RESIZE_HANDLE_PROPS } from "../../scrollers";
 
 export interface MessagesAppProps {
   store: HomeChannelsStore;
@@ -212,6 +213,7 @@ export function MessagesApp({ store, strings, host, messages, detail, onCompose,
           <div
             // The divider is a pointer affordance only, as the native split's: no accessibility element.
             className="hm-divider"
+            {...RESIZE_HANDLE_PROPS}
             aria-hidden="true"
             onPointerDown={onDividerDown}
           />

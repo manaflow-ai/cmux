@@ -1,7 +1,8 @@
 // cmux-web-test-timeout: 900
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // The transcript's scrollbar thumb while the reader scrolls up a long chat whose older pages load in,
-// then reaches for the thumb and lets it go (Leo, 2026-11-20, in his NIGHTLY: "you know, when i scroll
+// then reaches for the shown thumb and lets it go, then hovers its bar at rest (no thumb: hover alone
+// never shows one, Leo 2026-11-22) (Leo, 2026-11-20, in his NIGHTLY: "you know, when i scroll
 // up, the infinite scroll for some reason actually seems to be kinda good? ... the thumb needs to look
 // better when i do stuff"). Every painted frame is read, and the run fails when the thumb:
 //
@@ -183,16 +184,21 @@ await requireBrowserLane("transcript-thumb-look.test.ts", async () => {
             // fixed-wait: the gap between wheel events is the input itself, a trackpad's cadence.
             await page.waitForTimeout(16);
           }
-          // At rest: the thumb fades out.
-          await phase(`rest-${round}`);
-          await settled(false);
-          // Reaching for the thumb: it fades in wide, then out as the pointer leaves.
+          // Reaching for the thumb while it shows from the scroll: it widens, and holds once the
+          // scroll stops while the pointer stays on its bar; then out as the pointer leaves.
           await phase(`near-${round}`);
           await page.mouse.move(view.x + view.width - 4, middle.y, { steps: 6 });
           await settled(true);
           await phase(`leave-${round}`);
           await page.mouse.move(middle.x, middle.y, { steps: 6 });
           await settled(false);
+          // At rest, the pointer on the bar alone shows nothing (Leo 2026-11-22: "hovering only
+          // doesnt show").
+          await phase(`rest-${round}`);
+          await page.mouse.move(view.x + view.width - 4, middle.y, { steps: 6 });
+          for (let frame = 0; frame < 6; frame++) await page.evaluate(() => new Promise(requestAnimationFrame));
+          await settled(false);
+          await page.mouse.move(middle.x, middle.y, { steps: 6 });
         }
         if (cast) await cast.send("Page.stopScreencast").catch(() => {});
         const { frames, phases } = await page.evaluate(
