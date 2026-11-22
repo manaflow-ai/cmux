@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 662,
+  "count": 668,
   "sections": [
     {
       "id": "general",
@@ -106,6 +106,14 @@
             "never",
             "always"
           ]
+        },
+        {
+          "key": "agentPane.links.openCitationsInEditor",
+          "title": "Open File Citations in Text Editor",
+          "help": "Open local chat links that name a line in your chosen text editor.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.links.outsideRoots",
@@ -1385,6 +1393,18 @@
           "group": "cmux Remote"
         },
         {
+          "key": "remote.screenSharingProfile",
+          "title": "Screen Sharing Profile",
+          "help": "Ultra spends the link on a fast direct connection when viewing another Mac: up to 120 fps, up to 150 Mbps, near-lossless text. Balanced is the default. Not Ultra Connection Mode, which repairs a lossy network.",
+          "kind": "choice",
+          "default": "balanced",
+          "group": "cmux Remote",
+          "values": [
+            "balanced",
+            "ultra"
+          ]
+        },
+        {
           "key": "remote.ultra",
           "title": "Ultra Connection Mode",
           "help": "Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data.",
@@ -2163,6 +2183,33 @@
           "kind": "toggle",
           "default": true,
           "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.display.rail.control",
+          "title": "Prompt Rail Button",
+          "help": "Shows what the rail lists above it while you point at it.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.display.rail.show",
+          "title": "Prompt Rail Shows",
+          "help": "Right-click the rail to change it.",
+          "kind": "choice",
+          "default": "prompts",
+          "group": "Agent Chat",
+          "values": [
+            "prompts",
+            "mine",
+            "received",
+            "replies",
+            "everything",
+            "errors",
+            "edits",
+            "tools",
+            "subagents"
+          ]
         },
         {
           "key": "agentPane.display.rail.side",
@@ -3130,6 +3177,18 @@
             "max": 2,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "appearance.selection",
+          "title": "Selection",
+          "help": "Accent tints the selected row and tab with the accent. Neutral keeps them gray.",
+          "kind": "choice",
+          "default": "accent",
+          "group": "App Theme",
+          "values": [
+            "accent",
+            "neutral"
+          ]
         },
         {
           "key": "appearance.sidebarSurface",
@@ -7154,6 +7213,14 @@
           "key": "experiments.agentBadgesBeam",
           "title": "Agent Badges: Running Beam",
           "help": "With Agent Badges on, a thin light travels along a sidebar row's edge while its agent runs.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
+          "key": "experiments.chatWidgets",
+          "title": "Extension Chat Widgets",
+          "help": "Installed extensions can show a card under a finished tool call in agent chat.",
           "kind": "toggle",
           "default": false,
           "group": "Experiments"
