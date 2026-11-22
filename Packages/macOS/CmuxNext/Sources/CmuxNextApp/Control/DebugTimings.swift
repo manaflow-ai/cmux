@@ -1,6 +1,5 @@
 import AppKit
 import class CmuxNextAgentPane.AgentPaneLaunchTimings
-import class CmuxNextBrowser.CEFLaunchMarks
 import CmuxNextDesign
 import CmuxNextPalette
 import CmuxNextSettings
@@ -69,7 +68,8 @@ enum DebugTimings {
     }
 
     static func install() {
-        for install in [DaemonLaunchTimings.shared.install, AgentPaneLaunchTimings.shared.install, CEFLaunchMarks.shared.install] as [@MainActor (@escaping @Sendable (String, Date) -> Void) -> Void] { install { markLaunch($0, at: $1) } }
+        DaemonLaunchTimings.shared.install { markLaunch($0, at: $1) }
+        AgentPaneLaunchTimings.shared.install { markLaunch($0, at: $1) }
         TerminalTimings.onSurfaceCreated = { duration in
             let ms = milliseconds(duration)
             if surfaces.count < capacity { surfaces.append(ms) }
