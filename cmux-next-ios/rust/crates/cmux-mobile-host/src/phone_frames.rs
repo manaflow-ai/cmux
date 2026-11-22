@@ -174,7 +174,7 @@ pub fn percentile(sorted: &[f64], p: f64) -> f64 {
 }
 
 /// A name from the phone, safe for a log line: control characters become spaces, at most 64.
-fn label(text: &str) -> String {
+pub(crate) fn label(text: &str) -> String {
     text.chars().map(|c| if c.is_control() { ' ' } else { c }).take(64).collect::<String>().trim().to_owned()
 }
 
@@ -212,14 +212,49 @@ pub fn record(line: &[u8], phone: &str, path: &Path) -> Result<Summary, Invalid>
     Ok(summary)
 }
 
+/// Clock probes one `phone-frames` channel answers (the phone sends a handful per report).
+pub const MAX_CLOCK_PROBES: usize = 32;
+
+pub use crate::paint_latency::Line;
+
+/// Records one paint report from `phone`, joined with hostd's stamps, to `path`.
+pub fn record_paint(line: &[u8], phone: &str, path: &Path) -> Result<crate::paint_latency::Summary, Invalid> {
+    let mut report: crate::paint_latency::Report = serde_json::from_slice(line).map_err(|_| Invalid::Json)?;
+    report.samples.truncate(crate::paint_latency::MAX_SAMPLES);
+    let summary = crate::paint_latency::summarize(
+        report,
+        phone,
+        crate::activity::now_ms(),
+        crate::paint_latency::lookup,
+    );
+    let part = |p: &Option<crate::paint_latency::Part>| p.map(|p| format!("{}/{}", p.p50_ms, p.p95_ms));
+    tracing::info!(
+        phone,
+        samples = summary.samples,
+        joined = summary.joined,
+        offset_ms = summary.offset_ms,
+        mac_p50_p95 = part(&summary.mac).as_deref().unwrap_or("-"),
+        wire_p50_p95 = part(&summary.wire).as_deref().unwrap_or("-"),
+        phone_p50_p95 = part(&summary.phone_paint).as_deref().unwrap_or("-"),
+        total_p50_p95 = part(&summary.total).as_deref().unwrap_or("-"),
+        "phone paint"
+    );
+    let _guard = WRITE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Err(error) = crate::activity::append(path, &summary, ROTATE_AT) {
+        tracing::warn!(path = %path.display(), %error, "could not write phone paint");
+    }
+    Ok(summary)
+}
+
 /// The `phone-frames` service: reads pan lines until the phone closes or [`MAX_PANS`] came.
 pub async fn serve(
     phone: &str,
     path: &Path,
-    _sender: &ChannelSender,
+    sender: &ChannelSender,
     mut receiver: ChannelReceiver,
 ) -> Result<(), Refusal> {
-    for _ in 0..MAX_PANS {
+    let mut clocks = 0;
+    for _ in 0..MAX_PANS + MAX_CLOCK_PROBES {
         match receiver.recv().await {
             Some(ChannelEvent::Data(bytes)) => {
                 if bytes.len() > MAX_FRAME_BYTES {
@@ -228,8 +263,26 @@ pub async fn serve(
                         format!("a pan line is at most {MAX_FRAME_BYTES} bytes"),
                     ));
                 }
-                if let Err(why) = record(&bytes, phone, path) {
-                    tracing::info!(phone, ?why, "phone frames dropped");
+                match crate::paint_latency::kind_of(&bytes) {
+                    Some(Line::Clock(t0)) if clocks < MAX_CLOCK_PROBES => {
+                        clocks += 1;
+                        let t1 = cmux_mobile_link::frame::epoch_us() as f64 / 1000.0;
+                        let answer = crate::paint_latency::clock_answer(t0, t1);
+                        if sender.send(bytes::Bytes::from(answer)).await.is_err() {
+                            return Ok(());
+                        }
+                    }
+                    Some(Line::Clock(_)) => {}
+                    Some(Line::Paint) => {
+                        if let Err(why) = record_paint(&bytes, phone, path) {
+                            tracing::info!(phone, ?why, "phone paint dropped");
+                        }
+                    }
+                    None => {
+                        if let Err(why) = record(&bytes, phone, path) {
+                            tracing::info!(phone, ?why, "phone frames dropped");
+                        }
+                    }
                 }
             }
             Some(ChannelEvent::Closed(_)) | None => return Ok(()),

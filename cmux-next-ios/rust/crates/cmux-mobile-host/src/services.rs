@@ -706,6 +706,8 @@ async fn splice(
                     let line = completed.answer(line);
                     let Some(line) = reply_policy.reply(line) else { continue };
                     let Some(line) = exposed_daemon_line(line, daemon_exposure.as_ref()) else { continue };
+                    // A redraw's id and its read time (Mac redraw to iPhone paint).
+                    let (line, _) = crate::paint_latency::stamp_line(line);
                     if daemon_lines.send(line).await.is_err() {
                         return;
                     }
@@ -917,7 +919,8 @@ async fn splice(
             line = lines_rx.recv() => match line {
                 Some(line) => {
                     let Some(line) = exposed_daemon_line(line, exposure.as_ref()) else { continue };
-                    if sender.send(Bytes::from(line)).await.is_err() {
+                    let mark = crate::paint_latency::flush_mark(&line);
+                    if sender.send_marked(Bytes::from(line), mark).await.is_err() {
                         // The phone is gone (its close frame, a removed phone). Its
                         // close reaches the phone-to-daemon task, which releases its
                         // sizes: let that finish (bounded) instead of aborting it,
