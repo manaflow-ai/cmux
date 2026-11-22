@@ -1,14 +1,20 @@
 import { memo } from "react";
 import { WorkingFor } from "../conversation/WorkingFor";
 import { TranscriptDisclosureProvider } from "../conversation/transcriptDisclosure";
+import { workedFoldOfHeader } from "../conversation/turns";
 import { type RowProps } from "./rowProps";
 
 export const WorkingRow = memo(
-  function WorkingRow({ row, sessionId }: RowProps) {
+  function WorkingRow({ row, sessionId, expanded, onToggleActivity }: RowProps) {
     // The session's disclosures say whether the running call's group shows its row (WorkingFor.tsx).
     return (
       <TranscriptDisclosureProvider sessionId={sessionId}>
-        <WorkingFor row={row} />
+        <WorkingFor
+          row={row}
+          expanded={expanded}
+          // The running turn's "Working for" opens its work under its "Worked for" key (#50987).
+          onToggle={row.below ? undefined : () => onToggleActivity(workedFoldOfHeader(row.id))}
+        />
       </TranscriptDisclosureProvider>
     );
   },
@@ -27,5 +33,7 @@ export const WorkingRow = memo(
     a.row.doingRun === b.row.doingRun &&
     a.row.doingSendTo === b.row.doingSendTo &&
     a.row.doingSendSession === b.row.doingSendSession &&
-    a.sessionId === b.sessionId,
+    a.sessionId === b.sessionId &&
+    a.expanded === b.expanded &&
+    a.onToggleActivity === b.onToggleActivity,
 );

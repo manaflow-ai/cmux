@@ -9,13 +9,15 @@
 //   - the frame back draws the chat, before its attach answers;
 //   - a chat that ran on past one attach page comes back without a hole in its transcript;
 //   - an ask answered while away does not come back as a card;
-//   - a turn that ended while away does not come back as a running turn;
+//   - a turn that ended while away does not come back as a running turn, nor drawn open (#50987);
 //   - a queued prompt keeps its whole text, not acpmux's preview;
 //   - a chat whose attach fails does not stay on screen as if it had been read.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
+import { NO_FOLD_TOGGLES as NO_FOLDS } from "../src/agent-session/acpmux/conversation/viewFolds";
 import { settleReact } from "./support/domTeardown";
 
 const START = Date.UTC(2026, 9, 20, 9, 0, 0);
@@ -445,6 +447,68 @@ test("a turn that ended while away does not come back as a running turn", async 
     daemon.release();
     await back;
     expect(last().isWorking).toBe(false);
+  } finally {
+    client.close();
+  }
+});
+
+// #50987: the tail kept while the turn ran ends without its turn_result. Drawn as it came, that
+// turn showed every call open for the second the attach took, then folded under the reader.
+test("a turn that ended while away draws folded on the frame back, before its attach answers", async () => {
+  const daemon = new Daemon("turn-ended-folded");
+  const [A, B] = [daemon.sessionA, daemon.sessionB];
+  const started: Step = ["mux", "turn_started", { turnId: "turn-1" }];
+  const call: Step = [
+    "in",
+    "tool_call",
+    {
+      method: "session/update",
+      params: {
+        sessionId: A,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: "c1",
+          title: "git status",
+          kind: "execute",
+          status: "completed",
+          rawInput: { command: "git status" },
+        },
+      },
+    },
+  ];
+  const running = [prompt("Run it"), started, reply(A, "Checking."), call];
+  daemon.pages.set(A, [
+    { events: running },
+    { events: [...running, reply(A, "All done."), ["mux", "turn_result", { status: "completed", turnId: "turn-1" }]] },
+  ]);
+  daemon.pages.set(B, [{ events: [prompt("Docs"), reply(B, "Docs updated.")] }]);
+  daemon.status.set(A, "running");
+  const { client, last } = await paneOn(daemon);
+  try {
+    expect(last().isWorking).toBe(true);
+    expect(last().rows.some((row) => row.kind === "turnSummary")).toBe(false);
+    await client.select(B);
+    daemon.status.set(A, "idle");
+    daemon.changed(A);
+    daemon.hold = A;
+    const back = client.select(A);
+    await daemon.asked;
+    // The frame back, from the kept tail: the turn already ended, under its result's own row.
+    const kept = last();
+    expect(kept.isWorking).toBe(false);
+    expect(text(kept)).toContain("Checking.");
+    const shapedKept = turnView(kept.rows, NO_FOLDS, { agentFamily: "codex" });
+    expect(shapedKept.some((row) => row.kind === WORKED)).toBe(true);
+    // The call is inside the closed fold, not drawn as a row of its own.
+    expect(shapedKept.some((row) => row.kind === "activity")).toBe(false);
+    expect(kept.rows.filter((row) => row.kind === "turnSummary").map((row) => row.id)).toEqual(["summary-turn-1"]);
+    daemon.release();
+    await back;
+    // The attach keeps that row and fold, and only brings the rest of the turn.
+    expect(last().rows.filter((row) => row.kind === "turnSummary").map((row) => row.id)).toEqual(["summary-turn-1"]);
+    expect(text(last())).toContain("All done.");
+    const shapedRead = turnView(last().rows, NO_FOLDS, { agentFamily: "codex" });
+    expect(shapedRead.find((row) => row.kind === WORKED)?.id).toBe(shapedKept.find((row) => row.kind === WORKED)?.id);
   } finally {
     client.close();
   }
