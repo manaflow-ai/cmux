@@ -762,9 +762,7 @@ impl RemoteDaemon {
     fn lacks(&self, harness: &str) -> Option<String> {
         let listed = self.harnesses.as_ref()?;
         (!harness.is_empty() && !listed.iter().any(|h| h == harness)).then(|| {
-            format!(
-                "agent {harness:?} is not configured there (no ~/.config/cmux/harnesses/{harness}.toml)"
-            )
+            format!("agent {harness:?} is not configured there (`acpmux harness list` there)")
         })
     }
 }
