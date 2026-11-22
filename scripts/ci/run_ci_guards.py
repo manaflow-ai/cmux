@@ -582,6 +582,7 @@ def main(argv: list[str]) -> int:
                     print(f"  ok   {result.seconds:6.1f}s  at {elapsed:5.0f}s  {result.unit.label}: {result.step.name}", flush=True)
                     if args.verbose:
                         print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
+        pool.shutdown()
     except KeyboardInterrupt:
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
         report = running_report()
@@ -595,7 +596,6 @@ def main(argv: list[str]) -> int:
         return 130
     finally:
         signal.signal(signal.SIGTERM, previous_term)
-    pool.shutdown()
     seconds = time.monotonic() - started
     slowest = sorted((r for r in results if r.ok is not None), key=lambda r: -r.seconds)[:SLOWEST_SHOWN]
     if slowest:
