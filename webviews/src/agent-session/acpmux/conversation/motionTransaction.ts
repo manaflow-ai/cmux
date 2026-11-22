@@ -175,11 +175,15 @@ function makeTransaction(thread: HTMLElement): ThreadTransaction {
     }
     drawPlan();
   };
+  // A hold's bound is on the timers' clock (performance.now), not the timeline's: its timer and
+  // its check then agree on any page clock (frameClock.ts moves both, a host may move only one), so a
+  // hold always lapses by its bound and never leaves the rows drawn where it began.
+  const clock = () => performance.now();
   const lapse = () => {
     clearTimeout(holdTimer);
     holdTimer = undefined;
     if (holds.size === 0) return;
-    const at = now();
+    const at = clock();
     for (const [source, until] of holds) if (until <= at) holds.delete(source);
     if (holds.size === 0) {
       play();
@@ -210,7 +214,7 @@ function makeTransaction(thread: HTMLElement): ThreadTransaction {
     expect(source, boundMs = EXPECT_BOUND_MS) {
       if (!(foldMs(thread) > 0)) return;
       const start = holds.size === 0;
-      holds.set(source, now() + boundMs);
+      holds.set(source, clock() + boundMs);
       if (start) {
         // The rows stop where they are drawn: what still plays becomes part of the held shift.
         held += planOffset(plan, progress());

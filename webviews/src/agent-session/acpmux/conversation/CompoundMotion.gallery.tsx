@@ -21,6 +21,8 @@ const NOTES: Record<CompoundCase, string> = {
   "send-1": "A one-line send: the composer clears and the prompt's row lands.",
   "send-5": "A five-line send: the composer collapses four lines and the prompt's row lands 30 ms later.",
   "send-15": "A fifteen-line send: the tallest collapse, then the prompt's row.",
+  "send-5-one-commit":
+    "A five-line send whose prompt's row comes in the send's own commit (a loaded host): one motion all the same.",
   "queue-scrolled":
     "A five-line send while the agent works, scrolled up: the chat goes to its latest row and the prompt queues over the composer.",
   steer: "A prompt sent while a call runs (a steer): the composer clears over the streaming reply.",

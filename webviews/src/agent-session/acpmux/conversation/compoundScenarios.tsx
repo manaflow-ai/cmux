@@ -152,17 +152,23 @@ export type CompoundOptions = {
 
 /// A send of `lines` lines from the latest row: the draft's card clears to one line as `sends` counts
 /// one, and acpmux's echo brings the prompt's row and the live line 30 ms later (scriptedTurn `send`).
-async function send(lines: number, { show, step }: CompoundOptions) {
+/// A send: the card collapses, and the prompt's row lands 30 ms later, or in the send's own commit
+/// (`oneCommit`, what a loaded host draws: the prompt is there before the send's effect runs).
+async function send(lines: number, { show, step }: CompoundOptions, oneCommit = false) {
   show({ card: CARD_EMPTY + (lines - 1) * LINE });
   await wait(300);
-  step("send");
-  show({ sends: 1, card: CARD_EMPTY });
-  await wait(30);
   const text = Array.from({ length: lines }, (_, index) => `Line ${index + 1} of the prompt.`).join("\n");
-  show({
-    rows: [...scriptedHistory(), { id: SCRIPTED_PROMPT_ID, version: 1, at: Date.now(), kind: "user", text }],
+  const prompt = {
+    rows: [...scriptedHistory(), { id: SCRIPTED_PROMPT_ID, version: 1, at: Date.now(), kind: "user" as const, text }],
     working: true,
-  });
+  };
+  step("send");
+  if (oneCommit) show({ sends: 1, card: CARD_EMPTY, ...prompt });
+  else {
+    show({ sends: 1, card: CARD_EMPTY });
+    await wait(30);
+    show(prompt);
+  }
   await wait(700);
 }
 
@@ -246,6 +252,7 @@ export async function playCompound(which: CompoundCase, options: CompoundOptions
     await wait(600);
   } else if (which === "send-1" || which === "send-5" || which === "send-15")
     await send(Number(which.slice("send-".length)), options);
+  else if (which === "send-5-one-commit") await send(5, options, true);
   else if (which === "queue-scrolled") await queueScrolled(options);
   else if (which === "growth-stream") await streamWith("grow", () => growField(root, 2), options);
   else if (which === "stack-stream") await streamWith("queue", () => show({ queue: LINE * 3 }), options);

@@ -3870,6 +3870,9 @@ function TranscriptView({
   }, [noteQueue, startFlow, endFlow]);
   const previousLayout = useRef<PlacedLayout | null>(null);
   const previousRows = useRef<readonly AcpmuxRow[]>(rows);
+  /// The rows of the latest pass when that pass brought a sent prompt: a send whose prompt landed
+  /// before its own effect ran (one commit, a loaded host) has nothing left to hold for.
+  const promptLandedRows = useRef<readonly AcpmuxRow[] | undefined>(undefined);
   let sentPromptIdsForRender = sentPromptIds;
   if (sessionChanged) {
     if (sentPromptIds.size !== 0) {
@@ -5736,9 +5739,11 @@ function TranscriptView({
     // A send's hold (motionTransaction.ts `expect`): what this pass moved at once stays drawn where
     // the hold began, and the prompt's rows landing release the whole shift as one motion.
     const held = thread.current && transactionOn(thread.current) ? threadTransaction(thread.current) : undefined;
+    const promptLanded = held !== undefined && broughtSentPrompt(oldRows, rows);
+    promptLandedRows.current = promptLanded ? rows : undefined;
     if (held?.expecting()) {
       held.settle("pass");
-      if (rows.length > oldRows.length || broughtSentPrompt(oldRows, rows)) held.release("send");
+      if (rows.length > oldRows.length || promptLanded) held.release("send");
     }
     previousLayout.current = layout;
     previousRows.current = rows;
@@ -6393,6 +6398,8 @@ function TranscriptView({
       } else if (fromLatest && top - before > 0.5) followGlide.current?.sent(thread.current, top - before);
       // Held for the prompt's rows: the move to the new end and the chase it ended stay drawn as they were.
       sendTx?.settle("send-scroll");
+      // The prompt's rows came in this commit's pass, before this effect: the held shift plays now.
+      if (promptLandedRows.current === rows) sendTx?.release("send");
     }
     // The kept place is the latest message again: a relaunch opens there.
     if (onAnchor) {
