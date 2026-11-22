@@ -38,7 +38,7 @@ export function RecentBackgrounds({
   if (tiles.length === 0) return null;
   const title = t("settingsWindow.backdropPicker.recentTitle");
   return (
-    <div className="backdrop-recent" role="group" aria-label={title}>
+    <div className="backdrop-recent">
       <h4 className="row-help backdrop-group-title">{title}</h4>
       <div className="backdrop-grid backdrop-recent-grid">
         {tiles.map((tile) => (
