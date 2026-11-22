@@ -487,9 +487,8 @@ jobs:
     needs: [resolve, fast-check-route, receipt, fast-gates, panic-ratchet]
     # A valid receipt posted the status itself; an audited one is judged here again by the gates.
     if: ${{ always() && !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' && (needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true') }}
-    # A light job that holds a write token (statuses), so the ephemeral-only linux_4 pool on every attempt
-    # (tests/test_ci_ephemeral_pool_readers.py), never GitHub-hosted Ubuntu (it left light jobs queued for hours,
-    # cmux#45735).
+    # A light job that holds a write token (statuses), so the ephemeral-only linux_4 pool on every attempt, never
+    # GitHub-hosted Ubuntu (it left light jobs queued for hours, cmux#45735).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     permissions:
