@@ -197,7 +197,7 @@ async fn mac_redraw_to_phone_receive_under_wifi_lte_and_lossy_3() {
 /// with 10 ms jitter, and a reset every 90 s that carries nothing for 2 s. The relay's round trip
 /// is a guess until the rtt lines (path_report.rs) read his.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "a measurement (about 7 min): --ignored --nocapture prints the table"]
+#[ignore = "a measurement (about 14 min): --ignored --nocapture prints the table"]
 async fn mac_redraw_to_phone_receive_over_a_relay_with_a_path_reset_every_90_s() {
     let wifi = ProfileFile::builtin().get("good-wifi").cloned().expect("profile");
     for (name, relay_rtt) in [("relay-30", 30), ("relay-80", 80)] {
@@ -206,8 +206,9 @@ async fn mac_redraw_to_phone_receive_over_a_relay_with_a_path_reset_every_90_s()
             profile.rtt_ms += relay_rtt;
             profile.jitter_ms = 10;
             let label = if resets.is_some() { format!("{name}+reset-90s") } else { name.to_string() };
-            // 200 s at 60 redraws a second: two resets inside the run.
-            let (summary, truth) = run_link(&label, profile, resets, 12_000, Duration::from_millis(16)).await;
+            // 200 s at 40 redraws a second, two resets inside the run; under hostd's stamp ring
+            // (paint_latency::RING), since this bench reports once at the end.
+            let (summary, truth) = run_link(&label, profile, resets, 8_000, Duration::from_millis(25)).await;
             let mac = summary.mac.expect("mac part");
             let wire = truth.wire.expect("wire part");
             println!(
