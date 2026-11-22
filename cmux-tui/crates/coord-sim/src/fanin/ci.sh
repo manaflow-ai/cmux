@@ -45,8 +45,10 @@ profile() {
   done
   [ -n "$pid" ] || { echo "FANIN perf: no controller for n=$top"; return; }
   echo "FANIN perf: recording controller pid $pid"
-  perf record -F 299 --call-graph fp -p "$pid" -o "$OUT/perf.data" -- sleep $((WINDOW + 30)) >"$OUT/perf.record.log" 2>&1 \
-    || { echo "FANIN perf: record failed: $(tail -3 "$OUT/perf.record.log")"; return; }
+  # perf exits non-zero when the controller ends first: what it wrote is the profile either way.
+  perf record -F 299 --call-graph fp -p "$pid" -o "$OUT/perf.data" -- sleep $((WINDOW + 30)) >"$OUT/perf.record.log" 2>&1
+  [ -s "$OUT/perf.data" ] || { echo "FANIN perf: record failed: $(tail -3 "$OUT/perf.record.log")"; return; }
+  echo "FANIN perf: $(grep -o '([0-9]* samples)' "$OUT/perf.record.log")"
   perf report -i "$OUT/perf.data" --stdio --no-children --sort sym -g none --percent-limit 0.3 >"$OUT/perf.self.txt" 2>/dev/null
   perf report -i "$OUT/perf.data" --stdio --children --sort sym -g none --percent-limit 2 >"$OUT/perf.children.txt" 2>/dev/null
   perf report -i "$OUT/perf.data" --stdio --no-children --sort sym -g caller,0.5,callee,function,percent --percent-limit 2 >"$OUT/perf.txt" 2>/dev/null
