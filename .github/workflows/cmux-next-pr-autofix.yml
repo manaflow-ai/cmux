@@ -862,12 +862,6 @@ jobs:
             node_modules/.bin/vp lint --fix "${lint_files[@]}" || echo "vp lint --fix: findings left for the author"
           fi
           node_modules/.bin/vp fmt
-          # The acpmux protocol types, generated from the committed spec (as the base autofix does), only when this PR
-          # changes the spec: then the regenerated types go with their input, which generated_files_guard.py requires.
-          # Drift the PR inherits from its base is the base autofix's to repair.
-          if grep -q '^cmux-tui/crates/acpmux/spec/' "$RUNNER_TEMP/changed.txt"; then
-            bun scripts/acpmux-protocol-codegen.ts
-          fi
           git diff --binary -- . > "$RUNNER_TEMP/webviews-fmt.patch"
           git checkout --quiet -- .
 
