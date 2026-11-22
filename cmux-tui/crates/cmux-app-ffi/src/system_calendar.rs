@@ -191,11 +191,18 @@ fn call(op: &str, request: &Value) -> Result<Value, OpError> {
                 #[serde(default)]
                 records: Vec<Record>,
                 now: f64,
-                days: i64,
-                limit: i64,
+                // Whole numbers from `window`; the app's JSON may write them as 7.0.
+                days: f64,
+                limit: f64,
             }
             let request = Request::deserialize(request).map_err(|_| OpError::Invalid)?;
-            Ok(answer(&request.access, request.records, request.now, request.days, request.limit))
+            Ok(answer(
+                &request.access,
+                request.records,
+                request.now,
+                request.days as i64,
+                request.limit as i64,
+            ))
         }
         _ => Err(OpError::Unknown),
     }
