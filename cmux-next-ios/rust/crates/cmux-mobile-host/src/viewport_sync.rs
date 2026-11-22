@@ -321,7 +321,7 @@ impl PathSelector {
             srtt_ms = evidence.srtt.map_or(-1.0, |srtt| srtt.as_secs_f64() * 1000.0),
             slow = evidence.slow,
             losses = evidence.losses,
-            loss = evidence.loss.map_or_else(|| "-".to_owned(), |loss| format!("{:.4}", loss)),
+            loss = evidence.loss.map_or_else(|| "-".to_owned(), |loss| format!("{loss:.4}")),
             "viewport sync path switch"
         );
         Some(next)

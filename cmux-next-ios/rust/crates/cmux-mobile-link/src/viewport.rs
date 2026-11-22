@@ -1057,7 +1057,7 @@ mod tests {
             let hub = hub.clone();
             tokio::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-                datagrams.iter().filter_map(|d| hub.on_datagram(d)).last()
+                datagrams.iter().fold(None, |last, d| hub.on_datagram(d).or(last))
             })
         };
         let line = next_data(&mut receiver).await;
