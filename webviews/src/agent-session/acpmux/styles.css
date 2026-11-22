@@ -275,7 +275,8 @@
 .acpmux-help-search{flex:none;height:var(--ui-row-height);margin:0 0 var(--ui-popup-padding);padding:0 var(--ui-row-padding-inline);border:0;border-radius:var(--ui-row-radius);background:var(--acpmux-menu-hover);color:var(--agent-text);font:inherit;outline:none}
 .acpmux-help-search::placeholder{color:var(--acpmux-composer-dim)}
 .acpmux-help-list{flex:1 1 auto;min-height:0;overflow:auto}
-.acpmux-help-label{padding:0 var(--ui-row-padding-inline);height:var(--ui-row-height);display:flex;align-items:flex-end;padding-bottom:var(--grid-half-step);box-sizing:border-box;font-size:var(--text-caption);color:var(--acpmux-composer-dim)}
+.acpmux-help-row:has(.acpmux-help-label){flex-wrap:wrap;height:auto;min-height:var(--ui-row-height)}
+.acpmux-help-label{flex:0 0 100%;padding-top:var(--grid-step);padding-bottom:var(--grid-half-step);font-size:var(--text-caption);color:var(--acpmux-composer-dim);pointer-events:none}
 .acpmux-help-row[data-help-kind="key"] .acpmux-slash-name{flex:1 1 0}
 .acpmux-help-keys{flex:none;display:flex;gap:var(--grid-half-step)}
 .acpmux-help-keys kbd{/* concentric-allow: a keycap, not a container of buttons */font:var(--text-caption)/1 var(--font-ui);padding:var(--grid-half-step) var(--ds-space-1);border-radius:4px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft)}
