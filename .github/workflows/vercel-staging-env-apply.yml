@@ -118,24 +118,48 @@ jobs:
               if not ready:
                   sys.exit("no live production deployment to redeploy")
               live = {"id": ready[0]["uid"], "url": ready[0]["url"]}
-          print(f"redeploying {live.get('url')} ({live['id']})")
-          new = api("/v13/deployments?forceNew=1", "POST",
-                    {"name": PROJECT, "deploymentId": live["id"], "target": "production",
-                     "meta": {"action": "redeploy"}})
-          new_id, new_url = new["id"], new.get("url")
-          print(f"new deployment https://{new_url} ({new_id})")
+          def say_why(dep_id, d):
+              # Vercel's reason fields and the build log's last lines (an ignoreCommand skip ends there).
+              for k in ("readyStateReason", "errorCode", "errorMessage"):
+                  if d.get(k):
+                      print(f"  {k}: {d[k]}")
+              try:
+                  events = api(f"/v3/deployments/{dep_id}/events?limit=-1&builds=1")
+              except SystemExit as e:
+                  print(f"  build log unreadable: {e}")
+                  return
+              lines = [(e.get("payload") or {}).get("text") or e.get("text") or "" for e in (events or [])]
+              print("  build log, last lines:")
+              for line in [l for l in lines if l][-30:]:
+                  print("    " + line)
 
-          deadline = time.time() + 25 * 60
-          while True:
-              d = api(f"/v13/deployments/{new_id}")
-              state = d.get("readyState") or d.get("status")
-              if state == "READY":
-                  break
-              if state in ("ERROR", "CANCELED"):
-                  sys.exit(f"new deployment is {state}")
-              if time.time() > deadline:
-                  sys.exit(f"new deployment still {state} after 25 min")
-              time.sleep(10)
+          def redeploy(extra):
+              body = {"name": PROJECT, "deploymentId": live["id"], "target": "production",
+                      "meta": {"action": "redeploy"}, **extra}
+              new = api("/v13/deployments?forceNew=1", "POST", body)
+              print(f"new deployment https://{new.get('url')} ({new['id']})")
+              deadline = time.time() + 25 * 60
+              while True:
+                  d = api(f"/v13/deployments/{new['id']}")
+                  state = d.get("readyState") or d.get("status")
+                  if state in ("READY", "ERROR", "CANCELED"):
+                      if state != "READY":
+                          print(f"new deployment is {state}")
+                          say_why(new["id"], d)
+                      return state, new["id"], new.get("url")
+                  if time.time() > deadline:
+                      sys.exit(f"new deployment still {state} after 25 min")
+                  time.sleep(10)
+
+          print(f"redeploying {live.get('url')} ({live['id']})")
+          state, new_id, new_url = redeploy({})
+          if state == "CANCELED":
+              # web/vercel.json's ignoreCommand skips a build whose commit has no web change since the last one,
+              # and a redeploy of the live commit has none; this redeploy is asked for, so it builds.
+              print("cancelled; redeploying again with the ignored build step off for this deployment")
+              state, new_id, new_url = redeploy({"projectSettings": {"commandForIgnoringBuildStep": "exit 1"}})
+          if state != "READY":
+              sys.exit(f"redeploy ended {state}; the env change is saved but not live")
           print(f"new deployment READY: https://{new_url}")
 
           for _ in range(30):
