@@ -9,10 +9,13 @@
 //! small registry file with a stored schema number and nothing else: the
 //! check reads that number only.
 //!
-//! No row here measures a time. 2 rows call the check's functions of
-//! cmux-tui-core directly, with an end time that is past or far ahead and
-//! with the text of `--within-ms`: the executable cannot show those with no
-//! wait.
+//! No row here measures a time. 5 rows call the check's functions of
+//! cmux-tui-core directly. 2 of them use an end time that is past or far
+//! ahead and the text of `--within-ms`: the executable cannot show those
+//! with no wait. 3 of them use a first call that started 1 hour ahead of the
+//! clock: for the executable each file that a row made is a file that
+//! changed a moment ago, so it cannot show which session a call does not
+//! read again.
 //!
 //! A call that starts at zero each time gains only what the file cache
 //! keeps. So a caller can ask for a place (`--place ""`): the `not_ready`
@@ -28,9 +31,9 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use cmux_tui_core::store_schemas::{Stored, stored_until, within_of};
+use cmux_tui_core::store_schemas::{Place, Stored, stored_from, stored_until, within_of};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
@@ -436,4 +439,88 @@ fn a_place_whose_start_time_is_after_this_call_is_no_place() {
     let place: Value = serde_json::from_str(&place_of(&again)).unwrap();
     assert_eq!(place["after"], json!("session-0"), "{place}");
     assert!(place["since_ms"].as_u64().is_some_and(|since| since < FAR), "{place}");
+}
+
+/// The clock of the 3 rows below: 1 hour ahead of the wall clock, in
+/// milliseconds since 1970. For a first call that started then, each file
+/// that a row made is a file that did not change after it.
+fn an_hour_ahead_ms() -> u64 {
+    let ahead = SystemTime::now() + Duration::from_secs(3600);
+    u64::try_from(ahead.duration_since(UNIX_EPOCH).unwrap().as_millis()).unwrap()
+}
+
+/// Sets the time of the last write of the file at `path` to 2 hours ahead of
+/// the wall clock: after the start that [`an_hour_ahead_ms`] gives.
+fn set_written_after_the_start(path: &Path) {
+    let file = fs::File::options().write(true).open(path).unwrap();
+    file.set_modified(SystemTime::now() + Duration::from_secs(7200)).unwrap();
+}
+
+/// The place after the session `after` of a check whose first call started
+/// at `since_ms` and found `number` in the registry (`None`: no number).
+fn place_at(after: &str, number: Option<i64>, since_ms: u64) -> Place {
+    let found =
+        number.map(|number| ("workspace_registry".to_string(), number)).into_iter().collect();
+    Place { after: after.to_string(), found, since_ms }
+}
+
+/// What a call that read each session gives when the registry's newest
+/// number is `number`: the numbers and no place.
+fn the_number(number: i64) -> (Stored, Option<Place>) {
+    (Stored::Schemas(BTreeMap::from([("workspace_registry".to_string(), number)])), None)
+}
+
+/// A session folder at or before the place whose files did not change after
+/// the first call started is not read again. Its store file here is not a
+/// store, and the call gives no error; its number is the number that the
+/// place carries. The control: the same call with a start of 0, after which
+/// each file changed, reads that file and gives the error.
+#[test]
+fn a_folder_at_or_before_the_place_that_did_not_change_is_not_read_again() {
+    let root = state_root_of(&[13, 14]);
+    let sessions = sessions_of(root.path());
+    fs::write(sessions.join("session-0").join(REGISTRY_FILE), vec![b'x'; 8192]).unwrap();
+    let now_ms = an_hour_ahead_ms();
+    let from = place_at("session-0", Some(16), now_ms);
+    assert_eq!(stored_from(&sessions, None, Some(&from), now_ms).unwrap(), the_number(16));
+    let from = place_at("session-0", Some(16), 0);
+    assert!(stored_from(&sessions, None, Some(&from), now_ms).is_err());
+}
+
+/// A store whose file was written after the first call started is read
+/// again. Before that write the call does not read it: the number 17 of the
+/// session at the place is not in the answer.
+#[test]
+fn a_store_whose_file_time_is_after_the_start_time_is_read_again() {
+    let root = state_root_of(&[17, 14]);
+    let sessions = sessions_of(root.path());
+    let now_ms = an_hour_ahead_ms();
+    let from = place_at("session-0", None, now_ms);
+    assert_eq!(stored_from(&sessions, None, Some(&from), now_ms).unwrap(), the_number(14));
+    set_written_after_the_start(&sessions.join("session-0").join(REGISTRY_FILE));
+    assert_eq!(stored_from(&sessions, None, Some(&from), now_ms).unwrap(), the_number(17));
+}
+
+/// Each store of the daemon is in WAL mode: a write goes to the store's
+/// `-wal` file, and the store file can keep its time. So the check looks at
+/// the time of the `-wal` file too. Here the store is in WAL mode and is
+/// held open, as the daemon holds it, and the write of the number 17 is
+/// after that.
+#[test]
+fn a_change_that_is_in_the_wal_file_is_seen() {
+    let root = state_root_of(&[13, 14]);
+    let sessions = sessions_of(root.path());
+    let store_file = sessions.join("session-0").join(REGISTRY_FILE);
+    let store = Connection::open(&store_file).unwrap();
+    let mode: String = store.query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0)).unwrap();
+    assert_eq!(mode, "wal");
+    store.execute("UPDATE meta SET value = '17' WHERE key = 'schema_version'", []).unwrap();
+    let wal = sessions.join("session-0").join(format!("{REGISTRY_FILE}-wal"));
+    assert!(wal.is_file(), "the store has no -wal file");
+    let now_ms = an_hour_ahead_ms();
+    let from = place_at("session-0", None, now_ms);
+    assert_eq!(stored_from(&sessions, None, Some(&from), now_ms).unwrap(), the_number(14));
+    set_written_after_the_start(&wal);
+    assert_eq!(stored_from(&sessions, None, Some(&from), now_ms).unwrap(), the_number(17));
+    drop(store);
 }
