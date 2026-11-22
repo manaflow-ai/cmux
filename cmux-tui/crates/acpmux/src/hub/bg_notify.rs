@@ -5,9 +5,9 @@
 //! calls/parsing of them seem kinda good? we should bea bel to do that AND have condensed tools
 //! that are callable in acpmux/cmux-next..."
 //!
-//! - The end is learned from the runner's own lock (`bg_run.rs`): a thread per watched task
-//!   blocks on it (`flock`), which the runner holds until it wrote its exit, or the kernel frees
-//!   when the runner dies. Nothing polls.
+//! - The end is learned from the runner's own lock (`bg_run.rs`), which the runner holds until it
+//!   wrote its exit, or the kernel frees when the runner dies. One thread waits for every
+//!   runner's exit and then tries the lock (`bg_exit_watch.rs`). Nothing polls.
 //! - The message is a tool's notice (`prompt_provenance::notice`, sender `acpmux`): its title is
 //!   the task's summary line (`bg_run::outcome`), its body the last [`NOTICE_LINES`] lines of
 //!   output. It is never steered into a running turn: it waits behind it, as a lane's report does.
@@ -49,17 +49,18 @@ impl Hub {
         let session = record.session_id.clone();
         // Weak: a watch never keeps a dropped hub alive, and a dropped hub sends nothing.
         let hub = Arc::downgrade(self);
-        let spawned = std::thread::Builder::new().name("acpmux-bg-watch".into()).spawn(move || {
-            wait_unlocked(&lock);
-            handle.spawn(async move {
-                if let Some(hub) = hub.upgrade() {
-                    hub.bg_notify(&dir, &session, &id).await;
-                }
-            });
-        });
-        if let Err(e) = spawned {
-            tracing::warn!(task = %record.id, "a background task's end cannot be watched: {e}");
-        }
+        // One thread watches every task's runner (`bg_exit_watch.rs`); this only registers.
+        super::bg_exit_watch::watch(
+            lock,
+            record.runner_pid,
+            Box::new(move || {
+                handle.spawn(async move {
+                    if let Some(hub) = hub.upgrade() {
+                        hub.bg_notify(&dir, &session, &id).await;
+                    }
+                });
+            }),
+        );
     }
 
     /// At a start: watches every task of every chat folder whose end is still owed (asked for,
@@ -335,28 +336,6 @@ fn notice_body(dir: &Path, record: &Record) -> (String, bool) {
     }
     (body, !tail.is_empty())
 }
-
-/// Blocks until nothing holds the lock at `path` (a missing file holds nothing), then lets go.
-#[cfg(unix)]
-fn wait_unlocked(path: &Path) {
-    use std::os::fd::AsRawFd;
-    let Ok(file) = crate::home_fs::OpenOptions::new().read(true).write(true).open(path) else {
-        return;
-    };
-    loop {
-        // SAFETY: flock on a descriptor this function owns; it blocks until the runner let go.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
-            // SAFETY: same descriptor; released at once, so a liveness probe sees it free.
-            unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
-            return;
-        }
-        if std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
-            return;
-        }
-    }
-}
-#[cfg(not(unix))]
-fn wait_unlocked(_path: &Path) {}
 
 #[cfg(test)]
 mod tests {

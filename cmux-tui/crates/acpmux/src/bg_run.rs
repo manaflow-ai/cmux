@@ -99,6 +99,10 @@ pub struct Record {
     pub command: String,
     pub cwd: String,
     pub pid: u32,
+    /// The runner's own pid, the holder of `<id>.lock`: the daemon learns its exit from it
+    /// (`hub/bg_exit_watch.rs`). 0 in a record from before runners wrote it.
+    #[serde(default)]
+    pub runner_pid: u32,
     pub started_at: u64,
     pub ended_at: Option<u64>,
     pub exit_code: Option<i32>,
@@ -582,6 +586,7 @@ pub fn main() -> anyhow::Result<()> {
             command: spec.command.clone(),
             cwd: spec.cwd.to_string_lossy().into_owned(),
             pid,
+            runner_pid: std::process::id(),
             started_at: crate::store::now_ms(),
             generation: spec.generation.clone(),
             description: spec.description.clone(),

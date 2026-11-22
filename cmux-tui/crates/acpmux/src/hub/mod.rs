@@ -36,6 +36,7 @@ mod asks_below;
 mod atomic_json;
 pub use crate::build_info::{build, install_build, version_line};
 pub(crate) mod auto_resume;
+mod bg_exit_watch;
 mod bg_notify;
 mod bg_tasks;
 pub use bg_tasks::{BgScope, bg_owner_words};
