@@ -318,9 +318,7 @@
               "appearance.agentGlow",
               "appearance.previousGlass",
               "appearance.backgroundOpacity",
-              "appearance.backgroundBlur",
-              "appearance.inactiveWindowDim",
-              "appearance.wallpaperTint"
+              "appearance.backgroundBlur"
             ],
             "title" : {
               "key" : "settings.group.windowBackground",
@@ -379,7 +377,9 @@
               "appearance.surfaces.splitDivider.color",
               "appearance.surfaces.splitDivider.opacity",
               "appearance.surfaces.docks.color",
-              "appearance.surfaces.docks.opacity"
+              "appearance.surfaces.docks.opacity",
+              "appearance.inactiveWindowDim",
+              "appearance.wallpaperTint"
             ],
             "title" : {
               "key" : "settings.pageGroup.windowSurfaces",
@@ -461,8 +461,7 @@
               "sidebar.density",
               "sidebar.textSize",
               "workspaceColors.indicatorStyle",
-              "sidebar.minimalMode",
-              "sidebar.side"
+              "sidebar.minimalMode"
             ],
             "title" : {
               "key" : "settings.group.sidebar",
@@ -477,7 +476,8 @@
               "sidebar.sideBySide",
               "sidebar.groupPalette",
               "sidebar.groupGradient",
-              "sidebar.floatOnHover"
+              "sidebar.floatOnHover",
+              "sidebar.side"
             ],
             "title" : {
               "key" : "settings.pageGroup.sidebarLayout",
@@ -1220,7 +1220,8 @@
               "agentPane.display.thinking.jumpButton",
               "agentPane.needsYou.enabled",
               "agentPane.display.finishSound",
-              "agentPane.showMachineLoadWarnings"
+              "agentPane.showMachineLoadWarnings",
+              "agentPane.display.unreadBanner"
             ],
             "title" : {
               "key" : "settings.pageGroup.transcript",
@@ -1238,7 +1239,6 @@
               "agentPane.display.pinnedPlan",
               "agentPane.display.trayTucked",
               "agentPane.display.trayHandle",
-              "agentPane.display.unreadBanner",
               "agentPane.display.senderIcon.lead",
               "agentPane.display.senderIcon.badge",
               "agentPane.display.senderIcon.corner",
