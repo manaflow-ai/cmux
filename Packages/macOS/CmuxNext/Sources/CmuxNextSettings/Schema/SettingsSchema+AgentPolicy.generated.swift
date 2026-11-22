@@ -25,7 +25,7 @@ extension SettingsSchema {
 
     /// Keys an agent may set and reset.
     public static let agentSettableKeys: Set<String> = [
-        "window.titlebar",
+        "agentPane.links.openCitationsInEditor", "window.titlebar",
         "shortcuts.showModifierHoldHints",
         // Whether the window offers the Customize Inspector and right-click Customize…: looks only, and off is the default.
         "customize.fromTheApp",
@@ -147,7 +147,7 @@ extension SettingsSchema {
         "labs.previewFeatures",
         // Experiments are taste prototypes of how a surface looks (looks only), each off by default.
         "experiments.glassToolbarGroups", "experiments.composerV2", "experiments.agentBadges",
-        "experiments.agentBadgesBeam",
+        "experiments.agentBadgesBeam", "experiments.forum",
         // Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).
         "home.channelsEnabled",
         // The floating Chief pet and its character: a display the person can hide again; its reply box types only what the person writes.

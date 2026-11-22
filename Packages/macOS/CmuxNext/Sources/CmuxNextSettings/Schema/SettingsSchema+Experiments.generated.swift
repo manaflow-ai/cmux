@@ -14,6 +14,9 @@ extension CmuxConfigSnapshot {
     /// `experiments.agentBadgesBeam`: Taste build 5's variant: with Agent Badges on, a running sidebar row's edge carries a thin light that laps it (Core Animation, Motion.indicators; still under Reduce Motion), removed when the row stops running or leaves the screen. No effect while Agent Badges is off.
     public nonisolated static let agentBadgesBeamPath = ["experiments", "agentBadgesBeam"]
     public nonisolated static let agentBadgesBeamDefault = false
+    /// `experiments.forum`: Taste prototype: the team's hosted agent forum as a page in the app (webviews/src/pages/forum, gallery pages.forum; data from cmux-tui/crates/cmux-forum-hosted). Off by default; off shows no Forum entry anywhere.
+    public nonisolated static let forumPath = ["experiments", "forum"]
+    public nonisolated static let forumDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -61,6 +64,16 @@ nonisolated enum ExperimentsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.agentBadgesBeamDefault),
                 keywords: ["experiments", "experimental", "prototype", "agent", "badges", "beam", "light", "running", "border", "edge"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.forumPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.forum", "Forum"),
+                help: SettingsText.keyed("settings.experiments.forum.help", "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.forumDefault),
+                keywords: ["experiments", "experimental", "prototype", "forum", "threads", "questions", "agents", "team"]
             ),
         ]
     }
